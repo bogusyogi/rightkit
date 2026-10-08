@@ -1,16 +1,41 @@
 # rightkit-http
 
-Shared blocking HTTP client for Right Suite applications. It provides timeouts, bounded bodies, retry/backoff that honors `Retry-After` (never retrying unsafe methods), streaming responses, WHATWG Server-Sent Events decoding, redacted secrets, and tamper-evident wrapping of untrusted web text before it reaches a model.
+Shared blocking HTTP client for Right Suite applications. It provides timeouts, bounded bodies, retry and backoff that honours `Retry-After` (never retrying unsafe methods), streaming responses, WHATWG Server-Sent Events decoding, redacted secrets, and tamper-evident wrapping of untrusted web text before it reaches a model.
 
-The `testing` feature enables an in-process mock server that records exact requests.
+Catalog capability: `http-client`. Published to crates.io (see [INDEX.md](../../INDEX.md)).
 
-## 0.2.0 migration
+## What it owns
 
-`connect_timeout` & `response_timeout` now take `Option<Duration>`: wrap existing
-durations in `Some(...)`, or use `None` to disable per-phase deadlines. Defaults
-remain `Some(10s)` for connect & `Some(60s)` for response headers. Buffered calls
-still use `request_timeout` (60s by default); streams use `stream_timeout`
-(`None` by default). Disabling phase deadlines does not disable global deadlines.
+- `Client`, `ClientConfig`, `Request`, `Response`, `StreamResponse`: timeouts, bounded bodies, redirect policy, streaming reads, and `get_json`.
+- `RetryPolicy`: retry and backoff. Retries respect `Retry-After`. Non-idempotent methods are not retried.
+- `sse`: `SseDecoder`, `SseReader`, `SseEvent`. WHATWG-compliant Server-Sent Events.
+- `untrusted`: `wrap_untrusted_web_text` for external text, with boundary markers and injection-signal reporting.
+- `secret`: a redacted `Secret`, and the `SecretStore` trait that `rightkit-secrets` implements. `MemorySecretStore` is provided for tests.
+- `testing` (feature): an in-process mock server that records exact requests.
+
+## When to use it
+
+- Use it for blocking HTTP calls from Right Suite apps where timeouts, retries and bounded bodies must be consistent.
+- Use it for SSE streams and for wrapping web text before model input.
+
+Do not use it for async code. The client is blocking. It is built on `ureq` with `rustls`.
+
+## Cargo features
+
+| Feature | Default | Pulls in | Enables |
+|---|---|---|---|
+| `gzip` | yes | `ureq/gzip` | Automatic `Accept-Encoding: gzip` and transparent decoding for buffered responses and stream readers. Matches ureq's default. |
+| `testing` | no | none | The `testing` module: `MockServer`, `MockResponse`, `MockBody`, `RecordedRequest`. |
+
+To opt out of gzip:
+
+```toml
+rightkit-http = { version = "<exact published version from INDEX.md>", default-features = false }
+```
+
+## Usage
+
+Client configuration, from the crate README. Every field below exists in `ClientConfig`:
 
 ```rust
 use std::time::Duration;
@@ -28,24 +53,30 @@ let client = Client::new(ClientConfig {
 });
 ```
 
-`recv_body_timeout` defaults to `None`. When set, it limits total body-receive
-time after headers arrive; progress does not reset its budget. Buffered body
-timeouts return `HttpError::Timeout`; stream readers retain `std::io::Error`
-with underlying ureq timeout. Body reads are never retried.
+Request shape, from `tests/e2e.rs`: `Request::post(url).bearer(token).json(&value)?` then `client.send(&req)?`.
 
-`max_redirects_will_error` defaults to `true`, matching ureq. Exhausting a nonzero
-redirect limit returns `HttpError::Transport { connect_phase: false, .. }`, eligible
-for idempotent retries under existing retry policy. Set it to `false` to receive
-final 3xx through `send_any`. `max_redirects` still defaults to 0 (no following);
-with 0, 3xx is always returned regardless of error policy.
+## Timeouts
 
-`gzip` is enabled by default & forwards `ureq/gzip`: automatic
-`Accept-Encoding: gzip` negotiation & transparent decoding for buffered responses
-& stream readers. Default-on preserves ureq's default behavior for migrating
-callers, without adding direct dependencies. Opt out with:
+- `connect_timeout` and `response_timeout` are `Option<Duration>`. The defaults are `Some(10 s)` for connect and `Some(60 s)` for response headers. Use `None` to disable a per-phase deadline. Disabling phase deadlines does not disable global deadlines.
+- Buffered calls use `request_timeout` (60 s by default). Streams use `stream_timeout` (`None` by default).
+- `recv_body_timeout` defaults to `None`. When set, it limits total body-receive time after headers arrive. Progress does not reset it.
+- Buffered body timeouts return `HttpError::Timeout`. Stream readers keep the underlying `std::io::Error`. Body reads are never retried.
+- Callers that passed bare durations to `connect_timeout` or `response_timeout` must wrap them in `Some(...)`. The change is recorded in CHANGELOG.md.
 
-```toml
-rightkit-http = { version = "0.2.0", default-features = false }
-```
+## Redirects
 
-Publish through the RightKit release workflow.
+- `max_redirects` defaults to 0, so redirects are not followed. With 0, a 3xx response is always returned, whatever the error policy.
+- `max_redirects_will_error` defaults to `true`, matching ureq. When a nonzero limit is exhausted, the call returns `HttpError::Transport { connect_phase: false, .. }`. That error is eligible for idempotent retries under the retry policy.
+- Set it to `false` to receive the final 3xx through `send_any`.
+
+## Platform support
+
+Pure Rust over `ureq` with `rustls`. No platform-specific code in the crate. Certificate and TLS behaviour follows `rustls`.
+
+## Tests
+
+`tests/e2e.rs`: a real local TCP server. Assertions use exact requests seen on the wire and exact bytes received.
+
+## Version and changes
+
+Published version: see [INDEX.md](../../INDEX.md). Version history: [CHANGELOG.md](CHANGELOG.md).

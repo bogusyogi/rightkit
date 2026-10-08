@@ -246,10 +246,25 @@ struct Ctx {
     run: String,
 }
 
-fn random_hex(n: usize) -> String {
+/// Bytes in the generated loopback bearer token (192 bits, 48 hex characters).
+const LOOPBACK_TOKEN_BYTES: usize = 24;
+/// Bytes in a generated HTTP session id (128 bits, 32 hex characters).
+const SESSION_ID_BYTES: usize = 16;
+
+/// Fill `n` random bytes via `fill` and hex-encode them. Fails closed: a fill error or an
+/// all-zero buffer is an error, never a usable secret.
+fn random_hex_with<F>(n: usize, fill: F) -> Result<String>
+where
+    F: FnOnce(&mut [u8]) -> std::result::Result<(), getrandom::Error>,
+{
     let mut b = vec![0u8; n];
-    let _ = getrandom::fill(&mut b);
-    b.iter().map(|x| format!("{x:02x}")).collect()
+    fill(&mut b).map_err(|e| McpError::RandomUnavailable(format!("{e:?}")))?;
+    if b.iter().all(|&x| x == 0) {
+        return Err(McpError::RandomUnavailable(
+            "generator returned all-zero bytes".into(),
+        ));
+    }
+    Ok(b.iter().map(|x| format!("{x:02x}")).collect())
 }
 
 fn rpc_error(id: &Value, code: i64, message: impl Into<String>) -> Value {
@@ -645,16 +660,17 @@ impl ServerHost {
         Ok(())
     }
 
-    /// Returns (reply, issued-session-id-if-initialize).
-    fn handle_any(&self, msg: Value, ctx: &Ctx) -> (Option<Value>, Option<String>) {
+    /// Returns (reply, issued-session-id-if-initialize). Fails closed when no session id can be
+    /// generated, so a successful initialize never returns an unusable or guessable session.
+    fn handle_any(&self, msg: Value, ctx: &Ctx) -> Result<(Option<Value>, Option<String>)> {
         let is_init = msg.get("method").and_then(Value::as_str) == Some("initialize");
         let reply = self.dispatch_frame(&msg, ctx);
         let sid = if is_init && reply.as_ref().is_some_and(|r| r.get("result").is_some()) {
-            Some(random_hex(16))
+            Some(random_hex_with(SESSION_ID_BYTES, getrandom::fill)?)
         } else {
             None
         };
-        (reply, sid)
+        Ok((reply, sid))
     }
 
     fn dispatch_frame(&self, msg: &Value, ctx: &Ctx) -> Option<Value> {
@@ -928,10 +944,28 @@ impl ServerHost {
 
     /// Loopback-only HTTP server on `POST /mcp`, bearer-token and Origin gated.
     pub fn serve_http(&self, opts: HttpServeOptions) -> Result<HttpServer> {
+        self.serve_http_with_fill(opts, getrandom::fill)
+    }
+
+    /// `serve_http` with an injectable RNG. The token is resolved before the socket is bound,
+    /// so a failed generator refuses to serve and leaves no listener behind.
+    fn serve_http_with_fill<F>(&self, opts: HttpServeOptions, fill: F) -> Result<HttpServer>
+    where
+        F: FnOnce(&mut [u8]) -> std::result::Result<(), getrandom::Error>,
+    {
+        let token = match opts.token {
+            // An empty caller-supplied bearer would accept any request with an empty header.
+            Some(token) if token.trim().is_empty() => {
+                return Err(McpError::RandomUnavailable(
+                    "caller-supplied loopback token is empty".into(),
+                ))
+            }
+            Some(token) => token,
+            None => random_hex_with(LOOPBACK_TOKEN_BYTES, fill)?,
+        };
         let listener =
             TcpListener::bind(SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), opts.port))?;
         let addr = listener.local_addr()?;
-        let token = opts.token.unwrap_or_else(|| random_hex(24));
         let stop = Arc::new(AtomicBool::new(false));
         let sessions: Arc<Mutex<HashSet<String>>> = Arc::new(Mutex::new(HashSet::new()));
         let run = next_id("mcps");
@@ -1232,7 +1266,14 @@ fn handle_http(
         },
         run: run.to_string(),
     };
-    let (reply, new_sid) = host.handle_any(msg, &ctx);
+    let id = msg.get("id").cloned().unwrap_or(Value::Null);
+    let (reply, new_sid) = match host.handle_any(msg, &ctx) {
+        Ok(pair) => pair,
+        Err(e) => {
+            let r = rpc_error(&id, -32603, format!("cannot issue session: {e}"));
+            return respond(&mut s, "500 Internal Server Error", &[], &r.to_string());
+        }
+    };
     match reply {
         None => respond(&mut s, "202 Accepted", &[], ""),
         Some(r) => {
@@ -1246,5 +1287,89 @@ fn handle_http(
             }
             respond(&mut s, "200 OK", &extra, &r.to_string())
         }
+    }
+}
+
+#[cfg(test)]
+mod token_tests {
+    use super::*;
+
+    struct NoTools;
+
+    impl ToolProvider for NoTools {
+        fn list(&self) -> Vec<ToolDescriptor> {
+            vec![]
+        }
+        fn call(&self, name: &str, _args: Value) -> Result<ToolResult> {
+            Err(McpError::ToolNotFound(name.into()))
+        }
+    }
+
+    fn host() -> ServerHost {
+        ServerHost::new("test", "0.0.0", Arc::new(NoTools))
+    }
+
+    fn assert_hex_token(token: &str) {
+        assert_eq!(token.len(), LOOPBACK_TOKEN_BYTES * 2);
+        assert!(token.bytes().all(|c| c.is_ascii_hexdigit()));
+        assert!(
+            token.bytes().any(|c| c != b'0'),
+            "token must not be all zeros"
+        );
+    }
+
+    #[test]
+    fn rng_failure_refuses_to_serve_and_binds_nothing() {
+        let port = TcpListener::bind((Ipv4Addr::LOCALHOST, 0))
+            .unwrap()
+            .local_addr()
+            .unwrap()
+            .port();
+        let err = host()
+            .serve_http_with_fill(HttpServeOptions { port, token: None }, |_| {
+                Err(getrandom::Error::UNSUPPORTED)
+            })
+            .err()
+            .expect("server must refuse to start without a generated token");
+        assert!(matches!(err, McpError::RandomUnavailable(_)), "got {err:?}");
+        assert!(
+            TcpListener::bind((Ipv4Addr::LOCALHOST, port)).is_ok(),
+            "a failed generation must not leave a listener bound"
+        );
+    }
+
+    #[test]
+    fn failed_or_zero_fill_is_never_accepted() {
+        assert!(matches!(
+            random_hex_with(LOOPBACK_TOKEN_BYTES, |_| Err(getrandom::Error::UNSUPPORTED)),
+            Err(McpError::RandomUnavailable(_))
+        ));
+        assert!(matches!(
+            random_hex_with(LOOPBACK_TOKEN_BYTES, |b| {
+                b.fill(0);
+                Ok(())
+            }),
+            Err(McpError::RandomUnavailable(_))
+        ));
+    }
+
+    #[test]
+    fn generated_value_has_expected_length_and_is_not_zero() {
+        for _ in 0..8 {
+            let generated = random_hex_with(LOOPBACK_TOKEN_BYTES, getrandom::fill).unwrap();
+            assert_hex_token(&generated);
+        }
+    }
+
+    #[test]
+    fn served_default_is_generated() {
+        let srv = host()
+            .serve_http(HttpServeOptions {
+                port: 0,
+                token: None,
+            })
+            .unwrap();
+        assert_hex_token(srv.token());
+        srv.shutdown();
     }
 }

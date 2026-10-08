@@ -1,0 +1,174 @@
+{
+  "contract": "channel-memory",
+  "contractVersion": "1.0.0",
+  "memoryId": "memory.orthic-legion-notes-main",
+  "revision": 2,
+  "supersedes": 1,
+  "createdAt": "2026-10-08T12:00:00Z",
+  "scope": {
+    "venture": "orthic",
+    "channel": "legion-notes",
+    "account": "main"
+  },
+  "brandCode": "orthic",
+  "voice": {
+    "tone": "direct, dry, concrete",
+    "audience": "developers who run agents daily"
+  },
+  "visualSystem": {
+    "style": "clean screen capture with a dark frame",
+    "layout": "16:9 with lower-third title",
+    "captionStyle": "small mono captions",
+    "pacing": "one idea per cut",
+    "sound": "no music, narrator only"
+  },
+  "pillars": [
+    {
+      "id": "pillar.workflow",
+      "name": "Workflow",
+      "description": "How a real session got unstuck."
+    }
+  ],
+  "cadence": {
+    "postsPerDay": 1,
+    "timezone": "Europe/London",
+    "batch": "daytime"
+  },
+  "guidance": {
+    "doList": [
+      "Show the receipt on screen."
+    ],
+    "dontList": [
+      "Do not invent a metric."
+    ]
+  },
+  "bannedMoves": [
+    {
+      "id": "ban.hype",
+      "description": "No hype adjectives in hooks.",
+      "appliesTo": "any"
+    }
+  ],
+  "bannedPhrases": [
+    "game-changer",
+    "unlock the power"
+  ],
+  "licenceScope": {
+    "monetised": false,
+    "assetRights": "licensed"
+  },
+  "proofs": [
+    {
+      "id": "proof.receipt-launch-week",
+      "subject": "Launch-week revenue",
+      "value": 1240,
+      "units": "USD",
+      "observedFrom": "2026-03-01",
+      "observedTo": "2026-03-07",
+      "sourceExcerpt": "Weekly export total: 1,240.00 USD",
+      "origin": "connected_account",
+      "source": {
+        "kind": "connected_account",
+        "ref": "exports/payments-2026-03.csv"
+      },
+      "approval": {
+        "status": "approved",
+        "approvedBy": "adrian",
+        "approvedAt": "2026-10-07T18:00:00Z"
+      },
+      "permittedClaims": [
+        "Made $1,240 in launch week."
+      ]
+    },
+    {
+      "id": "proof.receipt-launch-week",
+      "subject": "Active users",
+      "value": 310,
+      "units": "users",
+      "observedFrom": "2026-09-01",
+      "sourceExcerpt": "Interview note, 5 October",
+      "origin": "interview",
+      "source": {
+        "kind": "interview",
+        "ref": "interviews/2026-10-05"
+      },
+      "approval": {
+        "status": "pending"
+      },
+      "permittedClaims": []
+    },
+    {
+      "id": "proof.refund-rate-withdrawn",
+      "subject": "Refund rate",
+      "value": 2.5,
+      "units": "percent",
+      "observedFrom": "2026-02-01",
+      "sourceExcerpt": "Receipt withdrawn by Adrian",
+      "origin": "interview",
+      "source": {
+        "kind": "adrian_correction",
+        "ref": "corrections/2026-10-06"
+      },
+      "approval": {
+        "status": "withdrawn"
+      },
+      "permittedClaims": []
+    }
+  ],
+  "observations": [
+    {
+      "id": "obs.pricing-page",
+      "origin": "website",
+      "text": "Pricing page reads 9 dollars per month.",
+      "observedAt": "2026-10-07T10:00:00Z",
+      "authoritative": false,
+      "source": {
+        "kind": "website",
+        "ref": "https://example.test/pricing"
+      }
+    }
+  ],
+  "lessons": [
+    {
+      "id": "lesson.question-hooks",
+      "text": "Question hooks held 30-second retention better in this set.",
+      "recordedAt": "2026-10-06T08:00:00Z",
+      "source": {
+        "kind": "analytics_export",
+        "ref": "exports/tiktok-retention-2026-10"
+      }
+    }
+  ],
+  "performanceNotes": [
+    {
+      "id": "perf.retention-question-hooks",
+      "platform": "tiktok",
+      "metric": "retention_30s",
+      "window": {
+        "from": "2026-09-20",
+        "to": "2026-10-04"
+      },
+      "sampleSize": 14,
+      "summary": "Median 30-second retention 41 percent for question hooks, 33 percent for statements.",
+      "caveat": "Fourteen posts from one account; directional only.",
+      "source": {
+        "kind": "analytics_export",
+        "ref": "exports/tiktok-retention-2026-10"
+      }
+    }
+  ],
+  "references": [],
+  "provenance": {
+    "authoredBy": "adrian",
+    "sources": [
+      {
+        "kind": "adrian_correction",
+        "ref": "corrections/2026-10-06"
+      },
+      {
+        "kind": "connected_account",
+        "ref": "exports/payments-2026-03.csv"
+      }
+    ]
+  }
+}

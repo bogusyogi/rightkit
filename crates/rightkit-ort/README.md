@@ -1,27 +1,47 @@
 # rightkit-ort
 
-Internal, unpublished ONNX Runtime dynamic-library boundary for Right Suite.
-Applications supply ordered absolute candidates; the crate validates the
-platform filename, requires a regular file, canonicalizes the selected path,
-records diagnostics, and refuses to replace a different configured runtime.
+ONNX Runtime dynamic-library boundary for Right Suite apps. It owns runtime library selection and validation (`configure_runtime`, `configure_runtime_with_options`), the process environment for ONNX Runtime (`init_environment`, `init_environment_with_options`), execution-provider selection and CPU fallback (with the `session` feature), and a re-export of the pinned `ort` crate so apps do not declare `ort` themselves.
 
-The crate owns no product environment variable, data root, bundled runtime,
-model, provider policy, download, or UI behavior. Application adapters convert
-legacy environment variables and canonical app-data locations into explicit
-`RuntimeCandidate` values.
+The crate accepts ordered absolute candidates from the app. It validates the platform filename, requires a regular file, canonicalizes the selected path, records diagnostics, and refuses to replace a different configured runtime.
 
-Also (0.2.0): `configure_runtime_with_options` adds forced `ORT_DYLIB_PATH`
+**Use it** in any Right Suite app that runs ONNX models, so every app binds one ONNX Runtime the same way.
+
+**Do not use it** to download, bundle, or choose a runtime version. The crate owns no product environment variable, data root, bundled runtime, model, provider policy, download, or UI. Application adapters convert legacy environment variables and app-data locations into explicit `RuntimeCandidate` values.
+
+## Features
+
+| Feature | Default | Pulls in | Effect |
+|---|---|---|---|
+| `session` | on | `ort` (pinned `=2.0.0-rc.13`, `load-dynamic`, API 24) | Session and environment APIs, `ExecutionProvider`, `SessionOptions`. Disable it to keep only the path and diagnostic resolver. |
+| `coreml` | off | `session`, `ort/coreml` | Names the CoreML provider explicitly. CoreML is already on for Apple targets. |
+| `directml` | off | `session`, `ort/directml` | Names the DirectML provider explicitly. DirectML is already on for Windows targets. |
+| `half` | off | `session`, `ort/half`, `half` | Re-exports `half` (f16 tensors), so apps use `rightkit_ort::half::f16`. |
+| `ndarray` | off | `session`, `ort/ndarray`, `ndarray` | Re-exports `ndarray` for `Tensor::from_array` and `try_extract_array`. |
+
+## Platform support
+
+- Apple targets: CoreML provider enabled by the crate (`cfg(target_vendor = "apple")`).
+- Windows: DirectML provider enabled by the crate (`cfg(target_os = "windows")`), plus `windows-sys` as a Windows-only dependency.
+- The approved ONNX Runtime shared library for macOS arm64 is `1.24.4`. It is recorded in `rightkit-media`'s `catalog/native-libraries.json`, not in this crate. Runtime upgrades need a catalog row and real native-host verification.
+
+Published version: see `INDEX.md` at the repository root. This crate has no `CHANGELOG.md`.
+
+- Added in 0.2.0: `configure_runtime_with_options` adds forced `ORT_DYLIB_PATH`
 replacement & missing-path binding with `RuntimeBindingStatus::Missing`.
-Also (0.2.0): `CandidateSource::LegacyDefault` & `legacy_runtime_candidate`
+- Added in 0.2.0: `CandidateSource::LegacyDefault` & `legacy_runtime_candidate`
 add opt-in `<workspace>/tools/bin/<platform runtime filename>` candidates.
-Also (0.2.0): `init_environment_with_options` adds deferred C environment
+- Added in 0.2.0: `init_environment_with_options` adds deferred C environment
 creation, ort-default telemetry, already-configured tolerance & verbatim loader errors.
-Also (0.2.0): `clear_inherited_runtime_for_release` clears inherited
+- Added in 0.2.0: `clear_inherited_runtime_for_release` clears inherited
 `ORT_DYLIB_PATH` in release builds & does nothing in debug builds.
-Also (0.2.0): `developer_override_candidate(env_name)` reads a non-empty
+- Added in 0.2.0: `developer_override_candidate(env_name)` reads a non-empty
 app-named override as `RuntimeCandidate` with `CandidateSource::Explicit` in debug only.
-Also (0.2.0): `configured_runtime` reports the last successfully bound path,
+- Added in 0.2.0: `configured_runtime` reports the last successfully bound path,
 falling back to non-empty `ORT_DYLIB_PATH` for doctor readiness reporting.
+
+## Example
+
+The binding snippet below is illustrative (its variables are app-supplied). For compiled checks, see `tests/runtime_contract.rs` and `tests/runtime_helpers.rs`.
 
 ## Binding & environment options
 
@@ -30,7 +50,8 @@ Existing `configure_runtime`, `init_environment`, `EnvironmentOptions` &
 types use strict binding, eager C environment creation, disabled telemetry,
 external-configuration refusal & contextual loader errors by default.
 
-```rust
+```rust,ignore
+// Illustrative: runtime_path and workspace_root are app-supplied.
 use rightkit_ort::{
     configure_runtime_with_options, legacy_runtime_candidate, CandidateSource,
     RuntimeBindingOptions, RuntimeBindingStatus, RuntimeCandidate,
@@ -45,7 +66,7 @@ let binding = configure_runtime_with_options(
     &RuntimeBindingOptions { force_replace: true, allow_missing: true },
 )?;
 if binding.status == RuntimeBindingStatus::Missing {
-    // Membrane can report "memory writes refused" & skip initialization.
+    // The app decides what to do when no runtime is available.
 }
 ```
 
@@ -103,8 +124,7 @@ an error unless `SessionOptions::with_cpu_fallback(true)` is set; then the
 `*_reported` builders return `BuiltSession { provider, fallback }` naming the
 CPU fallback and its reason.
 
-`publish = false` remains mandatory until the macOS runtime/artifact catalog
-gate passes.
+Publication is gated on the macOS runtime and artifact catalog; see `INDEX.md`.
 
 Licensed under MIT OR Apache-2.0.
 

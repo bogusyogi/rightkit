@@ -1,0 +1,259 @@
+{
+ "label": "offscreen-30fps-stream",
+ "frames_callbacks": 1673,
+ "frames_complete": 1673,
+ "frames_idle": 0,
+ "frames_blank_status": 0,
+ "decoded_frames": 1673,
+ "file_bytes": 2156362,
+ "analyzer": "{\"frames\":1673,\"ok\":true,\"reader_status\":2}",
+ "black_frames_luma_lt_15": 0,
+ "strip_valid_frames": 1673,
+ "max_foreign_magenta_samples": 0,
+ "frames_with_magenta_gt_20": 0,
+ "animated_frame_intervals": 1013,
+ "animated_intervals_counter_advanced": 588,
+ "pct_intervals_advanced": 58.0,
+ "resampled_ticks": 1102,
+ "pct_ticks_advanced": 53.4,
+ "intervals_by_page_rate": {
+  "page60": {
+   "intervals": 369,
+   "advanced": 369,
+   "pct": 100.0
+  },
+  "throttled": {
+   "intervals": 644,
+   "advanced": 219,
+   "pct": 34.0
+  }
+ },
+ "first_throttled_pts_s": 26.1,
+ "page_raf_rate_samples": [
+  57,
+  60,
+  60,
+  60,
+  60,
+  60,
+  60,
+  60,
+  60,
+  60,
+  60,
+  60,
+  60,
+  60,
+  60,
+  12,
+  9,
+  10,
+  9,
+  11,
+  10,
+  10,
+  9,
+  9,
+  10,
+  9,
+  11,
+  11,
+  9,
+  10,
+  9
+ ],
+ "counter_first_last": [
+  228,
+  1509
+ ],
+ "distinct_counter_values": 668,
+ "ocr_samples_stable": 254,
+ "ocr_step_correct": 254,
+ "step_recovery": [
+  {
+   "step": 2,
+   "post_enc_s": 6.144,
+   "ocr_first_seen_enc_s": 6.1433333333333335,
+   "latency_ms": 0
+  },
+  {
+   "step": 3,
+   "post_enc_s": 22.144,
+   "ocr_first_seen_enc_s": 22.895,
+   "latency_ms": 751
+  },
+  {
+   "step": 4,
+   "post_enc_s": 50.44,
+   "ocr_first_seen_enc_s": 50.35,
+   "latency_ms": -90
+  }
+ ],
+ "inputs": [
+  {
+   "input": "click Next",
+   "method": "click",
+   "ok": true,
+   "caller_send_ms": 0,
+   "admit_ms": 2.755584,
+   "dispatch_ms": 2.78025,
+   "complete_ms": 151.578417,
+   "caller_recv_ms": 179.306625,
+   "send_enc_pts_s": 6.016,
+   "admit_enc_pts_s": 6.019,
+   "complete_enc_pts_s": 6.168
+  },
+  {
+   "input": "click input",
+   "method": "click",
+   "ok": true,
+   "caller_send_ms": 0,
+   "admit_ms": 8.920041,
+   "dispatch_ms": 9.054416,
+   "complete_ms": 154.023041,
+   "caller_recv_ms": 189.706916,
+   "send_enc_pts_s": 14.016,
+   "admit_enc_pts_s": 14.025,
+   "complete_enc_pts_s": 14.17
+  },
+  {
+   "input": "type",
+   "method": "type",
+   "ok": true,
+   "caller_send_ms": 0,
+   "admit_ms": 9.830375,
+   "dispatch_ms": 9.88575,
+   "complete_ms": 140.97875,
+   "caller_recv_ms": 182.186375,
+   "send_enc_pts_s": 15.514,
+   "admit_enc_pts_s": 15.524,
+   "complete_enc_pts_s": 15.655
+  },
+  {
+   "input": "click Next",
+   "method": "click",
+   "ok": true,
+   "caller_send_ms": 0,
+   "admit_ms": 6.937708,
+   "dispatch_ms": 6.992541,
+   "complete_ms": 144.404916,
+   "caller_recv_ms": 182.142208,
+   "send_enc_pts_s": 22.009,
+   "admit_enc_pts_s": 22.016,
+   "complete_enc_pts_s": 22.154
+  },
+  {
+   "input": "drag scrub",
+   "method": "drag",
+   "ok": true,
+   "caller_send_ms": 0,
+   "admit_ms": 6.9365,
+   "dispatch_ms": 6.98525,
+   "complete_ms": 1751.447334,
+   "caller_recv_ms": 1858.44675,
+   "send_enc_pts_s": 30.012,
+   "admit_enc_pts_s": 30.019,
+   "complete_enc_pts_s": 31.763
+  },
+  {
+   "input": "wheel scroll",
+   "method": "wheel",
+   "ok": true,
+   "caller_send_ms": 0,
+   "admit_ms": 5.972708,
+   "dispatch_ms": 6.048792,
+   "complete_ms": 6.725667,
+   "caller_recv_ms": 130.810167,
+   "send_enc_pts_s": 38.015,
+   "admit_enc_pts_s": 38.021,
+   "complete_enc_pts_s": 38.022
+  },
+  {
+   "input": "key Right",
+   "method": "key",
+   "ok": true,
+   "caller_send_ms": 0,
+   "admit_ms": 9.507209,
+   "dispatch_ms": 9.585917,
+   "complete_ms": 128.647292,
+   "caller_recv_ms": 145.0935,
+   "send_enc_pts_s": 44.007,
+   "admit_enc_pts_s": 44.017,
+   "complete_enc_pts_s": 44.136
+  },
+  {
+   "input": "click Next",
+   "method": "click",
+   "ok": true,
+   "caller_send_ms": 0,
+   "admit_ms": 5.085125,
+   "dispatch_ms": 5.208834,
+   "complete_ms": 434.981167,
+   "caller_recv_ms": 470.701792,
+   "send_enc_pts_s": 50.015,
+   "admit_enc_pts_s": 50.02,
+   "complete_enc_pts_s": 50.45
+  }
+ ],
+ "foreground_changes": [
+  {
+   "kind": "change",
+   "snapshot": {
+    "frontmost_bundle": "com.apple.Safari",
+    "frontmost_pid": 78290,
+    "top_other_window": {
+     "owner": "Safari",
+     "pid": 78290,
+     "windowNumber": 508
+    }
+   },
+   "t_uptime_ns": 39221332979541
+  },
+  {
+   "kind": "change",
+   "snapshot": {
+    "frontmost_bundle": "com.apple.Safari",
+    "frontmost_pid": 78290,
+    "top_other_window": {
+     "owner": "Claude",
+     "pid": 698,
+     "windowNumber": 48
+    }
+   },
+   "t_uptime_ns": 39222004108833
+  },
+  {
+   "kind": "change",
+   "snapshot": {
+    "frontmost_bundle": "com.anthropic.claudefordesktop",
+    "frontmost_pid": 698,
+    "top_other_window": {
+     "owner": "Claude",
+     "pid": 698,
+     "windowNumber": 48
+    }
+   },
+   "t_uptime_ns": 39227024249583
+  },
+  {
+   "kind": "change",
+   "snapshot": {
+    "frontmost_bundle": "com.anthropic.claudefordesktop",
+    "frontmost_pid": 698,
+    "top_other_window": {
+     "owner": "ChatGPT",
+     "pid": 696,
+     "windowNumber": 57
+    }
+   },
+   "t_uptime_ns": 39237676689500
+  }
+ ],
+ "frontmost_before": "[ NULL ]  ASN:0x0-0xf60f6: (in front)      bundleID=\"com.apple.Safari\"     bundle path=[ N",
+ "frontmost_after": "[ NULL ]  ASN:0x0-0xf00f: (in front)      bundleID=\"com.openai.codex\"     bundle path=[ NU",
+ "clock_anchor_offset_host_vs_uptime_ms": [
+  0.001,
+  0.001
+ ],
+ "epoch_uptime_drift_ms": -0.033
+}

@@ -1,0 +1,140 @@
+{
+  "contract": "channel-memory",
+  "contractVersion": "1.0.0",
+  "memoryId": "memory.orthic-kids-cartoon-main",
+  "revision": 1,
+  "createdAt": "2026-10-08T09:00:00Z",
+  "scope": {
+    "venture": "orthic",
+    "channel": "kids-cartoon",
+    "account": "main"
+  },
+  "brandCode": "orthic-kids",
+  "voice": {
+    "tone": "warm, playful, short sentences",
+    "audience": "children aged 4 to 8 and their parents",
+    "narration": "one calm narrator, no sarcasm"
+  },
+  "visualSystem": {
+    "style": "flat 2D cartoon with bold outlines",
+    "layout": "9:16 full frame, captions in the bottom third",
+    "captionStyle": "large rounded sans, one line at a time",
+    "pacing": "a new beat every three seconds",
+    "sound": "gentle xylophone bed under the narrator",
+    "typography": "rounded sans",
+    "palette": [
+      "#FFB703",
+      "#219EBC",
+      "#023047"
+    ]
+  },
+  "pillars": [
+    {
+      "id": "pillar.counting",
+      "name": "Counting",
+      "description": "Count real objects in the scene."
+    },
+    {
+      "id": "pillar.colours",
+      "name": "Colours",
+      "description": "Name colours in everyday objects."
+    },
+    {
+      "id": "pillar.counting",
+      "name": "Counting",
+      "description": "Count real objects in the scene."
+    }
+  ],
+  "cadence": {
+    "postsPerDay": 5,
+    "timezone": "Europe/London",
+    "batch": "overnight",
+    "batchWindow": {
+      "start": "01:00",
+      "end": "05:00"
+    }
+  },
+  "guidance": {
+    "doList": [
+      "Name one object per beat."
+    ],
+    "dontList": [
+      "Do not use fear or threats."
+    ]
+  },
+  "bannedMoves": [
+    {
+      "id": "ban.countdown-hook",
+      "description": "No countdown openers.",
+      "appliesTo": "hook"
+    }
+  ],
+  "bannedPhrases": [
+    "in today's video",
+    "let's dive in"
+  ],
+  "licenceScope": {
+    "monetised": true,
+    "assetRights": "commercial_safe"
+  },
+  "proofs": [],
+  "observations": [],
+  "lessons": [],
+  "performanceNotes": [],
+  "references": [
+    {
+      "id": "ref.reel-01",
+      "kind": "reel",
+      "styleNotes": {
+        "type": "flat 2D",
+        "captionStyle": "big white text with black stroke",
+        "layout": "full frame",
+        "pacing": "fast cuts",
+        "sound": "bright bed",
+        "palette": [
+          "#FFB703"
+        ]
+      },
+      "source": {
+        "kind": "reel_decoder",
+        "ref": "reels/creator-a/reel-01"
+      }
+    }
+  ],
+  "modelDefaults": {
+    "image": "local-image",
+    "voice": "local-qts"
+  },
+  "identityBindings": {
+    "characters": [
+      {
+        "id": "char.bibo",
+        "anchorAssetId": "asset-bibo-anchor-01",
+        "status": "active"
+      }
+    ],
+    "voice": {
+      "voiceId": "voice-narrator-01",
+      "provider": "local-qts",
+      "pronunciation": [
+        {
+          "term": "xylophone",
+          "respelling": "zy-lo-fone"
+        }
+      ]
+    }
+  },
+  "provenance": {
+    "authoredBy": "seed",
+    "sources": [
+      {
+        "kind": "roadmap_file",
+        "ref": "Roadmap/2_brand_contexts.md"
+      },
+      {
+        "kind": "hook_bank",
+        "ref": "Roadmap/hook-bank"
+      }
+    ]
+  }
+}

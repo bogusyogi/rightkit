@@ -1,0 +1,12 @@
+[package]
+name = "rk2-svc-call"
+version = "0.1.0"
+edition = "2021"
+publish = false
+[workspace]
+[[bin]]
+name = "svc_call"
+path = "../../../crates/rightkit-service/examples/svc_call.rs"
+[dependencies]
+rightkit-service = { path = "../../../crates/rightkit-service" }
+serde_json = "1"

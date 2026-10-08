@@ -1,0 +1,110 @@
+{
+ "label": "offscreen-30fps-stream-nospi",
+ "frames_callbacks": 589,
+ "frames_complete": 589,
+ "frames_idle": 0,
+ "frames_blank_status": 0,
+ "decoded_frames": 589,
+ "file_bytes": 60635,
+ "analyzer": "{\"frames\":589,\"ok\":true,\"reader_status\":2}",
+ "black_frames_luma_lt_15": 0,
+ "strip_valid_frames": 0,
+ "max_foreign_magenta_samples": 0,
+ "frames_with_magenta_gt_20": 0,
+ "animated_frame_intervals": 0,
+ "animated_intervals_counter_advanced": 0,
+ "pct_intervals_advanced": null,
+ "resampled_ticks": 0,
+ "pct_ticks_advanced": null,
+ "intervals_by_page_rate": {
+  "page60": {
+   "intervals": 0,
+   "advanced": 0,
+   "pct": null
+  },
+  "throttled": {
+   "intervals": 0,
+   "advanced": 0,
+   "pct": null
+  }
+ },
+ "first_throttled_pts_s": null,
+ "page_raf_rate_samples": [
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0
+ ],
+ "counter_first_last": null,
+ "distinct_counter_values": 0,
+ "ocr_samples_stable": 38,
+ "ocr_step_correct": 0,
+ "step_recovery": [],
+ "inputs": [
+  {
+   "input": "click Next",
+   "method": "click",
+   "ok": true,
+   "caller_send_ms": 0,
+   "admit_ms": 6.661583,
+   "dispatch_ms": 6.79075,
+   "complete_ms": 161.049333,
+   "caller_recv_ms": 182.254917,
+   "send_enc_pts_s": 6.01,
+   "admit_enc_pts_s": 6.017,
+   "complete_enc_pts_s": 6.171
+  },
+  {
+   "input": "click input",
+   "method": "click",
+   "ok": true,
+   "caller_send_ms": 0,
+   "admit_ms": 3.966917,
+   "dispatch_ms": 3.993792,
+   "complete_ms": 152.495083,
+   "caller_recv_ms": 179.820292,
+   "send_enc_pts_s": 14.007,
+   "admit_enc_pts_s": 14.011,
+   "complete_enc_pts_s": 14.159
+  },
+  {
+   "input": "type",
+   "method": "type",
+   "ok": true,
+   "caller_send_ms": 0,
+   "admit_ms": 4.227583,
+   "dispatch_ms": 4.247792,
+   "complete_ms": 92.195042,
+   "caller_recv_ms": 133.005542,
+   "send_enc_pts_s": 15.512,
+   "admit_enc_pts_s": 15.516,
+   "complete_enc_pts_s": 15.604
+  }
+ ],
+ "foreground_changes": [
+  {
+   "kind": "change",
+   "snapshot": {
+    "frontmost_bundle": "com.openai.codex",
+    "frontmost_pid": 696,
+    "top_other_window": {
+     "owner": "Claude",
+     "pid": 698,
+     "windowNumber": 48
+    }
+   },
+   "t_uptime_ns": 39338734172041
+  }
+ ],
+ "frontmost_before": "[ NULL ]  ASN:0x0-0xf00f: (in front)      bundleID=\"com.openai.codex\"     bundle path=[ NU",
+ "frontmost_after": "[ NULL ]  ASN:0x0-0x11011: (in front)      bundleID=\"com.anthropic.claudefordesktop\"     b",
+ "clock_anchor_offset_host_vs_uptime_ms": [
+  0.001,
+  0.001
+ ],
+ "epoch_uptime_drift_ms": -0.012
+}

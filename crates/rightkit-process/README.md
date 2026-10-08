@@ -1,8 +1,25 @@
 # rightkit-process
 
 Ownership-safe process lifecycle, restart, and health primitives for Right
-Suite desktop apps. It contains no app protocol, probe implementation, or
-business message.
+Suite desktop apps. It owns child spawn with tree ownership, tree termination,
+restart scheduling (`RestartTracker`), and health thresholds (`HealthTracker`).
+It contains no app protocol, probe implementation, or business message.
+
+**Use it** wherever an app starts a child process that must not outlive the app, or must be restarted by policy.
+
+**Do not use it** to sandbox a process (use `rightkit-sandbox`), to adopt and kill arbitrary PIDs, or to define an app's health probe.
+
+## Features
+
+None. The crate has no Cargo features. Platform dependencies: `nix` (Unix) and `windows` (Windows).
+
+## Platform support
+
+- Unix: children lead a new process group (or a session with `UnixContainment::Session`). Termination signals the group.
+- Windows: children are created suspended, assigned to a Job Object, then resumed. Termination uses the Job Object.
+- The crate has `cfg(unix)`, `cfg(windows)`, `cfg(target_os = "macos")`, and `cfg(target_os = "linux")` branches across `src/owned.rs`, `src/process_handle.rs`, `src/process_unix.rs`, `src/process_windows.rs`, and `src/spawn_windows.rs`.
+
+Published version: see `INDEX.md` at the repository root. This crate has no `CHANGELOG.md`.
 
 ## Ownership boundary
 
@@ -46,11 +63,13 @@ exit. Windows resumes the suspended primary thread only after assignment decisio
 - `partial_spawn_cleanup_timeout(Duration::from_secs(5))` bounds failed-spawn
   cleanup; default remains unbounded. Timed-out children go to a background reaper.
 
-## Use
+## Example and usage
+
+Illustrative; not compiled as a doctest. The compiled checks are `tests/api.rs`, `tests/supervision_primitives.rs`, and `tests/restart_health.rs`.
 
 `OwnedCommand::inherit_handles_only` restricts inheritance to caller handles/fds plus stdio; Windows requires `windows_spawn_config` for opaque stdio, environment-inheritance & raw-argument settings.
 
-```rust,no_run
+```rust,ignore
 use std::{process::Stdio, time::Duration};
 use rightkit_process::{OwnedCommand, WaitOutcome};
 
@@ -79,17 +98,19 @@ deterministic in tests.
 
 ## Verification
 
-```powershell
-cargo test -p rightkit-process --all-targets
-cargo fmt --check
-cargo clippy -p rightkit-process --all-targets -- -D warnings
-cargo package -p rightkit-process --allow-dirty --no-verify --list
-cargo package -p rightkit-process --allow-dirty
+Run through the RightKit wrapper, per the workspace's `docs/rules/rightkit.md`:
+
+```text
+rightkit cargo test -p rightkit-process --all-targets
+rightkit cargo fmt --check
+rightkit cargo clippy -p rightkit-process --all-targets -- -D warnings
+rightkit cargo package -p rightkit-process --allow-dirty --no-verify --list
 ```
 
-Windows integration tests prove parent plus grandchild termination, sibling
-survival, bounded grace, kill-on-drop, and partial-spawn cleanup. Run the same
-suite on macOS before publication to validate Unix process-group behavior.
+`tests/windows_process_tree.rs` covers parent and grandchild termination, sibling
+survival, bounded grace, kill-on-drop, and partial-spawn cleanup on Windows.
+`tests/unix_process_group.rs` covers Unix process-group behavior. Run both suites on
+their own host platforms.
 
 ## Windows
 

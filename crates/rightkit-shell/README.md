@@ -1,10 +1,33 @@
 # rightkit-shell
 
-Shared Tauri desktop shell behavior for Right Suite applications, including hardened webviews, window state, menus, tray, single instance, deep links, autostart, clipboard, watchdog, and engine wiring.
+Shared Tauri desktop shell for Right Suite applications. It owns hardened webviews (`HardeningScript`, navigation and popup policy), window state, the native menu and tray, single-instance arbitration, deep links, autostart, rich clipboard, notifications, a watchdog, presence, and optional engine sidecar wiring. Its entry point is `Shell::builder(app_id).build().plugin()`, with lower-level modules public.
 
-The `engine` feature enables engine sidecar wiring. The `devtools` feature enables release-build inspection support.
+**Use it** in a Right Suite Tauri app's native host, so every app gets the same shell behavior.
 
-Publish through the RightKit release workflow.
+**Do not use it** outside a Tauri 2 application, or as a replacement for an app's own invoke handlers and product logic. Choose one plugin entry point per app.
+
+## Features
+
+| Feature | Default | Pulls in | Effect |
+|---|---|---|---|
+| `engine` | on | `rightkit-jobs`, `rightkit-process` | Engine sidecar wiring over `rightkit-jobs` `EngineClient`. |
+| `wv2-0_38` | on | `windows` 0.61, `webview2-com` 0.38 | Windows types for Tauri 2.11 (the default). Must match the app's Tauri. |
+| `wv2-0_39` | off | `windows` 0.62, `webview2-com` 0.39 | Windows types for Tauri 2.12. With `default-features = false`, enable `engine` and `wv2-0_39`. Enabling both selects 0.39. |
+| `devtools` | off | `tauri/devtools` | Lets `Devtools::On` and `DebugBuilds` open the inspector in release builds. Keep it off in production. |
+
+Mismatched `wv2` features put two copies of `windows` or `webview2-com` beside Tauri's, and `cast()` then fails. With `default-features = false`, enable exactly the feature that matches the app's Tauri version.
+
+## Platform support
+
+- macOS: native notifications and presence through `objc2` and related crates; `cfg(target_os = "macos")` in `src/` (for example `notify.rs`, `presence.rs`, `frameless.rs`).
+- Windows: WebView2 types through the `wv2` features; native toasts through `tauri-winrt-notification`; `cfg(windows)` in `src/`.
+- Linux: this README does not describe Linux-specific behavior. Open-URL delivery on Linux depends on the `.desktop` MIME entry (see Standalone open-URL hook).
+
+Published version: see `INDEX.md` at the repository root. This crate has no `CHANGELOG.md`; the version sections below record additions by version.
+
+## Example
+
+Illustrative; not compiled as a doctest. The compiled references are `tests/policy.rs` (policy decisions) and the `example-app/` Tauri project in this crate.
 
 ## Windows
 
@@ -23,7 +46,7 @@ Publish through the RightKit release workflow.
 
 ### Single-instance arbitration only
 
-```rust
+```rust,ignore
 tauri::Builder::default()
     .plugin(rightkit_shell::Shell::builder("viewright")
         .build()
@@ -45,7 +68,7 @@ plugin entry point per app. The lower-level `instance::arbitrate` remains public
 
 ### Full-plugin script scope
 
-```rust
+```rust,ignore
 use rightkit_shell::{HardeningScript, Shell};
 
 let plugin = Shell::builder("viewright")
@@ -80,7 +103,7 @@ argv/cwd forwarding & guard release.
 
 `open_url` delivers URLs the OS opens in the app, without the Shell plugin:
 
-```rust
+```rust,ignore
 rightkit_shell::open_url::on_open_url(|urls| { /* mailto:, myapp://... */ });
 let cold = rightkit_shell::open_url::current_urls(); // arrived before any handler existed
 ```

@@ -1,8 +1,33 @@
 # rightkit-oauth
 
-OAuth 2.0 for desktop apps & daemons. Desktop API remains unchanged: loopback S256 PKCE,
-RFC 8628 device flow, existing provider presets, OS credential storage & refreshing resolution.
-Version `0.3.0` adds opt-in `server` mode; nothing is committed or published by enabling it.
+Shared OAuth 2.0 sign-in for Right Suite apps. It owns loopback S256 PKCE for desktop apps, the RFC 8628 device flow, provider presets, OS credential storage for desktop tokens, refreshing credential resolution, and an opt-in `server` mode for daemons and web callbacks. Server mode adds sealed (encrypted) file token storage, pending-state stores, and OIDC validation hooks.
+
+**Use it** for sign-in and token refresh in a Right Suite app or daemon, when the provider fits one of the descriptors or can be described by an `OAuthConfig`.
+
+**Do not use it** as an identity provider, to verify who a provider account belongs to (the host must do that), or to hold secrets outside the store it provides. The crate starts no server, opens no browser, and schedules no background work.
+
+## Features
+
+| Feature | Default | Pulls in | Effect |
+|---|---|---|---|
+| `secrets` | on | `rightkit-secrets` | Desktop token storage in the OS credential store. |
+| `system-sources` | on | `rightkit-process` | Reads credentials from system sources (`src/system.rs`). |
+| `server` | off | `base64`, `ring`, `subtle`, `url`, `zeroize`, `serde`, `libc` | Server mode: `rightkit_oauth::server` (begin/complete/refresh, sealed file store, OIDC hooks). |
+| `server-example` | off | `server`, `axum`, `tokio` | Builds `examples/server_axum.rs` (required feature for that example). |
+
+`rightkit-http` is always a dependency. It is used for every token request.
+
+## Platform support
+
+- Desktop token storage uses `rightkit-secrets`. That crate has a macOS and a Windows backend. On Linux it fails closed, so the `secrets` feature cannot store tokens there.
+- `SealedFileTokenStore` supports Unix local filesystems with reliable advisory locks and atomic rename. On Windows, construction fails closed; supply an ACL or credential-store adapter there.
+- The `server` code uses `cfg(unix)` in `src/server/store.rs` for file permission checks.
+
+Published version: see `INDEX.md` at the repository root. Release notes: see `CHANGELOG.md` in this crate.
+
+## Example
+
+The server-mode flow below is illustrative. The compiled example is `examples/server_axum.rs`, which needs the `server-example` feature.
 
 ## Server mode
 
@@ -12,12 +37,12 @@ rightkit-oauth = { version = "0.3.0", default-features = false, features = ["ser
 rightkit-http = "0.2.0"
 ```
 
-`0.3.0` is staged source, not a publication claim. Daemons can omit `secrets` &
-`system-sources`: Linux's current `rightkit-secrets` backend is unavailable.
+Daemons can omit `secrets` and `system-sources` (`default-features = false`): Linux has no `rightkit-secrets` backend.
 All methods are synchronous; call on a blocking executor in an async HTTP route.
-Crate starts no server, opens no browser & schedules no background work.
 
-```rust,no_run
+Illustrative; not compiled as a doctest. The example at `examples/server_axum.rs` is the compiled reference (`cargo run --example server_axum --features server-example`, through `rightkit cargo`).
+
+```rust,ignore
 use std::{sync::Arc, time::Duration};
 use rightkit_http::{Client, ClientConfig};
 use rightkit_oauth::server::{CallbackQuery, MemoryPendingStateStore, SealedFileTokenStore,
@@ -28,7 +53,7 @@ use rightkit_oauth::server::{CallbackQuery, MemoryPendingStateStore, SealedFileT
 let flow = ServerAuthFlow::new(
     Client::new(ClientConfig::default()),
     [ServerProvider::linkedin("registered-client-id", client_secret,
-        "https://postright.orthiclabs.com/oauth/callback")],
+        "https://app.example.invalid/oauth/callback")],
     Arc::new(MemoryPendingStateStore::default()),
     Duration::from_secs(300),
 )?;
@@ -37,7 +62,7 @@ let begin = flow.begin("linkedin", "tenant:account", &["w_member_social".into()]
 // Host redirects user's browser to begin.authorize_url.
 // Host decodes callback query once, rejects duplicate fields & calls complete.
 let complete = flow.complete_bound(query, "linkedin", "tenant:account")?;
-let store = SealedFileTokenStore::new("/var/lib/postright/oauth", encryption_key)?;
+let store = SealedFileTokenStore::new("/var/lib/my-app/oauth", encryption_key)?;
 store.put(&complete.account_hint, &complete.provider, &complete.tokens)?;
 // Scheduled jobs call before expiry. Fresh tokens return without an exchange.
 let usable = flow.refresh(&store, "tenant:account", "linkedin", Duration::from_secs(120))?;
@@ -184,12 +209,3 @@ rightkit cargo package -p rightkit-oauth --no-verify --allow-dirty --list
 
 Server tests cover state lifecycle, PKCE exchange, nonce validation, auth variants, encrypted
 store round-trip/tamper/isolation, proactive refresh rotation, concurrent refresh & redaction.
-
-## PostRight integration decisions
-
-- Exact per-provider registered redirect paths, client registrations, approved scopes & Graph version.
-- Facebook Login vs Instagram Login; user/page/Instagram identity resolution & long-lived token policy.
-- LinkedIn partner refresh eligibility & whether OIDC identity scopes are needed.
-- Pinterest registration age & continuous-refresh grant requirements.
-- Durable pending-state adapter for restarts/multiple engines; database/fenced locking for multi-host tokens.
-- Key provisioning, backup/key rotation, refresh scheduler cadence & reauth/recovery UX.

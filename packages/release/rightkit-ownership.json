@@ -360,6 +360,18 @@
       ]
     },
     {
+      "package": "rightkit-channel-memory",
+      "capability": "channel-memory",
+      "summary": "Channel memory schema (channel-memory.v1, pending in tools/rightkit/contracts-pending) with serde types, schema and semantic validation, version gate, authoritative proof citation, and scope checks shared by PostRight P3 and GenRight G7.",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Package contract retained; dependency declarations do not verify integration.",
+        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration.",
+        "Revisioned daemon storage and conflict handling belong to the daemon (RK10); this crate validates records only."
+      ]
+    },
+    {
       "package": "rightkit-compose",
       "capability": "composition-model",
       "summary": "Evaluated composition model for Right Suite video: layered video, stills, cursor sprites with hotspots, procedural backgrounds, rounded clipping, shadows, motion blur, canvas-space overlays and an independently timed webcam, with keyframed transforms, crops and opacity; pure per-frame evaluation shared by preview and export",
@@ -1500,6 +1512,18 @@
       ]
     },
     {
+      "package": "rightkit-review",
+      "capability": "content-review",
+      "summary": "Shared review capability: typed deterministic checks over a media or brief description, declared holds, a hard-capped repair loop, an advisory judge interface that cannot override deterministic failures, and versioned verdict records.",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Package contract retained; dependency declarations do not verify integration.",
+        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration.",
+        "Consumers (GenRight G6, CutRight C10, PostRight P4) own their review policy and copy; this crate owns the checks and verdict semantics."
+      ]
+    },
+    {
       "package": "rightkit-sandbox",
       "capability": "os-sandbox",
       "summary": "Seatbelt / Landlock+seccomp / AppContainer confinement, PTY leases, resource authority",
@@ -1537,6 +1561,17 @@
       "policyNotes": [
         "landlock/seccompiler indicate Linux-only usage, not macOS/Windows replacement paths; shutdown repair remains P1.",
         "Fingerprints identify review candidates; published two-host replacement qualification is not recorded."
+      ]
+    },
+    {
+      "package": "rightkit-scenario",
+      "capability": "scenario-runtime",
+      "summary": "Shared scenario interpreter and durable state machine for the RightKit scenario runtime: perform separated from observe_until, idempotency keys, append-only fsync step journal with resume into observe, leases with fencing tokens, cooperative cancellation with a deadline, retake replay with postcondition comparison, and the remote worker transport trait boundary",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Declaration-only: the interpreter, journal, lease and retake machinery are not an ownership fingerprint.",
+        "No networking, GUI driving or capture lives in this crate; workers implement StepDriver and remote transport implements WorkerTransport in later slices."
       ]
     },
     {

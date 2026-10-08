@@ -1,49 +1,44 @@
 # @rightkit/platform-ui
 
-Brand-neutral cross-platform UI primitives for Right Suite desktop apps.
+Brand-neutral platform primitives for Right Suite desktop apps: Tauri-backed platform detection, display-only shortcut formatting, keyboard-chord rendering, platform capability flags, window-control labels and headless window-control adapters. Title bars, colours and navigation stay in each app.
 
-The package owns Tauri-backed platform detection, display-only shortcut formatting,
-semantic keyboard-chord rendering, platform capability flags, overridable accessible
-window-control names, and headless window-control adapters. Product title bars,
-colors, spacing, navigation, and other branded UI stay in each app.
+| Item | Value |
+|---|---|
+| Where it runs | App webview UI (React and plain TypeScript) |
+| Rust pair | None |
+| Version | see INDEX.md |
+| License | MIT OR Apache-2.0 |
 
-Production platform detection uses `@tauri-apps/plugin-os`. Browser QA must call
-`bootstrapQaPlatform` with explicit canonical input. Query overrides require both
-`qa=1` and `qaPlatform`; environment overrides require `RIGHTKIT_QA=1` and
-`RIGHTKIT_QA_PLATFORM`. The helper never reads globals, `navigator.platform`, or a
-user-agent. `Win32` is accepted as the existing QA alias for `windows`. Android and
-unrecognized values deliberately resolve to `unknown`, never silently to Linux.
+## Entry points
+
+| Import | Contents |
+|---|---|
+| `@rightkit/platform-ui` | `getPlatform`, `normalizePlatform`, `formatChord`, `platformCapabilities`, `createWindowControls`, `createFullscreenControls`, `createWindowControlLabels`, `DEFAULT_WINDOW_CONTROL_LABELS`, `WINDOW_CONTROL_LABELS`, `bootstrapQaPlatform`, `resolveQaPlatform`; types `Platform`, `WindowControlAdapter`, `FullscreenControlAdapter`, `WindowControlLabels`, `QaPlatformBootstrapInput` |
+| `@rightkit/platform-ui/react` | `usePlatform`, `Kbd`, `KbdProps` |
+
+## Peer dependencies
+
+| Peer | Range |
+|---|---|
+| `@tauri-apps/plugin-os` | `>=2 <3` |
+| `react` | `>=18 <20` |
+
+## Example
+
+Illustrative. `nativeWindowAdapter` is the app's own Tauri window adapter.
 
 ```ts
-import {
-  bootstrapQaPlatform,
-  createFullscreenControls,
-  createWindowControlLabels,
-  createWindowControls,
-  formatChord,
-  getPlatform,
-} from "@rightkit/platform-ui";
+import { createWindowControls, formatChord, getPlatform } from "@rightkit/platform-ui";
 import { Kbd, usePlatform } from "@rightkit/platform-ui/react";
 
-bootstrapQaPlatform({
-  query: window.location.search,
-  env: {
-    RIGHTKIT_QA: import.meta.env.VITE_APP_QA,
-    RIGHTKIT_QA_PLATFORM: import.meta.env.VITE_APP_QA_PLATFORM,
-  },
-});
-
 const platform = getPlatform();
-const renderedKeys = formatChord(storedShortcut, platform);
-const controls = createWindowControls(nativeWindowAdapter);
-const fullscreen = createFullscreenControls(nativeFullscreenAdapter); // optional
-const labels = createWindowControlLabels({ close: "Close inspector" });
+const keys = formatChord("mod+shift+p", platform); // display tokens only
+const controls = createWindowControls(nativeWindowAdapter); // your Tauri window adapter
 ```
 
-`getPlatform()` is the plain static getter. React consumers import the real, stable
-`usePlatform()` hook from `@rightkit/platform-ui/react`. `formatChord` only creates
-display tokens; the app remains the owner of the stored shortcut string. Fullscreen
-is intentionally separate so apps can implement only minimize/maximize/close.
+`formatChord` only returns display tokens. The app owns the stored shortcut string. Fullscreen is a separate adapter, so an app can implement only minimize, maximize and close.
 
-This package remains internal until each core app passes the per-OS
-shortcut/window contract and retains its branded title-bar snapshots.
+## Known issues
+
+- `bootstrapQaPlatform` and `resolveQaPlatform` are QA helpers exported from the runtime entry. Call them only in QA builds. Browser overrides need `qa=1` and `qaPlatform`, or `RIGHTKIT_QA=1` and `RIGHTKIT_QA_PLATFORM`. Production detection uses `@tauri-apps/plugin-os`.
+- Peer React is `<20`, while `doc-render`, `i18n`, `media-ui` and `pdf-ui` accept `<21` (npm audit 2026-10-08).

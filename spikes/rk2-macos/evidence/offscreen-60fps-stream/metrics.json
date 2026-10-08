@@ -1,0 +1,298 @@
+{
+ "label": "offscreen-60fps-stream",
+ "frames_callbacks": 3447,
+ "frames_complete": 3447,
+ "frames_idle": 0,
+ "frames_blank_status": 0,
+ "decoded_frames": 3447,
+ "file_bytes": 3107978,
+ "analyzer": "{\"frames\":3447,\"ok\":true,\"reader_status\":2}",
+ "black_frames_luma_lt_15": 0,
+ "strip_valid_frames": 3447,
+ "max_foreign_magenta_samples": 0,
+ "frames_with_magenta_gt_20": 0,
+ "animated_frame_intervals": 2121,
+ "animated_intervals_counter_advanced": 1107,
+ "pct_intervals_advanced": 52.2,
+ "resampled_ticks": 2226,
+ "pct_ticks_advanced": 49.7,
+ "intervals_by_page_rate": {
+  "page60": {
+   "intervals": 881,
+   "advanced": 879,
+   "pct": 99.8
+  },
+  "throttled": {
+   "intervals": 1240,
+   "advanced": 228,
+   "pct": 18.4
+  }
+ },
+ "first_throttled_pts_s": 26.1,
+ "page_raf_rate_samples": [
+  54,
+  60,
+  60,
+  60,
+  60,
+  60,
+  60,
+  60,
+  60,
+  60,
+  60,
+  60,
+  60,
+  60,
+  60,
+  12,
+  11,
+  9,
+  10,
+  9,
+  9,
+  9,
+  11,
+  9,
+  12,
+  10,
+  10,
+  12,
+  9,
+  11,
+  10
+ ],
+ "counter_first_last": [
+  219,
+  1520
+ ],
+ "distinct_counter_values": 1257,
+ "ocr_samples_stable": 447,
+ "ocr_step_correct": 447,
+ "step_recovery": [
+  {
+   "step": 2,
+   "post_enc_s": 6.138,
+   "ocr_first_seen_enc_s": 6.14,
+   "latency_ms": 2
+  },
+  {
+   "step": 3,
+   "post_enc_s": 22.138,
+   "ocr_first_seen_enc_s": 22.143333333333334,
+   "latency_ms": 5
+  },
+  {
+   "step": 4,
+   "post_enc_s": 50.389,
+   "ocr_first_seen_enc_s": 50.321666666666665,
+   "latency_ms": -68
+  }
+ ],
+ "inputs": [
+  {
+   "input": "click Next",
+   "method": "click",
+   "ok": true,
+   "caller_send_ms": 0,
+   "admit_ms": 4.318167,
+   "dispatch_ms": 4.342917,
+   "complete_ms": 159.176459,
+   "caller_recv_ms": 180.365584,
+   "send_enc_pts_s": 6.009,
+   "admit_enc_pts_s": 6.013,
+   "complete_enc_pts_s": 6.168
+  },
+  {
+   "input": "click input",
+   "method": "click",
+   "ok": true,
+   "caller_send_ms": 0,
+   "admit_ms": 2.92925,
+   "dispatch_ms": 2.956,
+   "complete_ms": 157.787083,
+   "caller_recv_ms": 177.194083,
+   "send_enc_pts_s": 14.006,
+   "admit_enc_pts_s": 14.009,
+   "complete_enc_pts_s": 14.164
+  },
+  {
+   "input": "type",
+   "method": "type",
+   "ok": true,
+   "caller_send_ms": 0,
+   "admit_ms": 2.73675,
+   "dispatch_ms": 2.75625,
+   "complete_ms": 101.113542,
+   "caller_recv_ms": 130.388042,
+   "send_enc_pts_s": 15.514,
+   "admit_enc_pts_s": 15.516,
+   "complete_enc_pts_s": 15.615
+  },
+  {
+   "input": "click Next",
+   "method": "click",
+   "ok": true,
+   "caller_send_ms": 0,
+   "admit_ms": 3.439709,
+   "dispatch_ms": 3.463542,
+   "complete_ms": 146.156292,
+   "caller_recv_ms": 178.501917,
+   "send_enc_pts_s": 22.014,
+   "admit_enc_pts_s": 22.018,
+   "complete_enc_pts_s": 22.161
+  },
+  {
+   "input": "drag scrub",
+   "method": "drag",
+   "ok": true,
+   "caller_send_ms": 0,
+   "admit_ms": 9.693625,
+   "dispatch_ms": 9.762083,
+   "complete_ms": 1694.541792,
+   "caller_recv_ms": 1705.040875,
+   "send_enc_pts_s": 30.01,
+   "admit_enc_pts_s": 30.02,
+   "complete_enc_pts_s": 31.704
+  },
+  {
+   "input": "wheel scroll",
+   "method": "wheel",
+   "ok": true,
+   "caller_send_ms": 0,
+   "admit_ms": 5.803625,
+   "dispatch_ms": 5.83875,
+   "complete_ms": 6.337541,
+   "caller_recv_ms": 144.592333,
+   "send_enc_pts_s": 38.013,
+   "admit_enc_pts_s": 38.019,
+   "complete_enc_pts_s": 38.02
+  },
+  {
+   "input": "key Right",
+   "method": "key",
+   "ok": true,
+   "caller_send_ms": 0,
+   "admit_ms": 8.714708,
+   "dispatch_ms": 8.8175,
+   "complete_ms": 82.554292,
+   "caller_recv_ms": 148.558958,
+   "send_enc_pts_s": 44.007,
+   "admit_enc_pts_s": 44.016,
+   "complete_enc_pts_s": 44.09
+  },
+  {
+   "input": "click Next",
+   "method": "click",
+   "ok": true,
+   "caller_send_ms": 0,
+   "admit_ms": 2.603584,
+   "dispatch_ms": 2.682542,
+   "complete_ms": 335.970584,
+   "caller_recv_ms": 428.617375,
+   "send_enc_pts_s": 50.011,
+   "admit_enc_pts_s": 50.014,
+   "complete_enc_pts_s": 50.347
+  }
+ ],
+ "foreground_changes": [
+  {
+   "kind": "change",
+   "snapshot": {
+    "frontmost_bundle": "com.openai.codex",
+    "frontmost_pid": 696,
+    "top_other_window": {
+     "owner": "Claude",
+     "pid": 698,
+     "windowNumber": 48
+    }
+   },
+   "t_uptime_ns": 39265369056083
+  },
+  {
+   "kind": "change",
+   "snapshot": {
+    "frontmost_bundle": "com.openai.codex",
+    "frontmost_pid": 696,
+    "top_other_window": {
+     "owner": "ChatGPT",
+     "pid": 696,
+     "windowNumber": 57
+    }
+   },
+   "t_uptime_ns": 39266252236666
+  },
+  {
+   "kind": "change",
+   "snapshot": {
+    "frontmost_bundle": "com.openai.codex",
+    "frontmost_pid": 696,
+    "top_other_window": {
+     "owner": "Claude",
+     "pid": 698,
+     "windowNumber": 48
+    }
+   },
+   "t_uptime_ns": 39274946202541
+  },
+  {
+   "kind": "change",
+   "snapshot": {
+    "frontmost_bundle": "com.openai.codex",
+    "frontmost_pid": 696,
+    "top_other_window": {
+     "owner": "Claude",
+     "pid": 698,
+     "windowNumber": 2760
+    }
+   },
+   "t_uptime_ns": 39280986014666
+  },
+  {
+   "kind": "change",
+   "snapshot": {
+    "frontmost_bundle": "com.openai.codex",
+    "frontmost_pid": 696,
+    "top_other_window": {
+     "owner": "Claude",
+     "pid": 698,
+     "windowNumber": 48
+    }
+   },
+   "t_uptime_ns": 39291019207000
+  },
+  {
+   "kind": "change",
+   "snapshot": {
+    "frontmost_bundle": "com.anthropic.claudefordesktop",
+    "frontmost_pid": 698,
+    "top_other_window": {
+     "owner": "Claude",
+     "pid": 698,
+     "windowNumber": 48
+    }
+   },
+   "t_uptime_ns": 39292465982500
+  },
+  {
+   "kind": "change",
+   "snapshot": {
+    "frontmost_bundle": "com.anthropic.claudefordesktop",
+    "frontmost_pid": 698,
+    "top_other_window": {
+     "owner": "ChatGPT",
+     "pid": 696,
+     "windowNumber": 57
+    }
+   },
+   "t_uptime_ns": 39312420596958
+  }
+ ],
+ "frontmost_before": "[ NULL ]  ASN:0x0-0xf00f: (in front)      bundleID=\"com.openai.codex\"     bundle path=[ NU",
+ "frontmost_after": "[ NULL ]  ASN:0x0-0xf00f: (in front)      bundleID=\"com.openai.codex\"     bundle path=[ NU",
+ "clock_anchor_offset_host_vs_uptime_ms": [
+  0.0,
+  0.001
+ ],
+ "epoch_uptime_drift_ms": -0.035
+}

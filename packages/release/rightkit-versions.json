@@ -258,7 +258,7 @@
     "rightkit-jobs": "0.2.4",
     "rightkit-license": "0.1.3",
     "rightkit-logs": "0.2.0",
-    "rightkit-mcp": "0.4.0",
+    "rightkit-mcp": "0.5.0",
     "rightkit-media": "0.2.3",
     "rightkit-models": "0.2.3",
     "rightkit-oauth": "0.3.0",
@@ -384,7 +384,8 @@
       "0.1.1",
       "0.2.0",
       "0.3.0",
-      "0.3.1"
+      "0.3.1",
+      "0.4.0"
     ],
     "rightkit-media": [
       "0.2.2"

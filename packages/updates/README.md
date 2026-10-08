@@ -1,67 +1,45 @@
 # @rightkit/updates
 
-`UPDATE_HOST_CONTRACT_VECTORS` is the framework-neutral free/Pro patch/update
-matrix that every app adapter must execute before the Phase 3 publication gate.
-It prevents app-local tests from silently redefining patch eligibility or the
-Pro upgrade nudge.
+Runtime update-policy helper for Right Suite Tauri apps. It coordinates the app's updater check and install, classifies a release as `patch` or `update` from the manifest, auto-installs only eligible patches by default, defers installs while the host is busy, and reports status through callbacks.
 
-Small runtime update-policy helper for Right Suite Tauri apps.
+It does not build, sign, publish or upload anything. `@rightkit/release` owns that lane. The package has no direct Tauri dependency. The app injects its updater `check` function, header loaders, eligibility policy and safe-to-install predicate.
 
-It does not build, sign, publish, or upload artifacts. `@rightkit/release` owns
-that lane. This package runs inside apps and coordinates:
+| Item | Value |
+|---|---|
+| Where it runs | App webview UI (Tauri apps) |
+| Rust pair | None. No Rust crate in `crates/` implements the updater. `rightkit-tauri` has no updater code. |
+| Version | see INDEX.md |
+| License | MIT OR Apache-2.0 |
 
-- checking the app updater;
-- classifying `patch` vs `update` directly from Tauri's exact `rawJson` manifest;
-- auto-installing only public/free patches by default;
-- deferring installs while the host app says it is unsafe;
-- reporting status through host callbacks.
-- loading version-only public release status so Free users can see a Pro-update nudge without receiving private artifact coordinates.
+## Entry points
 
-The package has no direct Tauri dependency. Apps inject their updater `check`
-function, authorization loaders, eligibility policy, and safe-to-install predicate.
+| Import | Contents |
+|---|---|
+| `@rightkit/updates` | `createAutoUpdateClient(config)`, `fetchReleaseStatus(url, fetch?)`, `updateTierFromManifest(rawJson)`, `UPDATE_HOST_CONTRACT_VECTORS`; types `UpdateTier`, `AutoUpdateClient`, `AutoUpdateClientConfig`, `AutoUpdateStatus`, `ReleaseStatus`, `RuntimeUpdate`, `CheckForUpdate`, `UpdateHeaders`, `UpdateDownloadEvent` |
 
-## Install event order (0.2.5)
+Peer dependencies: none. No runtime dependencies.
 
-Manual & automatic installs emit `checking` → `available` → `downloading`
-statuses → `ready` only after `downloadAndInstall` resolves successfully.
-`Finished` marks download completion; installation may still be pending, so it
-does not emit `ready`. Hosts may offer Restart when `ready` arrives.
-
-If installation rejects, clients emit & return `{ kind: 'error', message }`,
-call `onError`, & never emit `ready` for that install. Existing public types,
-method signatures & progress events remain source compatible; readiness timing
-changes from download completion to successful installation.
-
-## Check and install authorization
-
-`getHeaders` is the manifest-check header loader. An app may separately provide
-`getInstallHeaders(tier, { checkHeaders })` after the returned manifest
-has an exact tier and the user is eligible. This lets a private Pro artifact use
-a signed entitlement without sending that entitlement to the manifest endpoint:
+## Example
 
 ```ts
-createAutoUpdateClient({
-  check: (options) => check(options),
+import { createAutoUpdateClient, updateTierFromManifest } from "@rightkit/updates";
+
+const client = createAutoUpdateClient({
+  check: (options) => check(options),        // the app's Tauri updater check
   getHeaders: () => ({ Authorization: `Bearer ${activationToken}` }),
-  getInstallHeaders: async (tier) => tier === 'update'
-    ? { Authorization: `Bearer ${await loadSignedEntitlement()}` }
-    : undefined,
+  getInstallHeaders: async (tier) =>
+    tier === "update" ? { Authorization: `Bearer ${await loadSignedEntitlement()}` } : undefined,
+  onStatus: (status) => render(status),
 });
+
+const status = await client.checkOnce();
+if (status.kind === "available") await client.installAvailable();
 ```
 
-The eligible update handle stores only the update, tier, check headers, and its
-check generation. Install headers are resolved only after `canInstall` succeeds,
-immediately before `downloadAndInstall`, and are never cached. The callback is
-never called for an ineligible or malformed-tier update, and an exception fails
-closed without downloading. Returning `undefined` supports header-free public
-patches.
+Status flow: `checking`, then `available`, then `downloading`, then `ready`. `ready` is emitted only after `downloadAndInstall` resolves. A failed install emits `{ kind: "error" }` and never `ready`.
 
-Compatibility warning: omitting `getInstallHeaders` reuses the `getHeaders`
-result for installation, which may forward that credential to a different
-artifact origin. Existing integrations retain that behavior, but new apps must
-set `getInstallHeaders` explicitly (returning `undefined` for public patches).
+## Known issues
 
-Manifest `tier` is mandatory and must be exactly `patch` or `update`. Missing or
-unknown values fail closed and clear any previously cached update handle. Apps
-must use Tauri's returned `rawJson`; they must not probe a second manifest to
-reconstruct the tier.
+- Omitting `getInstallHeaders` reuses the `getHeaders` result for the download. That can send a manifest credential to a different artifact origin. New apps must set `getInstallHeaders` explicitly, returning `undefined` for public patches.
+- `UPDATE_HOST_CONTRACT_VECTORS` is test data exported from the runtime entry. Within this repository only the package's own test uses it. Consumer tests import it too (npm audit 2026-10-08, updates finding 1).
+- `@rightkit/tauri` pins `0.2.4`, so consumers can get two copies of this package (npm audit 2026-10-08).

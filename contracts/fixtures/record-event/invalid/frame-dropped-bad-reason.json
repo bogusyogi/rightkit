@@ -1,0 +1,19 @@
+{
+  "contract": "record-event",
+  "contractVersion": "1.1.0",
+  "sessionId": "bundle.export-flow-0001",
+  "seq": 17,
+  "kind": "frame_dropped",
+  "stepIndex": 1,
+  "hostNs": 8147000000,
+  "geometryEpoch": 0,
+  "redactionPolicy": {
+    "policyId": "redaction.default",
+    "policyVersion": "1.0.0"
+  },
+  "frameDropped": {
+    "count": 2,
+    "intervalMs": 33.333,
+    "reason": "gpu_hang"
+  }
+}

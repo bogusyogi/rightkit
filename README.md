@@ -1,15 +1,16 @@
 # RightKit
 
-Shared, platform-neutral primitives for every Right Suite app.
+RightKit is the shared library for Right Suite apps. It ships three things:
+
+- Rust crates under [`crates/`](crates). The public ones are published to crates.io as `rightkit-*`.
+- npm packages under [`packages/`](packages). The public ones are published as `@rightkit/*`.
+- The Swift package [`RightKitSwift`](swift/RightKitSwift/README.md), consumed by git URL and exact tag.
+
+Current versions and the full crate and package inventory are in [INDEX.md](INDEX.md). It is generated; do not edit it by hand.
 
 | Package | Runtime | Responsibility |
 |---|---|---|
 | [`@rightkit/ax`](packages/ax) | Node CLI | Agent-experience, plugin, conformance, behavioral, and adversarial gates (`right-ax`) |
-| [`@rightkit/build-control-core`](packages/build-control-core) | Node | Managed-agent/strict profiles, request normalization, external namespaces & unmanaged-output scanning |
-| [`@rightkit/build-control-broker`](packages/build-control-broker) | Node service | Digest-pinned tool execution, external cache environment, quotas, reservations, leases & typed receipts |
-| [`@rightkit/build-control-clients`](packages/build-control-clients) | Node CLI | Explicit RightKit entrypoint, Rust/Cargo agent shims & request-only frontend registry |
-| [`@rightkit/build-control-policy`](packages/build-control-policy) | Node hook | Rust/Cargo agent command policy & wrapper/compound-command gap detection |
-| [`@rightkit/build-control-staging`](packages/build-control-staging) | Node | External transactional staging & sync-back contract |
 | [`@rightkit/git`](packages/git) | Node CLI | Public-repository GitHub Actions workflow templates and visibility gate (`right-git`) |
 | [`@rightkit/legal`](packages/legal) | TypeScript | Legal manifest schema 2, assent receipt, and release-contract primitives |
 | [`@rightkit/legal-ui`](packages/legal-ui) | TypeScript + React | Shared desktop legal acceptance gate |
@@ -23,10 +24,39 @@ Shared, platform-neutral primitives for every Right Suite app.
 | [`@rightkit/release`](packages/release) | Node CLI | Native-host signed release, hardening, explicit GitHub/R2 distribution, and add-on adoption |
 | [`@rightkit/tauri`](packages/tauri) | TypeScript | Typed Tauri host adapter for license and device commands |
 | [`@rightkit/updates`](packages/updates) | TypeScript | Runtime update policy helper |
+| [`RightKitSwift`](swift/RightKitSwift) | Swift package | Apple-platform license, diagnostics, artifacts, purchases, sync, store, speech, and UI primitives (14 library products) |
 
-This is the only source home for shared RightKit packages and crates in the
-Claude repo. Apps consume the published npm packages; they do not depend on
-this checkout, Git URLs, or sibling paths.
+This is the only source home for shared RightKit crates, npm packages, and the Swift package in the Claude repo. Apps consume the published crates and npm packages, and the Swift package by exact tag. No consumer depends on this checkout, a sibling path, or a Git URL for crates or npm packages.
+
+## Versions and lifecycle
+
+Each shared version moves through four states: implemented, staged, published, adopted. The definition below is the same as in `docs/RIGHTKIT-SHARED-PACKAGES.md` in the workspace root.
+
+### Lifecycle: implemented, staged, published, adopted
+
+Every shared RightKit version moves through four states, in this order. Paths below
+are relative to `tools/rightkit`. The record for the last three states is
+`packages/release/rightkit-versions.json`.
+
+| State | Meaning | Recorded in | Changed by |
+|---|---|---|---|
+| implemented | Source at this version in the tree. Not on any registry. | `version` in `crates/*/Cargo.toml` or `packages/*/package.json`; `swift/RightKitSwift/VERSION` | Source edit |
+| staged | The next version the workspace intends to release. May be unpublished. Apps are not checked against it. | `stagedCargo`, `stagedNpm`, `stagedSwift` | `node packages/release/rightkit-sync.mjs stage <npm\|cargo> <name> <version>`, which refuses a version below the current one |
+| published | A registry serves the version. | `registry.cargo` and `registry.npm`, verified by `rightkit-sync.mjs`. Swift has no registry: the `swift` section records the tag after `right-release publish swift` pushes it. | `rightkit-sync.mjs` after a registry check; the `swift` section by hand |
+| adopted | An app pins the version. | Top-level `cargo`, `npm` and `swift` (the adopted pins). Consumer manifests: `Cargo.toml` `=x.y.z`, `package.json`, `Package.swift` `exact:`. | Each app, by hand. No command bumps app pins. |
+
+Rules:
+
+- Staging never changes what apps are checked against.
+- When a registry serves a version newer than the staged one, `rightkit-sync.mjs`
+  raises the staged entry to it. After publication, staged equals published until a
+  newer version is staged.
+- A version replaced in a registry stays in `legacyCargo` or `legacyNpm`, so apps
+  pinned to it still validate.
+- Once every app has moved, set the top-level pin to the new version by hand. The
+  staged entry may then be deleted. Sync does not re-add it unless the registry serves
+  a newer version.
+- Swift pins are always exact tags. There is no range or registry resolution.
 
 ## Public-repository build boundary
 
@@ -74,7 +104,7 @@ Replaces the five diverged per-app license clients. Platform-agnostic: the host 
 Consumed as a public package from npm:
 
 ```bash
-pnpm add "@rightkit/license@^0.1.5"
+pnpm add "@rightkit/license@^<version>"  # current version: see INDEX.md
 ```
 
 Do not install this SDK from `git+https://github.com/adrdsouza/rightkit.git` or a Git tag. App repos depend on the registry package version in `package.json`; lockfiles pin the resolved package integrity.
@@ -84,11 +114,7 @@ Native enforcement is supplied only by the separately published
 from `packages/release/rightkit-versions.json`; Git, path, sibling-checkout, and
 vendored-copy dependencies are forbidden.
 
-In that manifest, `cargo` is the published version registry used to enforce app
-dependency pins. `stagedCargo` records canonical crate versions awaiting
-publication and never changes consumer enforcement. After a crate is published,
-promote its staged version into `cargo` and remove its `stagedCargo` entry before
-updating app pins.
+In `packages/release/rightkit-versions.json`, the top-level `cargo` entries are the adopted pins that release checks enforce. `stagedCargo` holds the next version, and `registry.cargo` holds what crates.io serves. See the lifecycle section above.
 
 ---
 
@@ -205,77 +231,6 @@ Inject `fetchImpl` only if you need a non-global fetch. The SDK's own suite (`sr
 - [Architecture](docs/architecture.md) — components, flows, interfaces (generated, code-grounded)
 <!-- cortex:docs:end -->
 
-## Managed-agent Rust builds
+## Build broker
 
-Configured coding agents use RightKit as a request-only broker client:
-
-```bash
-rightkit cargo test
-rightkit cargo build --release
-rightkit rustc --version
-rightkit rustdoc --version
-```
-
-Direct `cargo`, `rustc`, `rustdoc`, & `rustup run …` are intentionally denied in
-managed-agent contexts. Do not substitute an absolute toolchain binary, alter
-`PATH` or Rust/Cargo environment, set a target directory, add `.cargo`
-configuration or aliases/wrappers, or write local `target`/`.cache` output.
-`pnpm` & `npm` remain usable; their child Cargo invocation must inherit RightKit
-shim precedence.
-
-Each request is capability-classified, durably admitted, process-owned, & closed
-with one terminal receipt. Disconnect detaches observer; STATUS, ATTACH, & CANCEL
-operate by request ID. Failed/cancelled namespaces stay warm under retention.
-Independent maintenance generation-CAS moves eligible terminal namespaces to
-managed trash, then deletes them in bounded resumable batches.
-
-### Operations
-
-On macOS, managed roots live below configured external storage (normally
-`/Volumes/D/rightkit-build-control`); the broker endpoint is a short Unix socket
-from `RIGHTKIT_BUILD_BROKER_SOCKET`. On Windows, the same external root holds
-`rightkit-build-control`; broker & sccache use native Windows IPC. In both cases,
-global Cargo home, toolchains, compiler cache, workspace targets, build state,
-temporary state, & receipts stay below that root.
-
-Runtime installation publishes a self-contained version directory, verifies
-socket plus functional `cargo --version` health, atomically switches its current
-pointer, & rolls back if post-switch health fails. To investigate any non-zero or
-`125` result, inspect broker service health first, then its terminal receipt &
-reported violation. Restore broker/external-volume availability or remove only
-receipt-identified unmanaged output; never retry through a direct Rust command.
-
-Cleanup is maintenance-owned, never in admission or terminal hot paths. It uses
-bounded inventory, durable leases/intents, generation checks, & resumable trash
-deletion. sccache is disabled unless broker ownership is proven. Windows BUILD
-fails closed until native Job Object containment exists.
-
-### Rust targets for new apps
-
-macOS bootstrap registers native Apple Silicon, Intel macOS, physical iOS, &
-Apple Silicon iOS Simulator targets. New apps use those targets directly:
-
-```bash
-rightkit rustup target add aarch64-apple-ios
-rightkit rustup target add aarch64-apple-ios-sim
-rightkit cargo check --target aarch64-apple-ios
-rightkit cargo check --target aarch64-apple-ios-sim
-```
-
-`target add` is globally exclusive & writes into same Rustup home that owns
-broker-registered Cargo/rustc. If a future app needs another target, add it to
-host bootstrap `targetTriples`, add exact bootstrap/admission tests, then use
-guarded bootstrap cutover. Never hand-edit live `config.json`; bootstrap
-regenerates it.
-
-### Publication boundary
-
-Build-control workspace components are private implementation packages, not
-consumer dependencies; they are never independently published. Their delivery is
-one exact commit on `bogusyogi/claude` `main`, with no npm-publication claim.
-
-See [Managed Build Control](docs/RIGHTKIT-THIN-BUILD-CONTROL.md) for health, receipts,
-recovery, cleanup, GC, & platform operations.
-
-Cross-host Rust validation uses content-addressed Mac snapshots, managed Windows
-replicas, & each host's local broker. See [Dual-Host Rust Routing](docs/RIGHTKIT-DUAL-HOST-BUILD-ROUTING.md).
+The Rust build broker (`rightkit cargo|rustc|rustdoc` and the `build-control-*` packages) is leaving RightKit for RustRight; see [RustRight](../../rustright/README.md).

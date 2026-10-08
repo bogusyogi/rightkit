@@ -1,8 +1,29 @@
 # rightkit-qa
 
-Rust QA harness for Right Suite applications. It provides declarative scenarios, engine and app control, run locking, isolated profiles, process handling, and hashed evidence.
+Rust QA harness for Right Suite applications. It owns declarative scenarios (`harness::Harness::scenario`), engine and app control (`control`, through `rightkit-control`), run locking and orphan sweeps, isolated app profiles and temp companions (`storage`), process handling, paid-provider mocks (`mock`), loudness, WAV, and PNG validators, and hashed evidence.
 
-The `browser` feature enables Chrome targets through `rightkit-browser`.
+**Use it** in an app's end-to-end and UI tests, through `rightkit cargo test`, when the test must run the real engine or the installed app and record evidence.
+
+**Do not use it** as a general test runner or as a substitute for unit tests. Scenarios that launch a real `.app` need a user login session (see the UI section below).
+
+## Features
+
+| Feature | Default | Pulls in | Effect |
+|---|---|---|---|
+| `browser` | off | `rightkit-browser`, `tokio` | Chrome (CDP) targets for browser scenarios. Off by default because it pulls `tokio` and `chromiumoxide`. |
+
+Other dependencies include `rightkit-control`, `rightkit-framed-sidecar`, `rightkit-service`, `rightkit-process`, and `png`. On Windows, `windows` is a target dependency.
+
+## Platform support
+
+- macOS: UI launch through `open`, and companions under `/private/tmp/rightkit-qa/`. The `cfg(target_os = "macos")` branches are in `src/audio.rs`, `src/control.rs`, and `src/storage.rs`.
+- Windows and Unix: `cfg(windows)` and `cfg(unix)` branches are in `src/process.rs` and `src/suite.rs`. Companions use the system temp directory.
+
+Published version: see `INDEX.md` at the repository root. This crate has no `CHANGELOG.md`.
+
+## Examples
+
+`examples/control-test-app` and `examples/genright` are compiled examples. Run them through `rightkit cargo run -p rightkit-qa --example <name>`.
 
 ## Run storage
 
@@ -43,7 +64,7 @@ On macOS, `control::launch` stages raw binaries & supplied `.app` bundles under 
 
 Caller-supplied `LaunchSpec::env` still rejects credential keys & allows only `RIGHTKIT_*` keys on macOS. Absolute caller paths must live inside `appRoot`; callers cannot replace suite/service identity or move isolation paths outside it. `${data_dir}` & `${evidence_dir}` scenario templates use internal companion paths; artifacts are copied into managed evidence before hashing so disposal cannot invalidate them. App-specific QA knobs should use `RIGHTKIT_<APP>_*` keys honoured only in debug QA builds.
 
-Hidden launches: the app must not take focus itself. When `RIGHTKIT_QA_HIDDEN=1`, skip any `set_focus()`/`show()` on startup, and build with `activate_ignoring_other_apps(false)` on macOS (see `rightkit-control/examples/control-test-app/src/main.rs`). Compare paths with `std::fs::canonicalize`: the QA data dir lives under `/var/folders`, which macOS resolves to `/private/var/folders`.
+Hidden launches: the app must not take focus itself. When `RIGHTKIT_QA_HIDDEN=1`, skip any `set_focus()`/`show()` on startup, and build with `activate_ignoring_other_apps(false)` on macOS (see `crates/rightkit-control/examples/control-test-app/src/main.rs`). Compare paths with `std::fs::canonicalize`: the QA data dir lives under `/var/folders`, which macOS resolves to `/private/var/folders`.
 
 `Control::wait_for_text(Some("#status"), "Ready", timeout)` waits for visible text (`None` searches the whole body).
 
@@ -56,4 +77,4 @@ Hidden launches: the app must not take focus itself. When `RIGHTKIT_QA_HIDDEN=1`
 
 The browser target reaches a local dev server only through `browser::allow_loopback_origin` / `BrowserTarget::launch_for_origins`. That allowance is scoped to one scheme, host and port.
 
-Publish through the RightKit release workflow.
+Publication status is tracked in `INDEX.md`.

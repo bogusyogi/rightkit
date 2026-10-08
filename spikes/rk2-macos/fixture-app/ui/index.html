@@ -1,0 +1,89 @@
+<!doctype html><meta charset="utf-8"><title>RK2 Fixture</title>
+<style>
+html,body{margin:0;background:#f4f7fb;font:14px ui-monospace,Menlo,monospace;color:#102030;overflow:hidden}
+#strip{position:absolute;left:8px;top:8px;display:flex}
+#strip i{display:block;width:8px;height:8px;background:#000}
+#strip i.g{background:#fff;outline:1px solid #888}
+#step{position:absolute;left:8px;top:24px;font-size:34px;font-weight:700;letter-spacing:1px}
+#frame{position:absolute;left:8px;top:68px;font-size:20px}
+#phase{position:absolute;left:8px;top:96px;font-size:14px;color:#456}
+#visible{position:absolute;left:8px;top:116px;font-size:13px;color:#456}
+#stage{position:absolute;left:8px;top:150px}
+canvas{border:2px solid #36c;background:#fff}
+#ctl{position:absolute;left:440px;top:150px;width:340px}
+#ctl button{padding:10px 16px;font-size:15px;margin:4px 0}
+#ctl input{width:300px;padding:6px;margin:4px 0}
+#scrub{width:320px;height:40px;background:#def;position:relative;touch-action:none;user-select:none;margin:6px 0}
+#ph{position:absolute;top:0;bottom:0;left:0;width:3px;background:#c23;pointer-events:none}
+#sc{height:80px;overflow:auto;border:1px solid #999;width:320px}#sc div{height:1200px;background:linear-gradient(#fff,#bcd)}
+#occ{display:none;position:absolute;inset:0;z-index:9;background:#ff00ff;color:#fff;font-size:60px;font-weight:900}
+#occ b{position:absolute;top:0;bottom:0;width:80px;background:#ffff00}
+</style>
+<div id="strip"></div>
+<div id="step">STEP-001</div>
+<div id="frame">FRAME 000000</div>
+<div id="phase">phase: ?</div>
+<div id="visible">vis: ?</div>
+<div id="stage"><canvas id="cv" width="400" height="260"></canvas></div>
+<div id="ctl">
+  <button id="next">Next step</button><br>
+  <input id="inp" placeholder="type here" autocomplete="off"><br>
+  <div id="scrub"><span id="ph"></span>scrub</div>
+  <div id="sc"><div>scroll</div></div>
+</div>
+<div id="occ"><b id="ob"></b>FOREIGN-OCCLUDER</div>
+<script>
+// Fixture contract: step id (text, OCR target), frame counter (text + 24-bit cell strip), an animated region
+// (7 s animated / 3 s static per 10 s cycle) and an input log with epoch-ms timestamps.
+const BITS=24, strip=document.getElementById('strip');
+const cells=[...Array(BITS+2)].map((_,i)=>{const e=document.createElement('i');strip.appendChild(e);return e});
+let counter=0, step=1, animating=true, last=0;
+const L=window.__log=[];
+const log=(kind,extra)=>L.push(Object.assign({kind,step,epochMs:performance.timeOrigin+performance.now(),counter},extra||{}));
+function setStrip(n){cells[0].className='';cells[BITS+1].className='g'; // guard: black then white
+  for(let i=0;i<BITS;i++)cells[i+1].className=((n>>(BITS-1-i))&1)?'g':''}
+const cv=document.getElementById('cv'),g=cv.getContext('2d');
+let t0=null;
+function frame(ts){
+  if(t0===null){t0=ts;log('cycle0',{t0Epoch:performance.timeOrigin+ts})}
+  const cyc=((ts-t0)/1000)%10;
+  animating=cyc<7;
+  if(window.__occ){document.getElementById('occ').style.display='block';
+    const b=document.getElementById('ob');b.style.left=((ts/3)%innerWidth)+'px'; return requestAnimationFrame(frame)}
+  if(animating){
+    counter++;
+    g.fillStyle='#fff';g.fillRect(0,0,400,260);
+    const a=ts/400;
+    g.fillStyle='#2a7';g.beginPath();g.arc(200+120*Math.cos(a),130+80*Math.sin(a*1.3),34,0,7);g.fill();
+    g.fillStyle='#36c';g.save();g.translate(200,130);g.rotate(a*2);g.fillRect(-40,-8,80,16);g.restore();
+    g.fillStyle='#d80';g.fillRect((ts/4)%380,240,20,12);
+    document.getElementById('frame').textContent='FRAME '+String(counter).padStart(6,'0');
+    setStrip(counter);
+  }
+  document.getElementById('phase').textContent='phase: '+(animating?'ANIM':'STATIC')+' cyc='+cyc.toFixed(1);
+  document.getElementById('visible').textContent='vis: '+document.visibilityState+' focus='+document.hasFocus();
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+setStrip(0);
+const stepEl=document.getElementById('step');
+function showStep(){stepEl.textContent='STEP-'+String(step).padStart(3,'0')}
+document.getElementById('next').addEventListener('click',e=>{step++;showStep();
+  // postcondition: log again after the browser has had a chance to paint the new step id
+  requestAnimationFrame(()=>requestAnimationFrame(()=>log('postcondition:step',{trusted:e.isTrusted})));
+  log('click:next',{trusted:e.isTrusted})});
+const inp=document.getElementById('inp');
+inp.addEventListener('input',()=>log('input',{value:inp.value.length}));
+inp.addEventListener('focus',()=>log('focus:input'));
+const scrub=document.getElementById('scrub');let act=false;
+const sv=e=>{const r=scrub.getBoundingClientRect();document.getElementById('ph').style.left=Math.max(0,Math.min(100,(e.clientX-r.left)/r.width*100))+'%'};
+scrub.addEventListener('pointerdown',e=>{act=true;scrub.setPointerCapture(e.pointerId);sv(e);log('pointerdown:scrub',{trusted:e.isTrusted})});
+scrub.addEventListener('pointermove',e=>{if(act&&(e.buttons&1))sv(e)});
+scrub.addEventListener('pointerup',e=>{act=false;sv(e);log('pointerup:scrub',{trusted:e.isTrusted})});
+document.getElementById('sc').addEventListener('scroll',e=>log('scroll',{top:e.target.scrollTop}));
+addEventListener('keydown',e=>log('key',{key:e.key,trusted:e.isTrusted}));
+addEventListener('load',()=>log('load'));
+// frame-rate self-measure for the page itself (rAF cadence), sampled in the log
+let rc=0,rt=performance.now();setInterval(()=>{const n=performance.now();log('raf-rate',{fps:rc*1000/(n-rt)});rc=0;rt=n},2000);
+(function c(){rc++;requestAnimationFrame(c)})();
+</script>

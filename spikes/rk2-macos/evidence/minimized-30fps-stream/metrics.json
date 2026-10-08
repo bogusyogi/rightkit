@@ -1,0 +1,138 @@
+{
+ "label": "minimized-30fps-stream",
+ "frames_callbacks": 1,
+ "frames_complete": 0,
+ "frames_idle": 0,
+ "frames_blank_status": 0,
+ "decoded_frames": 0,
+ "file_bytes": 0,
+ "analyzer": "no video",
+ "inputs": [
+  {
+   "input": "click Next",
+   "method": "click",
+   "ok": true,
+   "caller_send_ms": 0,
+   "admit_ms": 17.187209,
+   "dispatch_ms": 17.214875,
+   "complete_ms": 160.220042,
+   "caller_recv_ms": 188.827417,
+   "send_enc_pts_s": 39722.215,
+   "admit_enc_pts_s": 39722.232,
+   "complete_enc_pts_s": 39722.375
+  },
+  {
+   "input": "click input",
+   "method": "click",
+   "ok": true,
+   "caller_send_ms": 0,
+   "admit_ms": 17.013083,
+   "dispatch_ms": 17.0365,
+   "complete_ms": 162.131625,
+   "caller_recv_ms": 193.168958,
+   "send_enc_pts_s": 39728.223,
+   "admit_enc_pts_s": 39728.24,
+   "complete_enc_pts_s": 39728.385
+  },
+  {
+   "input": "type",
+   "method": "type",
+   "ok": true,
+   "caller_send_ms": 0,
+   "admit_ms": 3.966958,
+   "dispatch_ms": 3.994208,
+   "complete_ms": 99.457083,
+   "caller_recv_ms": 134.98275,
+   "send_enc_pts_s": 39729.722,
+   "admit_enc_pts_s": 39729.726,
+   "complete_enc_pts_s": 39729.822
+  },
+  {
+   "input": "click Next",
+   "method": "click",
+   "ok": true,
+   "caller_send_ms": 0,
+   "admit_ms": 19.276,
+   "dispatch_ms": 19.295625,
+   "complete_ms": 166.721667,
+   "caller_recv_ms": 193.932958,
+   "send_enc_pts_s": 39736.223,
+   "admit_enc_pts_s": 39736.242,
+   "complete_enc_pts_s": 39736.389
+  },
+  {
+   "input": "drag scrub",
+   "method": "drag",
+   "ok": true,
+   "caller_send_ms": 0,
+   "admit_ms": 16.398917,
+   "dispatch_ms": 17.17175,
+   "complete_ms": 404.727292,
+   "caller_recv_ms": 405.740917,
+   "send_enc_pts_s": 39744.222,
+   "admit_enc_pts_s": 39744.239,
+   "complete_enc_pts_s": 39744.627
+  },
+  {
+   "input": "wheel scroll",
+   "method": "wheel",
+   "ok": true,
+   "caller_send_ms": 0,
+   "admit_ms": 44.49525,
+   "dispatch_ms": 44.532209,
+   "complete_ms": 45.184,
+   "caller_recv_ms": 185.948292,
+   "send_enc_pts_s": 39752.22,
+   "admit_enc_pts_s": 39752.265,
+   "complete_enc_pts_s": 39752.265
+  },
+  {
+   "input": "key Right",
+   "method": "key",
+   "ok": true,
+   "caller_send_ms": 0,
+   "admit_ms": 3.771416,
+   "dispatch_ms": 3.815208,
+   "complete_ms": 113.298416,
+   "caller_recv_ms": 137.680583,
+   "send_enc_pts_s": 39758.226,
+   "admit_enc_pts_s": 39758.229,
+   "complete_enc_pts_s": 39758.339
+  },
+  {
+   "input": "click Next",
+   "method": "click",
+   "ok": true,
+   "caller_send_ms": 0,
+   "admit_ms": 15.029792,
+   "dispatch_ms": 15.058167,
+   "complete_ms": 353.290334,
+   "caller_recv_ms": 489.1695,
+   "send_enc_pts_s": 39764.218,
+   "admit_enc_pts_s": 39764.233,
+   "complete_enc_pts_s": 39764.571
+  }
+ ],
+ "foreground_changes": [
+  {
+   "kind": "change",
+   "snapshot": {
+    "frontmost_bundle": "com.anthropic.claudefordesktop",
+    "frontmost_pid": 698,
+    "top_other_window": {
+     "owner": "Claude",
+     "pid": 698,
+     "windowNumber": 48
+    }
+   },
+   "t_uptime_ns": 39744468103625
+  }
+ ],
+ "frontmost_before": "[ NULL ]  ASN:0x0-0x11011: (in front)      bundleID=\"com.anthropic.claudefordesktop\"     b",
+ "frontmost_after": "[ NULL ]  ASN:0x0-0x11011: (in front)      bundleID=\"com.anthropic.claudefordesktop\"     b",
+ "clock_anchor_offset_host_vs_uptime_ms": [
+  0.001,
+  0.001
+ ],
+ "epoch_uptime_drift_ms": -0.051
+}

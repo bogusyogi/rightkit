@@ -1,78 +1,47 @@
 # rightkit-db
 
-Correct-by-default SQLite connection bootstrap for Right Suite desktop apps.
-It owns connection pragmas, SQLCipher key ordering, bounded read pooling,
-checkpointing, optimization, and optional integrity checks. It does not own app
-schemas, migrations, or queries.
+Correct-by-default SQLite and SQLCipher connection bootstrap for Right Suite desktop apps. It owns connection pragmas, SQLCipher key ordering, a bounded read pool, checkpointing, optimization, optional integrity checks, online backup and restore, and versioned migrations. It does not own app schemas or queries.
 
-Default writer & legacy reader opens select WAL with rollback fallback, a bounded
-busy wait & journal, memory-backed temporary storage, & selected durability.
-Use `write_txn()` for
-any transaction that may write; it starts `BEGIN IMMEDIATE` so read-then-write
-work cannot fail with an unretryable stale snapshot.
+Catalog capability: `sqlite-storage`. Published to crates.io (see [INDEX.md](../../INDEX.md)).
 
-## Features
+## When to use it
 
-- `bundled` (default): bundled plain SQLite.
-- `sqlcipher`: SQLCipher with vendored OpenSSL.
-- `sqlcipher-system`: SQLCipher with system crypto (CommonCrypto on Apple,
-  libcrypto elsewhere).
-- `cipher`: internal gate enabled by either SQLCipher feature; do not enable directly.
-- `hooks`: exposes rusqlite hooks for cancellation.
+- Use it to open a SQLite or SQLCipher database with the suite's journal, busy-timeout and durability rules.
+- Use `write_txn()` for any transaction that may write. It starts `BEGIN IMMEDIATE`, so read-then-write work cannot fail with an unretryable stale snapshot.
 
-SQLCipher consumers must disable defaults & choose exactly one provider feature.
-Both expose identical keyed-open & `rekey` APIs; enabling both is a compile error.
-Keep provider choice compatible with existing encrypted databases:
+Do not use it to define app tables or queries. Keep those in the app.
+
+## Default behaviour
+
+The default writer and legacy reader open select WAL with rollback fallback, a bounded busy wait and journal, memory-backed temporary storage, and the selected durability profile.
+
+- `DurabilityProfile::Full`: for user mutations that cannot be reconstructed.
+- `DurabilityProfile::Normal`: for rebuildable indexes or telemetry.
+- `CacheProfile::LargeWorkingSet`: opt-in. It is currently intended for MailRight.
+
+## Cargo features
+
+| Feature | Default | Pulls in | Enables |
+|---|---|---|---|
+| `bundled` | yes | `rusqlite/bundled` | Bundled plain SQLite. |
+| `sqlcipher` | no | `cipher`, `rusqlite/bundled-sqlcipher-vendored-openssl` | SQLCipher with vendored OpenSSL, the same crypto provider on every OS. |
+| `sqlcipher-system` | no | `cipher`, `rusqlite/bundled-sqlcipher` | SQLCipher with the system crypto provider: CommonCrypto on Apple, libcrypto elsewhere. Use it where existing encrypted databases were created with system crypto. Switching providers is not a silent refactor. |
+| `cipher` | no | none | Internal gate for keyed open and `rekey`. Enabled by either SQLCipher feature. Do not name it directly. |
+| `hooks` | no | `rusqlite/hooks` | `progress_handler()` for cancellation through returned connections, and the `rightkit_db::rusqlite` re-export. |
+
+SQLCipher consumers must turn off default features and choose exactly one provider feature. Both providers expose the same keyed-open and `rekey` APIs. Enabling both is a compile error. Keep the provider compatible with existing encrypted databases:
 
 ```toml
-rightkit-db = { version = "=0.3.1", default-features = false, features = ["sqlcipher"] }
+rightkit-db = { version = "<exact published version from INDEX.md>", default-features = false, features = ["sqlcipher"] }
 ```
 
-Choose `DurabilityProfile::Full` for user mutations that cannot be reconstructed
-and `DurabilityProfile::Normal` for rebuildable indexes or telemetry. The
-`LargeWorkingSet` cache profile is opt-in and currently intended for MailRight.
+`rusqlite` is a caret requirement (`0.40.1`), so consumers that resolve `0.40.2` stay compatible.
 
-## Also (0.3.0)
+## Usage
 
-- `open_read_only(path)` uses `SQLITE_OPEN_READ_ONLY`;
-  `open_existing_writer(path)` uses `SQLITE_OPEN_READ_WRITE` without CREATE.
-  Both return `rusqlite::Connection`, accept paths or `file:` URIs with query
-  parameters, & refuse missing files. Matching `DbOptions` methods use its path,
-  key, timeout, & optional integrity check. They bypass journal selection,
-  per-host routing, permission changes, `init`, optimization, & migrations.
-  Read-only main DBs still allow SQLite TEMP tables unless callers set `query_only`.
-  Existing `open_reader()` behavior stays unchanged: read-write/create bootstrap,
-  then `query_only`.
-- `DbOptions::busy_timeout: std::time::Duration` defaults to five seconds & is
-  installed before any bootstrap SQL, including key verification & `init`.
-- `open_in_memory()` returns a private ephemeral connection. Matching
-  `DbOptions::open_in_memory()` retains key, timeout, initializer, cache,
-  foreign-key, durability, optimization, & integrity options. Path, filesystem
-  permissions, journal selection/fallback, & mmap do not apply; journal mode
-  remains `memory`, including with `WalStrict`. Run `migrate` with `db_path: None`
-  to skip filesystem backup & marker handling.
-- `MigrateOptions::version_storage` defaults to `VersionStorage::UserVersion`.
-  `VersionStorage::Table { table, key }` uses `key`/`value` columns compatible
-  with Blueprint's `meta` table. Values are decimal text; identifiers accept ASCII
-  letters, digits, & underscores; keys are bound parameters. Missing table/key
-  reads as zero. Table creation & version writes share each migration transaction.
-  `migration_version` reads chosen storage; `rollback_to_with_storage` reverses it.
-  `user_version` & `rollback_to` retain their default storage.
-- `DbOptions::restore_from(backup_path)` validates every `PRAGMA integrity_check` row (CHECK constraints included)
-  before opening existing live DB, then restores through SQLite's backup API.
-  A read transaction holds validated source snapshot until copy completes.
-  Missing/corrupt backups leave live DB untouched; missing live DB is refused.
-  Backup must use options' SQLCipher key. Free `restore_from(options, destination,
-  backup_path)` restores into an existing mutable connection, including in-memory
-  stores. Destination must be writable & outside any transaction; busy/locked
-  retries are bounded by options' timeout.
-- Optional `hooks = ["rusqlite/hooks"]` exposes `progress_handler()` for
-  cancellation through returned connections & existing `rightkit_db::rusqlite`
-  re-export.
-  `rusqlite` remains a caret requirement (`0.40.1`), compatible with consumers
-  resolving `0.40.2`.
+Taken from `tests/contract.rs` and the crate's read-only and migration API. Illustrative as a snippet:
 
-```rust,no_run
+```rust
 use std::time::Duration;
 use rightkit_db::{DbOptions, MigrateOptions, VersionStorage};
 
@@ -87,10 +56,32 @@ let migrations = MigrateOptions {
     },
     ..Default::default()
 };
-# Ok::<(), rightkit_db::DbError>(())
 ```
 
-Publish only through:
+## Other APIs
+
+- `open_read_only(path)` opens with `SQLITE_OPEN_READ_ONLY`. `open_existing_writer(path)` opens read-write without CREATE. Both accept paths or `file:` URIs with query parameters, and refuse missing files. The matching `DbOptions` methods use the path, key, timeout and optional integrity check. They skip journal selection, per-host routing, permission changes, `init`, optimization and migrations. Read-only main databases still allow SQLite TEMP tables unless callers set `query_only`.
+- `open_reader()` is unchanged: read-write or create bootstrap, then `query_only`.
+- `DbOptions::busy_timeout: Duration` defaults to five seconds. It is installed before any bootstrap SQL, including key verification and `init`.
+- `open_in_memory()` returns a private ephemeral connection. The matching `DbOptions::open_in_memory()` keeps key, timeout, initializer, cache, foreign-key, durability, optimization and integrity options. Path, filesystem permissions, journal selection and mmap do not apply. The journal mode stays `memory`, including with `WalStrict`. Run `migrate` with `db_path: None` to skip filesystem backup and marker handling.
+- `MigrateOptions::version_storage` defaults to `VersionStorage::UserVersion`. `VersionStorage::Table { table, key }` uses `key` and `value` columns compatible with Blueprint's `meta` table. Values are decimal text. Identifiers accept ASCII letters, digits and underscores. Keys are bound parameters. A missing table or key reads as zero. Table creation and version writes share each migration transaction. `migration_version` reads the chosen storage, and `rollback_to_with_storage` reverses it. `user_version` and `rollback_to` keep the default storage.
+- `DbOptions::restore_from(backup_path)` checks every `PRAGMA integrity_check` row, including CHECK constraints, before it restores an existing live database through SQLite's backup API. A read transaction holds the validated source snapshot until the copy finishes. A missing or corrupt backup leaves the live database untouched. A missing live database is refused. The backup must use the options' SQLCipher key. The free function `restore_from(options, destination, backup_path)` restores into an existing mutable connection, including in-memory stores. The destination must be writable and outside any transaction. Busy and locked retries are bounded by the options' timeout.
+
+## Platform support
+
+- Unix: descriptor-relative file handling through `rightkit-fs`.
+- Windows: the same database API. SQLCipher provider choice is the main per-OS difference (see Cargo features).
+- Apple: `sqlcipher-system` uses CommonCrypto.
+
+## Verification
+
+Tests: `tests/contract.rs`, `tests/e2e.rs`, `tests/journal_fallback.rs`, `tests/membrane.rs`.
+
+## Version and changes
+
+Published version: see [INDEX.md](../../INDEX.md). No CHANGELOG.md in this crate.
+
+Publish only through the RightKit release command:
 
 ```text
 right-release publish cargo --crate rightkit-db

@@ -1,0 +1,730 @@
+{
+ "label": "offscreen-30fps-stream",
+ "state": "offscreen",
+ "fps": 30,
+ "seconds": 60.0,
+ "mode": "stream",
+ "frontmost_before": {
+  "asn": "ASN:0x0-0xf60f6:",
+  "info": "[ NULL ]  ASN:0x0-0xf60f6: (in front)      bundleID=\"com.apple.Safari\"     bundle path=[ NULL ]      executable path=[ NULL ]      pid = 78290 !cgsConnection !signalled type=[ NULL ]  flavor=[ NULL ]  Version=[ NULL ]  Arch=!!none"
+ },
+ "info_initial": {
+  "appHidden": false,
+  "backingScale": 1,
+  "contentLayout": {
+   "h": 568,
+   "w": 800,
+   "x": 0,
+   "y": 0
+  },
+  "frame": {
+   "h": 600,
+   "w": 800,
+   "x": 400,
+   "y": 222
+  },
+  "isMiniaturized": false,
+  "isVisible": false,
+  "occlusionState": 8192,
+  "onAnyScreen": true,
+  "pid": 69525,
+  "screens": [
+   {
+    "h": 900,
+    "scale": 1,
+    "w": 1600,
+    "x": 0,
+    "y": 0
+   }
+  ],
+  "windowNumber": 2732
+ },
+ "display_union_appkit": [
+  0,
+  0,
+  1600,
+  900
+ ],
+ "placement_target": [
+  3600,
+  300
+ ],
+ "pre_visibility_force": "spi",
+ "vis_force_result": "spi applied",
+ "info_placed": {
+  "appHidden": false,
+  "backingScale": 1,
+  "contentLayout": {
+   "h": 568,
+   "w": 800,
+   "x": 0,
+   "y": 0
+  },
+  "frame": {
+   "h": 600,
+   "w": 800,
+   "x": 3600,
+   "y": 300
+  },
+  "isMiniaturized": false,
+  "isVisible": true,
+  "occlusionState": 8192,
+  "onAnyScreen": false,
+  "pid": 69525,
+  "screens": [
+   {
+    "h": 900,
+    "scale": 1,
+    "w": 1600,
+    "x": 0,
+    "y": 0
+   }
+  ],
+  "windowNumber": 2732
+ },
+ "placement_outside_all_displays": true,
+ "backing_scale": 1,
+ "info_before_capture": {
+  "appHidden": false,
+  "backingScale": 1,
+  "contentLayout": {
+   "h": 568,
+   "w": 800,
+   "x": 0,
+   "y": 0
+  },
+  "frame": {
+   "h": 600,
+   "w": 800,
+   "x": 3600,
+   "y": 300
+  },
+  "isMiniaturized": false,
+  "isVisible": true,
+  "occlusionState": 8192,
+  "onAnyScreen": false,
+  "pid": 69525,
+  "screens": [
+   {
+    "h": 900,
+    "scale": 1,
+    "w": 1600,
+    "x": 0,
+    "y": 0
+   }
+  ],
+  "windowNumber": 2732
+ },
+ "page_before_capture": {
+  "counter": "FRAME 000157",
+  "focus": false,
+  "vis": "visible"
+ },
+ "page_before_capture_2": {
+  "counter": "FRAME 000196",
+  "vis": "visible"
+ },
+ "sck_list": {
+  "ok": true,
+  "windows": [
+   {
+    "active": false,
+    "frame": {
+     "h": 500,
+     "w": 500,
+     "x": 0,
+     "y": 400
+    },
+    "isOnScreen": false,
+    "layer": 0,
+    "pid": 69525,
+    "title": "",
+    "windowID": 2733
+   },
+   {
+    "active": true,
+    "frame": {
+     "h": 600,
+     "w": 800,
+     "x": 3600,
+     "y": 0
+    },
+    "isOnScreen": true,
+    "layer": 0,
+    "pid": 69525,
+    "title": "RK2 Fixture",
+    "windowID": 2732
+   }
+  ]
+ },
+ "capture_started_seen": true,
+ "first_frame_seen": true,
+ "helper_exit": 0,
+ "helper_lines": [
+  "{\"arrival_uptime_ns\":39196558431125,\"event\":\"first_accepted_frame\",\"latency_ms\":2.512,\"pts_host_s\":39196.555919124999}",
+  "{\"anchor0\":{\"host_clock_s\":39196.512087832998,\"uptime_ns\":39196512087333},\"event\":\"capture_started\",\"fps\":30,\"height\":600,\"mode\":\"stream\",\"scale\":1,\"sck_active\":true,\"sck_frame\":{\"h\":600,\"w\":800,\"x\":3600,\"y\":0},\"sck_isOnScreen\":true,\"sck_layer\":0,\"start_call_uptime_ns\":39196512089500,\"start_return_uptime_ns\":39196561432625,\"width\":800,\"windowID\":2732}",
+  "{\"event\":\"summary_written\",\"path\":\"\\/Volumes\\/D\\/claude\\/tools\\/rightkit\\/spikes\\/rk2-macos\\/evidence\\/offscreen-30fps-stream\\/summary.json\"}"
+ ],
+ "inputs": [
+  {
+   "name": "click Next",
+   "method": "click",
+   "offset_s": 6,
+   "caller_send_ns": 39202571852041,
+   "caller_recv_ns": 39202751158666,
+   "result": {
+    "ok": true
+   }
+  },
+  {
+   "name": "click input",
+   "method": "click",
+   "offset_s": 14,
+   "caller_send_ns": 39210571577000,
+   "caller_recv_ns": 39210761283916,
+   "result": {
+    "ok": true
+   }
+  },
+  {
+   "name": "type",
+   "method": "type",
+   "offset_s": 15.5,
+   "caller_send_ns": 39212069648666,
+   "caller_recv_ns": 39212251835041,
+   "result": {
+    "ok": true
+   }
+  },
+  {
+   "name": "click Next",
+   "method": "click",
+   "offset_s": 22,
+   "caller_send_ns": 39218565234000,
+   "caller_recv_ns": 39218747376208,
+   "result": {
+    "ok": true
+   }
+  },
+  {
+   "name": "drag scrub",
+   "method": "drag",
+   "offset_s": 30,
+   "caller_send_ns": 39226567961541,
+   "caller_recv_ns": 39228426408291,
+   "result": {
+    "ok": true
+   }
+  },
+  {
+   "name": "wheel scroll",
+   "method": "wheel",
+   "offset_s": 38,
+   "caller_send_ns": 39234571210083,
+   "caller_recv_ns": 39234702020250,
+   "result": {
+    "ok": true
+   }
+  },
+  {
+   "name": "key Right",
+   "method": "key",
+   "offset_s": 44,
+   "caller_send_ns": 39240563338416,
+   "caller_recv_ns": 39240708431916,
+   "result": {
+    "ok": true
+   }
+  },
+  {
+   "name": "click Next",
+   "method": "click",
+   "offset_s": 50,
+   "caller_send_ns": 39246570796791,
+   "caller_recv_ns": 39247041498583,
+   "result": {
+    "ok": true
+   }
+  }
+ ],
+ "clock0": {
+  "epoch_ms": 1791480634678.463,
+  "uptime_ns": 39196262146541
+ },
+ "clock1": {
+  "epoch_ms": 1791480695063.658,
+  "uptime_ns": 39256647374625
+ },
+ "page_log": [
+  {
+   "counter": 0,
+   "epochMs": 1791480631052,
+   "kind": "load",
+   "step": 1
+  },
+  {
+   "counter": 0,
+   "epochMs": 1791480631165,
+   "kind": "cycle0",
+   "step": 1,
+   "t0Epoch": 1791480631165
+  },
+  {
+   "counter": 114,
+   "epochMs": 1791480633050,
+   "fps": 57.47126436781609,
+   "kind": "raf-rate",
+   "step": 1
+  },
+  {
+   "counter": 234,
+   "epochMs": 1791480635050,
+   "fps": 60,
+   "kind": "raf-rate",
+   "step": 1
+  },
+  {
+   "counter": 354,
+   "epochMs": 1791480637051,
+   "fps": 59.97001499250375,
+   "kind": "raf-rate",
+   "step": 1
+  },
+  {
+   "counter": 420,
+   "epochMs": 1791480639051,
+   "fps": 60,
+   "kind": "raf-rate",
+   "step": 1
+  },
+  {
+   "counter": 420,
+   "epochMs": 1791480641051,
+   "fps": 60,
+   "kind": "raf-rate",
+   "step": 1
+  },
+  {
+   "counter": 420,
+   "epochMs": 1791480641095,
+   "kind": "click:next",
+   "step": 2,
+   "trusted": true
+  },
+  {
+   "counter": 420,
+   "epochMs": 1791480641116,
+   "kind": "postcondition:step",
+   "step": 2,
+   "trusted": true
+  },
+  {
+   "counter": 534,
+   "epochMs": 1791480643051,
+   "fps": 60,
+   "kind": "raf-rate",
+   "step": 2
+  },
+  {
+   "counter": 654,
+   "epochMs": 1791480645056,
+   "fps": 59.85037406483791,
+   "kind": "raf-rate",
+   "step": 2
+  },
+  {
+   "counter": 774,
+   "epochMs": 1791480647060,
+   "fps": 59.880239520958085,
+   "kind": "raf-rate",
+   "step": 2
+  },
+  {
+   "counter": 840,
+   "epochMs": 1791480649051,
+   "kind": "focus:input",
+   "step": 2
+  },
+  {
+   "counter": 840,
+   "epochMs": 1791480649064,
+   "fps": 59.880239520958085,
+   "kind": "raf-rate",
+   "step": 2
+  },
+  {
+   "counter": 840,
+   "epochMs": 1791480650500,
+   "key": "h",
+   "kind": "key",
+   "step": 2,
+   "trusted": true
+  },
+  {
+   "counter": 840,
+   "epochMs": 1791480650501,
+   "kind": "input",
+   "step": 2,
+   "value": 1
+  },
+  {
+   "counter": 840,
+   "epochMs": 1791480650540,
+   "key": "e",
+   "kind": "key",
+   "step": 2,
+   "trusted": true
+  },
+  {
+   "counter": 840,
+   "epochMs": 1791480650540,
+   "kind": "input",
+   "step": 2,
+   "value": 2
+  },
+  {
+   "counter": 840,
+   "epochMs": 1791480650550,
+   "key": "l",
+   "kind": "key",
+   "step": 2,
+   "trusted": true
+  },
+  {
+   "counter": 840,
+   "epochMs": 1791480650550,
+   "kind": "input",
+   "step": 2,
+   "value": 3
+  },
+  {
+   "counter": 840,
+   "epochMs": 1791480650560,
+   "key": "l",
+   "kind": "key",
+   "step": 2,
+   "trusted": true
+  },
+  {
+   "counter": 840,
+   "epochMs": 1791480650560,
+   "kind": "input",
+   "step": 2,
+   "value": 4
+  },
+  {
+   "counter": 840,
+   "epochMs": 1791480650570,
+   "key": "o",
+   "kind": "key",
+   "step": 2,
+   "trusted": true
+  },
+  {
+   "counter": 840,
+   "epochMs": 1791480650570,
+   "kind": "input",
+   "step": 2,
+   "value": 5
+  },
+  {
+   "counter": 840,
+   "epochMs": 1791480650579,
+   "key": " ",
+   "kind": "key",
+   "step": 2,
+   "trusted": true
+  },
+  {
+   "counter": 840,
+   "epochMs": 1791480650579,
+   "kind": "input",
+   "step": 2,
+   "value": 6
+  },
+  {
+   "counter": 840,
+   "epochMs": 1791480650595,
+   "key": "r",
+   "kind": "key",
+   "step": 2,
+   "trusted": true
+  },
+  {
+   "counter": 840,
+   "epochMs": 1791480650595,
+   "kind": "input",
+   "step": 2,
+   "value": 7
+  },
+  {
+   "counter": 840,
+   "epochMs": 1791480650605,
+   "key": "k",
+   "kind": "key",
+   "step": 2,
+   "trusted": true
+  },
+  {
+   "counter": 840,
+   "epochMs": 1791480650605,
+   "kind": "input",
+   "step": 2,
+   "value": 8
+  },
+  {
+   "counter": 840,
+   "epochMs": 1791480650616,
+   "key": "2",
+   "kind": "key",
+   "step": 2,
+   "trusted": true
+  },
+  {
+   "counter": 840,
+   "epochMs": 1791480650616,
+   "kind": "input",
+   "step": 2,
+   "value": 9
+  },
+  {
+   "counter": 840,
+   "epochMs": 1791480651067,
+   "fps": 59.910134797803295,
+   "kind": "raf-rate",
+   "step": 2
+  },
+  {
+   "counter": 955,
+   "epochMs": 1791480653072,
+   "fps": 59.85037406483791,
+   "kind": "raf-rate",
+   "step": 2
+  },
+  {
+   "counter": 1075,
+   "epochMs": 1791480655076,
+   "fps": 59.880239520958085,
+   "kind": "raf-rate",
+   "step": 2
+  },
+  {
+   "counter": 1195,
+   "epochMs": 1791480657080,
+   "fps": 59.880239520958085,
+   "kind": "raf-rate",
+   "step": 2
+  },
+  {
+   "counter": 1196,
+   "epochMs": 1791480657084,
+   "kind": "click:next",
+   "step": 3,
+   "trusted": true
+  },
+  {
+   "counter": 1198,
+   "epochMs": 1791480657116,
+   "kind": "postcondition:step",
+   "step": 3,
+   "trusted": true
+  },
+  {
+   "counter": 1260,
+   "epochMs": 1791480659084,
+   "fps": 60.37924151696607,
+   "kind": "raf-rate",
+   "step": 3
+  },
+  {
+   "counter": 1260,
+   "epochMs": 1791480661088,
+   "fps": 59.880239520958085,
+   "kind": "raf-rate",
+   "step": 3
+  },
+  {
+   "counter": 1280,
+   "epochMs": 1791480663092,
+   "fps": 11.976047904191615,
+   "kind": "raf-rate",
+   "step": 3
+  },
+  {
+   "counter": 1299,
+   "epochMs": 1791480665096,
+   "fps": 9.481037924151696,
+   "kind": "raf-rate",
+   "step": 3
+  },
+  {
+   "counter": 1299,
+   "epochMs": 1791480665136,
+   "kind": "pointerdown:scrub",
+   "step": 3,
+   "trusted": true
+  },
+  {
+   "counter": 1315,
+   "epochMs": 1791480666735,
+   "kind": "pointerup:scrub",
+   "step": 3,
+   "trusted": true
+  },
+  {
+   "counter": 1319,
+   "epochMs": 1791480667099,
+   "fps": 9.98502246630055,
+   "kind": "raf-rate",
+   "step": 3
+  },
+  {
+   "counter": 1329,
+   "epochMs": 1791480669104,
+   "fps": 9.476309226932669,
+   "kind": "raf-rate",
+   "step": 3
+  },
+  {
+   "counter": 1329,
+   "epochMs": 1791480671107,
+   "fps": 10.983524712930604,
+   "kind": "raf-rate",
+   "step": 3
+  },
+  {
+   "counter": 1350,
+   "epochMs": 1791480673112,
+   "fps": 10.473815461346634,
+   "kind": "raf-rate",
+   "step": 3
+  },
+  {
+   "counter": 1370,
+   "epochMs": 1791480675115,
+   "fps": 9.98502246630055,
+   "kind": "raf-rate",
+   "step": 3
+  },
+  {
+   "counter": 1389,
+   "epochMs": 1791480677120,
+   "fps": 9.476309226932669,
+   "kind": "raf-rate",
+   "step": 3
+  },
+  {
+   "counter": 1400,
+   "epochMs": 1791480678989,
+   "key": "ArrowRight",
+   "kind": "key",
+   "step": 3,
+   "trusted": true
+  },
+  {
+   "counter": 1400,
+   "epochMs": 1791480679124,
+   "fps": 9.481037924151696,
+   "kind": "raf-rate",
+   "step": 3
+  },
+  {
+   "counter": 1400,
+   "epochMs": 1791480681128,
+   "fps": 9.98003992015968,
+   "kind": "raf-rate",
+   "step": 3
+  },
+  {
+   "counter": 1418,
+   "epochMs": 1791480683132,
+   "fps": 9.481037924151696,
+   "kind": "raf-rate",
+   "step": 3
+  },
+  {
+   "counter": 1440,
+   "epochMs": 1791480685136,
+   "fps": 10.978043912175648,
+   "kind": "raf-rate",
+   "step": 3
+  },
+  {
+   "counter": 1441,
+   "epochMs": 1791480685284,
+   "kind": "click:next",
+   "step": 4,
+   "trusted": true
+  },
+  {
+   "counter": 1443,
+   "epochMs": 1791480685412,
+   "kind": "postcondition:step",
+   "step": 4,
+   "trusted": true
+  },
+  {
+   "counter": 1462,
+   "epochMs": 1791480687140,
+   "fps": 10.978043912175648,
+   "kind": "raf-rate",
+   "step": 4
+  },
+  {
+   "counter": 1472,
+   "epochMs": 1791480689143,
+   "fps": 9.485771342985522,
+   "kind": "raf-rate",
+   "step": 4
+  },
+  {
+   "counter": 1472,
+   "epochMs": 1791480691148,
+   "fps": 9.975062344139651,
+   "kind": "raf-rate",
+   "step": 4
+  },
+  {
+   "counter": 1491,
+   "epochMs": 1791480693152,
+   "fps": 9.481037924151696,
+   "kind": "raf-rate",
+   "step": 4
+  }
+ ],
+ "info_after": {
+  "appHidden": false,
+  "backingScale": 1,
+  "contentLayout": {
+   "h": 568,
+   "w": 800,
+   "x": 0,
+   "y": 0
+  },
+  "frame": {
+   "h": 600,
+   "w": 800,
+   "x": 3600,
+   "y": 300
+  },
+  "isMiniaturized": false,
+  "isVisible": true,
+  "occlusionState": 8192,
+  "onAnyScreen": false,
+  "pid": 69525,
+  "screens": [
+   {
+    "h": 900,
+    "scale": 1,
+    "w": 1600,
+    "x": 0,
+    "y": 0
+   }
+  ],
+  "windowNumber": 2732
+ },
+ "frontmost_after": {
+  "asn": "ASN:0x0-0xf00f:",
+  "info": "[ NULL ]  ASN:0x0-0xf00f: (in front)      bundleID=\"com.openai.codex\"     bundle path=[ NULL ]      executable path=[ NULL ]      pid = 696 !cgsConnection !signalled type=[ NULL ]  flavor=[ NULL ]  Version=[ NULL ]  Arch=!!none"
+ }
+}

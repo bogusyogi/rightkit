@@ -1,7 +1,31 @@
 # rightkit-qts
 
-Native Qwen3-TTS inference (GGUF/GGML + shared 12 Hz ONNX vocoder), vendored
-from QTS v0.2.0; see [PINNED.md](PINNED.md). Rust library name remains `qts`.
+Native Qwen3-TTS inference for Right Suite apps: GGUF and GGML talker and code-predictor models, a tokenizer GGUF, and a shared 12 Hz ONNX vocoder. It is vendored from QTS v0.2.0 (see [PINNED.md](PINNED.md)). The Rust library name is `qts`. It owns synthesis (base, custom voice, and voice design modes), streaming, model-path resolution, and the GGUF export contract. It does not own voice selection UX, model downloads, or worker lifetime. `rightkit-tts` wraps this crate in a worker with idle unload.
+
+**Use it** through `rightkit-tts` in Right Suite apps. Use this crate directly only when an app needs the engine without the worker.
+
+**Do not use it** to download models. Model files must already be on disk; the crate does not fetch them. It is not a speech recognizer.
+
+## Features
+
+| Feature | Default | Pulls in | Effect |
+|---|---|---|---|
+| `metal` | off | `rightkit-qts-ggml/metal` | ggml Metal backend (Apple targets). |
+| `vulkan` | off | `rightkit-qts-ggml/vulkan` | ggml Vulkan backend. |
+| `blas` | off | `rightkit-qts-ggml/blas` | ggml BLAS backend. |
+| `native` | off | `rightkit-qts-ggml/native` | Builds ggml for the host CPU. |
+| `acl`, `armnn`, `azure`, `cann`, `coreml`, `cuda`, `directml`, `migraphx`, `nnapi`, `nvrtx`, `onednn`, `openvino`, `qnn`, `rknpu`, `tensorrt`, `tvm`, `vitis`, `webgpu`, `xnnpack` | off | `ort/<name>` | Execution-provider features for the vocoder's ONNX Runtime session. Each forwards to the same-named `ort` feature. |
+
+The default feature set is empty. The ONNX Runtime dependency is pinned to `=2.0.0-rc.13` with `load-dynamic` and API 24 (see `Cargo.toml`).
+
+## Platform support
+
+- `metal` applies to Apple targets. `rightkit-qts-ggml-sys` ignores it with a build warning on other targets.
+- `vulkan` is for hosts with a Vulkan SDK.
+- The vocoder runs through ONNX Runtime. The execution provider is chosen by feature and by the `rightkit-ort` binding that the app configures.
+- `cfg(target_vendor = "apple")` branches exist in `src/pipeline/backend.rs` and `src/pipeline/vocoder.rs`.
+
+Published version: see `INDEX.md` at the repository root. Release notes: see [CHANGELOG.md](CHANGELOG.md).
 
 ## Compatibility
 
@@ -10,16 +34,21 @@ streaming, profiling & 0.6B filename resolution retain their public signatures.
 Existing `synthesize()` also retains its zero-embedding fallback. Mode APIs are
 additive, so existing struct literals need no new fields.
 
-Set `RIGHTKIT_QTS_DUMP_CODES=/tmp/qts-codes.json` to capture first 32 generated
+Set `RIGHTKIT_QTS_DUMP_CODES` to a file path (for example `<dir>/qts-codes.json`) to capture first 32 generated
 codec frames as JSON `[[codebook_0, ..., codebook_15], ...]`. Capture excludes
 reference frames, persists after each frame, & resets to `[]` on each rollout.
 Recompute, cached, & streaming rollouts support it; path errors return IO errors.
-Unset variable leaves synthesis unchanged. See [1.7B static audit](AUDIT-1P7B.md)
-& [header inventory](HEADER-INVENTORY-1P7B.md).
+Unset variable leaves synthesis unchanged.
+
+## Example
+
+The Mode API section below shows the call sequence (illustrative). The unit tests named in Synthetic tests are the compiled checks.
 
 ## Mode API
 
-```rust,no_run
+Illustrative; not compiled as a doctest. The compiled checks are the unit tests named in Synthetic tests.
+
+```rust,ignore
 use qts::{ModeSynthesizeRequest, PresetSpeaker, QtsMode, Qwen3TtsEngine,
           SynthesizeRequest};
 
@@ -40,7 +69,7 @@ let audio = engine.synthesize_mode(&request)?;
 # Ok::<(), qts::Qwen3TtsError>(())
 ```
 
-```rust
+```rust,ignore
 pub enum QtsMode { Base, CustomVoice, VoiceDesign }
 pub enum PresetSpeaker {
     Vivian, Serena, Uncle_Fu, Dylan, Eric, Ryan, Aiden, Ono_Anna, Sohee,
@@ -77,7 +106,7 @@ Instruction tokens are projected
 
 Public additions (`Result<T>` below means `Result<T, Qwen3TtsError>`):
 
-```rust
+```rust,ignore
 QtsMode::as_str(self) -> &'static str
 PresetSpeaker::ALL: [PresetSpeaker; 9]
 PresetSpeaker::as_str(self) -> &'static str
@@ -108,7 +137,7 @@ layers for both prefill & every codebook step. Thus 1.7B uses 2048→1024 while
 
 ## Paths & GGUF export contract
 
-```rust
+```rust,ignore
 pub struct ModeModelPaths {
     pub talker_gguf: PathBuf,
     pub code_predictor_gguf: PathBuf,
@@ -160,6 +189,8 @@ metadata. New contract:
 
 ## Synthetic tests
 
+These are the crate's unit tests in `src/`. Run them with `rightkit cargo test -p rightkit-qts`.
+
 Unit fixtures use tiny local GGUFs & tensors. Coverage includes independent
 2048/1024 metadata, 4→2 projection math/bias, cached/recompute equivalence for
 split/equal widths, separate-file loading, invalid projection shapes,
@@ -185,3 +216,7 @@ No model downloads are required.
 | `incompatible_conditioning_is_rejected` | Reject all tested cross-mode clone/preset/instruct/embedding conflicts. |
 | `mode_specific_1_7b_paths_share_vocoder` | All three modes resolve distinct default talker/predictor/tokenizer filenames & shared vocoder. |
 | `mode_paths_resolve_split_quantization_or_bundled_export` | Existing split quantized files resolve independently; bundled export supplies all GGUF components. |
+
+## Changes
+
+See [CHANGELOG.md](CHANGELOG.md).

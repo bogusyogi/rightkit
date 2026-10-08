@@ -1,0 +1,779 @@
+{
+ "label": "apphidden-30fps-stream",
+ "state": "apphidden",
+ "fps": 30,
+ "seconds": 60.0,
+ "mode": "stream",
+ "frontmost_before": {
+  "asn": "ASN:0x0-0x11011:",
+  "info": "[ NULL ]  ASN:0x0-0x11011: (in front)      bundleID=\"com.anthropic.claudefordesktop\"     bundle path=[ NULL ]      executable path=[ NULL ]      pid = 698 !cgsConnection !signalled type=[ NULL ]  flavor=[ NULL ]  Version=[ NULL ]  Arch=!!none"
+ },
+ "info_initial": {
+  "appHidden": false,
+  "backingScale": 1,
+  "contentLayout": {
+   "h": 568,
+   "w": 800,
+   "x": 0,
+   "y": 0
+  },
+  "frame": {
+   "h": 600,
+   "w": 800,
+   "x": 400,
+   "y": 222
+  },
+  "isMiniaturized": false,
+  "isVisible": false,
+  "occlusionState": 8192,
+  "onAnyScreen": true,
+  "pid": 79647,
+  "screens": [
+   {
+    "h": 900,
+    "scale": 1,
+    "w": 1600,
+    "x": 0,
+    "y": 0
+   }
+  ],
+  "windowNumber": 2822
+ },
+ "display_union_appkit": [
+  0,
+  0,
+  1600,
+  900
+ ],
+ "placement_target": [
+  3600,
+  300
+ ],
+ "pre_visibility_force": "spi",
+ "vis_force_result": "spi applied",
+ "info_placed": {
+  "appHidden": false,
+  "backingScale": 1,
+  "contentLayout": {
+   "h": 568,
+   "w": 800,
+   "x": 0,
+   "y": 0
+  },
+  "frame": {
+   "h": 600,
+   "w": 800,
+   "x": 3600,
+   "y": 300
+  },
+  "isMiniaturized": false,
+  "isVisible": true,
+  "occlusionState": 8192,
+  "onAnyScreen": false,
+  "pid": 79647,
+  "screens": [
+   {
+    "h": 900,
+    "scale": 1,
+    "w": 1600,
+    "x": 0,
+    "y": 0
+   }
+  ],
+  "windowNumber": 2822
+ },
+ "placement_outside_all_displays": true,
+ "backing_scale": 1,
+ "info_state": {
+  "appHidden": true,
+  "backingScale": 1,
+  "contentLayout": {
+   "h": 568,
+   "w": 800,
+   "x": 0,
+   "y": 0
+  },
+  "frame": {
+   "h": 600,
+   "w": 800,
+   "x": 3600,
+   "y": 300
+  },
+  "isMiniaturized": false,
+  "isVisible": false,
+  "occlusionState": 8192,
+  "onAnyScreen": false,
+  "pid": 79647,
+  "screens": [
+   {
+    "h": 900,
+    "scale": 1,
+    "w": 1600,
+    "x": 0,
+    "y": 0
+   }
+  ],
+  "windowNumber": 2822
+ },
+ "info_before_capture": {
+  "appHidden": true,
+  "backingScale": 1,
+  "contentLayout": {
+   "h": 568,
+   "w": 800,
+   "x": 0,
+   "y": 0
+  },
+  "frame": {
+   "h": 600,
+   "w": 800,
+   "x": 3600,
+   "y": 300
+  },
+  "isMiniaturized": false,
+  "isVisible": false,
+  "occlusionState": 8192,
+  "onAnyScreen": false,
+  "pid": 79647,
+  "screens": [
+   {
+    "h": 900,
+    "scale": 1,
+    "w": 1600,
+    "x": 0,
+    "y": 0
+   }
+  ],
+  "windowNumber": 2822
+ },
+ "page_before_capture": {
+  "counter": "FRAME 000062",
+  "focus": true,
+  "vis": "hidden"
+ },
+ "page_before_capture_2": {
+  "counter": "FRAME 000062",
+  "vis": "hidden"
+ },
+ "sck_list": {
+  "ok": true,
+  "windows": [
+   {
+    "active": false,
+    "frame": {
+     "h": 30,
+     "w": 1600,
+     "x": 0,
+     "y": 0
+    },
+    "isOnScreen": false,
+    "layer": 0,
+    "pid": 79647,
+    "title": "",
+    "windowID": 2827
+   },
+   {
+    "active": false,
+    "frame": {
+     "h": 30,
+     "w": 1600,
+     "x": 0,
+     "y": 0
+    },
+    "isOnScreen": false,
+    "layer": 0,
+    "pid": 79647,
+    "title": "",
+    "windowID": 2826
+   },
+   {
+    "active": false,
+    "frame": {
+     "h": 30,
+     "w": 1600,
+     "x": 0,
+     "y": 0
+    },
+    "isOnScreen": false,
+    "layer": 0,
+    "pid": 79647,
+    "title": "",
+    "windowID": 2825
+   },
+   {
+    "active": false,
+    "frame": {
+     "h": 30,
+     "w": 1600,
+     "x": 0,
+     "y": 0
+    },
+    "isOnScreen": false,
+    "layer": 0,
+    "pid": 79647,
+    "title": "",
+    "windowID": 2824
+   },
+   {
+    "active": false,
+    "frame": {
+     "h": 500,
+     "w": 500,
+     "x": 0,
+     "y": 400
+    },
+    "isOnScreen": false,
+    "layer": 0,
+    "pid": 79647,
+    "title": "",
+    "windowID": 2823
+   },
+   {
+    "active": false,
+    "frame": {
+     "h": 600,
+     "w": 800,
+     "x": 3600,
+     "y": 0
+    },
+    "isOnScreen": false,
+    "layer": 0,
+    "pid": 79647,
+    "title": "RK2 Fixture",
+    "windowID": 2822
+   }
+  ]
+ },
+ "capture_started_seen": true,
+ "first_frame_seen": false,
+ "helper_exit": 0,
+ "helper_lines": [
+  "{\"anchor0\":{\"host_clock_s\":39645.202176166,\"uptime_ns\":39645202175750},\"event\":\"capture_started\",\"fps\":30,\"height\":600,\"mode\":\"stream\",\"scale\":1,\"sck_active\":false,\"sck_frame\":{\"h\":600,\"w\":800,\"x\":3600,\"y\":0},\"sck_isOnScreen\":false,\"sck_layer\":0,\"start_call_uptime_ns\":39645202179083,\"start_return_uptime_ns\":39645247823166,\"width\":800,\"windowID\":2822}",
+  "{\"event\":\"summary_written\",\"path\":\"\\/Volumes\\/D\\/claude\\/tools\\/rightkit\\/spikes\\/rk2-macos\\/evidence\\/apphidden-30fps-stream\\/summary.json\"}"
+ ],
+ "inputs": [
+  {
+   "name": "click Next",
+   "method": "click",
+   "offset_s": 6,
+   "caller_send_ns": 39653253055291,
+   "caller_recv_ns": 39653436178958,
+   "result": {
+    "ok": true
+   }
+  },
+  {
+   "name": "click input",
+   "method": "click",
+   "offset_s": 14,
+   "caller_send_ns": 39659251931958,
+   "caller_recv_ns": 39659437719458,
+   "result": {
+    "ok": true
+   }
+  },
+  {
+   "name": "type",
+   "method": "type",
+   "offset_s": 15.5,
+   "caller_send_ns": 39660749068875,
+   "caller_recv_ns": 39660889331416,
+   "result": {
+    "ok": true
+   }
+  },
+  {
+   "name": "click Next",
+   "method": "click",
+   "offset_s": 22,
+   "caller_send_ns": 39667255299583,
+   "caller_recv_ns": 39667440540500,
+   "result": {
+    "ok": true
+   }
+  },
+  {
+   "name": "drag scrub",
+   "method": "drag",
+   "offset_s": 30,
+   "caller_send_ns": 39675256592625,
+   "caller_recv_ns": 39677099945083,
+   "result": {
+    "ok": true
+   }
+  },
+  {
+   "name": "wheel scroll",
+   "method": "wheel",
+   "offset_s": 38,
+   "caller_send_ns": 39683248938666,
+   "caller_recv_ns": 39683398146208,
+   "result": {
+    "ok": true
+   }
+  },
+  {
+   "name": "key Right",
+   "method": "key",
+   "offset_s": 44,
+   "caller_send_ns": 39689256704041,
+   "caller_recv_ns": 39689466283750,
+   "result": {
+    "ok": true
+   }
+  },
+  {
+   "name": "click Next",
+   "method": "click",
+   "offset_s": 50,
+   "caller_send_ns": 39695255500958,
+   "caller_recv_ns": 39695761856583,
+   "result": {
+    "ok": true
+   }
+  }
+ ],
+ "clock0": {
+  "epoch_ms": 1791481083392.951,
+  "uptime_ns": 39644978519375
+ },
+ "clock1": {
+  "epoch_ms": 1791481143752.241,
+  "uptime_ns": 39705337860208
+ },
+ "page_log": [
+  {
+   "counter": 0,
+   "epochMs": 1791481078635,
+   "kind": "load",
+   "step": 1
+  },
+  {
+   "counter": 0,
+   "epochMs": 1791481078853,
+   "kind": "cycle0",
+   "step": 1,
+   "t0Epoch": 1791481078853
+  },
+  {
+   "counter": 4,
+   "epochMs": 1791481078910,
+   "key": "c",
+   "kind": "key",
+   "step": 1,
+   "trusted": true
+  },
+  {
+   "counter": 10,
+   "epochMs": 1791481079021,
+   "key": "o",
+   "kind": "key",
+   "step": 1,
+   "trusted": true
+  },
+  {
+   "counter": 18,
+   "epochMs": 1791481079154,
+   "key": "c",
+   "kind": "key",
+   "step": 1,
+   "trusted": true
+  },
+  {
+   "counter": 25,
+   "epochMs": 1791481079271,
+   "key": "k",
+   "kind": "key",
+   "step": 1,
+   "trusted": true
+  },
+  {
+   "counter": 55,
+   "epochMs": 1791481079771,
+   "key": "Meta",
+   "kind": "key",
+   "step": 1,
+   "trusted": true
+  },
+  {
+   "counter": 62,
+   "epochMs": 1791481080634,
+   "fps": 31.484257871064468,
+   "kind": "raf-rate",
+   "step": 1
+  },
+  {
+   "counter": 62,
+   "epochMs": 1791481082635,
+   "fps": 0,
+   "kind": "raf-rate",
+   "step": 1
+  },
+  {
+   "counter": 62,
+   "epochMs": 1791481084643,
+   "fps": 0,
+   "kind": "raf-rate",
+   "step": 1
+  },
+  {
+   "counter": 62,
+   "epochMs": 1791481086743,
+   "fps": 0,
+   "kind": "raf-rate",
+   "step": 1
+  },
+  {
+   "counter": 62,
+   "epochMs": 1791481088843,
+   "fps": 0,
+   "kind": "raf-rate",
+   "step": 1
+  },
+  {
+   "counter": 62,
+   "epochMs": 1791481090887,
+   "fps": 0,
+   "kind": "raf-rate",
+   "step": 1
+  },
+  {
+   "counter": 62,
+   "epochMs": 1791481091774,
+   "kind": "click:next",
+   "step": 2,
+   "trusted": true
+  },
+  {
+   "counter": 62,
+   "epochMs": 1791481093193,
+   "fps": 0,
+   "kind": "raf-rate",
+   "step": 2
+  },
+  {
+   "counter": 62,
+   "epochMs": 1791481096270,
+   "fps": 0,
+   "kind": "raf-rate",
+   "step": 2
+  },
+  {
+   "counter": 62,
+   "epochMs": 1791481097735,
+   "kind": "focus:input",
+   "step": 2
+  },
+  {
+   "counter": 62,
+   "epochMs": 1791481099170,
+   "key": "h",
+   "kind": "key",
+   "step": 2,
+   "trusted": true
+  },
+  {
+   "counter": 62,
+   "epochMs": 1791481099173,
+   "kind": "input",
+   "step": 2,
+   "value": 1
+  },
+  {
+   "counter": 62,
+   "epochMs": 1791481099182,
+   "fps": 0,
+   "kind": "raf-rate",
+   "step": 2
+  },
+  {
+   "counter": 62,
+   "epochMs": 1791481099192,
+   "key": "e",
+   "kind": "key",
+   "step": 2,
+   "trusted": true
+  },
+  {
+   "counter": 62,
+   "epochMs": 1791481099192,
+   "kind": "input",
+   "step": 2,
+   "value": 2
+  },
+  {
+   "counter": 62,
+   "epochMs": 1791481099203,
+   "key": "l",
+   "kind": "key",
+   "step": 2,
+   "trusted": true
+  },
+  {
+   "counter": 62,
+   "epochMs": 1791481099203,
+   "kind": "input",
+   "step": 2,
+   "value": 3
+  },
+  {
+   "counter": 62,
+   "epochMs": 1791481099212,
+   "key": "l",
+   "kind": "key",
+   "step": 2,
+   "trusted": true
+  },
+  {
+   "counter": 62,
+   "epochMs": 1791481099212,
+   "kind": "input",
+   "step": 2,
+   "value": 4
+  },
+  {
+   "counter": 62,
+   "epochMs": 1791481099220,
+   "key": "o",
+   "kind": "key",
+   "step": 2,
+   "trusted": true
+  },
+  {
+   "counter": 62,
+   "epochMs": 1791481099221,
+   "kind": "input",
+   "step": 2,
+   "value": 5
+  },
+  {
+   "counter": 62,
+   "epochMs": 1791481099231,
+   "key": " ",
+   "kind": "key",
+   "step": 2,
+   "trusted": true
+  },
+  {
+   "counter": 62,
+   "epochMs": 1791481099231,
+   "kind": "input",
+   "step": 2,
+   "value": 6
+  },
+  {
+   "counter": 62,
+   "epochMs": 1791481099241,
+   "key": "r",
+   "kind": "key",
+   "step": 2,
+   "trusted": true
+  },
+  {
+   "counter": 62,
+   "epochMs": 1791481099241,
+   "kind": "input",
+   "step": 2,
+   "value": 7
+  },
+  {
+   "counter": 62,
+   "epochMs": 1791481099251,
+   "key": "k",
+   "kind": "key",
+   "step": 2,
+   "trusted": true
+  },
+  {
+   "counter": 62,
+   "epochMs": 1791481099251,
+   "kind": "input",
+   "step": 2,
+   "value": 8
+  },
+  {
+   "counter": 62,
+   "epochMs": 1791481099261,
+   "key": "2",
+   "kind": "key",
+   "step": 2,
+   "trusted": true
+  },
+  {
+   "counter": 62,
+   "epochMs": 1791481099261,
+   "kind": "input",
+   "step": 2,
+   "value": 9
+  },
+  {
+   "counter": 62,
+   "epochMs": 1791481102227,
+   "fps": 0,
+   "kind": "raf-rate",
+   "step": 2
+  },
+  {
+   "counter": 62,
+   "epochMs": 1791481105180,
+   "fps": 0,
+   "kind": "raf-rate",
+   "step": 2
+  },
+  {
+   "counter": 62,
+   "epochMs": 1791481105781,
+   "kind": "click:next",
+   "step": 3,
+   "trusted": true
+  },
+  {
+   "counter": 62,
+   "epochMs": 1791481108177,
+   "fps": 0,
+   "kind": "raf-rate",
+   "step": 3
+  },
+  {
+   "counter": 62,
+   "epochMs": 1791481111270,
+   "fps": 0,
+   "kind": "raf-rate",
+   "step": 3
+  },
+  {
+   "counter": 62,
+   "epochMs": 1791481113821,
+   "kind": "pointerdown:scrub",
+   "step": 3,
+   "trusted": true
+  },
+  {
+   "counter": 62,
+   "epochMs": 1791481114173,
+   "fps": 0,
+   "kind": "raf-rate",
+   "step": 3
+  },
+  {
+   "counter": 62,
+   "epochMs": 1791481115453,
+   "kind": "pointerup:scrub",
+   "step": 3,
+   "trusted": true
+  },
+  {
+   "counter": 62,
+   "epochMs": 1791481117271,
+   "fps": 0,
+   "kind": "raf-rate",
+   "step": 3
+  },
+  {
+   "counter": 62,
+   "epochMs": 1791481120268,
+   "fps": 0,
+   "kind": "raf-rate",
+   "step": 3
+  },
+  {
+   "counter": 62,
+   "epochMs": 1791481123271,
+   "fps": 0,
+   "kind": "raf-rate",
+   "step": 3
+  },
+  {
+   "counter": 62,
+   "epochMs": 1791481126268,
+   "fps": 0,
+   "kind": "raf-rate",
+   "step": 3
+  },
+  {
+   "counter": 62,
+   "epochMs": 1791481127721,
+   "key": "ArrowRight",
+   "kind": "key",
+   "step": 3,
+   "trusted": true
+  },
+  {
+   "counter": 62,
+   "epochMs": 1791481129268,
+   "fps": 0,
+   "kind": "raf-rate",
+   "step": 3
+  },
+  {
+   "counter": 62,
+   "epochMs": 1791481132268,
+   "fps": 0,
+   "kind": "raf-rate",
+   "step": 3
+  },
+  {
+   "counter": 62,
+   "epochMs": 1791481133937,
+   "kind": "click:next",
+   "step": 4,
+   "trusted": true
+  },
+  {
+   "counter": 62,
+   "epochMs": 1791481135174,
+   "fps": 0,
+   "kind": "raf-rate",
+   "step": 4
+  },
+  {
+   "counter": 62,
+   "epochMs": 1791481138271,
+   "fps": 0,
+   "kind": "raf-rate",
+   "step": 4
+  },
+  {
+   "counter": 62,
+   "epochMs": 1791481141270,
+   "fps": 0,
+   "kind": "raf-rate",
+   "step": 4
+  }
+ ],
+ "info_after": {
+  "appHidden": true,
+  "backingScale": 1,
+  "contentLayout": {
+   "h": 568,
+   "w": 800,
+   "x": 0,
+   "y": 0
+  },
+  "frame": {
+   "h": 600,
+   "w": 800,
+   "x": 3600,
+   "y": 300
+  },
+  "isMiniaturized": false,
+  "isVisible": false,
+  "occlusionState": 8192,
+  "onAnyScreen": false,
+  "pid": 79647,
+  "screens": [
+   {
+    "h": 900,
+    "scale": 1,
+    "w": 1600,
+    "x": 0,
+    "y": 0
+   }
+  ],
+  "windowNumber": 2822
+ },
+ "frontmost_after": {
+  "asn": "ASN:0x0-0x11011:",
+  "info": "[ NULL ]  ASN:0x0-0x11011: (in front)      bundleID=\"com.anthropic.claudefordesktop\"     bundle path=[ NULL ]      executable path=[ NULL ]      pid = 698 !cgsConnection !signalled type=[ NULL ]  flavor=[ NULL ]  Version=[ NULL ]  Arch=!!none"
+ }
+}

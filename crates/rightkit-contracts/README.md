@@ -1,0 +1,76 @@
+# rightkit-contracts
+
+Versioned contracts for the Right Suite content pipeline (CutRight, GenRight, PostRight), the recorder, and the daemon. The crate embeds six JSON Schema (Draft 2020-12) files, validates documents against them, runs the semantic checks a schema cannot express, deserializes into typed structs, and negotiates major and minor versions.
+
+Catalog capability: `content-contracts`. Not published (`publish = false`).
+
+## What it owns
+
+| Contract | Schema file (in `tools/rightkit/contracts/`) | Supported version |
+|---|---|---|
+| `content-brief` | `content-brief.v1.schema.json` | 1.0.0 |
+| `delivery-envelope` | `delivery-envelope.v1.schema.json` | 1.0.0 |
+| `record-session` | `record-session.v1.schema.json` | 1.1.0 |
+| `record-event` | `record-event.v1.schema.json` | 1.1.0 |
+| `demo-plan` | `demo-plan.v1.schema.json` | 1.0.0 |
+| `daemon-api` | `daemon-api.v1.schema.json` | 1.0.0 |
+
+The schemas are embedded with `include_str!`, so every installed engine validates against the same bytes. The crate's own schema and fixture tests check that each embedded schema is Draft 2020-12, has its `$id` and declares a version.
+
+## Pipeline
+
+1. `version::negotiate(contract, offered)` reads the document's contract version and rejects an incompatible major, or a minor newer than this build knows, before any schema work.
+2. The document is validated against the embedded schema (`validate`, `validate_str`).
+3. Semantic rules that JSON Schema cannot express (unique ids, resolvable references, contiguous time maps) run in `semantic`.
+4. `parse` and `check_typed` additionally deserialize into the structs in `types`.
+
+Version policy: a document with major `M` and minor `m` is accepted by a build that supports `M.n` when `m <= n`. Patch numbers never gate acceptance. A different major is rejected, and so is a newer minor.
+
+## When to use it
+
+- Use it to validate a pipeline document or a daemon request before an engine acts on it.
+- Use it to check a fixture tree in CI.
+
+Do not use it to define product behaviour. The schemas are shared contracts; product rules belong to the owning app.
+
+## Cargo features
+
+None. The crate has no `[features]` table. `jsonschema` 0.58.6 is used with default features off, so the crate never resolves a remote URI or pulls in HTTP or TLS.
+
+## CLI
+
+Binary `rightkit-contracts`, from `src/main.rs`:
+
+```text
+rightkit-contracts validate <contract> <file>
+rightkit-contracts check-fixtures <fixtures-dir>
+rightkit-contracts list
+```
+
+Exit codes: 0 success, 1 validation or fixture failure, 2 usage error.
+
+## Usage
+
+Taken from `tests/contracts.rs` (names and imports checked against that file):
+
+```rust
+use rightkit_contracts::{check_typed, validate, Contract, Version};
+
+for contract in Contract::ALL {
+    let schema: serde_json::Value = serde_json::from_str(contract.schema_source())?;
+    assert_eq!(schema["$id"].as_str(), Some(contract.schema_id()));
+}
+```
+
+## Platform support
+
+Pure Rust. No platform-specific code.
+
+## Version and changes
+
+Published version: not published. See [INDEX.md](../../INDEX.md). No CHANGELOG.md in this crate.
+
+Minor changes in this crate:
+
+- `record-event` 1.1.0 adds the event kinds `session_start`, `session_end` and `frame_dropped`, and the `frameDropped` object (`count`, `intervalMs`, `reason` one of `backpressure`, `encoder`, `capture_gap`, `unknown`), required for `frame_dropped`. 1.0.0 documents remain valid.
+- `record-session` 1.1.0 adds `on_screen_visible` to `capture.visibilityState`. 1.0.0 documents remain valid.

@@ -1,17 +1,20 @@
 # RightKitSwift extraction contract
 
-Status: **extracted, built, published (0.1.0)** on macOS. `RightKitSwift/` is the
-canonical package source (builds + tests 16/16); it is published as a private git
-package at `github.com/bogusyogi/rightkit-swift` (tag `0.1.0`) and consumed by apps
-via git URL + version tag — see `RightKitSwift/README.md` for how, and
-`docs/RIGHTKIT-SHARED-PACKAGES.md` for why git-URL rather than a registry. The
-table below is the original extraction contract, kept as the record of what moved
-and what stays app-local.
+Status (2026-10-08): **extracted and built on macOS.** `RightKitSwift/` is the
+canonical package source. Its version is the `RightKitSwift/VERSION` file (0.3.8).
+`Package.swift` declares 14 library products and 14 test targets. It is consumed as a
+private git package at `github.com/bogusyogi/rightkit-swift` by tag. The version consumers
+may pin is recorded in the `swift` and `stagedSwift` sections of
+`packages/release/rightkit-versions.json`, not in `VERSION`. A version in `VERSION` is
+implemented but not published until the manifest records it as published (see the
+lifecycle in `docs/RIGHTKIT-SHARED-PACKAGES.md`). Apps consume it via git URL + version tag,
+see `RightKitSwift/README.md`. The table below is the original extraction contract, kept as
+the record of what moved and what stays app-local.
 
 ```mermaid
 flowchart LR
   HR["HeardRight iOS characterization"] --> RK["RightKitSwift infrastructure"]
-  RK --> LIC["Licensing"]
+  RK --> LIC["License"]
   RK --> DIA["Diagnostics"]
   RK --> ART["Artifacts"]
   RK --> QA["Test hooks"]
@@ -20,12 +23,13 @@ flowchart LR
 
 ## Minimal package surface
 
+This table is the original three-target contract. It once planned a `RightKitQA` target, but no such target exists in `Package.swift`. For the current products, see `RightKitSwift/README.md`.
+
 | Target | Public contract to extract | Current evidence | Keep app-local |
 |---|---|---|---|
-| `RightKitLicensing` | `LicenseConfiguration`, `SignedEntitlement`, `EntitlementVerifier`, `LicenseAPIClient`, `LicenseStore`, `KeychainLicenseStore` | `heardright/ios-native/Shared/LicenseEntitlement.swift`; `heardright/ios-native/HeardRight/LicenseController.swift` | `LicenseController`, UI messages, app/key-prefix policy, URLs, service/account names, StoreKit combination policy |
+| `RightKitLicense` | `LicenseConfiguration`, `SignedEntitlement`, `EntitlementVerifier`, `LicenseAPIClient`, `LicenseStore`, `KeychainLicenseStore` | `heardright/ios-native/Shared/LicenseEntitlement.swift`; `heardright/ios-native/HeardRight/LicenseController.swift` | `LicenseController`, UI messages, app/key-prefix policy, URLs, service/account names, StoreKit combination policy |
 | `RightKitDiagnostics` | `DiagnosticEvent`, `DiagnosticsEnvelope`, `PrivacyRedactor`, bounded `JSONLDiagnosticStore` | `heardright/ios-native/Shared/DiagnosticsReport.swift`; `DogfoodTraceStore.swift` | HeardRight snapshot fields, shortcut names, app group, event taxonomy, diagnostics screen |
 | `RightKitArtifacts` | `ArtifactDescriptor`, `ArtifactManifest`, `ArtifactDownloadClient`, `ArtifactInstaller`, `ArtifactCache`, `ArtifactState`, validation callback | `ModelArtifactInstaller.swift`; generic download/retry/cancellation seams in `ModelDownloadStore.swift` | ASR model catalog, routes/digests, Core ML stage vocabulary, UI strings, background-session identifier, runtime warming/orchestration |
-| `RightKitQA` | injectable clock/session/filesystem/key store plus golden-vector and fault-injection fixtures | `ios-native/Tests/main.swift`, `model_install_smoke.swift`, `model_store_smoke.swift`, `coreml_validator_smoke.swift`, `dogfood_logging_contract_smoke.py` | HeardRight UI/device journeys and product assertions |
 
 ## Extraction rules
 

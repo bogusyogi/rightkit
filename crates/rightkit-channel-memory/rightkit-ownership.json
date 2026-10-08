@@ -1,0 +1,16 @@
+{
+  "package": "rightkit-channel-memory",
+  "capabilities": [
+    {
+      "capability": "channel-memory",
+      "summary": "Channel memory schema (channel-memory.v1, pending in tools/rightkit/contracts-pending) with serde types, schema and semantic validation, version gate, authoritative proof citation, and scope checks shared by PostRight P3 and GenRight G7.",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Package contract retained; dependency declarations do not verify integration.",
+        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration.",
+        "Revisioned daemon storage and conflict handling belong to the daemon (RK10); this crate validates records only."
+      ]
+    }
+  ]
+}

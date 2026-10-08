@@ -1,10 +1,24 @@
 # rightkit-speech-client
 
-Client and protocol contract for the Orthic Labs shared speech service. It discovers the current-user service endpoint and exchanges bounded v1 JSON frames for health, capabilities, and transcription operations.
+Client and protocol contract for the Orthic Labs shared speech service, which runs one resident speech engine per machine. It owns endpoint discovery (`connect`, `read_live_record`, `plan_host`), bounded v1 JSON frames for health, capabilities, and transcription, the job queue status (`job_status`, `Progress`), and the takeover request helpers. It is built on `rightkit-service` and is wire-compatible with HeardRight's v1 host.
 
-Hosting remains in the speech engine application; this crate provides the client contract.
+**Use it** in a Right Suite app that needs speech transcription from the shared service, or that must act as a compatible host.
 
-Publish through the RightKit release workflow.
+**Do not use it** to run the speech engine. Hosting remains in the speech engine application; this crate provides the client contract.
+
+## Features
+
+None. The crate has no Cargo features. Dependencies: `rightkit-service`, `rightkit-framed-sidecar`, `serde`, `serde_json`.
+
+## Platform support
+
+Platform gates are in `src/lib.rs`: `cfg(windows)` (named pipe) and `cfg(unix)` (Unix socket). Transport details are defined by `rightkit-service`.
+
+Published version: see `INDEX.md` at the repository root. This crate has no `CHANGELOG.md`.
+
+## Example
+
+The compiled example is `examples/hr_fake_host.rs`, which implements both host sides from raw JSON. For wire-level acceptance, see `tests/contract.rs`, `tests/e2e.rs`, and `tests/windows_pipe.rs`. Run the example with `rightkit cargo run -p rightkit-speech-client --example hr_fake_host`.
 
 ## Contract extensions (capability-gated)
 

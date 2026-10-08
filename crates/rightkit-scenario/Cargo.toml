@@ -1,0 +1,18 @@
+[package]
+name = "rightkit-scenario"
+version = "0.0.0"
+edition = "2021"
+rust-version = "1.98.0"
+publish = false
+license = "MIT"
+description = "Shared scenario interpreter and durable state machine for the RightKit scenario runtime (RK8): perform separated from observe_until, idempotency keys, append-only fsync journal, leases with fencing tokens, cooperative cancellation, retake replay, and a remote worker transport trait boundary"
+repository = "https://github.com/adrdsouza/claude"
+include = ["src/**", "tests/**", "Cargo.toml"]
+
+[lib]
+name = "rightkit_scenario"
+path = "src/lib.rs"
+
+[dependencies]
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.150"

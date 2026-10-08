@@ -1,0 +1,211 @@
+{
+ "label": "occluded-30fps-stream",
+ "frames_callbacks": 1767,
+ "frames_complete": 1767,
+ "frames_idle": 0,
+ "frames_blank_status": 0,
+ "decoded_frames": 1767,
+ "file_bytes": 2153429,
+ "analyzer": "{\"frames\":1767,\"ok\":true,\"reader_status\":2}",
+ "black_frames_luma_lt_15": 0,
+ "strip_valid_frames": 1767,
+ "max_foreign_magenta_samples": 0,
+ "frames_with_magenta_gt_20": 0,
+ "animated_frame_intervals": 1087,
+ "animated_intervals_counter_advanced": 573,
+ "pct_intervals_advanced": 52.7,
+ "resampled_ticks": 1107,
+ "pct_ticks_advanced": 51.7,
+ "intervals_by_page_rate": {
+  "page60": {
+   "intervals": 306,
+   "advanced": 306,
+   "pct": 100.0
+  },
+  "throttled": {
+   "intervals": 781,
+   "advanced": 267,
+   "pct": 34.2
+  }
+ },
+ "first_throttled_pts_s": 17.4,
+ "page_raf_rate_samples": [
+  50,
+  60,
+  60,
+  60,
+  60,
+  60,
+  60,
+  60,
+  60,
+  60,
+  60,
+  60,
+  60,
+  60,
+  60,
+  11,
+  10,
+  10,
+  10,
+  9,
+  10,
+  9,
+  10,
+  9,
+  10,
+  9,
+  10,
+  9,
+  10,
+  10,
+  10,
+  12,
+  10,
+  12,
+  13,
+  10
+ ],
+ "counter_first_last": [
+  559,
+  1570
+ ],
+ "distinct_counter_values": 651,
+ "ocr_samples_stable": 277,
+ "ocr_step_correct": 277,
+ "step_recovery": [
+  {
+   "step": 2,
+   "post_enc_s": 6.15,
+   "ocr_first_seen_enc_s": 6.173333333333333,
+   "latency_ms": 24
+  },
+  {
+   "step": 3,
+   "post_enc_s": 22.467,
+   "ocr_first_seen_enc_s": 22.393333333333334,
+   "latency_ms": -73
+  },
+  {
+   "step": 4,
+   "post_enc_s": 50.382,
+   "ocr_first_seen_enc_s": 50.375,
+   "latency_ms": -7
+  }
+ ],
+ "inputs": [
+  {
+   "input": "click Next",
+   "method": "click",
+   "ok": true,
+   "caller_send_ms": 0,
+   "admit_ms": 7.2045,
+   "dispatch_ms": 7.246167,
+   "complete_ms": 153.671667,
+   "caller_recv_ms": 186.396292,
+   "send_enc_pts_s": 6.011,
+   "admit_enc_pts_s": 6.019,
+   "complete_enc_pts_s": 6.165
+  },
+  {
+   "input": "click input",
+   "method": "click",
+   "ok": true,
+   "caller_send_ms": 0,
+   "admit_ms": 10.024042,
+   "dispatch_ms": 10.08,
+   "complete_ms": 156.922709,
+   "caller_recv_ms": 190.963834,
+   "send_enc_pts_s": 14.011,
+   "admit_enc_pts_s": 14.021,
+   "complete_enc_pts_s": 14.168
+  },
+  {
+   "input": "type",
+   "method": "type",
+   "ok": true,
+   "caller_send_ms": 0,
+   "admit_ms": 3.638209,
+   "dispatch_ms": 3.6625,
+   "complete_ms": 97.171125,
+   "caller_recv_ms": 135.468667,
+   "send_enc_pts_s": 15.509,
+   "admit_enc_pts_s": 15.512,
+   "complete_enc_pts_s": 15.606
+  },
+  {
+   "input": "click Next",
+   "method": "click",
+   "ok": true,
+   "caller_send_ms": 0,
+   "admit_ms": 9.249667,
+   "dispatch_ms": 9.303083,
+   "complete_ms": 410.049083,
+   "caller_recv_ms": 503.903125,
+   "send_enc_pts_s": 22.015,
+   "admit_enc_pts_s": 22.024,
+   "complete_enc_pts_s": 22.425
+  },
+  {
+   "input": "drag scrub",
+   "method": "drag",
+   "ok": true,
+   "caller_send_ms": 0,
+   "admit_ms": 5.783958,
+   "dispatch_ms": 5.831208,
+   "complete_ms": 1808.291,
+   "caller_recv_ms": 1813.505458,
+   "send_enc_pts_s": 30.009,
+   "admit_enc_pts_s": 30.015,
+   "complete_enc_pts_s": 31.817
+  },
+  {
+   "input": "wheel scroll",
+   "method": "wheel",
+   "ok": true,
+   "caller_send_ms": 0,
+   "admit_ms": 6.988916,
+   "dispatch_ms": 7.05625,
+   "complete_ms": 8.105083,
+   "caller_recv_ms": 145.187083,
+   "send_enc_pts_s": 38.009,
+   "admit_enc_pts_s": 38.016,
+   "complete_enc_pts_s": 38.017
+  },
+  {
+   "input": "key Right",
+   "method": "key",
+   "ok": true,
+   "caller_send_ms": 0,
+   "admit_ms": 6.548667,
+   "dispatch_ms": 6.615792,
+   "complete_ms": 123.262917,
+   "caller_recv_ms": 136.771542,
+   "send_enc_pts_s": 44.01,
+   "admit_enc_pts_s": 44.017,
+   "complete_enc_pts_s": 44.134
+  },
+  {
+   "input": "click Next",
+   "method": "click",
+   "ok": true,
+   "caller_send_ms": 0,
+   "admit_ms": 4.334333,
+   "dispatch_ms": 4.464916,
+   "complete_ms": 415.065166,
+   "caller_recv_ms": 496.508583,
+   "send_enc_pts_s": 50.006,
+   "admit_enc_pts_s": 50.01,
+   "complete_enc_pts_s": 50.421
+  }
+ ],
+ "foreground_changes": [],
+ "frontmost_before": "[ NULL ]  ASN:0x0-0x11011: (in front)      bundleID=\"com.anthropic.claudefordesktop\"     b",
+ "frontmost_after": "[ NULL ]  ASN:0x0-0x11011: (in front)      bundleID=\"com.anthropic.claudefordesktop\"     b",
+ "clock_anchor_offset_host_vs_uptime_ms": [
+  0.001,
+  0.001
+ ],
+ "epoch_uptime_drift_ms": -0.054
+}

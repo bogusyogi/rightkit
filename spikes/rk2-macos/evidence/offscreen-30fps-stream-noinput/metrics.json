@@ -1,0 +1,75 @@
+{
+ "label": "offscreen-30fps-stream-noinput",
+ "frames_callbacks": 1325,
+ "frames_complete": 1325,
+ "frames_idle": 0,
+ "frames_blank_status": 0,
+ "decoded_frames": 1325,
+ "file_bytes": 1851651,
+ "analyzer": "{\"frames\":1325,\"ok\":true,\"reader_status\":2}",
+ "black_frames_luma_lt_15": 0,
+ "strip_valid_frames": 1325,
+ "max_foreign_magenta_samples": 0,
+ "frames_with_magenta_gt_20": 0,
+ "animated_frame_intervals": 809,
+ "animated_intervals_counter_advanced": 561,
+ "pct_intervals_advanced": 69.3,
+ "resampled_ticks": 825,
+ "pct_ticks_advanced": 68.0,
+ "intervals_by_page_rate": {
+  "page60": {
+   "intervals": 447,
+   "advanced": 447,
+   "pct": 100.0
+  },
+  "throttled": {
+   "intervals": 362,
+   "advanced": 114,
+   "pct": 31.5
+  }
+ },
+ "first_throttled_pts_s": 26.0,
+ "page_raf_rate_samples": [
+  52,
+  60,
+  60,
+  60,
+  60,
+  60,
+  60,
+  60,
+  60,
+  60,
+  60,
+  60,
+  60,
+  60,
+  60,
+  11,
+  9,
+  9,
+  9,
+  18,
+  17,
+  10,
+  9,
+  9
+ ],
+ "counter_first_last": [
+  225,
+  1396
+ ],
+ "distinct_counter_values": 640,
+ "ocr_samples_stable": 89,
+ "ocr_step_correct": 89,
+ "step_recovery": [],
+ "inputs": [],
+ "foreground_changes": [],
+ "frontmost_before": "[ NULL ]  ASN:0x0-0x11011: (in front)      bundleID=\"com.anthropic.claudefordesktop\"     b",
+ "frontmost_after": "[ NULL ]  ASN:0x0-0x11011: (in front)      bundleID=\"com.anthropic.claudefordesktop\"     b",
+ "clock_anchor_offset_host_vs_uptime_ms": [
+  0.0,
+  0.001
+ ],
+ "epoch_uptime_drift_ms": -0.038
+}

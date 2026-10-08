@@ -1,6 +1,6 @@
 # rightkit-tauri
 
-Framework-agnostic native host services for Right Suite Tauri applications.
+Framework-agnostic native host services for Right Suite Tauri applications. The crate has no direct `tauri` dependency.
 
 This crate owns:
 
@@ -13,6 +13,10 @@ This crate owns:
   feature requirements are evaluated;
 - a paid-command guard that cannot call product logic after denial; and
 - typed log and diagnostic host bridges.
+
+**Use it** in a Right Suite Tauri app's native host, to get the shared device, license, and command-guard logic.
+
+**Do not use it** from the renderer, or as a substitute for the app's own keyring and command wrappers.
 
 ## Tauri boundary
 
@@ -32,5 +36,28 @@ fallible post-commit hook would make a successful mutation look rolled back when
 it was not. Hosts that need fallible follow-up work must expose that as a separate
 operation with its own outcome.
 
-This crate is internal during Phase 3. Publish it only after all five core apps
-pass the shared native contract; apps must then use one exact crates.io pin.
+## Public surface
+
+- `SecureStore<T>`: the get, set, and delete trait that each app implements over its keyring.
+- `LicenseRequirement` (re-exported from `rightkit-license`).
+- `DeviceService`: the single managed device service described above.
+
+## Features
+
+None. The crate has no Cargo features. Dependencies: `getrandom` (pinned `=0.2.17`) and `rightkit-license`.
+
+## Platform support
+
+The crate has no platform-specific code. Keyring and Tauri integration live in each app.
+
+Published version: see `INDEX.md` at the repository root. This crate has no `CHANGELOG.md`.
+
+## Example
+
+Illustrative; not compiled as a doctest. For compiled usage of the services, see `tests/services.rs`.
+
+```rust,ignore
+// In the app's native host: implement SecureStore over the OS keyring,
+// build one DeviceService, store it in Tauri managed state, and call it
+// from the app's #[tauri::command] wrappers.
+```
