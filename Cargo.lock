@@ -4882,8 +4882,10 @@ dependencies = [
  "rightkit-service",
  "serde_json",
  "tauri",
+ "webview2-com 0.38.2",
  "webview2-com 0.39.1",
  "windows 0.61.1",
+ "windows 0.62.2",
 ]
 
 [[package]]

@@ -2475,13 +2475,13 @@ dependencies = [
 
 [[package]]
 name = "rightkit-control"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "rightkit-service",
  "serde_json",
  "tauri",
  "webview2-com",
- "windows 0.62.2",
+ "windows 0.61.1",
 ]
 
 [[package]]

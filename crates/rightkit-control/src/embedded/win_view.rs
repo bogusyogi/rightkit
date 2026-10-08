@@ -10,6 +10,12 @@ use crate::json::str_field;
 use std::sync::mpsc::channel;
 use std::time::Duration;
 use tauri::{Runtime, WebviewWindow};
+#[cfg(not(any(feature = "wv2-0_38", feature = "wv2-0_39")))]
+compile_error!("rightkit-control's Windows plugin needs `wv2-0_38` (Tauri 2.11, default) or `wv2-0_39` (Tauri 2.12+)");
+#[cfg(all(feature = "wv2-0_38", not(feature = "wv2-0_39")))]
+use ::{webview2_com_038 as webview2_com, windows_061 as windows};
+#[cfg(feature = "wv2-0_39")]
+use ::{webview2_com_039 as webview2_com, windows_062 as windows};
 use webview2_com::CallDevToolsProtocolMethodCompletedHandler;
 use windows::core::HSTRING;
 
