@@ -13,10 +13,12 @@ use super::*;
 use std::ffi::c_void;
 
 type Hwnd = isize;
+// Same signatures as embedded/win_view.rs: one extern declaration per symbol per crate.
+type RawHwnd = *mut std::ffi::c_void;
 
 #[repr(C)]
 #[derive(Clone, Copy, Default)]
-struct RECT {
+struct WinRect {
     left: i32,
     top: i32,
     right: i32,
@@ -33,23 +35,25 @@ struct PROCESS_POWER_THROTTLING_STATE {
 const SWP_NOSIZE: u32 = 0x0001;
 const SWP_NOZORDER: u32 = 0x0004;
 const SWP_NOACTIVATE: u32 = 0x0010;
+const SW_HIDE: i32 = 0;
 const PROCESS_POWER_THROTTLING_CURRENT_VERSION: u32 = 1;
 const PROCESS_POWER_THROTTLING_EXECUTION_SPEED: u32 = 1;
 const PROCESS_POWER_THROTTLING_CLASS: i32 = 4; // ProcessPowerThrottling
 
 #[link(name = "user32")]
 extern "system" {
-    fn GetWindowRect(h: Hwnd, r: *mut RECT) -> i32;
-    fn SetWindowPos(h: Hwnd, after: Hwnd, x: i32, y: i32, cx: i32, cy: i32, flags: u32) -> i32;
+    fn GetWindowRect(h: RawHwnd, r: *mut WinRect) -> i32;
+    fn SetWindowPos(h: RawHwnd, after: RawHwnd, x: i32, y: i32, cx: i32, cy: i32, flags: u32) -> i32;
     fn IsWindow(h: Hwnd) -> i32;
     fn IsWindowVisible(h: Hwnd) -> i32;
     fn IsIconic(h: Hwnd) -> i32;
+    fn ShowWindow(h: Hwnd, cmd: i32) -> i32;
     fn GetDpiForWindow(h: Hwnd) -> u32;
     fn GetWindowThreadProcessId(h: Hwnd, pid: *mut u32) -> u32;
     fn EnumDisplayMonitors(
         hdc: isize,
-        clip: *const RECT,
-        cb: extern "system" fn(isize, isize, *const RECT, isize) -> i32,
+        clip: *const WinRect,
+        cb: extern "system" fn(isize, isize, *const WinRect, isize) -> i32,
         data: isize,
     ) -> i32;
 }
@@ -60,7 +64,7 @@ extern "system" {
     fn SetProcessInformation(h: isize, class: i32, info: *const c_void, size: u32) -> i32;
 }
 
-extern "system" fn monitor_cb(_: isize, _: isize, r: *const RECT, data: isize) -> i32 {
+extern "system" fn monitor_cb(_: isize, _: isize, r: *const WinRect, data: isize) -> i32 {
     let out = unsafe { &mut *(data as *mut Vec<Rect>) };
     let r = unsafe { *r };
     out.push(Rect::new(
@@ -99,8 +103,8 @@ struct WinWindow(Hwnd);
 
 impl WinWindow {
     fn rect(&self) -> Result<Rect, OffscreenError> {
-        let mut r = RECT::default();
-        if unsafe { IsWindow(self.0) } == 0 || unsafe { GetWindowRect(self.0, &mut r) } == 0 {
+        let mut r = WinRect::default();
+        if unsafe { IsWindow(self.0) } == 0 || unsafe { GetWindowRect(self.0 as RawHwnd, &mut r) } == 0 {
             return Err(OffscreenError::WindowGone);
         }
         Ok(Rect::new(
@@ -147,8 +151,8 @@ impl WindowOps for WinWindow {
     fn set_origin(&mut self, x: f64, y: f64) -> Result<(), OffscreenError> {
         let ok = unsafe {
             SetWindowPos(
-                self.0,
-                0,
+                self.0 as RawHwnd,
+                std::ptr::null_mut(),
                 x as i32,
                 y as i32,
                 0,
@@ -166,6 +170,13 @@ impl WindowOps for WinWindow {
     }
     fn show(&mut self) -> Result<(), OffscreenError> {
         Ok(()) // already visible (prechecked); SetWindowPos without SWP_NOACTIVATE-breaking flags keeps it so
+    }
+    /// Hide before moving back, like macOS `orderOut:`, so the restore never flashes the
+    /// recording window onto a display. The window stays hidden after the session.
+    fn hide_for_restore(&mut self) -> Result<(), OffscreenError> {
+        // ShowWindow returns the previous visibility, not success; the restore then verifies the frame.
+        unsafe { ShowWindow(self.0, SW_HIDE) };
+        Ok(())
     }
 }
 
