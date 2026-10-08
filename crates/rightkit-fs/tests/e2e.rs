@@ -728,3 +728,23 @@ fn identity_ledger_is_safe_across_concurrent_processes() {
         assert!(store.lookup(&id).unwrap().is_some());
     }
 }
+
+/// Windows counterpart of the owner-only test: a private atomic write publishes a file whose
+/// DACL grants only the current user (no inherited Users/Everyone ACEs), and a rewrite keeps it.
+#[cfg(windows)]
+#[test]
+fn private_writes_are_owner_only_on_windows() {
+    use rightkit_fs::atomic_write_private;
+    let (_g, dir) = canonical_tmp();
+    let secret = dir.join("cookies.txt");
+    atomic_write_private(&secret, b"hunter2").unwrap();
+    assert!(rightkit_fs::private::is_owner_only(&secret).unwrap());
+    atomic_write_private(&secret, b"hunter3").unwrap();
+    assert!(rightkit_fs::private::is_owner_only(&secret).unwrap());
+    let acl = Command::new("icacls").arg(&secret).output().unwrap();
+    let acl = String::from_utf8_lossy(&acl.stdout).to_string();
+    eprintln!("{acl}");
+    for broad in ["Everyone", "Users:", "(I)"] {
+        assert!(!acl.contains(broad), "{broad} in cookie DACL:\n{acl}");
+    }
+}
