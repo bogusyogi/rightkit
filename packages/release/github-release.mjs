@@ -1,7 +1,9 @@
 #!/usr/bin/env node
 import { createHash } from "node:crypto";
-import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
+import os from "node:os";
+import { readVerifiedArtifact, assertArtifactUnchanged, digestBytes, verifyArtifactFile } from "./publication-artifacts.mjs";
 import { spawnSync } from "./background-process.mjs";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { verifySealedRelease } from "./release-state.mjs";
@@ -26,11 +28,20 @@ export function prepareGitHubRelease({ repoRoot, releaseId, platform, repo, stat
   mkdirSync(releaseState, { recursive: true });
   const manifestAsset = path.join(releaseState, `${sealed.manifest.app}-${sealed.manifest.version}-${platform}-release-manifest.json`);
   const checksumsAsset = path.join(releaseState, `${sealed.manifest.app}-${sealed.manifest.version}-${platform}-SHA256SUMS.txt`);
-  copyFileSync(sealed.manifestPath, manifestAsset);
-  writeFileSync(checksumsAsset, `${sealed.manifest.files.map((file) => `${file.sha256}  ${file.name}`).join("\n")}\n`);
+  const manifestBytes = Buffer.from(`${JSON.stringify(sealed.manifest, null, 2)}\n`);
+  const checksumsBytes = Buffer.from(`${sealed.manifest.files.map((file) => `${file.sha256}  ${file.name}`).join("\n")}\n`);
+  writeFileSync(manifestAsset, manifestBytes);
+  writeFileSync(checksumsAsset, checksumsBytes);
   const installer = path.join(sealed.sealedDir, installers[0].name);
   const assets = [...sealed.manifest.files.map((file) => path.join(sealed.sealedDir, file.name)), manifestAsset, checksumsAsset];
+  const publicationArtifacts = new Map(sealed.manifest.files.map((entry) => {
+    const file = path.join(sealed.sealedDir, entry.name);
+    return [file, verifyArtifactFile(file, entry)];
+  }));
+  publicationArtifacts.set(manifestAsset, readVerifiedArtifact(manifestAsset, { sha256: digestBytes(manifestBytes) }));
+  publicationArtifacts.set(checksumsAsset, readVerifiedArtifact(checksumsAsset, { sha256: digestBytes(checksumsBytes) }));
   return {
+    publicationArtifacts,
     sealed,
     installer,
     assets,
@@ -131,8 +142,7 @@ export function prepareGitHubDirectRelease({
     signaturePlatform: effectiveSignaturePlatform,
   };
   Object.defineProperty(plan, "signatureCommandRunner", { value: effectiveSignatureRunner, enumerable: false });
-  validateGitHubDirectReleasePlan(plan, { commandRunner: effectiveSignatureRunner, platform: effectiveSignaturePlatform });
-  return plan;
+  return validateGitHubDirectReleasePlan(plan, { commandRunner: effectiveSignatureRunner, platform: effectiveSignaturePlatform });
 }
 
 export const prepareGitHubPortableRelease = prepareGitHubDirectRelease;
@@ -153,16 +163,30 @@ export function validateGitHubDirectReleasePlan(plan, { commandRunner = plan?.si
     if (!existsSync(file) || !statSync(file).isFile()) throw new Error(`direct release payload missing: ${file}`);
   }
   if (statSync(signatureFile).size < 1) throw new Error("detached release manifest signature is missing");
-  const manifest = JSON.parse(readFileSync(manifestFile, "utf8"));
+  const manifestArtifact = readVerifiedArtifact(manifestFile, { sha256: plan.publicationArtifacts?.get(manifestFile)?.sha256 ?? sha256(manifestFile) });
+  const signatureArtifact = readVerifiedArtifact(signatureFile, { sha256: plan.publicationArtifacts?.get(signatureFile)?.sha256 ?? sha256(signatureFile) });
+  const manifest = JSON.parse(manifestArtifact.bytes);
   if (manifest.schemaVersion !== 1 || manifest.kind !== "rightkit-direct-release-manifest" || !STABLE_SEMVER_RE.test(manifest.version ?? "") || manifest.tag !== `v${manifest.version}`) {
     throw new Error("invalid direct release manifest");
   }
   if (plan.tag !== manifest.tag) throw new Error("direct GitHub release tag does not match manifest");
   if (manifest.signingKeyId !== RIGHTRELEASE_MANIFEST_SIGNER.id || manifest.signatureAlgorithm !== RIGHTRELEASE_MANIFEST_SIGNER.algorithm || manifest.signatureProvider !== RIGHTRELEASE_MANIFEST_SIGNER.provider || manifest.signatureProviderVersion !== RIGHTRELEASE_MANIFEST_SIGNER.providerVersion) throw new Error("direct release manifest signer contract is invalid");
-  verifyManifestCatalogSignature({ manifestPath: manifestFile, signaturePath: signatureFile, expectedSigner: plan.signer, commandRunner, platform });
+  // Catalog verification operates on snapshots of the exact captured authority bytes.
+  const snapshot = mkdtempSync(path.join(os.tmpdir(), "rightkit-direct-authority-"));
+  try {
+    const manifestSnapshot = path.join(snapshot, path.basename(manifestFile));
+    const signatureSnapshot = path.join(snapshot, path.basename(signatureFile));
+    writeFileSync(manifestSnapshot, manifestArtifact.bytes);
+    writeFileSync(signatureSnapshot, signatureArtifact.bytes);
+    verifyManifestCatalogSignature({ manifestPath: manifestSnapshot, signaturePath: signatureSnapshot, expectedSigner: plan.signer, commandRunner, platform });
+    readVerifiedArtifact(manifestSnapshot, manifestArtifact);
+    readVerifiedArtifact(signatureSnapshot, signatureArtifact);
+  } finally { rmSync(snapshot, { recursive: true, force: true }); }
+  assertArtifactUnchanged(manifestArtifact);
+  assertArtifactUnchanged(signatureArtifact);
   if (!SHA256.test(manifest.checksumsSha256 ?? "")) throw new Error("direct release checksums digest is missing");
-  if (sha256(checksumsFile) !== manifest.checksumsSha256) throw new Error("checksums.json is not manifest-bound");
-  const checksums = JSON.parse(readFileSync(checksumsFile, "utf8"));
+  const checksumsArtifact = readVerifiedArtifact(checksumsFile, { sha256: manifest.checksumsSha256 });
+  const checksums = JSON.parse(checksumsArtifact.bytes);
   if (checksums.schemaVersion !== 1 || checksums.algorithm !== "sha256" || !checksums.assets || typeof checksums.assets !== "object" || Array.isArray(checksums.assets)) {
     throw new Error("invalid direct release checksums");
   }
@@ -191,14 +215,18 @@ export function validateGitHubDirectReleasePlan(plan, { commandRunner = plan?.si
     addExpected({ name: asset.provenanceName, sha256: asset.provenanceSha256 }, "provenance");
     addExpected({ name: asset.sbomName, sha256: asset.sbomSha256 }, "SBOM");
   }
+  const publicationArtifacts = new Map([[manifestFile, manifestArtifact], [signatureFile, signatureArtifact], [checksumsFile, checksumsArtifact]]);
   for (const [name, evidence] of expected) {
     const file = payloadByName.get(name);
     if (!file) throw new Error(`direct release evidence is not attached: ${name}`);
     if (evidence.size !== undefined && (!Number.isSafeInteger(evidence.size) || evidence.size < 1 || statSync(file).size !== evidence.size)) throw new Error(`direct release archive size mismatch: ${name}`);
-    if (sha256(file) !== evidence.digest) throw new Error(`direct release payload hash mismatch: ${name}`);
+    publicationArtifacts.set(file, verifyArtifactFile(file, { sha256: evidence.digest, sizeBytes: evidence.size }));
     if (checksums.assets[name] !== evidence.digest) throw new Error(`direct release checksum mismatch: ${name}`);
   }
-  return { ...plan, manifest, checksums };
+  for (const file of payloadByName.values()) if (!publicationArtifacts.has(file)) throw new Error(`direct release payload lacks signed evidence: ${path.basename(file)}`);
+  const result = { ...plan, manifest, checksums, publicationArtifacts };
+  Object.defineProperty(result, "signatureCommandRunner", { value: commandRunner, enumerable: false });
+  return result;
 }
 
 export function repositoryFromRemote(repoRoot) {
@@ -218,17 +246,19 @@ export function prepareGitHubAddonRelease({ repoRoot, config, configRoot = repoR
   if (!existsSync(manifestPath)) throw new Error(`sealed add-on manifest not found: ${manifestPath}`);
   const manifest = validateAddonManifest(JSON.parse(readFileSync(manifestPath, "utf8")));
   if (manifest.addon !== config.addon || manifest.version !== config.version || manifest.platform !== platform || manifest.commit !== commit) throw new Error("sealed add-on identity mismatch");
+  const publicationArtifacts = new Map();
   const assets = manifest.files.map((file) => {
     const asset = path.join(sealedDir, file.name);
-    if (!existsSync(asset) || statSync(asset).size !== file.sizeBytes || sha256(asset) !== file.sha256) throw new Error(`sealed add-on file mismatch: ${file.name}`);
+    publicationArtifacts.set(asset, verifyArtifactFile(asset, file));
     return asset;
   });
   const digest = addonManifestSha256(manifest);
+  publicationArtifacts.set(manifestPath, readVerifiedArtifact(manifestPath, { sha256: digest }));
   const tag = `addon-${manifest.addon}-v${manifest.version}-${platform}-sha256-${digest}`;
   const stateDir = path.join(repoRoot, ".right-release", "state", "addons", manifest.addon, manifest.version, commit.slice(0, 8), platform, "github");
   mkdirSync(stateDir, { recursive: true });
   return {
-    kind: "addon", manifest, manifestPath, sealedDir, assets: [...assets, manifestPath], tag,
+    publicationArtifacts, kind: "addon", manifest, manifestPath, sealedDir, assets: [...assets, manifestPath], tag,
     title: `${manifest.addon} ${manifest.version} ${platform} add-on`,
     notes: [`Signed ${platform === "mac" ? "macOS" : "Windows"} add-on component set.`, "", `Build commit: \`${manifest.commit}\``, `Manifest SHA-256: \`${digest}\``].join("\n"),
     notesFile: path.join(stateDir, "release-notes.md"),
@@ -236,8 +266,13 @@ export function prepareGitHubAddonRelease({ repoRoot, config, configRoot = repoR
   };
 }
 
-export function publishGitHubRelease(plan, { repo, dryRun = false, run = runCommand, signatureCommandRunner = plan?.signatureCommandRunner ?? plan?.cmsCommandRunner, signaturePlatform = plan?.signaturePlatform ?? plan?.cmsPlatform ?? process.platform } = {}) {
-  if (plan.kind === "direct-release") validateGitHubDirectReleasePlan(plan, { commandRunner: signatureCommandRunner ?? spawnSync, platform: signaturePlatform });
+export function publishGitHubRelease(plan, { repo, dryRun = false, run = runCommand, signatureCommandRunner = plan?.signatureCommandRunner ?? plan?.cmsCommandRunner, signaturePlatform = plan?.signaturePlatform ?? plan?.cmsPlatform ?? process.platform, trustCommandRunner = spawnSync } = {}) {
+  if (plan.kind === "direct-release") plan = validateGitHubDirectReleasePlan(plan, { commandRunner: signatureCommandRunner ?? spawnSync, platform: signaturePlatform });
+  if (!(plan.publicationArtifacts instanceof Map) || plan.assets.some((file) => !plan.publicationArtifacts.has(file))) throw new Error("GitHub publication requires sealed or signed hash evidence for every asset");
+  for (const artifact of plan.publicationArtifacts.values()) {
+    if (artifact.bytes) assertArtifactUnchanged(artifact);
+    else verifyArtifactFile(artifact.file, artifact);
+  }
   const visibility = JSON.parse(run("gh", ["repo", "view", repo, "--json", "visibility"]));
   if (visibility.visibility !== "PUBLIC" && !(plan.kind !== "addon" && visibility.visibility === "PRIVATE")) {
     throw new Error(`GitHub releases require a public or private repository: ${repo}`);
@@ -246,16 +281,16 @@ export function publishGitHubRelease(plan, { repo, dryRun = false, run = runComm
     // Direct payloads are already sealed by the signed manifest contract. Do
     // not route them through desktop-installer trust checks.
   } else if (!dryRun) {
-    if (plan.kind === "addon") verifyAddonTrust(plan);
-    else verifyPlatformTrust(plan);
+    if (plan.kind === "addon") verifyAddonTrust(plan, trustCommandRunner);
+    else verifyPlatformTrust(plan, trustCommandRunner);
   }
   const existing = run("gh", ["release", "view", plan.tag, "--repo", repo, "--json", "tagName"], { allowFailure: true });
   if (dryRun) return { status: existing.ok ? plan.kind === "addon" ? "would-verify" : "would-update" : "would-create", tag: plan.tag, assets: plan.assets };
   if (existing.ok) {
-    const missing = plan.assets.filter((asset) => inspectRemoteAsset(plan.tag, repo, asset, run) === "missing");
+    const missing = plan.assets.filter((asset) => inspectRemoteAsset(plan.tag, repo, asset, run, plan.publicationArtifacts.get(asset)) === "missing");
     if (missing.length === 0) return { status: "already-verified", tag: plan.tag, assets: plan.assets, manifestUrl: plan.manifestUrl };
     run("gh", ["release", "upload", plan.tag, ...missing, "--repo", repo]);
-    for (const asset of plan.assets) verifyRemoteAsset(plan.tag, repo, asset, run);
+    for (const asset of plan.assets) verifyRemoteAsset(plan.tag, repo, asset, run, plan.publicationArtifacts.get(asset));
     return { status: "resumed-verified", tag: plan.tag, assets: plan.assets, manifestUrl: plan.manifestUrl };
   }
   if (!existing.ok) {
@@ -265,35 +300,35 @@ export function publishGitHubRelease(plan, { repo, dryRun = false, run = runComm
     rmSync(notesFile, { force: true });
   }
   run("gh", ["release", "upload", plan.tag, ...plan.assets, "--repo", repo]);
-  for (const asset of plan.assets) verifyRemoteAsset(plan.tag, repo, asset, run);
+  for (const asset of plan.assets) verifyRemoteAsset(plan.tag, repo, asset, run, plan.publicationArtifacts.get(asset));
   return { status: "verified", tag: plan.tag, assets: plan.assets, manifestUrl: plan.manifestUrl };
 }
 
-function verifyAddonTrust(plan) {
+function verifyAddonTrust(plan, commandRunner) {
   for (const file of plan.manifest.files.filter((entry) => entry.executable)) {
     const executable = path.join(plan.sealedDir, file.name);
     if (plan.manifest.platform === "mac") {
-      const output = runCombined("codesign", ["-dv", "--verbose=4", executable]);
+      const output = runCombined("codesign", ["-dv", "--verbose=4", executable], commandRunner);
       if (!/TeamIdentifier=6KLGD3LLKF/.test(output)) throw new Error(`codesign team mismatch: ${file.name}`);
-      runCommand("codesign", ["--verify", "--strict", "--verbose=2", executable]);
-    } else runCommand(process.execPath, [path.join(path.dirname(fileURLToPath(import.meta.url)), "sign-windows.mjs"), "--verify-only", executable]);
+      runCombined("codesign", ["--verify", "--strict", "--verbose=2", executable], commandRunner);
+    } else runCombined(process.execPath, [path.join(path.dirname(fileURLToPath(import.meta.url)), "sign-windows.mjs"), "--verify-only", executable], commandRunner);
   }
 }
 
-export function verifyPlatformTrust(plan) {
+export function verifyPlatformTrust(plan, commandRunner = spawnSync) {
   if (plan.sealed.manifest.platform === "win") {
-    runCommand(process.execPath, [path.join(path.dirname(fileURLToPath(import.meta.url)), "sign-windows.mjs"), "--verify-only", plan.installer]);
+    runCombined(process.execPath, [path.join(path.dirname(fileURLToPath(import.meta.url)), "sign-windows.mjs"), "--verify-only", plan.installer], commandRunner);
     return;
   }
-  runCommand("spctl", ["--assess", "--type", "open", "--context", "context:primary-signature", "--verbose=2", plan.installer]);
-  runCommand("xcrun", ["stapler", "validate", plan.installer]);
+  runCombined("spctl", ["--assess", "--type", "open", "--context", "context:primary-signature", "--verbose=2", plan.installer], commandRunner);
+  runCombined("xcrun", ["stapler", "validate", plan.installer], commandRunner);
 }
 
-function verifyRemoteAsset(tag, repo, asset, run) {
-  if (inspectRemoteAsset(tag, repo, asset, run) !== "match") throw new Error(`GitHub release asset missing: ${path.basename(asset)}`);
+function verifyRemoteAsset(tag, repo, asset, run, evidence) {
+  if (inspectRemoteAsset(tag, repo, asset, run, evidence) !== "match") throw new Error(`GitHub release asset missing; inspect remote asset ${repo}/${tag}/${path.basename(asset)}`);
 }
 
-function inspectRemoteAsset(tag, repo, asset, run) {
+function inspectRemoteAsset(tag, repo, asset, run, evidence) {
   const verifyDir = `${path.dirname(asset)}/verify-${path.basename(asset)}`;
   rmSync(verifyDir, { recursive: true, force: true });
   mkdirSync(verifyDir, { recursive: true });
@@ -301,11 +336,12 @@ function inspectRemoteAsset(tag, repo, asset, run) {
   if (!result.ok) {
     rmSync(verifyDir, { recursive: true, force: true });
     if (/no assets match|not found/i.test(`${result.output ?? ""}\n${result.error ?? ""}`)) return "missing";
-    throw new Error(`cannot inspect GitHub release asset: ${path.basename(asset)}: ${result.error || result.output}`);
+    throw new Error(`cannot inspect remote asset ${repo}/${tag}/${path.basename(asset)}: ${result.error || result.output}`);
   }
   const downloaded = path.join(verifyDir, path.basename(asset));
-  if (!existsSync(downloaded) || sha256(downloaded) !== sha256(asset)) throw new Error(`GitHub release asset hash mismatch: ${path.basename(asset)}`);
-  rmSync(verifyDir, { recursive: true, force: true });
+  try { verifyArtifactFile(downloaded, evidence); }
+  catch { throw new Error(`GitHub release asset hash mismatch; remove remote asset ${repo}/${tag}/${path.basename(asset)}`); }
+  finally { rmSync(verifyDir, { recursive: true, force: true }); }
   return "match";
 }
 
@@ -323,8 +359,8 @@ function runCommand(command, args, { allowFailure = false, cwd } = {}) {
   return allowFailure ? { ok: true, output } : output;
 }
 
-function runCombined(command, args) {
-  const result = spawnSync(command, args, { encoding: "utf8", windowsHide: true });
+function runCombined(command, args, commandRunner = spawnSync) {
+  const result = commandRunner(command, args, { encoding: "utf8", windowsHide: true });
   if (result.status !== 0) throw new Error(`${command} ${args.join(" ")} failed: ${result.stderr?.trim() || `exit ${result.status}`}`);
   return `${result.stdout ?? ""}${result.stderr ?? ""}`;
 }

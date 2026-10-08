@@ -5,6 +5,9 @@ import path from "node:path";
 import { spawnSync } from "./background-process.mjs";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
+import { digestBytes } from "./publication-artifacts.mjs";
+import { runLargeUpload } from "./upload-large.mjs";
+import { readFileSync } from "node:fs";
 
 const uploader = fileURLToPath(new URL("./upload-large.mjs", import.meta.url));
 
@@ -15,8 +18,14 @@ function fixtureFile() {
   return file;
 }
 
+function evidenceFor(file) {
+  const evidence = `${file}.evidence.json`;
+  writeFileSync(evidence, JSON.stringify({ artifactSha256: digestBytes(readFileSync(file)) }));
+  return evidence;
+}
 function run(bucket) {
-  return spawnSync(process.execPath, [uploader, fixtureFile(), "fixture/updates/windows/current/Artifact.exe", bucket], {
+  const file = fixtureFile();
+  return spawnSync(process.execPath, [uploader, file, "fixture/updates/windows/current/Artifact.exe", bucket, "--evidence", evidenceFor(file)], {
     encoding: "utf8",
     env: { ...process.env, RIGHT_RELEASE_UPLOAD_DRY_RUN: "1" },
   });
@@ -50,9 +59,10 @@ test("resolves a real package runner for wrangler on this machine", () => {
 });
 
 test("fails loudly when no package runner exists instead of skipping the upload", () => {
+  const file = fixtureFile();
   const result = spawnSync(
     process.execPath,
-    [uploader, fixtureFile(), "fixture/installers/windows/current/Artifact.exe", "public"],
+    [uploader, file, "fixture/installers/windows/current/Artifact.exe", "public", "--evidence", evidenceFor(file)],
     {
       encoding: "utf8",
       env: {
@@ -68,3 +78,36 @@ test("fails loudly when no package runner exists instead of skipping the upload"
   assert.notEqual(result.status, 0, "a box with no runner must not report a successful upload");
   assert.match(result.stderr, /no package runner found/);
 });
+
+for (const entry of ["upload-large", "pub-upload"]) {
+  test(`${entry}: unsealed CLI input refused`, () => {
+    const result = spawnSync(process.execPath, [path.join(path.dirname(uploader), `${entry}.mjs`), fixtureFile(), "fixture/file", "public"], { encoding: "utf8" });
+    assert.notEqual(result.status, 0); assert.match(result.stderr, /seal or hash evidence is required/);
+  });
+  for (const mode of ["mismatch", "swap", "happy", "missing readback", "wrong readback"]) {
+    test(`${entry}: ${mode} with bounded-file transport mocks`, () => {
+      const file = fixtureFile(), evidence = evidenceFor(file), calls = [];
+      if (mode === "mismatch") writeFileSync(file, "tampered");
+      let remote;
+      const run = (_cmd, args) => {
+        calls.push(args);
+        if (args[0] === "--version") return { status: 0 };
+        if (args.includes("put")) {
+          if (mode === "swap") writeFileSync(file, "swapped during upload");
+          remote = readFileSync(file); return { status: 0 };
+        }
+        if (args.includes("get")) {
+          if (mode === "missing readback") return { status: 1 };
+          writeFileSync(args[args.indexOf("--file") + 1], mode === "wrong readback" ? "wrong" : remote);
+          return { status: 0 };
+        }
+        throw new Error(`unexpected call ${args}`);
+      };
+      const invoke = () => runLargeUpload([file, "fixture/file", "private", "--evidence", evidence], { run, env: {} });
+      if (mode === "happy") { assert.equal(invoke().sha256, digestBytes(Buffer.from("artifact"))); assert.equal(calls.length, 3); }
+      else { assert.throws(invoke, mode === "mismatch" ? /HASH_MISMATCH/ : /remote key rightapps-updates\/fixture\/file/); }
+      if (mode === "mismatch") assert.equal(calls.length, 0);
+      assert.equal(calls.some((args) => args.includes("delete")), false);
+    });
+  }
+}

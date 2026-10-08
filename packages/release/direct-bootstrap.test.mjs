@@ -483,3 +483,35 @@ test("bootstrap plan revalidates product-scoped R2 keys before mutation", () => 
   assert.throws(() => publishBootstrapPlan({ ...plan, stableKey: "other/install.ps1" }, { put: () => calls.push("put"), get: () => {} }, { verificationPath: join(dir, "verify.ps1") }), /product boundary/);
   assert.deepEqual(calls, []);
 });
+
+test("bootstrap R2 refuses unsealed or mismatched script before mutation; catches upload swaps", () => {
+  const dir = mkdtempSync(join(tmpdir(), "rightrelease-bootstrap-bytes-"));
+  const scriptPath = join(dir, "install.ps1"), verificationPath = join(dir, "readback");
+  writeFileSync(scriptPath, "verified script");
+  const plan = { product: "legion", bootstrapVersion: "0.1.0", bucket: "rightapps-downloads", stableKey: "legion/install.ps1", versionedKey: "legion/versions/0.1.0/install.ps1", scriptPath, sha256: createHash("sha256").update("verified script").digest("hex") };
+  let calls = 0, remote;
+  const r2 = { put(_bucket, _key, file) { calls++; writeFileSync(file, "swapped script"); remote = readFileSync(file); }, get(_bucket, _key, file) { writeFileSync(file, remote); } };
+  assert.throws(() => publishBootstrapPlan({ ...plan, sha256: undefined }, r2, { verificationPath }), /hash evidence/);
+  assert.equal(calls, 0);
+  writeFileSync(scriptPath, "mismatch");
+  assert.throws(() => publishBootstrapPlan(plan, r2, { verificationPath }), /HASH_MISMATCH/);
+  assert.equal(calls, 0);
+  writeFileSync(scriptPath, "verified script");
+  assert.throws(() => publishBootstrapPlan(plan, r2, { verificationPath }), /remove remote key rightapps-downloads\/legion\/versions/);
+  assert.equal(calls, 1);
+});
+test("bootstrap stable readback failure reports stable key without deleting remote objects", () => {
+  const dir = mkdtempSync(join(tmpdir(), "rightrelease-bootstrap-stable-"));
+  const scriptPath = join(dir, "install.ps1"), verificationPath = join(dir, "readback"); writeFileSync(scriptPath, "verified script");
+  const plan = { product: "legion", bootstrapVersion: "0.1.0", bucket: "rightapps-downloads", stableKey: "legion/install.ps1", versionedKey: "legion/versions/0.1.0/install.ps1", scriptPath, sha256: createHash("sha256").update("verified script").digest("hex") };
+  const r2 = { put() {}, get(_bucket, key, file) { writeFileSync(file, key === plan.stableKey ? "wrong" : "verified script"); } };
+  assert.throws(() => publishBootstrapPlan(plan, r2, { verificationPath }), /remove remote key rightapps-downloads\/legion\/install.ps1/);
+});
+
+test("bootstrap cannot accept stale local output when remote readback materializes nothing", () => {
+  const dir = mkdtempSync(join(tmpdir(), "rightrelease-bootstrap-stale-"));
+  const scriptPath = join(dir, "install.ps1"), verificationPath = join(dir, "readback");
+  writeFileSync(scriptPath, "verified script"); writeFileSync(verificationPath, "verified script");
+  const plan = { product: "legion", bootstrapVersion: "0.1.0", bucket: "rightapps-downloads", stableKey: "legion/install.ps1", versionedKey: "legion/versions/0.1.0/install.ps1", scriptPath, sha256: createHash("sha256").update("verified script").digest("hex") };
+  assert.throws(() => publishBootstrapPlan(plan, { put() {}, get() {} }, { verificationPath }), /remove remote key/);
+});

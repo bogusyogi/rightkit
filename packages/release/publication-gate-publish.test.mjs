@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import { checkPublicationGate, publishGatedTarball } from './publication-gate.mjs';
+import { checkPublicationGate, publishGatedTarball, prepareNpmPublication, verifyNpmRegistryBytes } from './publication-gate.mjs';
 
 const SHA = 'a'.repeat(40);
 const run = (host) => ({ host: { os: host, arch: 'arm64' }, commit: SHA, command: 'pnpm exec vitest run', passed: 12, failed: 0, operator: 'adrdsouza', timestamp: '2026-10-07T00:00:00Z' });
@@ -60,4 +60,48 @@ test('publishGatedTarball refuses a non-gated tarball, never exposes the token, 
 
   const wrong = (cmd, argv) => (argv[0] === 'publish' ? { status: 0, stdout: '' } : { status: 0, stdout: 'f'.repeat(40) });
   assert.throws(() => publishGatedTarball(args, { readToken: () => 'SECRET', spawnSync: wrong, sleep: () => {} }), /registry shasum/);
+});
+
+test('npm helper refuses absent evidence, catches upload swap, and never records mismatch', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'rk-npm-swap-')), tarball = path.join(dir, 'x.tgz'), evidencePath = path.join(dir, 'evidence.json');
+  fs.writeFileSync(tarball, 'gated bytes');
+  const args = { name: '@rightkit/x', version: '1.0.0', tarball, evidencePath };
+  const deps = { readToken: () => 'mock-token', spawnSync: () => assert.fail('unexpected transport') };
+  assert.throws(() => publishGatedTarball(args, deps), /ENOENT/);
+  fs.writeFileSync(evidencePath, JSON.stringify({ artifactSha256: crypto.createHash('sha256').update('gated bytes').digest('hex') }));
+  let recorded = false, registry;
+  assert.throws(() => publishGatedTarball(args, {
+    readToken: () => { fs.writeFileSync(tarball, 'swapped bytes'); return 'mock-token'; },
+    spawnSync: (_command, argv) => {
+      if (argv[0] === 'publish') { registry = crypto.createHash('sha1').update(fs.readFileSync(tarball)).digest('hex'); return { status: 0 }; }
+      return { status: 0, stdout: registry };
+    }, recordPublished: () => { recorded = true; },
+  }), /registry shasum/);
+  assert.equal(recorded, false);
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+for (const mode of ['unsealed', 'mismatch', 'swap', 'happy', 'readback error']) {
+  test(`CI npm template boundary: ${mode} requires captured registry equality`, () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'rk-npm-ci-')), tarball = path.join(dir, 'x.tgz'), evidencePath = path.join(dir, 'evidence.json');
+    try {
+      fs.writeFileSync(tarball, 'gated bytes');
+      const sha256 = crypto.createHash('sha256').update('gated bytes').digest('hex');
+      if (mode !== 'unsealed') fs.writeFileSync(evidencePath, JSON.stringify({ artifactSha256: sha256 }));
+      if (mode === 'mismatch') fs.writeFileSync(tarball, 'tampered');
+      const prepare = () => prepareNpmPublication({ name: '@rightkit/x', version: '1.0.0', tarball, evidencePath });
+      if (['unsealed', 'mismatch'].includes(mode)) { assert.throws(prepare, /ENOENT|HASH_MISMATCH/); return; }
+      const captured = prepare();
+      if (mode === 'swap') fs.writeFileSync(tarball, 'swapped bytes');
+      const registry = crypto.createHash('sha1').update(fs.readFileSync(tarball)).digest('hex');
+      const verify = () => verifyNpmRegistryBytes(captured, { spawnSync: () => ({ status: mode === 'readback error' ? 1 : 0, stdout: registry }), verifyTimeoutMs: -1, sleep: () => assert.fail('must fail immediately') });
+      if (mode === 'happy') verify(); else assert.throws(verify, /registry shasum|not visible/);
+    } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+  });
+}
+test('CI npm template captures hash before publish and requires shared readback after publish', () => {
+  const source = fs.readFileSync(new URL('../git/templates/publish-npm.yml', import.meta.url), 'utf8');
+  assert.ok(source.indexOf('prepareNpmPublication({') < source.indexOf('- run: npm publish'));
+  assert.ok(source.indexOf('verifyNpmRegistryBytes({') > source.indexOf('- run: npm publish'));
+  assert.match(source, /evidencePath:.*publication-evidence.json/);
+  assert.doesNotMatch(source, /continue-on-error|if:.*always/);
 });

@@ -5,6 +5,7 @@ import path from "node:path";
 import { execFileSync, spawnSync } from "./background-process.mjs";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import test from "node:test";
+import { publishR2Addon } from "./addon-command.mjs";
 import { createAddonManifest, addonManifestSha256, canonicalAddonManifest, downloadImmutableAddOn, immutableAddonManifestUrl } from "./addon-contract.mjs";
 
 const command = fileURLToPath(new URL("./addon-command.mjs", import.meta.url));
@@ -52,3 +53,29 @@ test("remote downloader accepts only immutable manifest plus file routes", async
   assert.equal(readFileSync(path.join(destination, "membrane-service"), "utf8"), "service");
   assert.equal(immutableAddonManifestUrl(manifest, `https://github.com/Orthic-Labs/Membrane/releases/download/addon-membrane-v0.1.0-mac-sha256-${digest}/addon-manifest.json`, digest), true);
 });
+
+for (const mode of ["unsealed", "mismatch", "swap", "happy"]) {
+  test(`R2 add-on: ${mode} verifies artifact bytes before mutation`, async () => {
+    const root = fixture(), config = (await import(pathToFileURL(path.join(root, "right-addon.config.mjs")).href)).default;
+    mkdirSync(path.join(root, "out")); writeFileSync(path.join(root, "out", "membrane"), "command"); writeFileSync(path.join(root, "out", "membrane-service"), "service");
+    const commit = "d".repeat(40);
+    const manifest = createAddonManifest({ config, root, platform: "mac", commit, signing: { command: { contract: "test-fixture-v1", status: "verified" }, service: { contract: "test-fixture-v1", status: "verified" } } });
+    const sealed = path.join(root, "sealed"); mkdirSync(sealed);
+    for (const file of manifest.files) writeFileSync(path.join(sealed, file.name), readFileSync(path.join(root, config.targets.mac.files.find((entry) => entry.role === file.role).source)));
+    const manifestPath = path.join(sealed, "addon-manifest.json");
+    if (mode !== "unsealed") writeFileSync(manifestPath, canonicalAddonManifest(manifest));
+    if (mode === "mismatch") writeFileSync(path.join(sealed, manifest.files[0].name), "tampered");
+    const uploads = [];
+    const run = (_command, args, options) => {
+      if (args.includes("get")) {
+        if (mode === "swap") writeFileSync(path.join(sealed, manifest.files[0].name), "swapped after verification");
+        return { status: 1, stderr: "404 not found" };
+      }
+      assert.ok(args.includes("--pipe"));
+      uploads.push(Buffer.from(options.input)); return { status: 0 };
+    };
+    const invoke = () => publishR2Addon({ manifestPath, repoRoot: root, config, commit, platform: "mac" }, { run, env: { CLOUDFLARE_API_TOKEN: "mock-only" } });
+    if (mode === "happy") { invoke(); assert.equal(uploads.length, manifest.files.length + 1); assert.equal(uploads[0].toString(), "command"); }
+    else { assert.throws(invoke, mode === "unsealed" ? /ENOENT/ : /MISMATCH|SOURCE_CHANGED/); assert.equal(uploads.length, 0); }
+  });
+}

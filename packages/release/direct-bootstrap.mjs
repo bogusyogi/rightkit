@@ -1,5 +1,6 @@
+import { readVerifiedArtifact } from "./publication-artifacts.mjs";
 import { createHash } from "node:crypto";
-import { mkdirSync, readFileSync, realpathSync, statSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, rmSync, realpathSync, statSync, writeFileSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { spawnSync } from "./background-process.mjs";
 import { RIGHTRELEASE_MANIFEST_SIGNER, signReleaseManifestWithAzure } from "./sign-release-manifest.mjs";
@@ -539,7 +540,8 @@ export function planBootstrapPublication({ product, bootstrapVersion, scriptPath
   if (stableKey !== `${product}/install.ps1`) throw new Error("bootstrap stable key must be product/install.ps1");
   const script = statSync(scriptPath);
   if (!script.isFile() || script.size < 1 || script.size > MAX_BOOTSTRAP_BYTES || scriptPath.split(/[\\/]/).at(-1) !== "install.ps1") throw new Error("bootstrap must be one small install.ps1 file");
-  const validation = validatePowerShellBootstrap(readFileSync(scriptPath, "utf8"), { product });
+  const scriptBytes = readFileSync(scriptPath);
+  const validation = validatePowerShellBootstrap(scriptBytes.toString("utf8"), { product });
   if (!validation.valid) throw new Error("bootstrap script violates generated RightRelease contract: " + validation.errors.join("; "));
   const versionedKey = `${product}/versions/${bootstrapVersion}/install.ps1`;
   return {
@@ -549,7 +551,7 @@ export function planBootstrapPublication({ product, bootstrapVersion, scriptPath
     stableKey,
     versionedKey,
     scriptPath: resolve(scriptPath),
-    sha256: sha256File(scriptPath),
+    sha256: createHash("sha256").update(scriptBytes).digest("hex"),
   };
 }
 
@@ -567,16 +569,24 @@ export function createWranglerR2Client({ commandRunner = spawnSync, wranglerRunn
 
 export function publishBootstrapPlan(plan, r2, { verificationPath }) {
   validateBootstrapPublicationPlan(plan);
-  r2.put(plan.bucket, plan.versionedKey, plan.scriptPath);
-  r2.get(plan.bucket, plan.versionedKey, verificationPath);
-  if (sha256File(verificationPath) !== plan.sha256) throw new Error("immutable bootstrap remote verification failed");
-  r2.put(plan.bucket, plan.stableKey, plan.scriptPath);
-  r2.get(plan.bucket, plan.stableKey, verificationPath);
-  if (sha256File(verificationPath) !== plan.sha256) throw new Error("stable bootstrap remote verification failed");
+  readVerifiedArtifact(plan.scriptPath, { sha256: plan.sha256 });
+  for (const [label, key] of [["immutable", plan.versionedKey], ["stable", plan.stableKey]]) {
+    try { r2.put(plan.bucket, key, plan.scriptPath); }
+    catch { throw new Error(`bootstrap upload failed; inspect remote key ${plan.bucket}/${key}`); }
+    // A successful readback must materialize fresh bytes, never reuse prior output.
+    rmSync(verificationPath, { force: true });
+    try {
+      r2.get(plan.bucket, key, verificationPath);
+      readVerifiedArtifact(verificationPath, { sha256: plan.sha256 });
+    } catch {
+      throw new Error(`${label} bootstrap remote verification failed; remove remote key ${plan.bucket}/${key}`);
+    }
+  }
   return { ...plan, verified: true };
 }
 
 export function validateBootstrapPublicationPlan(plan) {
+  if (!/^[a-f0-9]{64}$/.test(plan?.sha256 ?? "")) throw new Error("bootstrap publication hash evidence is required");
   if (!plan || !/^[a-z][a-z0-9-]+$/.test(plan.product ?? "")) throw new Error("bootstrap publication product is invalid");
   if (!VERSION.test(plan.bootstrapVersion ?? "")) throw new Error("bootstrap publication version is invalid");
   if (plan.bucket !== "rightapps-downloads") throw new Error("bootstrap publication bucket is not branded public R2");

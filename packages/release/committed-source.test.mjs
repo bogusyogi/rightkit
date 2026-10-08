@@ -51,6 +51,12 @@ test("local Cargo and npm aliases resolve from committed manifests after checkou
   writeFileSync(path.join(root, "crates", "helper", "Cargo.toml"), '[package]\nname="helper"\nversion="0.1.0"\n');
   writeFileSync(path.join(root, "package.json"), JSON.stringify({ name: "app", dependencies: { local: "file:./packages/local", alias: "npm:@rightkit/special@1.0.0" } }));
   writeFileSync(path.join(root, "packages", "local", "package.json"), JSON.stringify({ name: "local" }));
+  writeFileSync(path.join(root, "Cargo.lock"), 'version=4\n[[package]]\nname="app"\nversion="0.1.0"\ndependencies=["helper"]\n[[package]]\nname="helper"\nversion="0.1.0"\n');
+  writeFileSync(path.join(root, "package-lock.json"), JSON.stringify({ lockfileVersion: 3, packages: {
+    "": { name: "app", dependencies: { local: "file:./packages/local", alias: "npm:@rightkit/special@1.0.0" } },
+    "packages/local": { name: "local", version: "0.0.0" }, "node_modules/local": { link: true, resolved: "packages/local", version: "0.0.0" },
+    "node_modules/alias": { name: "@rightkit/special", version: "1.0.0" },
+  } }));
   const commitId = commit(root);
   rmSync(path.join(root, "Cargo.toml"));
   rmSync(path.join(root, "package.json"));

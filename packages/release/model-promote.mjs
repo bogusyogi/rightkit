@@ -1,11 +1,11 @@
 #!/usr/bin/env node
-import { createHash } from "node:crypto";
-import { createReadStream } from "node:fs";
-import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { verifyArtifactFile, readVerifiedArtifact, digestBytes } from "./publication-artifacts.mjs";
+import { uploadVerifiedR2File, uploadVerifiedR2Artifact } from "./r2-verified-upload.mjs";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { spawn, spawnSync } from "./background-process.mjs";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { spawnSync } from "./background-process.mjs";
+import { pathToFileURL } from "node:url";
 
 import {
   RIGHT_SUITE_APP_KEYS,
@@ -17,8 +17,6 @@ import { registerRightAppsRelease } from "./rightapps-register.mjs";
 import { assertCleanSource } from "./source-gate.mjs";
 
 export const RUNTIME_ARTIFACT_TRUSTED_KEY_ID = "rightkit-runtime-artifacts-2026-07";
-const TOOL_ROOT = path.dirname(fileURLToPath(import.meta.url));
-const UPLOAD = path.join(TOOL_ROOT, "upload-large.mjs");
 
 export class RuntimeArtifactPromotionError extends Error {
   constructor(code, message) {
@@ -52,8 +50,8 @@ export async function promoteRuntimeArtifact(input, deps = {}) {
   if (!input.privateKey) throw new Error("runtime artifact signing key is required");
 
   const [artifact, evidence] = await Promise.all([
-    metadata(input.artifactFile),
-    metadata(input.evidenceFile),
+    metadata(input.artifactFile, config.artifact),
+    metadata(input.evidenceFile, config.evidence),
   ]);
   assertMetadata(artifact, config.artifact, "artifact");
   if (evidence.sha256 !== config.evidence.sha256) throw new Error("evidence SHA-256 does not match promotion config");
@@ -84,6 +82,7 @@ export async function promoteRuntimeArtifact(input, deps = {}) {
       file: input.artifactFile,
       key: manifest.object.r2Key,
       lane: manifest.distribution.delivery,
+      evidence: { sha256: artifact.sha256, sizeBytes: artifact.sizeBytes },
     });
   }
   await register(envelope);
@@ -239,28 +238,22 @@ function git(cwd, args) {
   return result.stdout.trim();
 }
 
-async function fileMetadata(file) {
-  const info = await stat(file);
-  if (!info.isFile() || info.size <= 0) throw new Error(`promotion input is not a nonempty file: ${file}`);
-  const hash = createHash("sha256");
-  await new Promise((resolve, reject) => {
-    const stream = createReadStream(file);
-    stream.on("data", (chunk) => hash.update(chunk));
-    stream.on("error", reject);
-    stream.on("end", resolve);
-  });
-  return { sha256: hash.digest("hex"), sizeBytes: info.size };
+async function fileMetadata(file, evidence) {
+  const artifact = verifyArtifactFile(file, evidence);
+  if (artifact.sizeBytes <= 0) throw new Error(`promotion input is not a nonempty file: ${file}`);
+  return artifact;
 }
 
-async function defaultUpload({ file, content, key, lane }) {
+export async function defaultUpload({ file, content, key, lane, evidence }, deps = {}) {
   const bucketAlias = lane === "private-r2" ? "private" : "public";
   const env = runtimeArtifactUploadEnv();
-  if (file) return run(process.execPath, [UPLOAD, file, key, bucketAlias], env);
+  if (file) return uploadVerifiedR2File(file, evidence, key, bucketAlias, { ...deps, env });
   const tempRoot = await mkdtemp(path.join(os.tmpdir(), "rightkit-runtime-pointer-"));
   const pointerFile = path.join(tempRoot, "manifest.json");
   try {
-    await writeFile(pointerFile, content, { encoding: "utf8", mode: 0o600 });
-    await run(process.execPath, [UPLOAD, pointerFile, key, bucketAlias], env);
+    const bytes = Buffer.from(content);
+    await writeFile(pointerFile, bytes, { mode: 0o600 });
+    uploadVerifiedR2Artifact(readVerifiedArtifact(pointerFile, { sha256: digestBytes(bytes) }), key, bucketAlias, { ...deps, env });
   } finally {
     await rm(tempRoot, { recursive: true, force: true });
   }
@@ -268,14 +261,6 @@ async function defaultUpload({ file, content, key, lane }) {
 
 async function registerRuntimeArtifact(envelope, releaseToken) {
   return registerRightAppsRelease("/v1/admin/apps/runtime-artifacts", envelope, { token: releaseToken });
-}
-
-function run(command, args, env = process.env) {
-  return new Promise((resolve, reject) => {
-    const child = spawn(command, args, { cwd: process.cwd(), env, stdio: "inherit", windowsHide: true });
-    child.on("error", reject);
-    child.on("exit", (code) => code === 0 ? resolve() : reject(new Error(`${command} exited ${code}`)));
-  });
 }
 
 async function readNonemptySecret(file) {
