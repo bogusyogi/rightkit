@@ -47,6 +47,11 @@ mod pacer;
 #[allow(unsafe_code)]
 pub mod windows;
 
+/// ScreenCaptureKit backend, the macOS side of the [`Backend`] seam. The capture runs in a Swift
+/// helper (`helpers/macos`); this module launches it and speaks the helper protocol.
+#[cfg(target_os = "macos")]
+pub mod macos;
+
 pub use backend::{
     track_file, track_id, Backend, BackendPlan, Codec, Failure, Finished, FrameSample, HelperEvent,
     HelperIdentity, Permission, Source, StartInfo, TrackOutput,
