@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { spawnSync, windowsPowerShellEnvironment } from "./background-process.mjs";
 import { canonicalJson, canonicalRepositoryIdentity, __testOnly as approvalTestOnly, evaluateWindowsAcl, validateTrustRegistry } from "./ownership-approval.mjs";
 import { verifyKeyLog } from "./ownership-key-log.mjs";
+import { SCANNER_VERSION } from "./ownership.mjs";
 
 const HEX = /^[a-f0-9]{64}$/;
 const MAX_REQUEST_BYTES = 2 * 1024 * 1024;
@@ -283,6 +284,27 @@ function atomicProtectedWrite(file, trust) {
 }
 
 /** Elevated child entrypoint. Writes only the fixed native trust path. */
+const versionParts = (value) => String(value).split(".").map(Number);
+function versionAtLeast(value, floor) {
+  const a = versionParts(value), b = versionParts(floor);
+  for (let i = 0; i < Math.max(a.length, b.length); i += 1) { const x = a[i] ?? 0, y = b[i] ?? 0; if (x !== y) return x > y; }
+  return true;
+}
+/**
+ * Floors follow the installed (digest-verified) RightKit release this elevated code runs from:
+ * its own catalog digest/version and scanner version. Floors only ever rise; an older installed
+ * release leaves the existing floors untouched. The request never supplies floors.
+ */
+export function raiseFloorsToInstalledRelease(trust, { manifest = installedCatalog(), scannerVersion = SCANNER_VERSION } = {}) {
+  const catalogVersion = String(manifest?.version ?? "");
+  if (!/^\d+(?:\.\d+)*$/.test(catalogVersion) || !/^\d+(?:\.\d+)*$/.test(scannerVersion)) return trust;
+  if (!versionAtLeast(catalogVersion, trust.minimumCatalogVersion ?? "0") || !versionAtLeast(scannerVersion, trust.minimumScannerVersion ?? "0")) return trust;
+  const raised = { ...trust, minimumCatalogVersion: catalogVersion, minimumScannerVersion: scannerVersion, minimumCatalogDigest: createHash("sha256").update(canonicalJson(manifest)).digest("hex") };
+  if (!validateTrustRegistry(raised).ok) return trust;
+  return raised;
+}
+function installedCatalog() { return JSON.parse(readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "rightkit-ownership.json"), "utf8")); }
+
 export function performProtectedTrustUpdate({ log, rootFingerprint, baseline, authority } = {}) {
   assertElevated();
   const file = OWNERSHIP_TRUST_PATH[process.platform];
@@ -295,7 +317,7 @@ export function performProtectedTrustUpdate({ log, rootFingerprint, baseline, au
     // Re-read under the protected lock so every accepted checkpoint follows latest disk state.
     let existing = null;
     try { lstatSync(file); auditProtected(file); existing = readExisting(file); } catch (error) { if (error.code !== "ENOENT") throw error; existing = null; }
-    const trust = prepareTrustUpdate(existing, { log, rootFingerprint, baseline, authority });
+    const trust = raiseFloorsToInstalledRelease(prepareTrustUpdate(existing, { log, rootFingerprint, baseline, authority }));
     if (trust.keyAuthority) validateCommittedAuthority(trust.keyAuthority, log, trust.rootFingerprint, trust.keyCheckpoint);
     atomicProtectedWrite(file, trust);
     auditProtected(file);

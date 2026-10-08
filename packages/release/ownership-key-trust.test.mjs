@@ -167,3 +167,15 @@ test("Windows directory ACL evaluator rejects untrusted write access on descenda
   assert.equal(evaluateWindowsAcl(acl, { target: "C:\\ProgramData\\Orthic Labs\\RightKit\\ownership" }).ok, false);
   assert.match(evaluateWindowsAcl(acl, { target: "C:\\ProgramData\\Orthic Labs\\RightKit\\ownership" }).problems.join(" "), /untrusted principal/);
 });
+
+test("elevated updates raise floors to the installed release and never lower them", async () => {
+  const { raiseFloorsToInstalledRelease } = await import("./ownership-key-trust.mjs");
+  const manifest = { schema: 1, version: "3.0.0", capabilities: [] };
+  const base = { schema: 1, minimumScannerVersion: "2.2.0", minimumCatalogVersion: "1", minimumCatalogDigest: "a".repeat(64), revokedKeyIds: [], verifiedTrackingEvidence: [], repositories: [], provenance: [] };
+  const raised = raiseFloorsToInstalledRelease(base, { manifest, scannerVersion: "2.6.0" });
+  assert.equal(raised.minimumCatalogVersion, "3.0.0");
+  assert.equal(raised.minimumScannerVersion, "2.6.0");
+  assert.notEqual(raised.minimumCatalogDigest, base.minimumCatalogDigest);
+  assert.deepEqual(raiseFloorsToInstalledRelease({ ...base, minimumCatalogVersion: "4" }, { manifest, scannerVersion: "2.6.0" }), { ...base, minimumCatalogVersion: "4" });
+  assert.deepEqual(raiseFloorsToInstalledRelease({ ...base, minimumScannerVersion: "3.0.0" }, { manifest, scannerVersion: "2.6.0" }), { ...base, minimumScannerVersion: "3.0.0" });
+});
