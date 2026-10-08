@@ -5250,7 +5250,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-service"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "libc",
  "rightkit-framed-sidecar",
@@ -5272,7 +5272,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-shell"
-version = "0.1.3"
+version = "0.1.4"
 dependencies = [
  "block2",
  "objc2",
