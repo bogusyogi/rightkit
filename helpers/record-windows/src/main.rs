@@ -7,6 +7,7 @@ mod args;
 mod bmp;
 mod codec;
 mod error;
+mod journal;
 mod pacer;
 mod record;
 mod windows;
