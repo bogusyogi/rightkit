@@ -724,7 +724,8 @@ for (const app of apps) {
     for (const releaseFile of app.releaseFiles) {
       const source = readFileSync(path.join(root, releaseFile), "utf8");
       assert.doesNotMatch(source, /(?:\.\.\/)+tools\/right-release|tools\/right-release\//, `${app.key} ${releaseFile} must consume the installed package`);
-      assert.match(source, /right-release["']?,?\s*["']mirror-root-artifact|right-release mirror-root-artifact/, `${app.key} ${releaseFile} must mirror the final DMG to the canonical package root`);
+      // Storage governance: installers go to RIGHT_RELEASE_ARTIFACT_DIR; the legacy root mirror stays accepted.
+      assert.match(source, /right-release["']?,?\s*["']mirror-root-artifact|right-release mirror-root-artifact|RIGHT_RELEASE_ARTIFACT_DIR/, `${app.key} ${releaseFile} must write the final DMG to RIGHT_RELEASE_ARTIFACT_DIR (or mirror it to the canonical package root)`);
     }
   });
 }

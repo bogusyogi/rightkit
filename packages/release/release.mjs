@@ -281,8 +281,9 @@ if (opts.platform === "win") {
     });
   }
 } else if (opts.platform === "mac") {
-  const signingFiles = target.sign.prePackageFiles.map((p) => path.resolve(root, p));
   if (runMacPhase("prepackage")) await runCommand(target.prePackage, root);
+  // Resolve after prePackage: with storage governance the artifact may live only in RIGHT_RELEASE_ARTIFACT_DIR.
+  const signingFiles = target.sign.prePackageFiles.map((p) => resolveReleaseArtifactPath(root, p));
   for (const file of signingFiles) await mustExist(file, `missing macOS Developer ID signing artifact: ${file}`);
   if (runMacPhase("sign")) await signMacos(signingFiles, root);
 } else if (nativeAssembly) {
