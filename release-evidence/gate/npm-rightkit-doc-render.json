@@ -2,25 +2,25 @@
   "schema": 1,
   "kind": "npm",
   "name": "@rightkit/doc-render",
-  "version": "0.1.3",
-  "commit": "995a4f46495bdbd8bba07b11633db61624bbaeff",
-  "artifactSha256": "0dd3b7b305a759955b9134dee1e310eee4bb7ee4f4d6a483e91355eb4e00a202",
+  "version": "0.1.4",
+  "commit": "a719a4afb795b7b299357f8f3f33d6446bedad8d",
+  "artifactSha256": "cbcc797fd7fe7bfb3b3d1eaa4bf993bfc6f88a5ec391bc0ca69ac267812716c5",
   "hostPolicy": "darwin-only",
-  "hostPolicyReason": "Adrian 2026-10-07: apps validate on macOS first, Windows later",
+  "hostPolicyReason": "Pure TypeScript package; tests are host-independent (Adrian 2026-10-07: macOS first)",
   "runs": [
     {
       "host": {
         "os": "darwin",
         "arch": "arm64"
       },
-      "commit": "995a4f46495bdbd8bba07b11633db61624bbaeff",
-      "command": "pnpm exec vitest run + test:browser (Chrome for Testing e2e)",
+      "commit": "a719a4afb795b7b299357f8f3f33d6446bedad8d",
+      "command": "pnpm --dir packages/doc-render test",
       "features": [
         "default"
       ],
       "operator": "claude-opus-5.5 (RightKit lead) for adrdsouza",
-      "timestamp": "2026-10-07T14:45:48Z",
-      "passed": 8,
+      "timestamp": "2026-10-08T19:54:28Z",
+      "passed": 7,
       "failed": 0
     }
   ]
