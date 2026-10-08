@@ -22,7 +22,10 @@ function plistValue(xml, key) {
 async function discoverVolumeId(path, platform, run, stats = null) {
   if (platform === 'darwin') {
     try {
-      const result = await run('diskutil', ['info', '-plist', path]);
+      // diskutil only accepts a device or mount point, not a directory inside the volume.
+      const df = await run('df', ['-P', path]);
+      const mount = String(df?.stdout ?? '').trim().split(/\r?\n/).at(-1)?.split(/\s+/).slice(5).join(' ') || path;
+      const result = await run('diskutil', ['info', '-plist', mount]);
       return plistValue(result?.stdout, 'VolumeUUID') ?? plistValue(result?.stdout, 'APFSVolumeUUID');
     } catch { return null; }
   }
