@@ -29,7 +29,7 @@
     "@rightkit/platform-ui": "0.1.2",
     "@rightkit/qa": "0.3.0",
     "@rightkit/qa-chrome": "0.1.3",
-    "@rightkit/release": "0.2.131",
+    "@rightkit/release": "0.2.132",
     "@rightkit/settings-ui": "0.2.7",
     "@rightkit/shell": "0.1.0",
     "@rightkit/tauri": "0.1.1",
@@ -154,7 +154,8 @@
       "0.2.127",
       "0.2.128",
       "0.2.129",
-      "0.2.130"
+      "0.2.130",
+      "0.2.131"
     ],
     "@rightkit/qa": [
       "0.1.0",
