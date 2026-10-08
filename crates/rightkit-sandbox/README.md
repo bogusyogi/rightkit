@@ -25,7 +25,7 @@ None. The crate has no Cargo features. Dependencies: `rightkit-process`, `portab
 | `Sandbox::spawn_pty` without a policy | Yes | Yes | Yes |
 | Windows ancestor-ACE lease and sweep | No | No | Yes (`windows_ancestors.rs`, `windows_appcontainer.rs`) |
 
-On Windows, the policy's paths are ACLed to a per-grant-set container SID only while a child that needs them is alive. Network is the `internetClient` capability; loopback stays blocked even then, because an AppContainer loopback exemption needs elevation. Every child is created suspended inside a kill-on-close Job Object.
+On Windows, the policy's paths are ACLed to a per-grant-set container SID only while a child that needs them is alive. Network is the `internetClient` capability; loopback stays blocked even then: the crate adds no AppContainer loopback exemption (Windows only grants one through an elevated tool). Every child is created suspended inside a kill-on-close Job Object.
 
 Published version: see `INDEX.md` at the repository root. Release notes: see `CHANGELOG.md` in this crate.
 
