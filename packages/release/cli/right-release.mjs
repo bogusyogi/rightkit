@@ -88,6 +88,12 @@ if (first === "--version" || first === "-v") {
   } else {
     run("upload-release.mjs", rest);
   }
+} else if (first === "inventory") {
+  if (args[1] !== "check") {
+    console.error("right-release inventory: expected check");
+    process.exit(2);
+  }
+  run("inventory-check.mjs", args.slice(2));
 } else if (first === "model") {
   const rest = args.slice(1);
   if (rest[0] !== "promote") {
@@ -179,6 +185,8 @@ Commands:
                                                       (npm-rightkit-publish) and verify registry bytes
   publish cargo --crate <name> [--dry-run]           Test, inspect, scan, and publish one crates.io package
   publish swift [--repo <git-url>] [--dry-run] Test, tag, resolve a fresh exact-pin consumer, and publish RightKitSwift to its git repo
+  inventory check [--json] [--warn-only] [--md <file>] [--no-cache]
+                                                      Registry, account, dependency, app & hygiene drift (public endpoints)
   model promote --authority <app-key> --config <file> [--dry-run]
                                                       Sign and promote one runtime/model artifact
   addon doctor|build|upload|adopt <options>           Manage a signed headless add-on
