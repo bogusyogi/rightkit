@@ -7,7 +7,14 @@ use crate::{
 use rightkit_process::OwnedCommand;
 use std::io::Read;
 use std::process::{Command, ExitStatus, Stdio};
-use std::time::Duration;
+use std::sync::mpsc;
+use std::time::{Duration, Instant};
+
+/// Default capture cap per stream (stdout, stderr) for [`SandboxedChild::wait_with_output`].
+pub const DEFAULT_OUTPUT_CAP: usize = 16 * 1024 * 1024;
+
+/// After the deadline kills the tree, how long readers get to reach end-of-pipe.
+const KILL_DRAIN_GRACE: Duration = Duration::from_millis(500);
 
 /// Spawns children under a [`SandboxPolicy`], reserving resources first.
 #[derive(Debug, Clone)]
@@ -39,11 +46,65 @@ enum Inner {
 #[derive(Debug, Clone)]
 pub struct SandboxOutput {
     pub status: Option<ExitStatus>,
+    /// The deadline passed before the tree finished (the tree was killed), or
+    /// pipes were still held open by a descendant at the deadline.
     pub timed_out: bool,
+    /// Captured stdout, at most the per-stream cap.
     pub stdout: Vec<u8>,
+    /// Captured stderr, at most the per-stream cap.
     pub stderr: Vec<u8>,
+    /// Some output was discarded past the cap, or a stream did not reach
+    /// end-of-pipe before the deadline (so its capture may be incomplete).
+    pub truncated: bool,
     /// Set when the exit was non-zero and stderr carries a recognized sandbox denial.
     pub denial: Option<DenialSignature>,
+}
+
+#[derive(Clone, Copy)]
+enum Stream {
+    Stdout,
+    Stderr,
+}
+
+/// One stream's capture: bytes kept up to the cap, and whether bytes were dropped.
+struct Captured {
+    bytes: Vec<u8>,
+    truncated: bool,
+}
+
+/// Read a pipe to end-of-file on its own thread, keeping at most `cap` bytes.
+/// Bytes past the cap are still read and discarded so the child never blocks on
+/// a full pipe. Always sends exactly one result (empty when there is no pipe).
+fn spawn_reader(
+    r: Option<Box<dyn Read + Send>>,
+    which: Stream,
+    cap: usize,
+    tx: mpsc::Sender<(Stream, Captured)>,
+) {
+    std::thread::spawn(move || {
+        let mut cap_out = Captured {
+            bytes: Vec::new(),
+            truncated: false,
+        };
+        if let Some(mut r) = r {
+            let mut chunk = [0u8; 8192];
+            loop {
+                match r.read(&mut chunk) {
+                    Ok(0) => break,
+                    Ok(n) => {
+                        let room = cap.saturating_sub(cap_out.bytes.len());
+                        cap_out.bytes.extend_from_slice(&chunk[..n.min(room)]);
+                        if n > room {
+                            cap_out.truncated = true;
+                        }
+                    }
+                    Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {}
+                    Err(_) => break,
+                }
+            }
+        }
+        let _ = tx.send((which, cap_out));
+    });
 }
 
 fn apply_env(cmd: &mut Command, env: &EnvPolicy, extra: &[(String, String)]) {
@@ -292,28 +353,88 @@ impl SandboxedChild {
         }
     }
 
-    /// Wait up to `timeout`, collecting stdout/stderr. On timeout the whole tree is killed.
-    pub fn wait_with_output(mut self, timeout: Duration) -> std::io::Result<SandboxOutput> {
-        fn drain(r: Option<Box<dyn Read + Send>>) -> std::thread::JoinHandle<Vec<u8>> {
-            std::thread::spawn(move || {
-                let mut buf = Vec::new();
-                if let Some(mut r) = r {
-                    let _ = r.read_to_end(&mut buf);
-                }
-                buf
-            })
-        }
-        let out = drain(self.stdout.take());
-        let err = drain(self.stderr.take());
-        let (status, timed_out) = match self.inner.wait_timeout(timeout)? {
+    /// Wait up to `timeout` for the child, collecting stdout/stderr with each
+    /// stream capped at [`DEFAULT_OUTPUT_CAP`].
+    ///
+    /// The deadline covers the whole process tree and its pipes: if the child
+    /// outlives `timeout`, or a descendant still holds stdout/stderr open at
+    /// `timeout`, the tree is killed (process group on Unix, Job Object on
+    /// Windows) and readers get a bounded grace period to reach end-of-pipe.
+    pub fn wait_with_output(self, timeout: Duration) -> std::io::Result<SandboxOutput> {
+        self.wait_with_output_capped(timeout, DEFAULT_OUTPUT_CAP)
+    }
+
+    /// [`SandboxedChild::wait_with_output`] with an explicit per-stream cap.
+    pub fn wait_with_output_capped(
+        mut self,
+        timeout: Duration,
+        cap_per_stream: usize,
+    ) -> std::io::Result<SandboxOutput> {
+        let deadline = Instant::now() + timeout;
+        let (tx, rx) = mpsc::channel();
+        spawn_reader(
+            self.stdout.take(),
+            Stream::Stdout,
+            cap_per_stream,
+            tx.clone(),
+        );
+        spawn_reader(
+            self.stderr.take(),
+            Stream::Stderr,
+            cap_per_stream,
+            tx.clone(),
+        );
+        drop(tx);
+
+        let (status, mut timed_out) = match self.inner.wait_timeout(timeout)? {
             Some(s) => (Some(s), false),
             None => (Some(self.terminate_tree()?), true),
         };
-        let stdout = out.join().unwrap_or_default();
-        let stderr = err.join().unwrap_or_default();
+
+        let mut out: Option<Captured> = None;
+        let mut err: Option<Captured> = None;
+        let mut collect = |msg: (Stream, Captured)| match msg.0 {
+            Stream::Stdout => out = Some(msg.1),
+            Stream::Stderr => err = Some(msg.1),
+        };
+        let mut pending = 2;
+        while pending > 0 {
+            match rx.recv_timeout(deadline.saturating_duration_since(Instant::now())) {
+                Ok(msg) => {
+                    collect(msg);
+                    pending -= 1;
+                }
+                Err(_) => break,
+            }
+        }
+        if pending > 0 {
+            // A descendant holds a pipe past the deadline: kill what is left of
+            // the tree, then give the readers a short bounded grace to finish.
+            timed_out = true;
+            let _ = self.terminate_tree();
+            let grace_end = Instant::now() + KILL_DRAIN_GRACE;
+            while pending > 0 {
+                match rx.recv_timeout(grace_end.saturating_duration_since(Instant::now())) {
+                    Ok(msg) => {
+                        collect(msg);
+                        pending -= 1;
+                    }
+                    Err(_) => break,
+                }
+            }
+        }
+
+        let finish = |c: Option<Captured>| {
+            c.unwrap_or(Captured {
+                bytes: Vec::new(),
+                truncated: true,
+            })
+        };
+        let (out, err) = (finish(out), finish(err));
+        let truncated = out.truncated || err.truncated;
         let denial = match status {
             Some(s) if !s.success() && !timed_out => {
-                let sig = classify_denial(&String::from_utf8_lossy(&stderr), self.source);
+                let sig = classify_denial(&String::from_utf8_lossy(&err.bytes), self.source);
                 sig.is_recognized().then_some(sig)
             }
             _ => None,
@@ -321,8 +442,9 @@ impl SandboxedChild {
         Ok(SandboxOutput {
             status,
             timed_out,
-            stdout,
-            stderr,
+            stdout: out.bytes,
+            stderr: err.bytes,
+            truncated,
             denial,
         })
     }

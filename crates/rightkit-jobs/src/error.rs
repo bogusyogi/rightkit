@@ -13,6 +13,8 @@ pub struct JobError {
 pub const HOST_HANDOFF: &str = "host_handoff";
 /// Stable wire code for [`JobError::stalled`].
 pub const STALLED: &str = "stalled";
+/// Stable wire code for [`JobError::stale_attempt`].
+pub const STALE_ATTEMPT: &str = "stale_attempt";
 
 pub type JobResult<T> = Result<T, JobError>;
 
@@ -43,6 +45,15 @@ impl JobError {
     /// No progress for the stall timeout. Retryable, and it spends an attempt.
     pub fn stalled(idle_secs: f64) -> Self {
         Self::retryable(STALLED, format!("no progress for {idle_secs:.1}s"))
+    }
+    /// A write from an attempt that no longer owns the job (its generation was
+    /// superseded by a newer run, e.g. after a stall watchdog fenced it). Not
+    /// retryable: the stale attempt must stop, and its write has no effect.
+    pub fn stale_attempt(job_id: &str) -> Self {
+        Self::new(
+            STALE_ATTEMPT,
+            format!("job {job_id}: write from a superseded attempt was rejected"),
+        )
     }
     pub fn cancelled() -> Self {
         Self::new("cancelled", "job was cancelled")

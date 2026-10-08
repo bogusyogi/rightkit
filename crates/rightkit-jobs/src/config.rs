@@ -16,7 +16,7 @@ use crate::store::{JobRecord, CANCELLED, COMPLETE, FAILED, QUEUED, RUNNING};
 pub type Ext = Map<String, Value>;
 
 /// Core `jobs` columns owned by the crate; extension columns may not reuse them.
-pub(crate) const CORE_JOB_COLUMNS: [&str; 12] = [
+pub(crate) const CORE_JOB_COLUMNS: [&str; 13] = [
     "job_id",
     "request_id",
     "kind",
@@ -29,6 +29,7 @@ pub(crate) const CORE_JOB_COLUMNS: [&str; 12] = [
     "acked_at",
     "created_at",
     "updated_at",
+    "attempt_gen",
 ];
 
 /// SQLite storage class of an extension column.

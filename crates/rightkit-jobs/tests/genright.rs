@@ -321,7 +321,10 @@ fn adopts_an_existing_genright_database_without_data_loss() {
     assert!(store.adoption().existing_jobs_table);
     assert_eq!(
         store.adoption().added_columns,
-        vec!["job_events.progress".to_string()]
+        vec![
+            "job_events.progress".to_string(),
+            "jobs.attempt_gen".to_string()
+        ]
     );
     assert!(
         !has_table(&db, "artifacts"),

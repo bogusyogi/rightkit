@@ -85,6 +85,9 @@ pub struct JobControl {
     gate: Arc<Gate>,
     priority: Priority,
     max_attempts: i64,
+    /// Attempt generation this control writes under (see [`JobStore::fence`]).
+    /// Every write is rejected with `stale_attempt` once a newer one exists.
+    generation: i64,
     /// Set by the stall watchdog: this attempt was abandoned and must stop.
     abandoned: AtomicBool,
     started: Instant,
@@ -105,6 +108,10 @@ impl JobControl {
     pub fn max_attempts(&self) -> i64 {
         self.max_attempts
     }
+    /// The attempt generation this control writes under.
+    pub fn generation(&self) -> i64 {
+        self.generation
+    }
     /// Current job row with extension columns.
     pub fn record(&self) -> JobResult<JobRecord> {
         self.store.record(&self.job_id)
@@ -113,17 +120,21 @@ impl JobControl {
         self.store.ext(&self.job_id)
     }
     pub fn set_ext(&self, ext: &Ext) -> JobResult<JobRecord> {
-        self.store.set_ext(&self.job_id, ext)
+        self.store
+            .set_ext_fenced(&self.job_id, self.generation, ext)
     }
-    /// Validated status move (see [`JobStore::transition`]).
+    /// Validated status move (see [`JobStore::transition`]). Fenced: a stale
+    /// attempt gets `stale_attempt` and writes nothing.
     pub fn transition(&self, t: &Transition) -> JobResult<Option<JobRecord>> {
-        self.store.transition(&self.job_id, t)
+        self.store
+            .transition_fenced(&self.job_id, self.generation, t)
     }
     /// See [`JobStore::begin_submission`]; bounded by the runner's `max_attempts`.
     /// `Ok(None)` when the job went terminal.
     pub fn begin_submission(&self) -> JobResult<Option<Submission>> {
         self.heartbeat();
-        self.store.begin_submission(&self.job_id, self.max_attempts)
+        self.store
+            .begin_submission_fenced(&self.job_id, self.generation, self.max_attempts)
     }
     pub fn accept_submission(
         &self,
@@ -131,17 +142,22 @@ impl JobControl {
         to: Option<&str>,
     ) -> JobResult<Option<JobRecord>> {
         self.heartbeat();
-        self.store.accept_submission(&self.job_id, external_id, to)
+        self.store
+            .accept_submission_fenced(&self.job_id, self.generation, external_id, to)
     }
     pub fn fail_submission(&self, e: &JobError, to: Option<&str>) -> JobResult<Option<JobRecord>> {
         self.heartbeat();
-        self.store.fail_submission(&self.job_id, e, to)
+        self.store
+            .fail_submission_fenced(&self.job_id, self.generation, e, to)
     }
     /// Store and publish a progress event. Best-effort: never fails the job.
     /// Counts as a sign of life for the stall watchdog.
     pub fn progress(&self, stage: &str, progress: Option<f64>, message: Option<&str>) {
         self.heartbeat();
-        if let Ok(ev) = self.store.add_event(&self.job_id, stage, progress, message) {
+        if let Ok(ev) =
+            self.store
+                .add_event_fenced(&self.job_id, self.generation, stage, progress, message)
+        {
             if let Some(s) = &self.sink {
                 s(&ev);
             }
@@ -212,7 +228,8 @@ impl JobControl {
         if self.abandoned.load(Ordering::SeqCst) {
             return Err(JobError::stalled(self.idle().as_secs_f64()));
         }
-        self.store.add_artifact(&self.job_id, path, mime)
+        self.store
+            .add_artifact_fenced(&self.job_id, self.generation, path, mime)
     }
 }
 
@@ -329,7 +346,13 @@ impl Runner {
         &self.locks
     }
 
-    fn control(&self, job_id: &str, sink: Option<EventSink>, priority: Priority) -> JobControl {
+    fn control(
+        &self,
+        job_id: &str,
+        sink: Option<EventSink>,
+        priority: Priority,
+        generation: i64,
+    ) -> JobControl {
         JobControl {
             store: self.store.clone(),
             job_id: job_id.into(),
@@ -337,6 +360,7 @@ impl Runner {
             gate: self.gate.clone(),
             priority,
             max_attempts: self.max_attempts,
+            generation,
             abandoned: AtomicBool::new(false),
             started: Instant::now(),
             beat_ms: AtomicU64::new(0),
@@ -371,24 +395,26 @@ impl Runner {
         let per_run = self.attempts == AttemptPolicy::PerRun;
         if per_run && job.attempts >= self.max_attempts {
             let e = JobError::new("max_attempts", "job used every allowed attempt");
-            self.store.fail(job_id, &e)?;
+            let gen = self.store.generation(job_id)?;
+            self.store.fail_fenced(job_id, gen, &e)?;
             self.implicit(
-                &self.control(job_id, sink, Priority::of(&job)),
+                &self.control(job_id, sink, Priority::of(&job), gen),
                 "failed",
                 None,
                 Some(&e.message),
             );
             return Ok(RunOutcome::Finished(self.store.get(job_id)?));
         }
-        let job = match self.store.begin_run(job_id, per_run) {
-            Ok(Some(r)) => r.job,
+        let (job, gen) = match self.store.begin_run_fenced(job_id, per_run) {
+            Ok(Some((r, gen))) => (r.job, gen),
             Ok(None) => return Ok(RunOutcome::Finished(self.store.get(job_id)?)),
             // A store hook (e.g. a spend cap) refused the attempt; nothing was counted.
             Err(e) if e.code == "db" => return Err(e),
             Err(e) => {
-                let ctl = self.control(job_id, sink, Priority::of(&job));
+                let gen = self.store.generation(job_id)?;
+                let ctl = self.control(job_id, sink, Priority::of(&job), gen);
                 if e.retryable {
-                    self.store.record_error(job_id, &e)?;
+                    self.store.record_error_fenced(job_id, gen, &e)?;
                     self.implicit(
                         &ctl,
                         "paused",
@@ -397,7 +423,7 @@ impl Runner {
                     );
                     return Ok(RunOutcome::Paused(self.store.get(job_id)?));
                 }
-                if self.store.fail(job_id, &e)? {
+                if self.store.fail_fenced(job_id, gen, &e)? {
                     self.implicit(&ctl, "failed", None, Some(&e.message));
                 }
                 return Ok(RunOutcome::Finished(self.store.get(job_id)?));
@@ -407,12 +433,21 @@ impl Runner {
         // Interactive work holds the gate for the whole run so batch jobs yield at their boundaries.
         let _interactive =
             (priority == Priority::Interactive).then(|| self.gate.begin_interactive());
-        let ctl = Arc::new(self.control(job_id, sink, priority));
+        let ctl = Arc::new(self.control(job_id, sink.clone(), priority, gen));
         self.implicit(&ctl, "started", None, None);
         let result = self.run_handler(&job, &ctl);
+        // Generation this runner writes under. A stalled attempt is fenced
+        // before the lock is released: its worker thread may still be running,
+        // but every write it attempts now fails with `stale_attempt`.
+        let (owner, ctl) = if ctl.abandoned.load(Ordering::SeqCst) {
+            let owner = self.store.fence(job_id, gen)?;
+            (owner, Arc::new(self.control(job_id, sink, priority, owner)))
+        } else {
+            (gen, ctl)
+        };
         match result {
             Ok(value) => {
-                if self.store.complete(job_id, &value)? {
+                if self.store.complete_fenced(job_id, owner, &value)? {
                     self.implicit(&ctl, "complete", Some(1.0), None);
                 } else if self.store.get(job_id)?.status == CANCELLED {
                     self.implicit(&ctl, "cancelled", None, None);
@@ -421,9 +456,9 @@ impl Runner {
             }
             Err(e) if e.retryable => {
                 if e.code == HOST_HANDOFF && per_run {
-                    self.store.refund_attempt(job_id)?;
+                    self.store.refund_attempt_fenced(job_id, owner)?;
                 }
-                self.store.record_error(job_id, &e)?;
+                self.store.record_error_fenced(job_id, owner, &e)?;
                 self.implicit(
                     &ctl,
                     "paused",
@@ -433,7 +468,7 @@ impl Runner {
                 Ok(RunOutcome::Paused(self.store.get(job_id)?))
             }
             Err(e) => {
-                if self.store.fail(job_id, &e)? {
+                if self.store.fail_fenced(job_id, owner, &e)? {
                     self.implicit(&ctl, "failed", None, Some(&e.message));
                 } else if self.store.get(job_id)?.status == CANCELLED {
                     self.implicit(&ctl, "cancelled", None, None);

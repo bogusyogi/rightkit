@@ -17,7 +17,7 @@ pub use contract::{
     parse_flags, run_cli, serve, CommandSet, Dispatcher, DoctorFn, Flags, JobCommands, Outcome,
     PayloadMapper, Sink, CONTRACT_VERSION, DEFAULT_FRAME_LIMIT, JOB_METHODS,
 };
-pub use error::{JobError, JobResult, HOST_HANDOFF, STALLED};
+pub use error::{JobError, JobResult, HOST_HANDOFF, STALE_ATTEMPT, STALLED};
 /// The `rusqlite` this crate links (via `rightkit-db`); hooks receive its `Connection`.
 pub use rightkit_db::rusqlite;
 pub use runner::{

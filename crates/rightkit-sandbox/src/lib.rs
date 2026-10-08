@@ -40,7 +40,7 @@ pub use pty::{PtyError, PtyLeaseSnapshot, PtySession, PtySize, UnacknowledgedInp
 pub use resources::{
     Reservation, ResourceAuthority, ResourceDenied, ResourceKind, ResourceProfile,
 };
-pub use spawn::{Sandbox, SandboxOutput, SandboxedChild};
+pub use spawn::{Sandbox, SandboxOutput, SandboxedChild, DEFAULT_OUTPUT_CAP};
 #[cfg(windows)]
 pub use windows_appcontainer::{
     sweep_stale_appcontainer_ancestor_aces, sweep_stale_appcontainer_ancestor_aces_for_owner,
