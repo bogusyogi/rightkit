@@ -1,0 +1,115 @@
+{
+  "package": "rightkit-llm",
+  "capabilities": [
+    {
+      "capability": "llm-providers",
+      "summary": "Brand-neutral BYOK LLM clients: Anthropic Messages and OpenAI-compatible chat, streaming, tool use, route failover with circuit breaker, pricing, and prompt-cache discipline.",
+      "fingerprints": [
+        {
+          "id": "llm.cargo.async-openai",
+          "type": "dependency",
+          "ecosystem": "cargo",
+          "name": "async-openai",
+          "tier": "advise",
+          "usageContext": {
+            "hosts": [
+              "macos",
+              "windows"
+            ],
+            "scope": "cargo direct competing dependency; transitive findings require authenticated reachability"
+          },
+          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
+        },
+        {
+          "id": "llm.cargo.anthropic",
+          "type": "dependency",
+          "ecosystem": "cargo",
+          "name": "anthropic",
+          "tier": "advise",
+          "usageContext": {
+            "hosts": [
+              "macos",
+              "windows"
+            ],
+            "scope": "cargo direct competing dependency; transitive findings require authenticated reachability"
+          },
+          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
+        },
+        {
+          "id": "llm.cargo.anthropic-sdk",
+          "type": "dependency",
+          "ecosystem": "cargo",
+          "name": "anthropic-sdk",
+          "tier": "advise",
+          "usageContext": {
+            "hosts": [
+              "macos",
+              "windows"
+            ],
+            "scope": "cargo direct competing dependency; transitive findings require authenticated reachability"
+          },
+          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
+        },
+        {
+          "id": "llm.npm.openai",
+          "type": "dependency",
+          "ecosystem": "npm",
+          "name": "openai",
+          "tier": "advise",
+          "usageContext": {
+            "hosts": [
+              "macos",
+              "windows"
+            ],
+            "scope": "npm direct competing dependency; transitive findings require authenticated reachability"
+          },
+          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
+        },
+        {
+          "id": "llm.npm.anthropic-ai.sdk",
+          "type": "dependency",
+          "ecosystem": "npm",
+          "name": "@anthropic-ai/sdk",
+          "tier": "advise",
+          "usageContext": {
+            "hosts": [
+              "macos",
+              "windows"
+            ],
+            "scope": "npm direct competing dependency; transitive findings require authenticated reachability"
+          },
+          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
+        },
+        {
+          "id": "llm.endpoint.provider-request",
+          "type": "source",
+          "pattern": "\\b(?:fetch|post|request)\\s*\\(\\s*[\"\\x27]https://(?:api\\.anthropic\\.com/v1/messages|api\\.openai\\.com/v1/(?:chat/completions|responses))[\"\\x27]",
+          "codeOnly": true,
+          "extensions": [
+            ".rs",
+            ".ts",
+            ".tsx",
+            ".js",
+            ".mjs",
+            ".cjs",
+            ".jsx"
+          ],
+          "tier": "advise",
+          "usageContext": {
+            "hosts": [
+              "macos",
+              "windows"
+            ],
+            "scope": "Executable code only; authenticated owner provenance required for exclusions"
+          },
+          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
+        }
+      ],
+      "detection": "fingerprinted",
+      "policyNotes": [
+        "Unpublished BYOK client; generic OpenAI-compatible routes need feature parity review.",
+        "Fingerprints identify review candidates; published two-host replacement qualification is not recorded."
+      ]
+    }
+  ]
+}

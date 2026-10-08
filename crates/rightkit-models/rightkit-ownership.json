@@ -1,0 +1,31 @@
+{
+  "package": "rightkit-models",
+  "capabilities": [
+    {
+      "capability": "model-installation",
+      "summary": "Shared local-model manifest and installer for Right Suite apps: revisions and quantizations, resumable verified downloads, archive extraction, atomic activation, rollback, and hardware fit.",
+      "fingerprints": [
+        {
+          "id": "models.cargo.hf-hub",
+          "type": "dependency",
+          "ecosystem": "cargo",
+          "name": "hf-hub",
+          "tier": "advise",
+          "usageContext": {
+            "hosts": [
+              "macos",
+              "windows"
+            ],
+            "scope": "cargo direct competing dependency; transitive findings require authenticated reachability"
+          },
+          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
+        }
+      ],
+      "detection": "fingerprinted",
+      "policyNotes": [
+        "Package contract retained; dependency declarations do not verify integration.",
+        "Fingerprints identify review candidates; published two-host replacement qualification is not recorded."
+      ]
+    }
+  ]
+}

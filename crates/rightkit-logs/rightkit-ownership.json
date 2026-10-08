@@ -1,0 +1,15 @@
+{
+  "package": "rightkit-logs",
+  "capabilities": [
+    {
+      "capability": "structured-logging",
+      "summary": "Privacy-safe local JSONL logging and diagnostics for Right Suite desktop apps.",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "JSONL logging only; no tracing/env_logger replacement claimed.",
+        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
+      ]
+    }
+  ]
+}

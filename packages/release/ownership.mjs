@@ -1,8 +1,10 @@
 // RightKit ownership scan. Public exports retain the original findings-array API.
+import { isBlockingFinding } from "./ownership-verdict.mjs";
 import { spawnSync } from "./background-process.mjs";
 import { canonicalRepositoryIdentity, loadTrustedExternal, occurrenceHash, policyEntryDigest, resolveKeyLogTrust, sha256, verifyException, verifyProtectedProvenance } from "./ownership-approval.mjs";
 import installedManifest from "./rightkit-ownership.json" with { type: "json" };
 import { parse as parseToml } from "smol-toml";
+import { sourceNonCode } from "./ownership-source.mjs";
 import { existsSync, lstatSync, readdirSync, readFileSync, realpathSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { acquireCommittedSource, committedSourceDataForInternalUse } from "./committed-source.mjs";
@@ -16,7 +18,7 @@ export const EXCEPTIONS_FILE = path.join(".rightkit", "ownership-exceptions.json
 const CODE_EXT = new Set([".rs", ".ts", ".tsx", ".js", ".mjs", ".cjs", ".jsx", ".swift", ".m", ".mm", ".c", ".cc", ".cpp", ".h", ".py", ".go", ".kt", ".java", ".cs"]);
 // Listed installed/build inputs retain explicit coverage diagnostics.
 const OPAQUE_DIRS = new Set(["target", ".build", "DerivedData", "Pods"]);
-export const SCANNER_VERSION = "2.4.0";
+export const SCANNER_VERSION = "2.6.0";
 export const catalogDigest = (manifest) => sha256(manifest);
 const byteDigest = (bytes) => createHash("sha256").update(bytes).digest("hex");
 const inputDigest = (file) => file.digest ?? byteDigest(file.bytes);
@@ -41,45 +43,6 @@ function sourceMatchers(manifest) {
   return matchers;
 }
 
-// Code-only patterns may consume string arguments, but must start outside
-// literals/comments. Keep offsets/newlines intact for multiline call reporting.
-function sourceNonCode(text, rust) {
-  const nonCode = new Uint8Array(text.length);
-  for (let i = 0; i < text.length;) {
-    const start = i;
-    if (text.startsWith("//", i) || text.startsWith("/*", i)) {
-      if (text[i + 1] === "/") {
-        i = text.indexOf("\n", i + 2);
-        if (i === -1) i = text.length;
-      } else {
-        i += 2;
-        let depth = 1;
-        while (i < text.length && depth) {
-          if (rust && text.startsWith("/*", i)) { depth++; i += 2; }
-          else if (text.startsWith("*/", i)) { depth--; i += 2; }
-          else i++;
-        }
-      }
-      nonCode.fill(1, start, i);
-      continue;
-    }
-    const raw = rust && (i === 0 || !/[\w]/.test(text[i - 1])) && /^(?:br|cr|r)(#*)"/.exec(text.slice(i));
-    if (raw) {
-      const closing = `"${raw[1]}`, end = text.indexOf(closing, i + raw[0].length);
-      i = end === -1 ? text.length : end + closing.length;
-    } else if (text[i] === '"' || (!rust && (text[i] === "'" || text[i] === "`")) ||
-      (rust && text[i] === "'" && /^'(?:\\(?:u\{[\da-fA-F]+\}|x[\da-fA-F]{2}|[^\r\n])|[^'\\\r\n])'/.test(text.slice(i)))) {
-      const quote = text[i++];
-      while (i < text.length) {
-        if (text[i] === "\\") i = Math.min(i + 2, text.length);
-        else if (text[i++] === quote) break;
-      }
-    } else { i++; continue; }
-    nonCode.fill(1, start, i);
-  }
-  return nonCode;
-}
-
 function sourceFindings(file, matchers) {
   const ext = path.posix.extname(file.rel).toLowerCase();
   const key = `${matchers.digest}:${ext}:${file.cacheKey ?? inputDigest(file)}`;
@@ -89,7 +52,7 @@ function sourceFindings(file, matchers) {
   const push = (c, f, line, lineText) => {
     const identity = `${f.id}\0${lineText}`, ordinal = ordinals.get(identity) ?? 0;
     ordinals.set(identity, ordinal + 1);
-    findings.push({ fingerprint: f.id, capability: c.capability, package: c.package, kind: "source", line, lineText, ordinal, text: lineText.trim().slice(0, 160) });
+    findings.push({ fingerprint: f.id, capability: c.capability, package: c.package, ...findingPolicy(c, f), kind: "source", line, lineText, ordinal, text: lineText.trim().slice(0, 160) });
   };
   if (matchers.prefilter.test(text)) {
     const lines = text.split(/\r?\n/);
@@ -128,7 +91,8 @@ export function aggregateOwnership(rightkitRoot) {
     if (!existsSync(dir)) continue;
     for (const name of readdirSync(dir).sort()) {
       const child = path.join(dir, name);
-      let file = path.join(child, MANIFEST_FILE);
+      let file = path.join(child, "ownership-declaration.json");
+      if (!existsSync(file)) file = path.join(child, MANIFEST_FILE);
       if (!existsSync(file) && group === "swift") file = path.join(child, "rightkit-ownership.json");
       if (!existsSync(file)) continue;
       const declared = JSON.parse(readFileSync(file, "utf8"));
@@ -136,7 +100,9 @@ export function aggregateOwnership(rightkitRoot) {
       for (const capability of declared.capabilities ?? []) entries.push({ package: declared.package, ...capability });
     }
   }
-  const manifest = { schema: 1, version: "1", capabilities: entries };
+  const internalFile = path.join(rightkitRoot, "packages/release/ownership-internal-owners.json");
+  const internalOwners = existsSync(internalFile) ? JSON.parse(readFileSync(internalFile, "utf8")).owners : [];
+  const manifest = { schema: 1, version: "2", capabilities: entries, internalOwners };
   validateManifest(manifest);
   return manifest;
 }
@@ -144,7 +110,7 @@ export function aggregateOwnership(rightkitRoot) {
 export function validateManifest(manifest) {
   const ids = new Set();
   for (const c of manifest.capabilities ?? []) {
-    if (!c.package || !c.capability || !Array.isArray(c.fingerprints) || !c.fingerprints.length) throw new Error(`ownership: incomplete capability ${JSON.stringify(c).slice(0, 120)}`);
+    if (!c.package || !c.capability || !Array.isArray(c.fingerprints)) throw new Error(`ownership: incomplete capability ${JSON.stringify(c).slice(0, 120)}`);
     for (const f of c.fingerprints) {
       if (!f.id || ids.has(f.id)) throw new Error(`ownership: missing or duplicate fingerprint id ${f.id}`);
       ids.add(f.id);
@@ -542,29 +508,14 @@ function trustedProvenance(appRoot, inventory, trust, repositoryIdentity, covera
   return { excluded, classifications };
 }
 
-function npmImportUsage(inventory) {
-  const usage = new Map(), qaSegments = new Set(["test", "tests", "__tests__", "e2e", "qa", "fixtures"]);
-  for (const { rel, bytes } of inventory.files) {
-    if (!CODE_EXT.has(path.posix.extname(rel).toLowerCase()) || !bytes) continue;
-    const qaPath = rel.split("/").some((segment) => qaSegments.has(segment)) || /(?:\.(?:test|spec)\.|^qa-.*\.)/.test(path.posix.basename(rel));
-    for (const match of bytes.toString("utf8").matchAll(/\bimport\b\s*(?:[\w$*{},\s]+?\bfrom\s*)?["']([^"']+)["']|\b(?:import|require)\s*\(\s*["']([^"']+)["']/g)) {
-      const specifier = match[1] ?? match[2];
-      const name = specifier.split("/").slice(0, specifier.startsWith("@") ? 2 : 1).join("/");
-      usage.set(name, (usage.get(name) ?? true) && qaPath);
-    }
-  }
-  return usage;
-}
-
 function scanInternal(appRoot, manifest, { inventory = fileInventory(appRoot), trust, repositoryIdentity, repositoryRoot = appRoot, pathPrefix = "" } = {}) {
   const findings = [], coverage = [...inventory.coverage], deps = dependenciesFromInventory(appRoot, inventory), contentDigests = [...(deps.contentDigests ?? [])];
+  const catalogOwners = new Set(manifest.capabilities.map((entry) => entry.package));
   coverage.push(...(deps.coverage ?? []));
   const provenance = trustedProvenance(appRoot, inventory, trust, repositoryIdentity, coverage, repositoryRoot, pathPrefix);
-  const npmUsage = npmImportUsage(inventory);
   for (const c of manifest.capabilities) for (const f of c.fingerprints.filter((x) => x.type === "dependency")) for (const d of deps) {
-    if (d.ecosystem === f.ecosystem && (d.name === f.name || d.alias === f.name)) {
-      const qaOnly = c.capability !== "desktop-qa" && d.ecosystem === "npm" && d.devOnly && npmUsage.get(d.alias ?? d.name) === true;
-      findings.push({ fingerprint: f.id, capability: c.capability, package: c.package, file: d.file, line: 0, kind: "dependency", ecosystem: d.ecosystem, name: d.name, alias: d.alias, section: d.section, requirement: d.requirement, features: d.features, defaultFeatures: d.defaultFeatures, source: d.source, resolvedVersion: d.resolvedVersion, text: `${d.ecosystem} dependency ${d.alias ? `${d.alias} aliases ` : ""}${d.name}`, local: d.local, provenance: d.source, ...(qaOnly ? { qaOnly: true } : {}) });
+    if (d.ecosystem === f.ecosystem && (d.name === f.name || d.alias === f.name) && !catalogOwners.has(d.name)) {
+      findings.push({ fingerprint: f.id, capability: c.capability, package: c.package, ...findingPolicy(c, f), file: d.file, line: 0, kind: "dependency", ecosystem: d.ecosystem, name: d.name, alias: d.alias, section: d.section, requirement: d.requirement, features: d.features, defaultFeatures: d.defaultFeatures, source: d.source, resolvedVersion: d.resolvedVersion, text: `${d.ecosystem} dependency ${d.alias ? `${d.alias} aliases ` : ""}${d.name}`, local: d.local, provenance: d.source });
     }
   }
   const matchers = sourceMatchers(manifest);
@@ -596,26 +547,32 @@ function trustForScan(options = {}) {
   try { return loadTrustedExternal().trust; } catch { return null; }
 }
 
-function resolveSharedAuthority(trust) {
+function resolveSharedAuthority(trust, readAuthority = readCommittedKeyAuthority) {
   if (!trust?.keyAuthority) return { trust };
-  const authority = readCommittedKeyAuthority(trust);
+  const authority = readAuthority(trust);
   if (!authority.ok) throw new Error(`protected ownership key authority failed: ${authority.problems.join("; ")}`);
   if (!authority.resolvedTrust.ownershipKeys.length) throw new Error("protected ownership key authority has no active approval keys");
   return { trust: authority.resolvedTrust, keyLogDigest: authority.digest, keyCheckpoint: authority.keyCheckpoint, rootFingerprint: authority.rootFingerprint, keyAuthority: authority.authority };
 }
 
-function resolveRepositoryKeyLog(trust, repositoryRoot, repositoryIdentity) {
+function resolveRepositoryKeyLog(trust, repositoryRoot, repositoryIdentity, readAuthority = readCommittedKeyAuthority) {
   if (!trust?.rootFingerprint || trust.keyAuthority) return { trust };
-  const authority = readCommittedKeyAuthority({ ...trust, keyAuthority: { repositoryIdentity, checkoutPath: repositoryRoot } });
+  const authority = readAuthority({ ...trust, keyAuthority: { repositoryIdentity, checkoutPath: repositoryRoot } });
   if (!authority.ok) throw new Error(`protected ownership key log failed: ${authority.problems.join("; ")}`);
   if (!authority.resolvedTrust.ownershipKeys.length) throw new Error("protected ownership key log has no active approval keys");
   return { trust: authority.resolvedTrust, keyLogDigest: authority.digest, keyCheckpoint: authority.keyCheckpoint, rootFingerprint: authority.rootFingerprint };
 }
 
 export function scanApp(appRoot, manifest, options = {}) {
+  return scanAppInternal(appRoot, manifest, options);
+}
+export function scanAppForTest(appRoot, manifest, options = {}) {
+  return scanAppInternal(appRoot, manifest, options, options.readAuthorityForTest);
+}
+function scanAppInternal(appRoot, manifest, options, readAuthority) {
   const initialTrust = trustForScan(options), location = scanRepositoryRoot(appRoot);
   const repositoryIdentity = repositoryIdentityFor(appRoot);
-  const authority = initialTrust?.keyAuthority ? resolveSharedAuthority(initialTrust) : resolveRepositoryKeyLog(initialTrust, location.root, repositoryIdentity);
+  const authority = initialTrust?.keyAuthority ? resolveSharedAuthority(initialTrust, readAuthority) : resolveRepositoryKeyLog(initialTrust, location.root, repositoryIdentity, readAuthority);
   const trust = authority.trust;
   const result = scanInternal(appRoot, manifest, { inventory: fileInventory(appRoot, trust, location.prefix, location.root), trust, repositoryIdentity, repositoryRoot: location.root, pathPrefix: location.prefix });
   Object.defineProperty(result.findings, "coverage", { value: result.coverage, enumerable: false });
@@ -645,6 +602,10 @@ function enrollmentPending(trust, state) {
   return !keys.every((key) => key?.keyId && key.publicKeyPem && !trust.revokedKeyIds?.includes(key.keyId)) || keys[0]?.keyId === keys[1]?.keyId || keys[0]?.publicKeyPem === keys[1]?.publicKeyPem;
 }
 
+/** Effective enforcement policy; a fingerprint without a tier is treated as `block` (fail closed). */
+function findingPolicy(c, f) {
+  return { tier: f.tier ?? c.tier ?? "block", ...(f.policy ? { policy: f.policy } : {}) };
+}
 export function evaluate(findings, exceptions, options = {}) {
   const today = options.today ?? new Date().toISOString().slice(0, 10), problems = [], covered = [], violations = [], warnings = [];
   const metadata = options.metadata ?? findings.metadata ?? {};
@@ -670,29 +631,39 @@ export function evaluate(findings, exceptions, options = {}) {
   }
   const pending = enrollmentPending(options.trust, options.trustEnrollment);
   if (pending) warnings.push("approval enrollment pending; detected findings remain open backlog requests until distinct Windows & macOS keys are enrolled");
-  const qaOnly = findings.filter((f) => f.qaOnly === true && f.capability !== "desktop-qa");
-  for (const f of findings) if (!qaOnly.includes(f) && !covered.some((x) => x.occurrenceHash === occurrenceHash(f))) violations.push({ ...f, occurrenceHash: occurrenceHash(f) });
-  return { violations, covered, qaOnly, problems, warnings, enrollmentPending: pending };
+  for (const f of findings) if (!covered.some((x) => x.occurrenceHash === occurrenceHash(f))) violations.push({ ...f, occurrenceHash: occurrenceHash(f) });
+  return { violations, covered, problems, warnings, enrollmentPending: pending };
 }
 
 export function capabilityTable(manifest, deps, result) {
-  return [...new Map(manifest.capabilities.map((c) => [c.capability, c.package])).entries()].map(([capability, owner]) => {
-    const declared = deps.some((d) => d.name === owner || d.name === owner.replace(/^rightkit-/, "@rightkit/"));
+  const groups = new Map();
+  for (const c of manifest.capabilities) {
+    if (!groups.has(c.capability)) groups.set(c.capability, []);
+    groups.get(c.capability).push(c.package);
+  }
+  return [...groups].map(([capability, owners]) => {
+    const owner = owners[0];
+    const declared = deps.some((d) => owners.includes(d.name) || owners.some((name) => d.name === name.replace(/^rightkit-/, "@rightkit/")));
     const own = result.violations.filter((x) => x.capability === capability), covered = result.covered.filter((x) => x.capability === capability);
-    const qaOnly = (result.qaOnly ?? []).filter((x) => x.capability === capability && !covered.some((item) => item.occurrenceHash === x.occurrenceHash));
-    const status = own.length ? "blocked" : covered.length ? "excepted" : qaOnly.length ? "qa-only" : declared ? "declared-dependency" : result.coverage?.length ? "unscanned" : "not-detected";
-    return { capability, owner, uses: declared, status, count: own.length + covered.length + qaOnly.length };
+    const status = own.length ? "blocked" : covered.length ? "excepted" : declared ? "declared-dependency" : result.coverage?.length ? "unscanned" : "not-detected";
+    return { capability, owner, ...(owners.length > 1 ? { owners } : {}), uses: declared, status, count: own.length + covered.length };
   });
 }
 export function formatTable(rows) { return ["capability  owner  status", ...rows.map((x) => `${x.capability}  ${x.owner}  ${x.status}`)].join("\n"); }
 
 export function checkApp(appRoot, manifest, options = {}) {
+  return checkAppInternal(appRoot, manifest, options);
+}
+export function checkAppForTest(appRoot, manifest, options = {}) {
+  return checkAppInternal(appRoot, manifest, options, options.readAuthorityForTest);
+}
+function checkAppInternal(appRoot, manifest, options, readAuthority) {
   let trustState = options.trust;
   if (!trustState) trustState = loadTrustedExternal();
   const initialTrust = trustState && Object.prototype.hasOwnProperty.call(trustState, "trust") ? trustState.trust : trustState;
   const repositoryLocation = scanRepositoryRoot(appRoot);
   const repositoryIdentity = repositoryIdentityFor(appRoot);
-  const resolved = initialTrust?.keyAuthority ? resolveSharedAuthority(initialTrust) : resolveRepositoryKeyLog(initialTrust, repositoryLocation.root, repositoryIdentity);
+  const resolved = initialTrust?.keyAuthority ? resolveSharedAuthority(initialTrust, readAuthority) : resolveRepositoryKeyLog(initialTrust, repositoryLocation.root, repositoryIdentity, readAuthority);
   const trust = resolved.trust;
   const location = repositoryLocation;
   const scanned = scanInternal(appRoot, manifest, { inventory: fileInventory(appRoot, trust, location.prefix, location.root), trust, repositoryIdentity, repositoryRoot: location.root, pathPrefix: location.prefix });
@@ -704,10 +675,10 @@ export function checkApp(appRoot, manifest, options = {}) {
   const result = evaluate(scanned.findings, loadExceptions(appRoot), { ...options, manifest, trust, trustEnrollment: enrollment, metadata });
   const coverage = [...new Map(metadata.coverage.map((x) => [`${x.path}\0${x.reason}`, x])).values()];
   const rows = capabilityTable(manifest, scanned.deps, { ...result, coverage });
-  return { ok: !result.enrollmentPending && !result.violations.length && !result.problems.length && !coverage.length, rows, ...result, findings: scanned.findings, coverage, metadata };
+  return { ok: !result.enrollmentPending && !result.violations.some(isBlockingFinding) && !result.problems.length && !coverage.length, rows, ...result, findings: scanned.findings, coverage, metadata };
 }
 
-function checkCommitted(appRoot, manifest, options, acquire) {
+function checkCommitted(appRoot, manifest, options, acquire, readAuthority = readCommittedKeyAuthority) {
   let trustState = options.trust;
   if (!trustState) trustState = loadTrustedExternal();
   let trust = trustState && Object.prototype.hasOwnProperty.call(trustState, "trust") ? trustState.trust : trustState;
@@ -726,7 +697,7 @@ function checkCommitted(appRoot, manifest, options, acquire) {
   if (!repositoryIdentity) throw new Error("committed ownership: repository origin is missing or invalid");
   let keyLogDigest, keyCheckpoint, keyAuthorityBinding;
   if (trust?.keyAuthority) {
-    const authority = readCommittedKeyAuthority(trust);
+    const authority = readAuthority(trust);
     if (!authority.ok) throw new Error(`committed ownership key authority failed: ${authority.problems.join("; ")}`);
     trust = authority.resolvedTrust;
     if (!trust.ownershipKeys.length) throw new Error("protected ownership key authority has no active approval keys");
@@ -769,7 +740,7 @@ function checkCommitted(appRoot, manifest, options, acquire) {
     : trustState?.pending !== undefined || trustState?.enrolled !== undefined ? trustState : undefined, metadata });
   const coverage = [...new Map(metadata.coverage.map((x) => [`${x.path}\0${x.reason}`, x])).values()];
   const rows = capabilityTable(manifest, scanned.deps, { ...result, coverage });
-  return { ok: !result.enrollmentPending && !result.violations.length && !result.problems.length && !coverage.length, rows, ...result, findings: scanned.findings, coverage, metadata };
+  return { ok: !result.enrollmentPending && !result.violations.some(isBlockingFinding) && !result.problems.length && !coverage.length, rows, ...result, findings: scanned.findings, coverage, metadata };
 }
 
 /** Protected production scan: acquire and inspect exact HEAD blobs without reading checkout contents. */
@@ -779,5 +750,5 @@ export function checkCommittedApp(appRoot, manifest, options = {}) {
 
 /** Explicit test-only seam for bounded Git process failures and fixtures. */
 export function checkCommittedAppForTest(appRoot, manifest, options = {}) {
-  return checkCommitted(appRoot, manifest, options, options.acquireCommittedSourceForTest ?? acquireCommittedSource);
+  return checkCommitted(appRoot, manifest, options, options.acquireCommittedSourceForTest ?? acquireCommittedSource, options.readAuthorityForTest);
 }

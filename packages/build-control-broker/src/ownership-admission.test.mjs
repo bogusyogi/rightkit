@@ -135,3 +135,16 @@ test('missing digests, changed scan bindings & unavailable scanners refuse; fail
   assert.equal(missing.outcome, 'unscanned');
   assert.equal((await new OwnershipAdmission({ mode: 'off', runScan: () => assert.fail('off scans') }).evaluate({ repositoryRoot: root })).outcome, 'off');
 });
+
+test('only block-tier or banned violations refuse; advise violations admit with an advisory verdict', async () => {
+  const { ownershipVerdict } = await import('../../release/ownership-verdict.mjs');
+  const advise = { ...violation, tier: 'advise' };
+  const advisory = ownershipVerdict(report({ violations: [advise] }), trust);
+  assert.equal(advisory.admit, true);
+  assert.equal(advisory.code, 'RK_OWNERSHIP_ADVISORY');
+  assert.match(advisory.problems[0], /\[advise\]/);
+  assert.equal(ownershipVerdict(report({ ok: false, violations: [{ ...violation, tier: 'block' }] }), trust).code, 'RK_OWNERSHIP_VIOLATION');
+  assert.equal(ownershipVerdict(report({ ok: false, violations: [{ ...advise, policy: 'banned' }] }), trust).code, 'RK_OWNERSHIP_VIOLATION');
+  assert.equal(ownershipVerdict(report({ ok: false, violations: [violation] }), trust).code, 'RK_OWNERSHIP_VIOLATION', 'missing tier fails closed as block');
+  assert.equal(ownershipVerdict(report({ violations: [{ ...violation, tier: 'warn' }] }), trust).code, 'RK_OWNERSHIP_MALFORMED_REPORT');
+});

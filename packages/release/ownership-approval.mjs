@@ -111,7 +111,7 @@ function exactKeys(value, keys) { return !!value && typeof value === "object" &&
 function validDate(value) { return typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value) && !Number.isNaN(Date.parse(`${value}T00:00:00Z`)) && new Date(`${value}T00:00:00Z`).toISOString().slice(0, 10) === value; }
 export function policyEntryDigest(manifest, fingerprint) {
   if (!validFingerprint(fingerprint) || !Array.isArray(manifest?.capabilities) || manifest.capabilities.some((c) => !Array.isArray(c?.fingerprints))) throw new Error(`missing or malformed catalog policy entry: ${fingerprint}`);
-  const matches = (manifest?.capabilities ?? []).flatMap((c) => (c.fingerprints ?? []).filter((f) => f.id === fingerprint).map((f) => ({ ...f, capability: c.capability, package: c.package, tier: c.tier })));
+  const matches = (manifest?.capabilities ?? []).flatMap((c) => (c.fingerprints ?? []).filter((f) => f.id === fingerprint).map((f) => ({ ...f, capability: c.capability, package: c.package, tier: f.tier ?? c.tier })));
   if (matches.length !== 1 || !matches[0].capability || !matches[0].package || !matches[0].tier) throw new Error(`missing, ambiguous, or malformed catalog policy entry: ${fingerprint}`);
   return sha256(matches[0]);
 }

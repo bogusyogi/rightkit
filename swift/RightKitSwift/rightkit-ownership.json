@@ -4,12 +4,11 @@
     {
       "capability": "os-credential-store",
       "summary": "Native Apple scoped credential storage and sync migration",
-      "fingerprints": [
-        {
-          "id": "secrets.swift.scoped-migration",
-          "type": "source",
-          "pattern": "\\bfunc\\s+copySyncedToDeviceOnly\\s*\\("
-        }
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Apple-only SwiftPM owner; cannot qualify as usable on both hosts.",
+        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
       ]
     }
   ]

@@ -12,7 +12,7 @@ try {
     process.stderr.write(`rightkit managed-agent: ${signal} cancelling request ${requestId}\n`);
     cancelling = cancelManagedAgentJob(requestId, { runtimeIdentity: message.runtime, source: 'CLIENT_SIGNAL' })
       .then((receipt) => process.stderr.write(`rightkit managed-agent: cancel ${JSON.stringify(receipt)}\n`))
-      .catch((error) => process.stderr.write(`rightkit managed-agent: cancel failed for ${requestId}: ${error.message}\n`));
+      .catch((error) => process.stderr.write(`rightkit managed-agent: cancel failed for ${requestId}: ${error.code ? `${error.code}: ` : ''}${error.message}\n`));
   };
   const result = await submitAndWatchManagedAgentJob(message, {
     onWaiting() { process.stderr.write('rightkit managed-agent: broker runtime update in progress; waiting to submit\n'); },
@@ -35,5 +35,5 @@ try {
 } catch (error) {
   const handedOff = error?.code === 'RK_RUNTIME_CHANGED' ? rerunOnCurrentRuntime(import.meta.url) : null;
   if (handedOff !== null) process.exitCode = handedOff;
-  else { process.stderr.write(`rightkit managed-agent: ${error.message}\n`); process.exitCode = 125; }
+  else { process.stderr.write(`rightkit managed-agent: ${error.code ? `${error.code}: ` : ''}${error.message}\n`); process.exitCode = 125; }
 }

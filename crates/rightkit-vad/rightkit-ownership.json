@@ -1,0 +1,46 @@
+{
+  "package": "rightkit-vad",
+  "capabilities": [
+    {
+      "capability": "voice-activity-detection",
+      "summary": "Product-neutral voice activity detection: Silero scorer, hysteresis/padding/chunking policy, streaming frame carry",
+      "fingerprints": [
+        {
+          "id": "vad.cargo.webrtc-vad",
+          "type": "dependency",
+          "ecosystem": "cargo",
+          "name": "webrtc-vad",
+          "tier": "advise",
+          "usageContext": {
+            "hosts": [
+              "macos",
+              "windows"
+            ],
+            "scope": "cargo direct competing dependency; transitive findings require authenticated reachability"
+          },
+          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
+        },
+        {
+          "id": "vad.cargo.voice_activity_detector",
+          "type": "dependency",
+          "ecosystem": "cargo",
+          "name": "voice_activity_detector",
+          "tier": "advise",
+          "usageContext": {
+            "hosts": [
+              "macos",
+              "windows"
+            ],
+            "scope": "cargo direct competing dependency; transitive findings require authenticated reachability"
+          },
+          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
+        }
+      ],
+      "detection": "fingerprinted",
+      "policyNotes": [
+        "Default-feature repair & scorer parity remain required.",
+        "Fingerprints identify review candidates; published two-host replacement qualification is not recorded."
+      ]
+    }
+  ]
+}

@@ -4,6 +4,7 @@ import { checkApp, EXCEPTIONS_FILE } from "./ownership.mjs";
 import { DEFAULT_APPS } from "./standalone-clone-verify.mjs";
 import { sha256 } from "./ownership-approval.mjs";
 import { findInstallerCopyScripts, findLargeRepositorySubdirectories } from "./installer-storage-doctor.mjs";
+import { ownershipAvailability, ownershipDetection } from "./ownership-availability.mjs";
 
 export const OWNERSHIP_APPS = Object.freeze([
   ...DEFAULT_APPS.map(({ key, appDir }) => ({ key, root: key === "coderight" ? key : path.posix.join(key, appDir === "." ? "" : appDir), scope: key === "coderight" ? "repository" : appDir })),
@@ -11,6 +12,9 @@ export const OWNERSHIP_APPS = Object.freeze([
   { key: "genright", root: "genright" },
   { key: "rightsites", root: "rightsites" },
   { key: "voiceright", root: "voiceright" },
+  { key: "pulse", root: "cockpit", scope: "repository" },
+  { key: "postright", root: "postright", scope: "repository" },
+  { key: "legion", root: "legion", scope: "repository" },
   { key: "membrane", root: "coderight/context/apps/membrane-hub", scope: "context/apps/membrane-hub" },
 ]);
 
@@ -22,23 +26,13 @@ function catalogVersion(manifest) {
 }
 
 export function publishedAvailability(capability, versions) {
-  const npmPackage = capability.npmPackage ?? (capability.package?.startsWith("@rightkit/") ? capability.package : undefined);
-  const cargoPackage = capability.cargoPackage ?? (capability.package?.startsWith("rightkit-") ? capability.package : undefined);
-  const npmVersion = npmPackage && (versions.npm?.[npmPackage] ?? versions.stagedNpm?.[npmPackage]);
-  const cargoVersion = cargoPackage && (versions.cargo?.[cargoPackage] ?? versions.stagedCargo?.[cargoPackage]);
-  const swift = capability.package === "rightkit-swift" ? (versions.swift?.["rightkit-swift"] ?? versions.stagedSwift?.["rightkit-swift"]) : undefined;
-  const published = [];
-  if (npmVersion) published.push({ registry: "npm", package: npmPackage, version: npmVersion, state: versions.npm?.[npmPackage] ? "registry-pinned" : "staged-unverified" });
-  if (cargoVersion) published.push({ registry: "crates.io", package: cargoPackage, version: cargoVersion, state: versions.cargo?.[cargoPackage] ? "registry-pinned" : "staged-unverified" });
-  if (swift) published.push({ registry: "SwiftPM", package: "rightkit-swift", version: swift.version, url: swift.url, state: versions.swift?.["rightkit-swift"] ? "registry-pinned" : "staged-unverified" });
-  return published;
+  return ownershipAvailability(capability, versions);
 }
 
 function statusFor(row, report) {
   if (report.enrollmentPending && (row.status === "blocked" || row.status === "blocked-by-findings")) return "enrollment-pending";
   if (row.status === "blocked" || row.status === "blocked-by-findings") return "blocked";
   if (row.status === "excepted") return "excepted";
-  if (row.status === "qa-only") return "qa-only";
   if (row.status === "verified-integration") return "verified-integration";
   if (row.status === "declared-dependency" || row.uses === true) return "declared-dependency";
   if (report.coverage?.length) return "unscanned";
@@ -60,14 +54,22 @@ function exceptionRequests(root, app, report) {
 }
 
 function asRecord(app, root, scope, report, manifest, versions, scannedAt, storageFindings = []) {
+  const policies = new Map(manifest.capabilities.flatMap((entry) => entry.fingerprints.map((fingerprint) => [fingerprint.id, fingerprint])));
+  const isAdvice = (finding) => policies.get(finding.fingerprint)?.tier === "advise";
+  const advisories = (report.findings ?? report.violations ?? []).filter(isAdvice);
+  report = { ...report, violations: (report.violations ?? []).filter((finding) => !isAdvice(finding)) };
   const meta = report.metadata ?? {};
-  const findings = (report.findings ?? []).map((f) => ({ fingerprint: f.fingerprint, capability: f.capability, file: f.file, line: f.line ?? 0, occurrenceHash: f.occurrenceHash ?? sha256(canonicalJson(f)), ...(f.qaOnly ? { qaOnly: true } : {}) }));
+  const findings = (report.findings ?? []).map((f) => ({ fingerprint: f.fingerprint, capability: f.capability, file: f.file, line: f.line ?? 0, occurrenceHash: f.occurrenceHash ?? sha256(canonicalJson(f)) }));
   const files = [...new Set(findings.map((f) => f.file))].sort();
   const contentDigestSource = meta.contentDigests ? "scanner-inputs" : "finding-occurrences-only";
   const contentDigests = meta.contentDigests ?? findings.map((f) => ({ path: f.file, digest: f.occurrenceHash, kind: "finding-occurrence" }));
   const rows = (report.rows ?? []).map((row) => {
-    const catalogEntry = manifest.capabilities.find((c) => c.capability === row.capability || c.package === row.owner);
-    return { ...row, status: statusFor(row, report), available: catalogEntry ? publishedAvailability(catalogEntry, versions) : [] };
+    const catalogEntries = manifest.capabilities.filter((c) => c.capability === row.capability);
+    const declarationOnly = catalogEntries.length > 0 && catalogEntries.every((entry) => ownershipDetection(entry) === "declaration-only");
+    let status = statusFor(row, report);
+    if (declarationOnly && status === "verified-integration") status = row.uses ? "declared-dependency" : "not-detected";
+    if (status === "blocked" && !report.violations.some((finding) => finding.capability === row.capability) && advisories.some((finding) => finding.capability === row.capability)) status = "advisory";
+    return { ...row, status, detection: declarationOnly ? "declaration-only" : "fingerprinted", available: catalogEntries.flatMap((entry) => publishedAvailability(entry, versions)) };
   });
   const enrollmentIsPending = report.enrollmentPending === true;
   const record = {
@@ -90,13 +92,14 @@ function asRecord(app, root, scope, report, manifest, versions, scannedAt, stora
     coverage: report.coverage ?? [],
     rows,
     findings,
+    advisories,
     violations: report.violations ?? [],
     covered: report.covered ?? [],
     problems: report.problems ?? [],
     warnings: report.warnings ?? [],
     storageFindings,
   };
-  record.resultDigest = sha256(canonicalJson({ app: record.app, commit: record.commit, catalogDigest: record.catalogDigest, contentDigests: record.contentDigests, coverage: record.coverage, rows: record.rows, problems: record.problems, warnings: record.warnings, storageFindings: record.storageFindings, enrollmentPending: record.enrollmentPending }));
+  record.resultDigest = sha256(canonicalJson({ app: record.app, commit: record.commit, catalogDigest: record.catalogDigest, contentDigests: record.contentDigests, coverage: record.coverage, rows: record.rows, advisories: record.advisories, problems: record.problems, warnings: record.warnings, storageFindings: record.storageFindings, enrollmentPending: record.enrollmentPending }));
   record.exceptionRequests = exceptionRequests(root, app, report);
   return record;
 }
@@ -143,8 +146,8 @@ export function renderOwnershipMarkdown(report) {
     const state = app.status ?? (states.has("blocked") ? "blocked" : states.has("unscanned") || app.coverage.length ? "unscanned" : "scanned");
     lines.push(`| ${app.app} | ${app.scope ?? "."} | ${state} | ${app.commit ?? "unknown"} | ${app.host ?? "unknown"} | ${app.scanAgeSeconds}s | ${app.findings.length} | ${app.coverage.length} |`);
   }
-  lines.push("", "## Capability status", "", "| App | Capability | Status | Published availability |", "|---|---|---|---|");
-  for (const app of report.apps) for (const row of app.rows) lines.push(`| ${app.app} | ${row.capability} | ${row.status} | ${row.available.map((x) => `${x.package}@${x.version} (${x.state})`).join(", ") || "none recorded"} |`);
+  lines.push("", "## Capability status", "", "| App | Capability | Status | Detection | Availability |", "|---|---|---|---|---|");
+  for (const app of report.apps) for (const row of app.rows) lines.push(`| ${app.app} | ${row.capability} | ${row.status} | ${row.detection} | ${row.available.map((x) => `${x.package}@${x.version} (${x.state})`).join(", ") || "none recorded"} |`);
   lines.push("", `Blocks: ${report.blocks.length} · Exception requests awaiting verification: ${report.exceptionRequests.length}`, "", "Exception requests are unverified records; only scanner-validated signed exceptions are reported as excepted.", "");
   if (report.warnings?.length) {
     lines.splice(-2, 0, "## Warnings", "", ...report.warnings.map((warning) => `- ${warning.app}: WARNING: ${warning.message}; ${warning.findings.length} finding(s), ${warning.problems.length} problem(s) retained as diagnostics`), "");

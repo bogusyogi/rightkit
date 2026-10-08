@@ -9,26 +9,67 @@
           "id": "qa.npm.webdriverio",
           "type": "dependency",
           "ecosystem": "npm",
-          "name": "webdriverio"
+          "name": "webdriverio",
+          "tier": "advise",
+          "usageContext": {
+            "hosts": [
+              "macos",
+              "windows"
+            ],
+            "scope": "Browser automation/QA candidate; CDP, assertions, accessibility & native WebDriver parity are unqualified"
+          },
+          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
         },
         {
           "id": "qa.npm.wdio-cli",
           "type": "dependency",
           "ecosystem": "npm",
-          "name": "@wdio/cli"
+          "name": "@wdio/cli",
+          "tier": "advise",
+          "usageContext": {
+            "hosts": [
+              "macos",
+              "windows"
+            ],
+            "scope": "npm direct competing dependency; transitive findings require authenticated reachability"
+          },
+          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
         },
         {
           "id": "qa.npm.axe-playwright",
           "type": "dependency",
           "ecosystem": "npm",
-          "name": "@axe-core/playwright"
+          "name": "@axe-core/playwright",
+          "tier": "advise",
+          "usageContext": {
+            "hosts": [
+              "macos",
+              "windows"
+            ],
+            "scope": "Browser automation/QA candidate; CDP, assertions, accessibility & native WebDriver parity are unqualified"
+          },
+          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
         },
         {
           "id": "qa.cargo.tauri-driver",
           "type": "dependency",
           "ecosystem": "cargo",
-          "name": "tauri-driver"
+          "name": "tauri-driver",
+          "tier": "advise",
+          "usageContext": {
+            "hosts": [
+              "macos",
+              "windows"
+            ],
+            "scope": "cargo direct competing dependency; transitive findings require authenticated reachability"
+          },
+          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
         }
+      ],
+      "detection": "fingerprinted",
+      "policyNotes": [
+        "Published 0.2.12 differs from staged 0.2.13; native QA is distinct from browser accessibility assertions.",
+        "Fingerprints identify review candidates; published two-host replacement qualification is not recorded."
       ]
     }
   ]

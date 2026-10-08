@@ -1,13 +1,13 @@
 import assert from "node:assert/strict";
 import { generateKeyPairSync, sign } from "node:crypto";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { spawnSync } from "./background-process.mjs";
 import { canonicalJson, createDraft, keyIdForPublicKey, occurrenceHash, policyEntryDigest, sha256 } from "./ownership-approval.mjs";
 import { directDependencies, evaluate, scanApp, SCANNER_VERSION } from "./ownership.mjs";
-import { createInstalledDraft, main as draftCommand } from "./ownership-approval-command.mjs";
+import { createInstalledDraft } from "./ownership-approval-command.mjs";
 import { prepareMigrationDrafts } from "../../ownership-approval/migrations/prepare-migration-drafts.mjs";
 import "../../ownership-approval/migrations/validate-migration-drafts.mjs";
 
@@ -110,8 +110,46 @@ test("installed draft path replaces supplied dates, policy digest, and version f
   assert.throws(() => createInstalledDraft({ ...input, requestId: undefined }, options), /invalid request id/);
 });
 test("draft CLI refuses missing installed tier rather than inventing policy", () => {
-  const shipped = JSON.parse(readFileSync(new URL("./rightkit-ownership.json", import.meta.url), "utf8"));
-  if (shipped.capabilities.every((c) => c.tier)) return;
-  const missing = shipped.capabilities.find((c) => !c.tier && c.fingerprints.length), dir = mkdtempSync(path.join(os.tmpdir(), "rk-draft-v2-"));
-  try { const file = path.join(dir, "input.json"); writeFileSync(file, JSON.stringify({ fingerprint: missing.fingerprints[0].id })); assert.throws(() => draftCommand(["--draft", file]), /malformed catalog policy entry/); } finally { remove(dir); }
+  const dir = root({ "source.rs": "SendInput();\n" });
+  try {
+    const findings = scanApp(dir, manifest, { trust: null });
+    assert.equal(findings.length, 1);
+    const catalog = structuredClone(manifest), fingerprint = catalog.capabilities[0].fingerprints[0].id;
+    delete catalog.capabilities[0].tier;
+    const packageRoot = path.join(dir, "package");
+    mkdirSync(packageRoot);
+    for (const entry of readdirSync(import.meta.dirname, { withFileTypes: true })) {
+      if (entry.isFile() && /\.(?:mjs|json)$/.test(entry.name) && !entry.name.endsWith(".test.mjs")) cpSync(path.join(import.meta.dirname, entry.name), path.join(packageRoot, entry.name));
+    }
+    mkdirSync(path.join(packageRoot, "node_modules"));
+    cpSync(realpathSync(path.join(import.meta.dirname, "node_modules", "smol-toml")), path.join(packageRoot, "node_modules", "smol-toml"), { recursive: true });
+    writeFileSync(path.join(packageRoot, "rightkit-ownership.json"), JSON.stringify(catalog));
+    const file = path.join(dir, "input.json");
+    writeFileSync(file, JSON.stringify({ repositoryIdentity: "https://github.com/orthic-labs/example", fingerprint,
+      findings, reason: "migration", owner: "Example", requestId: "RK-001",
+      trackingRef: { id: "1", url: "https://example.com/1", verified: true } }));
+    const command = spawnSync(process.execPath, [path.join(packageRoot, "ownership-approval-command.mjs"), "--draft", file], { encoding: "utf8", windowsHide: true });
+    assert.equal(command.status, 1);
+    assert.match(command.stderr, /malformed catalog policy entry/);
+    assert.equal(command.stdout, "");
+  } finally { remove(dir); }
+});
+
+test("findings carry their fingerprint tier and banned policy; a missing tier defaults to block", async () => {
+  const { isBlockingFinding } = await import("./ownership-verdict.mjs");
+  const dir = root({ "package.json": JSON.stringify({ dependencies: { "puppeteer": "24", "axios": "1", "left-pad": "1" } }) });
+  try {
+    const catalog = { schema: 1, version: "3", capabilities: [{ capability: "browser-automation", package: "rightkit-browser", fingerprints: [
+      { id: "browser.npm.puppeteer", type: "dependency", ecosystem: "npm", name: "puppeteer", tier: "advise", policy: "banned" },
+      { id: "http.npm.axios", type: "dependency", ecosystem: "npm", name: "axios", tier: "advise" },
+      { id: "x.npm.left-pad", type: "dependency", ecosystem: "npm", name: "left-pad" },
+    ] }] };
+    const byId = Object.fromEntries(scanApp(dir, catalog, { trust: null }).map((f) => [f.fingerprint, f]));
+    assert.equal(byId["browser.npm.puppeteer"].policy, "banned");
+    assert.equal(isBlockingFinding(byId["browser.npm.puppeteer"]), true);
+    assert.equal(byId["http.npm.axios"].tier, "advise");
+    assert.equal(isBlockingFinding(byId["http.npm.axios"]), false);
+    assert.equal(byId["x.npm.left-pad"].tier, "block");
+    assert.equal(isBlockingFinding(byId["x.npm.left-pad"]), true);
+  } finally { remove(dir); }
 });

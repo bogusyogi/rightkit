@@ -1,0 +1,31 @@
+{
+  "package": "rightkit-cache",
+  "capabilities": [
+    {
+      "capability": "disk-cache",
+      "summary": "Disk cache primitive with a hard size cap, LRU eviction that survives restarts, atomic writes and group invalidation, plus stable-prefix prompt-cache keys.",
+      "fingerprints": [
+        {
+          "id": "cache.cargo.cacache",
+          "type": "dependency",
+          "ecosystem": "cargo",
+          "name": "cacache",
+          "tier": "advise",
+          "usageContext": {
+            "hosts": [
+              "macos",
+              "windows"
+            ],
+            "scope": "cargo direct competing dependency; transitive findings require authenticated reachability"
+          },
+          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
+        }
+      ],
+      "detection": "fingerprinted",
+      "policyNotes": [
+        "Package contract retained; dependency declarations do not verify integration.",
+        "Fingerprints identify review candidates; published two-host replacement qualification is not recorded."
+      ]
+    }
+  ]
+}

@@ -1,0 +1,15 @@
+{
+  "package": "@rightkit/license",
+  "capabilities": [
+    {
+      "capability": "licensing",
+      "summary": "The one license client for every Right Suite app (online token-exchange against the unified RightApps backend, with per-kind offline grace).; declaration-only detection (no precise implementation fingerprint)",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Package contract retained; dependency declarations do not verify integration.",
+        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
+      ]
+    }
+  ]
+}

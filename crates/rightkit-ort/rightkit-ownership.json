@@ -9,13 +9,31 @@
           "id": "ort.cargo.ort",
           "type": "dependency",
           "ecosystem": "cargo",
-          "name": "ort"
+          "name": "ort",
+          "tier": "advise",
+          "usageContext": {
+            "hosts": [
+              "macos",
+              "windows"
+            ],
+            "scope": "cargo direct competing dependency; transitive findings require authenticated reachability"
+          },
+          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
         },
         {
           "id": "ort.npm.onnxruntime-node",
           "type": "dependency",
           "ecosystem": "npm",
-          "name": "onnxruntime-node"
+          "name": "onnxruntime-node",
+          "tier": "advise",
+          "usageContext": {
+            "hosts": [
+              "macos",
+              "windows"
+            ],
+            "scope": "npm direct competing dependency; transitive findings require authenticated reachability"
+          },
+          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
         },
         {
           "id": "ort.env.dylib",
@@ -30,7 +48,16 @@
             ".mjs",
             ".cjs",
             ".jsx"
-          ]
+          ],
+          "tier": "advise",
+          "usageContext": {
+            "hosts": [
+              "macos",
+              "windows"
+            ],
+            "scope": "Executable code only; authenticated owner provenance required for exclusions"
+          },
+          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
         },
         {
           "id": "ort.api.init",
@@ -39,8 +66,22 @@
           "codeOnly": true,
           "extensions": [
             ".rs"
-          ]
+          ],
+          "tier": "advise",
+          "usageContext": {
+            "hosts": [
+              "macos",
+              "windows"
+            ],
+            "scope": "Executable code only; authenticated owner provenance required for exclusions"
+          },
+          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
         }
+      ],
+      "detection": "fingerprinted",
+      "policyNotes": [
+        "Registry publication is recorded despite stale unpublished README; runtime/provider qualification remains required.",
+        "Fingerprints identify review candidates; published two-host replacement qualification is not recorded."
       ]
     }
   ]

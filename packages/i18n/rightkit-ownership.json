@@ -1,0 +1,46 @@
+{
+  "package": "@rightkit/i18n",
+  "capabilities": [
+    {
+      "capability": "localization",
+      "summary": "Shared locale catalog and React provider for Right Suite apps.",
+      "fingerprints": [
+        {
+          "id": "i18n.npm.i18next",
+          "type": "dependency",
+          "ecosystem": "npm",
+          "name": "i18next",
+          "tier": "advise",
+          "usageContext": {
+            "hosts": [
+              "macos",
+              "windows"
+            ],
+            "scope": "npm direct competing dependency; transitive findings require authenticated reachability"
+          },
+          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
+        },
+        {
+          "id": "i18n.npm.react-i18next",
+          "type": "dependency",
+          "ecosystem": "npm",
+          "name": "react-i18next",
+          "tier": "advise",
+          "usageContext": {
+            "hosts": [
+              "macos",
+              "windows"
+            ],
+            "scope": "npm direct competing dependency; transitive findings require authenticated reachability"
+          },
+          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
+        }
+      ],
+      "detection": "fingerprinted",
+      "policyNotes": [
+        "Parked per D6; publication alone does not justify mandatory adoption.",
+        "Fingerprints identify review candidates; published two-host replacement qualification is not recorded."
+      ]
+    }
+  ]
+}

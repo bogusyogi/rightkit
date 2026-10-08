@@ -2,8 +2,8 @@ import { HOST_DERIVED_BOUNDS } from './host-sizing.mjs';
 import { readFile as defaultReadFile } from 'node:fs/promises';
 import { isAbsolute, normalize, relative, win32 } from 'node:path';
 
-const topLevel = new Set(['schemaVersion', 'broker', 'unixSocket', 'windowsPipe', 'tools', 'shims', 'defaults', 'outputPolicy', 'bounds', 'sccache', 'externalCommands', 'ownership', 'indexRefreshRetry', 'coalesceIdenticalRequests']);
-const brokerFields = new Set(['externalRoot', 'capacityBytes', 'stateFile', 'receiptsDir', 'activationFencePath']);
+const topLevel = new Set(['schemaVersion', 'broker', 'unixSocket', 'windowsPipe', 'tools', 'shims', 'defaults', 'outputPolicy', 'bounds', 'sccache', 'externalCommands', 'ownership', 'indexRefreshRetry', 'coalesceIdenticalRequests', 'nodePath']);
+const brokerFields = new Set(['externalRoot', 'capacityBytes', 'stateFile', 'receiptsDir', 'activationFencePath', 'controlRoot']);
 const externalRootFields = new Set(['path', 'volumeId', 'mounted', 'writable', 'internal']);
 const toolFields = new Set(['id', 'path', 'root', 'sha256']);
 const shimNames = new Set(['cargo', 'rustc', 'rustdoc', 'rustup', 'pnpm', 'npm', 'swift', 'swiftc', 'cmake', 'make', 'cc', 'c++', 'clang', 'gcc']);
@@ -165,6 +165,7 @@ export function validateBrokerConfig(value) {
   const broker = object(config.broker, 'broker'); only(broker, brokerFields, 'broker');
   const externalRoot = object(broker.externalRoot, 'broker.externalRoot'); only(externalRoot, externalRootFields, 'broker.externalRoot');
   const rootPath = absolute(externalRoot.path, 'broker.externalRoot.path');
+  const controlRoot = broker.controlRoot === undefined ? rootPath : absolute(broker.controlRoot, 'broker.controlRoot');
   const capacityBytes = nonnegative(broker.capacityBytes, 'broker.capacityBytes', { minimum: 1 });
   const normalizedBroker = {
     externalRoot: {
@@ -175,19 +176,21 @@ export function validateBrokerConfig(value) {
       internal: requiredBoolean(externalRoot.internal, 'broker.externalRoot.internal')
     },
     capacityBytes,
-    stateFile: inside(rootPath, absolute(broker.stateFile, 'broker.stateFile'), 'broker.stateFile'),
+    ...(broker.controlRoot === undefined ? {} : { controlRoot }),
+    stateFile: inside(controlRoot, absolute(broker.stateFile, 'broker.stateFile'), 'broker.stateFile'),
     receiptsDir: inside(rootPath, absolute(broker.receiptsDir, 'broker.receiptsDir'), 'broker.receiptsDir')
   };
-  if (broker.activationFencePath !== undefined) normalizedBroker.activationFencePath = inside(rootPath, absolute(broker.activationFencePath, 'broker.activationFencePath'), 'broker.activationFencePath');
+  if (broker.activationFencePath !== undefined) normalizedBroker.activationFencePath = inside(controlRoot, absolute(broker.activationFencePath, 'broker.activationFencePath'), 'broker.activationFencePath');
   if (schemaVersion === 2 && normalizedBroker.activationFencePath === undefined) throw new TypeError('broker.activationFencePath is required by schemaVersion 2');
 
   const hasUnixSocket = config.unixSocket !== undefined; const hasWindowsPipe = config.windowsPipe !== undefined;
   if (!hasUnixSocket && !hasWindowsPipe) throw new TypeError('unixSocket or windowsPipe is required');
   const normalized = { schemaVersion, ...config, broker: normalizedBroker };
+  if (config.nodePath !== undefined) normalized.nodePath = absolute(config.nodePath, 'nodePath');
   normalized.indexRefreshRetry = config.indexRefreshRetry === undefined ? true : requiredBoolean(config.indexRefreshRetry, 'indexRefreshRetry');
   normalized.coalesceIdenticalRequests = config.coalesceIdenticalRequests === undefined ? true : requiredBoolean(config.coalesceIdenticalRequests, 'coalesceIdenticalRequests');
   delete normalized.unixSocket; delete normalized.windowsPipe;
-  if (hasUnixSocket) normalized.unixSocket = inside(rootPath, absolute(config.unixSocket, 'unixSocket'), 'unixSocket');
+  if (hasUnixSocket) normalized.unixSocket = inside(controlRoot, absolute(config.unixSocket, 'unixSocket'), 'unixSocket');
   if (hasWindowsPipe) {
     if (typeof config.windowsPipe !== 'string' || !/^\\\\\.\\pipe\\[^\\/]+$/i.test(config.windowsPipe)) throw new TypeError('windowsPipe must be a named pipe path');
     normalized.windowsPipe = config.windowsPipe;

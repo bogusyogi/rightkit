@@ -3,7 +3,7 @@ import { readFileSync, realpathSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "./background-process.mjs";
-import { catalogDigest as scanCatalogDigest, checkApp, checkCommittedApp, MANIFEST_FILE, SCANNER_VERSION } from "./ownership.mjs";
+import { catalogDigest as scanCatalogDigest, checkApp, checkAppForTest, checkCommittedApp, checkCommittedAppForTest, MANIFEST_FILE, SCANNER_VERSION } from "./ownership.mjs";
 import { acquireCommittedSource, assertCommittedCheckoutClean, committedSourceDataForInternalUse } from "./committed-source.mjs";
 import { readCommittedKeyAuthority } from "./ownership-key-authority.mjs";
 import { canonicalRepositoryIdentity, loadTrustedExternal, resolveKeyLogTrust, sha256, validateOwnershipFloor, verifyRepositoryRegistration } from "./ownership-approval.mjs";
@@ -29,7 +29,7 @@ function createEvidence(repoRoot, {
   committed = false,
   requireCleanCheckout = false,
   allowPendingAdvisory = false,
-} = {}) {
+} = {}, readAuthority = readCommittedKeyAuthority, scanCommitted = checkCommittedApp) {
   const root = path.resolve(repoRoot);
   const manifestBytes = readFileSync(manifestPath);
   const manifest = JSON.parse(manifestBytes.toString("utf8"));
@@ -48,7 +48,7 @@ function createEvidence(repoRoot, {
   const source = useCommittedSource ? acquireCommittedSource(root, { requiredPaths: [...(trustState.trust?.provenance ?? []).flatMap((record) => record.paths ?? []), ...(trustState.trust?.rootFingerprint && !trustState.trust?.keyAuthority ? [".rightkit/ownership-keys.json"] : [])] }) : null;
   let keyLogEvidence = null;
   if (trustState.trust?.keyAuthority) {
-    const resolved = readCommittedKeyAuthority(trustState.trust);
+    const resolved = readAuthority(trustState.trust);
     if (!resolved.ok) throw new Error(`protected ownership key authority failed: ${resolved.problems.join("; ")}`);
     trustState = { ...trustState, trust: resolved.resolvedTrust, enrolled: resolved.resolvedTrust.enrollmentComplete, pending: !resolved.resolvedTrust.enrollmentComplete };
     enrollmentPending = trustState.pending;
@@ -116,7 +116,7 @@ function createEvidence(repoRoot, {
   const scans = (scanRoots.length ? scanRoots : [requestedRoot]).map((registered) => {
     const absolute = registered === "." ? root : path.resolve(root, ...registered.split("/"));
     const scanned = useCommittedSource
-      ? checkCommittedApp(absolute, manifest, { trust: trustState.trust, expectedCommit: commit, expectedTree: tree, source })
+      ? scanCommitted(absolute, manifest, { trust: trustState.trust, expectedCommit: commit, expectedTree: tree, source })
       : scan(absolute, manifest, { trust: { trust: trustState.trust, enrolled: trustState.enrolled, pending: enrollmentPending }, scannerVersion, catalogVersion, ...(enrollmentPending ? { enrollmentPendingAdvisory: true } : {}) });
     if (repositoryIdentity && canonicalRepositoryIdentity(scanned.metadata?.repositoryIdentity) !== repositoryIdentity) throw new Error(`ownership evidence: scanner observed a different repository identity under ${registered}`);
     if (useCommittedSource && scanned.metadata?.commit !== commit) throw new Error(`ownership evidence: scanner observed a different source commit under ${registered}`);
@@ -186,12 +186,14 @@ export function createCommittedOwnershipEvidence(repoRoot, scanRoot = repoRoot) 
 
 // Injection seam is deliberately named for tests and is not used by release commands.
 export function createOwnershipEvidenceForTest(repoRoot, options) {
-  return createEvidence(repoRoot, options);
+  const reader = options?.readAuthorityForTest;
+  return createEvidence(repoRoot, { ...options, scan: options?.scan ?? ((root, manifest, context) => checkAppForTest(root, manifest, { ...context, readAuthorityForTest: reader })) }, reader,
+    (root, manifest, context) => checkCommittedAppForTest(root, manifest, { ...context, readAuthorityForTest: reader }));
 }
 
 /** Test-only access to the production committed-tree evidence path. */
 export function createCommittedOwnershipEvidenceForTest(repoRoot, options = {}) {
-  return createEvidence(repoRoot, { ...options, committed: true });
+  return createOwnershipEvidenceForTest(repoRoot, { ...options, committed: true });
 }
 
 /** Entry point for an OS-protected local hook/adapter on private repositories. */
@@ -207,7 +209,7 @@ export function verifyOwnershipEvidence(expected, repoRoot, scanRoot = repoRoot)
 }
 
 export function verifyOwnershipEvidenceForTest(expected, repoRoot, options) {
-  return verifyEvidence(expected, repoRoot, options.scanRoot ?? repoRoot, () => createEvidence(repoRoot, options));
+  return verifyEvidence(expected, repoRoot, options.scanRoot ?? repoRoot, () => createOwnershipEvidenceForTest(repoRoot, options));
 }
 
 function verifyEvidence(expected, repoRoot, _scanRoot, createCurrent) {

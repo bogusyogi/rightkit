@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
+import { ownershipAvailability, ownershipDetection } from "./ownership-availability.mjs";
 
 export const OWNERSHIP_CATALOG_PATH = fileURLToPath(new URL("./ownership-catalog.json", import.meta.url));
 export const RIGHTKIT_VERSIONS_PATH = fileURLToPath(new URL("./rightkit-versions.json", import.meta.url));
@@ -9,29 +10,18 @@ export function loadOwnershipCatalog({ catalogPath = OWNERSHIP_CATALOG_PATH, ver
   return { manifest: JSON.parse(readFileSync(catalogPath, "utf8")), versions: JSON.parse(readFileSync(versionsPath, "utf8")) };
 }
 
-function published(capability, versions) {
-  const result = [];
-  const cargo = capability.package?.startsWith("rightkit-") ? capability.package : null;
-  const npm = capability.package?.startsWith("@rightkit/") ? capability.package : null;
-  if (npm) {
-    const version = versions.stagedNpm?.[npm] ?? versions.npm?.[npm];
-    if (version) result.push({ registry: "npm", package: npm, version, state: versions.stagedNpm?.[npm] ? "latest" : "floor" });
-  }
-  if (cargo) {
-    const version = versions.stagedCargo?.[cargo] ?? versions.cargo?.[cargo];
-    if (version) result.push({ registry: "crates.io", package: cargo, version, state: versions.stagedCargo?.[cargo] ? "latest" : "floor" });
-  }
-  return result;
-}
+const published = ownershipAvailability;
 
 export function findOwnedCapability(query, { manifest, versions }) {
   const normalized = String(query ?? "").trim().toLowerCase();
   if (!normalized) throw new TypeError("usage: rightkit owns <capability>");
-  const matches = (manifest.capabilities ?? []).filter((item) => [item.capability, item.package, ...(item.aliases ?? [])].some((value) => String(value).toLowerCase() === normalized));
+  const entries = [...(manifest.capabilities ?? []), ...(manifest.internalOwners ?? []).map((item) => ({ ...item, capability: "internal-infrastructure", summary: item.reason }))];
+  const matches = entries.filter((item) => [item.capability, item.package, ...(item.aliases ?? [])].some((value) => String(value).toLowerCase() === normalized));
   return matches.map((item) => ({
     capability: item.capability,
     owner: item.package,
     summary: item.summary ?? null,
+    detection: ownershipDetection(item),
     availability: published(item, versions),
     ...(item.platforms ? { platforms: item.platforms } : {}),
     ...(item.api ? { api: item.api } : {}),
@@ -44,7 +34,7 @@ export function formatOwnedCapability(items) {
   if (!items.length) return "No matching RightKit capability. Try a capability name from the session ownership index.";
   return items.map((item) => {
     const available = item.availability.length ? item.availability.map((x) => `${x.package}@${x.version} (${x.state}, ${x.registry})`).join(", ") : "no published version recorded";
-    const lines = [`${item.capability} — ${item.owner}`, item.summary, `Availability: ${available}`];
+    const lines = [`${item.capability} — ${item.owner}`, item.summary, `Availability: ${available}`, `Detection: ${item.detection}`];
     if (item.platforms) lines.push(`Platforms: ${Array.isArray(item.platforms) ? item.platforms.join(", ") : item.platforms}`);
     if (item.minimumVersion) lines.push(`Minimum version: ${item.minimumVersion}`);
     if (item.api) lines.push(`API: ${typeof item.api === "string" ? item.api : JSON.stringify(item.api)}`);
@@ -61,8 +51,9 @@ export function ownershipLookup(query, catalogs = loadOwnershipCatalog()) {
 export function renderOwnershipSessionCatalog({ manifest, versions }) {
   const rows = (manifest.capabilities ?? []).map((item) => {
     const availability = published(item, versions).map((x) => `${x.package}@${x.version} [${x.state}]`).join(", ") || "no published version recorded";
-    return `- ${item.capability} → ${item.package}: ${availability}`;
+    return `- ${item.capability} → ${item.package}: ${availability}; ${ownershipDetection(item)}`;
   });
+  if (manifest.internalOwners?.length) rows.push("Internal owners (not app capabilities):", ...manifest.internalOwners.map((item) => `- ${item.package}: ${item.reason}`));
   return ["RightKit ownership index (availability from rightkit-versions.json; dependency declarations do not prove integration):", ...rows, "Lookup details: `rightkit owns <capability>`"].join("\n");
 }
 

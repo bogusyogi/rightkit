@@ -1,0 +1,61 @@
+{
+  "package": "rightkit-pdf",
+  "capabilities": [
+    {
+      "capability": "pdf-engine",
+      "summary": "Product-neutral PDF engine: inspect, compose (source-text replace / add text / OCR correction), font subsetting, staged atomic save, plus optional page merge/select and text extraction",
+      "fingerprints": [
+        {
+          "id": "pdf.cargo.lopdf",
+          "type": "dependency",
+          "ecosystem": "cargo",
+          "name": "lopdf",
+          "tier": "advise",
+          "usageContext": {
+            "hosts": [
+              "macos",
+              "windows"
+            ],
+            "scope": "cargo direct competing dependency; transitive findings require authenticated reachability"
+          },
+          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
+        },
+        {
+          "id": "pdf.cargo.pdf-extract",
+          "type": "dependency",
+          "ecosystem": "cargo",
+          "name": "pdf-extract",
+          "tier": "advise",
+          "usageContext": {
+            "hosts": [
+              "macos",
+              "windows"
+            ],
+            "scope": "cargo direct competing dependency; transitive findings require authenticated reachability"
+          },
+          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
+        },
+        {
+          "id": "pdf.npm.pdf-lib",
+          "type": "dependency",
+          "ecosystem": "npm",
+          "name": "pdf-lib",
+          "tier": "advise",
+          "usageContext": {
+            "hosts": [
+              "macos",
+              "windows"
+            ],
+            "scope": "npm direct competing dependency; transitive findings require authenticated reachability"
+          },
+          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
+        }
+      ],
+      "detection": "fingerprinted",
+      "policyNotes": [
+        "save.rs repair gates first adoption.",
+        "Fingerprints identify review candidates; published two-host replacement qualification is not recorded."
+      ]
+    }
+  ]
+}

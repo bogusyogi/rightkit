@@ -5,10 +5,39 @@
       "capability": "os-sandbox",
       "summary": "Seatbelt / Landlock+seccomp / AppContainer confinement, PTY leases, resource authority",
       "fingerprints": [
-        { "id": "sandbox.cargo.landlock", "type": "dependency", "ecosystem": "cargo", "name": "landlock" },
-        { "id": "sandbox.cargo.seccompiler", "type": "dependency", "ecosystem": "cargo", "name": "seccompiler" },
-        { "id": "sandbox.api.appcontainer", "type": "source", "pattern": "\\b(CreateAppContainerProfile|DeriveAppContainerSidFromAppContainerName|PROC_THREAD_ATTRIBUTE_SECURITY_CAPABILITIES)\\b" },
-        { "id": "sandbox.api.seatbelt", "type": "source", "pattern": "\\bsandbox_init\\b|sandbox-exec\\b" }
+        {
+          "id": "sandbox.cargo.landlock",
+          "type": "dependency",
+          "ecosystem": "cargo",
+          "name": "landlock",
+          "tier": "advise",
+          "usageContext": {
+            "hosts": [
+              "linux"
+            ],
+            "scope": "cargo direct competing dependency; transitive findings require authenticated reachability"
+          },
+          "tierReason": "Linux-only usage context; owner is not a qualified replacement on both required hosts."
+        },
+        {
+          "id": "sandbox.cargo.seccompiler",
+          "type": "dependency",
+          "ecosystem": "cargo",
+          "name": "seccompiler",
+          "tier": "advise",
+          "usageContext": {
+            "hosts": [
+              "linux"
+            ],
+            "scope": "cargo direct competing dependency; transitive findings require authenticated reachability"
+          },
+          "tierReason": "Linux-only usage context; owner is not a qualified replacement on both required hosts."
+        }
+      ],
+      "detection": "fingerprinted",
+      "policyNotes": [
+        "landlock/seccompiler indicate Linux-only usage, not macOS/Windows replacement paths; shutdown repair remains P1.",
+        "Fingerprints identify review candidates; published two-host replacement qualification is not recorded."
       ]
     }
   ]

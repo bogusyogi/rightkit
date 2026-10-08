@@ -1,0 +1,46 @@
+{
+  "package": "rightkit-http",
+  "capabilities": [
+    {
+      "capability": "http-client",
+      "summary": "Brand-neutral blocking HTTP client for Right Suite apps: timeouts, retry/backoff with Retry-After, SSE streaming, redacted secrets, and untrusted web-text wrapping.",
+      "fingerprints": [
+        {
+          "id": "http.cargo.reqwest",
+          "type": "dependency",
+          "ecosystem": "cargo",
+          "name": "reqwest",
+          "tier": "advise",
+          "usageContext": {
+            "hosts": [
+              "macos",
+              "windows"
+            ],
+            "scope": "Blocking HTTP only; async reqwest is outside current replacement contract"
+          },
+          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
+        },
+        {
+          "id": "http.cargo.ureq",
+          "type": "dependency",
+          "ecosystem": "cargo",
+          "name": "ureq",
+          "tier": "advise",
+          "usageContext": {
+            "hosts": [
+              "macos",
+              "windows"
+            ],
+            "scope": "cargo direct competing dependency; transitive findings require authenticated reachability"
+          },
+          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
+        }
+      ],
+      "detection": "fingerprinted",
+      "policyNotes": [
+        "Blocking HTTP only; reqwest async transport replacement remains P3.",
+        "Fingerprints identify review candidates; published two-host replacement qualification is not recorded."
+      ]
+    }
+  ]
+}

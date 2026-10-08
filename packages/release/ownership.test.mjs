@@ -6,14 +6,18 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { canonicalJson, canonicalRepositoryIdentity, createDraft, keyIdForPublicKey, occurrenceHash, policyEntryDigest, provenanceContentDigest, sha256 } from "./ownership-approval.mjs";
-import { aggregateOwnership, catalogDigest, checkApp, checkCommittedAppForTest, contentInventory, directDependencies, evaluate, MANIFEST_FILE, scanApp, SCANNER_VERSION } from "./ownership.mjs";
+import { aggregateOwnership, catalogDigest, checkApp, checkAppForTest, checkCommittedAppForTest, contentInventory, directDependencies, evaluate, MANIFEST_FILE, scanApp, scanAppForTest, SCANNER_VERSION } from "./ownership.mjs";
+import { __testOnly as authorityTestOnly } from "./ownership-key-authority.mjs";
 import { createKeyEvent, eventHash, keyFingerprint } from "./ownership-key-log.mjs";
+import { generateOwnershipCatalog } from "./ownership-catalog.mjs";
 import { buildOwnershipReport, renderOwnershipMarkdown } from "./ownership-report.mjs";
 
 const rightkitRoot = path.resolve(import.meta.dirname, "../..");
-const shipped = JSON.parse(readFileSync(path.join(import.meta.dirname, MANIFEST_FILE), "utf8"));
+const canonicalCatalog = JSON.parse(readFileSync(path.join(import.meta.dirname, MANIFEST_FILE), "utf8"));
+const shipped = structuredClone(canonicalCatalog);
 const approvalCatalog = { ...shipped, capabilities: shipped.capabilities.map((c) => ({ ...c, tier: "block" })) };
 const SAMPLES = {
+  "llm.endpoint.provider-request": 'client.post("https://api.anthropic.com/v1/messages").send();',
   "oauth.endpoint.github": 'const URL: &str = "https://github.com/login/device/code";',
   "oauth.endpoint.google": 'let u = "https://oauth2.googleapis.com/device/code";',
   "oauth.endpoint.openai": 'const AUTH = "https://auth.openai.com/oauth/authorize";',
@@ -34,6 +38,33 @@ const SAMPLES = {
   "control.api.sendinput": "let sent = unsafe { SendInput(&inputs, size_of::<INPUT>() as i32) };",
   "mcp.protocol.initialized": 'self.notify("notifications/initialized", json!({})).await?;',
 };
+// Scanner mechanism tests use exact sample rules independent of production policy.
+// Removed catalog patterns stay removed; these fixtures exercise cache/provenance.
+const SAMPLE_OWNERS = {
+  "browser.source.chrome-discovery": "rightkit-browser",
+  "control.api.cgevent-post": "rightkit-control",
+  "control.api.ax-element": "rightkit-control",
+  "control.api.sendinput": "rightkit-control",
+  "mcp.protocol.initialized": "rightkit-mcp",
+  "oauth.endpoint.github": "rightkit-oauth",
+  "oauth.endpoint.google": "rightkit-oauth",
+  "oauth.endpoint.openai": "rightkit-oauth",
+  "oauth.endpoint.apple": "rightkit-oauth",
+  "oauth.endpoint.cloudflare": "rightkit-oauth",
+  "oauth.device-grant": "rightkit-oauth",
+  "process.api.kill-on-job-close": "rightkit-process",
+  "sandbox.api.appcontainer": "rightkit-sandbox",
+  "sandbox.api.seatbelt": "rightkit-sandbox",
+  "secrets.api.wincred": "rightkit-secrets",
+  "secrets.api.secitem": "rightkit-secrets",
+  "secrets.swift.scoped-migration": "RightKitSwift"
+};
+for (const [id, owner] of Object.entries(SAMPLE_OWNERS)) {
+  const entry = shipped.capabilities.find((capability) => capability.package === owner);
+  const pattern = [...SAMPLES[id]].map((ch) => "\\^$.*+?()[]{}|".includes(ch) ? "\\" + ch : ch).join("");
+  entry.fingerprints.push({ id, type: "source", pattern, tier: "block" });
+}
+
 const NEUTRAL = "let greeting = 'hello';";
 
 function app(files = {}) {
@@ -66,8 +97,8 @@ function signedException(findings, { root, fingerprint = "oauth.endpoint.github"
 }
 
 test("shipped catalog equals declarations including canonical Swift declarations", () => {
-  assert.deepEqual(shipped, aggregateOwnership(rightkitRoot));
-  assert.ok(shipped.capabilities.flatMap((c) => c.fingerprints).some((f) => f.id === "secrets.swift.scoped-migration"));
+  assert.deepEqual(canonicalCatalog, generateOwnershipCatalog(rightkitRoot));
+  assert.equal(canonicalCatalog.capabilities.find((c) => c.package === "RightKitSwift").detection, "declaration-only");
 });
 
 test("every source fingerprint has a realistic positive and neutral negative sample", () => {
@@ -175,73 +206,31 @@ test("Cargo renames/workspace/target/build/dev, npm aliases/local wrappers & Swi
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
-test("QA-only dev dependency stays visible without a product capability violation", () => {
+test("QA and fixture paths get no exemption: a dev dependency used only in tests is a finding", () => {
   const root = app({
     "package.json": JSON.stringify({ devDependencies: { "puppeteer-core": "24" } }),
     "tests/a.test.ts": "import puppeteer from 'puppeteer-core';",
-    "scripts/qa-capture.ts": "const puppeteer = await import('puppeteer-core');",
+    "fixtures/qa-capture.ts": "const puppeteer = await import('puppeteer-core');",
   });
   try {
     const result = checkApp(root, shipped, { trust: { enrolled: true, trust: null } });
-    assert.equal(result.ok, true);
-    assert.equal(result.violations.length, 0);
     assert.equal(result.findings.length, 1);
     assert.equal(result.findings[0].fingerprint, "browser.npm.puppeteer-core");
-    assert.equal(result.findings[0].qaOnly, true);
-    assert.deepEqual(result.qaOnly, result.findings);
-    assert.equal(result.rows.find((row) => row.capability === "browser-automation").status, "qa-only");
-    assert.equal(result.rows.find((row) => row.capability === "browser-automation").count, 1);
-    const report = buildOwnershipReport({ workspaceRoot: root, manifest: shipped, versions: {},
-      apps: [{ key: "fixture", root: "." }], scanner: () => result });
-    assert.equal(report.blocks.length, 0);
-    assert.equal(report.apps[0].findings[0].qaOnly, true);
-    assert.equal(report.apps[0].rows.find((row) => row.capability === "browser-automation").status, "qa-only");
-    assert.match(renderOwnershipMarkdown(report), /browser-automation \| qa-only/);
+    assert.equal(result.findings[0].qaOnly, undefined);
+    assert.equal(result.violations.length, 1);
+    assert.equal(result.qaOnly, undefined);
+    assert.notEqual(result.rows.find((row) => row.capability === "browser-automation").status, "qa-only");
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
-for (const [label, declarations, sources, qaOnly] of [
-  ["product import", { devDependencies: { "puppeteer-core": "24" } }, { "src/main.ts": "import puppeteer from 'puppeteer-core';" }, false],
-  ["mixed QA and product imports", { devDependencies: { "puppeteer-core": "24" } }, {
-    "tests/a.test.ts": "import puppeteer from 'puppeteer-core';", "src/main.ts": "require('puppeteer-core/lib/x');" }, false],
-  ["production declaration", { dependencies: { "puppeteer-core": "24" } }, { "tests/a.test.ts": "require('puppeteer-core');" }, false],
-  ["unused dev dependency", { devDependencies: { "puppeteer-core": "24" } }, {}, false],
-  ["subpath import", { devDependencies: { "puppeteer-core": "24" } }, { "tests/a.test.ts": "import { x } from 'puppeteer-core/lib/x';" }, true],
-  ["compact and multiline imports", { devDependencies: { "puppeteer-core": "24" } }, { "tests/a.ts": "import{x}from'puppeteer-core';\nimport {\n y\n} from 'puppeteer-core/lib/x';" }, true],
-  ...["dependencies", "optionalDependencies", "peerDependencies"].map((field) => [`dev plus ${field}`, {
-    devDependencies: { "puppeteer-core": "24" }, [field]: { "puppeteer-core": "24" },
-  }, { "tests/a.test.ts": "import('puppeteer-core');" }, false]),
-  ...["test/a.ts", "__tests__/a.ts", "e2e/a.ts", "qa/a.ts", "fixtures/a.ts", "src/a.test.ts", "src/a.spec.ts", "src/qa-a.ts"].map((file) => [
-    `QA path ${file}`, { devDependencies: { "puppeteer-core": "24" } }, { [file]: "require('puppeteer-core');" }, true,
-  ]),
-  ["ordinary script", { devDependencies: { "puppeteer-core": "24" } }, { "scripts/capture.ts": "import('puppeteer-core');" }, false],
-]) test(`npm dependency classification: ${label}`, () => {
-  const root = app({ "package.json": JSON.stringify(declarations), ...sources });
+for (const section of ["dependencies", "devDependencies", "optionalDependencies", "peerDependencies"]) test(`npm dependency finding binds ${section} without import usage`, () => {
+  const root = app({ "package.json": JSON.stringify({ [section]: { "puppeteer-core": "24" } }) });
   try {
     const result = checkApp(root, shipped, { trust: { enrolled: true, trust: null } });
-    assert.ok(result.findings.length);
-    assert.equal(result.findings.every((finding) => finding.qaOnly === true), qaOnly);
-    assert.equal(result.violations.length, qaOnly ? 0 : result.findings.length);
-    assert.equal(result.rows.find((row) => row.capability === "browser-automation").status, qaOnly ? "qa-only" : "blocked");
-  } finally { rmSync(root, { recursive: true, force: true }); }
-});
-
-test("QA classification preserves desktop-qa dependencies and source-pattern violations", () => {
-  const manifest = { capabilities: [
-    shipped.capabilities.find((capability) => capability.capability === "browser-automation"),
-    { package: "@rightkit/qa", capability: "desktop-qa", fingerprints: [
-      { id: "qa.npm.puppeteer-core", type: "dependency", ecosystem: "npm", name: "puppeteer-core" },
-    ] },
-  ] };
-  const root = app({
-    "package.json": JSON.stringify({ devDependencies: { "puppeteer-core": "24" } }),
-    "tests/a.ts": `import puppeteer from 'puppeteer-core';\n${SAMPLES["browser.source.chrome-discovery"]}`,
-  });
-  try {
-    const result = checkApp(root, manifest, { trust: { enrolled: true, trust: null } });
-    assert.equal(result.qaOnly.length, 1);
-    assert.deepEqual(result.violations.map((finding) => finding.fingerprint).sort(), ["browser.source.chrome-discovery", "qa.npm.puppeteer-core"]);
-    assert.ok(result.violations.every((finding) => finding.qaOnly === undefined));
+    assert.equal(result.findings.length, 1);
+    assert.equal(result.findings[0].section, section);
+    assert.equal(result.findings[0].qaOnly, undefined);
+    assert.equal(result.violations.length, 1);
     assert.equal(result.rows.find((row) => row.capability === "browser-automation").status, "blocked");
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
@@ -417,26 +406,28 @@ test("unsigned, forged, broad, expired & stale exceptions never cover; valid sig
   assert.equal(result.covered.length, 0); assert.ok(result.warnings.some((p) => /enrollment pending/.test(p)));
 });
 
-test("CodeRight device-flow endpoint remains backlog while enrollment is pending", () => {
-  const root = app({ "engine/bins/coderight/src/github_signin.rs": 'let url = "https://github.com/login/device/code";\n' });
+test("sample source occurrence fails closed while enrollment is pending", () => {
+  const root = app({ "engine/bins/coderight/src/github_signin.rs": `${SAMPLES["oauth.endpoint.github"]}\n` });
   try {
     const findings = scanApp(root, shipped);
     assert.ok(findings.some((f) => f.fingerprint === "oauth.endpoint.github" && f.file.endsWith("github_signin.rs")));
-    const result = checkApp(root, shipped);
-    assert.equal(result.ok, true);
+    const result = checkApp(root, shipped, { trust: { enrolled: false, pending: true, trust: null } });
+    assert.equal(result.ok, false);
     assert.equal(result.enrollmentPending, true);
     assert.ok(result.violations.some((f) => f.fingerprint === "oauth.endpoint.github"));
     assert.ok(result.warnings.some((p) => /enrollment pending/.test(p)));
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
-test("clean RightKit dependency integration fixture passes with declaration-only status", () => {
+test("clean RightKit dependency integration fixture fails closed pending enrollment with declaration-only status", () => {
   const root = app({ "Cargo.toml": '[package]\nname = "clean-consumer"\nversion = "0.1.0"\n[dependencies]\nrightkit-oauth = "0.2.0"\n' });
   try {
-    const result = checkApp(root, shipped);
-    assert.equal(result.ok, true);
+    const result = checkApp(root, shipped, { trust: { enrolled: false, pending: true, trust: null } });
+    assert.equal(result.ok, false);
     assert.equal(result.violations.length, 0);
     assert.equal(result.problems.length, 0);
+    assert.equal(result.enrollmentPending, true);
+    assert.ok(result.warnings.some((p) => /enrollment pending/.test(p)));
     assert.equal(result.rows.find((r) => r.capability === "oauth-sign-in").status, "declared-dependency");
     assert.ok(Array.isArray(result.metadata.contentDigests));
     assert.ok(result.metadata.contentDigests.some((x) => x.path === "Cargo.toml"));
@@ -497,34 +488,50 @@ test("committed scanner verifies pinned key log from Git blobs & ignores forged 
     runGit("commit", "-qm", "pinned key log");
     const trust = { schema: 1, rootFingerprint: key.keyId, keyCheckpoint: { sequence: 0, head: eventHash(draft) }, revokedKeyIds: [], hosts: {}, verifiedTrackingEvidence: [], minimumScannerVersion: "0.0.0", minimumCatalogVersion: "0.0.0", repositories: [{ repositoryIdentity: "https://github.com/test/repo", roots: ["."], visibility: "private" }], provenance: [] };
     const committedBytes = Buffer.from(`${JSON.stringify(log)}\n`);
+    const trustFile = path.join(root, ".git", "host-state", "trust.json");
+    mkdirSync(path.dirname(trustFile));
+    writeFileSync(trustFile, JSON.stringify(trust));
+    authorityTestOnly.persistCheckpoint(trust, committedBytes, trustFile, () => {});
+    const readAuthorityForTest = (pin) => authorityTestOnly.readAuthority(pin, { file: trustFile, audit: () => {} });
     const manifest = { schema: 1, version: "1", capabilities: [] };
-    assert.equal(checkApp(root, manifest, { trust }).enrollmentPending, true);
-    assert.equal(scanApp(root, manifest, { trust }).metadata.keyLogDigest, sha256(committedBytes));
+    assert.equal(checkAppForTest(root, manifest, { trust, readAuthorityForTest }).enrollmentPending, true);
+    assert.equal(scanAppForTest(root, manifest, { trust, readAuthorityForTest }).metadata.keyLogDigest, sha256(committedBytes));
     writeFileSync(path.join(root, ".rightkit", "ownership-keys.json"), '{"schema":1,"events":[]}\n');
     const scanned = checkCommittedAppForTest(root, manifest, { trust });
     assert.equal(scanned.enrollmentPending, true);
+    assert.equal(scanned.ok, false);
+    assert.match(scanned.warnings.join(" "), /enrollment pending/);
     assert.equal(scanned.metadata.rootFingerprint, key.keyId);
     assert.equal(scanned.metadata.keyCheckpoint.head, eventHash(draft));
     assert.equal(scanned.metadata.keyLogDigest, sha256(committedBytes));
-    const forgedDoctor = checkApp(root, manifest, { trust });
+    const forgedDoctor = checkAppForTest(root, manifest, { trust, readAuthorityForTest });
     assert.equal(forgedDoctor.enrollmentPending, true);
+    assert.equal(forgedDoctor.ok, false);
     assert.equal(forgedDoctor.metadata.keyLogDigest, sha256(committedBytes));
     rmSync(path.join(root, ".rightkit", "ownership-keys.json"));
-    const deletedDoctor = checkApp(root, manifest, { trust });
+    const deletedDoctor = checkAppForTest(root, manifest, { trust, readAuthorityForTest });
     assert.equal(deletedDoctor.enrollmentPending, true);
+    assert.equal(deletedDoctor.ok, false);
     assert.equal(deletedDoctor.metadata.keyLogDigest, sha256(committedBytes));
+    let injected = false;
+    const forbiddenReader = () => { injected = true; throw new Error("production must not call test reader"); };
+    const malformedAuthority = { ...trust, keyAuthority: { repositoryIdentity: "not-canonical", checkoutPath: root } };
+    for (const production of [checkApp, scanApp]) {
+      assert.throws(() => production(root, manifest, { trust: malformedAuthority, readAuthorityForTest: forbiddenReader, trustPath: trustFile }), /protected ownership key authority failed:.*identity/);
+    }
+    assert.equal(injected, false);
     assert.throws(() => checkCommittedAppForTest(root, manifest, { trust: { ...trust, rootFingerprint: "f".repeat(64) } }), /key log failed/);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
-test("one-key enrollment warns with backlog; both distinct keys restore blocking", () => {
+test("one-key enrollment fails closed with backlog; both distinct keys enforce findings", () => {
   const root = app({ "src/auth.rs": SAMPLES["oauth.endpoint.github"] });
   try {
     const { trust } = signedException([], { root: "https://github.com/org/repo" });
     const pending = structuredClone(trust);
     delete pending.hosts.macos;
     const advisory = checkApp(root, shipped, { trust: pending });
-    assert.equal(advisory.ok, true);
+    assert.equal(advisory.ok, false);
     assert.equal(advisory.enrollmentPending, true);
     assert.equal(advisory.violations.length, 1);
     assert.match(advisory.warnings[0], /enrollment pending/);

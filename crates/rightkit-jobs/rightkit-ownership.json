@@ -1,0 +1,15 @@
+{
+  "package": "rightkit-jobs",
+  "capabilities": [
+    {
+      "capability": "persistent-jobs",
+      "summary": "Persistent job store, runner, and stdio/CLI command contract for Right Suite engines.; declaration-only detection (no precise implementation fingerprint)",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Runner repair remains P1.",
+        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
+      ]
+    }
+  ]
+}

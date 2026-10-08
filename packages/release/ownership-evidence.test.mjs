@@ -6,9 +6,10 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 import { generateKeyPairSync, sign } from "node:crypto";
 import { spawnSync } from "./background-process.mjs";
-import { catalogDigest, checkApp } from "./ownership.mjs";
+import { catalogDigest, checkAppForTest, scanApp, SCANNER_VERSION } from "./ownership.mjs";
 import { createCommittedOwnershipEvidenceForTest, createOwnershipEvidenceForTest, verifyOwnershipEvidenceForTest } from "./ownership-evidence.mjs";
-import { canonicalJson, createDraft, keyIdForPublicKey, sha256 } from "./ownership-approval.mjs";
+import { canonicalJson, createDraft, keyIdForPublicKey, policyEntryDigest, sha256 } from "./ownership-approval.mjs";
+import { __testOnly as authorityTestOnly } from "./ownership-key-authority.mjs";
 import { createKeyEvent, eventHash, keyFingerprint } from "./ownership-key-log.mjs";
 
 const releaseRoot = path.dirname(fileURLToPath(import.meta.url));
@@ -47,6 +48,16 @@ function signedEvent(log, input, signer) {
   return event;
 }
 
+function readAuthorityForTest(trust) {
+  return authorityTestOnly.readAuthority(trust, { file: path.join(trust.keyAuthority.checkoutPath, ".git", "host-state", "trust.json"), audit: () => {} });
+}
+function advanceCheckpoint(fixture) {
+  const file = path.join(fixture.root, ".git", "host-state", "trust.json");
+  mkdirSync(path.dirname(file), { recursive: true });
+  writeFileSync(file, JSON.stringify(fixture.trust));
+  authorityTestOnly.persistCheckpoint(fixture.trust, Buffer.from(`${JSON.stringify(fixture.log)}\n`), file, () => {});
+}
+
 function pinnedFixture({ includeDevice = true, unsignedAdd = false, revokeRoot = false, rootPin } = {}) {
   const root = realpathSync(mkdtempSync(path.join(tmpdir(), "rightkit-keylog-evidence-")));
   git(root, "init", "-q");
@@ -78,7 +89,8 @@ function pinnedFixture({ includeDevice = true, unsignedAdd = false, revokeRoot =
     repositories: [{ repositoryIdentity: "https://github.com/test/repo", roots: ["."], visibility: "private" }],
   };
   const trustLoader = () => ({ enrolled: true, pending: false, protection: { ok: true }, trust });
-  const options = { scanRoot: root, manifestPath: path.join(releaseRoot, "rightkit-ownership.json"), trustLoader };
+  if (!unsignedAdd && !rootPin) advanceCheckpoint({ root, trust, log });
+  const options = { scanRoot: root, manifestPath: path.join(releaseRoot, "rightkit-ownership.json"), trustLoader, readAuthorityForTest };
   return { root, rootKey, deviceKey, log, trust, options, logCommit, logTree };
 }
 
@@ -124,7 +136,7 @@ test("protected evidence scans exact committed blobs & binds source tree", () =>
     git(root, "config", "user.name", "test");
     git(root, "remote", "add", "origin", "https://github.com/test/repo.git");
     const catalogPath = path.join(root, "catalog.json");
-    writeFileSync(catalogPath, JSON.stringify({ schema: 1, version: "1", capabilities: [{ package: "sample", capability: "sample", fingerprints: [{ type: "source", id: "marker", pattern: "COMMITTED_ONLY_MARKER" }] }] }));
+    writeFileSync(catalogPath, JSON.stringify({ schema: 1, version: "1", capabilities: [{ package: "sample", capability: "sample", tier: "block", fingerprints: [{ type: "source", id: "marker", pattern: "COMMITTED_ONLY_MARKER" }] }] }));
     writeFileSync(path.join(root, "source.rs"), "fn owned() { COMMITTED_ONLY_MARKER; }\n");
     git(root, "add", ".");
     git(root, "commit", "-qm", "committed evidence");
@@ -135,7 +147,7 @@ test("protected evidence scans exact committed blobs & binds source tree", () =>
     assert.ok(checked.evidence.tree);
     assert.equal(checked.result.metadata.tree, checked.evidence.tree);
     assert.deepEqual(checked.result.findings.map((finding) => finding.file), ["source.rs"]);
-    assert.equal(checked.evidence.scannerVersion, "2.4.0");
+    assert.equal(checked.evidence.scannerVersion, SCANNER_VERSION);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
@@ -145,7 +157,7 @@ test("release ownership fails closed when protected enrollment is absent", () =>
   }), /protected ownership trust location was not verified/);
 });
 
-test("one-key enrollment produces clearly advisory evidence and retains backlog findings", () => {
+test("one-key enrollment fails closed and retains backlog findings", () => {
   const root = realpathSync(mkdtempSync(path.join(tmpdir(), "rightkit-ownership-pending-")));
   try {
     git(root, "init", "-q");
@@ -167,7 +179,9 @@ test("one-key enrollment produces clearly advisory evidence and retains backlog 
         metadata: { repositoryIdentity: "https://github.com/test/repo", commit: git(root, "rev-parse", "HEAD"), catalogDigest: catalogDigest(manifest), contentDigests: [], coverage: [] },
       }),
     });
-    assert.equal(pending.ok, true);
+    assert.equal(pending.ok, false);
+    assert.equal(pending.enrollmentPending, true);
+    assert.match(pending.warning, /enrollment.*pending/);
     assert.equal(pending.enrollmentPending, true);
     assert.match(pending.warning, /^WARNING:/);
     assert.equal(pending.evidence.source, "enrollment-pending-advisory");
@@ -182,7 +196,7 @@ test("one-key enrollment produces clearly advisory evidence and retains backlog 
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
-test("absent trust has advisory scan without fabricated registry binding", () => {
+test("absent trust fails closed without fabricated registry binding", () => {
   const root = realpathSync(mkdtempSync(path.join(tmpdir(), "rightkit-ownership-no-trust-")));
   try {
     git(root, "init", "-q");
@@ -197,7 +211,9 @@ test("absent trust has advisory scan without fabricated registry binding", () =>
       trustLoader: () => ({ enrolled: false, pending: true, protection: { ok: false, reason: "external trust file is absent" }, trust: null }),
       scan: (_scanRoot, manifest) => ({ ok: true, findings: [], violations: [], problems: [], rows: [], covered: [], coverage: [], metadata: { catalogDigest: catalogDigest(manifest), contentDigests: [], coverage: [] } }),
     });
-    assert.equal(pending.ok, true);
+    assert.equal(pending.ok, false);
+    assert.equal(pending.enrollmentPending, true);
+    assert.match(pending.warning, /enrollment.*pending/);
     assert.equal(pending.evidence.source, "enrollment-pending-advisory");
     assert.equal(pending.evidence.commit, git(root, "rev-parse", "HEAD"));
     assert.equal(pending.evidence.floorOk, false);
@@ -242,7 +258,9 @@ test("pending trust registration and floor problems remain diagnostics", () => {
         return { ok: false, findings: [], violations: [], problems: [], rows: [], covered: [], coverage: [], metadata: { repositoryIdentity: "https://github.com/test/repo", catalogDigest: catalogDigest(manifest), contentDigests: [], coverage: [] } };
       },
     });
-    assert.equal(pending.ok, true);
+    assert.equal(pending.ok, false);
+    assert.equal(pending.enrollmentPending, true);
+    assert.match(pending.warning, /enrollment.*pending/);
     assert.equal(scans, 2);
     assert.ok(pending.result.problems.some((problem) => /outside protected ownership roots/.test(problem)));
     assert.ok(pending.result.problems.some((problem) => /protected minimum|protected pinned|floor/.test(problem)));
@@ -416,12 +434,12 @@ test("exception signed by a revoked key stays uncovered under pinned log", () =>
   const fixture = pinnedFixture({ revokeRoot: true });
   try {
     const manifestPath = path.join(fixture.root, "catalog.json");
-    const manifest = { schema: 1, version: "1", capabilities: [{ package: "sample", capability: "sample", fingerprints: [{ type: "source", id: "marker", pattern: "REVOKED_KEY_LOG_MARKER" }] }] };
+    const manifest = { schema: 1, version: "1", capabilities: [{ package: "sample", capability: "sample", tier: "block", fingerprints: [{ type: "source", id: "marker", pattern: "REVOKED_KEY_LOG_MARKER" }] }] };
     writeFileSync(manifestPath, JSON.stringify(manifest));
     const line = "fn main() { REVOKED_KEY_LOG_MARKER; }";
     writeFileSync(path.join(fixture.root, "source.rs"), `${line}\n`);
     const trackingRef = { id: "RK-1", url: "https://github.com/test/repo/issues/1", verified: true };
-    const record = createDraft({ repositoryIdentity: "https://github.com/test/repo", catalogDigest: catalogDigest(manifest), fingerprint: "marker", findings: [{ fingerprint: "marker", file: "source.rs", line: 1, text: line }], paths: ["source.rs"], reason: "test", owner: "test", expires: "2099-12-31", requestId: "RK-REVOKED-1", trackingRef });
+    const record = createDraft({ repositoryIdentity: "https://github.com/test/repo", policyDigest: policyEntryDigest(manifest, "marker"), minimumScannerVersion: SCANNER_VERSION, minimumCatalogVersion: manifest.version, issued: "2026-10-08", fingerprint: "marker", findings: scanApp(fixture.root, manifest, { trust: null }), reason: "test", owner: "test", expires: "2027-01-06", requestId: "RK-REVOKED-1", trackingRef });
     record.signature = { keyId: keyIdForPublicKey("windows", fixture.rootKey.record.publicKeyPem), host: "windows", value: sign("sha256", Buffer.from(canonicalJson(record.payload)), fixture.rootKey.pair.privateKey).toString("base64") };
     fixture.trust.verifiedTrackingEvidence = [sha256({ repositoryIdentity: "https://github.com/test/repo", requestId: record.payload.requestId, trackingRef })];
     mkdirSync(path.join(fixture.root, ".rightkit"), { recursive: true });
@@ -430,16 +448,17 @@ test("exception signed by a revoked key stays uncovered under pinned log", () =>
     git(fixture.root, "commit", "-qm", "revoked approval fixture");
     const checked = createCommittedOwnershipEvidenceForTest(fixture.root, { ...fixture.options, manifestPath });
     assert.equal(checked.ok, false);
-    assert.ok(checked.result.problems.some((problem) => /not active in protected ownership key log/.test(problem)));
+    assert.ok(checked.result.problems.some((problem) => /signing key is revoked/.test(problem)), checked.result.problems.join("; "));
     assert.equal(checked.result.covered.length, 0);
   } finally { rmSync(fixture.root, { recursive: true, force: true }); }
 });
 
-test("ordinary evidence uses committed key history for enrollment grace", () => {
+test("ordinary evidence uses committed key history and refuses pending enrollment", () => {
   const fixture = pinnedFixture({ includeDevice: false });
   try {
     const result = createOwnershipEvidenceForTest(fixture.root, fixture.options);
-    assert.equal(result.ok, true);
+    assert.equal(result.ok, false);
+    assert.match(result.warning, /enrollment.*pending/);
     assert.equal(result.enrollmentPending, true);
     assert.equal(result.evidence.trustEnrolled, false);
     assert.equal(result.evidence.source, "enrollment-pending-advisory");
@@ -469,14 +488,14 @@ test("shared workspace authority approves nested product exceptions without copy
     git(product, "config", "user.email", "test@example.invalid");
     git(product, "config", "user.name", "test");
     git(product, "remote", "add", "origin", "https://github.com/test/product.git");
-    const manifest = { schema: 1, version: "1", capabilities: [{ package: "sample", capability: "sample", fingerprints: [{ type: "source", id: "marker", pattern: "SHARED_AUTHORITY_MARKER" }] }] };
+    const manifest = { schema: 1, version: "1", capabilities: [{ package: "sample", capability: "sample", tier: "block", fingerprints: [{ type: "source", id: "marker", pattern: "SHARED_AUTHORITY_MARKER" }] }] };
     const manifestPath = path.join(product, "catalog.json");
     writeFileSync(manifestPath, JSON.stringify(manifest));
     const line = "fn main() { SHARED_AUTHORITY_MARKER; }";
     writeFileSync(path.join(product, "source.rs"), `${line}\n`);
     mkdirSync(path.join(product, ".rightkit"), { recursive: true });
     const trackingRef = { id: "RK-2", url: "https://github.com/test/product/issues/2", verified: true };
-    const record = createDraft({ repositoryIdentity: "https://github.com/test/product", catalogDigest: catalogDigest(manifest), fingerprint: "marker", findings: [{ fingerprint: "marker", file: "source.rs", line: 1, text: line }], paths: ["source.rs"], reason: "test", owner: "test", expires: "2099-12-31", requestId: "RK-SHARED-2", trackingRef });
+    const record = createDraft({ repositoryIdentity: "https://github.com/test/product", policyDigest: policyEntryDigest(manifest, "marker"), minimumScannerVersion: SCANNER_VERSION, minimumCatalogVersion: manifest.version, issued: "2026-10-08", fingerprint: "marker", findings: scanApp(product, manifest, { trust: null }), reason: "test", owner: "test", expires: "2027-01-06", requestId: "RK-SHARED-2", trackingRef });
     record.signature = { keyId: keyIdForPublicKey("macos", authority.deviceKey.record.publicKeyPem), host: "macos", value: sign("sha256", Buffer.from(canonicalJson(record.payload)), authority.deviceKey.pair.privateKey).toString("base64") };
     const trust = { ...authority.trust, keyAuthority: { repositoryIdentity: "https://github.com/test/repo", checkoutPath: authority.root }, repositories: [{ repositoryIdentity: "https://github.com/test/product", roots: ["."], visibility: "private" }], verifiedTrackingEvidence: [sha256({ repositoryIdentity: "https://github.com/test/product", requestId: record.payload.requestId, trackingRef })] };
     writeFileSync(path.join(product, ".rightkit", "ownership-exceptions.json"), JSON.stringify({ exceptions: [record] }));
@@ -484,14 +503,14 @@ test("shared workspace authority approves nested product exceptions without copy
     git(product, "commit", "-qm", "product source with shared approval");
     assert.equal(existsSync(path.join(product, ".rightkit", "ownership-keys.json")), false);
     const trustLoader = () => ({ enrolled: true, pending: false, protection: { ok: true }, trust });
-    const options = { scanRoot: product, manifestPath, trustLoader };
+    const options = { scanRoot: product, manifestPath, trustLoader, readAuthorityForTest };
     const built = createCommittedOwnershipEvidenceForTest(product, options);
     assert.equal(built.ok, true, built.result.problems.join("; "));
     assert.equal(built.result.covered.length, 1);
     assert.deepEqual(built.evidence.keyAuthority, { repositoryIdentity: "https://github.com/test/repo", commit: authority.logCommit, tree: authority.logTree });
     assert.equal(verifyOwnershipEvidenceForTest(built.evidence, product, { ...options, committed: true, requireCleanCheckout: true }).ok, true);
 
-    const doctor = checkApp(product, manifest, { trust: trustLoader() });
+    const doctor = checkAppForTest(product, manifest, { trust: trustLoader(), readAuthorityForTest });
     assert.equal(doctor.enrollmentPending, false);
     assert.equal(doctor.covered.length, 1);
     assert.equal(doctor.metadata.keyLogDigest, built.evidence.keyLogDigest);
@@ -509,6 +528,7 @@ test("shared workspace authority approves nested product exceptions without copy
     writeFileSync(path.join(authority.root, ".rightkit", "ownership-keys.json"), `${JSON.stringify(authority.log)}\n`);
     git(authority.root, "add", ".rightkit/ownership-keys.json");
     git(authority.root, "commit", "-qm", "workspace authority fast forward");
+    advanceCheckpoint(authority);
     assert.equal(verifyOwnershipEvidenceForTest(built.evidence, product, { ...options, committed: true, requireCleanCheckout: true }).ok, false);
     const forwarded = createCommittedOwnershipEvidenceForTest(product, options);
     assert.equal(forwarded.ok, true);
@@ -526,7 +546,8 @@ test("shared workspace authority approves nested product exceptions without copy
     writeFileSync(path.join(authority.root, ".rightkit", "ownership-keys.json"), `${JSON.stringify(authority.log)}\n`);
     git(authority.root, "add", ".rightkit/ownership-keys.json");
     git(authority.root, "commit", "-qm", "revoke enrolled Mac key");
-    const revokedMac = checkApp(product, manifest, { trust: trustLoader() });
+    advanceCheckpoint(authority);
+    const revokedMac = checkAppForTest(product, manifest, { trust: trustLoader(), readAuthorityForTest });
     assert.equal(revokedMac.enrollmentPending, false);
     assert.equal(revokedMac.covered.length, 0);
     assert.equal(revokedMac.violations.length, 1);
@@ -535,8 +556,9 @@ test("shared workspace authority approves nested product exceptions without copy
     writeFileSync(path.join(authority.root, ".rightkit", "ownership-keys.json"), `${JSON.stringify(authority.log)}\n`);
     git(authority.root, "add", ".rightkit/ownership-keys.json");
     git(authority.root, "commit", "-qm", "revoke final active authority key");
-    assert.throws(() => checkApp(product, manifest, { trust: trustLoader() }), /no active approval keys/);
-    assert.throws(() => checkApp(product, { schema: 1, version: "1", capabilities: [] }, { trust: trustLoader() }), /no active approval keys/);
+    advanceCheckpoint(authority);
+    assert.throws(() => checkAppForTest(product, manifest, { trust: trustLoader(), readAuthorityForTest }), /no active approval keys/);
+    assert.throws(() => checkAppForTest(product, { schema: 1, version: "1", capabilities: [] }, { trust: trustLoader(), readAuthorityForTest }), /no active approval keys/);
 
     const tampered = JSON.parse(`${JSON.stringify(authority.log)}`);
     tampered.events[1].signature.value = `${tampered.events[1].signature.value.slice(0, -4)}AAAA`;

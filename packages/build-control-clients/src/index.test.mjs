@@ -446,3 +446,16 @@ test('brokerEndpoint prefers the env socket, else the managed root socket on Uni
   assert.throws(() => brokerEndpoint({ RIGHTKIT_MANAGED_ROOT: '/none' }, { platform: 'darwin', exists }), /not configured/);
   assert.throws(() => brokerEndpoint({ RIGHTKIT_MANAGED_ROOT: '/m' }, { platform: 'win32', exists }), /not configured/);
 });
+
+test('Mac endpoint discovery prefers internal over legacy & agent shims use internal runtime without pinning socket', async (t) => {
+  const home = '/Users/test'; const internal = `${home}/Library/Application Support/RightKit/build-control/broker.sock`; const seen = [];
+  assert.equal(brokerEndpoint({}, { platform: 'darwin', home, exists: (path) => { seen.push(path); return true; } }), internal);
+  assert.deepEqual(seen, [internal]);
+  const directory = await mkdtemp(join(tmpdir(), 'rk-mac-shims-'));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const manifest = await installAgentShims({ directory, platform: 'darwin' });
+  assert.match(manifest.runtimeCurrent, /Library\/Application Support\/RightKit\/build-control\/runtime-current$/);
+  const wrapper = await readFile(join(directory, 'cargo'), 'utf8');
+  assert.doesNotMatch(wrapper, /export RIGHTKIT_BUILD_BROKER_SOCKET=/);
+  assert.match(wrapper, /Application Support\/RightKit\/build-control\/runtime-current/);
+});

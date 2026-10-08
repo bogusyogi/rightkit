@@ -5,9 +5,41 @@
       "capability": "owned-processes",
       "summary": "Child processes owned as a tree: process groups / kill-on-close jobs, hidden windows",
       "fingerprints": [
-        { "id": "process.cargo.process-wrap", "type": "dependency", "ecosystem": "cargo", "name": "process-wrap" },
-        { "id": "process.cargo.command-group", "type": "dependency", "ecosystem": "cargo", "name": "command-group" },
-        { "id": "process.api.kill-on-job-close", "type": "source", "pattern": "JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE" }
+        {
+          "id": "process.cargo.process-wrap",
+          "type": "dependency",
+          "ecosystem": "cargo",
+          "name": "process-wrap",
+          "tier": "advise",
+          "usageContext": {
+            "hosts": [
+              "macos",
+              "windows"
+            ],
+            "scope": "cargo direct competing dependency; transitive findings require authenticated reachability"
+          },
+          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
+        },
+        {
+          "id": "process.cargo.command-group",
+          "type": "dependency",
+          "ecosystem": "cargo",
+          "name": "command-group",
+          "tier": "advise",
+          "usageContext": {
+            "hosts": [
+              "macos",
+              "windows"
+            ],
+            "scope": "cargo direct competing dependency; transitive findings require authenticated reachability"
+          },
+          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
+        }
+      ],
+      "detection": "fingerprinted",
+      "policyNotes": [
+        "Package contract retained; dependency declarations do not verify integration.",
+        "Fingerprints identify review candidates; published two-host replacement qualification is not recorded."
       ]
     }
   ]

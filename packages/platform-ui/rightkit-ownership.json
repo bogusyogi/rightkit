@@ -1,0 +1,15 @@
+{
+  "package": "@rightkit/platform-ui",
+  "capabilities": [
+    {
+      "capability": "platform-ui",
+      "summary": "Brand-neutral platform, shortcut, and window-control primitives for Right Suite apps.; declaration-only detection (no precise implementation fingerprint)",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Package contract retained; dependency declarations do not verify integration.",
+        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
+      ]
+    }
+  ]
+}

@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { resolveManagedRoots } from '../../release/managed-roots.mjs';
 import { execFile as childExecFile } from 'node:child_process';
 import net from 'node:net';
 import { promisify } from 'node:util';
@@ -25,7 +26,7 @@ export function parseMacOSCutoverArgs(argv) {
     const flag = argv[index]; const value = argv[index + 1];
     if (typeof flag !== 'string' || !flag.startsWith('--') || value === undefined) throw new TypeError('cutover arguments must be --name value pairs');
     const name = flag.slice(2);
-    if (![...required, 'timeout-ms', 'drain-timeout-ms'].includes(name) || values[name] !== undefined) throw new TypeError(`unknown or duplicate cutover argument: ${flag}`);
+    if (![...required, 'timeout-ms', 'drain-timeout-ms', 'control-root'].includes(name) || values[name] !== undefined) throw new TypeError(`unknown or duplicate cutover argument: ${flag}`);
     values[name] = value;
   }
   for (const name of required) if (values[name] === undefined) throw new TypeError(`--${name} is required`);
@@ -39,6 +40,7 @@ export function parseMacOSCutoverArgs(argv) {
   if (!/^[A-Za-z0-9][A-Za-z0-9_.-]*$/.test(values.label)) throw new TypeError('--label is invalid');
   for (const name of ['source-revision', 'source-tree-digest']) if (!/^[a-f0-9]{40,64}$/i.test(values[name])) throw new TypeError(`--${name} must be a Git object digest`);
   return Object.freeze({
+    ...(values['control-root'] ? { controlRoot: absolute(values['control-root'], 'control-root') } : {}),
     configPath: absolute(values.config, 'config'), externalRoot: absolute(values['external-root'], 'external-root'), sourcePackagesRoot: absolute(values['source-packages'], 'source-packages'),
     version: values.version, sourceRevision: values['source-revision'], sourceTreeDigest: values['source-tree-digest'], launchdLabel: values.label, uid, endpoint: absolute(values.endpoint, 'endpoint'), plistPath: absolute(values.plist, 'plist'),
     healthWorkspace: absolute(values['health-workspace'], 'health-workspace'), timeoutMs, drainTimeoutMs,
@@ -91,26 +93,28 @@ export async function runMacOSCutover(input, dependencies = {}) {
   ]);
   await assertFile(configPath, 'config', statFile); await assertFile(plistPath, 'plist', statFile); await assertDirectory(healthWorkspace, 'health workspace', statFile); await assertFile(resolve(healthWorkspace, 'Cargo.toml'), 'health workspace Cargo.toml', statFile);
   const config = await loadConfig(configPath);
+  const controlRoot = await canonicalize(resolveManagedRoots({ platform, dataRoot: externalRoot, controlRoot: options.controlRoot ?? config.broker.controlRoot }).controlRoot);
+  if (!contained(configPath, controlRoot)) throw new Error('cutover config must be installed under control root; run control-migration first');
   if (resolve(config.broker.externalRoot.path) !== externalRoot) throw new Error('config broker.externalRoot.path differs from --external-root');
   if (resolve(config.unixSocket ?? '') !== options.endpoint) throw new Error('config unixSocket differs from --endpoint');
-  if (typeof config.broker.activationFencePath !== 'string' || !isAbsolute(config.broker.activationFencePath) || !contained(resolve(config.broker.activationFencePath), externalRoot)) throw new Error('config broker.activationFencePath must be an absolute path contained by --external-root');
+  if (typeof config.broker.activationFencePath !== 'string' || !isAbsolute(config.broker.activationFencePath) || !contained(resolve(config.broker.activationFencePath), controlRoot)) throw new Error('config broker.activationFencePath must be an absolute path contained by control root');
   const plist = await load(plistPath, 'utf8');
   if (!exactPlistLabel(plist, options.launchdLabel)) throw new Error('plist Label differs from --label');
-  const programArguments = plistProgramArguments(plist); const runtimeScript = resolve(externalRoot, 'runtime-current', 'build-control-broker', 'src', 'broker.mjs');
-  if (programArguments.length !== 3 || programArguments.some((value) => !isAbsolute(value) || /\s/.test(value)) || resolve(programArguments[1]) !== runtimeScript || resolve(programArguments[2]) !== configPath) throw new Error('plist ProgramArguments must be exact node, runtime-current broker, & config paths');
+  const programArguments = plistProgramArguments(plist); const runtimeScript = resolve(controlRoot, 'runtime-current', 'build-control-broker', 'src', 'broker.mjs');
+  if (programArguments.length !== 3 || programArguments.some((value) => !isAbsolute(value)) || resolve(programArguments[1]) !== runtimeScript || resolve(programArguments[2]) !== configPath) throw new Error('plist ProgramArguments must be exact node, runtime-current broker, & config paths');
   const nodePath = await canonicalize(programArguments[0]); await assertFile(nodePath, 'plist Node executable', statFile);
   // The managed LaunchAgent lives in the user's GUI domain, which exists only while someone is logged in
   // at the console. Without it, stopping the broker cannot be undone (2026-10-06): refuse before touching it.
   if (!(await guiDomainAvailable(options.uid))) throw new Error(`no GUI login session for uid ${options.uid} (launchctl gui/${options.uid} unavailable); log in at the Mac before bootstrap or cutover — the running broker was left untouched`);
   // Fence new admissions first, then ask live broker for all admitting/queued/
   // running roots. Filesystem markers remain independent writer recovery proof.
-  const drainFence = await beginDrain(externalRoot);
+  const drainFence = await beginDrain(controlRoot);
   try {
     const drainStartedAt = now();
     let brokerDrain; let thinDrain;
     for (;;) {
       try {
-        brokerDrain = await proveBrokerDrain(externalRoot, options.endpoint);
+        brokerDrain = await proveBrokerDrain(controlRoot, options.endpoint);
         thinDrain = await proveThinDrain(externalRoot);
         break;
       } catch (error) {
@@ -125,7 +129,7 @@ export async function runMacOSCutover(input, dependencies = {}) {
     try {
     stopProof = await stopManaged({ launchdLabel: options.launchdLabel, uid: options.uid, plistPath, endpoint: options.endpoint });
     result = await install({
-      externalRoot, sourcePackagesRoot, sourceRevision: options.sourceRevision, sourceTreeDigest: options.sourceTreeDigest, config, version: options.version, launchdLabel: options.launchdLabel, uid: options.uid, endpoint: options.endpoint,
+      externalRoot: controlRoot, sourcePackagesRoot, sourceRevision: options.sourceRevision, sourceTreeDigest: options.sourceTreeDigest, config, version: options.version, launchdLabel: options.launchdLabel, uid: options.uid, endpoint: options.endpoint,
       plistPath, configPath, nodePath, healthWorkspace, healthTimeoutMs: options.timeoutMs, timeoutMs: options.timeoutMs, macosResourceAddon: options.macosResourceAddon,
       drainProbe: async () => proveThinDrain(externalRoot),
     });
@@ -134,7 +138,7 @@ export async function runMacOSCutover(input, dependencies = {}) {
       catch (restartError) { error.brokerRestored = false; error.message += `; broker restart also failed: ${restartError?.message ?? restartError}`; }
       throw error;
     }
-    return Object.freeze({ configPath, externalRoot, sourcePackagesRoot, plistPath, brokerDrain, thinDrain, stopProof, result });
+    return Object.freeze({ configPath, externalRoot, controlRoot, sourcePackagesRoot, plistPath, brokerDrain, thinDrain, stopProof, result });
   } finally { await endDrain(drainFence); }
 }
 

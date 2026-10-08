@@ -360,8 +360,13 @@ test('Cargo iteration cache mode follows profile flags before executable argumen
 test('ownership enforcement refuses a duplicating app before it takes build capacity; report mode only records', async () => {
   const violation = { fingerprint: 'browser.npm.playwright', capability: 'browser-automation', package: 'rightkit-browser', file: 'package.json', line: 0 };
   const scans = [];
-  const runScan = async ({ scanRoot }) => { scans.push(scanRoot); return { report: { violations: [violation], enrollmentPending: false } }; };
-  const enforced = await fixture({ ownershipAdmission: new OwnershipAdmission({ mode: 'enforce', scannerRoot: 'scanner', runScan }) });
+  const digest = (n) => n.toString(16).padStart(64, '0'), identity = 'https://github.com/test/repo';
+  const trust = { schema: 1, revokedKeyIds: [], verifiedTrackingEvidence: [], minimumScannerVersion: '2.0.0', minimumCatalogVersion: '1', repositories: [{ repositoryIdentity: identity, roots: ['.'], visibility: 'private' }] };
+  const inputs = () => ({ contentDigest: digest(1), catalogDigest: digest(2), trustDigest: digest(3), approvalsDigest: digest(4), scannerPolicyDigest: digest(5), protectedFloors: { minimumScannerVersion: '2.0.0', minimumCatalogVersion: '1', minimumCatalogDigest: null } });
+  const report = { ok: false, enrollmentPending: false, violations: [{ ...violation, tier: 'block' }], problems: [], coverage: [], metadata: { repositoryIdentity: identity, scannerVersion: '2.6.0', catalogVersion: '3', catalogDigest: digest(2), coverage: [], roots: [{ root: '.' }] } };
+  const runInputs = async () => ({ inputs: inputs(), trust, complete: true });
+  const runScan = async ({ scanRoot }) => { scans.push(scanRoot); return { report, trust, inputs: inputs() }; };
+  const enforced = await fixture({ ownershipAdmission: new OwnershipAdmission({ mode: 'enforce', scannerRoot: 'scanner', runInputs, runScan }) });
   try {
     const submitted = (await call(enforced.service, command('SUBMIT', message(enforced.workspace, ['build'])))).result;
     const final = await waitFor(enforced.service, submitted.id, ['REJECTED']);
@@ -369,7 +374,7 @@ test('ownership enforcement refuses a duplicating app before it takes build capa
     assert.equal(enforced.children.length, 0, 'no build process started');
     assert.equal(enforced.logger.events.find((event) => event.type === 'OWNERSHIP_ADMISSION').outcome, 'violations');
   } finally { await enforced.close(); }
-  const reported = await fixture({ ownershipAdmission: new OwnershipAdmission({ mode: 'report', scannerRoot: 'scanner', runScan }) });
+  const reported = await fixture({ ownershipAdmission: new OwnershipAdmission({ mode: 'report', scannerRoot: 'scanner', runInputs, runScan }) });
   try {
     const submitted = (await call(reported.service, command('SUBMIT', message(reported.workspace, ['build'])))).result;
     await waitFor(reported.service, submitted.id, ['RUNNING']);

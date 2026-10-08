@@ -1,0 +1,15 @@
+{
+  "package": "@rightkit/qa-chrome",
+  "capabilities": [
+    {
+      "capability": "browser-qa",
+      "summary": "Zero-dependency Chrome for Testing resolver, launcher and graceful close for Right Suite QA harnesses.; declaration-only detection (no precise implementation fingerprint)",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Package contract retained; dependency declarations do not verify integration.",
+        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
+      ]
+    }
+  ]
+}

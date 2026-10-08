@@ -1,3 +1,4 @@
+import { resolveManagedRoots } from '../../release/managed-roots.mjs';
 import { createHash, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 import { execFile as nodeExecFile, spawn as nodeSpawn } from 'node:child_process';
 import { lstat, mkdir, mkdtemp, readFile, realpath, rm, statfs as nodeStatfs, writeFile } from 'node:fs/promises';
@@ -260,19 +261,20 @@ export class ThinJobService {
   static async create({ config, runtimeIdentity = SOURCE_RUNTIME_IDENTITY, registry = null, scheduler = null, state = null, cache = null, logger = null, singleton = null, spawn = nodeSpawn, workspaceResolver = resolveCargoWorkspace, repositoryResolver = resolveRepositoryRoot, processIdentity = readManagedProcessIdentity, processOwnership = managedProcessOwnership, startProcess = startManagedProcess, terminateProcess = terminateProcessTree, readResources = readManagedProcessResources, readHostResources = hostResourceSnapshot, reapPersisted = reapPersistedProcessTree, statfs = nodeStatfs, now = Date.now, platform = process.platform, nativeOpenSsl = undefined, ownershipAdmission = undefined } = {}) {
     if (!config?.broker?.externalRoot?.path) throw new TypeError('validated broker config is required');
     const externalRoot = normalize(config.broker.externalRoot.path);
+    const controlRoot = resolveManagedRoots({ platform, dataRoot: externalRoot, controlRoot: config.broker.controlRoot ?? externalRoot }).controlRoot;
     let ownedSingleton = singleton;
     let ownedLogger = logger;
     let ownedCache = cache;
     try {
-      ownedSingleton ??= await acquireThinBrokerSingleton({ stateRoot: join(externalRoot, 'rightkit-build-control', 'state') });
-      const thinState = state ?? await ThinState.open({ externalRoot });
+      ownedSingleton ??= await acquireThinBrokerSingleton({ stateRoot: join(controlRoot, 'rightkit-build-control', 'state') });
+      const thinState = state ?? await ThinState.open({ externalRoot, controlRoot: config.broker.controlRoot });
       const toolRegistry = registry ?? new ImmutableToolRegistry();
       if (!registry) for (const tool of config.tools ?? []) if (selectedToolIds(config).has(tool.id)) await toolRegistry.register(tool);
       const cargoTool = await toolRegistry.verify(config.shims?.cargo);
       const rustcTool = await toolRegistry.verify(config.defaults?.rustcToolId ?? config.shims?.rustc);
       const rustdocTool = await toolRegistry.verify(config.defaults?.rustdocToolId ?? config.shims?.rustdoc);
       const sccacheTool = config.defaults?.sccacheToolId ? await toolRegistry.verify(config.defaults.sccacheToolId) : null;
-      const thinLogger = logger ?? await ThinLogger.open({ path: join(thinState.paths.logs, 'events.ndjson') });
+      const thinLogger = logger ?? await ThinLogger.open({ path: join(controlRoot, ...(config.broker.controlRoot ? ['logs'] : ['rightkit-build-control', 'logs']), 'events.ndjson') });
       ownedLogger = thinLogger;
       let service = null;
       const thinCache = cache ?? new ThinCache({
@@ -448,7 +450,8 @@ export class ThinJobService {
       if (message.type === 'STATUS' && message.id === 'runtime-health-probe') return this.#emit(emit, { type: 'STATUS', id: message.id, state: 'ACTIVATION_PENDING', runtime: this.#runtime });
       return this.#emit(emit, { type: 'RESULT', exitCode: 125, status: 'REJECTED', error: 'runtime activation is pending', code: 'RK_ACTIVATION_PENDING' });
     }
-    if (rootAdmissionId && await cutoverDrainPending(this.#config.broker.externalRoot.path)) {
+    if (message.type === 'STATUS' && message.id === 'runtime-health-probe') return this.#emit(emit, { type: 'STATUS', id: message.id, state: 'READY', runtime: this.#runtime });
+    if (rootAdmissionId && await cutoverDrainPending(this.#config.broker.controlRoot ?? this.#config.broker.externalRoot.path)) {
       this.#admissions.delete(rootAdmissionId);
       const inFlight = this.#inFlight();
       const detail = inFlight.length ? `; active broker work: ${this.#describeJobs(inFlight)}` : '';

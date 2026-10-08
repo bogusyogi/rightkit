@@ -21,7 +21,7 @@ export function managedCargoShimOnPath(env = process.env, platform = process.pla
     for (const extension of extensions) {
       const candidate = pathApi.join(directory, `cargo${extension.toLowerCase()}`);
       if (!exists(candidate)) continue;
-      return /(?:^|\/)(?:\.rightkit-managed|rightkitmanagedagent)\/agent-bin\/cargo(?:\.[^/]*)?$/i
+      return /(?:^|\/)(?:\.rightkit-managed|rightkitmanagedagent|rightkit\/build-control)\/agent-bin\/cargo(?:\.[^/]*)?$/i
         .test(candidate.replaceAll("\\", "/"));
     }
   }

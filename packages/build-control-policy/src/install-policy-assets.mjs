@@ -1,3 +1,4 @@
+import { resolveManagedRoots } from '../../release/managed-roots.mjs';
 import { createHash } from 'node:crypto';
 import { copyFile, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
@@ -7,6 +8,8 @@ const packageRoot = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const files = [
   'ownership-write-hook-cli.mjs',
   'ownership-write-hook.mjs',
+  'ownership-source.mjs',
+  'ownership-availability.mjs',
   'ownership-session-hook-cli.mjs',
   'ownership-session-hook.mjs',
   'ownership-fingerprints.json',
@@ -18,7 +21,7 @@ const files = [
 
 function rootFor(platform) {
   if (platform === 'win32') return 'D:\\.rightkit-managed\\agent-policy';
-  if (platform === 'darwin') return '/Volumes/D/.rightkit-managed/agent-policy';
+  if (platform === 'darwin') return resolveManagedRoots({ platform }).agentPolicy;
   throw new Error(`Unsupported platform: ${platform}`);
 }
 

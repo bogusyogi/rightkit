@@ -93,6 +93,7 @@ export function createMacOSRuntimeCallbacks(options = {}) {
           const finish = (error, value) => { clearTimeout(timer); socketHandle.destroy(); error ? reject(error) : resolveHandshake(value); };
           const complete = () => { if (identity && (!requirePending || pending)) finish(null, identity); };
           socketHandle.once('error', (error) => finish(error));
+          socketHandle.once('end', () => finish(new Error('launchd runtime is initializing')));
           socketHandle.once('connect', () => socketHandle.write(`${JSON.stringify({ type: 'STATUS', protocol: BUILD_CONTROL_PROTOCOL, runtime: manifest, id: 'runtime-health-probe' })}\n`));
       socketHandle.on('data', (chunk) => {
         buffer += String(chunk);
@@ -105,6 +106,7 @@ export function createMacOSRuntimeCallbacks(options = {}) {
             if (!identity || identity.schema !== manifest.schema || identity.version !== manifest.version || identity.clientDigest !== manifest.clientDigest || identity.brokerDigest !== manifest.brokerDigest) return finish(new Error('launchd runtime HANDSHAKE identity mismatch'));
             complete(); continue;
           }
+          if (event.type === 'STATUS' && event.code === 'EXTERNAL_ROOT_UNREADABLE') return finish(new Error(`EXTERNAL_ROOT_UNREADABLE: ${event.path} (${event.errno})`));
           if (event.type === 'STATUS' && event.id === 'runtime-health-probe' && event.state === 'ACTIVATION_PENDING') { pending = true; complete(); continue; }
           if (event.type === 'RESULT' && requirePending) return finish(new Error(`launchd runtime did not prove activation fence: ${event.code ?? event.status ?? 'rejected'}`));
         }
@@ -112,7 +114,7 @@ export function createMacOSRuntimeCallbacks(options = {}) {
       });
     } catch (error) {
       lastError = error;
-      if (/digest mismatch|timed out/.test(error.message)) throw error;
+      if (/digest mismatch|timed out|EXTERNAL_ROOT_UNREADABLE/.test(error.message)) throw error;
       await sleep(Math.min(pollMs, Math.max(1, deadline - Date.now())));
     }
     throw new Error(`launchd runtime HANDSHAKE unavailable within ${timeoutMs}ms: ${lastError?.message ?? 'unknown error'}`);

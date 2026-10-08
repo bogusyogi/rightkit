@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { extname, isAbsolute, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { sourceNonCode } from './ownership-source.mjs';
 
 // Packaged snapshot keeps installed adapters self-contained. Focused test
 // asserts this snapshot matches release catalog before any catalog changes ship.
@@ -8,7 +9,7 @@ const catalogPath = fileURLToPath(new URL('./ownership-fingerprints.json', impor
 const catalog = JSON.parse(readFileSync(catalogPath, 'utf8'));
 const fingerprints = catalog.capabilities.flatMap((capability) => capability.fingerprints
   .filter((entry) => entry.type === 'source' && typeof entry.pattern === 'string')
-  .map((entry) => ({ id: entry.id, package: capability.package, regex: new RegExp(entry.pattern, entry.flags ?? '') })));
+  .map((entry) => ({ ...entry, package: capability.package, regex: new RegExp(entry.pattern, entry.flags ?? '') }))).sort((a, b) => Number(b.tier === 'block') - Number(a.tier === 'block'));
 const sourceExtensions = new Set(['.rs', '.ts', '.tsx', '.js', '.mjs', '.cjs', '.jsx', '.swift', '.m', '.mm', '.c', '.cc', '.cpp', '.h', '.py', '.go', '.kt', '.java', '.cs']);
 
 function normalizedPath(value, cwd = process.cwd()) {
@@ -145,7 +146,7 @@ function scannedText(filePath, text, cwd) {
 function hasFingerprintIncrease(beforePath, before, after, cwd) {
   const oldText = scannedText(beforePath, before, cwd);
   const newText = scannedText(beforePath, after, cwd);
-  return fingerprints.find(({ regex }) => occurrenceCount(newText, regex) > occurrenceCount(oldText, regex));
+  return fingerprints.find((entry) => occurrenceCount(newText, entry, beforePath) > occurrenceCount(oldText, entry, beforePath));
 }
 
 function fallbackPatchDecision(patch, cwd) {
@@ -154,19 +155,31 @@ function fallbackPatchDecision(patch, cwd) {
   if (paths.some((path) => isProtectedPath(path, cwd))) return denial('Agent changes to ownership exception or protected trust records are blocked.');
   const added = patch.split(/\r?\n/).filter((line) => line.startsWith('+') && !line.startsWith('+++')).map((line) => line.slice(1)).join('\n');
   if (paths.some((path) => sourceExtensions.has(extname(resolve(cwd, path)).toLowerCase()))
-    && fingerprints.some(({ regex }) => { regex.lastIndex = 0; return regex.test(added); })) {
-    return denial('Could not safely reconstruct patch containing a RightKit source fingerprint.');
+    && paths.some((file) => fingerprints.some((entry) => occurrenceCount(added, entry, file)))) {
+    const match = fingerprints.find((entry) => paths.some((file) => occurrenceCount(added, entry, file)));
+    return fingerprintDecision(match, 'Could not safely reconstruct patch containing a RightKit source fingerprint.');
   }
   return null;
 }
 
-function occurrenceCount(text, regex) {
+function occurrenceCount(text, entry, filePath) {
+  const extension = extname(filePath).toLowerCase();
+  if (entry.extensions && !entry.extensions.includes(extension)) return 0;
+  const { regex } = entry;
   const flags = regex.flags.includes('g') ? regex.flags : `${regex.flags}g`;
-  return [...text.matchAll(new RegExp(regex.source, flags))].length;
+  const matches = [...text.matchAll(new RegExp(regex.source, flags))];
+  if (!entry.codeOnly) return matches.length;
+  const nonCode = sourceNonCode(text, extension === '.rs');
+  return matches.filter((match) => !nonCode[match.index]).length;
 }
 
 function denial(reason) {
   return { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: `[HOOK:rightkit-ownership:block]\nWhy: ${reason}\nRequired: use the published RightKit capability; exception records require separate owner approval.` } };
+}
+
+export function fingerprintDecision(entry, reason) {
+  if (entry.tier === 'block') return denial(reason);
+  return { decision: 'allow', hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'allow', additionalContext: `[HOOK:rightkit-ownership:advise] ${reason} Usage context & replacement qualification require review.` } };
 }
 
 export function ownershipWriteDecision(input, { readFile = readFileSync, cwd = input?.cwd ?? process.cwd() } = {}) {
@@ -188,12 +201,13 @@ export function ownershipWriteDecision(input, { readFile = readFileSync, cwd = i
       if (post === null) {
         const addedText = file.kind === 'Add' ? file.added.join('\n') : file.hunks.flatMap((hunk) => hunk.lines.filter((line) => line.startsWith('+')).map((line) => line.slice(1))).join('\n');
         const likelySource = sourceExtensions.has(extname(resolve(cwd, oldPath)).toLowerCase());
-        if (likelySource && fingerprints.some(({ regex }) => { regex.lastIndex = 0; return regex.test(addedText); })) return denial('Could not reconstruct patch adding a RightKit source fingerprint.');
+        const addedMatch = likelySource && fingerprints.find((entry) => occurrenceCount(addedText, entry, oldPath));
+        if (addedMatch) return fingerprintDecision(addedMatch, 'Could not reconstruct patch adding a RightKit source fingerprint.');
         continue;
       }
       const match = hasFingerprintIncrease(oldPath, current, post, cwd);
       if (match) {
-        return denial(`Post-edit content adds RightKit source fingerprint ${match.id} (${match.package}).`);
+        return fingerprintDecision(match, `Post-edit content adds RightKit source fingerprint ${match.id} (${match.package}).`);
       }
     }
     return { decision: 'allow' };
@@ -206,7 +220,7 @@ export function ownershipWriteDecision(input, { readFile = readFileSync, cwd = i
   const post = reconstructClaude(input, current);
   if (post === null) return { decision: 'allow' };
   const match = hasFingerprintIncrease(path, current, post, cwd);
-  return match ? denial(`Post-edit content adds RightKit source fingerprint ${match.id} (${match.package}).`) : { decision: 'allow' };
+  return match ? fingerprintDecision(match, `Post-edit content adds RightKit source fingerprint ${match.id} (${match.package}).`) : { decision: 'allow' };
 }
 
 export function handleOwnershipWriteHook(input) { return ownershipWriteDecision(input); }

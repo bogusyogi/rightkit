@@ -1,0 +1,15 @@
+{
+  "package": "rightkit-sync",
+  "capabilities": [
+    {
+      "capability": "cloud-sync",
+      "summary": "Brand-neutral desktop/mobile cloud sync engine: change tokens, tombstones, last-writer-wins conflicts, resumable batches, offline queue, retry/backoff.; declaration-only detection (no precise implementation fingerprint)",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Package contract retained; dependency declarations do not verify integration.",
+        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
+      ]
+    }
+  ]
+}

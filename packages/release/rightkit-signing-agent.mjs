@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { resolveManagedRoots } from './managed-roots.mjs';
 import * as fs from "node:fs";
 import net from "node:net";
 import os from "node:os";
@@ -17,12 +18,12 @@ export class SigningAgentError extends Error {
 }
 const fail = (code, message) => { throw new SigningAgentError(code, message); };
 export function signingAgentPaths(home = os.userInfo().homedir) {
-  const directory = path.join(home, "Library/Application Support/Orthic Labs/shared/signing-agent");
+  const directory = resolveManagedRoots({ platform: "darwin", home }).signingAgent;
   return { directory, socket: path.join(directory, "agent.sock"), token: path.join(directory, "token"),
     config: path.join(directory, "config.json"), runtime: path.join(directory, "runtime"),
     log: path.join(directory, "requests.jsonl"), plist: path.join(home, "Library/LaunchAgents", `${AGENT_LABEL}.plist`) };
 }
-export function defaultSigningRoots(home = os.userInfo().homedir, managedRoot = "/Volumes/D/.rightkit-managed", cargoTargetDirs = []) {
+export function defaultSigningRoots(home = os.userInfo().homedir, managedRoot = resolveManagedRoots({ home }).dataRoot, cargoTargetDirs = []) {
   return [...new Set(["/Volumes/D/claude", managedRoot, "/Volumes/D/rightkit-build-control",
     path.join(home, "Library/Caches/RightSuite/release"), "/tmp", "/private/tmp", os.tmpdir(), ...cargoTargetDirs])];
 }

@@ -1,0 +1,18 @@
+{
+  "version": "3.0.0",
+  "newCapabilityApprovalFlag": "--approve-new-capabilities",
+  "approvalScope": "Local catalog generation only; installation still requires protected authorization. This flag cannot approve owner changes.",
+  "ownerFamilies": [
+    { "capability": "agent-room", "packages": ["agent-room-core", "@rightkit/agent-room-mcp"], "reason": "Native room core & MCP adapter share room contract" },
+    { "capability": "licensing", "packages": ["rightkit-license", "@rightkit/license"], "reason": "Native entitlement enforcement & renderer/network client have separate roles" },
+    { "capability": "structured-logging", "packages": ["rightkit-logs", "@rightkit/logs"], "reason": "Native JSONL writer & typed renderer invoke adapter" },
+    { "capability": "text-to-speech", "packages": ["rightkit-qts", "rightkit-qts-ggml", "rightkit-qts-ggml-sys", "rightkit-tts"], "reason": "Speech facade & its QTS inference, safe-wrapper & FFI layers" },
+    { "capability": "os-credential-store", "packages": ["rightkit-secrets", "RightKitSwift"], "reason": "Cross-platform Rust & Apple-native Swift credential APIs" },
+    { "capability": "desktop-shell", "packages": ["rightkit-shell", "@rightkit/shell"], "reason": "Native Tauri shell & typed renderer bridge" },
+    { "capability": "tauri-host-adapters", "packages": ["rightkit-tauri", "@rightkit/tauri"], "reason": "Native license/device services & renderer command adapters" }
+  ],
+  "testOwners": [
+    { "path": "crates/rightkit-control/examples/control-test-app/Cargo.toml", "package": "control-test-app", "reason": "Unpublished desktop-control test fixture" },
+    { "path": "crates/rightkit-shell/example-app/Cargo.toml", "package": "shell-example-app", "reason": "Unpublished standalone shell demonstration & test host" }
+  ]
+}

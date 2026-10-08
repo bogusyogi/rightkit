@@ -1,0 +1,15 @@
+{
+  "package": "@rightkit/onboarding",
+  "capabilities": [
+    {
+      "capability": "onboarding-ui",
+      "summary": "First-run onboarding framework: ordered steps, progress, skip/resume, legal gate first, permissions, model download and licence/trial steps.; declaration-only detection (no precise implementation fingerprint)",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Package contract retained; dependency declarations do not verify integration.",
+        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
+      ]
+    }
+  ]
+}

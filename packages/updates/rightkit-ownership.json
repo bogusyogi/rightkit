@@ -1,0 +1,15 @@
+{
+  "package": "@rightkit/updates",
+  "capabilities": [
+    {
+      "capability": "update-policy",
+      "summary": "Shared runtime update policy helper for Right Suite Tauri apps.; declaration-only detection (no precise implementation fingerprint)",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Injected updater implementations remain host-owned; ready-before-install repair remains P1.",
+        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
+      ]
+    }
+  ]
+}
