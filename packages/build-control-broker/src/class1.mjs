@@ -15,6 +15,7 @@ import { execFile as nodeExecFile, spawn as nodeSpawn } from 'node:child_process
 import { chmod, lstat, mkdir, readlink, realpath, rm, stat, symlink } from 'node:fs/promises';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { promisify } from 'node:util';
+import { createWindowsClass1Platform } from './windows-class1-platform.mjs';
 import { digestInputClosure, INPUTS_MUTATED, INPUTS_VERIFIED, normalizeClosurePath, recordInputClosure } from './input-closure.mjs';
 
 const execFile = promisify(nodeExecFile);
@@ -244,8 +245,22 @@ export async function admitClass1({ platform, input, evidenceClass = 'class2' })
 
 /** Platform for the broker config: darwin uses the verified helper, every other host gets the typed unsupported default. */
 export async function class1PlatformFromConfig(class1Config, { platform = process.platform, ...deps } = {}) {
+  if (platform === 'win32') return windowsClass1PlatformFromConfig(class1Config, deps);
   if (platform !== 'darwin') return createClass1Platform({ platform });
   return createMacosClass1PlatformFromConfig({ helper: class1Config?.cloneHelper, protectedRoot: class1Config?.protectedRoot, ...deps });
+}
+
+/**
+ * Windows: the launcher must be the protected installed copy below the configured protected root (never a
+ * target dir), and the broker's service/agent SIDs come from protected config. The copy cost bound
+ * (2 GiB / 20,000 files) was approved by both leads on 2026-10-08 (plan D1). Missing config is unsupported.
+ */
+export function windowsClass1PlatformFromConfig(class1Config, deps = {}) {
+  const sandboxExec = class1Config?.windowsSandboxExec, protectedRoot = class1Config?.protectedRoot;
+  const unsupported = (failure) => Object.freeze({ platform: 'win32', supported: false, failure, createProtectedBuildRoot: async () => { throw class1Unsupported('win32'); }, spawnProtectedChild: async () => { throw class1Unsupported('win32'); }, protectedInvocation: async () => { throw class1Unsupported('win32'); } });
+  if (typeof sandboxExec !== 'string' || typeof protectedRoot !== 'string' || !isAbsolute(sandboxExec) || !isAbsolute(protectedRoot) || !isInside(protectedRoot, sandboxExec)) return unsupported('RK_CLASS1_SANDBOX_UNPROTECTED');
+  if (typeof class1Config?.serviceSid !== 'string' || typeof class1Config?.agentSid !== 'string') return unsupported('RK_CLASS1_SERVICE_IDENTITY_MISSING');
+  return createClass1Platform({ platform: 'win32', registry: { win32: () => createWindowsClass1Platform({ sandboxExec, serviceSid: class1Config.serviceSid, agentSid: class1Config.agentSid, copyCostApproval: { windowsLead: true, macLead: true }, ...deps }) } });
 }
 
 /** Defence in depth: re-digest the clone after every child exits. A moved clone can never be evidence. */

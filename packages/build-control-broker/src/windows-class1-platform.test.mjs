@@ -147,3 +147,14 @@ test('a build root that changed after admission is refused with RK_CLASS1_CLONE_
     await f.close();
   }
 });
+
+test('broker config registers win32 only with a protected installed launcher and service identity', { skip: process.platform !== 'win32' }, async () => {
+  const { windowsClass1PlatformFromConfig } = await import('./class1.mjs');
+  const root = 'C:/ProgramData/RightKit/class1';
+  assert.equal(windowsClass1PlatformFromConfig({}).supported, false);
+  assert.equal(windowsClass1PlatformFromConfig({ protectedRoot: root, windowsSandboxExec: 'D:/target/debug/rightkit-sandbox-exec.exe', serviceSid: 'S-1-5-80-1', agentSid: 'S-1-5-21-1' }).failure, 'RK_CLASS1_SANDBOX_UNPROTECTED');
+  assert.equal(windowsClass1PlatformFromConfig({ protectedRoot: root, windowsSandboxExec: `${root}/bin/rightkit-sandbox-exec.exe` }).failure, 'RK_CLASS1_SERVICE_IDENTITY_MISSING');
+  const platform = windowsClass1PlatformFromConfig({ protectedRoot: root, windowsSandboxExec: `${root}/bin/rightkit-sandbox-exec.exe`, serviceSid: 'S-1-5-80-1', agentSid: 'S-1-5-21-1' });
+  assert.equal(platform.supported, true);
+  assert.equal(platform.platform, 'win32');
+});
