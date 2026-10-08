@@ -80,3 +80,5 @@ Commands run verifier non-elevated after installation. Cancellation/failure neve
 - CI checkpoint updates serialized & isolated from immutable config/code.
 
 Automated native checks compile helpers & use ephemeral software keys. Adrian performs real enrollment/authentication; build output never asserts enrollment.
+
+Mac helper must be packaged as a Developer ID signed app bundle with stable application identifier `6KLGD3LLKF.com.orthiclabs.rightkit.ownership-approval`. `macos/build.sh` builds through shared signer & refuses a candidate that fails native Keychain preflight. All public/private Keychain items use its data-protection access group. Each operation checks access with interaction disabled before showing authentication UI; missing entitlements fail immediately with a clear diagnostic. Native `--keychain-preflight` verifies this without creating a key, installing trust or authenticating.

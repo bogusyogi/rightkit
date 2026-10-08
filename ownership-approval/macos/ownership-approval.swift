@@ -13,6 +13,8 @@ private let keychainService = "com.orthiclabs.rightkit.ownership"
 private let keychainAccount = "approval-key"
 private let publicKeychainService = "com.orthiclabs.rightkit.ownership.public"
 private let publicKeychainAccount = "approval-public-key"
+private let ownershipBundleIdentifier = "com.orthiclabs.rightkit.ownership-approval"
+private let ownershipKeychainGroup = "6KLGD3LLKF.com.orthiclabs.rightkit.ownership-approval"
 private let payloadKeys = [
   "repositoryIdentity", "catalogDigest", "fingerprint", "paths",
   "occurrenceHashes", "reason", "owner", "expires", "requestId", "trackingRef"
@@ -20,7 +22,7 @@ private let payloadKeys = [
 
 private enum ApprovalError: LocalizedError {
   case usage, unsupported, malformed(String), alreadyEnrolled, notEnrolled
-  case declined, keychain(OSStatus)
+  case declined, keychain(OSStatus), keychainPreflight(String)
   case invalidOutput, outputExists, io(String), invalidKeyLog(String)
 
   var errorDescription: String? {
@@ -32,6 +34,7 @@ private enum ApprovalError: LocalizedError {
     case .notEnrolled: return "No approval key is enrolled on this Mac."
     case .declined: return "The operation was cancelled."
     case .keychain(let status): return "Keychain operation failed (OSStatus \(status))."
+    case .keychainPreflight(let detail): return "Keychain preflight failed: \(detail)"
     case .invalidOutput: return "Output path must be absolute."
     case .outputExists: return "Output already exists; refusing to replace it."
     case .io(let detail): return "File operation failed: \(detail)"
@@ -404,13 +407,49 @@ private func keychainQuery(returnData: Bool = false, context: LAContext? = nil) 
     kSecClass as String: kSecClassGenericPassword,
     kSecAttrService as String: keychainService,
     kSecAttrAccount as String: keychainAccount,
-    kSecMatchLimit as String: kSecMatchLimitOne
+    kSecMatchLimit as String: kSecMatchLimitOne,
+    kSecUseDataProtectionKeychain as String: true
   ]
+  if let group = ownershipKeychainAccessGroup() { query[kSecAttrAccessGroup as String] = group }
   if returnData { query[kSecReturnData as String] = true }
   if let context {
     query[kSecUseAuthenticationContext as String] = context
   }
   return query
+}
+
+private func ownershipKeychainAccessGroup() -> String? {
+  guard Bundle.main.bundleIdentifier == ownershipBundleIdentifier else { return nil }
+  return ownershipKeychainGroup
+}
+
+// This query checks signing access without prompting or performing authentication.
+private func keychainPreflight() throws {
+  guard let group = ownershipKeychainAccessGroup() else {
+    throw ApprovalError.keychainPreflight("expected app-like bundle identifier \(ownershipBundleIdentifier)")
+  }
+  let context = LAContext()
+  context.interactionNotAllowed = true
+  let query: [String: Any] = [
+    kSecClass as String: kSecClassGenericPassword,
+    kSecAttrService as String: keychainService,
+    kSecAttrAccount as String: keychainAccount,
+    kSecAttrAccessGroup as String: group,
+    kSecMatchLimit as String: kSecMatchLimitOne,
+    kSecReturnData as String: true,
+    kSecUseDataProtectionKeychain as String: true,
+    kSecUseAuthenticationContext as String: context
+  ]
+  var result: CFTypeRef?
+  let status = SecItemCopyMatching(query as CFDictionary, &result)
+  switch status {
+  case errSecSuccess, errSecItemNotFound, errSecInteractionNotAllowed:
+    print("Keychain preflight: PASS (data-protection group \(group) is available; no authentication performed).")
+  case errSecMissingEntitlement:
+    throw ApprovalError.keychainPreflight("signed helper lacks data-protection access to \(group); check com.apple.application-identifier")
+  default:
+    throw ApprovalError.keychainPreflight("SecItemCopyMatching returned OSStatus \(status)")
+  }
 }
 
 private func publicKeyExport(_ key: P256.Signing.PublicKey) throws -> Data {
@@ -419,10 +458,12 @@ private func publicKeyExport(_ key: P256.Signing.PublicKey) throws -> Data {
 }
 
 private func persistPublicKey(_ key: P256.Signing.PublicKey) throws {
-  let item: [String: Any] = [kSecClass as String: kSecClassGenericPassword,
+  var item: [String: Any] = [kSecClass as String: kSecClassGenericPassword,
     kSecAttrService as String: publicKeychainService, kSecAttrAccount as String: publicKeychainAccount,
     kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly,
+    kSecUseDataProtectionKeychain as String: true,
     kSecValueData as String: try publicKeyExport(key)]
+  if let group = ownershipKeychainAccessGroup() { item[kSecAttrAccessGroup as String] = group }
   let result = SecItemAdd(item as CFDictionary, nil)
   guard result == errSecSuccess else { throw ApprovalError.keychain(result) }
 }
@@ -433,7 +474,9 @@ private func loadExistingPublicKey() throws -> (Data, P256.Signing.PublicKey) {
   var query: [String: Any] = [kSecClass as String: kSecClassGenericPassword,
     kSecAttrService as String: publicKeychainService, kSecAttrAccount as String: publicKeychainAccount,
     kSecReturnData as String: true, kSecMatchLimit as String: kSecMatchLimitOne,
-    kSecUseAuthenticationContext as String: context]
+    kSecUseAuthenticationContext as String: context,
+    kSecUseDataProtectionKeychain as String: true]
+  if let group = ownershipKeychainAccessGroup() { query[kSecAttrAccessGroup as String] = group }
   query[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
   var result: CFTypeRef?
   let status = SecItemCopyMatching(query as CFDictionary, &result)
@@ -616,7 +659,8 @@ private final class ApprovalWindow: NSObject, NSApplicationDelegate {
       let payload: [String: Any] = ["domain": "rightkit.ownership-key-log.v1", "rootFingerprint": signer, "sequence": 0, "previousHash": NSNull(), "operation": "root", "subject": record, "signerKeyId": signer]
       // The genesis signature is the sole authenticated operation for this new key.
       let signed = try signedKeyLog(payload, with: key)
-      let add: [String: Any] = [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: keychainService, kSecAttrAccount as String: keychainAccount, kSecValueData as String: key.dataRepresentation, kSecAttrAccessControl as String: try accessControl(privateKey: false)]
+      var add: [String: Any] = [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: keychainService, kSecAttrAccount as String: keychainAccount, kSecValueData as String: key.dataRepresentation, kSecAttrAccessControl as String: try accessControl(privateKey: false), kSecUseDataProtectionKeychain as String: true]
+      if let group = ownershipKeychainAccessGroup() { add[kSecAttrAccessGroup as String] = group }
       let added = SecItemAdd(add as CFDictionary, nil)
       if added == errSecDuplicateItem { throw ApprovalError.alreadyEnrolled }
       guard added == errSecSuccess else { throw ApprovalError.keychain(added) }
@@ -635,13 +679,15 @@ private final class ApprovalWindow: NSObject, NSApplicationDelegate {
         compactRepresentable: false, accessControl: try accessControl(privateKey: true), authenticationContext: context
       )
       try requireEnrollmentPresence(privateKey)
-      let add: [String: Any] = [
+      var add: [String: Any] = [
         kSecClass as String: kSecClassGenericPassword,
         kSecAttrService as String: keychainService,
         kSecAttrAccount as String: keychainAccount,
         kSecValueData as String: privateKey.dataRepresentation,
-        kSecAttrAccessControl as String: try accessControl(privateKey: false)
+        kSecAttrAccessControl as String: try accessControl(privateKey: false),
+        kSecUseDataProtectionKeychain as String: true
       ]
+      if let group = ownershipKeychainAccessGroup() { add[kSecAttrAccessGroup as String] = group }
       let result = SecItemAdd(add as CFDictionary, nil)
       if result == errSecDuplicateItem { throw ApprovalError.alreadyEnrolled }
       guard result == errSecSuccess else { throw ApprovalError.keychain(result) }
@@ -745,6 +791,14 @@ private struct OwnershipApproval {
       return
     }
     let arguments = CommandLine.arguments
+    if arguments.count == 2, arguments[1] == "--keychain-preflight" {
+      do { try keychainPreflight() }
+      catch {
+        fputs("RightKit ownership keychain preflight: \(error.localizedDescription)\n", stderr)
+        exit(1)
+      }
+      return
+    }
     let mode: String
     let draft: URL?
     var output: URL?
@@ -755,7 +809,7 @@ private struct OwnershipApproval {
             FileManager.default.fileExists(atPath: output.deletingLastPathComponent().path) else {
         fputs("Output must be an absolute path in an existing directory and must not exist.\n", stderr); exit(2)
       }
-      do { try exportExistingPublicKey(to: output); exit(0) }
+      do { try keychainPreflight(); try exportExistingPublicKey(to: output); exit(0) }
       catch { fputs("RightKit public key export: \(error.localizedDescription)\n", stderr); exit(1) }
     }
     if arguments.count == 2, arguments[1] == "--enroll" { mode = "--enroll"; draft = nil }
@@ -767,13 +821,18 @@ private struct OwnershipApproval {
       mode = "--key-operation"; draft = URL(fileURLWithPath: arguments[2]).standardizedFileURL; output = URL(fileURLWithPath: arguments[4])
     } else if arguments.count == 3, arguments[1] == "--review" { mode = "--review"; draft = URL(fileURLWithPath: arguments[2]).standardizedFileURL }
     else {
-      fputs("Usage: ownership-approval --enroll [--out <absolute-public.json>] | --public-key --out <absolute-public.json> | --enroll-root --name <name> --out <absolute-event.json> | --key-operation <draft.json> --out <signed.json> | --review <unsigned-record.json> | --crypto-self-test | --key-log-self-test\n", stderr)
+      fputs("Usage: ownership-approval --enroll [--out <absolute-public.json>] | --public-key --out <absolute-public.json> | --enroll-root --name <name> --out <absolute-event.json> | --key-operation <draft.json> --out <signed.json> | --review <unsigned-record.json> | --keychain-preflight | --crypto-self-test | --key-log-self-test\n", stderr)
       exit(2)
     }
     if let output, !output.path.hasPrefix("/") { fputs("Output path must be absolute.\n", stderr); exit(2) }
     if let output, FileManager.default.fileExists(atPath: output.path) { fputs("Output already exists; refusing to replace it.\n", stderr); exit(2) }
     if let output, !FileManager.default.fileExists(atPath: output.deletingLastPathComponent().path) { fputs("Output directory does not exist.\n", stderr); exit(2) }
     if mode == "--enroll-root", !(name.map(validDeviceName) ?? false) { fputs("Device name must be nonempty, at most 128 UTF-16 units, and contain no control characters.\n", stderr); exit(2) }
+    do { try keychainPreflight() }
+    catch {
+      fputs("RightKit ownership keychain preflight: \(error.localizedDescription)\n", stderr)
+      exit(1)
+    }
     guard SecureEnclave.isAvailable else {
       fputs("RightKit ownership approval: Secure Enclave is unavailable on this Mac.\n", stderr)
       exit(1)
