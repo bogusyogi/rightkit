@@ -17,6 +17,10 @@ default = ["wv2-0_38"]
 tauri-plugin = ["dep:tauri", "dep:rightkit-service", "dep:serde_json"]
 # Windows: the `windows` + `webview2-com` generation the app's Tauri resolves, so WebView2 types cross the
 # Tauri boundary. Tauri 2.11 (wry 0.55) = wv2-0_38 (default); Tauri 2.12+ = default-features = false, features = ["tauri-plugin", "wv2-0_39"].
+# macOS only: calls WKWebView `_setWindowOcclusionDetectionEnabled:` (private SPI) for off-screen
+# recording. Default off so shipping apps opt in explicitly; without it `offscreen` fails with a typed
+# OcclusionSpiNotCompiled error on macOS.
+offscreen-private-spi = []
 wv2-0_38 = ["dep:windows_061", "dep:webview2_com_038"]
 wv2-0_39 = ["dep:windows_062", "dep:webview2_com_039"]
 

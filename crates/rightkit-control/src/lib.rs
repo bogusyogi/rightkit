@@ -16,6 +16,9 @@
 //!   explicitly reconciled. [`lease::ControlSession`] composes both.
 //! - [`events::ControlEvent`]: content-free lifecycle events for the journal.
 //!
+//! - [`offscreen`]: `launch_offscreen` for recording scenarios (placement outside all
+//!   displays, qualification, process-activity/EcoQoS defences).
+//!
 //! - [`lease_store`]: optional durable lease state (store trait plus an
 //!   atomic file store), execution identity and `Running | Exited | Unknown`.
 //!
@@ -34,4 +37,5 @@ pub mod lease;
 pub mod lease_store;
 #[cfg(target_os = "macos")]
 pub mod mac;
+pub mod offscreen;
 pub mod webdriver;
