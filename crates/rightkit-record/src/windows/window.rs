@@ -56,13 +56,15 @@ pub fn check(hwnd: HWND) -> Result<WindowState, RecordError> {
     })
 }
 
-/// "26300.9550" style build string from the registry. "unknown" when unreadable.
+/// "10.0.26300.9550" style version from the registry, the shape `support` parses. "unknown" when unreadable.
 pub fn os_build() -> String {
     let key = w!(r"SOFTWARE\Microsoft\Windows NT\CurrentVersion");
-    let build = reg_string(key, w!("CurrentBuild")).unwrap_or_else(|| "unknown".to_string());
+    let Some(build) = reg_string(key, w!("CurrentBuild")) else {
+        return "unknown".to_string();
+    };
     match reg_dword(key, w!("UBR")) {
-        Some(ubr) => format!("{build}.{ubr}"),
-        None => build,
+        Some(ubr) => format!("10.0.{build}.{ubr}"),
+        None => format!("10.0.{build}"),
     }
 }
 

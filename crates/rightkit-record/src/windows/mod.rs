@@ -9,6 +9,8 @@
 
 pub mod emit;
 mod gpu;
+#[cfg(test)]
+mod live;
 mod mf;
 mod window;
 
@@ -246,9 +248,14 @@ impl Backend for WindowsBackend {
             .map_err(|e| capture_error(Code::Helper, "CreateCaptureSession", e))?;
         // The border is cosmetic: a refused borderless request or setter records it and the take continues.
         let border_error = if access == AppCapabilityAccessStatus::Allowed {
-            session.SetIsBorderRequired(false).err().map(|e| e.to_string())
+            session
+                .SetIsBorderRequired(false)
+                .err()
+                .map(|e| e.to_string())
         } else {
-            Some(format!("borderless access status is {access:?}, not Allowed"))
+            Some(format!(
+                "borderless access status is {access:?}, not Allowed"
+            ))
         };
         if let Some(error) = &border_error {
             eprintln!("rightkit-record-helper: warning: capture border stays on: {error}");
