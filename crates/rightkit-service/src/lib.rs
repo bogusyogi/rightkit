@@ -37,8 +37,10 @@ mod transport;
 pub use client::{Client, RetryPolicy, DEFAULT_DEADLINE};
 pub use discovery::{
     adopt_or_spawn, discover_apps_in, discover_macos, discover_windows, parse_plist_string,
-    parse_reg_query, record_process_matches, resolve_install_dir, wait_for_claim_winner,
-    AdoptOrSpawn, InstalledApp, SpawnClaim, SpawnClaimError, UninstallEntry,
+    parse_reg_query, plan_host, poll_until, publish_takeover, record_process_matches,
+    resolve_install_dir, resolve_rank, should_request_takeover, spawn_detached,
+    takeover_obliges_yield, wait_for_claim_winner, AdoptOrSpawn, HostPlan, InstalledApp,
+    SpawnClaim, SpawnClaimError, UninstallEntry,
 };
 // Deprecated items stay exported for existing callers; their deprecation is reported at the
 // caller's own use site, not on this re-export.

@@ -22,7 +22,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use rightkit_framed_sidecar::{read_json_line, FrameError};
-use rightkit_service::Suite;
+use rightkit_service::{HostPlan as ServicePlan, Suite};
 
 pub use protocol::{
     endpoint_for, installed_heardright_path, is_allowed_schema, service_dir, service_record_path,
@@ -145,30 +145,43 @@ pub enum HostPlan {
     TakeOver { from: HostRole },
 }
 
-/// Decide how the calling app (`my_role`) gets a speech host.
+/// Decide how the calling app (`my_role`) gets a speech host. The rank rules and the
+/// takeover handling are `rightkit_service::plan_host`; this maps its answer onto the
+/// speech vocabulary. HeardRight roles host themselves and never start another copy.
 pub fn plan_host(suite_root: &Path, my_role: HostRole) -> HostPlan {
-    if let Some(record) = read_live_record(suite_root) {
-        return if my_role.outranks(record.role) {
-            HostPlan::TakeOver { from: record.role }
-        } else {
-            HostPlan::UseRunning
-        };
-    }
-    // HeardRight roles host themselves; they never start another copy.
-    if my_role.rank() <= HostRole::HeardRightHeadless.rank() {
+    let installed = if my_role.rank() <= HostRole::HeardRightHeadless.rank() {
+        None
+    } else {
+        read_installed(suite_root).map(|i| i.engine_path)
+    };
+    let Some(suite) = suite_at(suite_root) else {
         return HostPlan::HostMyself;
-    }
-    match read_installed(suite_root) {
-        Some(installed) if installed.engine_path.exists() => {
-            HostPlan::StartInstalledHeardRight(installed.engine_path)
-        }
-        _ => HostPlan::HostMyself,
+    };
+    match rightkit_service::plan_host(
+        &suite,
+        SERVICE_NAME,
+        my_role.rank(),
+        &HostRole::rank_table(),
+        installed.as_deref(),
+    ) {
+        ServicePlan::UseRunning => HostPlan::UseRunning,
+        // `from_role` is a name from the rank table, so it always maps back to a `HostRole`.
+        ServicePlan::TakeOver { from_role } => match HostRole::from_wire(&from_role) {
+            Some(from) => HostPlan::TakeOver { from },
+            None => HostPlan::UseRunning,
+        },
+        ServicePlan::HostMyself => HostPlan::HostMyself,
+        ServicePlan::StartInstalled(engine) => HostPlan::StartInstalledHeardRight(engine),
     }
 }
 
 /// Takeover is requested only against a live, lower-ranked host.
 pub fn should_request_takeover(our: HostRole, record: Option<&ServiceRecord>) -> bool {
-    record.is_some_and(|r| our.outranks(r.role) && r.pid != std::process::id())
+    rightkit_service::should_request_takeover(
+        our.rank(),
+        record.map(|r| (r.role.rank(), r.pid)),
+        std::process::id(),
+    )
 }
 
 /// A takeover request that obliges a host running as `ours` to yield.
@@ -178,19 +191,22 @@ pub fn takeover_obliges_yield(
     own_pid: u32,
     alive: &dyn Fn(u32) -> bool,
 ) -> bool {
-    request.is_some_and(|r| r.pid != own_pid && r.role.outranks(ours) && alive(r.pid))
+    rightkit_service::takeover_obliges_yield(
+        ours.rank(),
+        request.map(|r| (r.role.rank(), r.pid)),
+        own_pid,
+        alive,
+    )
 }
 
-/// The pending takeover request, if it parses.
+/// The pending takeover request, if it parses and names a known role.
 pub fn read_takeover(suite_root: &Path) -> Option<TakeoverRequest> {
-    serde_json::from_slice(&std::fs::read(takeover_request_path(suite_root)).ok()?).ok()
-}
-
-fn now_ms() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_millis() as u64)
-        .unwrap_or(0)
+    let t = rightkit_service::read_takeover(&suite_at(suite_root)?, SERVICE_NAME)?;
+    Some(TakeoverRequest {
+        role: HostRole::from_wire(&t.role)?,
+        pid: t.pid,
+        requested_at_ms: t.requested_at_ms,
+    })
 }
 
 /// Publish `takeover.json` for this process as `role`. The file carries HeardRight's
@@ -202,16 +218,7 @@ pub fn request_takeover(suite_root: &Path, role: HostRole) -> std::io::Result<()
             "suite root must be absolute",
         )
     })?;
-    rightkit_service::write_takeover(
-        &suite,
-        SERVICE_NAME,
-        &rightkit_service::TakeoverRequest {
-            role: role.as_str().into(),
-            rank: role.rank(),
-            pid: std::process::id(),
-            requested_at_ms: now_ms(),
-        },
-    )
+    rightkit_service::publish_takeover(&suite, SERVICE_NAME, role.as_str(), role.rank())
 }
 
 /// Remove `takeover.json` only if this process wrote it.
@@ -264,35 +271,11 @@ pub fn start_installed_engine(
     launch: &EngineLaunch,
     wait: Duration,
 ) -> Result<(), ClientError> {
-    use std::process::{Command, Stdio};
-    let mut cmd = Command::new(engine_path);
-    cmd.args(&launch.args)
-        .envs(launch.env.iter().map(|(k, v)| (k.as_str(), v.as_str())))
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null());
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-        const DETACHED_PROCESS: u32 = 0x0000_0008;
-        cmd.creation_flags(CREATE_NO_WINDOW | DETACHED_PROCESS);
-    }
-    #[cfg(unix)]
-    {
-        use std::os::unix::process::CommandExt;
-        cmd.process_group(0);
-    }
-    drop(cmd.spawn().map_err(io_err)?);
-    let deadline = Instant::now() + wait;
-    loop {
-        if read_live_record(suite_root).is_some() {
-            return Ok(());
-        }
-        if Instant::now() >= deadline {
-            return Err(ClientError::Timeout);
-        }
-        std::thread::sleep(Duration::from_millis(100));
+    rightkit_service::spawn_detached(engine_path, &launch.args, &launch.env).map_err(io_err)?;
+    if rightkit_service::poll_until(wait, || read_live_record(suite_root).is_some()) {
+        Ok(())
+    } else {
+        Err(ClientError::Timeout)
     }
 }
 

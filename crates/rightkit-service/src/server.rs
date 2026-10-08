@@ -168,11 +168,7 @@ impl From<SuiteError> for HostError {
 }
 
 fn resolve_rank(cfg: &ServiceConfig, role: &str, rank: u8) -> u8 {
-    if rank != RANK_UNKNOWN {
-        rank
-    } else {
-        cfg.known_roles.get(role).copied().unwrap_or(RANK_UNKNOWN)
-    }
+    crate::discovery::resolve_rank(role, rank, &cfg.known_roles).unwrap_or(RANK_UNKNOWN)
 }
 
 struct Shared {

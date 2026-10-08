@@ -5,13 +5,17 @@
 //! checkout. Spawn claims use `create_new`; discovery is daemon-owned and is
 //! never removed by a losing launcher.
 
-use crate::record::{read_record, ServiceRecord};
+use crate::record::{
+    read_live_record, read_record, write_takeover, ServiceRecord, TakeoverRequest, RANK_UNKNOWN,
+};
 use crate::suite::{make_private_dir, Suite};
 use crate::transport::{pid_alive, probe_endpoint};
 use serde::Serialize;
+use std::collections::BTreeMap;
 use std::io;
 use std::path::{Path, PathBuf};
-use std::time::{Duration, Instant};
+use std::process::{Command, Stdio};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 /// Installed Right Suite applications and their engine executable.
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -520,10 +524,183 @@ fn read_windows_uninstall_entries() -> Vec<UninstallEntry> {
     parse_reg_query(&all)
 }
 
+// ---------------------------------------------------------------------------
+// Host planning, takeover and detached start. Every service client plans through
+// these; product crates map their own role names onto ranks (`known_roles`) and
+// keep their own wire file names.
+// ---------------------------------------------------------------------------
+
+/// Rank of a live record or takeover request: its own `rank` when it writes one,
+/// else `known_roles` by its `role`. `None` when neither resolves; such a peer is
+/// never taken over from and never obliges a handoff.
+pub fn resolve_rank(role: &str, rank: u8, known_roles: &BTreeMap<String, u8>) -> Option<u8> {
+    if rank != RANK_UNKNOWN {
+        Some(rank)
+    } else {
+        known_roles.get(role).copied()
+    }
+}
+
+/// Outcome of [`plan_host`] for a process of a given rank.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum HostPlan {
+    /// A live host of equal or better rank serves the service.
+    UseRunning,
+    /// A live host of lower rank serves it and this process outranks it: request takeover.
+    TakeOver { from_role: String },
+    /// Nothing live and nothing to start: host in this process.
+    HostMyself,
+    /// Nothing live: start this installed engine, then re-discover.
+    StartInstalled(PathBuf),
+}
+
+/// Decide how a process of rank `my_rank` gets a host for `service`. A live record whose
+/// rank cannot be resolved through `known_roles` counts as absent. `installed_engine` is
+/// the executable the caller may start when nothing is live; it is used only when it exists.
+pub fn plan_host(
+    suite: &Suite,
+    service: &str,
+    my_rank: u8,
+    known_roles: &BTreeMap<String, u8>,
+    installed_engine: Option<&Path>,
+) -> HostPlan {
+    if let Some(record) = read_live_record(suite, service) {
+        if let Some(their) = resolve_rank(&record.role, record.rank, known_roles) {
+            return if my_rank < their {
+                HostPlan::TakeOver {
+                    from_role: record.role,
+                }
+            } else {
+                HostPlan::UseRunning
+            };
+        }
+    }
+    match installed_engine {
+        Some(engine) if engine.exists() => HostPlan::StartInstalled(engine.to_path_buf()),
+        _ => HostPlan::HostMyself,
+    }
+}
+
+/// Takeover is requested only against a live, lower-ranked host held by another process.
+/// `incumbent` is the live record's `(resolved rank, pid)`.
+pub fn should_request_takeover(my_rank: u8, incumbent: Option<(u8, u32)>, own_pid: u32) -> bool {
+    incumbent.is_some_and(|(their, pid)| my_rank < their && pid != own_pid)
+}
+
+/// Does a pending takeover request `(resolved rank, pid)` oblige a host of rank `my_rank`
+/// to yield? Only a live, other-process, outranking requester does.
+pub fn takeover_obliges_yield(
+    my_rank: u8,
+    request: Option<(u8, u32)>,
+    own_pid: u32,
+    alive: &dyn Fn(u32) -> bool,
+) -> bool {
+    request.is_some_and(|(their, pid)| pid != own_pid && their < my_rank && alive(pid))
+}
+
+/// Publish `takeover.json` for this process as `role` (with `rank`), atomically.
+pub fn publish_takeover(suite: &Suite, service: &str, role: &str, rank: u8) -> io::Result<()> {
+    write_takeover(
+        suite,
+        service,
+        &TakeoverRequest {
+            role: role.into(),
+            rank,
+            pid: std::process::id(),
+            requested_at_ms: now_ms(),
+        },
+    )
+}
+
+fn now_ms() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
+}
+
+/// Start `program` detached: no inherited stdio, its own process group on Unix, and on
+/// Windows no console window (`CREATE_NO_WINDOW | DETACHED_PROCESS`) so a GUI host never
+/// flashes one. The child is not waited for.
+pub fn spawn_detached(program: &Path, args: &[String], env: &[(String, String)]) -> io::Result<()> {
+    let mut cmd = Command::new(program);
+    cmd.args(args)
+        .envs(env.iter().map(|(k, v)| (k.as_str(), v.as_str())))
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        const DETACHED_PROCESS: u32 = 0x0000_0008;
+        cmd.creation_flags(CREATE_NO_WINDOW | DETACHED_PROCESS);
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        cmd.process_group(0);
+    }
+    drop(cmd.spawn()?);
+    Ok(())
+}
+
+/// Poll `ready` every 100 ms until it holds (`true`) or `wait` elapses (`false`).
+/// Checks before the first sleep.
+pub fn poll_until(wait: Duration, mut ready: impl FnMut() -> bool) -> bool {
+    let deadline = Instant::now() + wait;
+    loop {
+        if ready() {
+            return true;
+        }
+        if Instant::now() >= deadline {
+            return false;
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::fs;
+
+    #[test]
+    fn takeover_predicates_compare_resolved_ranks_and_skip_self() {
+        let always = |_: u32| true;
+        // Lower rank wins; equal rank never takes over.
+        assert!(should_request_takeover(0, Some((1, 99)), 7));
+        assert!(!should_request_takeover(1, Some((1, 99)), 7));
+        // Own pid is never a takeover target.
+        assert!(!should_request_takeover(0, Some((1, 7)), 7));
+        assert!(!should_request_takeover(0, None, 7));
+        assert!(takeover_obliges_yield(1, Some((0, 99)), 7, &always));
+        assert!(!takeover_obliges_yield(0, Some((1, 99)), 7, &always));
+        assert!(!takeover_obliges_yield(1, Some((0, 7)), 7, &always));
+        assert!(!takeover_obliges_yield(1, Some((0, 99)), 7, &|_| false));
+    }
+
+    #[test]
+    fn unresolvable_ranks_never_win_and_explicit_rank_beats_role_table() {
+        let roles = BTreeMap::from([("shell".to_string(), 0u8)]);
+        assert_eq!(resolve_rank("shell", RANK_UNKNOWN, &roles), Some(0));
+        assert_eq!(resolve_rank("unknown", RANK_UNKNOWN, &roles), None);
+        assert_eq!(resolve_rank("shell", 3, &roles), Some(3));
+    }
+
+    #[test]
+    fn spawn_poll_and_takeover_publication_round_trip() {
+        let d = tempfile::tempdir().unwrap();
+        let s = Suite::at(d.path()).unwrap();
+        publish_takeover(&s, "demo", "shell", 0).unwrap();
+        let t = crate::record::read_takeover(&s, "demo").unwrap();
+        assert_eq!(
+            (t.role.as_str(), t.rank, t.pid),
+            ("shell", 0, std::process::id())
+        );
+        assert!(poll_until(Duration::from_millis(50), || true));
+        assert!(!poll_until(Duration::from_millis(50), || false));
+    }
 
     #[test]
     fn mac_discovery_uses_known_bundle_and_first_root() {
