@@ -76,15 +76,49 @@ unmanaged compatibility must remain intact.
 
 Refusal is applied only where a protected source exists and remains usable
 (release token, runtime-artifact signing key, updater signing, macOS signing
-session, notarization API auth). The sites below are unchanged: their only
-provisioned credential source is the environment variable, so refusing it would
-break operations on managed hosts. Each needs a Keychain / credential-store
-loader before its env fallback can be refused:
+session, notarization API auth).
+
+Status: implemented. `packages/release/protected-credentials.mjs` loads the
+protected values before any environment fallback is considered. Managed hosts
+refuse the named variable (`MANAGED_HOST_ENV_SECRET_REFUSED`) before any store
+read. Unmanaged hosts read the store first and use the variable only when the
+store entry is absent. A missing entry fails with a typed
+`PROTECTED_SECRET_MISSING` error that prints the store command. Values are never
+logged. Storage follows `release-token.mjs`: macOS Keychain generic passwords
+(account `$USER`) and, on Windows, protected token files under
+`%APPDATA%\RightKit\`. Windows does not use Credential Manager; the existing
+token-file pattern was reused rather than adding a second store.
 
 - Cloudflare R2 / API token: `CLOUDFLARE_API_TOKEN` in `packages/release/addon-command.mjs`
-  (`publishR2Addon`), `packages/release/prune-r2.mjs` (`pruneReleaseObjects`), and `packages/release/upload-large.mjs`
-  (forwarded to Wrangler through `r2-verified-upload.mjs`). Provisioning per
-  `docs/rules/cloudflare-access.md`.
-- Apple App Store Connect API key auth: `APPLE_API_KEY`, `APPLE_API_KEY_PATH`,
-  `APPLE_API_ISSUER` in `packages/release/apple-profile-renew.mjs`
-  (`appleProfileAuth`). No protected loader exists in the package yet.
+  (`publishR2Addon`), `packages/release/prune-r2.mjs` (`pruneReleaseObjects`), and
+  `packages/release/upload-large.mjs`. The upload path injects the token into the
+  Wrangler child environment only. `r2-verified-upload.mjs` reads no token, so it is
+  unchanged. Keychain service `rightkit-cloudflare-api-token`; Windows file
+  `cloudflare-api-token.token`. Provisioning per `docs/rules/cloudflare-access.md`.
+- Apple App Store Connect API key auth in `packages/release/apple-profile-renew.mjs`
+  (`appleProfileAuth`). No Keychain entry and no token file. The key ID and issuer
+  are identifiers, not secrets: they come from the optional release config block
+  `appStoreConnect: { keyId, issuer, keyPath }` first, then from `APPLE_API_KEY`
+  and `APPLE_API_ISSUER` on every host. The `.p8` is read from the file at the
+  config `keyPath` first, then from the existing `APPLE_API_KEY_PATH` used by
+  notarization. Managed hosts refuse any Apple environment value that carries
+  inline PEM key material (`MANAGED_HOST_ENV_SECRET_REFUSED`); a file path in the
+  environment is allowed.
+
+Store commands: the Cloudflare token is the only protected value. Run once per
+host; it prompts for the value and never takes it on the command line.
+
+macOS:
+
+```
+security add-generic-password -a "$USER" -s rightkit-cloudflare-api-token -U -w
+```
+
+Windows (PowerShell; the file is created under `%APPDATA%\RightKit`):
+
+```
+powershell -NoProfile -Command "$s = Read-Host -AsSecureString 'Cloudflare API token'; $d = Join-Path $env:APPDATA 'RightKit'; New-Item -ItemType Directory -Force -Path $d | Out-Null; [IO.File]::WriteAllText((Join-Path $d 'cloudflare-api-token.token'), [Runtime.InteropServices.Marshal]::PtrToStringBSTR([Runtime.InteropServices.Marshal]::SecureStringToBSTR($s)))"
+```
+
+Apple needs no store commands. Set `appStoreConnect` in the release config, or set
+`APPLE_API_KEY`, `APPLE_API_ISSUER`, and `APPLE_API_KEY_PATH` in the environment.

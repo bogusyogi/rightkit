@@ -13,6 +13,10 @@ import { notarytoolAuthArgs } from "./notary-auth.mjs";
 import { loadReleaseToken } from "./release-token.mjs";
 import { signMacUpdaterFiles } from "./macos-signing-session.mjs";
 import { runLargeUpload } from "./upload-large.mjs";
+import { createCredentialStore } from "./protected-credentials.mjs";
+
+// Fake protected store with no entries, so no test reads a real Keychain or profile.
+const noStore = () => createCredentialStore({ env: {}, platform: "darwin", readKeychain: () => undefined });
 
 const helper = fileURLToPath(new URL("./sign-updater.mjs", import.meta.url));
 const SOCKET_ENV = { RIGHTKIT_BUILD_BROKER_SOCKET: "/fake/rightkit-broker.sock" };
@@ -132,16 +136,18 @@ test("updater signer script: unmanaged hosts accept an inherited key and stop at
   assert.doesNotMatch(result.stderr, /MANAGED_HOST_ENV_SECRET_REFUSED/);
 });
 
-test("R2 add-on publish: managed hosts keep the environment Cloudflare token path (no protected loader yet)", () => {
-  // The manifest is absent, so the run stops at the read before any mutation; the token is never refused.
+test("R2 add-on publish: managed hosts refuse the environment Cloudflare token before any read or mutation", () => {
+  // The manifest is absent; refusal must win over the read, and no run may occur.
   const input = { manifestPath: "/fake/absent-addon-manifest.json", repoRoot: "/fake", config: {}, commit: "a".repeat(40), platform: "mac" };
-  assert.throws(
-    () => publishR2Addon(input, { run: () => { throw new Error("no upload expected"); }, env: { ...SOCKET_ENV, CLOUDFLARE_API_TOKEN: "fake-token-value" } }),
-    (error) => error.code !== MANAGED_HOST_ENV_SECRET_REFUSED,
-  );
+  for (const dryRun of [false, true]) {
+    assert.throws(
+      () => publishR2Addon({ ...input, dryRun }, { run: () => { throw new Error("no upload expected"); }, env: { ...SOCKET_ENV, CLOUDFLARE_API_TOKEN: "fake-token-value" }, credentialStore: noStore() }),
+      REFUSED,
+    );
+  }
 });
 
-test("large upload: managed hosts keep forwarding the environment Cloudflare token to the uploader (no protected loader yet)", (t) => {
+test("large upload: managed hosts refuse the environment Cloudflare token before the uploader runs", (t) => {
   const dir = tempDir(t);
   const file = path.join(dir, "Artifact.exe");
   writeFileSync(file, "artifact");
@@ -149,9 +155,28 @@ test("large upload: managed hosts keep forwarding the environment Cloudflare tok
   writeFileSync(evidence, JSON.stringify({ artifactSha256: digestBytes(Buffer.from("artifact")) }));
   const calls = [];
   const run = (command, args) => { calls.push([command, args]); return { status: 0 }; };
-  assert.doesNotThrow(() => runLargeUpload([file, "fixture/updates/windows/current/Artifact.exe", "public", "--evidence", evidence], {
-    run,
-    env: { ...SOCKET_ENV, CLOUDFLARE_API_TOKEN: "fake-token-value", RIGHT_RELEASE_UPLOAD_DRY_RUN: "1" },
-  }));
-  assert.equal(calls[0][0], "pnpm");
+  for (const RIGHT_RELEASE_UPLOAD_DRY_RUN of ["1", undefined]) {
+    assert.throws(() => runLargeUpload([file, "fixture/updates/windows/current/Artifact.exe", "public", "--evidence", evidence], {
+      run,
+      env: { ...SOCKET_ENV, CLOUDFLARE_API_TOKEN: "fake-token-value", RIGHT_RELEASE_UPLOAD_DRY_RUN },
+      credentialStore: noStore(),
+    }), REFUSED);
+  }
+  assert.equal(calls.length, 0);
+});
+
+test("pub-upload CLI: managed hosts refuse the environment Cloudflare token through the same loader", (t) => {
+  // Child process, managed env only: refusal happens before any store read or upload.
+  const dir = tempDir(t);
+  const file = path.join(dir, "Artifact.exe");
+  writeFileSync(file, "artifact");
+  const evidence = path.join(dir, "evidence.json");
+  writeFileSync(evidence, JSON.stringify({ artifactSha256: digestBytes(Buffer.from("artifact")) }));
+  const result = spawnSync(process.execPath, [fileURLToPath(new URL("./pub-upload.mjs", import.meta.url)), file, "fixture/updates/windows/current/Artifact.exe", "public", "--evidence", evidence], {
+    encoding: "utf8",
+    env: { ...SOCKET_ENV, CLOUDFLARE_API_TOKEN: "fake-token-value" },
+  });
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /CLOUDFLARE_API_TOKEN is refused on a managed RightKit host/);
+  assert.doesNotMatch(`${result.stdout}${result.stderr}`, /fake-token-value/);
 });

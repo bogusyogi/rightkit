@@ -8,6 +8,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { addonManifestSha256, addonRoutes, canonicalAddonManifest, createAddonManifest, downloadImmutableAddOn, immutableAddonManifestUrl, validateAddonConfig, validateAddonManifest } from "./addon-contract.mjs";
 import { assertPrimaryReleaseCheckout } from "./release-invocation.mjs";
 import { readVerifiedArtifact } from "./publication-artifacts.mjs";
+import { resolveCloudflareApiToken } from "./protected-credentials.mjs";
 import { uploadVerifiedR2Artifact } from "./r2-verified-upload.mjs";
 import { assertCleanSource } from "./source-gate.mjs";
 
@@ -98,7 +99,9 @@ async function upload({ config, root, repoRoot, options }) {
   console.log(`right-release addon upload: verified ${config.addon} ${options.platform} tier=${options.tier}`);
 }
 
-export function publishR2Addon({ manifestPath, repoRoot, config, commit, platform, dryRun = false }, { run = spawnSync, env = process.env } = {}) {
+export function publishR2Addon({ manifestPath, repoRoot, config, commit, platform, dryRun = false }, { run = spawnSync, env = process.env, credentialStore } = {}) {
+  // Credential resolution precedes any read or mutation; dry runs only enforce managed-host refusal.
+  const token = resolveCloudflareApiToken({ env, credentialStore, required: !dryRun });
   const manifest = validateAddonManifest(JSON.parse(readFileSync(manifestPath, "utf8")));
   if (manifest.addon !== config.addon || manifest.version !== config.version || manifest.platform !== platform || manifest.commit !== commit) throw new Error("sealed add-on identity mismatch");
   const routes = addonRoutes(manifest);
@@ -108,8 +111,9 @@ export function publishR2Addon({ manifestPath, repoRoot, config, commit, platfor
     return [route.key, readVerifiedArtifact(source, { sha256: route.sha256, sizeBytes: entry?.sizeBytes })];
   }));
   if (dryRun) return routes;
-  if (!env.CLOUDFLARE_API_TOKEN) throw new Error("CLOUDFLARE_API_TOKEN is required before R2 mutation");
-  for (const route of routes) putImmutable({ artifact: artifacts.get(route.key), route, repoRoot, run, env });
+  // The token reaches only the Wrangler child environment, never the caller's env object.
+  const uploadEnv = { ...env, CLOUDFLARE_API_TOKEN: token };
+  for (const route of routes) putImmutable({ artifact: artifacts.get(route.key), route, repoRoot, run, env: uploadEnv });
   return routes;
 }
 

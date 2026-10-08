@@ -1,16 +1,17 @@
+import { resolveCloudflareApiToken } from "./protected-credentials.mjs";
+
 const ACCOUNT_ID = process.env.CLOUDFLARE_ACCOUNT_ID || "03ae77ccd7a07bcbb2dcfde47fa7ba3a";
 const BUCKETS = { public: "rightapps-downloads", private: "rightapps-updates" };
 
-export async function pruneReleaseObjects({ app, platform, keep, dryRun = false }) {
+export async function pruneReleaseObjects({ app, platform, keep, dryRun = false, env = process.env, credentialStore }) {
   if (!new Set(["mac", "windows"]).has(platform)) throw new Error(`invalid R2 prune platform: ${platform}`);
+  const token = resolveCloudflareApiToken({ env, credentialStore, required: !dryRun });
   for (const [alias, bucket] of Object.entries(BUCKETS)) {
     const retained = new Set(keep[alias] ?? []);
     if (dryRun) {
       console.log(`[dry-run] PRUNE ${bucket}/${app}/${platform} keep=${[...retained].sort().join(",") || "<none>"}`);
       continue;
     }
-    const token = process.env.CLOUDFLARE_API_TOKEN;
-    if (!token) throw new Error("CLOUDFLARE_API_TOKEN is required to prune stale R2 release objects");
     for (const key of await listObjects(bucket, app, token)) {
       if (!isReleaseObject(app, platform, key) || retained.has(key)) continue;
       console.log(`DELETE ${bucket}/${key}`);

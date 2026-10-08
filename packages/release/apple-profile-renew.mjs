@@ -3,7 +3,8 @@ import { constants, copyFileSync, existsSync, readFileSync, renameSync, rmSync, 
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { spawnSync } from "./background-process.mjs";
-import { notarytoolAuthArgs } from "./notary-auth.mjs";
+import { isManagedHost, refuseManagedEnvSecret } from "./managed-host-secrets.mjs";
+import os from "node:os";
 
 const ASC = "https://api.appstoreconnect.apple.com";
 export class AppleProfileRenewError extends Error {
@@ -14,13 +15,29 @@ const sha1 = (bytes) => createHash("sha1").update(bytes).digest("hex").toUpperCa
 const serial = (value) => String(value ?? "").replace(/[^a-f0-9]/gi, "").replace(/^0+/, "").toUpperCase();
 const query = (endpoint, params) => `${endpoint}?${new URLSearchParams(params)}`;
 
-export function appleProfileAuth(env = process.env) {
-  if (!env.APPLE_API_ISSUER?.trim()) fail("APPLE_PROFILE_ISSUER_MISSING", "Set APPLE_API_ISSUER using existing notarization environment.");
-  if (!env.APPLE_API_KEY?.trim() || !env.APPLE_API_KEY_PATH?.trim()) fail("APPLE_PROFILE_KEY_MISSING", "Set APPLE_API_KEY & APPLE_API_KEY_PATH using existing notarization environment.");
-  const args = notarytoolAuthArgs({ env });
-  const auth = { keyPath: args[1], keyId: args[3], issuer: args[5] };
-  if (!existsSync(auth.keyPath) || !statSync(auth.keyPath).isFile()) fail("APPLE_PROFILE_KEY_MISSING", "Configured App Store Connect API key file is missing.");
-  return auth;
+const PEM_MARKER = "-----BEGIN";
+const trimmed = (value) => String(value ?? "").trim();
+const expandHome = (value) => value === "~" ? os.homedir() : value.startsWith("~/") ? path.join(os.homedir(), value.slice(2)) : value;
+
+// Key ID and issuer are identifiers: the release config is read first, then the
+// APPLE_API_KEY / APPLE_API_ISSUER environment on every host. The .p8 is a file:
+// the config path is read first, then APPLE_API_KEY_PATH. No Keychain entry is
+// needed. Managed hosts refuse any Apple environment value that carries inline
+// PEM key material, because key material must never ride in the environment.
+export function appleProfileAuth(env = process.env, { config = {}, root = process.cwd() } = {}) {
+  for (const name of ["APPLE_API_KEY_PATH", "APPLE_API_KEY", "APPLE_API_ISSUER"]) {
+    if (isManagedHost(env) && trimmed(env[name]).includes(PEM_MARKER)) refuseManagedEnvSecret(name);
+  }
+  const asc = config.appStoreConnect ?? {};
+  const keyId = trimmed(asc.keyId) || trimmed(env.APPLE_API_KEY);
+  const issuer = trimmed(asc.issuer) || trimmed(env.APPLE_API_ISSUER);
+  if (!issuer) fail("APPLE_PROFILE_ISSUER_MISSING", "Set appStoreConnect.issuer in the release config or APPLE_API_ISSUER.");
+  if (!keyId) fail("APPLE_PROFILE_KEY_MISSING", "Set appStoreConnect.keyId in the release config or APPLE_API_KEY.");
+  const configuredPath = trimmed(asc.keyPath);
+  const keyPath = configuredPath ? path.resolve(root, expandHome(configuredPath)) : expandHome(trimmed(env.APPLE_API_KEY_PATH));
+  if (!keyPath) fail("APPLE_PROFILE_KEY_MISSING", "Set appStoreConnect.keyPath in the release config or APPLE_API_KEY_PATH.");
+  if (!existsSync(keyPath) || !statSync(keyPath).isFile()) fail("APPLE_PROFILE_KEY_MISSING", "Configured App Store Connect API key file is missing.");
+  return { keyPath, keyId, issuer };
 }
 
 // Only this in-process signer reads key material. Never send it to a subprocess,
@@ -124,7 +141,7 @@ export async function renewAppleProfile({ root, config = {}, profilePath, dryRun
   const previous = decodeAppleProfile(file, { run });
   const info = describeAppleProfile(previous);
   const certificate = findAppleSigningCertificate(info, { env, run, now });
-  const auth = appleProfileAuth(env);
+  const auth = appleProfileAuth(env, { config, root });
   const token = await jwtSigner(auth, now);
   const calls = [];
   const request = async (method, endpoint, body) => {

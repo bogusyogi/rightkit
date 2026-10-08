@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 import test from "node:test";
 import { digestBytes } from "./publication-artifacts.mjs";
 import { runLargeUpload } from "./upload-large.mjs";
+import { createCredentialStore } from "./protected-credentials.mjs";
 import { readFileSync } from "node:fs";
 
 const uploader = fileURLToPath(new URL("./upload-large.mjs", import.meta.url));
@@ -103,7 +104,8 @@ for (const entry of ["upload-large", "pub-upload"]) {
         }
         throw new Error(`unexpected call ${args}`);
       };
-      const invoke = () => runLargeUpload([file, "fixture/file", "private", "--evidence", evidence], { run, env: {} });
+      const credentialStore = createCredentialStore({ env: {}, platform: "darwin", readKeychain: () => "fake-store-token" });
+      const invoke = () => runLargeUpload([file, "fixture/file", "private", "--evidence", evidence], { run, env: {}, credentialStore });
       if (mode === "happy") { assert.equal(invoke().sha256, digestBytes(Buffer.from("artifact"))); assert.equal(calls.length, 3); }
       else { assert.throws(invoke, mode === "mismatch" ? /HASH_MISMATCH/ : /remote key rightapps-updates\/fixture\/file/); }
       if (mode === "mismatch") assert.equal(calls.length, 0);

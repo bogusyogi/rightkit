@@ -7,6 +7,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import test from "node:test";
 import { publishR2Addon } from "./addon-command.mjs";
 import { createAddonManifest, addonManifestSha256, canonicalAddonManifest, downloadImmutableAddOn, immutableAddonManifestUrl } from "./addon-contract.mjs";
+import { createCredentialStore } from "./protected-credentials.mjs";
 
 const command = fileURLToPath(new URL("./addon-command.mjs", import.meta.url));
 function fixture() {
@@ -65,17 +66,20 @@ for (const mode of ["unsealed", "mismatch", "swap", "happy"]) {
     const manifestPath = path.join(sealed, "addon-manifest.json");
     if (mode !== "unsealed") writeFileSync(manifestPath, canonicalAddonManifest(manifest));
     if (mode === "mismatch") writeFileSync(path.join(sealed, manifest.files[0].name), "tampered");
-    const uploads = [];
+    const uploads = [], tokens = [];
     const run = (_command, args, options) => {
       if (args.includes("get")) {
         if (mode === "swap") writeFileSync(path.join(sealed, manifest.files[0].name), "swapped after verification");
         return { status: 1, stderr: "404 not found" };
       }
       assert.ok(args.includes("--pipe"));
+      tokens.push(options.env.CLOUDFLARE_API_TOKEN);
       uploads.push(Buffer.from(options.input)); return { status: 0 };
     };
-    const invoke = () => publishR2Addon({ manifestPath, repoRoot: root, config, commit, platform: "mac" }, { run, env: { CLOUDFLARE_API_TOKEN: "mock-only" } });
-    if (mode === "happy") { invoke(); assert.equal(uploads.length, manifest.files.length + 1); assert.equal(uploads[0].toString(), "command"); }
+    // A fake protected store takes precedence over the unmanaged environment fallback.
+    const credentialStore = createCredentialStore({ env: {}, platform: "darwin", readKeychain: () => "fake-store-token" });
+    const invoke = () => publishR2Addon({ manifestPath, repoRoot: root, config, commit, platform: "mac" }, { run, env: { CLOUDFLARE_API_TOKEN: "mock-only" }, credentialStore });
+    if (mode === "happy") { invoke(); assert.equal(uploads.length, manifest.files.length + 1); assert.equal(uploads[0].toString(), "command"); assert.deepEqual([...new Set(tokens)], ["fake-store-token"]); }
     else { assert.throws(invoke, mode === "unsealed" ? /ENOENT/ : /MISMATCH|SOURCE_CHANGED/); assert.equal(uploads.length, 0); }
   });
 }

@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { spawnSync } from "./background-process.mjs";
+import { MANAGED_HOST_ENV_SECRET_REFUSED } from "./managed-host-secrets.mjs";
 import { appleProfileAuth, configuredAppleProfile, decodeAppleProfile, describeAppleProfile, entitlementsSuperset, main, renewAppleProfile, signAppleApiJwt } from "./apple-profile-renew.mjs";
 
 // Synthetic public certificate fixtures; no Apple private signing material.
@@ -269,4 +270,36 @@ test("repeated renewal keeps every prior adjacent backup", async (t) => {
   assert.equal(readFileSync(second.backupPath, "utf8"), "renewed CMS bytes");
   assert.equal(f.calls.filter((call) => call.options.method === "POST").length, 2);
   assert.ok(f.calls.every((call) => ["GET", "POST"].includes(call.options.method)));
+});
+
+// Synthetic environment: identifiers and file paths only; no Keychain entries are read.
+const SOCKET_ENV = { RIGHTKIT_BUILD_BROKER_SOCKET: "/fake/rightkit-broker.sock" };
+const INLINE_PEM = "-----BEGIN PRIVATE KEY-----\nfake-inline-material\n-----END PRIVATE KEY-----";
+
+test("Apple auth: key ID, issuer and .p8 path come from the release config first", (t) => {
+  const f = fixture(t);
+  const config = { appStoreConnect: { keyId: "CONFIGKEYID", issuer: "config-issuer", keyPath: path.basename(f.keyPath) } };
+  assert.deepEqual(appleProfileAuth({ APPLE_API_KEY: "ENVKEYID", APPLE_API_ISSUER: "env-issuer", APPLE_API_KEY_PATH: "/fake/other.p8" }, { config, root: f.root }),
+    { keyPath: f.keyPath, keyId: "CONFIGKEYID", issuer: "config-issuer" });
+});
+
+test("Apple auth: identifiers and .p8 path fall back to the environment on managed hosts too", (t) => {
+  const f = fixture(t);
+  const env = { ...SOCKET_ENV, APPLE_API_KEY: "FAKEKEYID", APPLE_API_ISSUER: "fake-issuer", APPLE_API_KEY_PATH: f.keyPath };
+  assert.deepEqual(appleProfileAuth(env), { keyPath: f.keyPath, keyId: "FAKEKEYID", issuer: "fake-issuer" });
+});
+
+test("Apple auth: managed hosts refuse an environment value carrying inline key material", (t) => {
+  const f = fixture(t);
+  for (const name of ["APPLE_API_KEY_PATH", "APPLE_API_KEY", "APPLE_API_ISSUER"]) {
+    const env = { ...SOCKET_ENV, APPLE_API_KEY: "FAKEKEYID", APPLE_API_ISSUER: "fake-issuer", APPLE_API_KEY_PATH: f.keyPath, [name]: INLINE_PEM };
+    assert.throws(() => appleProfileAuth(env), { code: MANAGED_HOST_ENV_SECRET_REFUSED }, name);
+  }
+});
+
+test("Apple auth: unmanaged hosts keep the file-path behavior and report missing identifiers typed", (t) => {
+  const f = fixture(t);
+  assert.throws(() => appleProfileAuth({ APPLE_API_KEY: "FAKEKEYID", APPLE_API_ISSUER: "fake-issuer", APPLE_API_KEY_PATH: "/fake/absent.p8" }), { code: "APPLE_PROFILE_KEY_MISSING" });
+  assert.throws(() => appleProfileAuth({ APPLE_API_KEY_PATH: f.keyPath, APPLE_API_ISSUER: "fake-issuer" }), { code: "APPLE_PROFILE_KEY_MISSING" });
+  assert.throws(() => appleProfileAuth({ APPLE_API_KEY: "FAKEKEYID", APPLE_API_KEY_PATH: f.keyPath }), { code: "APPLE_PROFILE_ISSUER_MISSING" });
 });
