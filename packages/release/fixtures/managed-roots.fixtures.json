@@ -1,0 +1,317 @@
+{
+  "schema": "rustright.managed-roots.fixtures.v1",
+  "note": "Generated from managed-roots.mjs for legacy cases; localappdata cases are the post-cutover Windows default. Both implementations must pass every case whose windowsControlDefault they support.",
+  "cases": [
+    {
+      "name": "darwin defaults",
+      "input": {
+        "platform": "darwin",
+        "home": "/Users/test",
+        "env": {},
+        "windowsControlDefault": "legacy"
+      },
+      "expected": {
+        "controlRoot": "/Users/test/Library/Application Support/RightKit/build-control",
+        "dataRoot": "/Volumes/D/.rightkit-managed",
+        "legacyRoot": "/Volumes/D/.rightkit-managed",
+        "runtimeCurrent": "/Users/test/Library/Application Support/RightKit/build-control/runtime-current",
+        "configPath": "/Users/test/Library/Application Support/RightKit/build-control/config.json",
+        "socket": "/Users/test/Library/Application Support/RightKit/build-control/broker.sock",
+        "logs": "/Users/test/Library/Application Support/RightKit/build-control/logs",
+        "agentBin": "/Users/test/Library/Application Support/RightKit/build-control/agent-bin",
+        "agentPolicy": "/Users/test/Library/Application Support/RightKit/build-control/agent-policy",
+        "ownershipInstall": "/Users/test/Library/Application Support/RightKit/build-control/ownership-install",
+        "signingAgent": "/Users/test/Library/Application Support/Orthic Labs/shared/signing-agent"
+      }
+    },
+    {
+      "name": "darwin managed-root env keeps internal control",
+      "input": {
+        "platform": "darwin",
+        "home": "/Users/test",
+        "env": {
+          "RIGHTKIT_MANAGED_ROOT": "/data"
+        },
+        "windowsControlDefault": "legacy"
+      },
+      "expected": {
+        "controlRoot": "/Users/test/Library/Application Support/RightKit/build-control",
+        "dataRoot": "/data",
+        "legacyRoot": "/Volumes/D/.rightkit-managed",
+        "runtimeCurrent": "/Users/test/Library/Application Support/RightKit/build-control/runtime-current",
+        "configPath": "/Users/test/Library/Application Support/RightKit/build-control/config.json",
+        "socket": "/Users/test/Library/Application Support/RightKit/build-control/broker.sock",
+        "logs": "/Users/test/Library/Application Support/RightKit/build-control/logs",
+        "agentBin": "/Users/test/Library/Application Support/RightKit/build-control/agent-bin",
+        "agentPolicy": "/Users/test/Library/Application Support/RightKit/build-control/agent-policy",
+        "ownershipInstall": "/Users/test/Library/Application Support/RightKit/build-control/ownership-install",
+        "signingAgent": "/Users/test/Library/Application Support/Orthic Labs/shared/signing-agent"
+      }
+    },
+    {
+      "name": "darwin data-root env wins over managed-root env",
+      "input": {
+        "platform": "darwin",
+        "home": "/Users/test",
+        "env": {
+          "RIGHTKIT_DATA_ROOT": "/a",
+          "RIGHTKIT_MANAGED_ROOT": "/b",
+          "RIGHTKIT_EXTERNAL_ROOT": "/c"
+        },
+        "windowsControlDefault": "legacy"
+      },
+      "expected": {
+        "controlRoot": "/Users/test/Library/Application Support/RightKit/build-control",
+        "dataRoot": "/a",
+        "legacyRoot": "/Volumes/D/.rightkit-managed",
+        "runtimeCurrent": "/Users/test/Library/Application Support/RightKit/build-control/runtime-current",
+        "configPath": "/Users/test/Library/Application Support/RightKit/build-control/config.json",
+        "socket": "/Users/test/Library/Application Support/RightKit/build-control/broker.sock",
+        "logs": "/Users/test/Library/Application Support/RightKit/build-control/logs",
+        "agentBin": "/Users/test/Library/Application Support/RightKit/build-control/agent-bin",
+        "agentPolicy": "/Users/test/Library/Application Support/RightKit/build-control/agent-policy",
+        "ownershipInstall": "/Users/test/Library/Application Support/RightKit/build-control/ownership-install",
+        "signingAgent": "/Users/test/Library/Application Support/Orthic Labs/shared/signing-agent"
+      }
+    },
+    {
+      "name": "darwin external-root env as last data fallback",
+      "input": {
+        "platform": "darwin",
+        "home": "/Users/test",
+        "env": {
+          "RIGHTKIT_EXTERNAL_ROOT": "/c"
+        },
+        "windowsControlDefault": "legacy"
+      },
+      "expected": {
+        "controlRoot": "/Users/test/Library/Application Support/RightKit/build-control",
+        "dataRoot": "/c",
+        "legacyRoot": "/Volumes/D/.rightkit-managed",
+        "runtimeCurrent": "/Users/test/Library/Application Support/RightKit/build-control/runtime-current",
+        "configPath": "/Users/test/Library/Application Support/RightKit/build-control/config.json",
+        "socket": "/Users/test/Library/Application Support/RightKit/build-control/broker.sock",
+        "logs": "/Users/test/Library/Application Support/RightKit/build-control/logs",
+        "agentBin": "/Users/test/Library/Application Support/RightKit/build-control/agent-bin",
+        "agentPolicy": "/Users/test/Library/Application Support/RightKit/build-control/agent-policy",
+        "ownershipInstall": "/Users/test/Library/Application Support/RightKit/build-control/ownership-install",
+        "signingAgent": "/Users/test/Library/Application Support/Orthic Labs/shared/signing-agent"
+      }
+    },
+    {
+      "name": "darwin explicit control-root env",
+      "input": {
+        "platform": "darwin",
+        "home": "/Users/test",
+        "env": {
+          "RIGHTKIT_CONTROL_ROOT": "/ctl"
+        },
+        "windowsControlDefault": "legacy"
+      },
+      "expected": {
+        "controlRoot": "/ctl",
+        "dataRoot": "/Volumes/D/.rightkit-managed",
+        "legacyRoot": "/Volumes/D/.rightkit-managed",
+        "runtimeCurrent": "/ctl/runtime-current",
+        "configPath": "/ctl/config.json",
+        "socket": "/ctl/broker.sock",
+        "logs": "/ctl/logs",
+        "agentBin": "/ctl/agent-bin",
+        "agentPolicy": "/ctl/agent-policy",
+        "ownershipInstall": "/ctl/ownership-install",
+        "signingAgent": "/Users/test/Library/Application Support/Orthic Labs/shared/signing-agent"
+      }
+    },
+    {
+      "name": "darwin empty env values are ignored",
+      "input": {
+        "platform": "darwin",
+        "home": "/Users/test",
+        "env": {
+          "RIGHTKIT_DATA_ROOT": "",
+          "RIGHTKIT_CONTROL_ROOT": ""
+        },
+        "windowsControlDefault": "legacy"
+      },
+      "expected": {
+        "controlRoot": "/Users/test/Library/Application Support/RightKit/build-control",
+        "dataRoot": "/Volumes/D/.rightkit-managed",
+        "legacyRoot": "/Volumes/D/.rightkit-managed",
+        "runtimeCurrent": "/Users/test/Library/Application Support/RightKit/build-control/runtime-current",
+        "configPath": "/Users/test/Library/Application Support/RightKit/build-control/config.json",
+        "socket": "/Users/test/Library/Application Support/RightKit/build-control/broker.sock",
+        "logs": "/Users/test/Library/Application Support/RightKit/build-control/logs",
+        "agentBin": "/Users/test/Library/Application Support/RightKit/build-control/agent-bin",
+        "agentPolicy": "/Users/test/Library/Application Support/RightKit/build-control/agent-policy",
+        "ownershipInstall": "/Users/test/Library/Application Support/RightKit/build-control/ownership-install",
+        "signingAgent": "/Users/test/Library/Application Support/Orthic Labs/shared/signing-agent"
+      }
+    },
+    {
+      "name": "win32 legacy control equals data root",
+      "input": {
+        "platform": "win32",
+        "home": "C:\\Users\\test",
+        "env": {},
+        "windowsControlDefault": "legacy"
+      },
+      "expected": {
+        "controlRoot": "D:\\.rightkit-managed",
+        "dataRoot": "D:\\.rightkit-managed",
+        "legacyRoot": "D:\\.rightkit-managed",
+        "runtimeCurrent": "D:\\.rightkit-managed\\runtime-current",
+        "configPath": "D:\\.rightkit-managed\\config.json",
+        "socket": null,
+        "logs": "D:\\.rightkit-managed\\logs",
+        "agentBin": "D:\\.rightkit-managed\\agent-bin",
+        "agentPolicy": "D:\\.rightkit-managed\\agent-policy",
+        "ownershipInstall": "D:\\.rightkit-managed\\ownership-install",
+        "signingAgent": "D:\\.rightkit-managed\\signing-agent"
+      }
+    },
+    {
+      "name": "win32 legacy control follows data-root env",
+      "input": {
+        "platform": "win32",
+        "home": "C:\\Users\\test",
+        "env": {
+          "RIGHTKIT_DATA_ROOT": "E:\\data"
+        },
+        "windowsControlDefault": "legacy"
+      },
+      "expected": {
+        "controlRoot": "E:\\data",
+        "dataRoot": "E:\\data",
+        "legacyRoot": "D:\\.rightkit-managed",
+        "runtimeCurrent": "E:\\data\\runtime-current",
+        "configPath": "E:\\data\\config.json",
+        "socket": null,
+        "logs": "E:\\data\\logs",
+        "agentBin": "E:\\data\\agent-bin",
+        "agentPolicy": "E:\\data\\agent-policy",
+        "ownershipInstall": "E:\\data\\ownership-install",
+        "signingAgent": "E:\\data\\signing-agent"
+      }
+    },
+    {
+      "name": "win32 explicit control-root env",
+      "input": {
+        "platform": "win32",
+        "home": "C:\\Users\\test",
+        "env": {
+          "RIGHTKIT_CONTROL_ROOT": "E:\\control",
+          "LOCALAPPDATA": "C:\\Users\\test\\AppData\\Local"
+        },
+        "windowsControlDefault": "legacy"
+      },
+      "expected": {
+        "controlRoot": "E:\\control",
+        "dataRoot": "D:\\.rightkit-managed",
+        "legacyRoot": "D:\\.rightkit-managed",
+        "runtimeCurrent": "E:\\control\\runtime-current",
+        "configPath": "E:\\control\\config.json",
+        "socket": null,
+        "logs": "E:\\control\\logs",
+        "agentBin": "E:\\control\\agent-bin",
+        "agentPolicy": "E:\\control\\agent-policy",
+        "ownershipInstall": "E:\\control\\ownership-install",
+        "signingAgent": "E:\\control\\signing-agent"
+      }
+    },
+    {
+      "name": "linux control equals data root",
+      "input": {
+        "platform": "linux",
+        "home": "/home/test",
+        "env": {
+          "RIGHTKIT_DATA_ROOT": "/srv/rk"
+        },
+        "windowsControlDefault": "legacy"
+      },
+      "expected": {
+        "controlRoot": "/srv/rk",
+        "dataRoot": "/srv/rk",
+        "legacyRoot": "/Volumes/D/.rightkit-managed",
+        "runtimeCurrent": "/srv/rk/runtime-current",
+        "configPath": "/srv/rk/config.json",
+        "socket": "/srv/rk/broker.sock",
+        "logs": "/srv/rk/logs",
+        "agentBin": "/srv/rk/agent-bin",
+        "agentPolicy": "/srv/rk/agent-policy",
+        "ownershipInstall": "/srv/rk/ownership-install",
+        "signingAgent": "/srv/rk/signing-agent"
+      }
+    },
+    {
+      "name": "win32 localappdata control root",
+      "input": {
+        "platform": "win32",
+        "home": "C:\\Users\\test",
+        "env": {
+          "LOCALAPPDATA": "C:\\Users\\test\\AppData\\Local"
+        },
+        "windowsControlDefault": "localappdata"
+      },
+      "expected": {
+        "controlRoot": "C:\\Users\\test\\AppData\\Local\\RightKit\\build-control",
+        "dataRoot": "D:\\.rightkit-managed",
+        "legacyRoot": "D:\\.rightkit-managed",
+        "runtimeCurrent": "C:\\Users\\test\\AppData\\Local\\RightKit\\build-control\\runtime-current",
+        "configPath": "C:\\Users\\test\\AppData\\Local\\RightKit\\build-control\\config.json",
+        "socket": null,
+        "logs": "C:\\Users\\test\\AppData\\Local\\RightKit\\build-control\\logs",
+        "agentBin": "C:\\Users\\test\\AppData\\Local\\RightKit\\build-control\\agent-bin",
+        "agentPolicy": "C:\\Users\\test\\AppData\\Local\\RightKit\\build-control\\agent-policy",
+        "ownershipInstall": "C:\\Users\\test\\AppData\\Local\\RightKit\\build-control\\ownership-install",
+        "signingAgent": "C:\\Users\\test\\AppData\\Local\\RightKit\\build-control\\signing-agent"
+      }
+    },
+    {
+      "name": "win32 localappdata falls back to home AppData Local",
+      "input": {
+        "platform": "win32",
+        "home": "C:\\Users\\test",
+        "env": {},
+        "windowsControlDefault": "localappdata"
+      },
+      "expected": {
+        "controlRoot": "C:\\Users\\test\\AppData\\Local\\RightKit\\build-control",
+        "dataRoot": "D:\\.rightkit-managed",
+        "legacyRoot": "D:\\.rightkit-managed",
+        "runtimeCurrent": "C:\\Users\\test\\AppData\\Local\\RightKit\\build-control\\runtime-current",
+        "configPath": "C:\\Users\\test\\AppData\\Local\\RightKit\\build-control\\config.json",
+        "socket": null,
+        "logs": "C:\\Users\\test\\AppData\\Local\\RightKit\\build-control\\logs",
+        "agentBin": "C:\\Users\\test\\AppData\\Local\\RightKit\\build-control\\agent-bin",
+        "agentPolicy": "C:\\Users\\test\\AppData\\Local\\RightKit\\build-control\\agent-policy",
+        "ownershipInstall": "C:\\Users\\test\\AppData\\Local\\RightKit\\build-control\\ownership-install",
+        "signingAgent": "C:\\Users\\test\\AppData\\Local\\RightKit\\build-control\\signing-agent"
+      }
+    },
+    {
+      "name": "win32 explicit control-root env beats localappdata",
+      "input": {
+        "platform": "win32",
+        "home": "C:\\Users\\test",
+        "env": {
+          "RIGHTKIT_CONTROL_ROOT": "E:\\control",
+          "LOCALAPPDATA": "C:\\Users\\test\\AppData\\Local"
+        },
+        "windowsControlDefault": "localappdata"
+      },
+      "expected": {
+        "controlRoot": "E:\\control",
+        "dataRoot": "D:\\.rightkit-managed",
+        "legacyRoot": "D:\\.rightkit-managed",
+        "runtimeCurrent": "E:\\control\\runtime-current",
+        "configPath": "E:\\control\\config.json",
+        "socket": null,
+        "logs": "E:\\control\\logs",
+        "agentBin": "E:\\control\\agent-bin",
+        "agentPolicy": "E:\\control\\agent-policy",
+        "ownershipInstall": "E:\\control\\ownership-install",
+        "signingAgent": "E:\\control\\signing-agent"
+      }
+    }
+  ]
+}

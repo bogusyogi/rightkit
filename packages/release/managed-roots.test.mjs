@@ -45,3 +45,18 @@ test('Mac managed Cargo never falls through to cargo; missing client or socket i
   assert.equal(call[2].env.RIGHTKIT_BUILD_BROKER_SOCKET, '/explicit');
   assert.equal(runCargoSync([], { env: {} }, { platform: 'win32', exists: () => false, spawn: (command) => ({ command }) }).command, 'cargo');
 });
+
+// Shared root-resolution contract with RustRight (bogusyogi/rustright docs/contracts/managed-roots.md,
+// fixtures vendored from rustright@b34006c). The `localappdata` cases are the post-cutover Windows
+// default and stay skipped here until the coordinated flip.
+test("managed roots match the RustRight shared fixtures (legacy Windows default)", async () => {
+  const { readFile } = await import("node:fs/promises");
+  const fixtures = JSON.parse(await readFile(new URL("./fixtures/managed-roots.fixtures.json", import.meta.url), "utf8"));
+  const cases = fixtures.cases.filter((c) => c.input.windowsControlDefault === "legacy");
+  assert.ok(cases.length >= 10);
+  for (const c of cases) {
+    const roots = resolveManagedRoots({ platform: c.input.platform, home: c.input.home, env: c.input.env });
+    const actual = Object.fromEntries(Object.keys(c.expected).map((key) => [key, roots[key] ?? null]));
+    assert.deepEqual(actual, c.expected, c.name);
+  }
+});
