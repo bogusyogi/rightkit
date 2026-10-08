@@ -1,6 +1,8 @@
 //! macOS backend: window discovery, per-pid input, Accessibility reads.
-//! All input goes through `CGEventPostToPid`; nothing here activates an app,
+//! Non-embedded fallback input goes through `CGEventPostToPid`; nothing here activates an app,
 //! moves the real cursor, or posts to the global HID tap.
+//! Hidden/non-key WKWebView targets should use the embedded server instead:
+//! window-id fields cannot bypass AppKit's first-mouse handling.
 //!
 //! Reads (`windows`, `main_window`, `frontmost_*`, `accessibility_trusted`,
 //! `ax_dump`, `ax_find`, `ax_text`) are public. Every effect (input, AX

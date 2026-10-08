@@ -1,0 +1,77 @@
+# Native hidden/non-key WKWebView pointer regression.
+name = "control-test-app hidden pointer macOS"
+tier = "fast"
+target = "ui"
+requires = ["platform:darwin"]
+optional = true
+
+[[step]]
+kind = "ui_launch"
+mode = "hidden"
+  [[step.expect]]
+  path = "health.ok"
+  eq = true
+
+[[step]]
+kind = "ui_command"
+name = "window_state"
+  [[step.expect]]
+  path = "key"
+  eq = false
+  [[step.expect]]
+  path = "visible"
+  eq = false
+
+[[step]]
+kind = "ui_eval"
+label = "hidden nonfocused page before scrub"
+js = "return !document.hasFocus() && document.visibilityState === 'hidden';"
+  [[step.expect]]
+  eq = true
+
+[[step]]
+kind = "ui_eval"
+save = "scrub"
+js = "const r=document.getElementById('scrub').getBoundingClientRect();return {x1:r.x+20,x2:r.x+340,y:r.y+r.height/2};"
+
+[[step]]
+kind = "ui_drag"
+label = "trusted hidden pointer scrub"
+x1 = "${scrub.x1}"
+y1 = "${scrub.y}"
+x2 = "${scrub.x2}"
+y2 = "${scrub.y}"
+steps = 8
+
+[[step]]
+kind = "ui_eval"
+until_timeout_s = 3
+interval_ms = 50
+js = "const s=window.__state,es=s.scrubEvents,d=es.findIndex(e=>e.type==='pointerdown'),u=es.findIndex(e=>e.type==='pointerup');return !s.scrubActive && s.scrubValue>=80 && d>=0 && u>d && es[d].buttons===1 && es[u].buttons===0 && es.some(e=>e.type==='pointermove' && e.buttons===1 && e.captured) && es.every(e=>e.trusted && !e.focus && e.visibility==='hidden');"
+  [[step.expect]]
+  eq = true
+
+[[step]]
+kind = "ui_command"
+name = "window_state"
+  [[step.expect]]
+  path = "key"
+  eq = false
+  [[step.expect]]
+  path = "visible"
+  eq = false
+
+[[step]]
+kind = "ui_stop"
+  [[step.expect]]
+  path = "endpoint_closed"
+  eq = true
+  [[step.expect]]
+  path = "process_gone"
+  eq = true
+  [[step.expect]]
+  path = "owned_never_frontmost"
+  eq = true
+  [[step.expect]]
+  path = "frontmost_unchanged"
+  eq = true

@@ -733,6 +733,23 @@ impl Control {
     pub fn move_to(&self, x: f64, y: f64) -> Result<()> {
         self.json("move", json!({"x": x, "y": y})).map(|_| ())
     }
+    /// One native pointer phase (`down`, `drag`, `up`, `move`) in viewport CSS
+    /// pixels. Use down/drag/up for a scrub split across requests; keep the same
+    /// button and modifiers on each phase. Hidden launches use the embedded path.
+    pub fn pointer(
+        &self,
+        phase: &str,
+        x: f64,
+        y: f64,
+        button: &str,
+        modifiers: &[&str],
+    ) -> Result<()> {
+        self.json(
+            "pointer",
+            json!({"phase": phase, "x": x, "y": y, "button": button, "modifiers": modifiers}),
+        )
+        .map(|_| ())
+    }
     pub fn drag(&self, from: (f64, f64), to: (f64, f64), steps: u32) -> Result<()> {
         self.json(
             "drag",

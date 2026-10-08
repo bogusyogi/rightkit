@@ -17,7 +17,9 @@
 //!
 //! Methods (x/y are viewport CSS pixels, origin top-left of the webview); the
 //! params are the JSON bodies of the former `/rk/*` routes:
-//!   health  click{x,y,button?,count?}  move{x,y}  drag{x1,y1,x2,y2,steps?}
+//!   health  click{x,y,button?,count?,modifiers?}  move{x,y,modifiers?}
+//!   drag{x1,y1,x2,y2,steps?,button?,modifiers?}
+//!   pointer{phase:"down"|"drag"|"up"|"move",x,y,button?,modifiers?}
 //!   wheel{x,y,dx,dy}  key{key:"cmd+k"}  type{text}  eval{js}  dom{selector}
 //!   ax  screenshot{mask?:[selector]} -> {path,bytes,masked} (PNG in `<service dir>/shots/`,
 //!   owner-only; password/one-time-code/data-rk-secret elements and `mask` selectors are
@@ -160,6 +162,7 @@ pub const METHODS: &[&str] = &[
     "click",
     "move",
     "drag",
+    "pointer",
     "wheel",
     "key",
     "type",
@@ -177,7 +180,7 @@ pub const METHODS: &[&str] = &[
 /// Effect kind of a control method; `None` for reads and lease management.
 pub fn effect_kind(method: &str) -> Option<EffectKind> {
     match method {
-        "click" | "move" | "drag" | "wheel" | "key" | "type" => Some(EffectKind::Input),
+        "click" | "move" | "drag" | "pointer" | "wheel" | "key" | "type" => Some(EffectKind::Input),
         "eval" => Some(EffectKind::Script),
         "screenshot" => Some(EffectKind::Capture),
         "command" => Some(EffectKind::Command),
@@ -541,6 +544,44 @@ fn js_json<R: Runtime>(win: &WebviewWindow<R>, body: &str) -> Result<String, Str
     eval(win, &format!("JSON.stringify((function(){{{body}}})())"))
 }
 
+fn pointer_button(params: &Value) -> Result<Button, String> {
+    match params.get("button").and_then(Value::as_str) {
+        None if params.get("button").is_none() => Ok(Button::Left),
+        Some("left") => Ok(Button::Left),
+        Some("right") => Ok(Button::Right),
+        _ => Err("button must be 'left' or 'right'".into()),
+    }
+}
+
+fn pointer_flags(params: &Value) -> Result<u64, String> {
+    let Some(value) = params.get("modifiers") else {
+        return Ok(0);
+    };
+    let modifiers = value.as_array().ok_or("modifiers must be an array")?;
+    let mut flags = 0;
+    for modifier in modifiers {
+        let modifier = modifier.as_str().ok_or("modifier must be a string")?;
+        flags |= match modifier.to_ascii_lowercase().as_str() {
+            "shift" => keys::FLAG_SHIFT,
+            "cmd" | "command" | "meta" => keys::FLAG_CMD,
+            "alt" | "option" => keys::FLAG_ALT,
+            "ctrl" | "control" => keys::FLAG_CTRL,
+            _ => return Err(format!("unknown modifier '{modifier}'")),
+        };
+    }
+    Ok(flags)
+}
+
+fn pointer_phase(params: &Value) -> Result<Mouse, String> {
+    match params.get("phase").and_then(Value::as_str) {
+        Some("down") => Ok(Mouse::Down),
+        Some("drag") => Ok(Mouse::Drag),
+        Some("up") => Ok(Mouse::Up),
+        Some("move") => Ok(Mouse::Move),
+        _ => Err("phase must be 'down', 'drag', 'up' or 'move'".into()),
+    }
+}
+
 fn route<R: Runtime>(
     method: &str,
     params: &Value,
@@ -556,34 +597,39 @@ fn route<R: Runtime>(
     let n = |k: &str| num_field(b, k).ok_or_else(|| format!("missing number '{k}'"));
     match method {
         "move" => {
-            mouse(win, Mouse::Move, Button::Left, n("x")?, n("y")?, 0, 0)?;
+            mouse(
+                win,
+                Mouse::Move,
+                Button::Left,
+                n("x")?,
+                n("y")?,
+                0,
+                pointer_flags(params)?,
+            )?;
+            ok()
+        }
+        "pointer" => {
+            let phase = pointer_phase(params)?;
+            let button = pointer_button(params)?;
+            let flags = pointer_flags(params)?;
+            mouse(
+                win,
+                phase,
+                button,
+                n("x")?,
+                n("y")?,
+                if phase == Mouse::Move { 0 } else { 1 },
+                flags,
+            )?;
             ok()
         }
         "click" => {
             let (x, y) = (n("x")?, n("y")?);
-            let btn = if str_field(b, "button").as_deref() == Some("right") {
-                Button::Right
-            } else {
-                Button::Left
-            };
+            let btn = pointer_button(params)?;
             let count = num_field(b, "count").unwrap_or(1.0).max(1.0) as i64;
             // Optional held modifiers, e.g. {"modifiers":["shift"]}: carried on every
             // native mouse event, so the page sees e.shiftKey/metaKey/altKey/ctrlKey.
-            let mut flags = 0u64;
-            for m in params
-                .get("modifiers")
-                .and_then(Value::as_array)
-                .into_iter()
-                .flatten()
-            {
-                flags |= match m.as_str().unwrap_or("").to_ascii_lowercase().as_str() {
-                    "shift" => keys::FLAG_SHIFT,
-                    "cmd" | "command" | "meta" => keys::FLAG_CMD,
-                    "alt" | "option" => keys::FLAG_ALT,
-                    "ctrl" | "control" => keys::FLAG_CTRL,
-                    other => return Err(format!("unknown modifier '{other}'")),
-                };
-            }
+            let flags = pointer_flags(params)?;
             mouse(win, Mouse::Move, Button::Left, x, y, 0, flags)?;
             pause(50);
             for c in 1..=count {
@@ -597,24 +643,26 @@ fn route<R: Runtime>(
         "drag" => {
             let (x1, y1, x2, y2) = (n("x1")?, n("y1")?, n("x2")?, n("y2")?);
             let steps = num_field(b, "steps").unwrap_or(12.0).clamp(1.0, 200.0) as u32;
-            mouse(win, Mouse::Move, Button::Left, x1, y1, 0, 0)?;
+            let btn = pointer_button(params)?;
+            let flags = pointer_flags(params)?;
+            mouse(win, Mouse::Move, Button::Left, x1, y1, 0, flags)?;
             pause(50);
-            mouse(win, Mouse::Down, Button::Left, x1, y1, 1, 0)?;
+            mouse(win, Mouse::Down, btn, x1, y1, 1, flags)?;
             pause(50);
             for i in 1..=steps {
                 let t = i as f64 / steps as f64;
                 mouse(
                     win,
                     Mouse::Drag,
-                    Button::Left,
+                    btn,
                     x1 + (x2 - x1) * t,
                     y1 + (y2 - y1) * t,
                     1,
-                    0,
+                    flags,
                 )?;
                 pause(16);
             }
-            mouse(win, Mouse::Up, Button::Left, x2, y2, 1, 0)?;
+            mouse(win, Mouse::Up, btn, x2, y2, 1, flags)?;
             ok()
         }
         "wheel" => {
@@ -759,7 +807,7 @@ mod tests {
     }
     #[test]
     fn effectful_methods_are_classified() {
-        for m in ["click", "move", "drag", "wheel", "key", "type"] {
+        for m in ["click", "move", "drag", "pointer", "wheel", "key", "type"] {
             assert_eq!(effect_kind(m), Some(EffectKind::Input), "{m}");
         }
         assert_eq!(effect_kind("eval"), Some(EffectKind::Script));
@@ -768,5 +816,31 @@ mod tests {
         for m in ["health", "dom", "ax", "lease_status", "lease_acquire"] {
             assert_eq!(effect_kind(m), None, "{m}");
         }
+    }
+    #[test]
+    fn pointer_fields_validate_before_dispatch() {
+        assert!(METHODS.contains(&"pointer"));
+        for (phase, expected) in [
+            ("down", Mouse::Down),
+            ("drag", Mouse::Drag),
+            ("up", Mouse::Up),
+            ("move", Mouse::Move),
+        ] {
+            assert_eq!(pointer_phase(&json!({"phase": phase})).unwrap(), expected);
+        }
+        assert!(pointer_phase(&json!({"phase": "click"})).is_err());
+        assert_eq!(pointer_button(&json!({})).unwrap(), Button::Left);
+        assert_eq!(
+            pointer_button(&json!({"button": "right"})).unwrap(),
+            Button::Right
+        );
+        assert!(pointer_button(&json!({"button": "middle"})).is_err());
+        assert_eq!(
+            pointer_flags(&json!({"modifiers": ["SHIFT", "meta", "option", "control"]})).unwrap(),
+            keys::FLAG_SHIFT | keys::FLAG_CMD | keys::FLAG_ALT | keys::FLAG_CTRL
+        );
+        assert!(pointer_flags(&json!({"modifiers": "shift"})).is_err());
+        assert!(pointer_flags(&json!({"modifiers": [false]})).is_err());
+        assert!(pointer_flags(&json!({"modifiers": ["unknown"]})).is_err());
     }
 }

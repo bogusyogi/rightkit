@@ -7,18 +7,23 @@ button{padding:10px 18px;font-size:15px}
 #box{width:80px;height:50px;background:#36c;position:relative;left:0;top:0;cursor:grab;user-select:none}
 #scroll{height:100px;overflow:auto;border:1px solid #999;width:300px}
 #scroll div{height:1000px}
+#scrub{width:400px;height:48px;margin:12px 0;background:#def;position:relative;touch-action:none;user-select:none}
+#playhead{position:absolute;top:0;bottom:0;left:0;width:3px;background:#c23;pointer-events:none}
 pre{background:#f4f4f4;padding:8px}
 </style>
 <button id="btn">Click me</button> <input id="inp" placeholder="type here" autocomplete="off"> <input id="pw" type="password" value="hunter2-not-a-real-secret">
 <div id="hov">hover me</div>
 <div id="box">drag</div>
 <div id="scroll"><div>tall</div></div>
+<div id="scrub" role="slider" aria-label="Timeline scrub" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><span id="playhead"></span>Pointer scrub</div>
 <pre id="state"></pre>
 <script>
-const S={clicks:0,trusted:[],hoverEnter:0,hoverNow:false,dragDx:0,dragDy:0,keys:[],value:'',scrollTop:0,cmdK:false};
+const S={clicks:0,trusted:[],hoverEnter:0,hoverNow:false,dragDx:0,dragDy:0,keys:[],value:'',scrollTop:0,cmdK:false,scrubValue:0,scrubActive:false,scrubEvents:[],clickModifiers:[],buttonPointers:[]};
 window.__state=S;
 const out=()=>{S.hoverNow=document.getElementById('hov').matches(':hover');S.value=document.getElementById('inp').value;S.scrollTop=document.getElementById('scroll').scrollTop;document.getElementById('state').textContent=JSON.stringify(S)};
-btn.addEventListener('click',e=>{S.clicks++;S.trusted.push(e.isTrusted);S.lastClick=[e.clientX,e.clientY];out()});
+btn.addEventListener('click',e=>{S.clicks++;S.trusted.push(e.isTrusted);S.lastClick=[e.clientX,e.clientY];S.clickModifiers.push([e.shiftKey,e.metaKey,e.altKey,e.ctrlKey]);out()});
+for(const type of ['pointerdown','pointerup'])btn.addEventListener(type,e=>S.buttonPointers.push({type:e.type,trusted:e.isTrusted,modifiers:[e.shiftKey,e.metaKey,e.altKey,e.ctrlKey]}));
+btn.addEventListener('contextmenu',e=>e.preventDefault());
 hov.addEventListener('mouseenter',()=>{S.hoverEnter++;out()});
 let d=null;
 box.addEventListener('mousedown',e=>{d={x:e.clientX,y:e.clientY}});
@@ -27,5 +32,12 @@ addEventListener('mouseup',()=>{d=null;out()});
 addEventListener('keydown',e=>{S.keys.push(e.key+(e.metaKey?'+cmd':''));if(e.metaKey&&e.key==='k')S.cmdK=true;out()});
 inp.addEventListener('input',out);
 document.getElementById('scroll').addEventListener('scroll',out);
+const scrub=document.getElementById('scrub');
+const recordPointer=e=>S.scrubEvents.push({type:e.type,trusted:e.isTrusted,button:e.button,buttons:e.buttons,x:e.clientX,y:e.clientY,pointerId:e.pointerId,captured:scrub.hasPointerCapture(e.pointerId),focus:document.hasFocus(),visibility:document.visibilityState,modifiers:[e.shiftKey,e.metaKey,e.altKey,e.ctrlKey]});
+const scrubTo=e=>{const r=scrub.getBoundingClientRect();S.scrubValue=Math.round(Math.max(0,Math.min(100,(e.clientX-r.left)/r.width*100)));scrub.setAttribute('aria-valuenow',S.scrubValue);document.getElementById('playhead').style.left=S.scrubValue+'%';out()};
+scrub.addEventListener('pointerdown',e=>{if(e.button!==0)return;S.scrubActive=true;scrub.setPointerCapture(e.pointerId);recordPointer(e);scrubTo(e);e.preventDefault()});
+scrub.addEventListener('pointermove',e=>{recordPointer(e);if(S.scrubActive&&(e.buttons&1))scrubTo(e)});
+scrub.addEventListener('pointerup',e=>{recordPointer(e);if(S.scrubActive)scrubTo(e);S.scrubActive=false;out()});
+scrub.addEventListener('pointercancel',e=>{recordPointer(e);S.scrubActive=false;out()});
 setInterval(out,200);out();
 </script>

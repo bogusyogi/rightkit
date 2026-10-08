@@ -1,6 +1,6 @@
-# Drives the real app launched hidden: refusal without the bearer secret, typed
+# Drives the real app launched hidden: service allowlist refusal, typed
 # command, trusted click, hover, drag, typing, wheel, DOM/AX reads, screenshot,
-# then a clean stop (port closed, pid gone, frontmost app unchanged).
+# then a clean stop (endpoint closed, pid gone, frontmost unchanged).
 name = "control-test-app hidden UI"
 tier = "fast"
 target = "ui"
@@ -15,8 +15,8 @@ mode = "hidden"
 [[step]]
 kind = "ui_auth_probe"
   [[step.expect]]
-  path = "status_without_token"
-  eq = 401
+  path = "unlisted_app_error"
+  eq = "request_not_allowed"
 
 [[step]]
 kind = "ui_command"
@@ -119,7 +119,13 @@ name = "after-interactions"
 [[step]]
 kind = "ui_stop"
   [[step.expect]]
-  path = "port_closed"
+  path = "endpoint_closed"
+  eq = true
+  [[step.expect]]
+  path = "process_gone"
+  eq = true
+  [[step.expect]]
+  path = "owned_never_frontmost"
   eq = true
   [[step.expect]]
   path = "frontmost_unchanged"

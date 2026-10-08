@@ -2,6 +2,29 @@
 
 Shared native desktop control APIs for Right Suite applications. Provides JSON helpers, keyboard input, WebDriver bridging, and platform-specific accessibility or embedded control modules.
 
+### Hidden macOS pointer input
+
+Embedded Tauri targets receive native `NSEvent` down/drag/up calls on the
+WKWebView responder, on AppKit's main thread. This bypasses window first-mouse
+handling without making a window key, showing it, or activating its app.
+WebKit reads `+[NSEvent pressedMouseButtons]` to build Pointer Events, so the
+embedded path supplies a thread-local button mask during dispatch. A second
+scoped hook bypasses WKWebView's asynchronous pointer text-input interception;
+both Objective-C hooks forward to their original implementations outside that
+dispatch. No DOM input events or global HID events are synthesized.
+
+`pointer {phase:"down"|"drag"|"up"|"move",x,y,button?,modifiers?}` supports
+scrubs split across requests. `click`, `move`, and composite `drag` share native
+delivery; x/y are viewport CSS pixels. Pointer calls retain effect admission,
+allowlists, and optional input-lease fencing. `rightkit-qa::Control::pointer`
+uses this service for hidden launches. Non-embedded callers keep the per-pid
+CGEvent fallback, which cannot guarantee first-mouse delivery to inactive views.
+
+`examples/control-test-app/proof.sh` proves trusted Pointer Events, capture,
+scrub value changes, modifier clicks, hidden/non-key readback, and foreground
+stability throughout the run. `TARGET` names the workspace managed debug
+directory; `APP_TARGET` names the standalone fixture's managed debug directory.
+
 The `tauri-plugin` feature enables the embedded Tauri control server.
 
 Publish through the RightKit release workflow.

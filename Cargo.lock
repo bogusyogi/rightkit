@@ -4877,7 +4877,7 @@ version = "0.1.0"
 
 [[package]]
 name = "rightkit-control"
-version = "0.1.6"
+version = "0.1.7"
 dependencies = [
  "rightkit-service",
  "serde_json",
@@ -5148,7 +5148,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-qa"
-version = "0.2.8"
+version = "0.2.9"
 dependencies = [
  "png 0.18.1",
  "rightkit-browser",

@@ -3,11 +3,17 @@
 //! window, and AppKit's inactive-window first-mouse swallow is bypassed
 //! because the window's `sendEvent:` is never involved. Raw Objective-C
 //! runtime FFI keeps the crate free of extra dependencies.
+//! During pointer dispatch only, AppKit's process-local button query reports
+//! the automation button mask and WKWebView skips asynchronous text-input
+//! interception. Both hooks delegate unchanged outside that thread-local scope.
 #![allow(non_snake_case, clippy::missing_safety_doc)]
 
 use super::{Button, Mouse};
+use std::cell::Cell;
 use std::ffi::{c_char, c_void, CStr, CString};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc::{channel, Sender};
+use std::sync::OnceLock;
 use std::time::Duration;
 use tauri::{Runtime, WebviewWindow};
 
@@ -26,6 +32,10 @@ extern "C" {
     fn objc_getClass(name: *const c_char) -> Id;
     fn sel_registerName(name: *const c_char) -> Sel;
     fn objc_msgSend();
+    fn class_getClassMethod(class: Id, name: Sel) -> Id;
+    fn class_getInstanceMethod(class: Id, name: Sel) -> Id;
+    fn method_getImplementation(method: Id) -> *const c_void;
+    fn method_setImplementation(method: Id, imp: *const c_void) -> *const c_void;
     static _NSConcreteStackBlock: *const c_void;
 }
 #[link(name = "AppKit", kind = "framework")]
@@ -83,6 +93,93 @@ unsafe fn uptime() -> f64 {
     msg!(f64; msg!(Id; class("NSProcessInfo"), "processInfo"), "systemUptime")
 }
 
+thread_local! {
+    // WebKit's UserDriven NSEvent path reads this class method, rather than
+    // deriving `buttons` from the event type. Never change HID state to supply it.
+    static POINTER_BUTTONS: Cell<Option<usize>> = const { Cell::new(None) };
+    static POINTER_VIEW: Cell<Id> = const { Cell::new(std::ptr::null_mut()) };
+}
+static POINTER_HOOKS: OnceLock<Result<(), String>> = OnceLock::new();
+static ORIGINAL_BUTTONS: AtomicUsize = AtomicUsize::new(0);
+static ORIGINAL_INPUT_CONTEXT: AtomicUsize = AtomicUsize::new(0);
+
+extern "C" fn pressed_mouse_buttons(obj: Id, selector: Sel) -> usize {
+    if let Ok(Some(buttons)) = POINTER_BUTTONS.try_with(Cell::get) {
+        return buttons;
+    }
+    // Installation stores the original IMP before exposing this callback.
+    unsafe {
+        let imp = ORIGINAL_BUTTONS.load(Ordering::Acquire);
+        let original: unsafe extern "C" fn(Id, Sel) -> usize = std::mem::transmute(imp);
+        original(obj, selector)
+    }
+}
+
+extern "C" fn pointer_input_context(obj: Id, selector: Sel) -> Id {
+    if POINTER_VIEW.try_with(Cell::get).ok() == Some(obj) {
+        // Editable content otherwise routes pointer events through an asynchronous
+        // NSTextInputContext callback, after the scoped button state has expired.
+        // Pointer dispatch does not compose text; key/IME calls keep the original.
+        return std::ptr::null_mut();
+    }
+    unsafe {
+        let original: unsafe extern "C" fn(Id, Sel) -> Id =
+            std::mem::transmute(ORIGINAL_INPUT_CONTEXT.load(Ordering::Acquire));
+        original(obj, selector)
+    }
+}
+
+/// Only the app's main-thread native dispatch observes the supplied button mask.
+/// Other threads and normal user events continue calling AppKit's original IMP.
+struct PointerButtons(Option<usize>, Id);
+impl PointerButtons {
+    unsafe fn enter(wk: Id, buttons: usize) -> Result<Self, String> {
+        // on_view serializes installation on the AppKit main thread. Store the
+        // original before installing the replacement (including for other threads).
+        let hooks = POINTER_HOOKS.get_or_init(|| {
+            let method = class_getClassMethod(class("NSEvent"), sel("pressedMouseButtons"));
+            let context = class_getInstanceMethod(class("WKWebView"), sel("inputContext"));
+            if method.is_null() || context.is_null() {
+                return Err("AppKit pointer state methods unavailable".into());
+            }
+            let imp = method_getImplementation(method);
+            let context_imp = method_getImplementation(context);
+            if imp.is_null() || context_imp.is_null() {
+                return Err("AppKit pointer state has no implementation".into());
+            }
+            ORIGINAL_BUTTONS.store(imp as usize, Ordering::Release);
+            ORIGINAL_INPUT_CONTEXT.store(context_imp as usize, Ordering::Release);
+            method_setImplementation(method, pressed_mouse_buttons as *const c_void);
+            method_setImplementation(context, pointer_input_context as *const c_void);
+            Ok(())
+        });
+        hooks.as_ref().map_err(Clone::clone)?;
+        Ok(Self(
+            POINTER_BUTTONS.with(|state| state.replace(Some(buttons))),
+            POINTER_VIEW.with(|state| state.replace(wk)),
+        ))
+    }
+}
+impl Drop for PointerButtons {
+    fn drop(&mut self) {
+        POINTER_BUTTONS.with(|state| state.set(self.0));
+        POINTER_VIEW.with(|state| state.set(self.1));
+    }
+}
+
+fn mouse_spec(kind: Mouse, button: Button) -> (u64, &'static str, f32, usize) {
+    match (kind, button) {
+        (Mouse::Down, Button::Left) => (1, "mouseDown:", 1.0, 1),
+        (Mouse::Up, Button::Left) => (2, "mouseUp:", 0.0, 0),
+        (Mouse::Down, Button::Right) => (3, "rightMouseDown:", 1.0, 2),
+        (Mouse::Up, Button::Right) => (4, "rightMouseUp:", 0.0, 0),
+        // A button-less drag bypasses WebKit's inactive tracking-area checks.
+        (Mouse::Move, _) => (6, "mouseDragged:", 0.0, 0),
+        (Mouse::Drag, Button::Left) => (6, "mouseDragged:", 1.0, 1),
+        (Mouse::Drag, Button::Right) => (7, "rightMouseDragged:", 1.0, 2),
+    }
+}
+
 #[repr(C)]
 #[derive(Clone, Copy)]
 struct NSSize {
@@ -132,11 +229,17 @@ fn on_view<R: Runtime, T: Send + 'static>(
 ) -> Result<T, String> {
     let (tx, rx) = channel();
     win.with_webview(move |pv| {
-        let _ = tx.send(f(pv.inner()));
+        // Tauri marshals with_webview onto its event loop; verify that assumption
+        // before touching AppKit or installing the scoped pointer state.
+        if !unsafe { msg!(bool; class("NSThread"), "isMainThread") } {
+            let _ = tx.send(Err("AppKit control requires the main thread".into()));
+            return;
+        }
+        let _ = tx.send(Ok(f(pv.inner())));
     })
     .map_err(|e| e.to_string())?;
     rx.recv_timeout(Duration::from_secs(10))
-        .map_err(|_| "webview call timed out".to_string())
+        .map_err(|_| "webview call timed out".to_string())?
 }
 
 pub fn mouse<R: Runtime>(
@@ -155,21 +258,12 @@ pub fn mouse<R: Runtime>(
             return Err("webview has no window".to_string());
         }
         let wp = window_point(wk, viewport, x, y);
-        let right = button == Button::Right;
         // Hover is delivered as a button-less `mouseDragged:` on the WKWebView itself:
         // WebKit gates `mouseMoved:` (tracking-area path) on an active window, but the
         // WKWebView responder path works in an inactive window and the page still sees
         // a plain `mousemove` with `buttons == 0`, so `:hover` and `mouseenter` update.
         // NSEventType: 1/2 left down/up, 3/4 right down/up, 5 moved, 6/7 left/right dragged.
-        let (ty, handler, pressure) = match (kind, right) {
-            (Mouse::Down, false) => (1u64, "mouseDown:", 1.0f32),
-            (Mouse::Up, false) => (2, "mouseUp:", 0.0),
-            (Mouse::Down, true) => (3, "rightMouseDown:", 1.0),
-            (Mouse::Up, true) => (4, "rightMouseUp:", 0.0),
-            (Mouse::Move, _) => (6, "mouseDragged:", 0.0),
-            (Mouse::Drag, false) => (6, "mouseDragged:", 1.0),
-            (Mouse::Drag, true) => (7, "rightMouseDragged:", 1.0),
-        };
+        let (ty, handler, pressure, buttons) = mouse_spec(kind, button);
         let ev = msg!(Id; class("NSEvent"),
             "mouseEventWithType:location:modifierFlags:timestamp:windowNumber:context:eventNumber:clickCount:pressure:",
             u64 = ty, NSPoint = wp, u64 = flags, f64 = uptime(), i64 = msg!(i64; window, "windowNumber"),
@@ -177,6 +271,7 @@ pub fn mouse<R: Runtime>(
         if ev.is_null() {
             return Err("NSEvent creation failed".to_string());
         }
+        let _buttons = PointerButtons::enter(wk, buttons)?;
         msg!((); wk, handler, Id = ev);
         Ok(())
     })?
@@ -346,4 +441,47 @@ pub fn screenshot<R: Runtime>(win: &WebviewWindow<R>) -> Result<Vec<u8>, String>
     .map_err(|e| e.to_string())?;
     rx.recv_timeout(Duration::from_secs(15))
         .map_err(|_| "screenshot timed out".to_string())?
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn native_pointer_buttons_include_press_drag_and_release() {
+        for (button, mask) in [(Button::Left, 1), (Button::Right, 2)] {
+            assert_eq!(mouse_spec(Mouse::Down, button).3, mask);
+            assert_eq!(mouse_spec(Mouse::Drag, button).3, mask);
+            assert_eq!(mouse_spec(Mouse::Up, button).3, 0);
+            assert_eq!(mouse_spec(Mouse::Move, button).3, 0);
+        }
+    }
+
+    #[test]
+    fn pointer_state_is_nested_and_thread_local() {
+        // Exercise scope restoration without installing AppKit hooks in the test runner.
+        assert_eq!(POINTER_BUTTONS.with(Cell::get), None);
+        let view = 1usize as Id;
+        let outer = PointerButtons(
+            POINTER_BUTTONS.with(|s| s.replace(Some(1))),
+            POINTER_VIEW.with(|s| s.replace(view)),
+        );
+        let inner = PointerButtons(
+            POINTER_BUTTONS.with(|s| s.replace(Some(0))),
+            POINTER_VIEW.with(|s| s.replace(std::ptr::null_mut())),
+        );
+        assert_eq!(POINTER_BUTTONS.with(Cell::get), Some(0));
+        drop(inner);
+        assert_eq!(POINTER_BUTTONS.with(Cell::get), Some(1));
+        assert_eq!(POINTER_VIEW.with(Cell::get), view);
+        std::thread::spawn(|| {
+            assert_eq!(POINTER_BUTTONS.with(Cell::get), None);
+            assert!(POINTER_VIEW.with(Cell::get).is_null());
+        })
+        .join()
+        .unwrap();
+        drop(outer);
+        assert_eq!(POINTER_BUTTONS.with(Cell::get), None);
+        assert!(POINTER_VIEW.with(Cell::get).is_null());
+    }
 }

@@ -1,7 +1,10 @@
 //! rightkit-control: drive a real desktop app like a human, in the background.
 //!
-//! macOS: input is posted to the target pid with `CGEventPostToPid` (never the
-//! global HID tap), so the frontmost app and the user's cursor are untouched.
+//! macOS: embedded targets receive main-thread AppKit `NSEvent`s through the
+//! WKWebView responder, including hidden, non-key windows. Non-embedded targets
+//! use per-pid `CGEventPostToPid` (never the global HID tap); inactive-window
+//! first-mouse handling can discard their press. Neither path activates apps
+//! or moves the user's cursor.
 //! State is read through the Accessibility API and window captures.
 //!
 //! Control-plane guarantees (CodeRight EFF-001 / PTY-002):
