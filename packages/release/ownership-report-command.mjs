@@ -66,6 +66,9 @@ export async function main(args, io = {}) {
     // The protected worker returns { inputs, trust, report, verdict } (or { error }); never treat
     // that envelope itself as a report, which would read as a false zero-finding scan.
     if (scanned.value?.error) throw new Error(`${scanned.value.code ?? "RK_OWNERSHIP_UNVERIFIED"}: ${scanned.value.error}`);
+    // A protected preflight refusal returns without evidence: nothing was scanned.
+    if (!scanned.value?.evidence && scanned.value?.verdict && !scanned.value.verdict.admit)
+      throw new Error(`${scanned.value.verdict.code}: ${(scanned.value.verdict.problems ?? []).join("; ") || "protected preflight refused"}; marked unscanned`);
     const scan = scanned.value?.report;
     if (!scan || typeof scan !== "object" || !Array.isArray(scan.violations) || !Array.isArray(scan.problems)) throw new Error("scanner worker returned no ownership report; marked unscanned");
     return scan;
