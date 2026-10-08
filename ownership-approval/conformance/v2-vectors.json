@@ -1,0 +1,562 @@
+{
+  "schema": 2,
+  "valid": [
+    {
+      "name": "dotted-fingerprint-90-days",
+      "keyId": "win-cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "record": {
+        "schema": 2,
+        "payload": {
+          "repositoryIdentity": "https://github.com/orthic-labs/heardright",
+          "fingerprint": "browser.npm.puppeteer",
+          "policyDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "minimumScannerVersion": "2.0.0",
+          "minimumCatalogVersion": "1.4.0",
+          "occurrences": [
+            {
+              "path": "src/browser.ts",
+              "kind": "source",
+              "hash": "e23049a3c7504a2bbf4fc00909605f0ad5179750ca6433c5e50bc254ae4d6767"
+            }
+          ],
+          "reason": "Replace with published RightKit browser capability.",
+          "owner": "Adrian",
+          "issued": "2026-10-08",
+          "expires": "2027-01-06",
+          "requestId": "RK-2026-001",
+          "trackingRef": {
+            "id": "RK-001",
+            "url": "https://github.com/Orthic-Labs/heardright/issues/1",
+            "verified": true
+          }
+        },
+        "signature": null
+      },
+      "findings": [
+        {
+          "kind": "source",
+          "fingerprint": "browser.npm.puppeteer",
+          "file": "src/browser.ts",
+          "lineText": "import puppeteer from 'puppeteer';",
+          "ordinal": 0
+        }
+      ]
+    },
+    {
+      "name": "distinct-path-hash-pairs",
+      "keyId": "mac-eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+      "record": {
+        "schema": 2,
+        "payload": {
+          "repositoryIdentity": "https://github.com/orthic-labs/heardright",
+          "fingerprint": "browser.npm.puppeteer",
+          "policyDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "minimumScannerVersion": "2.0.0",
+          "minimumCatalogVersion": "1.4.0",
+          "occurrences": [
+            {
+              "path": "src/browser.ts",
+              "kind": "source",
+              "hash": "e23049a3c7504a2bbf4fc00909605f0ad5179750ca6433c5e50bc254ae4d6767"
+            },
+            {
+              "path": "src/browser.ts",
+              "kind": "source",
+              "hash": "1db862e68583231bd06e7e92992a2c53c5cf77043fad8af53dd725ec8787b6a1"
+            },
+            {
+              "path": "package.json",
+              "kind": "dependency",
+              "hash": "70ad510511fe3496df1924c7156576942ebb5baca071225d9e0f65f3f3320bd8"
+            }
+          ],
+          "reason": "Replace with published RightKit browser capability.",
+          "owner": "Adrian",
+          "issued": "2026-10-08",
+          "expires": "2027-01-06",
+          "requestId": "RK-2026-001",
+          "trackingRef": {
+            "id": "RK-001",
+            "url": "https://github.com/Orthic-Labs/heardright/issues/1",
+            "verified": true
+          }
+        },
+        "signature": null
+      },
+      "findings": [
+        {
+          "kind": "source",
+          "fingerprint": "browser.npm.puppeteer",
+          "file": "src/browser.ts",
+          "lineText": "import puppeteer from 'puppeteer';",
+          "ordinal": 0
+        },
+        {
+          "kind": "source",
+          "fingerprint": "browser.npm.puppeteer",
+          "file": "src/browser.ts",
+          "lineText": "import puppeteer from 'puppeteer';",
+          "ordinal": 1
+        },
+        {
+          "kind": "dependency",
+          "fingerprint": "browser.npm.puppeteer",
+          "file": "package.json",
+          "ecosystem": "npm",
+          "name": "puppeteer",
+          "alias": null,
+          "section": "dependencies",
+          "requirement": "^24",
+          "features": [],
+          "defaultFeatures": null,
+          "source": "registry",
+          "resolvedVersion": "24.1.0"
+        }
+      ]
+    }
+  ],
+  "invalid": [
+    {
+      "name": "invalid-fingerprint",
+      "record": {
+        "schema": 2,
+        "payload": {
+          "repositoryIdentity": "https://github.com/orthic-labs/heardright",
+          "fingerprint": "Browser/npm",
+          "policyDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "minimumScannerVersion": "2.0.0",
+          "minimumCatalogVersion": "1.4.0",
+          "occurrences": [
+            {
+              "path": "src/browser.ts",
+              "kind": "source",
+              "hash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+            }
+          ],
+          "reason": "Replace with published RightKit browser capability.",
+          "owner": "Adrian",
+          "issued": "2026-10-08",
+          "expires": "2027-01-06",
+          "requestId": "RK-2026-001",
+          "trackingRef": {
+            "id": "RK-001",
+            "url": "https://github.com/Orthic-Labs/heardright/issues/1",
+            "verified": true
+          }
+        },
+        "signature": null
+      }
+    },
+    {
+      "name": "invalid-policy-digest",
+      "record": {
+        "schema": 2,
+        "payload": {
+          "repositoryIdentity": "https://github.com/orthic-labs/heardright",
+          "fingerprint": "browser.npm.puppeteer",
+          "policyDigest": "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz",
+          "minimumScannerVersion": "2.0.0",
+          "minimumCatalogVersion": "1.4.0",
+          "occurrences": [
+            {
+              "path": "src/browser.ts",
+              "kind": "source",
+              "hash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+            }
+          ],
+          "reason": "Replace with published RightKit browser capability.",
+          "owner": "Adrian",
+          "issued": "2026-10-08",
+          "expires": "2027-01-06",
+          "requestId": "RK-2026-001",
+          "trackingRef": {
+            "id": "RK-001",
+            "url": "https://github.com/Orthic-Labs/heardright/issues/1",
+            "verified": true
+          }
+        },
+        "signature": null
+      }
+    },
+    {
+      "name": "91-day-expiry",
+      "record": {
+        "schema": 2,
+        "payload": {
+          "repositoryIdentity": "https://github.com/orthic-labs/heardright",
+          "fingerprint": "browser.npm.puppeteer",
+          "policyDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "minimumScannerVersion": "2.0.0",
+          "minimumCatalogVersion": "1.4.0",
+          "occurrences": [
+            {
+              "path": "src/browser.ts",
+              "kind": "source",
+              "hash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+            }
+          ],
+          "reason": "Replace with published RightKit browser capability.",
+          "owner": "Adrian",
+          "issued": "2026-10-08",
+          "expires": "2027-01-07",
+          "requestId": "RK-2026-001",
+          "trackingRef": {
+            "id": "RK-001",
+            "url": "https://github.com/Orthic-Labs/heardright/issues/1",
+            "verified": true
+          }
+        },
+        "signature": null
+      }
+    },
+    {
+      "name": "future-issued",
+      "record": {
+        "schema": 2,
+        "payload": {
+          "repositoryIdentity": "https://github.com/orthic-labs/heardright",
+          "fingerprint": "browser.npm.puppeteer",
+          "policyDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "minimumScannerVersion": "2.0.0",
+          "minimumCatalogVersion": "1.4.0",
+          "occurrences": [
+            {
+              "path": "src/browser.ts",
+              "kind": "source",
+              "hash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+            }
+          ],
+          "reason": "Replace with published RightKit browser capability.",
+          "owner": "Adrian",
+          "issued": "2999-01-01",
+          "expires": "2999-01-02",
+          "requestId": "RK-2026-001",
+          "trackingRef": {
+            "id": "RK-001",
+            "url": "https://github.com/Orthic-Labs/heardright/issues/1",
+            "verified": true
+          }
+        },
+        "signature": null
+      }
+    },
+    {
+      "name": "duplicate-occurrence",
+      "record": {
+        "schema": 2,
+        "payload": {
+          "repositoryIdentity": "https://github.com/orthic-labs/heardright",
+          "fingerprint": "browser.npm.puppeteer",
+          "policyDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "minimumScannerVersion": "2.0.0",
+          "minimumCatalogVersion": "1.4.0",
+          "occurrences": [
+            {
+              "path": "src/browser.ts",
+              "kind": "source",
+              "hash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+            },
+            {
+              "path": "src/browser.ts",
+              "kind": "source",
+              "hash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+            }
+          ],
+          "reason": "Replace with published RightKit browser capability.",
+          "owner": "Adrian",
+          "issued": "2026-10-08",
+          "expires": "2027-01-06",
+          "requestId": "RK-2026-001",
+          "trackingRef": {
+            "id": "RK-001",
+            "url": "https://github.com/Orthic-Labs/heardright/issues/1",
+            "verified": true
+          }
+        },
+        "signature": null
+      }
+    },
+    {
+      "name": "extra-payload-key",
+      "record": {
+        "schema": 2,
+        "payload": {
+          "repositoryIdentity": "https://github.com/orthic-labs/heardright",
+          "fingerprint": "browser.npm.puppeteer",
+          "policyDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "minimumScannerVersion": "2.0.0",
+          "minimumCatalogVersion": "1.4.0",
+          "occurrences": [
+            {
+              "path": "src/browser.ts",
+              "kind": "source",
+              "hash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+            }
+          ],
+          "reason": "Replace with published RightKit browser capability.",
+          "owner": "Adrian",
+          "issued": "2026-10-08",
+          "expires": "2027-01-06",
+          "requestId": "RK-2026-001",
+          "trackingRef": {
+            "id": "RK-001",
+            "url": "https://github.com/Orthic-Labs/heardright/issues/1",
+            "verified": true
+          },
+          "catalogDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "signature": null
+      }
+    },
+    {
+      "name": "schema-1",
+      "record": {
+        "schema": 1,
+        "payload": {
+          "repositoryIdentity": "https://github.com/orthic-labs/heardright",
+          "fingerprint": "browser.npm.puppeteer",
+          "policyDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "minimumScannerVersion": "2.0.0",
+          "minimumCatalogVersion": "1.4.0",
+          "occurrences": [
+            {
+              "path": "src/browser.ts",
+              "kind": "source",
+              "hash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+            }
+          ],
+          "reason": "Replace with published RightKit browser capability.",
+          "owner": "Adrian",
+          "issued": "2026-10-08",
+          "expires": "2027-01-06",
+          "requestId": "RK-2026-001",
+          "trackingRef": {
+            "id": "RK-001",
+            "url": "https://github.com/Orthic-Labs/heardright/issues/1",
+            "verified": true
+          }
+        },
+        "signature": null
+      }
+    },
+    {
+      "name": "invalid-floor",
+      "record": {
+        "schema": 2,
+        "payload": {
+          "repositoryIdentity": "https://github.com/orthic-labs/heardright",
+          "fingerprint": "browser.npm.puppeteer",
+          "policyDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "minimumScannerVersion": "2.0-beta",
+          "minimumCatalogVersion": "1.4.0",
+          "occurrences": [
+            {
+              "path": "src/browser.ts",
+              "kind": "source",
+              "hash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+            }
+          ],
+          "reason": "Replace with published RightKit browser capability.",
+          "owner": "Adrian",
+          "issued": "2026-10-08",
+          "expires": "2027-01-06",
+          "requestId": "RK-2026-001",
+          "trackingRef": {
+            "id": "RK-001",
+            "url": "https://github.com/Orthic-Labs/heardright/issues/1",
+            "verified": true
+          }
+        },
+        "signature": null
+      }
+    },
+    {
+      "name": "invalid-kind",
+      "record": {
+        "schema": 2,
+        "payload": {
+          "repositoryIdentity": "https://github.com/orthic-labs/heardright",
+          "fingerprint": "browser.npm.puppeteer",
+          "policyDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "minimumScannerVersion": "2.0.0",
+          "minimumCatalogVersion": "1.4.0",
+          "occurrences": [
+            {
+              "path": "src/browser.ts",
+              "kind": "generated",
+              "hash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+            }
+          ],
+          "reason": "Replace with published RightKit browser capability.",
+          "owner": "Adrian",
+          "issued": "2026-10-08",
+          "expires": "2027-01-06",
+          "requestId": "RK-2026-001",
+          "trackingRef": {
+            "id": "RK-001",
+            "url": "https://github.com/Orthic-Labs/heardright/issues/1",
+            "verified": true
+          }
+        },
+        "signature": null
+      }
+    },
+    {
+      "name": "traversal-path",
+      "record": {
+        "schema": 2,
+        "payload": {
+          "repositoryIdentity": "https://github.com/orthic-labs/heardright",
+          "fingerprint": "browser.npm.puppeteer",
+          "policyDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "minimumScannerVersion": "2.0.0",
+          "minimumCatalogVersion": "1.4.0",
+          "occurrences": [
+            {
+              "path": "../browser.ts",
+              "kind": "source",
+              "hash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+            }
+          ],
+          "reason": "Replace with published RightKit browser capability.",
+          "owner": "Adrian",
+          "issued": "2026-10-08",
+          "expires": "2027-01-06",
+          "requestId": "RK-2026-001",
+          "trackingRef": {
+            "id": "RK-001",
+            "url": "https://github.com/Orthic-Labs/heardright/issues/1",
+            "verified": true
+          }
+        },
+        "signature": null
+      }
+    },
+    {
+      "name": "extra-occurrence-key",
+      "record": {
+        "schema": 2,
+        "payload": {
+          "repositoryIdentity": "https://github.com/orthic-labs/heardright",
+          "fingerprint": "browser.npm.puppeteer",
+          "policyDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "minimumScannerVersion": "2.0.0",
+          "minimumCatalogVersion": "1.4.0",
+          "occurrences": [
+            {
+              "path": "src/browser.ts",
+              "kind": "source",
+              "hash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+              "line": 1
+            }
+          ],
+          "reason": "Replace with published RightKit browser capability.",
+          "owner": "Adrian",
+          "issued": "2026-10-08",
+          "expires": "2027-01-06",
+          "requestId": "RK-2026-001",
+          "trackingRef": {
+            "id": "RK-001",
+            "url": "https://github.com/Orthic-Labs/heardright/issues/1",
+            "verified": true
+          }
+        },
+        "signature": null
+      }
+    },
+    {
+      "name": "invalid-date",
+      "record": {
+        "schema": 2,
+        "payload": {
+          "repositoryIdentity": "https://github.com/orthic-labs/heardright",
+          "fingerprint": "browser.npm.puppeteer",
+          "policyDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "minimumScannerVersion": "2.0.0",
+          "minimumCatalogVersion": "1.4.0",
+          "occurrences": [
+            {
+              "path": "src/browser.ts",
+              "kind": "source",
+              "hash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+            }
+          ],
+          "reason": "Replace with published RightKit browser capability.",
+          "owner": "Adrian",
+          "issued": "2026-02-30",
+          "expires": "2027-01-06",
+          "requestId": "RK-2026-001",
+          "trackingRef": {
+            "id": "RK-001",
+            "url": "https://github.com/Orthic-Labs/heardright/issues/1",
+            "verified": true
+          }
+        },
+        "signature": null
+      }
+    },
+    {
+      "name": "tracking-userinfo",
+      "record": {
+        "schema": 2,
+        "payload": {
+          "repositoryIdentity": "https://github.com/orthic-labs/heardright",
+          "fingerprint": "browser.npm.puppeteer",
+          "policyDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "minimumScannerVersion": "2.0.0",
+          "minimumCatalogVersion": "1.4.0",
+          "occurrences": [
+            {
+              "path": "src/browser.ts",
+              "kind": "source",
+              "hash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+            }
+          ],
+          "reason": "Replace with published RightKit browser capability.",
+          "owner": "Adrian",
+          "issued": "2026-10-08",
+          "expires": "2027-01-06",
+          "requestId": "RK-2026-001",
+          "trackingRef": {
+            "id": "RK-001",
+            "url": "https://user:password@example.com/issue/1",
+            "verified": true
+          }
+        },
+        "signature": null
+      }
+    },
+    {
+      "name": "hex-only-fingerprint",
+      "keyId": "win-cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "record": {
+        "schema": 2,
+        "payload": {
+          "repositoryIdentity": "https://github.com/orthic-labs/heardright",
+          "fingerprint": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+          "policyDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "minimumScannerVersion": "2.0.0",
+          "minimumCatalogVersion": "1.4.0",
+          "occurrences": [
+            {
+              "path": "src/browser.ts",
+              "kind": "source",
+              "hash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+            }
+          ],
+          "reason": "Replace with published RightKit browser capability.",
+          "owner": "Adrian",
+          "issued": "2026-10-08",
+          "expires": "2027-01-06",
+          "requestId": "RK-2026-001",
+          "trackingRef": {
+            "id": "RK-001",
+            "url": "https://github.com/Orthic-Labs/heardright/issues/1",
+            "verified": true
+          }
+        },
+        "signature": null
+      }
+    }
+  ]
+}

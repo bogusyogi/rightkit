@@ -6,8 +6,8 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "../../packages/release/background-process.mjs";
-import { createDraft, occurrenceHash, sha256, canonicalRepositoryIdentity } from "../../packages/release/ownership-approval.mjs";
-import { scanApp } from "../../packages/release/ownership.mjs";
+import { createDraft, occurrenceHash, policyEntryDigest, sha256, canonicalRepositoryIdentity } from "../../packages/release/ownership-approval.mjs";
+import { scanApp, SCANNER_VERSION } from "../../packages/release/ownership.mjs";
 import manifest from "../../packages/release/rightkit-ownership.json" with { type: "json" };
 
 const MODULE_DIR = path.dirname(fileURLToPath(import.meta.url));
@@ -81,6 +81,12 @@ function scopedFiles(repoRoot, appDir, backlog) {
     }
   }
   const files = [];
+  for (const { repoPath } of [...selected]) if (MANIFESTS.has(path.posix.basename(repoPath))) {
+    for (const name of ["Cargo.lock", "package-lock.json", "npm-shrinkwrap.json", "pnpm-lock.yaml", "yarn.lock", "Package.resolved"]) {
+      const lockPath = path.posix.join(path.posix.dirname(repoPath), name);
+      if (existsSync(path.resolve(repoRoot, ...lockPath.split("/"))) && !selected.some((item) => item.repoPath === lockPath)) selected.push({ repoPath: lockPath, rel: prefix ? lockPath.slice(prefix.length) : lockPath });
+    }
+  }
   for (const { repoPath: posixPath, rel } of selected) {
     const absolute = path.resolve(repoRoot, ...posixPath.split("/"));
     const rootReal = realpathSync(repoRoot);
@@ -152,7 +158,7 @@ function appScan(app, timestamp) {
       sourceCommit: commit,
       workingTreeDirtyPaths: dirtyPaths,
       scan: {
-        scannerVersion: rawMetadata.scannerVersion ?? "2.0.0",
+        scannerVersion: rawMetadata.scannerVersion ?? SCANNER_VERSION,
         catalogVersion: manifest.version ?? String(manifest.schema ?? "1"),
         catalogDigest: rawMetadata.catalogDigest,
         scannedAt: rawMetadata.scannedAt ?? timestamp,
@@ -181,16 +187,16 @@ export function prepareMigrationDrafts({ outputDir = OUT, apps = APPS, now = new
       const paths = Array.isArray(legacy.paths) ? legacy.paths : [];
       const findings = scan.findings.filter((finding) => finding.fingerprint === legacy.fingerprint && paths.includes(finding.file));
       if (!findings.length) continue;
-      const observedPaths = [...new Set(findings.map((finding) => finding.file))].sort();
       const record = createDraft({
         repositoryIdentity: scan.repositoryIdentity,
-        catalogDigest: scan.scan.catalogDigest,
+        policyDigest: policyEntryDigest(manifest, legacy.fingerprint),
+        minimumScannerVersion: scan.scan.scannerVersion,
+        minimumCatalogVersion: scan.scan.catalogVersion,
         fingerprint: legacy.fingerprint,
         findings,
-        paths: observedPaths,
         reason: legacy.reason,
         owner: legacy.owner,
-        expires: legacy.expires,
+        issued: timestamp.slice(0, 10),
         requestId: legacy.requestId,
         trackingRef: legacy.trackingRef,
       });
@@ -212,14 +218,14 @@ export function prepareMigrationDrafts({ outputDir = OUT, apps = APPS, now = new
     backlogFile: `tasks/handoffs/2026-10-07/ownership/${app}-ownership-exceptions.json`,
     legacyApprovedByText: legacy.approvedBy ?? null,
     legacyTrackingText: typeof legacy.tracking === "string" ? legacy.tracking : null,
-    observedPaths: record.payload.paths,
-    occurrenceHashes: record.payload.occurrenceHashes,
+    observedPaths: [...new Set(record.payload.occurrences.map((item) => item.path))].sort(),
+    occurrences: record.payload.occurrences,
     occurrenceCount: findings.length,
     missingUserFields: ["expires", "requestId", "trackingRef"].filter((key) => record.payload[key] === undefined || record.payload[key] === null || record.payload[key] === ""),
     signature: record.signature,
   }));
   const manifestOut = {
-    schema: 1,
+    schema: 2,
     kind: "unsigned-ownership-migration-draft-set",
     generatedAt: timestamp,
     authority: "review material only; every record remains unsigned and requires Adrian's native review/signing",
@@ -233,20 +239,19 @@ export function prepareMigrationDrafts({ outputDir = OUT, apps = APPS, now = new
       return (backlog.exceptions ?? []).flatMap((legacy, index) => matched.has(index) ? [] : [{ app: scan.app, legacyIndex: index, fingerprint: legacy.fingerprint, paths: legacy.paths ?? [], reason: "no current finding observed at exact legacy fingerprint/path in bounded scan" }]);
     }),
     pendingFields: {
-      expires: "Adrian must choose a valid expiry date before native signing.",
       requestId: "Adrian must provide an exact RightKit request ID before native signing.",
       trackingRef: "Adrian must provide a verified HTTPS tracking reference before native signing; legacy free-text tracking is evidence only.",
     },
     signingImportVerifySequence: [
       "Review each listed source root, source commit, input digests, exact paths, occurrence hashes, reason, and owner; resolve each pending field.",
-      "Save each completed schema-1 record with signature:null, then Adrian launches the native Windows or macOS ownership-approval helper and uses Review approval draft > Sign reviewed draft; native prompt is required per record.",
+      "Save each completed schema-2 record with signature:null, then Adrian launches the native Windows or macOS ownership-approval helper and uses Review approval draft > Sign reviewed draft; native prompt is required per record.",
       "For each signed record, the import utility can preserve it as a separate file: node tools/rightkit/packages/release/ownership-approval-command.mjs --import <signed.json> --out <imported-record.json>; its --import command does not merge application exception files.",
       "After both host keys are enrolled in protected trust, run: node tools/rightkit/packages/release/ownership-approval-command.mjs --verify <signed-record.json> --context <fresh-scanner-context.json> per record; only a successful verifier result proves signature and baseline coverage.",
       "Only after successful verification, Adrian integrates the verified records into each repository's existing .rightkit/ownership-exceptions.json exceptions array, preserving existing entries.",
     ],
     validation: {
       allDraftsUnsigned: draftRefs.every((x) => x.signature === null),
-      everyDraftBoundToCurrentObservedOccurrences: drafts.every((x) => x.record.payload.occurrenceHashes.join("\n") === x.findings.map(occurrenceHash).sort().join("\n")),
+      everyDraftBoundToCurrentObservedOccurrences: drafts.every((x) => x.record.payload.occurrences.map((item) => `${item.path}\0${item.hash}`).sort().join("\n") === x.findings.map((f) => `${f.file}\0${occurrenceHash(f)}`).sort().join("\n")),
       repositoryIdentityMatchesCurrentOrigin: true,
       sourceCommitRecordedPerRepository: scans.every((x) => /^[a-f0-9]{40,64}$/.test(x.sourceCommit)),
     },

@@ -96,7 +96,7 @@ test("all catalog owners resolve availability from the registry manifest without
 
 test("declaration-only owners are valid and grouped owners detect every declared member", () => {
   assert.doesNotThrow(() => validateManifest(catalog));
-  const clean = { violations: [], covered: [], qaOnly: [], coverage: [] };
+  const clean = { violations: [], covered: [], coverage: [] };
   for (const entry of catalog.capabilities) {
     const rows = capabilityTable(catalog, [{ name: entry.package }], clean);
     assert.equal(rows.find((row) => row.capability === entry.capability).status, "declared-dependency", entry.package);

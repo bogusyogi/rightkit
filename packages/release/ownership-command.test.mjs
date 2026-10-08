@@ -19,17 +19,17 @@ test("ownership help documents explicit local new-capability approval & conflict
   assert.match(printed[0], /owner conflicts are always refused/);
 });
 
-test("ownership CLI reports pending enrollment as a warning while preserving findings", async () => {
+test("ownership CLI refuses pending enrollment with a diagnostic while preserving findings", async () => {
   const printed = [];
   const result = { rows: [], violations: [{ fingerprint: "pending", file: "source.rs" }], covered: [], problems: ["approval enrollment pending"], coverage: [], metadata: {} };
   const status = await main(["--app", repositoryRoot, "--json"], {
     gitRunner: () => ({ status: 0, stdout: `${repositoryRoot}\n` }),
-    evidenceFactory: () => ({ ok: true, enrollmentPending: true, warning: "WARNING: enrollment pending; findings remain backlog diagnostics", result, floor: { ok: false, problems: ["floor unavailable"] } }),
+    evidenceFactory: () => ({ ok: false, enrollmentPending: true, warning: "WARNING: enrollment pending; findings remain backlog diagnostics", result, floor: { ok: false, problems: ["floor unavailable"] } }),
     print: (line) => printed.push(line),
   });
-  assert.equal(status, 0);
+  assert.equal(status, 1);
   const output = JSON.parse(printed[0]);
-  assert.equal(output.ok, true);
+  assert.equal(output.ok, false);
   assert.equal(output.enrollmentPending, true);
   assert.match(output.warning, /^WARNING:/);
   assert.equal(output.violations[0].fingerprint, "pending");
@@ -37,14 +37,14 @@ test("ownership CLI reports pending enrollment as a warning while preserving fin
   const human = [];
   await main(["--app", repositoryRoot], {
     gitRunner: () => ({ status: 0, stdout: `${repositoryRoot}\n` }),
-    evidenceFactory: () => ({ ok: true, enrollmentPending: true, warning: "WARNING: enrollment pending; findings remain backlog diagnostics", result, floor: { ok: false, problems: [] } }),
+    evidenceFactory: () => ({ ok: false, enrollmentPending: true, warning: "WARNING: enrollment pending; findings remain backlog diagnostics", result, floor: { ok: false, problems: [] } }),
     print: (line) => human.push(line),
   });
   assert.ok(human.some((line) => line.startsWith("  DIAGNOSTIC ")));
   assert.ok(human.at(-1).includes("WARNING:"));
 });
 
-test("published ownership command runs without development sibling packages & reports pending trust warning", () => {
+test("published ownership command runs without development sibling packages & refuses pending trust with a warning", () => {
   const temp = mkdtempSync(path.join(os.tmpdir(), "right-release-ownership-pack-"));
   try {
     const packageRoot = path.join(temp, "package");
@@ -79,9 +79,9 @@ test("published ownership command runs without development sibling packages & re
     }
 
     const command = spawnSync(process.execPath, [path.join(packageRoot, "ownership-command.mjs"), "--app", app, "--json"], { encoding: "utf8", windowsHide: true });
-    assert.equal(command.status, 0, command.stderr);
+    assert.equal(command.status, 1, command.stderr);
     const output = JSON.parse(command.stdout);
-    assert.equal(output.ok, true);
+    assert.equal(output.ok, false);
     assert.equal(output.enrollmentPending, true);
     assert.match(output.warning, /^WARNING:/);
     assert.equal(output.error, undefined);

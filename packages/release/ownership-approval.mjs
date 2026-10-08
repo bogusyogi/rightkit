@@ -5,7 +5,7 @@ import path from "node:path";
 import { spawnSync } from "./background-process.mjs";
 import { verifyKeyLog, verifyOwnershipSignature } from "./ownership-key-log.mjs";
 
-export const APPROVAL_SCHEMA = 1;
+export const APPROVAL_SCHEMA = 2;
 export const REQUIRED_HOSTS = Object.freeze(["windows", "macos"]);
 export const DEFAULT_TRUST_PATH = Object.freeze({
   win32: path.join("C:\\ProgramData", "Orthic Labs", "RightKit", "ownership", "trust.json"),
@@ -89,31 +89,68 @@ export function keyIdForPublicKey(host, publicKey) {
   return prefix + createHash("sha256").update(key.export({ type: "spki", format: "der" })).digest("hex");
 }
 export function occurrenceHash(finding) {
-  return sha256({ fingerprint: finding.fingerprint, file: finding.file, line: finding.line ?? 0, text: finding.text ?? "" });
+  if (!finding || !validFingerprint(finding.fingerprint) || !occurrencePath(finding.file)) throw new Error("invalid occurrence fingerprint or path");
+  const kind = finding.kind ?? (finding.ecosystem ? "dependency" : "source");
+  if (kind === "source") {
+    if (typeof finding.lineText !== "string" || /[\r\n]/.test(finding.lineText) || !Number.isSafeInteger(finding.ordinal) || finding.ordinal < 0) throw new Error("source occurrence requires full lineText and nonnegative ordinal");
+    return sha256({ v: 2, kind, fingerprint: finding.fingerprint, path: finding.file, lineText: finding.lineText, ordinal: finding.ordinal });
+  }
+  if (kind !== "dependency") throw new Error("unknown occurrence kind");
+  const ecosystem = finding.ecosystem === "swiftpm" ? "swift" : finding.ecosystem;
+  if (!["cargo", "npm", "swift"].includes(ecosystem) || typeof finding.name !== "string" || !finding.name || typeof finding.section !== "string" || !finding.section
+    || !nullableString(finding.alias) || !nullableString(finding.requirement) || !nullableString(finding.resolvedVersion)
+    || !Array.isArray(finding.features) || finding.features.some((x) => typeof x !== "string" || !x)
+    || ![true, false, null].includes(finding.defaultFeatures) || typeof finding.source !== "string" || !/^(?:registry|git\+[^\s]+|path:.+)$/.test(finding.source)) throw new Error("malformed dependency occurrence identity");
+  return sha256({ v: 2, kind, fingerprint: finding.fingerprint, path: finding.file, ecosystem, name: finding.name, alias: finding.alias, section: finding.section, requirement: finding.requirement,
+    features: [...new Set(finding.features)].sort(), defaultFeatures: finding.defaultFeatures, source: finding.source, resolvedVersion: finding.resolvedVersion });
+}
+function nullableString(value) { return value === null || typeof value === "string" && value.length > 0; }
+function validFingerprint(value) { return typeof value === "string" && /^[a-z0-9][a-z0-9._-]{1,127}$/.test(value) && !HEX.test(value); }
+function occurrencePath(value) { return typeof value === "string" && !!value && value !== "." && exactRepositoryPath(value) && !/^[A-Za-z]:/.test(value); }
+function exactKeys(value, keys) { return !!value && typeof value === "object" && !Array.isArray(value) && Object.keys(value).sort().join("\0") === [...keys].sort().join("\0"); }
+function validDate(value) { return typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value) && !Number.isNaN(Date.parse(`${value}T00:00:00Z`)) && new Date(`${value}T00:00:00Z`).toISOString().slice(0, 10) === value; }
+export function policyEntryDigest(manifest, fingerprint) {
+  if (!validFingerprint(fingerprint) || !Array.isArray(manifest?.capabilities) || manifest.capabilities.some((c) => !Array.isArray(c?.fingerprints))) throw new Error(`missing or malformed catalog policy entry: ${fingerprint}`);
+  const matches = (manifest?.capabilities ?? []).flatMap((c) => (c.fingerprints ?? []).filter((f) => f.id === fingerprint).map((f) => ({ ...f, capability: c.capability, package: c.package, tier: f.tier ?? c.tier })));
+  if (matches.length !== 1 || !matches[0].capability || !matches[0].package || !matches[0].tier) throw new Error(`missing, ambiguous, or malformed catalog policy entry: ${fingerprint}`);
+  return sha256(matches[0]);
 }
 export function approvalPayload(record) {
   return record?.payload;
 }
 
-function validateRecord(record) {
+export function validateRecord(record) {
   const p = [];
-  if (!record || record.schema !== APPROVAL_SCHEMA || !record.payload || !record.signature) return ["malformed or unsigned approval record"];
+  if (!exactKeys(record, ["schema", "payload", "signature"]) || record.schema !== APPROVAL_SCHEMA) return ["approval envelope must use schema 2 and exactly schema, payload, signature"];
   const r = record.payload;
-  for (const key of ["repositoryIdentity", "catalogDigest", "fingerprint", "paths", "occurrenceHashes", "reason", "owner", "expires", "requestId", "trackingRef"]) {
-    if (r[key] === undefined || r[key] === "" || (Array.isArray(r[key]) && !r[key].length)) p.push(`missing ${key}`);
-  }
+  if (!exactKeys(r, ["repositoryIdentity", "fingerprint", "policyDigest", "minimumScannerVersion", "minimumCatalogVersion", "occurrences", "reason", "owner", "issued", "expires", "requestId", "trackingRef"])) return ["approval payload has missing or unknown keys"];
   if (typeof r.repositoryIdentity !== "string" || r.repositoryIdentity.length > 512) p.push("invalid repository identity");
-  if (!HEX.test(r.catalogDigest ?? "")) p.push("invalid catalog digest");
-  if (!Array.isArray(r.paths) || r.paths.some((x) => typeof x !== "string" || !x || x.startsWith("/") || x.includes("\\") || x.split("/").some((s) => !s || s === "." || s === "..") || /[*?\[\]{}]/.test(x))) p.push("paths must be exact repository-relative paths");
-  if (!Array.isArray(r.occurrenceHashes) || r.occurrenceHashes.some((x) => !HEX.test(x)) || new Set(r.occurrenceHashes).size !== r.occurrenceHashes.length) p.push("invalid occurrence hashes");
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(r.expires ?? "") || Number.isNaN(Date.parse(`${r.expires}T00:00:00Z`)) || new Date(`${r.expires}T00:00:00Z`).toISOString().slice(0, 10) !== r.expires) p.push("invalid expiry date");
+  try { if (canonicalRepositoryIdentity(r.repositoryIdentity) !== r.repositoryIdentity) p.push("approval repository identity is not canonical"); } catch { p.push("invalid repository identity"); }
+  if (!validFingerprint(r.fingerprint)) p.push("invalid catalog fingerprint id");
+  if (typeof r.policyDigest !== "string" || !HEX.test(r.policyDigest)) p.push("invalid policy digest");
+  for (const key of ["minimumScannerVersion", "minimumCatalogVersion"]) if (typeof r[key] !== "string" || !/^\d+(?:\.\d+)*$/.test(r[key])) p.push(`invalid ${key}`);
+  if (!Array.isArray(r.occurrences) || !r.occurrences.length || r.occurrences.length > 256) p.push("occurrences must contain 1 to 256 entries");
+  else {
+    const pairs = new Set();
+    for (const item of r.occurrences) {
+      if (!exactKeys(item, ["path", "kind", "hash"]) || !occurrencePath(item.path) || !["source", "dependency"].includes(item.kind) || typeof item.hash !== "string" || !HEX.test(item.hash)) { p.push("occurrences require exact repository-relative path, known kind, and hex hash"); continue; }
+      const pair = `${item.path}\0${item.hash}`;
+      if (pairs.has(pair)) p.push("duplicate occurrence path/hash pair");
+      pairs.add(pair);
+    }
+  }
+  if (!validDate(r.issued)) p.push("invalid issued date");
+  if (!validDate(r.expires)) p.push("invalid expiry date");
   if (typeof r.requestId !== "string" || !/^[A-Za-z0-9][A-Za-z0-9._:-]{2,127}$/.test(r.requestId)) p.push("invalid request id");
   let trackingUrl;
   try { trackingUrl = new URL(r.trackingRef?.url); } catch {}
-  if (!trackingUrl || trackingUrl.protocol !== "https:" || !trackingUrl.hostname || trackingUrl.username || trackingUrl.password || typeof r.trackingRef.id !== "string" || !r.trackingRef.id || r.trackingRef.verified !== true) p.push("tracking reference must be verified and https-backed");
+  if (!exactKeys(r.trackingRef, ["id", "url", "verified"]) || typeof r.trackingRef.url !== "string" || !trackingUrl || trackingUrl.protocol !== "https:" || !trackingUrl.hostname || trackingUrl.username || trackingUrl.password || typeof r.trackingRef.id !== "string" || !r.trackingRef.id || r.trackingRef.verified !== true) p.push("tracking reference must be verified and https-backed");
   if (typeof r.reason !== "string" || !r.reason.trim() || r.reason.length > 4000) p.push("invalid approval reason");
   if (typeof r.owner !== "string" || !r.owner.trim() || r.owner.length > 256) p.push("invalid owner");
-  if (!record.signature.keyId || !record.signature.host || typeof record.signature.value !== "string" || !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(record.signature.value) || Buffer.from(record.signature.value, "base64").toString("base64") !== record.signature.value) p.push("malformed signature envelope");
+  if (record.signature !== null) {
+    const s = record.signature;
+    if (!exactKeys(s, ["keyId", "host", "value"]) || !REQUIRED_HOSTS.includes(s.host) || typeof s.keyId !== "string" || !new RegExp(`^${s.host === "windows" ? "win" : "mac"}-[a-f0-9]{64}$`).test(s.keyId) || typeof s.value !== "string" || !s.value || !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(s.value) || Buffer.from(s.value, "base64").toString("base64") !== s.value) p.push("malformed signature envelope");
+  }
   return p;
 }
 
@@ -204,8 +241,12 @@ export function verifyProtectedProvenance(trust, { repositoryIdentity, paths, fi
   return match ? { ok: true, problems: [], record: match } : { ok: false, problems: ["no protected provenance record matches paths and content"] };
 }
 
-export function createDraft({ repositoryIdentity, catalogDigest, fingerprint, findings, paths, reason, owner, expires, requestId, trackingRef }) {
-  const payload = { repositoryIdentity: canonicalRepositoryIdentity(repositoryIdentity), catalogDigest, fingerprint, paths: [...new Set(paths ?? [])].sort(), occurrenceHashes: findings.map(occurrenceHash).sort(), reason, owner, expires, requestId, trackingRef };
+export function createDraft({ repositoryIdentity, policyDigest, fingerprint, findings, minimumScannerVersion, minimumCatalogVersion, reason, owner, issued = new Date().toISOString().slice(0, 10), expires, requestId, trackingRef }) {
+  if (!validDate(issued)) throw new Error("invalid issued date");
+  if (!Array.isArray(findings)) throw new Error("draft findings must be an array of current occurrences");
+  const deadline = new Date(`${issued}T00:00:00Z`); deadline.setUTCDate(deadline.getUTCDate() + 90);
+  const occurrences = findings.map((f) => ({ path: f.file, kind: f.kind ?? (f.ecosystem ? "dependency" : "source"), hash: occurrenceHash(f) })).sort((a, b) => a.path.localeCompare(b.path) || a.hash.localeCompare(b.hash));
+  const payload = { repositoryIdentity: canonicalRepositoryIdentity(repositoryIdentity), policyDigest, fingerprint, minimumScannerVersion, minimumCatalogVersion, occurrences, reason, owner, issued, expires: expires ?? deadline.toISOString().slice(0, 10), requestId: requestId ?? null, trackingRef: trackingRef ?? null };
   return { schema: APPROVAL_SCHEMA, payload, signature: null };
 }
 
@@ -234,25 +275,25 @@ export function validateOwnershipFloor(trust, { scannerVersion, catalogVersion, 
   if (trust.minimumCatalogDigest && trust.minimumCatalogDigest !== catalogDigest) problems.push("catalog digest below protected pinned digest");
   return { ok: problems.length === 0, problems };
 }
-function protectedLocation(file, platform) {
+function protectedLocation(file, platform, { runner = spawnSync, inspect = lstatSync, stat = statSync, requireNonElevated = true } = {}) {
   const problems = [];
   if (platform === "win32") {
     const dirs = [];
     let current = path.dirname(file);
     while (true) {
       dirs.push(current);
-      if (current.toLowerCase() === "c:\\") break;
+      if (path.dirname(current) === current) break;
       current = path.dirname(current);
     }
     dirs.push(file);
     for (const target of dirs) {
-      try { if (lstatSync(target).isSymbolicLink()) problems.push(`trust path contains a reparse/symlink: ${target}`); } catch { problems.push(`cannot inspect trust path: ${target}`); continue; }
+      try { if (inspect(target).isSymbolicLink()) problems.push(`trust path contains a reparse/symlink: ${target}`); } catch { problems.push(`cannot inspect trust path: ${target}`); continue; }
       const script = "$ErrorActionPreference='Stop'; $a=Get-Acl -LiteralPath $env:RK_TRUST_CHECK_TARGET; $item=Get-Item -Force -LiteralPath $env:RK_TRUST_CHECK_TARGET; $id=[Security.Principal.WindowsIdentity]::GetCurrent(); $p=New-Object Security.Principal.WindowsPrincipal($id); $ownerSid=$a.GetOwner([Security.Principal.SecurityIdentifier]).Value; $ownerName=$a.Owner; $out=[ordered]@{ownerSID=$ownerSid;ownerName=$ownerName;attributes=$item.Attributes.ToString();directory=[bool]$item.PSIsContainer;nonempty=(!$item.PSIsContainer -or [System.IO.Directory]::EnumerateFileSystemEntries($item.FullName).GetEnumerator().MoveNext());elevated=$p.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator);access=@($a.Access | ForEach-Object { [ordered]@{identitySID=$_.IdentityReference.Translate([Security.Principal.SecurityIdentifier]).Value;type=$_.AccessControlType.ToString();mask=[int64]$_.FileSystemRights.value__;propagationFlags=[int]$_.PropagationFlags} })}; $out | ConvertTo-Json -Compress -Depth 5";
-      const r = spawnSync("C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", script], { encoding: "utf8", windowsHide: true, env: { ...process.env, RK_TRUST_CHECK_TARGET: target } });
+      const r = runner("C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", script], { encoding: "utf8", windowsHide: true, env: { ...process.env, RK_TRUST_CHECK_TARGET: target } });
       if (r.status !== 0) { problems.push(`cannot inspect trust ACL: ${target}`); continue; }
       try {
         const acl = JSON.parse(r.stdout.trim());
-        const result = evaluateWindowsAcl(acl, { target });
+        const result = evaluateWindowsAcl(acl, { target, requireNonElevated });
         problems.push(...result.problems.map((problem) => `${problem}: ${target}`));
       } catch { problems.push(`malformed ACL result: ${target}`); }
     }
@@ -260,15 +301,15 @@ function protectedLocation(file, platform) {
   }
   let current = file;
   while (true) {
-    try { if (lstatSync(current).isSymbolicLink()) problems.push(`trust path contains a symlink: ${current}`); } catch { problems.push(`cannot inspect trust path: ${current}`); }
+    try { if (inspect(current).isSymbolicLink()) problems.push(`trust path contains a symlink: ${current}`); } catch { problems.push(`cannot inspect trust path: ${current}`); }
     try {
-      const st = statSync(current);
+      const st = stat(current);
       if (st.uid !== 0 || (st.mode & 0o022)) problems.push(`trust location is not root-owned/private: ${current}`);
     } catch { problems.push(`cannot inspect trust location: ${current}`); }
-    const acl = spawnSync("/bin/ls", ["-lde", current], { encoding: "utf8", windowsHide: true });
+    const acl = runner("/bin/ls", ["-lde", current], { encoding: "utf8", windowsHide: true });
     if (acl.status !== 0) problems.push(`cannot inspect trust ACL: ${current}`);
     else for (const line of acl.stdout.split(/\r?\n/).slice(1)) {
-      if (!/allow/i.test(line) || !/\b(?:write|delete|append|writeattr|writeextattr|chown|delete_child|add_file|add_subdirectory)\b/i.test(line)) continue;
+      if (!/allow/i.test(line) || !/\b(?:writesecurity|chown|write|delete|append|writeattr|writeextattr|delete_child|add_file|add_subdirectory)\b/i.test(line)) continue;
       if (!/^\s*\d+:\s+user:root\s+allow\b/i.test(line)) problems.push(`trust ACL grants write authority to a non-root principal: ${current}`);
     }
     const parent = path.dirname(current);
@@ -290,10 +331,12 @@ export function loadTrustedExternal() {
   if (trust.schema !== 1) throw new Error("ownership trust file schema is unsupported");
   const trustCheck = validateTrustRegistry(trust);
   if (!trustCheck.ok) throw new Error(trustCheck.problems.join("; "));
+  const normalize = (id) => typeof id === "string" ? id.replace(/^(?:win-|mac-)/i, "").toLowerCase() : "";
+  const revoked = new Set((trust.revokedKeyIds ?? []).map(normalize));
   for (const host of REQUIRED_HOSTS) {
     const entry = trust.hosts?.[host];
     if (!entry?.keyId && !entry?.publicKeyPem) continue;
-    if (!entry.keyId || !entry.publicKeyPem || entry.keyId !== keyIdForPublicKey(host, entry.publicKeyPem)) throw new Error(`invalid or mismatched ${host} approval key enrollment`);
+    if (!entry.keyId || !entry.publicKeyPem || normalize(entry.keyId) !== normalize(keyIdForPublicKey(host, entry.publicKeyPem))) throw new Error(`invalid or mismatched ${host} approval key enrollment`);
     const key = createPublicKey(entry.publicKeyPem);
     if (key.asymmetricKeyType !== "ec" || key.asymmetricKeyDetails?.namedCurve !== "prime256v1") throw new Error(`${host} approval key must be P-256`);
   }
@@ -301,21 +344,28 @@ export function loadTrustedExternal() {
   const hostKeys = REQUIRED_HOSTS.map((host) => trust.hosts?.[host]);
   const enrolled = trust.rootFingerprint
     ? Boolean(HEX.test(trust.rootFingerprint) && trust.keyCheckpoint && Number.isSafeInteger(trust.keyCheckpoint.sequence) && trust.keyCheckpoint.sequence >= 0 && HEX.test(trust.keyCheckpoint.head ?? "")) // Provisional; scan paths replace this from verified log history.
-    : hostKeys.every((host) => host?.keyId && host.publicKeyPem && !trust.revokedKeyIds?.includes(host.keyId))
-      && hostKeys[0]?.keyId !== hostKeys[1]?.keyId && hostKeys[0]?.publicKeyPem !== hostKeys[1]?.publicKeyPem;
+    : hostKeys.every((host) => host?.keyId && host.publicKeyPem && !revoked.has(normalize(host.keyId)))
+      && normalize(hostKeys[0]?.keyId) !== normalize(hostKeys[1]?.keyId) && hostKeys[0]?.publicKeyPem !== hostKeys[1]?.publicKeyPem;
   return { enrolled, pending: !enrolled, protection: protectionResult, trust, path: file };
 }
 
 // Test-only seam: production callers must use loadTrustedExternal's fixed canonical path.
-export const __testOnly = Object.freeze({ protectedLocation });
+export const __testOnly = Object.freeze({ protectedLocation, signatureProblems });
 
 function signatureProblems(record, trust) {
-  const s = record.signature;
+  const s = record?.signature;
+  if (!s || !trust) return ["signature or protected trust is missing"];
+  if (!Array.isArray(trust.revokedKeyIds ?? [])) return ["protected revoked key IDs are malformed"];
+  if (trust.rootFingerprint && !Array.isArray(trust.ownershipKeys)) return ["protected ownership key authority is malformed"];
+  const ids = new Map();
+  const normalize = (id) => { if (!ids.has(id)) ids.set(id, typeof id === "string" ? id.replace(/^(?:win-|mac-)/i, "").toLowerCase() : ""); return ids.get(id); };
+  const normalizedId = normalize(s.keyId);
+  if (!HEX.test(normalizedId)) return ["signing key ID is malformed"];
+  const revoked = new Set((trust.revokedKeyIds ?? []).map(normalize));
   if (!REQUIRED_HOSTS.includes(s.host)) return ["unknown signing host"];
-  if (trust.revokedKeyIds?.includes(s.keyId)) return ["signing key is revoked"];
+  if (revoked.has(normalizedId)) return ["signing key is revoked"];
   if (trust.rootFingerprint) {
-    const normalizedId = String(s.keyId).replace(/^(?:win-|mac-)/, "");
-    const key = trust.ownershipKeys?.find((candidate) => candidate.keyId === normalizedId && candidate.platform === s.host);
+    const key = trust.ownershipKeys?.find((candidate) => normalize(candidate.keyId) === normalizedId && candidate.platform === s.host);
     if (!key) return ["signing key is not active in protected ownership key log"];
     try {
       const valid = verifyOwnershipSignature(key.publicKeyPem, Buffer.from(canonicalJson(approvalPayload(record))), Buffer.from(s.value, "base64"));
@@ -323,12 +373,12 @@ function signatureProblems(record, trust) {
     } catch { return ["malformed signature or public key"]; }
   }
   const host = trust.hosts?.[s.host];
-  if (!host || host.keyId !== s.keyId || !host.publicKeyPem) return ["signing key is not enrolled for host"];
+  if (!host || normalize(host.keyId) !== normalizedId || !host.publicKeyPem) return ["signing key is not enrolled for host"];
   const keys = REQUIRED_HOSTS.map((name) => trust.hosts?.[name]);
-  if (!keys.every((k) => k?.keyId && k.publicKeyPem && !trust.revokedKeyIds?.includes(k.keyId)) || keys[0]?.keyId === keys[1]?.keyId || keys[0]?.publicKeyPem === keys[1]?.publicKeyPem) return ["pending: distinct Windows and macOS approval keys must be enrolled"];
+  if (!keys.every((k) => k?.keyId && k.publicKeyPem && !revoked.has(normalize(k.keyId))) || normalize(keys[0]?.keyId) === normalize(keys[1]?.keyId) || keys[0]?.publicKeyPem === keys[1]?.publicKeyPem) return ["pending: distinct Windows and macOS approval keys must be enrolled"];
   try {
     const publicKey = createPublicKey(host.publicKeyPem);
-    if (s.keyId !== keyIdForPublicKey(s.host, publicKey)) return ["signing key ID does not match enrolled public key"];
+    if (normalizedId !== normalize(keyIdForPublicKey(s.host, publicKey))) return ["signing key ID does not match enrolled public key"];
     const valid = cryptoVerify("sha256", Buffer.from(canonicalJson(approvalPayload(record))), publicKey, Buffer.from(s.value, "base64"));
     return valid ? [] : ["invalid signature"];
   } catch { return ["malformed signature or public key"];
@@ -336,13 +386,28 @@ function signatureProblems(record, trust) {
 }
 
 /** Verify signature, protected enrollment, floor, and exact scan coverage. */
-export function verifyException(record, { repositoryIdentity, catalogDigest, findings, trust, today = new Date().toISOString().slice(0, 10), scannerVersion, catalogVersion } = {}) {
+export function verifyException(record, { repositoryIdentity, catalogDigest, policyDigest, findings, trust, today = new Date().toISOString().slice(0, 10), scannerVersion, catalogVersion } = {}) {
   const problems = validateRecord(record);
   if (problems.length) return { ok: false, problems };
-  if (!trust) return { ok: false, problems: ["pending: external ownership trust is not enrolled"] };
-  const p = signatureProblems(record, trust);
-  if (p.length) return { ok: false, problems: p };
   const r = record.payload;
+  if (!validDate(today)) return { ok: false, problems: ["invalid verification date"] };
+  if (r.issued > today) problems.push("approval issued date is in the future");
+  const duration = Date.parse(`${r.expires}T00:00:00Z`) - Date.parse(`${r.issued}T00:00:00Z`);
+  if (duration <= 0 || duration > 90 * 86400000) problems.push("approval expiry must be after issued and within 90 days");
+  if (r.expires < today) problems.push(`approval expired ${r.expires}`);
+  if (problems.length) return { ok: false, problems };
+  if (!versionAtLeast(scannerVersion, r.minimumScannerVersion)) problems.push("scanner version missing, malformed, or below approval minimum");
+  if (!versionAtLeast(catalogVersion, r.minimumCatalogVersion)) problems.push("catalog version missing, malformed, or below approval minimum");
+  if (!trust) problems.push("pending: external ownership trust is not enrolled");
+  else problems.push(...validateOwnershipFloor(trust, { scannerVersion, catalogVersion, catalogDigest }).problems);
+  if (problems.length) return { ok: false, problems };
+  if (typeof policyDigest !== "string" || !HEX.test(policyDigest) || r.policyDigest !== policyDigest) return { ok: false, problems: ["ownership fingerprint policy digest missing or changed"] };
+  if (!Array.isArray(findings)) return { ok: false, problems: ["current findings missing or malformed"] };
+  let current;
+  try { current = findings.filter((f) => f.fingerprint === r.fingerprint).map((f) => ({ path: f.file, kind: f.kind ?? (f.ecosystem ? "dependency" : "source"), hash: occurrenceHash(f) })); }
+  catch (error) { return { ok: false, problems: [error.message] }; }
+  for (const item of r.occurrences) if (!current.some((f) => f.path === item.path && f.hash === item.hash && f.kind === item.kind)) problems.push(`baseline occurrence changed or missing: ${item.path} (${item.hash})`);
+  if (problems.length) return { ok: false, problems };
   const trackingEvidence = sha256({ repositoryIdentity: r.repositoryIdentity, requestId: r.requestId, trackingRef: r.trackingRef });
   if (!trust.verifiedTrackingEvidence?.includes(trackingEvidence)) problems.push("tracking reference lacks protected verification evidence");
   let recordIdentity, currentIdentity;
@@ -352,15 +417,8 @@ export function verifyException(record, { repositoryIdentity, catalogDigest, fin
   if (recordIdentity && currentIdentity && recordIdentity !== currentIdentity) problems.push("repository identity changed");
   const registration = verifyRepositoryRegistration(trust, r.repositoryIdentity, { files: (findings ?? []).map((f) => f.file) });
   problems.push(...registration.problems);
-  if (r.catalogDigest !== catalogDigest) problems.push("ownership catalog digest changed");
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(today) || Number.isNaN(Date.parse(`${today}T00:00:00Z`)) || new Date(`${today}T00:00:00Z`).toISOString().slice(0, 10) !== today) problems.push("invalid verification date");
-  else if (r.expires < today) problems.push(`approval expired ${r.expires}`);
-  const floor = validateOwnershipFloor(trust, { scannerVersion, catalogVersion, catalogDigest });
-  problems.push(...floor.problems);
-  const selected = (findings ?? []).filter((f) => f.fingerprint === r.fingerprint && r.paths.includes(f.file));
-  const actual = selected.map(occurrenceHash).sort();
-  if (canonicalJson(actual) !== canonicalJson([...r.occurrenceHashes].sort())) problems.push("baseline occurrence set changed");
-  if (!actual.length) problems.push("approval is stale and matches no current occurrences");
+  if (record.signature === null) problems.push("unsigned approval record");
+  else if (!problems.length) problems.push(...signatureProblems(record, trust));
   return { ok: problems.length === 0, problems };
 }
 

@@ -1,69 +1,150 @@
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 import { OwnershipAdmission, classifyOwnershipReport, defaultScannerRoot, ownershipScanRoot } from './ownership-admission.mjs';
 
+const digest = (n) => n.toString(16).padStart(64, '0');
+const identity = 'https://github.com/test/repo';
+const trust = { schema: 1, revokedKeyIds: [], verifiedTrackingEvidence: [], minimumScannerVersion: '2.0.0', minimumCatalogVersion: '1', repositories: [{ repositoryIdentity: identity, roots: ['.'], visibility: 'private' }] };
+const inputs = () => ({ contentDigest: digest(1), catalogDigest: digest(2), trustDigest: digest(3), approvalsDigest: digest(4), scannerPolicyDigest: digest(5), protectedFloors: { minimumScannerVersion: '2.0.0', minimumCatalogVersion: '1', minimumCatalogDigest: null } });
 const violation = { fingerprint: 'browser.npm.playwright', capability: 'browser-automation', package: 'rightkit-browser', file: 'package.json', line: 0 };
-const fake = (report, calls = []) => async ({ scanRoot }) => { calls.push(scanRoot); return typeof report === 'function' ? report() : report; };
-
-test('classification separates real violations from enrollment-pending backlog', () => {
-  assert.equal(classifyOwnershipReport({ violations: [], problems: [] }).outcome, 'clean');
-  assert.equal(classifyOwnershipReport({ violations: [violation], enrollmentPending: true }).outcome, 'pending-enrollment');
-  assert.equal(classifyOwnershipReport({ violations: [violation], enrollmentPending: false }).outcome, 'violations');
-  assert.equal(classifyOwnershipReport({ violations: [], problems: ['exception #0: expired'] }).outcome, 'problems');
-  assert.deepEqual(classifyOwnershipReport({ violations: [violation] }).violations[0], { capability: 'browser-automation', owner: 'rightkit-browser', fingerprint: 'browser.npm.playwright', file: 'package.json', line: 0 });
+const report = (patch = {}) => ({ ok: true, enrollmentPending: false, violations: [], problems: [], coverage: [], metadata: { repositoryIdentity: identity, scannerVersion: '2.4.0', catalogVersion: '1', catalogDigest: digest(2), coverage: [], roots: [{ root: '.' }] }, ...patch });
+function admission(mode, value, options = {}) {
+  return new OwnershipAdmission({ mode, scannerRoot: defaultScannerRoot(), runInputs: async () => ({ inputs: inputs(), trust, complete: true }), runScan: async () => ({ report: value, trust, inputs: inputs() }), ...options });
+}
+const root = join(tmpdir(), 'ownership-verdict-app');
+const cases = [
+  ['ok false', report({ ok: false }), 'RK_OWNERSHIP_REPORT_FAILED'],
+  ['pending enrollment', report({ ok: false, enrollmentPending: true }), 'RK_OWNERSHIP_PENDING_ENROLLMENT'],
+  ['incomplete coverage', report({ coverage: [{ path: 'source.bin', status: 'unscanned', reason: 'unsupported-input' }] }), 'RK_OWNERSHIP_INCOMPLETE_COVERAGE'],
+  ['invalid registration', report({ metadata: { ...report().metadata, repositoryIdentity: 'https://github.com/test/unregistered' } }), 'RK_OWNERSHIP_INVALID_REGISTRATION'],
+  ['scanner downgrade', report({ metadata: { ...report().metadata, scannerVersion: '1.0.0' } }), 'RK_OWNERSHIP_POLICY_DOWNGRADE'],
+  ['catalog downgrade', report({ metadata: { ...report().metadata, catalogVersion: '0' } }), 'RK_OWNERSHIP_POLICY_DOWNGRADE'],
+  ['violation', report({ ok: false, violations: [violation] }), 'RK_OWNERSHIP_VIOLATION'],
+  ['problems', report({ ok: false, problems: ['exception expired'] }), 'RK_OWNERSHIP_UNVERIFIED'],
+];
+for (const [name, value, code] of cases) test('enforce refuses ' + name + '; report records identical typed verdict', async () => {
+  const enforce = admission('enforce', value), advisory = admission('report', value);
+  const result = await enforce.evaluate({ repositoryRoot: root });
+  assert.equal(result.admit, false); assert.equal(result.code, code); assert.ok(result.problems.length);
+  assert.throws(() => enforce.assertAdmitted(result), { code });
+  const recorded = await advisory.evaluate({ repositoryRoot: root });
+  assert.equal(recorded.code, code); assert.equal(recorded.admit, false);
+  assert.doesNotThrow(() => advisory.assertAdmitted(recorded));
 });
 
-test('report mode records but never refuses; enforce refuses violations and unverifiable scans', async () => {
-  const dirty = { report: { violations: [violation] } };
-  const report = new OwnershipAdmission({ mode: 'report', scannerRoot: 'scanner', runScan: fake(dirty) });
-  report.assertAdmitted(await report.evaluate({ repositoryRoot: join(tmpdir(), 'app-a') }));
-  const enforce = new OwnershipAdmission({ mode: 'enforce', scannerRoot: 'scanner', runScan: fake(dirty) });
-  assert.throws(() => enforce.assertAdmitted({ outcome: 'violations', violations: [{ ...violation, owner: 'rightkit-browser' }] }), { code: 'RK_OWNERSHIP_VIOLATION', message: /browser-automation .* owned by rightkit-browser/ });
-  await assert.rejects(async () => enforce.assertAdmitted(await enforce.evaluate({ repositoryRoot: join(tmpdir(), 'app-a') })), { code: 'RK_OWNERSHIP_VIOLATION' });
-  const broken = new OwnershipAdmission({ mode: 'enforce', scannerRoot: 'scanner', runScan: fake({ error: 'scan exceeded 30000 ms' }) });
-  await assert.rejects(async () => broken.assertAdmitted(await broken.evaluate({ repositoryRoot: join(tmpdir(), 'app-b') })), { code: 'RK_OWNERSHIP_UNVERIFIED' });
-  const pending = new OwnershipAdmission({ mode: 'enforce', scannerRoot: 'scanner', runScan: fake({ report: { violations: [violation], enrollmentPending: true } }) });
-  pending.assertAdmitted(await pending.evaluate({ repositoryRoot: join(tmpdir(), 'app-c') }));
-  const missing = new OwnershipAdmission({ mode: 'enforce', scannerRoot: null });
-  assert.equal((await missing.evaluate({ repositoryRoot: join(tmpdir(), 'app-d') })).outcome, 'unscanned');
+test('missing, extra, wrong-typed & non-object reports fail closed', async () => {
+  const malformed = [null, undefined, [], 'clean', 1, { ...report(), extra: true }];
+  for (const key of ['ok', 'enrollmentPending', 'violations', 'problems', 'coverage', 'metadata']) {
+    const missing = report(); delete missing[key]; malformed.push(missing);
+    malformed.push(report({ [key]: key === 'ok' || key === 'enrollmentPending' ? 'false' : 1 }));
+  }
+  malformed.push(report({ metadata: { ...report().metadata, extra: true } }), report({ coverage: [null] }), report({ violations: [null] }), report({ problems: [1] }),
+    report({ violations: [{ ...violation, extra: true }] }), report({ rows: [{ capability: 1 }] }),
+    report({ metadata: { ...report().metadata, contentDigests: [{ path: 'source.rs', digest: 1 }] } }));
+  for (const value of malformed) {
+    const gate = admission('enforce', value), result = await gate.evaluate({ repositoryRoot: root });
+    assert.equal(result.code, 'RK_OWNERSHIP_MALFORMED_REPORT', JSON.stringify(value));
+    assert.throws(() => gate.assertAdmitted(result), { code: 'RK_OWNERSHIP_MALFORMED_REPORT' });
+  }
 });
 
-test('scans are cached per root, deduplicated in flight, and failures are retried', async () => {
-  let clock = 0; const calls = [];
-  const admission = new OwnershipAdmission({ scannerRoot: 'scanner', ttlMs: 1_000, now: () => clock, runScan: fake({ report: { violations: [] } }, calls) });
-  const root = join(tmpdir(), 'app-cache');
-  const [a, b] = await Promise.all([admission.evaluate({ repositoryRoot: root }), admission.evaluate({ repositoryRoot: root })]);
-  assert.equal(calls.length, 1); assert.equal(a, b);
-  assert.equal((await admission.evaluate({ repositoryRoot: root })).cached, true); assert.equal(calls.length, 1);
-  clock = 2_000; await admission.evaluate({ repositoryRoot: root }); assert.equal(calls.length, 2);
-  const failing = []; const flaky = new OwnershipAdmission({ scannerRoot: 'scanner', runScan: fake({ error: 'boom' }, failing) });
-  await flaky.evaluate({ repositoryRoot: root }); await flaky.evaluate({ repositoryRoot: root });
-  assert.equal(failing.length, 2);
-  assert.equal((await new OwnershipAdmission({ mode: 'off', runScan: () => assert.fail('off mode never scans') }).evaluate({ repositoryRoot: root })).outcome, 'off');
+test('shared classification accepts complete protected report & preserves violation details', () => {
+  assert.equal(classifyOwnershipReport(report(), trust).admit, true);
+  const dirty = classifyOwnershipReport(report({ violations: [violation] }), trust);
+  assert.equal(dirty.code, 'RK_OWNERSHIP_VIOLATION');
+  assert.deepEqual(dirty.violations[0], { capability: 'browser-automation', owner: 'rightkit-browser', fingerprint: 'browser.npm.playwright', file: 'package.json', line: 0 });
+  assert.equal(classifyOwnershipReport(report({ enrollmentPending: true }), null).outcome, 'pending-enrollment');
+  assert.equal(classifyOwnershipReport(report(), null).code, 'RK_OWNERSHIP_INVALID_REGISTRATION');
 });
 
-test('RightKit host monorepo: RightKit crates are exempt, other workspaces scan alone', async () => {
-  const host = await mkdtemp(join(tmpdir(), 'rk-host-')); try {
+test('catalog paths never confer owner exemption & missing roots refuse', async () => {
+  const host = await mkdtemp(join(tmpdir(), 'rk-false-owner-'));
+  try {
     await mkdir(join(host, 'tools', 'rightkit', 'packages', 'release'), { recursive: true });
     await writeFile(join(host, 'tools', 'rightkit', 'packages', 'release', 'rightkit-ownership.json'), '{}');
-    assert.deepEqual(ownershipScanRoot({ repositoryRoot: host, workspaceRoot: join(host, 'tools', 'rightkit') }), { exempt: 'rightkit-source' });
-    assert.deepEqual(ownershipScanRoot({ repositoryRoot: host, workspaceRoot: join(host, 'tools', 'other') }), { root: join(host, 'tools', 'other') });
-    assert.deepEqual(ownershipScanRoot({ repositoryRoot: join(host, 'app'), workspaceRoot: join(host, 'app', 'src-tauri') }), { root: join(host, 'app') });
+    await writeFile(join(host, 'rightkit-ownership.json'), '{}');
+    assert.deepEqual(ownershipScanRoot({ repositoryRoot: host, workspaceRoot: join(host, 'tools', 'rightkit') }), { root: host });
+    assert.deepEqual(ownershipScanRoot({ repositoryRoot: host, workspaceRoot: join(host, 'tools', 'other') }), { root: host });
+    const gate = admission('enforce', report({ violations: [violation] }));
+    const result = await gate.evaluate({ repositoryRoot: host });
+    assert.throws(() => gate.assertAdmitted(result), { code: 'RK_OWNERSHIP_VIOLATION' });
+    const missing = await gate.evaluate({});
+    assert.throws(() => gate.assertAdmitted(missing), { code: 'RK_OWNERSHIP_INVALID_REGISTRATION' });
   } finally { await rm(host, { recursive: true, force: true }); }
 });
 
-test('the real scanner flags an app that depends on Playwright directly', { timeout: 60_000 }, async () => {
-  const scannerRoot = defaultScannerRoot(); assert.ok(scannerRoot, 'scanner resolvable from the source checkout');
-  const app = await mkdtemp(join(tmpdir(), 'rk-own-app-')); try {
-    await writeFile(join(app, 'package.json'), JSON.stringify({ name: 'dup-app', version: '0.0.0', dependencies: { playwright: '1.50.0' } }));
-    const git = (...args) => execFileSync('git', ['-C', app, ...args], { stdio: 'ignore' });
-    git('init'); git('config', 'user.email', 'rk@example.invalid'); git('config', 'user.name', 'RK'); git('add', '.'); git('commit', '-m', 'app');
-    const result = await new OwnershipAdmission({ mode: 'enforce', scannerRoot }).evaluate({ repositoryRoot: app });
-    assert.ok(['violations', 'pending-enrollment'].includes(result.outcome), `${result.outcome}: ${result.error ?? ''}`);
-    assert.ok(result.violations.some((v) => v.fingerprint === 'browser.npm.playwright' && v.owner === 'rightkit-browser'));
-  } finally { await rm(app, { recursive: true, force: true }); }
+for (const key of Object.keys(inputs())) test('cache invalidates changed ' + key + ' without TTL reuse', async () => {
+  let current = inputs(), calls = 0;
+  const gate = admission('enforce', report(), { now: () => 0, runInputs: async () => ({ inputs: structuredClone(current), trust, complete: true }), runScan: async () => { calls++; return { inputs: structuredClone(current), trust, report: report(calls > 1 ? { ok: false, violations: [violation] } : {}) }; } });
+  assert.equal((await gate.evaluate({ repositoryRoot: root })).admit, true);
+  current[key] = key === 'protectedFloors' ? { ...current[key], minimumScannerVersion: '2.1.0' } : digest(99);
+  const next = await gate.evaluate({ repositoryRoot: root });
+  assert.equal(calls, 2); assert.equal(next.cached, false); assert.equal(next.admit, false);
+});
+
+test('identical digests share cache & in-flight scan regardless elapsed time', async () => {
+  let clock = 0, calls = 0, probes = 0;
+  const gate = admission('enforce', report(), { now: () => clock, runInputs: async () => { probes++; return { inputs: inputs(), trust, complete: true }; }, runScan: async () => { calls++; await new Promise((resolve) => setImmediate(resolve)); return { report: report(), trust, inputs: inputs() }; } });
+  const [a, b] = await Promise.all([gate.evaluate({ repositoryRoot: root }), gate.evaluate({ repositoryRoot: root })]);
+  assert.equal(calls, 1); assert.equal(a.admit, true); assert.equal(b.admit, true);
+  clock = 120_000;
+  assert.equal((await gate.evaluate({ repositoryRoot: root })).cached, true); assert.equal(calls, 1); assert.ok(probes >= 3);
+});
+
+test('incomplete inventory never inherits cached or in-flight clean verdict', async () => {
+  let complete = true;
+  const gate = admission('enforce', report(), { runInputs: async () => ({ inputs: inputs(), trust, complete }) });
+  assert.equal((await gate.evaluate({ repositoryRoot: root })).admit, true);
+  complete = false;
+  const refused = await gate.evaluate({ repositoryRoot: root });
+  assert.equal(refused.code, 'RK_OWNERSHIP_INCOMPLETE_COVERAGE'); assert.equal(refused.admit, false); assert.equal(refused.cached, false);
+});
+
+test('protected pinned catalog, root coverage & malformed registry fail closed', () => {
+  assert.equal(classifyOwnershipReport(report(), { ...trust, minimumCatalogDigest: digest(99) }).code, 'RK_OWNERSHIP_POLICY_DOWNGRADE');
+  assert.equal(classifyOwnershipReport(report(), { ...trust, repositories: [{ ...trust.repositories[0], roots: ['engine', 'app'] }] }).code, 'RK_OWNERSHIP_INVALID_REGISTRATION');
+  assert.equal(classifyOwnershipReport(report(), { ...trust, repositories: [null] }).code, 'RK_OWNERSHIP_INVALID_REGISTRATION');
+  assert.equal(classifyOwnershipReport(report({ metadata: { ...report().metadata, coverage: [{ path: 'source.rs', status: 'incomplete', reason: 'missing' }] } }), trust).code, 'RK_OWNERSHIP_INCOMPLETE_COVERAGE');
+});
+
+test('missing digests, changed scan bindings & unavailable scanners refuse; failures retry', async () => {
+  for (const key of Object.keys(inputs())) {
+    const incomplete = inputs(); delete incomplete[key];
+    const gate = admission('enforce', report(), { runInputs: async () => ({ inputs: incomplete, trust, complete: true }) });
+    const result = await gate.evaluate({ repositoryRoot: root });
+    assert.throws(() => gate.assertAdmitted(result), { code: 'RK_OWNERSHIP_INVALID_INPUTS' });
+  }
+  const gate = admission('enforce', report(), { runScan: async () => ({ report: report(), trust, inputs: { ...inputs(), contentDigest: digest(99) } }) });
+  const changed = await gate.evaluate({ repositoryRoot: root });
+  assert.throws(() => gate.assertAdmitted(changed), { code: 'RK_OWNERSHIP_INPUTS_CHANGED' });
+  for (const complete of [undefined, null, 'true']) {
+    const malformed = admission('enforce', report(), { runInputs: async () => ({ inputs: inputs(), trust, complete }) });
+    assert.equal((await malformed.evaluate({ repositoryRoot: root })).code, 'RK_OWNERSHIP_INVALID_INPUTS');
+  }
+  let calls = 0;
+  const broken = admission('enforce', report(), { runScan: async () => { calls++; return { error: 'scan timeout' }; } });
+  for (let i = 0; i < 2; i++) {
+    const result = await broken.evaluate({ repositoryRoot: root });
+    assert.throws(() => broken.assertAdmitted(result), { code: 'RK_OWNERSHIP_UNVERIFIED' });
+  }
+  assert.equal(calls, 2);
+  const missing = await new OwnershipAdmission({ mode: 'enforce', scannerRoot: null }).evaluate({ repositoryRoot: root });
+  assert.equal(missing.outcome, 'unscanned');
+  assert.equal((await new OwnershipAdmission({ mode: 'off', runScan: () => assert.fail('off scans') }).evaluate({ repositoryRoot: root })).outcome, 'off');
+});
+
+test('only block-tier or banned violations refuse; advise violations admit with an advisory verdict', async () => {
+  const { ownershipVerdict } = await import('../../release/ownership-verdict.mjs');
+  const advise = { ...violation, tier: 'advise' };
+  const advisory = ownershipVerdict(report({ violations: [advise] }), trust);
+  assert.equal(advisory.admit, true);
+  assert.equal(advisory.code, 'RK_OWNERSHIP_ADVISORY');
+  assert.match(advisory.problems[0], /\[advise\]/);
+  assert.equal(ownershipVerdict(report({ ok: false, violations: [{ ...violation, tier: 'block' }] }), trust).code, 'RK_OWNERSHIP_VIOLATION');
+  assert.equal(ownershipVerdict(report({ ok: false, violations: [{ ...advise, policy: 'banned' }] }), trust).code, 'RK_OWNERSHIP_VIOLATION');
+  assert.equal(ownershipVerdict(report({ ok: false, violations: [violation] }), trust).code, 'RK_OWNERSHIP_VIOLATION', 'missing tier fails closed as block');
+  assert.equal(ownershipVerdict(report({ violations: [{ ...violation, tier: 'warn' }] }), trust).code, 'RK_OWNERSHIP_MALFORMED_REPORT');
 });

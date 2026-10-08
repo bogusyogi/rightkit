@@ -33,7 +33,6 @@ function statusFor(row, report) {
   if (report.enrollmentPending && (row.status === "blocked" || row.status === "blocked-by-findings")) return "enrollment-pending";
   if (row.status === "blocked" || row.status === "blocked-by-findings") return "blocked";
   if (row.status === "excepted") return "excepted";
-  if (row.status === "qa-only") return "qa-only";
   if (row.status === "verified-integration") return "verified-integration";
   if (row.status === "declared-dependency" || row.uses === true) return "declared-dependency";
   if (report.coverage?.length) return "unscanned";
@@ -60,7 +59,7 @@ function asRecord(app, root, scope, report, manifest, versions, scannedAt, stora
   const advisories = (report.findings ?? report.violations ?? []).filter(isAdvice);
   report = { ...report, violations: (report.violations ?? []).filter((finding) => !isAdvice(finding)) };
   const meta = report.metadata ?? {};
-  const findings = (report.findings ?? []).map((f) => ({ fingerprint: f.fingerprint, capability: f.capability, file: f.file, line: f.line ?? 0, occurrenceHash: f.occurrenceHash ?? sha256(canonicalJson(f)), ...(f.qaOnly ? { qaOnly: true } : {}) }));
+  const findings = (report.findings ?? []).map((f) => ({ fingerprint: f.fingerprint, capability: f.capability, file: f.file, line: f.line ?? 0, occurrenceHash: f.occurrenceHash ?? sha256(canonicalJson(f)) }));
   const files = [...new Set(findings.map((f) => f.file))].sort();
   const contentDigestSource = meta.contentDigests ? "scanner-inputs" : "finding-occurrences-only";
   const contentDigests = meta.contentDigests ?? findings.map((f) => ({ path: f.file, digest: f.occurrenceHash, kind: "finding-occurrence" }));
