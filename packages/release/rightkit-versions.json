@@ -251,7 +251,7 @@
     "rightkit-embed": "0.2.2",
     "rightkit-framed-sidecar": "0.1.0",
     "rightkit-fs": "0.1.0",
-    "rightkit-http": "0.1.0",
+    "rightkit-http": "0.2.0",
     "rightkit-jobs": "0.2.2",
     "rightkit-license": "0.1.3",
     "rightkit-logs": "0.2.0",
@@ -319,7 +319,7 @@
       "rightkit-qts-ggml-sys": "0.1.0",
       "rightkit-sandbox": "0.2.4",
       "rightkit-search": "0.1.0",
-      "rightkit-secrets": "0.1.0",
+      "rightkit-secrets": "0.1.1",
       "rightkit-service": "0.1.0",
       "rightkit-settings": "0.1.0",
       "rightkit-shell": "0.1.3",
@@ -428,6 +428,9 @@
       "0.1.8"
     ],
     "rightkit-secrets": [
+      "0.1.0"
+    ],
+    "rightkit-http": [
       "0.1.0"
     ]
   }
