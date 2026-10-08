@@ -5471,6 +5471,7 @@ version = "0.1.0"
 dependencies = [
  "blake3",
  "rightkit-contracts",
+ "rightkit-framed-sidecar",
  "serde",
  "serde_json",
  "windows 0.61.1",
