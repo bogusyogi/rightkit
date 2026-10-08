@@ -60,7 +60,7 @@ export async function installAgentPolicyHooks({ home = homedir(), platform = pro
   const sessionCommand = quotedHookCommand(nodePath, assets.sessionHook);
 
   if (!claude.config.hooks || typeof claude.config.hooks !== 'object' || Array.isArray(claude.config.hooks)) throw new TypeError('Claude settings.json must contain a hooks object');
-  appendHook(claude.config.hooks, 'PreToolUse', { matcher: 'Write|Edit|MultiEdit' }, writeCommand);
+  appendHook(claude.config.hooks, 'PreToolUse', { matcher: 'Write|Edit|MultiEdit|Bash' }, writeCommand);
   appendHook(claude.config.hooks, 'SessionStart', {}, sessionCommand);
   if (!codex.config.hooks || typeof codex.config.hooks !== 'object' || Array.isArray(codex.config.hooks)) throw new TypeError('Codex hooks.json must contain a hooks object');
   appendHook(codex.config.hooks, 'PreToolUse', { matcher: 'Bash|apply_patch|exec_command|functions\\.exec' }, writeCommand);
