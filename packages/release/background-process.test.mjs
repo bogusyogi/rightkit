@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import childProcess from "node:child_process";
-import { readdirSync, readFileSync } from "node:fs";
+import { mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 import test from "node:test";
@@ -52,6 +53,16 @@ test("execFile preserves callback-only overload", (t) => {
   assert.deepEqual(mocked.mock.calls[0].arguments, ["fixture", [], { windowsHide: true }, callback]);
 });
 
+test("Windows PowerShell environment removes PSModulePath case-insensitively without mutating inputs", () => {
+  const base = { Path: "base", pSmOdUlEpAtH: "legacy", RK_TRUST_DIR: "old", Keep: "yes" };
+  const overrides = { PATH: "override", RK_TRUST_DIR: "new", Extra: "value" };
+  assert.deepEqual(background.windowsPowerShellEnvironment(overrides, base), {
+    Path: "base", PATH: "override", RK_TRUST_DIR: "new", Keep: "yes", Extra: "value",
+  });
+  assert.deepEqual(base, { Path: "base", pSmOdUlEpAtH: "legacy", RK_TRUST_DIR: "old", Keep: "yes" });
+  assert.deepEqual(overrides, { PATH: "override", RK_TRUST_DIR: "new", Extra: "value" });
+});
+
 test("real subprocesses retain Unicode output, exit codes & promisified result", async () => {
   const code = "process.stdout.write('ü·中'); process.stderr.write('diagnostic')";
   const result = background.spawnSync(process.execPath, ["-e", code], { encoding: "utf8" });
@@ -75,4 +86,18 @@ test("Windows child console is invisible through sync & async launchers", { skip
     child.once("close", (code) => { try { assert.equal(code, 0); resolve(); } catch (error) { reject(error); } });
   });
   assert.match((await promisify(background.execFile)("powershell.exe", args)).stdout, /hidden/);
+});
+
+test("Windows PowerShell Get-Acl works through sanitized launch", { skip: process.platform !== "win32" }, () => {
+  const directory = mkdtempSync(path.join(tmpdir(), "rk-acl-module-path-"));
+  try {
+    const script = "$ErrorActionPreference='Stop'; Import-Module Microsoft.PowerShell.Security; $a=Get-Acl -LiteralPath $env:RK_ACL_PROBE_TARGET; $a.GetOwner([Security.Principal.SecurityIdentifier]).Value";
+    const args = ["-NoProfile", "-NonInteractive", "-Command", script];
+    const sanitized = background.spawnSync("C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe", args, {
+      encoding: "utf8", windowsHide: true,
+      env: background.windowsPowerShellEnvironment({ RK_ACL_PROBE_TARGET: directory }),
+    });
+    assert.equal(sanitized.status, 0, sanitized.stderr);
+    assert.match(sanitized.stdout, /^S-1-\d+(?:-\d+)+\s*$/);
+  } finally { rmSync(directory, { recursive: true, force: true }); }
 });

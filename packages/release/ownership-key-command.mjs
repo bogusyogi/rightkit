@@ -3,7 +3,7 @@ import { accessSync, closeSync, existsSync, lstatSync, mkdirSync, mkdtempSync, o
 import path from "node:path";
 import os from "node:os";
 import { fileURLToPath } from "node:url";
-import { spawnSync } from "./background-process.mjs";
+import { spawnSync, windowsPowerShellEnvironment } from "./background-process.mjs";
 import { createKeyEvent, keyFingerprint, verifyKeyLog, verifyKeyRequest } from "./ownership-key-log.mjs";
 import { canonicalRepositoryIdentity, DEFAULT_TRUST_PATH, loadTrustedExternal, resolveKeyLogTrust, __testOnly as approvalTestOnly } from "./ownership-approval.mjs";
 import { readCommittedKeyAuthority } from "./ownership-key-authority.mjs";
@@ -297,7 +297,7 @@ function elevate(run, requestPath, digest, { modulePath = fileURLToPath(import.m
   const args = [wrapper, "--trust-script", child, "--request", requestPath, "--sha256", digest];
   if (hostPlatform === "win32") {
     const invocation = buildWindowsElevationInvocation(currentNode, child, requestPath, digest, wrapper);
-    const r = run(invocation.parentExecutable, invocation.parentArgs);
+    const r = run(invocation.parentExecutable, invocation.parentArgs, { env: windowsPowerShellEnvironment() });
     if (r.status !== 0) throw new Error("elevated trust update failed or was cancelled");
   } else {
     let r;

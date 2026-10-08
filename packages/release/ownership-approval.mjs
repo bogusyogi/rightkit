@@ -2,7 +2,7 @@
 import { createHash, createPublicKey, verify as cryptoVerify } from "node:crypto";
 import { existsSync, lstatSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
-import { spawnSync } from "./background-process.mjs";
+import { spawnSync, windowsPowerShellEnvironment } from "./background-process.mjs";
 import { verifyKeyLog, verifyOwnershipSignature } from "./ownership-key-log.mjs";
 
 export const APPROVAL_SCHEMA = 2;
@@ -289,7 +289,7 @@ function protectedLocation(file, platform, { runner = spawnSync, inspect = lstat
     for (const target of dirs) {
       try { if (inspect(target).isSymbolicLink()) problems.push(`trust path contains a reparse/symlink: ${target}`); } catch { problems.push(`cannot inspect trust path: ${target}`); continue; }
       const script = "$ErrorActionPreference='Stop'; $a=Get-Acl -LiteralPath $env:RK_TRUST_CHECK_TARGET; $item=Get-Item -Force -LiteralPath $env:RK_TRUST_CHECK_TARGET; $id=[Security.Principal.WindowsIdentity]::GetCurrent(); $p=New-Object Security.Principal.WindowsPrincipal($id); $ownerSid=$a.GetOwner([Security.Principal.SecurityIdentifier]).Value; $ownerName=$a.Owner; $out=[ordered]@{ownerSID=$ownerSid;ownerName=$ownerName;attributes=$item.Attributes.ToString();directory=[bool]$item.PSIsContainer;nonempty=(!$item.PSIsContainer -or [System.IO.Directory]::EnumerateFileSystemEntries($item.FullName).GetEnumerator().MoveNext());elevated=$p.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator);access=@($a.Access | ForEach-Object { [ordered]@{identitySID=$_.IdentityReference.Translate([Security.Principal.SecurityIdentifier]).Value;type=$_.AccessControlType.ToString();mask=[int64]$_.FileSystemRights.value__;propagationFlags=[int]$_.PropagationFlags} })}; $out | ConvertTo-Json -Compress -Depth 5";
-      const r = runner("C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", script], { encoding: "utf8", windowsHide: true, env: { ...process.env, RK_TRUST_CHECK_TARGET: target } });
+      const r = runner("C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", script], { encoding: "utf8", windowsHide: true, env: windowsPowerShellEnvironment({ RK_TRUST_CHECK_TARGET: target }) });
       if (r.status !== 0) { problems.push(`cannot inspect trust ACL: ${target}`); continue; }
       try {
         const acl = JSON.parse(r.stdout.trim());

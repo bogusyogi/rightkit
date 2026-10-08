@@ -153,6 +153,7 @@ test("disposable Windows ACL setup seam grants reader access without invoking OS
     assert.equal(calls.length, 1);
     assert.equal(calls[0].options.env.RK_TRUST_DIR, directory);
     assert.equal(calls[0].options.env.RK_TRUST_FILE, installed.file);
+    assert.equal(Object.keys(calls[0].options.env).some((key) => key.toLowerCase() === "psmodulepath"), false);
     assert.match(calls[0].args[3], /ReadAndExecute/);
   } finally { rmSync(directory, { recursive: true, force: true }); }
 });

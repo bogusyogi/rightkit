@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { closeSync, constants, fchmodSync, fstatSync, fsyncSync, lstatSync, mkdirSync, openSync, readFileSync, realpathSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { spawnSync } from "./background-process.mjs";
+import { spawnSync, windowsPowerShellEnvironment } from "./background-process.mjs";
 import { canonicalJson, canonicalRepositoryIdentity, __testOnly as approvalTestOnly, evaluateWindowsAcl, validateTrustRegistry } from "./ownership-approval.mjs";
 import { verifyKeyLog } from "./ownership-key-log.mjs";
 
@@ -149,7 +149,7 @@ function ensureNoLinks(file) {
 
 function assertElevated() {
   if (process.platform === "win32") {
-    const r = spawnSync("C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", "$p=New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsIdentity]::GetCurrent()); if (!$p.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) { exit 9 }"]);
+    const r = spawnSync("C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", "$p=New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsIdentity]::GetCurrent()); if (!$p.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) { exit 9 }"], { env: windowsPowerShellEnvironment() });
     if (r.status !== 0) throw new Error("protected trust updater requires an elevated Administrator process");
   } else if (process.platform === "darwin") {
     if (process.getuid?.() !== 0) throw new Error("protected trust updater requires root");
@@ -158,7 +158,7 @@ function assertElevated() {
 
 function hardenWindows(directory, file, runner = spawnSync) {
   const script = "$ErrorActionPreference='Stop'; $sidSys=New-Object Security.Principal.SecurityIdentifier('S-1-5-18'); $sidAdm=New-Object Security.Principal.SecurityIdentifier('S-1-5-32-544'); $sidUsers=New-Object Security.Principal.SecurityIdentifier('S-1-5-32-545'); foreach($p in @($env:RK_TRUST_DIR,$env:RK_TRUST_FILE)){ $a=New-Object Security.AccessControl.DirectorySecurity; if($p -eq $env:RK_TRUST_FILE){$a=New-Object Security.AccessControl.FileSecurity}; $a.SetAccessRuleProtection($true,$false); $a.SetOwner($sidAdm); $inherit=if($p -eq $env:RK_TRUST_FILE){[Security.AccessControl.InheritanceFlags]::None}else{[Security.AccessControl.InheritanceFlags]'ContainerInherit,ObjectInherit'}; foreach($sid in @($sidSys,$sidAdm)){ $rule=New-Object Security.AccessControl.FileSystemAccessRule($sid,'FullControl',$inherit,[Security.AccessControl.PropagationFlags]::None,'Allow'); $a.AddAccessRule($rule) }; $read=New-Object Security.AccessControl.FileSystemAccessRule($sidUsers,'ReadAndExecute',$inherit,[Security.AccessControl.PropagationFlags]::None,'Allow'); $a.AddAccessRule($read); Set-Acl -LiteralPath $p -AclObject $a }; $a=Get-Acl -LiteralPath $env:RK_TRUST_DIR; $a.SetOwner($sidSys); Set-Acl -LiteralPath $env:RK_TRUST_DIR -AclObject $a";
-  const r = runner("C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", script], { encoding: "utf8", windowsHide: true, env: { ...process.env, RK_TRUST_DIR: directory, RK_TRUST_FILE: file } });
+  const r = runner("C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", script], { encoding: "utf8", windowsHide: true, env: windowsPowerShellEnvironment({ RK_TRUST_DIR: directory, RK_TRUST_FILE: file }) });
   if (r.status !== 0) throw new Error("could not secure protected trust ACL");
 }
 
@@ -172,7 +172,7 @@ export const __testOnly = Object.freeze({
 });
 
 function runWindowsAclScript(script, environment) {
-  const r = spawnSync("C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", script], { encoding: "utf8", windowsHide: true, env: { ...process.env, ...environment } });
+  const r = spawnSync("C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", script], { encoding: "utf8", windowsHide: true, env: windowsPowerShellEnvironment(environment) });
   if (r.status !== 0) throw new Error("could not create or secure protected ownership path");
 }
 
@@ -223,7 +223,7 @@ function auditProtected(file) {
     const problems = [];
     for (const target of targets) {
       try { if (lstatSync(target).isSymbolicLink()) problems.push(`trust path contains a reparse/symlink: ${target}`); } catch { problems.push(`cannot inspect trust path: ${target}`); continue; }
-      const r = spawnSync("C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", script], { encoding: "utf8", windowsHide: true, env: { ...process.env, RK_TRUST_CHECK_TARGET: target } });
+      const r = spawnSync("C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", script], { encoding: "utf8", windowsHide: true, env: windowsPowerShellEnvironment({ RK_TRUST_CHECK_TARGET: target }) });
       if (r.status !== 0) { problems.push(`cannot inspect trust ACL: ${target}`); continue; }
       try { problems.push(...evaluateWindowsAcl(JSON.parse(r.stdout.trim()), { target, requireNonElevated: false }).problems.map((problem) => `${problem}: ${target}`)); }
       catch { problems.push(`malformed ACL result: ${target}`); }
