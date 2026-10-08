@@ -236,3 +236,23 @@ fn resampler_and_capture_gate_are_explicit() {
     assert!(samples.iter().all(|sample| sample.is_finite()));
     session.pause();
 }
+
+/// Real IMMNotificationClient + power registration on this host: both sources
+/// register, nothing is pending at rest, a second independent registration
+/// coexists, and drop unregisters without blocking.
+#[cfg(windows)]
+#[test]
+fn windows_lifecycle_registers_and_unregisters() {
+    use rightkit_audio::lifecycle::try_register;
+    use std::time::Instant;
+
+    let (first, first_rx) = try_register().expect("endpoint + power registration");
+    assert!(first.take_pending_power_event().is_none());
+    assert!(first_rx.try_recv().is_err());
+    let (second, _second_rx) = try_register().expect("second independent registration");
+    let started = Instant::now();
+    drop(second);
+    drop(first);
+    assert!(started.elapsed() < Duration::from_secs(2), "unregister must not block");
+    assert!(first_rx.recv_timeout(Duration::from_millis(50)).is_err());
+}
