@@ -45,7 +45,7 @@ use crate::bmp;
 use crate::codec::{self, Codec};
 use crate::error::{Code, RecordError};
 use crate::journal::Journal;
-use crate::pacer::{Closed, Decision, DropAggregator, Losses, Pacer};
+use crate::pacer::{ArrivalStats, Closed, Decision, DropAggregator, Losses, Pacer};
 use crate::record::{self, ClockDraft, DraftInput};
 
 /// Staging slots in the ring. Each in-flight frame holds one slot.
@@ -143,6 +143,7 @@ pub fn run(args: &CaptureArgs) -> Result<Value, RecordError> {
         "visibilityState": visibility_state,
         "elapsedMs": captured.elapsed.as_millis() as u64,
         "arrived": captured.arrived,
+        "arrivalIntervalsMs": output.arrivals.summary(),
         "kept": output.kept,
         "achievedFps": output.kept as f64 / seconds,
         "pacedDrops": output.paced_drops,
@@ -369,6 +370,7 @@ struct WorkerOutput {
     /// Frames that arrived after a sink failure and were not written.
     encoder_drops: u64,
     first_host_ns: Option<u64>,
+    arrivals: ArrivalStats,
     error: Option<RecordError>,
 }
 
@@ -462,7 +464,8 @@ fn worker(
             output.encoder_drops += 1;
         } else {
             let kept = pacer.offer(msg.host_ns as i64) == Decision::Keep;
-            aggregator.arrival(msg.host_ns as i64, kept, losses, &mut closed);
+            output.arrivals.record(msg.host_ns as i64);
+            aggregator.arrival(kept, losses, &mut closed);
             write_drops(&journal, msg.host_ns, &mut closed, &mut output);
             if !kept {
                 output.paced_drops += 1;

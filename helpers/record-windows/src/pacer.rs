@@ -30,47 +30,33 @@ pub struct Closed {
 ///
 /// Reasons:
 /// - `Backpressure`: callback losses that arrived with a frame.
-/// - `CaptureGap`: an arrival gap that spans more than two frame intervals, after
-///   the callback losses in it are accounted for.
 /// - `Unknown`: size or copy losses.
+///
+/// Only frames that were received and then lost are drops. Silence is not: the
+/// capture delivers frames only when content changes, so an arrival gap on static
+/// content is normal. Raw arrival intervals go to the summary (`ArrivalStats`), and
+/// missed state changes are judged later by the scenario runtime against the bundle.
 ///
 /// Pacer decimation (the source is faster than the requested fps) is intentional
 /// down-sampling, not a drop: it emits no event and does not close an open run.
 pub struct DropAggregator {
-    interval_ns: i64,
     frame_interval_ms: f64,
-    last_arrival_ns: Option<i64>,
     pending: Option<(DropReason, u32)>,
 }
 
 impl DropAggregator {
     pub fn new(fps: u32) -> Self {
-        Self {
-            interval_ns: NS_PER_SEC / i64::from(fps),
-            frame_interval_ms: 1000.0 / f64::from(fps),
-            last_arrival_ns: None,
-            pending: None,
-        }
+        Self { frame_interval_ms: 1000.0 / f64::from(fps), pending: None }
     }
 
-    /// Records one arrival: its host time, whether the pacer kept it, and the
-    /// callback losses since the previous arrival. Closed runs are pushed to `closed`.
-    pub fn arrival(&mut self, host_ns: i64, kept: bool, losses: Losses, closed: &mut Vec<Closed>) {
-        if let Some(prev) = self.last_arrival_ns {
-            // Frames that never reached the worker, inferred from the arrival gap.
-            let gap = host_ns - prev;
-            let missing = u32::try_from(((gap + self.interval_ns / 2) / self.interval_ns - 1).max(0)).unwrap_or(u32::MAX);
-            let backpressure = u32::try_from(losses.backpressure).unwrap_or(u32::MAX);
-            self.add(DropReason::Backpressure, backpressure, closed);
-            if missing >= 2 {
-                self.add(DropReason::CaptureGap, missing.saturating_sub(backpressure), closed);
-            }
-        }
+    /// Records one arrival: whether the pacer kept it, and the callback losses
+    /// since the previous arrival. Closed runs are pushed to `closed`.
+    pub fn arrival(&mut self, kept: bool, losses: Losses, closed: &mut Vec<Closed>) {
+        self.add(DropReason::Backpressure, u32::try_from(losses.backpressure).unwrap_or(u32::MAX), closed);
         self.add(DropReason::Unknown, u32::try_from(losses.unknown).unwrap_or(u32::MAX), closed);
         if kept {
             self.close(closed);
         }
-        self.last_arrival_ns = Some(host_ns);
     }
 
     /// Closes any run still open at the end of the capture.
@@ -95,6 +81,39 @@ impl DropAggregator {
         if let Some((reason, count)) = self.pending.take() {
             closed.push(Closed { reason, count, interval_ms: f64::from(count) * self.frame_interval_ms });
         }
+    }
+}
+
+/// Raw inter-arrival intervals of delivered frames, summarized for the capture summary.
+#[derive(Debug, Default)]
+pub struct ArrivalStats {
+    last_ns: Option<i64>,
+    intervals_ms: Vec<f64>,
+}
+
+impl ArrivalStats {
+    pub fn record(&mut self, host_ns: i64) {
+        if let Some(prev) = self.last_ns {
+            self.intervals_ms.push((host_ns - prev) as f64 / 1e6);
+        }
+        self.last_ns = Some(host_ns);
+    }
+
+    /// count, mean, p50, p95 and max of the intervals in milliseconds.
+    pub fn summary(&self) -> serde_json::Value {
+        let mut v = self.intervals_ms.clone();
+        if v.is_empty() {
+            return serde_json::json!({ "count": 0 });
+        }
+        v.sort_by(f64::total_cmp);
+        let pct = |p: f64| v[((v.len() - 1) as f64 * p).round() as usize];
+        serde_json::json!({
+            "count": v.len(),
+            "meanMs": v.iter().sum::<f64>() / v.len() as f64,
+            "p50Ms": pct(0.5),
+            "p95Ms": pct(0.95),
+            "maxMs": v[v.len() - 1],
+        })
     }
 }
 
@@ -223,8 +242,8 @@ mod aggregation_tests {
     fn run(fps: u32, arrivals: &[(i64, bool, Losses)]) -> Vec<Closed> {
         let mut agg = DropAggregator::new(fps);
         let mut closed = Vec::new();
-        for &(host, kept, losses) in arrivals {
-            agg.arrival(host, kept, losses, &mut closed);
+        for &(_host, kept, losses) in arrivals {
+            agg.arrival(kept, losses, &mut closed);
         }
         agg.finish(&mut closed);
         closed
@@ -261,18 +280,22 @@ mod aggregation_tests {
     }
 
     #[test]
-    fn an_arrival_gap_of_two_intervals_is_not_a_capture_gap() {
-        let closed = run(60, &[(at(0, 60), true, NONE), (at(2, 60), true, NONE)]);
-        assert!(closed.is_empty(), "a two-interval gap is within tolerance: {closed:?}");
+    fn silence_is_not_a_drop() {
+        // Static content: a long arrival gap with no frames lost.
+        let closed = run(60, &[(at(0, 60), true, NONE), (at(300, 60), true, NONE)]);
+        assert!(closed.is_empty(), "{closed:?}");
     }
 
     #[test]
-    fn an_arrival_gap_over_two_intervals_is_a_capture_gap() {
-        let closed = run(60, &[(at(0, 60), true, NONE), (at(5, 60), true, NONE)]);
-        assert_eq!(closed.len(), 1);
-        assert_eq!(closed[0].reason, DropReason::CaptureGap);
-        assert_eq!(closed[0].count, 4);
-        assert_interval(closed[0].interval_ms, 4, 60);
+    fn arrival_stats_summarize_raw_intervals() {
+        let mut stats = ArrivalStats::default();
+        for ms in [0, 16, 33, 50, 150] {
+            stats.record(ms * 1_000_000);
+        }
+        let s = stats.summary();
+        assert_eq!(s["count"], 4);
+        assert_eq!(s["maxMs"], 100.0);
+        assert_eq!(s["p50Ms"], 17.0);
     }
 
     #[test]
@@ -286,12 +309,12 @@ mod aggregation_tests {
     }
 
     #[test]
-    fn remaining_gap_after_backpressure_is_reported_as_capture_gap() {
-        // Five intervals between arrivals: four missing frames, one lost to backpressure.
+    fn a_gap_reports_only_the_frames_actually_lost() {
+        // Five intervals between arrivals with one frame lost to backpressure: one drop, no gap.
         let losses = Losses { backpressure: 1, unknown: 0 };
         let closed = run(60, &[(at(0, 60), true, NONE), (at(5, 60), true, losses)]);
         let reasons: Vec<_> = closed.iter().map(|c| (c.reason, c.count)).collect();
-        assert_eq!(reasons, vec![(DropReason::Backpressure, 1), (DropReason::CaptureGap, 3)]);
+        assert_eq!(reasons, vec![(DropReason::Backpressure, 1)]);
     }
 
     #[test]
