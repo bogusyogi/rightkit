@@ -35,6 +35,7 @@ struct PROCESS_POWER_THROTTLING_STATE {
 const SWP_NOSIZE: u32 = 0x0001;
 const SWP_NOZORDER: u32 = 0x0004;
 const SWP_NOACTIVATE: u32 = 0x0010;
+const SW_HIDE: i32 = 0;
 const PROCESS_POWER_THROTTLING_CURRENT_VERSION: u32 = 1;
 const PROCESS_POWER_THROTTLING_EXECUTION_SPEED: u32 = 1;
 const PROCESS_POWER_THROTTLING_CLASS: i32 = 4; // ProcessPowerThrottling
@@ -46,6 +47,7 @@ extern "system" {
     fn IsWindow(h: Hwnd) -> i32;
     fn IsWindowVisible(h: Hwnd) -> i32;
     fn IsIconic(h: Hwnd) -> i32;
+    fn ShowWindow(h: Hwnd, cmd: i32) -> i32;
     fn GetDpiForWindow(h: Hwnd) -> u32;
     fn GetWindowThreadProcessId(h: Hwnd, pid: *mut u32) -> u32;
     fn EnumDisplayMonitors(
@@ -168,6 +170,13 @@ impl WindowOps for WinWindow {
     }
     fn show(&mut self) -> Result<(), OffscreenError> {
         Ok(()) // already visible (prechecked); SetWindowPos without SWP_NOACTIVATE-breaking flags keeps it so
+    }
+    /// Hide before moving back, like macOS `orderOut:`, so the restore never flashes the
+    /// recording window onto a display. The window stays hidden after the session.
+    fn hide_for_restore(&mut self) -> Result<(), OffscreenError> {
+        // ShowWindow returns the previous visibility, not success; the restore then verifies the frame.
+        unsafe { ShowWindow(self.0, SW_HIDE) };
+        Ok(())
     }
 }
 

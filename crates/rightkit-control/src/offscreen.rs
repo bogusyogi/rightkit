@@ -314,7 +314,7 @@ pub trait WindowOps {
     /// Make the window visible to the window server without activating the app.
     fn show(&mut self) -> Result<(), OffscreenError>;
     /// Take the window off screen before it is moved back (macOS `orderOut:`, so the
-    /// restore never flashes on a display). Windows never hides: default no-op.
+    /// restore never flashes on a display; Windows `ShowWindow(SW_HIDE)`). Default no-op.
     fn hide_for_restore(&mut self) -> Result<(), OffscreenError> {
         Ok(())
     }
@@ -351,7 +351,7 @@ pub fn place<W: WindowOps>(w: &mut W) -> Result<Placement, OffscreenError> {
     })
 }
 
-/// Hide (macOS), move back to the original frame and verify.
+/// Hide, move back to the original frame and verify.
 pub fn restore<W: WindowOps>(w: &mut W, p: &Placement) -> Result<(), OffscreenError> {
     w.hide_for_restore()?;
     w.set_origin(p.original.x, p.original.y)?;
