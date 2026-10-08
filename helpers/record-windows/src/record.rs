@@ -40,6 +40,8 @@ pub fn frame_ready(session_id: &str, seq: u64, index: u64, host_ns: u64, sample_
         denied: None,
         postcondition: None,
         frame: Some(Frame { index, sample_pts_ns }),
+        // The contract's frame-dropped payload is never produced by this helper.
+        frame_dropped: None,
         intruders: Vec::new(),
         redaction_policy: PolicyRef {
             policy_id: REDACTION_POLICY_ID.into(),
@@ -70,6 +72,8 @@ pub struct DraftInput<'a> {
     pub reason: &'a str,
     pub os_build: &'a str,
     pub fps: u32,
+    /// record-session `capture.codec` (`h264` or `hevc`). Unset for the bmp debug path.
+    pub codec: Option<&'a str>,
     pub scale: f64,
     pub width: u32,
     pub height: u32,
@@ -87,7 +91,7 @@ pub struct DraftInput<'a> {
 
 /// The record-session draft. It is always `partial_quarantined`. It omits the
 /// keys this cut cannot produce (scenario, target, files, dependencies,
-/// redaction, capture.codec), so it does not validate as a complete bundle.
+/// redaction), so it does not validate as a complete bundle.
 pub fn session_draft(d: &DraftInput) -> Value {
     let mut capture = json!({
         "fps": d.fps,
@@ -97,6 +101,9 @@ pub fn session_draft(d: &DraftInput) -> Value {
         "scope": "app_surfaces",
         "displayOptIn": false,
     });
+    if let Some(codec) = d.codec {
+        capture["codec"] = json!(codec);
+    }
     if let Some(state) = d.visibility_state {
         capture["visibilityState"] = json!(state);
     }
@@ -205,6 +212,7 @@ mod tests {
             reason: "first cut",
             os_build: "26300.9550",
             fps: 60,
+            codec: Some("h264"),
             scale: 2.5,
             width: 1964,
             height: 1282,
@@ -217,8 +225,32 @@ mod tests {
             events_count: 10,
         });
         assert_eq!(doc["status"], "partial_quarantined");
+        assert_eq!(doc["capture"]["codec"], "h264");
         assert_eq!(doc["clock"]["mapping"]["hostToSamplePtsOffsetNs"], -150);
         assert!(validate_draft(&doc).is_err(), "draft lacks scenario/target/files and must not validate");
+    }
+
+    #[test]
+    fn session_draft_leaves_codec_unset_for_bmp() {
+        let doc = session_draft(&DraftInput {
+            bundle_id: "bundle.win-1",
+            created_at: "2026-10-08T12:00:00Z",
+            reason: "debug",
+            os_build: "26300.9550",
+            fps: 30,
+            codec: None,
+            scale: 1.0,
+            width: 640,
+            height: 480,
+            visibility_state: None,
+            bounds_pt: [0.0, 0.0, 640.0, 480.0],
+            dpi: 96,
+            clock: None,
+            frames_count: 0,
+            frames_dropped: 0,
+            events_count: 0,
+        });
+        assert!(doc["capture"].get("codec").is_none());
     }
 
     #[test]

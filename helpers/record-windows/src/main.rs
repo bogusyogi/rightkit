@@ -5,6 +5,7 @@
 
 mod args;
 mod bmp;
+mod codec;
 mod error;
 mod pacer;
 mod record;

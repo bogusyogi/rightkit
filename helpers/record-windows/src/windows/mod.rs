@@ -1,14 +1,15 @@
 //! Windows.Graphics.Capture backend for one HWND (RK2 Spike B design).
 //!
 //! The FrameArrived callback takes the frame, copies it into a staging slot, and
-//! hands the slot index to a worker. Pacing, readback, frame files and events
-//! run on the worker, so no encode or disk work happens in the callback.
+//! hands the slot index to a worker. Pacing, readback, encoding (or BMP writes)
+//! and events run on the worker, so no encode or disk work happens in the callback.
 //! The worker never runs on the capture thread.
 //!
-//! This module depends only on `crate::{args, bmp, error, pacer, record}` and
-//! the `windows` crate, so it moves unchanged into rightkit-record.
+//! This module depends only on `crate::{args, bmp, codec, error, pacer, record}`
+//! and the `windows` crate, so it moves unchanged into rightkit-record.
 
 mod gpu;
+mod mf;
 mod window;
 
 use std::ffi::c_void;
@@ -39,6 +40,8 @@ use ::windows::Win32::System::WinRT::Direct3D11::IDirect3DDxgiInterfaceAccess;
 use serde_json::{json, Value};
 
 use crate::args::CaptureArgs;
+use crate::bmp;
+use crate::codec::{self, Codec};
 use crate::error::{Code, RecordError};
 use crate::pacer::{Decision, Pacer};
 use crate::record::{self, ClockDraft, DraftInput};
@@ -46,13 +49,18 @@ use crate::record::{self, ClockDraft, DraftInput};
 /// Staging slots in the ring. Each in-flight frame holds one slot.
 const SLOTS: usize = 6;
 const STATUS_PARTIAL: &str = "partial_quarantined";
+const MP4_NAME: &str = "capture.mp4";
 
-/// Entry point. Writes frames, events and the record-session draft into `args.out`.
+/// Entry point. Writes the encoded video (or BMP frames), events and the
+/// record-session draft into `args.out`.
 pub fn run(args: &CaptureArgs) -> Result<Value, RecordError> {
     let _ = unsafe { SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2) };
-    prepare_out_dir(&args.out)?;
+    prepare_out_dir(&args.out, args.codec)?;
     let hwnd = HWND(args.hwnd as *mut c_void);
     let initial = window::check(hwnd)?;
+
+    // Declared before the sink, so the sink is finalized before MFShutdown runs.
+    let _mf = if args.codec.uses_media_foundation() { Some(mf::Startup::start()?) } else { None };
 
     let _ = unsafe { RoInitialize(RO_INIT_MULTITHREADED) };
     let access = GraphicsCaptureAccess::RequestAccessAsync(GraphicsCaptureAccessKind::Borderless)
@@ -71,6 +79,20 @@ pub fn run(args: &CaptureArgs) -> Result<Value, RecordError> {
         .map_err(|e| capture_error(Code::CaptureFailed, "CreateForWindow", e))?;
     let size = item.Size().map_err(|e| capture_error(Code::CaptureFailed, "item size", e))?;
     let (width, height) = (size.Width as u32, size.Height as u32);
+
+    // Encoder setup runs before capture starts, so a missing codec fails with no capture.
+    let events = BufWriter::new(
+        File::create(args.out.join("events.ndjson")).map_err(|e| io_error("create events.ndjson", e))?,
+    );
+    let (sink, encoder, encoded_size) = match args.codec {
+        Codec::Bmp => (Sink::Bmp { frames: args.out.join("frames") }, None, (width, height)),
+        _ => {
+            let writer = mf::Mp4Writer::create(&args.out.join(MP4_NAME), args.codec, width, height, args.fps)?;
+            let encoder = writer.encoder().to_json();
+            let encoded_size = writer.frame_size();
+            (Sink::Mp4(writer), Some(encoder), encoded_size)
+        }
+    };
 
     let device = gpu::Device::create()?;
     let readback = device.readback(width, height, SLOTS)?;
@@ -115,10 +137,9 @@ pub fn run(args: &CaptureArgs) -> Result<Value, RecordError> {
     let created_at = record::iso8601_utc((now_ms / 1000) as i64);
     let worker = {
         let shared = Arc::clone(&shared);
-        let out = args.out.clone();
         let session_id = session_id.clone();
         let fps = args.fps;
-        thread::spawn(move || worker(shared, frames_rx, fps, out, session_id))
+        thread::spawn(move || worker(shared, frames_rx, fps, events, session_id, sink))
     };
 
     let callback_shared = Arc::clone(&shared);
@@ -152,6 +173,7 @@ pub fn run(args: &CaptureArgs) -> Result<Value, RecordError> {
         }
     }
     let elapsed = started.elapsed();
+    // The worker finalizes the sink here, on the normal, error and refusal paths alike.
     let output = shutdown(&shared, &pool, &session, token, worker);
 
     let kept = output.kept;
@@ -164,8 +186,8 @@ pub fn run(args: &CaptureArgs) -> Result<Value, RecordError> {
 
     let stop_error = failure.clone().or_else(|| output.error.clone());
     let reason = match &stop_error {
-        Some(err) => format!("first cut, not complete: capture stopped early ({err}); no encoder or bundle writer yet"),
-        None => "first cut, not complete: no encoder, no bundle writer; scenario, target, files, dependencies and redaction not produced".to_string(),
+        Some(err) => format!("first cut, not complete: capture stopped early ({err}); no bundle writer yet"),
+        None => "first cut, not complete: no bundle writer; scenario, target, files, dependencies and redaction not produced".to_string(),
     };
     let clock = output.first_host_ns.map(|first| ClockDraft { host_ns_at_start, first_host_ns: first });
     let os_build = window::os_build();
@@ -183,6 +205,7 @@ pub fn run(args: &CaptureArgs) -> Result<Value, RecordError> {
         reason: &reason,
         os_build: &os_build,
         fps: args.fps,
+        codec: args.codec.draft_codec(),
         scale,
         width,
         height,
@@ -203,11 +226,20 @@ pub fn run(args: &CaptureArgs) -> Result<Value, RecordError> {
         return Err(err);
     }
     let seconds = elapsed.as_secs_f64().max(f64::MIN_POSITIVE);
+    let output_file = match args.codec {
+        Codec::Bmp => None,
+        _ => Some(args.out.join(MP4_NAME)),
+    };
     Ok(json!({
         "ok": true,
         "outDir": args.out,
         "status": STATUS_PARTIAL,
         "requestedFps": args.fps,
+        "codec": args.codec.as_str(),
+        "container": args.codec.container(),
+        "encoder": encoder,
+        "outputFile": output_file,
+        "encodedSize": { "width": encoded_size.0, "height": encoded_size.1 },
         "elapsedMs": elapsed.as_millis() as u64,
         "arrived": arrived,
         "kept": kept,
@@ -243,6 +275,28 @@ struct Shared {
 struct FrameMsg {
     slot: usize,
     host_ns: u64,
+}
+
+/// Where kept frames go. The MP4 variant owns the Media Foundation sink writer.
+enum Sink {
+    Bmp { frames: PathBuf },
+    Mp4(mf::Mp4Writer),
+}
+
+impl Sink {
+    fn finalize(&mut self) -> Result<(), RecordError> {
+        match self {
+            Sink::Bmp { .. } => Ok(()),
+            Sink::Mp4(writer) => writer.finalize(),
+        }
+    }
+}
+
+/// Worker-owned output state: the sink, the events writer and a reusable BGRA buffer.
+struct Recorder {
+    sink: Sink,
+    events: BufWriter<File>,
+    scratch: Vec<u8>,
 }
 
 #[derive(Default)]
@@ -318,27 +372,25 @@ fn take_slot(shared: &Shared) -> Option<usize> {
     lock(&shared.free_rx).try_recv().ok()
 }
 
-/// Worker thread: paces, reads back kept frames, writes BMP files and events.
-fn worker(shared: Arc<Shared>, rx: Receiver<FrameMsg>, fps: u32, out: PathBuf, session_id: String) -> WorkerOutput {
+/// Worker thread: paces, reads back kept frames, writes them to the sink and
+/// events, then finalizes the sink. Finalization runs after errors too.
+fn worker(
+    shared: Arc<Shared>,
+    rx: Receiver<FrameMsg>,
+    fps: u32,
+    events: BufWriter<File>,
+    session_id: String,
+    sink: Sink,
+) -> WorkerOutput {
     let mut output = WorkerOutput::default();
-    let mut events = match File::create(out.join("events.ndjson")) {
-        Ok(file) => BufWriter::new(file),
-        Err(e) => {
-            output.error = Some(io_error("create events.ndjson", e));
-            shared.stopped.store(true, Ordering::Release);
-            for msg in rx {
-                let _ = shared.free_tx.send(msg.slot);
-            }
-            return output;
-        }
-    };
+    let mut recorder = Recorder { sink, events, scratch: Vec::new() };
     let mut pacer = Pacer::new(fps);
     for msg in rx {
         if output.error.is_none() {
             match pacer.offer(msg.host_ns as i64) {
                 Decision::Drop => output.paced_drops += 1,
                 Decision::Keep => {
-                    if let Err(err) = keep_frame(&shared, &mut output, &mut events, &out, &session_id, msg) {
+                    if let Err(err) = keep_frame(&shared, &mut output, &mut recorder, &session_id, msg) {
                         output.error = Some(err);
                         shared.stopped.store(true, Ordering::Release);
                     }
@@ -347,8 +399,11 @@ fn worker(shared: Arc<Shared>, rx: Receiver<FrameMsg>, fps: u32, out: PathBuf, s
         }
         let _ = shared.free_tx.send(msg.slot);
     }
-    if let Err(e) = events.flush() {
+    if let Err(e) = recorder.events.flush() {
         output.error.get_or_insert_with(|| io_error("flush events.ndjson", e));
+    }
+    if let Err(err) = recorder.sink.finalize() {
+        output.error.get_or_insert(err);
     }
     output
 }
@@ -356,17 +411,27 @@ fn worker(shared: Arc<Shared>, rx: Receiver<FrameMsg>, fps: u32, out: PathBuf, s
 fn keep_frame(
     shared: &Shared,
     output: &mut WorkerOutput,
-    events: &mut BufWriter<File>,
-    out: &Path,
+    rec: &mut Recorder,
     session_id: &str,
     msg: FrameMsg,
 ) -> Result<(), RecordError> {
     let first = *output.first_host_ns.get_or_insert(msg.host_ns);
     let sample_pts_ns = msg.host_ns.saturating_sub(first);
-    let file_image = lock(&shared.readback).read_bmp(msg.slot)?;
+    lock(&shared.readback).read_packed(msg.slot, &mut rec.scratch)?;
     let index = output.kept;
-    let path = out.join("frames").join(format!("frame_{index:06}.bmp"));
-    fs::write(&path, &file_image).map_err(|e| io_error("write frame", e))?;
+    match &mut rec.sink {
+        Sink::Bmp { frames } => {
+            let mut file = Vec::with_capacity(bmp::HEADER_LEN + rec.scratch.len());
+            file.extend_from_slice(&bmp::header(shared.width, shared.height));
+            file.extend_from_slice(&rec.scratch);
+            let path = frames.join(format!("frame_{index:06}.bmp"));
+            fs::write(&path, &file).map_err(|e| io_error("write frame", e))?;
+        }
+        Sink::Mp4(writer) => {
+            let sample_time = codec::sample_time_100ns(msg.host_ns, first);
+            writer.write_frame(&rec.scratch, shared.width as usize, sample_time)?;
+        }
+    }
     output.kept += 1;
 
     let line = record::frame_ready(session_id, output.events, index, msg.host_ns, sample_pts_ns);
@@ -374,14 +439,14 @@ fn keep_frame(
     if index == 0 {
         record::validate_event(&line).map_err(|e| RecordError::new(Code::Io, format!("record-event invalid: {e}")))?;
     }
-    events
+    rec.events
         .write_all(format!("{line}\n").as_bytes())
         .map_err(|e| io_error("write events.ndjson", e))?;
     output.events += 1;
     Ok(())
 }
 
-/// Stops capture, lets the worker drain, and returns its output. Safe to call on any path.
+/// Stops capture, lets the worker drain and finalize, and returns its output. Safe to call on any path.
 fn shutdown(
     shared: &Shared,
     pool: &Direct3D11CaptureFramePool,
@@ -400,7 +465,7 @@ fn shutdown(
     })
 }
 
-fn prepare_out_dir(out: &Path) -> Result<(), RecordError> {
+fn prepare_out_dir(out: &Path, codec: Codec) -> Result<(), RecordError> {
     fs::create_dir_all(out).map_err(|e| io_error("create out dir", e))?;
     let mut entries = fs::read_dir(out).map_err(|e| io_error("read out dir", e))?;
     if entries.next().is_some() {
@@ -409,7 +474,10 @@ fn prepare_out_dir(out: &Path) -> Result<(), RecordError> {
             format!("output directory is not empty: {}", out.display()),
         ));
     }
-    fs::create_dir_all(out.join("frames")).map_err(|e| io_error("create frames dir", e))
+    if codec == Codec::Bmp {
+        fs::create_dir_all(out.join("frames")).map_err(|e| io_error("create frames dir", e))?;
+    }
+    Ok(())
 }
 
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
