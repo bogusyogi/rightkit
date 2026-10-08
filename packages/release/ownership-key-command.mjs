@@ -3,7 +3,7 @@ import { accessSync, closeSync, existsSync, lstatSync, mkdirSync, mkdtempSync, o
 import path from "node:path";
 import os from "node:os";
 import { fileURLToPath } from "node:url";
-import { spawnSync, windowsPowerShellEnvironment } from "./background-process.mjs";
+import { spawnSync, spawnSyncInteractive, windowsPowerShellEnvironment } from "./background-process.mjs";
 import { createKeyEvent, keyFingerprint, verifyKeyLog, verifyKeyRequest } from "./ownership-key-log.mjs";
 import { canonicalRepositoryIdentity, DEFAULT_TRUST_PATH, loadTrustedExternal, resolveKeyLogTrust, __testOnly as approvalTestOnly } from "./ownership-approval.mjs";
 import { readCommittedKeyAuthority } from "./ownership-key-authority.mjs";
@@ -235,15 +235,16 @@ function helperFor(run) {
   if (sha(bytes) !== item.sha256) throw new Error("ownership native helper hash does not match pinned config");
   return item.path;
 }
-function invokeHelper(run, helper, args) {
-  const r = run(helper, args);
+function invokeHelper(run, helper, args, interactiveRun = run) {
+  const interactive = ["--key-operation", "--enroll", "--enroll-root"].includes(args[0]);
+  const r = interactive ? interactiveRun(helper, args, { shell: false, windowsHide: false }) : run(helper, args);
   if (r.status !== 0 || String(r.stderr ?? "").includes("RightKit ownership keychain preflight:")) {
     throw new Error(String(r.stderr || "native ownership operation cancelled or failed").trim());
   }
   return String(r.stdout ?? "");
 }
 function helperFile(run, helper, args, outPath, what) {
-  invokeHelper(run, helper, args);
+  invokeHelper(run, helper, args, run.interactive ?? run);
   return parse(readFileSync(outPath, "utf8"), what);
 }
 function readRequestFile(file) {
@@ -340,7 +341,10 @@ function makeTrustRequest(log, rootFingerprint, baseline, authority) {
 }
 
 export async function main(args, deps = {}) {
-  const run = deps.runner ?? spawnSync;
+  const runner = deps.runner ?? spawnSync;
+  const interactiveRun = deps.runner ?? spawnSyncInteractive;
+  const run = (...runArgs) => runner(...runArgs);
+  run.interactive = interactiveRun;
   const print = deps.print ?? console.log;
   const app = path.resolve(flag(args, "--app") ?? process.cwd());
   const root = deps.root ?? repoRoot(app, run);

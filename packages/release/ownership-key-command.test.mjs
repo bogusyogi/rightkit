@@ -251,6 +251,22 @@ test("elevated Windows launch has one PowerShell child and safely quotes paths",
   assert.equal(call.parentArgs[1], "-EncodedCommand");
 });
 
+test("native ownership ceremonies request a visible helper window", ceremonyOptions, async () => {
+  const f = setup();
+  try {
+    const nativeOptions = [];
+    const original = f.deps.runner;
+    f.deps.runner = (cmd, args, opts) => {
+      if (cmd === "native-helper") nativeOptions.push({ args, opts });
+      return original(cmd, args, opts);
+    };
+    assert.equal(await main(["enroll", "--root"], f.deps), 0);
+    assert.equal(nativeOptions.length, 1);
+    assert.ok(nativeOptions[0].args.includes("--enroll-root"));
+    assert.deepEqual(nativeOptions[0].opts, { shell: false, windowsHide: false });
+  } finally { f.cleanup(); }
+});
+
 test("explicit elevation accepts checkout sources and launches once with a pinned request and clean Node environment", { skip: ceremonyOptions.skip }, () => {
   const dir = mkdtempSync(path.join(os.tmpdir(), "rk-elevation-"));
   try {
@@ -351,13 +367,23 @@ test("second-device request and active-host approval each use one signing ceremo
   try {
     assert.equal(await main(["enroll", "--root"], f.deps), 0);
     let nativeAuth = 0, elevations = 0;
+    const launches = [];
     const runner = f.deps.runner;
-    f.deps.runner = (cmd, args, opts) => { if (cmd === "native-helper" && (args.includes("--enroll") || args.includes("--key-operation"))) nativeAuth++; return runner(cmd, args, opts); };
+    f.deps.runner = (cmd, args, opts) => {
+      if (cmd === "native-helper") {
+        launches.push({ args, opts });
+        if (args.includes("--enroll") || args.includes("--key-operation")) nativeAuth++;
+      }
+      return runner(cmd, args, opts);
+    };
     const elevate = f.deps.elevate;
     f.deps.elevate = (...args) => { elevations++; return elevate(...args); };
     f.active.value = f.candidate;
     assert.equal(await main(["enroll", "--name", "Second", "--root-fingerprint", f.root.record.keyId], f.deps), 0);
     assert.equal(nativeAuth, 1); assert.equal(elevations, 1);
+    assert.deepEqual(launches.map(({ args, opts }) => [args.includes("--public-key"), opts]), [
+      [true, undefined], [false, { shell: false, windowsHide: false }],
+    ]);
     const requestPath = path.join(f.repo, ".rightkit/key-requests", `${f.candidate.record.keyId}.json`);
     assert.equal(JSON.parse(readFileSync(requestPath, "utf8")).key.keyId, f.candidate.record.keyId);
     assert.equal(f.trustHolder.trust.keyCheckpoint.sequence, 0);
@@ -366,6 +392,10 @@ test("second-device request and active-host approval each use one signing ceremo
     assert.equal(nativeAuth, 2); assert.equal(elevations, 2);
     assert.equal(await main(["revoke-key", f.candidate.record.keyId], f.deps), 0);
     assert.equal(nativeAuth, 3); assert.equal(elevations, 3);
+    assert.deepEqual(launches.slice(2).map(({ args, opts }) => [args[0], opts]), [
+      ["--public-key", undefined], ["--key-operation", { shell: false, windowsHide: false }],
+      ["--public-key", undefined], ["--key-operation", { shell: false, windowsHide: false }],
+    ]);
     const finalLog = JSON.parse(readFileSync(path.join(f.repo, ".rightkit/ownership-keys.json"), "utf8"));
     const finalState = verifyKeyLog(finalLog, { rootFingerprint: f.root.record.keyId });
     assert.equal(finalState.keys.some((k) => k.keyId === f.candidate.record.keyId), false);
