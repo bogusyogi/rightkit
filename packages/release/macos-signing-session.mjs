@@ -3,9 +3,9 @@ import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "./background-process.mjs";
 
-import { requestSigningAgentSync } from "./signing-agent-client.mjs";
+import { requestSigningAgentSync, validateNotaryAgentReport } from "./signing-agent-client.mjs";
 import { installSigningAgent, requireMacGuiSession } from "./signing-agent-install.mjs";
-import { signingAgentPaths, defaultSigningRoots, ensurePrivateDirectory, privatePath, within } from "./rightkit-signing-agent.mjs";
+import { signingAgentPaths, defaultSigningRoots, ensurePrivateDirectory, privatePath, within, NOTARIZATION_TIMEOUT_MS, MAX_NOTARIZATION_TIMEOUT_MS } from "./rightkit-signing-agent.mjs";
 
 export class MacSigningSessionError extends Error {
   constructor(code, message) {
@@ -124,6 +124,51 @@ export function runMacCodesignCommands(commands, options = {}) {
     if (r.error || r.status !== 0) break;
   }
   return results;
+}
+
+export function runMacGuiNotarization({ kind = "notarize", file, profile = "apple-dev-notary", app, validateOnly,
+  cwd = process.cwd(), env = process.env, run = spawnSync, io = fs, home = os.userInfo().homedir,
+  uid = process.getuid?.(), username = os.userInfo().username, allowedRoots, timeoutMs = NOTARIZATION_TIMEOUT_MS,
+  request = requestSigningAgentSync, install = installSigningAgent } = {}) {
+  if (!["notarize", "staple"].includes(kind) || !Number.isInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > MAX_NOTARIZATION_TIMEOUT_MS) throw new TypeError("Invalid notarization request or timeout");
+  if (kind === "notarize" && (typeof profile !== "string" || !/^[A-Za-z0-9][A-Za-z0-9_. -]{0,127}$/.test(profile))) throw new TypeError("Notarization requires a profile name only");
+  requireMacGuiSession({ run, uid });
+  const paths = signingAgentPaths(home);
+  let roots = allowedRoots ?? defaultSigningRoots(home, env.RIGHTKIT_MANAGED_ROOT);
+  if (!allowedRoots && io.existsSync(paths.config)) {
+    privatePath(paths.config, 0o600, { io, uid });
+    roots = JSON.parse(io.readFileSync(paths.config, "utf8")).roots;
+  }
+  const plan = { schema: 1, type: kind, path: path.resolve(file), cwd: path.resolve(cwd),
+    allowedRoots: roots.filter((root) => io.existsSync(root)), timeoutMs,
+    ...(kind === "notarize" ? { profile, staple: true, ...(app ? { app: path.resolve(app) } : {}) } : { validateOnly: validateOnly === true }) };
+  const options = { home, timeoutMs: timeoutMs + 5000 };
+  let report;
+  try { report = request(plan, options); }
+  catch (error) {
+    let missing = error.code === "MAC_SIGNING_AGENT_UNAVAILABLE";
+    // Upgrade earlier installed agents once; never turn a rejected path or
+    // malformed request into an install/retry loop.
+    if (error.code === "MAC_SIGNING_AGENT_PROTOCOL") {
+      const health = request({ schema: 1, type: "health" }, { home, timeoutMs: 1500 });
+      missing = !health.capabilities?.includes(kind);
+    }
+    if (!missing) throw error;
+    install({ home, username, uid, run, io, managedRoot: env.RIGHTKIT_MANAGED_ROOT });
+    report = request(plan, options);
+  }
+  validateNotaryAgentReport(report);
+  const targets = kind === "staple" ? [plan.path] : [...new Set([...( /\.(dmg|pkg)$/i.test(plan.path) ? [plan.path] : []), ...(plan.app ? [plan.app] : [])])];
+  const canonical = (value) => (io.realpathSync.native ?? io.realpathSync)(value);
+  if (!report.ok || (kind === "notarize" && (report.notarization.status !== "Accepted" || !report.notarization.id
+    || !report.steps.some((step) => step.step === "submit" && step.exitCode === 0)))
+    || report.stapling.length !== targets.length || targets.some((target) => !report.stapling.some((item) => item.file === canonical(target)
+      && report.steps.some((step) => step.step === "validate" && step.file === item.file && step.exitCode === 0)
+      && (kind !== "notarize" || report.steps.some((step) => step.step === "staple" && step.file === item.file && step.exitCode === 0))))
+    || report.steps.some((step) => step.step !== "probe" && step.exitCode !== 0)) {
+    throw new MacSigningSessionError("MAC_SIGNING_AGENT_PROTOCOL", "Signing agent returned incomplete notarization or stapling evidence");
+  }
+  return report;
 }
 
 export function signMacUpdaterFiles(files, options = {}) {

@@ -28,6 +28,7 @@ import { MACOS_PORTABLE_SIGNING_CONTRACT } from "./macos-signing-contract.mjs";
 import { runConfiguredChecks } from "./release-checks.mjs";
 import { resolveMacosDeveloperIdIdentity } from "./macos-signing-identity.mjs";
 import { DEFAULT_STORAGE_THRESHOLD_BYTES, findInstallerCopyScripts, findLargeRepositorySubdirectories } from "./installer-storage-doctor.mjs";
+import { macosCodesignEnvironment } from "./codesign-environment.mjs";
 
 const TOOL_ROOT = path.dirname(fileURLToPath(import.meta.url));
 const HARDENING_SCAN = path.resolve(TOOL_ROOT, "hardeningscan.mjs");
@@ -962,7 +963,7 @@ function run(cmd, runArgs, cwd, env = {}, options = {}) {
     const useShell = process.platform === "win32" && !/\.(?:exe|com)$/i.test(cmd);
     const child = spawn(cmd, runArgs, {
       cwd,
-      env: { ...process.env, ...releaseEnv, ...env },
+      env: macosCodesignEnvironment({ ...process.env, ...releaseEnv, ...env }),
       stdio: options.captureStdout ? ["inherit", "pipe", "inherit"] : "inherit",
       shell: useShell,
       windowsHide: true,

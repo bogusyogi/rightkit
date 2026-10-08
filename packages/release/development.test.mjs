@@ -4,10 +4,12 @@ import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "./background-process.mjs";
 import { test } from "node:test";
-import { assertInstalledExecutableMatches, assertNativeDevelopmentHost, developmentEnvironment, resolveCommand, resolvePnpmCli, resolveTauriArtifact, runDevelopment, validateDevelopmentConfig } from "./development.mjs";
+import { assertInstalledExecutableMatches, assertNativeDevelopmentHost, developmentEnvironment, resolveCommand, resolvePnpmCli, resolveTauriArtifact, runDevelopment as runDevelopmentActual, validateDevelopmentConfig } from "./development.mjs";
 import { assertReleaseExecutionAllowed } from "./execution-policy.mjs";
 
 const nativePlatform = process.platform === "win32" ? "win" : "mac";
+// These fixtures test development mechanics without installing host shims.
+const runDevelopment = (options) => runDevelopmentActual({ codesignEnvironment: (env) => env, ...options });
 
 test("dev configuration requires explicit build commands and valid installers", () => {
   assert.throws(() => validateDevelopmentConfig({}, "win"), /non-empty command array/);
@@ -92,6 +94,7 @@ test("pnpm subprocess preserves JSON arguments and dev environment without compi
   try {
     git(root, ["init", "-b", "main"]);
     writeFileSync(path.join(root, "package.json"), JSON.stringify({ name: "rightkit-dev-fixture", private: true }));
+    writeFileSync(path.join(root, "pnpm-workspace.yaml"), "verifyDepsBeforeRun: false\n");
     const code = "process.stdout.write(JSON.stringify({args:process.argv.slice(1),profile:process.env.RIGHTKIT_CARGO_PROFILE,incremental:process.env.CARGO_INCREMENTAL??null}))";
     let output = "";
     runDevelopment({

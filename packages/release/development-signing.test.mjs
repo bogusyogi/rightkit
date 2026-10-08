@@ -168,7 +168,7 @@ test("dev signing failure leaves installed app intact and cleans staging", { ski
   const destination = path.join(f.root, "installed/Fixture.app");
   f.write(path.join(destination, "Contents/Info.plist"), "previous app");
   const config = { development: { targets: { mac: { build: [{ cmd: "mock-build" }], install: { kind: "tauri", productName: "Fixture", bundleDirectory: "bundle", destination, targetTriple: "aarch64-apple-darwin" } } } } };
-  assert.throws(() => runDevelopment({ ...f, platform: "mac", config }), (error) => error.code === "DEV_MAC_SIGNING_KEY_UNAVAILABLE");
+  assert.throws(() => runDevelopment({ ...f, platform: "mac", config, codesignEnvironment: (env) => env }), (error) => error.code === "DEV_MAC_SIGNING_KEY_UNAVAILABLE");
   assert.equal(readFileSync(path.join(destination, "Contents/Info.plist"), "utf8"), "previous app");
   assert.equal(existsSync(`${destination}.rightkit-dev-${process.pid}`), false);
 });
@@ -244,7 +244,7 @@ test("dev install records verified Team identity and preserves relative framewor
   const logs = [];
   t.mock.method(console, "log", (message) => logs.push(message));
   const config = { development: { targets: { mac: { build: [{ cmd: "mock-build" }], install: { kind: "tauri", productName: "Fixture", bundleDirectory: "bundle", destination, targetTriple: "aarch64-apple-darwin" } } } } };
-  const result = runDevelopment({ ...f, platform: "mac", config });
+  const result = runDevelopment({ ...f, platform: "mac", config, codesignEnvironment: (env) => env });
   assert.equal(result.signing.identity, releaseIdentity);
   assert.equal(result.signing.teamIdentifier, "6KLGD3LLKF");
   assert.equal(result.signing.provisioningProfile, path.join(destination, "Contents/embedded.provisionprofile"));

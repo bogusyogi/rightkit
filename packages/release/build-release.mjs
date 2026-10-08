@@ -39,13 +39,14 @@ import { acquireHeavyWorkSlot, heavyCommandEnvironment, summarizePreBrokerWaits,
 import { processGroupCpuSeconds } from "./process-liveness.mjs";
 import { cancelAndReapManagedRequest, firstManagedRequestId, releaseProgressLimits } from "./progress-control.mjs";
 import { beginArtifactLease, completeArtifactLease, materializeArtifacts, retainArtifacts, resolveArtifactDir, resolveManagedRoot } from "./artifact-storage.mjs";
+import { macosCodesignEnvironment } from "./codesign-environment.mjs";
 
 // Fingerprint of the pipeline code that can change the bytes we ship or the way
 // they are signed — deliberately NOT the package version, which moves for docs
 // and test-only edits and would force a cold Rust rebuild of every app each time.
 // Cached target directories must not outlive changes to these signing helpers.
 
-const PIPELINE_FINGERPRINT_SOURCES = ["release.mjs", "sign-windows.mjs", "sign-macos.mjs", "macos-signing-session.mjs", "notarize-macos.mjs", "macos-notarization.mjs", "signing-receipts.mjs", "tauri-bundle-marker.mjs", "nsis-payload.mjs"];
+const PIPELINE_FINGERPRINT_SOURCES = ["release.mjs", "sign-windows.mjs", "sign-macos.mjs", "macos-signing-session.mjs", "codesign-environment.mjs", "codesign-shim.mjs", "codesign-argv.mjs", "rightkit-signing-agent.mjs", "notarize-macos.mjs", "macos-notarization.mjs", "signing-receipts.mjs", "tauri-bundle-marker.mjs", "nsis-payload.mjs"];
 const PIPELINE_FINGERPRINT = createHash("sha256")
   .update(PIPELINE_FINGERPRINT_SOURCES.map((file) => `${file}:${createHash("sha256").update(readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), file))).digest("hex")}`).join("\n"))
   .digest("hex")
@@ -251,7 +252,7 @@ try {
   // resolves to MSYS Perl, which cannot configure OpenSSL. Put the real Windows
   // Perl first so the build behaves the same from any shell.
   const pathPrefix = buildPathPrefix({ platform });
-  const env = {
+  const env = macosCodesignEnvironment({
     ...heavyCommandEnvironment(process.env),
     ...releaseEnvironment({ root: vaultRoot, cacheRoot: sharedCacheRoot, platform, architecture: cacheIdentity.architecture, app: config.app, cacheKey, kind: "release", appRoot, mode: cacheMode }),
     ...(pathPrefix ? { PATH: `${pathPrefix}${path.delimiter}${process.env.PATH ?? ""}` } : {}),
@@ -259,7 +260,7 @@ try {
     RIGHT_RELEASE_APP_ROOT: layout.appRoot,
     RIGHTKIT_MANAGED_ROOT: resolveManagedRoot({ env: process.env }),
     RIGHT_RELEASE_ARTIFACT_DIR: resolveArtifactDir({ app: config.app, version: config.version, managedRoot: resolveManagedRoot({ env: process.env }) }),
-  };
+  });
   if (managedCargoTarget) {
     for (const name of ["CARGO_HOME", "CARGO_TARGET_DIR", "RUSTC_WRAPPER", "SCCACHE_DIR", "SCCACHE_BASEDIRS", "SCCACHE_CACHE_SIZE", "RUSTFLAGS"]) {
       delete env[name];

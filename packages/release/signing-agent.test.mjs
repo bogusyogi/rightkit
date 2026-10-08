@@ -122,6 +122,15 @@ test("socket client frames typed JSON with local token & rejects invalid/incompl
   await assert.rejects(requestSigningAgent(request, mockClient(null, { error: { code: "ECONNREFUSED" } })), { code: "MAC_SIGNING_AGENT_UNAVAILABLE" });
   await assert.rejects(requestSigningAgent(request, mockClient({ schema: 1, ok: false, code: "MAC_SIGNING_AGENT_AUTH", message: "SECRET" })), (e) => e.code === "MAC_SIGNING_AGENT_AUTH" && !e.message.includes("SECRET"));
 });
+test("codesign-argv socket client accepts nonzero exits verbatim & rejects malformed results", async () => {
+  const request = { schema: 1, type: "codesign-argv", argv: ["-d", "/artifact"], targets: ["/artifact"] };
+  const report = { schema: 1, ok: true, results: [{ status: 36, stdout: " untrimmed\n", stderr: "\nerror\r\n" }] };
+  assert.deepEqual(await requestSigningAgent(request, mockClient(report)), report);
+  for (const result of [{ status: -1, stdout: "", stderr: "" }, { status: 256, stdout: "", stderr: "" },
+    { status: 1.5, stdout: "", stderr: "" }, { status: 0, stdout: null, stderr: "" }]) {
+    await assert.rejects(requestSigningAgent(request, mockClient({ schema: 1, ok: true, results: [result] })), { code: "MAC_SIGNING_AGENT_PROTOCOL" });
+  }
+});
 test("sync client sends no inherited secrets or token in environment/argv", () => {
   const report = { schema: 1, ok: true, results: [] };
   requestSigningAgentSync({ schema: 1, type: "health" }, { runClient(command, args, options) {
@@ -143,7 +152,7 @@ test("LaunchAgent install writes private standalone runtime & required invisible
   assert.deepEqual(calls.at(-1), ["/bin/launchctl", ["bootstrap", `gui/${process.getuid()}`, paths.plist]]);
   assert.equal(fs.statSync(paths.directory).mode & 0o777, 0o700); assert.equal(fs.statSync(paths.config).mode & 0o777, 0o600);
   const config = JSON.parse(fs.readFileSync(paths.config)); assert.ok(config.roots.includes(f.managed)); assert.equal(config.pnpm, "/fixed/pnpm");
-  assert.deepEqual(fs.readdirSync(paths.runtime).sort(), ["background-process.mjs", "rightkit-signing-agent.mjs"]);
+  assert.deepEqual(fs.readdirSync(paths.runtime).sort(), ["background-process.mjs", "codesign-argv.mjs", "rightkit-signing-agent.mjs"]);
   assert.match(signingAgentPlist({ paths, home: "<&'", node: '/<&"node' }), /&lt;&amp;&quot;node/);
 });
 test("install rejects no-GUI session without writing anything; failed bootstrap remains typed", (t) => {
@@ -211,6 +220,28 @@ test("agent rejects arbitrary requests before spawning & suppresses thrown updat
   socket.emit("data", Buffer.from(`${JSON.stringify({ schema: 1, type: "updater", token, allowedRoots: f.request.allowedRoots, cwd: f.workspace, files: [f.artifact], timeoutMs: 5000 })}\n`));
   await new Promise((resolve) => setImmediate(resolve));
   assert.equal(socket.report.ok, false); assert.equal(calls, 1); assert.doesNotMatch(JSON.stringify(socket.report) + JSON.stringify(logs), /FAKE-PRIVATE-KEY/);
+});
+test("codesign-argv jobs log unique ids plus exit status, never argv/output/secrets", async (t) => {
+  const f = fixture(t), paths = signingAgentPaths(f.home), logs = [], calls = [];
+  fs.mkdirSync(paths.directory, { recursive: true, mode: 0o700 }); fs.writeFileSync(paths.config, "{}", { mode: 0o600 });
+  let connection;
+  const server = new EventEmitter(); server.listen = (file, ready) => { fs.writeFileSync(file, "mock", { mode: 0o600 }); ready(); };
+  const result = { status: 36, stdout: "fixture-private-output\n", stderr: "fixture-private-error\n" };
+  await startSigningAgent({ paths, config: { roots: f.policy.roots, home: f.home, environmentPath: "/usr/bin" }, log: (event) => logs.push(event),
+    createServer(callback) { connection = callback; return server; }, run(command, args) { calls.push([command, args]); return result; } });
+  const token = fs.readFileSync(paths.token, "utf8"), jobs = [];
+  for (const file of [f.app, f.artifact]) {
+    const socket = serverSocket(); connection(socket); jobs.push(socket);
+    socket.emit("data", Buffer.from(`${JSON.stringify({ schema: 1, token, type: "codesign-argv", argv: ["--sign", "fixture-private-identity", file],
+      targets: [file], allowedRoots: f.request.allowedRoots, cwd: f.workspace, timeoutMs: 5000 })}\n`));
+  }
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(calls.length, 2); assert.ok(calls.every(([command]) => command === "/usr/bin/codesign"));
+  for (const job of jobs) assert.deepEqual(job.report, { schema: 1, ok: true, results: [result] });
+  const completed = logs.filter((event) => event.event === "request.completed");
+  assert.equal(completed.length, 2); assert.notEqual(completed[0].id, completed[1].id);
+  assert.ok(completed.every((event) => event.type === "codesign-argv" && event.status === 36));
+  assert.doesNotMatch(JSON.stringify(logs), /fixture-private|--sign/); assert.ok(!JSON.stringify(logs).includes(token));
 });
 test("managed request log is private & rotates at bounded size", (t) => {
   const f = fixture(t), file = path.join(f.home, "requests.jsonl");

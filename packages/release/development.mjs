@@ -9,6 +9,7 @@ import { acquireManagedRunLease, managedRuntimeClient, runCargoSync } from "./ma
 import { BUNDLE_MARKERS, bundleMarkerBuffer, readTauriBundleMarkers } from "./tauri-bundle-marker.mjs";
 import { installPortableDevelopment } from "./portable-development.mjs";
 import { signMacosDevelopmentBundle } from "./development-signing.mjs";
+import { macosCodesignEnvironment } from "./codesign-environment.mjs";
 
 export const DEVELOPMENT_PROFILE = "release-iterate";
 const RELEASE_ONLY_APPLE_ENV = ["APPLE_ID", "APPLE_PASSWORD", "APPLE_API_KEY", "APPLE_API_ISSUER", "APPLE_API_KEY_PATH", "APPLE_CERTIFICATE", "APPLE_CERTIFICATE_PASSWORD"];
@@ -60,7 +61,8 @@ export function validateDevelopmentConfig(config, platform) {
   return target;
 }
 
-export function runDevelopment({ root, platform, config, buildOnly = false, dryRun = false, env = process.env, run = spawnSync }) {
+export function runDevelopment({ root, platform, config, buildOnly = false, dryRun = false, env = process.env, run = spawnSync,
+  codesignEnvironment = macosCodesignEnvironment }) {
   if (!new Set(["win", "mac"]).has(platform)) throw new Error("--platform must be win or mac");
   assertNativeDevelopmentHost(platform);
   const target = validateDevelopmentConfig(config, platform);
@@ -68,7 +70,7 @@ export function runDevelopment({ root, platform, config, buildOnly = false, dryR
   assertPrimaryReleaseCheckout(repoRoot, env);
   if (dryRun) return { built: false, installed: false, plan: { build: target.build, install: buildOnly ? null : target.install ?? null, profile: DEVELOPMENT_PROFILE } };
   assertReleaseExecutionAllowed({ cwd: repoRoot, environment: env, command: `right-release dev --platform ${platform}` });
-  const childEnv = developmentEnvironment(env);
+  const childEnv = codesignEnvironment(developmentEnvironment(env));
   // One lease spans every managed request this run makes, so a broker cutover cannot land between them.
   const lease = acquireManagedRunLease({ command: `right-release dev --platform ${platform}`, env });
   try {

@@ -6,6 +6,8 @@ import { AGENT_LABEL, signingAgentPaths, defaultSigningRoots, ensurePrivateDirec
 import { requestSigningAgentSync } from "./signing-agent-client.mjs";
 
 const capture = { encoding: "utf8", stdio: "pipe", shell: false, timeout: 10000 };
+function sleepMs(ms) { Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms); }
+
 export function requireMacGuiSession({ run = spawnSync, uid = process.getuid?.() } = {}) {
   const session = run("/bin/launchctl", ["print", `gui/${uid}`], capture);
   if (session.error || session.status !== 0) throw new SigningAgentError("MAC_SIGNING_NO_GUI_SESSION", `No logged-in Aqua session for uid ${uid}`);
@@ -27,7 +29,7 @@ export function signingAgentPlist({ paths, node = process.execPath, home }) {
 }
 export function installSigningAgent({ home = os.userInfo().homedir, username = os.userInfo().username,
   uid = process.getuid?.(), platform = process.platform, run = spawnSync, io = fs, node = process.execPath,
-  managedRoot = "/Volumes/D/.rightkit-managed", health = requestSigningAgentSync,
+  managedRoot = "/Volumes/D/.rightkit-managed", cargoTargetDirs = [], health = requestSigningAgentSync,
   now = Date.now, sleep = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms) } = {}) {
   if (platform !== "darwin") throw new SigningAgentError("MAC_SIGNING_AGENT_PLATFORM", "Signing agent requires macOS");
   requireMacGuiSession({ run, uid });
@@ -41,14 +43,26 @@ export function installSigningAgent({ home = os.userInfo().homedir, username = o
   const pnpm = String(found.stdout ?? "").trim();
   if (found.error || found.status !== 0 || !path.isAbsolute(pnpm) || pnpm.includes("\n")) throw new SigningAgentError("MAC_SIGNING_AGENT_INSTALL_FAILED", "Provisioned pnpm executable is unavailable");
   // Resident runtime is self-contained; no package/checkout imports after install.
-  for (const name of ["rightkit-signing-agent.mjs", "background-process.mjs"]) {
+  for (const root of cargoTargetDirs) {
+    if (typeof root !== "string" || !path.isAbsolute(root) || ["/", home, "/Volumes", "/Volumes/D"].includes(path.resolve(root))) throw new SigningAgentError("MAC_SIGNING_AGENT_PATH_DENIED", "Cargo target root must be a dedicated absolute directory");
+  }
+  for (const name of ["rightkit-signing-agent.mjs", "background-process.mjs", "codesign-argv.mjs"]) {
     const target = path.join(paths.runtime, name);
     if (io.existsSync(target)) privatePath(target, 0o600, { io, uid });
     io.writeFileSync(target, io.readFileSync(new URL(`./${name}`, import.meta.url)), { mode: 0o600 });
   }
   if (io.existsSync(paths.config)) privatePath(paths.config, 0o600, { io, uid });
+  // SSH & Aqua can inherit different TMPDIR spellings. Include both aliases of
+  // this uid's Darwin temp root, since bundlers can canonicalize temporary paths.
+  const temp = run("/usr/bin/getconf", ["DARWIN_USER_TEMP_DIR"], capture);
+  const directory = String(temp.stdout ?? "").trim();
+  const temporaryRoots = [];
+  if (!temp.error && temp.status === 0 && path.isAbsolute(directory) && !directory.includes("\n")) {
+    temporaryRoots.push(path.resolve(directory));
+    try { temporaryRoots.push((io.realpathSync.native ?? io.realpathSync)(directory)); } catch {}
+  }
   io.writeFileSync(paths.config, JSON.stringify({ schema: 1, home, username, pnpm,
-    roots: defaultSigningRoots(home, path.resolve(managedRoot)),
+    roots: defaultSigningRoots(home, path.resolve(managedRoot), [...cargoTargetDirs.map((root) => path.resolve(root)), ...temporaryRoots]),
     environmentPath: [...new Set([path.dirname(node), path.dirname(pnpm), "/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin", "/usr/sbin", "/sbin"])].join(":") }), { mode: 0o600 });
   ensurePrivateDirectory(path.dirname(paths.plist), { io, uid });
   if (io.existsSync(paths.plist)) privatePath(paths.plist, 0o600, { io, uid });
@@ -57,8 +71,20 @@ export function installSigningAgent({ home = os.userInfo().homedir, username = o
   if (!loaded.error && loaded.status === 0) {
     const stopped = run("/bin/launchctl", ["bootout", `gui/${uid}/${AGENT_LABEL}`], capture);
     if (stopped.error || stopped.status !== 0) throw new SigningAgentError("MAC_SIGNING_AGENT_INSTALL_FAILED", "Could not stop existing signing agent");
+    // bootout is asynchronous: wait until launchd has released the label before bootstrapping again.
+    const gone = now() + 10000;
+    while (now() < gone) {
+      const still = run("/bin/launchctl", ["print", `gui/${uid}/${AGENT_LABEL}`], capture);
+      if (still.error || still.status !== 0) break;
+      sleepMs(100);
+    }
   }
-  const boot = run("/bin/launchctl", ["bootstrap", `gui/${uid}`, paths.plist], capture);
+  let boot = run("/bin/launchctl", ["bootstrap", `gui/${uid}`, paths.plist], capture);
+  // Exit 5 (EIO) is launchd still tearing the old job down; retry briefly.
+  for (let attempt = 0; attempt < 20 && !boot.error && boot.status === 5; attempt++) {
+    sleepMs(250);
+    boot = run("/bin/launchctl", ["bootstrap", `gui/${uid}`, paths.plist], capture);
+  }
   if (boot.error || boot.status !== 0) {
     requireMacGuiSession({ run, uid });
     throw new SigningAgentError("MAC_SIGNING_AGENT_INSTALL_FAILED", `Signing agent bootstrap failed (exit ${boot.status ?? "unavailable"})`);

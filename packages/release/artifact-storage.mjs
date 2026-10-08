@@ -11,6 +11,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import path from "node:path";
+import os from "node:os";
 
 export const ARTIFACT_MARKER_SCHEMA = 1;
 export const DEFAULT_MANAGED_ROOT = process.platform === "win32"
@@ -19,9 +20,12 @@ export const DEFAULT_MANAGED_ROOT = process.platform === "win32"
 
 const SAFE_COMPONENT = /^[A-Za-z0-9][A-Za-z0-9._+-]{0,159}$/;
 
-export function resolveManagedRoot({ env = process.env } = {}) {
-  const value = env.RIGHTKIT_MANAGED_ROOT || DEFAULT_MANAGED_ROOT;
-  return path.resolve(value);
+export function resolveManagedRoot({ env = process.env, exists = existsSync } = {}) {
+  if (env.RIGHTKIT_MANAGED_ROOT) return path.resolve(env.RIGHTKIT_MANAGED_ROOT);
+  // Workstation default only when its drive exists; hosted CI runners fall back to RUNNER_TEMP, then the system temp dir.
+  const volume = process.platform === "win32" ? "D:\\" : "/Volumes/D";
+  if (exists(volume)) return path.resolve(DEFAULT_MANAGED_ROOT);
+  return path.join(env.RUNNER_TEMP && exists(env.RUNNER_TEMP) ? env.RUNNER_TEMP : os.tmpdir(), "rightkit-managed");
 }
 
 export function resolveArtifactRoot({ app, managedRoot } = {}) {

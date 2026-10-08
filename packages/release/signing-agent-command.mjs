@@ -5,10 +5,11 @@ const [command, ...args] = process.argv.slice(2);
 try {
   let result;
   if (command === "install") {
-    const options = {};
-    if (args.length) {
-      if (args.length !== 2 || args[0] !== "--managed-root" || !args[1]) throw new TypeError("Expected install [--managed-root <absolute-directory>]");
-      options.managedRoot = args[1];
+    const options = { cargoTargetDirs: [] };
+    for (let i = 0; i < args.length; i += 2) {
+      if (!["--managed-root", "--cargo-target-dir"].includes(args[i]) || !args[i + 1]) throw new TypeError("Expected install [--managed-root <directory>] [--cargo-target-dir <directory>]...");
+      if (args[i] === "--managed-root") options.managedRoot = args[i + 1];
+      else options.cargoTargetDirs.push(args[i + 1]);
     }
     result = installSigningAgent(options);
   } else if (command === "uninstall" && !args.length) result = uninstallSigningAgent();

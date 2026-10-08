@@ -1,7 +1,6 @@
 #!/usr/bin/env node
 import { existsSync } from "node:fs";
 import path from "node:path";
-import { notarytoolAuthArgs } from "./notary-auth.mjs";
 import { notarizeMacosArtifact } from "./macos-notarization.mjs";
 
 const args = process.argv.slice(2);
@@ -24,10 +23,11 @@ if (dryRun) {
 if (process.platform !== "darwin") fail("macOS notarization must run on macOS");
 if (!existsSync(archive)) fail(`missing archive: ${archive}`);
 
-let authArgs;
-try { authArgs = notarytoolAuthArgs({ profile }); } catch (error) { fail(error.message); }
-try { notarizeMacosArtifact({ archive, receiptPath, authArgs, app }); }
-catch (error) { fail(error.message); }
+try { notarizeMacosArtifact({ archive, receiptPath, profile, app }); }
+catch (error) {
+  if (error.report) console.error(JSON.stringify(error.report));
+  fail(`${error.code ? `[${error.code}] ` : ""}${error.message}`);
+}
 
 function fail(message) {
   console.error(`right-notarize-macos: ${message}`);

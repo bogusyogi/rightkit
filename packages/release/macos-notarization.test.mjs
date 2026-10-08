@@ -17,6 +17,8 @@ function mockXcrun({ accepted = true, alreadyStapled = false, failStaple = false
   const calls = [];
   let stapled = alreadyStapled;
   const run = (cmd, args) => {
+    if (cmd === "/bin/launchctl") return { status: 0, stdout: "Aqua" };
+    if (cmd === "/usr/bin/security") return { status: 0 };
     calls.push([cmd, ...args]);
     if (args[0] === "notarytool") return { status: 0, stdout: JSON.stringify({ status: accepted ? "Accepted" : "Invalid", id: "submission" }) };
     if (args[1] === "staple") {

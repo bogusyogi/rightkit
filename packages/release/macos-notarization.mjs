@@ -1,8 +1,10 @@
 import { createHash } from "node:crypto";
-import { mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, realpathSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { spawnSync } from "./background-process.mjs";
 import { MACOS_PORTABLE_SIGNING_CONTRACT } from "./macos-signing-contract.mjs";
+import { detectMacSigningSession, runMacGuiNotarization } from "./macos-signing-session.mjs";
+import { notarytoolAuthArgs } from "./notary-auth.mjs";
 
 function checkedRun(args, run) {
   const result = run("xcrun", args, { encoding: "utf8" });
@@ -10,9 +12,13 @@ function checkedRun(args, run) {
   return result.stdout ?? "";
 }
 
-export function stapleMacosArtifact(file, { run = spawnSync } = {}) {
+export function stapleMacosArtifact(file, options = {}) {
+  const { run = spawnSync, env = process.env } = options;
   file = path.resolve(file);
   if (!/\.(dmg|pkg|app)$/i.test(file)) throw new Error(`not a stapleable macOS artifact: ${file}`);
+  if (detectMacSigningSession({ env, run }).guiRunner) {
+    return { ...runMacGuiNotarization({ ...options, kind: "staple", file }).stapling[0], file };
+  }
   const probe = run("xcrun", ["stapler", "validate", file], { encoding: "utf8" });
   if (probe.error) throw new Error(`cannot validate macOS staple: ${probe.error.message}`);
   const alreadyStapled = probe.status === 0;
@@ -27,7 +33,7 @@ function fileEvidence(file) {
 
 // DMG/PKG receive their own ticket. For a separately submitted app ZIP,
 // target.notarize.app (CLI --app) identifies the bundle to staple before packaging.
-export function notarizeMacosArtifact({ archive, receiptPath, authArgs, app, run = spawnSync }) {
+export function notarizeMacosArtifact({ archive, receiptPath, authArgs, profile, app, run = spawnSync, env = process.env, ...agentOptions }) {
   archive = path.resolve(archive);
   const stapleTargets = /\.(dmg|pkg)$/i.test(archive) ? [archive] : [];
   if (app) {
@@ -36,11 +42,21 @@ export function notarizeMacosArtifact({ archive, receiptPath, authArgs, app, run
     stapleTargets.push(bundle);
   }
   if (!stapleTargets.length) throw new Error("notarization archives require notarize.app (or --app) for stapling their app bundle");
-  let result;
-  try { result = JSON.parse(checkedRun(["notarytool", "submit", archive, "--wait", "--output-format", "json", ...authArgs], run)); }
-  catch (error) { throw new Error(`macOS notarization failed for ${archive}: ${error.message}`); }
-  if (result.status !== "Accepted") throw new Error(`notarization was not accepted for ${archive}: ${result.status ?? "missing status"}`);
-  const stapling = [...new Set(stapleTargets)].map((file) => stapleMacosArtifact(file, { run }));
+  let result, stapling;
+  if (detectMacSigningSession({ env, run }).guiRunner) {
+    // SSH ignores API credential environment/argv entirely. Only profile name
+    // reaches Aqua, where Keychain authentication already works.
+    const selectedProfile = profile ?? (authArgs?.[0] === "--keychain-profile" && authArgs.length === 2 ? authArgs[1] : undefined);
+    const report = runMacGuiNotarization({ ...agentOptions, kind: "notarize", file: archive, app, profile: selectedProfile, env, run });
+    result = report.notarization;
+    stapling = report.stapling.map((item) => ({ ...item, file: stapleTargets.find((file) => realpathSync.native(file) === item.file) ?? item.file }));
+  } else {
+    authArgs ??= notarytoolAuthArgs({ profile, env });
+    try { result = JSON.parse(checkedRun(["notarytool", "submit", archive, "--wait", "--output-format", "json", ...authArgs], run)); }
+    catch (error) { throw new Error(`macOS notarization failed for ${archive}: ${error.message}`); }
+    if (result.status !== "Accepted") throw new Error(`notarization was not accepted for ${archive}: ${result.status ?? "missing status"}`);
+    stapling = [...new Set(stapleTargets)].map((file) => stapleMacosArtifact(file, { run, env }));
+  }
   // Stapling changes container bytes. Record final bytes, never the submission digest.
   const receipt = {
     schema: 1,

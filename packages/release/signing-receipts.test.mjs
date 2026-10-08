@@ -33,7 +33,8 @@ test("MailRight config seals current build receipts despite stale legacy & other
   for (const file of [dmg, "MailRight.app.tar.gz", "MailRight.app.tar.gz.sig"]) fs.writeFileSync(path.join(root, file), file);
   fs.mkdirSync(stateRoot, { recursive: true });
   fs.writeFileSync(path.join(stateRoot, "macos-signing.json"), JSON.stringify({ schema: 1, signingContract: target.signingContract, files: [{ file: path.join(root, dmg) }] }));
-  const run = (_cmd, args) => args[0] === "notarytool" ? { status: 0, stdout: JSON.stringify({ status: "Accepted", id: "current-build" }) } : { status: 0 };
+  const run = (cmd, args) => cmd === "/bin/launchctl" ? { status: 0, stdout: "Aqua" }
+    : args[0] === "notarytool" ? { status: 0, stdout: JSON.stringify({ status: "Accepted", id: "current-build" }) } : { status: 0 };
   notarizeMacosArtifact({ archive: path.join(root, dmg), receiptPath: path.join(stateRoot, "macos-notarization.json"), authArgs: [], run });
   for (const staleRoot of [path.join(vaultRoot, "receipts"), path.join(vaultRoot, "state", "mailright-0.2.130-deadbeef", "mac")]) {
     fs.mkdirSync(staleRoot, { recursive: true });
