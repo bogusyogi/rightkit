@@ -50,11 +50,27 @@ pub fn managed_root(explicit: Option<&Path>) -> PathBuf {
             return PathBuf::from(path);
         }
     }
-    if cfg!(windows) {
-        PathBuf::from(r"D:\.rightkit-managed")
+    // Workstation default only when its drive exists; hosted CI and other machines
+    // fall back to the runner's temp dir, then the system temp dir.
+    let (workstation, volume) = if cfg!(windows) {
+        (
+            PathBuf::from(r"D:\.rightkit-managed"),
+            PathBuf::from(r"D:\"),
+        )
     } else {
-        PathBuf::from("/Volumes/D/.rightkit-managed")
+        (
+            PathBuf::from("/Volumes/D/.rightkit-managed"),
+            PathBuf::from("/Volumes/D"),
+        )
+    };
+    if volume.is_dir() {
+        return workstation;
     }
+    let temp = std::env::var_os("RUNNER_TEMP")
+        .map(PathBuf::from)
+        .filter(|p| p.is_dir())
+        .unwrap_or_else(std::env::temp_dir);
+    temp.join("rightkit-managed")
 }
 
 pub fn run_root(root: &Path, app: &str, run_id: &str) -> Result<PathBuf> {

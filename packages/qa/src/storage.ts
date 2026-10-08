@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 
 export const RUN_MARKER = '.rightkit-run.json';
@@ -45,8 +46,11 @@ export interface RetentionReport {
 export function resolveManagedRoot(explicit?: string): string {
   if (explicit?.trim()) return path.resolve(explicit);
   if (process.env.RIGHTKIT_MANAGED_ROOT?.trim()) return path.resolve(process.env.RIGHTKIT_MANAGED_ROOT);
-  if (process.platform === 'win32') return path.resolve('D:\\.rightkit-managed');
-  return '/Volumes/D/.rightkit-managed';
+  const [workstation, volume] = process.platform === 'win32' ? ['D:\\.rightkit-managed', 'D:\\'] : ['/Volumes/D/.rightkit-managed', '/Volumes/D'];
+  if (fs.existsSync(volume)) return path.resolve(workstation);
+  // Hosted CI and other machines: runner temp, then the system temp dir.
+  const runnerTemp = process.env.RUNNER_TEMP?.trim();
+  return path.join(runnerTemp && fs.existsSync(runnerTemp) ? runnerTemp : os.tmpdir(), 'rightkit-managed');
 }
 
 export function safeKey(value: string, name: string): string {

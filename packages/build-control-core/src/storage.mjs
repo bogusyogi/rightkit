@@ -1,11 +1,19 @@
 import { lstat, readdir, readFile, writeFile, mkdir, rename, rm, realpath, stat, chmod } from 'node:fs/promises';
 import { basename, dirname, join, relative, resolve, sep } from 'node:path';
 import { randomUUID } from 'node:crypto';
+import { existsSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 
 export const STORAGE_DEFAULTS = Object.freeze({ runKeep: 5, runMinAgeMs: 24 * 60 * 60_000, runCapBytes: 20_000_000_000, artifactKeep: 3, deviceKeep: 2, deviceRecentMs: 30 * 86400_000, ownershipThresholdBytes: 5_000_000_000 });
 export const safeKey = (value) => { if (typeof value !== 'string' || !/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,199}$/.test(value) || value === '..') throw new TypeError('unsafe storage identifier'); return value; };
 export const inside = (path, root) => { const r = relative(resolve(root), resolve(path)); return r === '' || (!r.startsWith(`..${sep}`) && r !== '..' && !r.startsWith(sep)); };
-export function managedStorageRoot(env = process.env, platform = process.platform) { return resolve(env.RIGHTKIT_MANAGED_ROOT || (platform === 'win32' ? 'D:\\.rightkit-managed' : '/Volumes/D/.rightkit-managed')); }
+export function managedStorageRoot(env = process.env, platform = process.platform, exists = existsSync) {
+  if (env.RIGHTKIT_MANAGED_ROOT) return resolve(env.RIGHTKIT_MANAGED_ROOT);
+  const [workstation, volume] = platform === 'win32' ? ['D:\\.rightkit-managed', 'D:\\'] : ['/Volumes/D/.rightkit-managed', '/Volumes/D'];
+  if (exists(volume)) return resolve(workstation);
+  // Hosted CI and other machines: runner temp, then the system temp dir.
+  return join(env.RUNNER_TEMP && exists(env.RUNNER_TEMP) ? env.RUNNER_TEMP : tmpdir(), 'rightkit-managed');
+}
 const trustedSystemAliases = process.platform === 'darwin'
   ? new Map([['/tmp', '/private/tmp'], ['/var', '/private/var'], ['/etc', '/private/etc']])
   : new Map();
