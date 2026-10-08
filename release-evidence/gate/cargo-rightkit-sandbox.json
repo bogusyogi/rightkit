@@ -2,10 +2,10 @@
   "schema": 1,
   "kind": "cargo",
   "name": "rightkit-sandbox",
-  "version": "0.3.0",
-  "commit": "4fcf34aeaf9ebe48f80b869a2b1eee68bbbec869",
-  "artifactSha256": "51db25a691487377591e7f801fb31267b68b18fb16f60d7f4fcc767378b422de",
-  "artifactBasis": "cargo package rightkit-sandbox-0.3.0.crate",
+  "version": "0.3.1",
+  "commit": "b62359f4e96ddc0a4c564899620bc5f75a3b57fb",
+  "artifactSha256": "ab3ba52c4323f2c66bbb8e78643c59282c49a6b6190515fbd6844c144e86ceb7",
+  "artifactBasis": "cargo package rightkit-sandbox-0.3.1.crate",
   "hostPolicy": "darwin-only",
   "hostPolicyReason": "Adrian 2026-10-07: publish crates from the Mac (crates.io auth here); Windows qualification follows",
   "runs": [
@@ -14,13 +14,13 @@
         "os": "darwin",
         "arch": "arm64"
       },
-      "commit": "4fcf34aeaf9ebe48f80b869a2b1eee68bbbec869",
+      "commit": "b62359f4e96ddc0a4c564899620bc5f75a3b57fb",
       "command": "right-release publish cargo --crate rightkit-sandbox --dry-run (secret scan, fmt, tests, clippy, package, registry dry-run)",
       "features": [
         "default"
       ],
       "operator": "claude-opus-5.5 (RightKit lead) for adrdsouza",
-      "timestamp": "2026-10-08T16:20:30Z",
+      "timestamp": "2026-10-08T17:22:35Z",
       "passed": 12,
       "failed": 0
     }
