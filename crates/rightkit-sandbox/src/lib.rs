@@ -6,6 +6,10 @@
 //! * [`process_tree`] enumerates and kills whole process trees (bounded).
 //! * [`ResourceAuthority`] reserves capacity before any process exists; `Strict` denies.
 //! * [`classify_denial`] turns raw error text into a cross-platform [`DenialSignature`].
+//!
+//! Windows APIs:
+//! * `AppContainerAncestorLease::acquire(path, appcontainer_sid)` leases physical ancestor traverse access until drop.
+//! * `sweep_stale_appcontainer_ancestor_aces_for_owner(path, owner_prefix)` sweeps stale ancestor ACEs for derivation-verified owner profiles.
 
 mod denial;
 mod error;
@@ -33,4 +37,7 @@ pub use resources::{
 };
 pub use spawn::{Sandbox, SandboxOutput, SandboxedChild};
 #[cfg(windows)]
-pub use windows_appcontainer::sweep_stale_appcontainer_ancestor_aces;
+pub use windows_appcontainer::{
+    sweep_stale_appcontainer_ancestor_aces, sweep_stale_appcontainer_ancestor_aces_for_owner,
+    AppContainerAncestorLease,
+};

@@ -17,7 +17,10 @@ use crate::windows_job::{WindowsJob, DEFAULT_ACTIVE_PROCESS_LIMIT};
 use crate::{EnvPolicy, NetworkPolicy, SandboxCommand, SandboxError, SandboxPolicy};
 #[path = "windows_ancestors.rs"]
 mod ancestors;
-pub use ancestors::sweep_stale_appcontainer_ancestor_aces;
+pub use ancestors::{
+    sweep_stale_appcontainer_ancestor_aces, sweep_stale_appcontainer_ancestor_aces_for_owner,
+    AppContainerAncestorLease,
+};
 use ancestors::{AncestorLease, PROFILE_PREFIX};
 use std::collections::{BTreeMap, HashMap};
 use std::ffi::{c_void, OsStr};

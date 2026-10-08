@@ -151,9 +151,31 @@ fn sid_string(sid: *mut c_void) -> io::Result<String> {
     Ok(value)
 }
 
-fn owned_mapping(profile: &str, mapped_sid: &str) -> io::Result<Option<String>> {
+fn validate_owner_prefix(prefix: &str) -> Result<(), SandboxError> {
+    let valid = (2..=64).contains(&prefix.len())
+        && prefix.strip_suffix('.').is_some_and(|name| {
+            let segments: Vec<_> = name.split('.').collect();
+            segments.len() >= 2
+                && segments.iter().all(|segment| {
+                    !segment.is_empty()
+                        && segment.bytes().all(|b| {
+                            b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-'
+                        })
+                })
+        });
+    if !valid {
+        return Err(SandboxError::InvalidPolicy(
+            "owner prefix must be 2..=64 bytes of at least two nonempty lowercase ASCII \
+             letter/digit/hyphen segments separated by '.', ending with '.'"
+                .into(),
+        ));
+    }
+    Ok(())
+}
+
+fn owned_mapping(profile: &str, mapped_sid: &str, prefix: &str) -> io::Result<Option<String>> {
     let profile = profile.to_ascii_lowercase();
-    let Some(suffix) = profile.strip_prefix(PROFILE_PREFIX) else {
+    let Some(suffix) = profile.strip_prefix(prefix) else {
         return Ok(None);
     };
     if suffix.len() != 16 || !suffix.bytes().all(|b| b.is_ascii_hexdigit()) {
@@ -166,7 +188,7 @@ fn owned_mapping(profile: &str, mapped_sid: &str) -> io::Result<Option<String>> 
 
 /// SIDs are hashes, so a textual S-1-15-2 prefix cannot establish ownership.
 /// Enumerate persisted profiles, validate our exact name format, then derive & compare.
-fn owned_profile_sids() -> io::Result<Vec<String>> {
+fn owned_profile_sids(prefix: &str) -> io::Result<Vec<String>> {
     let hkcu = (-2147483647isize) as *mut c_void;
     let Some(mappings) = open_key(
         hkcu,
@@ -228,7 +250,7 @@ fn owned_profile_sids() -> io::Result<Vec<String>> {
         let units = &moniker[..bytes as usize / 2];
         let end = units.iter().position(|&u| u == 0).unwrap_or(units.len());
         let profile = String::from_utf16_lossy(&units[..end]);
-        if let Some(derived) = owned_mapping(&profile, &mapped_sid)? {
+        if let Some(derived) = owned_mapping(&profile, &mapped_sid, prefix)? {
             owned.push(derived);
         }
     }
@@ -486,13 +508,59 @@ fn sweep_chain(
 /// Live leases in this process & unrelated SIDs are preserved. Paths must exist.
 /// Do not sweep while another process using this crate has live sandbox children.
 pub fn sweep_stale_appcontainer_ancestor_aces(path: &Path) -> Result<usize, SandboxError> {
+    sweep_stale_appcontainer_ancestor_aces_for_owner(path, PROFILE_PREFIX)
+}
+
+/// Remove stale explicit allow ACEs belonging to registered profiles under `owner_prefix`
+/// from physical ancestors of `path` (excluding `path`). Returns removed ACE count.
+/// Prefixes require at least two nonempty lowercase ASCII letter/digit/hyphen segments,
+/// separated by '.', ending with '.', within 2..=64 bytes. Ownership requires a 16-hex
+/// suffix & a derived SID matching its persisted mapping. Paths must exist.
+/// Live leases in this process & unrelated SIDs are preserved.
+/// Do not sweep while another process using these profiles has live sandbox children.
+pub fn sweep_stale_appcontainer_ancestor_aces_for_owner(
+    path: &Path,
+    owner_prefix: &str,
+) -> Result<usize, SandboxError> {
+    validate_owner_prefix(owner_prefix)?;
     let chain = ancestor_chain(path)?;
-    let owned = owned_profile_sids()?;
+    let owned = owned_profile_sids(owner_prefix)?;
     let live = registry().lock().unwrap_or_else(|e| e.into_inner());
     let grants = lease_registry().lock().unwrap_or_else(|e| e.into_inner());
     let _acl = ACL_GRANT_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     sweep_chain(&chain, &owned, &live, &grants, &write_dacl)
 }
+
+/// Grants traverse (SYNCHRONIZE | READ_ATTRIBUTES | LIST_DIRECTORY) on physical ancestors
+/// of `path` (excluding `path`) for the given AppContainer SID for the lease lifetime.
+pub struct AppContainerAncestorLease {
+    _lease: AncestorLease,
+}
+
+impl AppContainerAncestorLease {
+    /// Acquire an ancestor lease for a parseable `S-1-15-2-` SID (case-insensitive).
+    pub fn acquire(path: &Path, appcontainer_sid: &str) -> Result<Self, SandboxError> {
+        let text = appcontainer_sid.to_ascii_uppercase();
+        if !text.starts_with("S-1-15-2-") || text.contains('\0') {
+            return Err(SandboxError::InvalidPolicy(
+                "ancestor lease requires an AppContainer SID starting with S-1-15-2-".into(),
+            ));
+        }
+        let sid = LocalSid::parse(&text).map_err(|e| {
+            SandboxError::InvalidPolicy(format!("invalid AppContainer SID: {e}"))
+        })?;
+        // Canonical text shares refcounts with backend leases & sweep ownership keys.
+        let text = sid_string(sid.0)?;
+        Ok(Self {
+            _lease: AncestorLease::acquire(path, &text)?,
+        })
+    }
+}
+
+const _: fn() = || {
+    fn a<T: Send + Sync>() {}
+    a::<AppContainerAncestorLease>();
+};
 
 pub(super) struct AncestorLease {
     keys: Vec<String>,
@@ -502,7 +570,7 @@ impl AncestorLease {
         Self::acquire_chain(
             &ancestor_chain(path)?,
             sid_text,
-            &owned_profile_sids()?,
+            &owned_profile_sids(PROFILE_PREFIX)?,
             &write_dacl,
         )
     }

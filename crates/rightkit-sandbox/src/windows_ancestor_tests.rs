@@ -139,6 +139,110 @@ fn sweep_test_chain(chain: &[PathBuf], owned: &[String]) -> usize {
 }
 
 #[test]
+fn owner_prefix_validation() {
+    let longest = format!("a.{}.", "b".repeat(61));
+    for prefix in [
+        "rightkit.sandbox.",
+        "coderight.sandbox.workspace.",
+        "a.b.",
+        "code-right.sandbox2.",
+        longest.as_str(),
+    ] {
+        assert!(validate_owner_prefix(prefix).is_ok(), "{prefix:?}");
+    }
+    let too_long = format!("a.{}.", "b".repeat(62));
+    for prefix in [
+        "",
+        ".",
+        "a.",
+        "S-1-15-2",
+        "rightkit..x.",
+        ".rightkit.sandbox.",
+        "rightkit.sandbox..",
+        "rightkit.sandbox",
+        "Rightkit.sandbox.",
+        "rightkit.sand_box.",
+        "rightkit.sand box.",
+        "rightkit.sand/box.",
+        "rightkit.sandböx.",
+        "rightkit.sandbox.\n",
+        "rightkit.sandbox.\0",
+        too_long.as_str(),
+    ] {
+        assert!(
+            matches!(
+                validate_owner_prefix(prefix),
+                Err(SandboxError::InvalidPolicy(_))
+            ),
+            "{prefix:?}"
+        );
+        // Invalid prefixes fail before resolving paths or reading/writing ACLs.
+        assert!(
+            matches!(
+                crate::sweep_stale_appcontainer_ancestor_aces_for_owner(Path::new(""), prefix),
+                Err(SandboxError::InvalidPolicy(_))
+            ),
+            "{prefix:?}"
+        );
+    }
+}
+
+#[test]
+fn owner_mapping_requires_exact_profile_format_and_derived_sid() {
+    let prefix = "coderight.sandbox.workspace.";
+    let name = format!("{prefix}0123456789abcdef");
+    let sid = sid_string(derive_sid(&name).unwrap().0).unwrap();
+    assert_eq!(owned_mapping(&name, &sid, prefix).unwrap(), Some(sid.clone()));
+    assert_eq!(
+        owned_mapping(&name.to_ascii_uppercase(), &sid, prefix).unwrap(),
+        Some(sid.clone())
+    );
+    let other = sid_string(
+        derive_sid("coderight.sandbox.workspace.fedcba9876543210")
+            .unwrap()
+            .0,
+    )
+    .unwrap();
+    assert!(owned_mapping(&name, &other, prefix).unwrap().is_none());
+    let wrong_prefix = "rightkit.sandbox.0123456789abcdef";
+    let foreign = sid_string(derive_sid(wrong_prefix).unwrap().0).unwrap();
+    assert!(owned_mapping(wrong_prefix, &foreign, prefix)
+        .unwrap()
+        .is_none());
+    for suffix in ["0123456789abcdeg", "0123456789abcde", "0123456789abcdef0"] {
+        let name = format!("{prefix}{suffix}");
+        let sid = sid_string(derive_sid(&name).unwrap().0).unwrap();
+        assert!(owned_mapping(&name, &sid, prefix).unwrap().is_none());
+    }
+}
+
+#[test]
+fn public_ancestor_lease_is_send_and_sync() {
+    fn assert_send_sync<T: Send + Sync>() {}
+    assert_send_sync::<crate::AppContainerAncestorLease>();
+}
+
+#[test]
+fn public_ancestor_lease_rejects_invalid_sid_before_path_access() {
+    for sid in [
+        "",
+        "S-1-1-0",
+        "S-1-15-3-1",
+        "S-1-15-2-",
+        "s-1-15-2-invalid",
+        "S-1-15-2-1\0junk",
+    ] {
+        assert!(
+            matches!(
+                crate::AppContainerAncestorLease::acquire(Path::new(""), sid),
+                Err(SandboxError::InvalidPolicy(_))
+            ),
+            "{sid:?}"
+        );
+    }
+}
+
+#[test]
 fn lease_adds_this_folder_aces_then_removes_exact_additions() {
     let tree = TempChain::new();
     let chain = tree.chain();
@@ -246,15 +350,19 @@ fn stale_sweep_removes_only_verified_crate_profile_sids() {
     let (name, sid) = tree.profile();
     let foreign_name = "coderight.ancestor-test";
     let foreign = sid_string(derive_sid(foreign_name).unwrap().0).unwrap();
-    assert!(owned_mapping(foreign_name, &foreign).unwrap().is_none());
-    assert!(
-        owned_mapping(&name, &foreign).unwrap().is_none(),
-        "mapping must match derived SID"
-    );
-    assert!(owned_mapping("rightkit.sandbox.not-a-hash", &sid)
+    assert!(owned_mapping(foreign_name, &foreign, PROFILE_PREFIX)
         .unwrap()
         .is_none());
-    let owned = vec![owned_mapping(&name, &sid).unwrap().unwrap()];
+    assert!(
+        owned_mapping(&name, &foreign, PROFILE_PREFIX)
+            .unwrap()
+            .is_none(),
+        "mapping must match derived SID"
+    );
+    assert!(owned_mapping("rightkit.sandbox.not-a-hash", &sid, PROFILE_PREFIX)
+        .unwrap()
+        .is_none());
+    let owned = vec![owned_mapping(&name, &sid, PROFILE_PREFIX).unwrap().unwrap()];
     for path in &chain {
         add_ace(path, &sid, ANCESTOR_ACCESS, 0, ACCESS_ALLOWED_ACE_TYPE);
         add_ace(path, &foreign, ANCESTOR_ACCESS, 0, ACCESS_ALLOWED_ACE_TYPE);
