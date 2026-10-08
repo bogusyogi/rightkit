@@ -19,6 +19,7 @@ async function fixtureRepository() {
   await git(root, 'init', '--quiet');
   await git(root, 'config', 'user.name', 'Snapshot Test');
   await git(root, 'config', 'user.email', 'snapshot@example.invalid');
+  await git(root, 'config', 'core.autocrlf', 'false');
   await writeFile(join(root, '.gitignore'), 'ignored.txt\n');
   await writeFile(join(root, 'tracked.txt'), 'before\n');
   await writeFile(join(root, 'deleted.txt'), 'remove me\n');

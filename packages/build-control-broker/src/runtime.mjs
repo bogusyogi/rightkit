@@ -94,14 +94,17 @@ export async function stageManagedRuntime({ externalRoot, sourcePackagesRoot, ve
 }
 
 /** Compatibility activation wrapper. Bundle construction itself remains isolated in stageManagedRuntime. */
-export async function installManagedRuntime({ externalRoot, sourcePackagesRoot, config, version, sourceRevision, sourceTreeDigest, nodePath = process.execPath, healthTimeoutMs = 8_000, healthWorkspace, taskXmlPath, postSwitchHealth, rollbackSwitch, restartService, probeService, rollbackService, processProbe, stage = stageManagedRuntime, health = healthProbe, platform = process.platform, windowsJobAddon, macosResourceAddon }) {
+export async function installManagedRuntime({ externalRoot, sourcePackagesRoot, config, configPath, rollbackSnapshot, stopService, version, sourceRevision, sourceTreeDigest, nodePath = process.execPath, healthTimeoutMs = 8_000, healthWorkspace, taskXmlPath, postSwitchHealth, rollbackSwitch, restartService, probeService, rollbackService, processProbe, stage = stageManagedRuntime, health = healthProbe, platform = process.platform, windowsJobAddon, macosResourceAddon }) {
   if (!externalRoot || !sourcePackagesRoot || !config || !version) throw new TypeError('externalRoot, sourcePackagesRoot, config & version are required');
   if (!Number.isSafeInteger(healthTimeoutMs) || healthTimeoutMs < 100) throw new TypeError('healthTimeoutMs must be at least 100');
   if (typeof healthWorkspace !== 'string' || !isAbsolute(healthWorkspace)) throw new TypeError('absolute healthWorkspace is required for functional runtime activation proof');
   const healthManifest = await lstat(join(healthWorkspace, 'Cargo.toml')).catch(() => null);
   if (!healthManifest?.isFile()) throw new TypeError('healthWorkspace must contain a regular Cargo.toml');
   if (typeof restartService !== 'function' || typeof probeService !== 'function' || typeof rollbackService !== 'function' || typeof processProbe !== 'function') throw new TypeError('restartService, probeService, rollbackService & processProbe are required for activation');
-  const root = resolve(externalRoot); const staged = await stage({ externalRoot: root, sourcePackagesRoot, version, sourceRevision, sourceTreeDigest, platform, windowsJobAddon, macosResourceAddon }); const { runtime, manifest, contentDigest } = staged;
+  const root = resolve(externalRoot);
+  rollbackSnapshot ??= configPath ? await snapshotRuntimeSelection({ root, configPath }) : null;
+  if (rollbackSnapshot && platform === 'darwin' && typeof stopService !== 'function') throw new TypeError('stopService is required to restore config & runtime selection safely');
+  const staged = await stage({ externalRoot: root, sourcePackagesRoot, version, sourceRevision, sourceTreeDigest, platform, windowsJobAddon, macosResourceAddon }); const { runtime, manifest, contentDigest } = staged;
   await verifyRuntimeBundle(runtime, manifest, contentDigest);
   const activationFencePath = activationFencePathFor(config, root);
   const activation = await prepareRuntimeActivationFence({ path: activationFencePath, manifest });
@@ -109,6 +112,7 @@ export async function installManagedRuntime({ externalRoot, sourcePackagesRoot, 
   try {
     await health({ runtime, config, nodePath, timeoutMs: healthTimeoutMs, healthWorkspace, platform });
     const current = join(root, 'runtime-current'); prior = await readlink(current).catch((error) => error.code === 'ENOENT' ? null : Promise.reject(error));
+    if (rollbackSnapshot && rollbackSnapshot.prior !== prior) throw new Error('runtime rollback snapshot differs from prior selection');
     const next = join(root, `.runtime-current-${randomUUID()}`); await symlink(basename(runtime), next); await replaceRuntimeSelection({ root, current, next, platform }); await syncDirectory(root);
     selected = true;
     try {
@@ -121,20 +125,70 @@ export async function installManagedRuntime({ externalRoot, sourcePackagesRoot, 
       committed = true;
     } catch (error) {
       if (committed) throw error;
-      const rollback = join(root, `.runtime-current-${randomUUID()}`); if (prior === null) await rm(current, { force: true }); else { await symlink(prior, rollback); await replaceRuntimeSelection({ root, current, next: rollback, platform }); } await syncDirectory(root);
+      if (rollbackSnapshot) {
+        await stopService?.();
+        await restoreRuntimeSelection(rollbackSnapshot, { platform });
+      } else {
+        const rollback = join(root, `.runtime-current-${randomUUID()}`); if (prior === null) await rm(current, { force: true }); else { await symlink(prior, rollback); await replaceRuntimeSelection({ root, current, next: rollback, platform }); } await syncDirectory(root);
+      }
       selected = false;
       await removeRuntimeActivationFence(activation);
       try { await rollbackService({ prior, current, failedRuntime: runtime, manifest, service, taskXmlPath, timeoutMs: healthTimeoutMs }); }
       catch (rollbackError) { throw new Error(`runtime activation rollback failed: ${rollbackError.message}; activation failure: ${error.message}`); }
-      throw new Error(`runtime activation rolled back: ${error.message}`);
+      throw Object.assign(new Error(`runtime activation rolled back: ${error.message}`), { runtimeRestored: true });
     }
+    if (rollbackSnapshot) await discardRuntimeSnapshot(rollbackSnapshot);
     return Object.freeze({ runtime, current: join(root, 'runtime-current'), version: manifest.version, contentDigest, manifest, activation: Object.freeze({ path: activation.path, tokenDigest: activation.tokenDigest, state: 'COMMITTED' }) });
   } catch (error) {
-    if (!committed) await removeRuntimeActivationFence(activation).catch(() => {});
     if (selected && !committed) throw new Error(`runtime activation selected candidate without rollback: ${error.message}`);
+    if (!committed) await removeRuntimeActivationFence(activation).catch(() => {});
     throw error;
   }
 }
+
+/** One atomic journal binds the previous pointer to the exact bytes it ran with.
+ * Bootstrap must capture this before rewriting config, not at the later switch. */
+export async function snapshotRuntimeSelection({ root, configPath, prior, configBytes }) {
+  root = resolve(root); configPath = resolve(configPath);
+  prior ??= await readlink(join(root, 'runtime-current')).catch((error) => error.code === 'ENOENT' ? null : Promise.reject(error));
+  if (prior === null) return null;
+  const path = join(root, '.runtime-rollback.json');
+  const saved = await readFile(path, 'utf8').catch((error) => error.code === 'ENOENT' ? null : Promise.reject(error));
+  if (saved) {
+    const snapshot = JSON.parse(saved);
+    if (snapshot.schema !== 'rightkit.runtime-rollback.v1' || snapshot.prior !== prior || snapshot.configPath !== configPath || typeof snapshot.configBytes !== 'string') throw new Error('runtime rollback snapshot differs from prior selection');
+    return { ...snapshot, root, path };
+  }
+  configBytes ??= await readFile(configPath);
+  const snapshot = { schema: 'rightkit.runtime-rollback.v1', prior, configPath, configBytes: Buffer.from(configBytes).toString('base64') };
+  await writeRuntimeFileAtomic(path, `${JSON.stringify(snapshot)}\n`);
+  await syncDirectory(root);
+  return { ...snapshot, root, path };
+}
+
+async function writeRuntimeFileAtomic(path, bytes) {
+  const temporary = `${path}.${randomUUID()}.tmp`;
+  try {
+    const handle = await open(temporary, 'wx', 0o600);
+    try { await handle.writeFile(bytes); await handle.sync(); } finally { await handle.close(); }
+    await rename(temporary, path);
+  } finally { await rm(temporary, { force: true }); }
+}
+
+/** Restore under a stopped service & pending admission fence. Both file
+ * replacements are atomic; no restarted runtime can observe a mixed pair. */
+export async function restoreRuntimeSelection(snapshot, { platform = process.platform } = {}) {
+  const { root, prior, configPath, configBytes } = snapshot;
+  const current = join(root, 'runtime-current'); const next = join(root, `.runtime-current-${randomUUID()}`);
+  await symlink(prior, next);
+  try {
+    await writeRuntimeFileAtomic(configPath, Buffer.from(configBytes, 'base64'));
+    await replaceRuntimeSelection({ root, current, next, platform });
+    await syncDirectory(root, { platform });
+  } finally { await rm(next, { force: true }); }
+}
+
+export async function discardRuntimeSnapshot(snapshot) { await rm(snapshot.path, { force: true }); }
 
 /** POSIX rename replaces a symlink atomically. Windows refuses to rename over
  * an existing directory link, so preserve it under a unique recovery name,

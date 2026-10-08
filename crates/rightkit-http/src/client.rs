@@ -51,16 +51,24 @@ type RetryObserver = Arc<dyn Fn(&RetryEvent) + Send + Sync>;
 #[derive(Clone)]
 pub struct ClientConfig {
     pub user_agent: String,
-    pub connect_timeout: Duration,
+    /// Connection-phase deadline; `None` disables this per-phase deadline.
+    pub connect_timeout: Option<Duration>,
     /// Whole-request deadline for buffered calls (headers + body).
     pub request_timeout: Duration,
     /// Time to receive response headers; for streams this is the first-byte
-    /// (first-token) deadline.
-    pub response_timeout: Duration,
+    /// (first-token) deadline. `None` disables this per-phase deadline.
+    pub response_timeout: Option<Duration>,
+    /// Total time to receive the body, starting after response headers arrive.
+    /// The budget is not restarted per read. `None` disables this phase deadline.
+    pub recv_body_timeout: Option<Duration>,
     /// Optional total lifetime cap for a stream body.
     pub stream_timeout: Option<Duration>,
     /// Redirects followed (0 = never; credentials are never replayed to a new host).
     pub max_redirects: u32,
+    /// Error when a nonzero redirect limit is exceeded (default true, like ureq).
+    /// False returns the final 3xx response. With `max_redirects = 0`, redirects
+    /// are never followed and the 3xx response is always returned.
+    pub max_redirects_will_error: bool,
     pub max_response_bytes: usize,
     pub retry: RetryPolicy,
     pub on_retry: Option<RetryObserver>,
@@ -70,11 +78,13 @@ impl Default for ClientConfig {
     fn default() -> Self {
         Self {
             user_agent: concat!("rightkit-http/", env!("CARGO_PKG_VERSION")).to_string(),
-            connect_timeout: Duration::from_secs(10),
+            connect_timeout: Some(Duration::from_secs(10)),
             request_timeout: Duration::from_secs(60),
-            response_timeout: Duration::from_secs(60),
+            response_timeout: Some(Duration::from_secs(60)),
+            recv_body_timeout: None,
             stream_timeout: None,
             max_redirects: 0,
+            max_redirects_will_error: true,
             max_response_bytes: 32 * 1024 * 1024,
             retry: RetryPolicy::default(),
             on_retry: None,
@@ -264,9 +274,9 @@ impl Client {
         let agent: ureq::Agent = ureq::Agent::config_builder()
             .http_status_as_error(false)
             .max_redirects(config.max_redirects)
-            .max_redirects_will_error(false)
+            .max_redirects_will_error(config.max_redirects_will_error)
             .user_agent(config.user_agent.clone())
-            .timeout_connect(Some(config.connect_timeout))
+            .timeout_connect(config.connect_timeout)
             .build()
             .into();
         Self { agent, config }
@@ -395,7 +405,8 @@ impl Client {
             .agent
             .configure_request(request)
             .timeout_global(total)
-            .timeout_recv_response(Some(self.config.response_timeout))
+            .timeout_recv_response(self.config.response_timeout)
+            .timeout_recv_body(self.config.recv_body_timeout)
             .build();
         let response = self.agent.run(configured).map_err(map_ureq_error)?;
         let status = response.status().as_u16();
@@ -441,10 +452,9 @@ fn read_limited(reader: &mut dyn Read, limit: usize) -> Result<Vec<u8>, HttpErro
         .read_to_end(&mut out)
         .map_err(|e| match e.kind() {
             std::io::ErrorKind::TimedOut => HttpError::Timeout(e.to_string()),
-            _ => HttpError::Transport {
-                message: e.to_string(),
-                connect_phase: false,
-            },
+            // Body readers wrap ureq errors (including phase timeouts) in
+            // io::ErrorKind::Other. Unwrap them before applying our taxonomy.
+            _ => map_ureq_error(e.into()),
         })?;
     if out.len() > limit {
         return Err(HttpError::BodyTooLarge { limit });
@@ -456,6 +466,10 @@ fn map_ureq_error(err: ureq::Error) -> HttpError {
     use ureq::Error as E;
     match err {
         E::Timeout(t) => HttpError::Timeout(format!("{t:?}")),
+        E::TooManyRedirects => HttpError::Transport {
+            message: "too many redirects".into(),
+            connect_phase: false,
+        },
         E::HostNotFound => HttpError::Transport {
             message: "host not found".into(),
             connect_phase: true,

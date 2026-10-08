@@ -1,10 +1,11 @@
 #!/usr/bin/env node
 import fs from "node:fs";
 import path from "node:path";
-import { spawnSync } from "./background-process.mjs";
 import { fileURLToPath } from "node:url";
 import { enforcePublicationGate, defaultEvidencePath } from "./publication-gate.mjs";
-import { publishGatedCrate } from "./cargo-archive-upload.mjs";
+import { runCargoSync } from "./managed-cargo.mjs";
+import { readVerifiedArtifact, assertArtifactUnchanged } from "./publication-artifacts.mjs";
+import { verifyCargoRegistry } from "./cargo-registry-readback.mjs";
 import { recordPublished } from "./rightkit-sync.mjs";
 
 const FORBIDDEN_PACKAGE_PATH = /(^|\/)(?:\.env(?:\.[^/]*)?|target(?:\/.*)?|node_modules(?:\/.*)?|[^/]+\.(?:p8|p12|pem|key))$/i;
@@ -53,10 +54,12 @@ export function buildCargoPublishPlan({ crate, crateDir, dryRun, allowDirty = fa
   ];
   if (!dryRun) plan.push(
     // `publish --dry-run` leaves its archive under target/package/tmp-crate on current Cargo; package
-    // explicitly so target/package/<name>-<version>.crate is the exact archive hashed & uploaded.
+    // explicitly to bind target/package/<name>-<version>.crate to evidence before Cargo uploads.
     { label: "package archive", command: "cargo", args: ["package", "--no-verify", "-p", crate, ...(allowDirty ? ["--allow-dirty"] : [])] },
     { label: "package location", command: "cargo", args: ["metadata", "--format-version", "1", "--no-deps"], capture: true },
-    { label: "registry publish", internal: "upload-archive" },
+    { label: "archive hash check", internal: "verify-archive" },
+    { label: "registry publish", command: "cargo", args: ["publish", "--no-verify", "-p", crate] },
+    { label: "registry readback", internal: "registry-readback" },
   );
   return plan;
 }
@@ -84,7 +87,7 @@ export function scanCrateForSecrets(crateDir) {
   return [...new Set(violations)].sort();
 }
 
-export async function runCargoPublish(options, execute = spawnSync, deps = {}) {
+export async function runCargoPublish(options, execute = (_command, args, settings) => runCargoSync(args, settings), deps = {}) {
   const crateDir = path.join(options.workspaceRoot, "crates", options.crate);
   const manifest = path.join(crateDir, "Cargo.toml");
   if (!fs.existsSync(manifest)) throw new Error(`crate manifest not found: ${manifest}`);
@@ -94,9 +97,11 @@ export async function runCargoPublish(options, execute = spawnSync, deps = {}) {
     evidencePath: path.resolve(options.evidence ?? defaultEvidencePath(options.workspaceRoot, "cargo", options.crate)),
   };
   const gate = (deps.enforceGate ?? enforcePublicationGate)(gateOptions, { dryRun: options.dryRun });
+  const expectedSha256 = gate.evidence?.artifactSha256;
   const plan = buildCargoPublishPlan({ ...options, crateDir });
 
   let targetDir;
+  let artifact;
   let publication;
   for (const step of plan) {
     process.stdout.write(`[right-release] cargo ${step.label}\n`);
@@ -105,14 +110,19 @@ export async function runCargoPublish(options, execute = spawnSync, deps = {}) {
       if (violations.length) throw new Error(`secret scan rejected: ${violations.join(", ")}`);
       continue;
     }
-    if (step.internal === "upload-archive") {
+    if (step.internal === "verify-archive") {
       // Revalidate source/evidence after packaging; preserve that exact evidence object.
       const current = (deps.enforceGate ?? enforcePublicationGate)(gateOptions);
-      if (current.evidence?.artifactSha256 !== gate.evidence?.artifactSha256) throw new Error("publication evidence changed during packaging");
-      publication = await (deps.publishCrate ?? publishGatedCrate)({ name: options.crate, version: cargoVersion,
-        crateFile: path.join(targetDir, "package", `${options.crate}-${cargoVersion}.crate`), evidence: current.evidence }, deps);
+      if (current.evidence?.artifactSha256 !== expectedSha256) throw new Error("publication evidence changed during packaging");
+      artifact = readVerifiedArtifact(path.join(targetDir, "package", `${options.crate}-${cargoVersion}.crate`),
+        { sha256: current.evidence?.artifactSha256 });
       continue;
     }
+    if (step.internal === "registry-readback") {
+      publication = await verifyCargoRegistry({ name: options.crate, version: cargoVersion, sha256: artifact.sha256 }, deps);
+      continue;
+    }
+    if (step.label === "registry publish") assertArtifactUnchanged(artifact);
     const result = execute(step.command, step.args, {
       cwd: options.workspaceRoot,
       encoding: "utf8",

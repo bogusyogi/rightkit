@@ -148,6 +148,7 @@ test('buildConfig produces a config the broker’s own schema accepts', macOSOnl
   // This is the actual validator the live broker runs on startup — if this
   // passes, a bootstrapped config is not just shaped right, it is accepted.
   const loaded = await loadBrokerConfig(configPath);
+  assert.equal(Object.hasOwn(config, 'nodePath'), false, 'Node path belongs only to bootstrap/plist');
   assert.equal(loaded.broker.externalRoot.path, scratch);
   assert.equal(loaded.sccache.mode, loaded.defaults.sccacheToolId ? 'managed' : 'disabled');
   assert.equal(loaded.sccache.clientSide, loaded.sccache.mode === 'managed');

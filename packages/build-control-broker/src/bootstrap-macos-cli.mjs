@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { resolveManagedRoots } from '../../release/managed-roots.mjs';
-import { relocateControlConfig } from './control-migration.mjs';
+import { ensureLegacyControlLinks, relocateControlConfig } from './control-migration.mjs';
 // Recreates the managed broker from nothing but this checkout: config.json, the
 // launchd agent, and the first activation. Everything it writes was previously
 // only ever hand-typed once per machine and never committed anywhere, so a
@@ -16,7 +16,7 @@ import { dirname, isAbsolute, join, posix, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { runMacOSCutover } from './runtime-cutover-macos-cli.mjs';
 import { assertNoToolLoss, preserveOperatorTunedConfig, stripBom } from './config.mjs';
-import { describeMacosResourceAddon } from './runtime.mjs';
+import { describeMacosResourceAddon, snapshotRuntimeSelection } from './runtime.mjs';
 import { discoverManagedVolume } from './volume-discovery.mjs';
 // A `file://${process.argv[1]}` comparison never matches on Windows, where
 // argv[1] is a drive path: the CLI exited 0 having silently done nothing.
@@ -237,7 +237,7 @@ export function defaultCargoBuildJobs({ cpus = cpuCount(), totalMemoryBytes = to
   return deriveCargoBuildJobs({ cpus, totalMemoryBytes });
 }
 
-export async function buildConfig({ externalRoot, controlRoot = externalRoot, nodePath = process.execPath, cargoBuildJobs = defaultCargoBuildJobs(), sizing = null, discover = discoverTools, toolchainVersion = rustcVersionTriple, cacheVersion = sccacheVersion }) {
+export async function buildConfig({ externalRoot, controlRoot = externalRoot, cargoBuildJobs = defaultCargoBuildJobs(), sizing = null, discover = discoverTools, toolchainVersion = rustcVersionTriple, cacheVersion = sccacheVersion }) {
   if (!Number.isSafeInteger(cargoBuildJobs) || cargoBuildJobs < 1 || cargoBuildJobs > 256) throw new TypeError('cargoBuildJobs must be an integer from 1 to 256');
   const volume = await discoverManagedVolume(externalRoot).catch(() => null);
   sizing ??= deriveHostSizing({ managedVolumeBytes: volume?.capacityBytes ?? volumeBytes(externalRoot), cargoBuildJobs });
@@ -251,7 +251,6 @@ export async function buildConfig({ externalRoot, controlRoot = externalRoot, no
   const targetTriples = [targetTriple, otherTriple, 'aarch64-apple-ios', 'aarch64-apple-ios-sim'];
   return {
     schemaVersion: 2,
-    nodePath,
     broker: {
       controlRoot,
       externalRoot: { path: externalRoot, volumeId: volume?.volumeId ?? (await resolveVolumeId(externalRoot)) ?? 'unknown', mounted: volume?.mounted ?? true, writable: volume?.writable ?? true, internal: false },
@@ -289,7 +288,7 @@ export async function buildConfig({ externalRoot, controlRoot = externalRoot, no
 export function renderPlist({ nodePath, brokerScript, configPath, home }) {
   // Build workers inherit launchd's QoS. User-requested compilation must not
   // inherit Background throttling; broker admission still bounds concurrency.
-  const logs = join(posix.dirname(configPath), 'logs');
+  const logs = posix.join(posix.dirname(configPath), 'logs');
   const escape = (value) => value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   return `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -319,9 +318,9 @@ export function renderPlist({ nodePath, brokerScript, configPath, home }) {
 \t<key>RunAtLoad</key>
 \t<true/>
 \t<key>StandardErrorPath</key>
-\t<string>${escape(join(logs, 'build-control.stderr.log'))}</string>
+\t<string>${escape(posix.join(logs, 'build-control.stderr.log'))}</string>
 \t<key>StandardOutPath</key>
-\t<string>${escape(join(logs, 'build-control.stdout.log'))}</string>
+\t<string>${escape(posix.join(logs, 'build-control.stdout.log'))}</string>
 </dict>
 </plist>
 `;
@@ -344,16 +343,20 @@ async function main() {
   mkdirSync(join(controlRoot, 'logs'), { recursive: true, mode: 0o700 });
   mkdirSync(join(home, 'Library', 'LaunchAgents'), { recursive: true });
 
+  await ensureLegacyControlLinks({ controlRoot, dataRoot: externalRoot, apply: false });
+  const rollbackSnapshot = await snapshotRuntimeSelection({ root: controlRoot, configPath });
+
   if (existing) {
-    const config = relocateControlConfig(existing, { controlRoot, dataRoot: externalRoot, nodePath });
+    const config = relocateControlConfig(existing, { controlRoot, dataRoot: externalRoot });
     if (options.cargoBuildJobs !== undefined) config.defaults.cargoBuildJobs = options.cargoBuildJobs;
     writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`, { mode: 0o600 });
     console.log(`bootstrap-macos: preserved existing config from ${existingPath}`);
   } else if (!existsSync(configPath)) {
-    const config = await buildConfig({ externalRoot, controlRoot, nodePath, cargoBuildJobs: options.cargoBuildJobs });
+    const config = await buildConfig({ externalRoot, controlRoot, cargoBuildJobs: options.cargoBuildJobs });
     writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`, { mode: 0o600 });
     console.log(`bootstrap-macos: wrote ${configPath} (${config.tools.length} tools discovered)`);
   }
+  await ensureLegacyControlLinks({ controlRoot, dataRoot: externalRoot });
 
   const activeConfig = JSON.parse(await readFile(configPath, 'utf8'));
   const loaderLinks = await ensureMacOSRustToolLoaderLinks(activeConfig.tools ?? [], activeConfig.defaults?.targetTriples ?? [activeConfig.defaults?.targetTriple]);
@@ -378,7 +381,7 @@ async function main() {
   }
 
   const receipt = await runMacOSCutover({
-    configPath, externalRoot, controlRoot, sourcePackagesRoot, sourceRevision, sourceTreeDigest,
+    configPath, externalRoot, controlRoot, rollbackSnapshot, sourcePackagesRoot, sourceRevision, sourceTreeDigest,
     version: `bootstrap-${sourceRevision.slice(0, 8)}-${Date.now()}`,
     launchdLabel: LABEL, uid, endpoint: join(controlRoot, 'broker.sock'),
     plistPath, healthWorkspace, timeoutMs: options.timeoutMs, drainTimeoutMs: options.drainTimeoutMs, macosResourceAddon,

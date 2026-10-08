@@ -3,8 +3,19 @@ import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, writeFile, rm, readFile, utimes, lstat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { moveToVolumeTrash } from '../../build-control-core/src/storage.mjs';
+import { inside, moveToVolumeTrash } from '../../build-control-core/src/storage.mjs';
 import { parseStorageArgs, storageMain } from './storage-cli.mjs';
+test('storage containment rejects unrelated roots & Windows drive changes', () => {
+  const root = join(tmpdir(), 'managed');
+  assert.equal(inside(root, root), true);
+  assert.equal(inside(join(root, 'runs'), root), true);
+  assert.equal(inside(join(tmpdir(), 'managed-other'), root), false);
+  assert.equal(inside(tmpdir(), root), false);
+  if (process.platform === 'win32') {
+    assert.equal(inside('C:\\repo', 'D:\\.rightkit-managed'), false);
+    assert.equal(inside('D:\\.rightkit-managed', 'C:\\repo'), false);
+  }
+});
 test('storage CLI requires explicit prune mode & rejects conflicting or unknown flags', () => { assert.throws(() => parseStorageArgs(['prune']), /requires/); assert.throws(() => parseStorageArgs(['prune', '--apply', '--dry-run']), /exactly/); assert.throws(() => parseStorageArgs(['report', '--apply']), /require prune/); assert.throws(() => parseStorageArgs(['report', '--unknown', 'x']), /invalid/); assert.equal(parseStorageArgs(['prune', '--dry-run']).apply, false); });
 test('storage report & dry-run work without broker and preserve data', async t => { const root = await mkdtemp(join(tmpdir(), 'rightkit-storage-cli-')); t.after(() => rm(root, { recursive: true, force: true })); await mkdir(join(root, 'runs/app/unknown'), { recursive: true }); await writeFile(join(root, 'runs/app/unknown/blob'), 'real'); let out = ''; const io = { stdout: { write: s => out += s } }; assert.equal(await storageMain(['report', '--managed-root', root], io), 0); assert.ok(JSON.parse(out).totals.managedBytes > 0); out = ''; await storageMain(['prune', '--dry-run', '--managed-root', root, '--broker', 'skip'], io); assert.equal(JSON.parse(out).managed[0].remove.length, 0); assert.equal(await readFile(join(root, 'runs/app/unknown/blob'), 'utf8'), 'real'); });
 test('one-off Trash refuses generic repositories & managed roots before mutation', async t => { const root = await mkdtemp(join(tmpdir(), 'rightkit-storage-cli-')); t.after(() => rm(root, { recursive: true, force: true })); const io = { stdout: { write() {} } }; await assert.rejects(storageMain(['prune', '--dry-run', '--managed-root', root, '--trash', '/some/repo'], io), /explicitly named/); await assert.rejects(storageMain(['prune', '--dry-run', '--managed-root', root, '--trash', root], io), /managed storage/); });
@@ -15,7 +26,7 @@ test('CLI prune discovers legacy QA temp roots & accepts their explicit Trash se
   const legacy = join(root, 'tmp/rightkit-qa/cutright-old'); await mkdir(legacy, { recursive: true }); await writeFile(join(legacy, 'app.log'), 'launch log');
   const old = new Date(Date.now() - 3 * 86400_000); await utimes(legacy, old, old);
   let output = '';
-  const io = { stdout: { write: s => output += s }, move: (path, options) => moveToVolumeTrash(path, { ...options, locateVolume: async () => root }) };
+  const io = { stdout: { write: s => output += s }, move: (path, options) => moveToVolumeTrash(path, { ...options, uid: process.getuid?.() ?? 0, locateVolume: async () => root }) };
   const args = ['--managed-root', root, '--broker', 'skip'];
   assert.equal(await storageMain(['prune', '--dry-run', ...args], io), 0);
   assert.equal(JSON.parse(output).legacyQa.remove[0].path, legacy); await lstat(legacy);
@@ -33,7 +44,7 @@ test('CLI run Trash dry-run lists completed cache folders & apply retains live o
   await writeFile(join(live, 'owner.json'), JSON.stringify({ pid: process.pid }));
   const aged = new Date(Date.now() - 3 * 86400_000); for (const p of [old, live]) await utimes(p, aged, aged);
   let output = '';
-  const io = { stdout: { write: s => output += s }, move: (path, options) => moveToVolumeTrash(path, { ...options, locateVolume: async () => root }) };
+  const io = { stdout: { write: s => output += s }, move: (path, options) => moveToVolumeTrash(path, { ...options, uid: process.getuid?.() ?? 0, locateVolume: async () => root }) };
   const args = ['--managed-root', join(root, 'managed'), '--broker', 'skip', '--trash-kind', 'run', '--trash', old, '--trash', live, '--trash', young];
   assert.equal(await storageMain(['prune', '--dry-run', ...args], io), 0);
   const dry = JSON.parse(output).trash; assert.equal(dry[0].applied, false); assert.equal(dry[1].reason, 'live-owner-or-lock'); assert.equal(dry[2].reason, 'younger-than-minimum');

@@ -145,3 +145,9 @@ test('ownership admission policy: off, report or enforce, and operator choice su
   const next = fixture(); const preserved = preserveOperatorTunedConfig(next, { ...fixture(), ownership: { mode: 'enforce' } });
   assert.ok(preserved.includes('ownership')); assert.deepEqual(next.ownership, { mode: 'enforce' });
 });
+
+test('legacy nodePath written by the first control-plane migration is accepted and dropped', () => {
+  const config = validateBrokerConfig({ ...fixture(), nodePath: '/usr/local/bin/node' });
+  assert.equal('nodePath' in config, false);
+  assert.throws(() => validateBrokerConfig({ ...fixture(), unexpectedKey: 1 }), /unknown broker config key/);
+});

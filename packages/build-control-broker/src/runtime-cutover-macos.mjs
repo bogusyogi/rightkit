@@ -83,12 +83,12 @@ export function createMacOSRuntimeCallbacks(options = {}) {
     }
     throw new Error(`launchd service did not produce a new live PID within ${timeoutMs}ms${last?.pid ? ` (PID ${last.pid})` : ''}`);
   };
-  const handshake = async (manifest, deadline, { requirePending = true } = {}) => {
+  const handshake = async (manifest, deadline, { requirePending = true, endpoint = socket } = {}) => {
     let lastError;
     while (Date.now() <= deadline) try {
       return await new Promise((resolveHandshake, reject) => {
       let buffer = ''; let identity = null; let pending = false;
-      const socketHandle = netModule.createConnection(socket);
+      const socketHandle = netModule.createConnection(endpoint);
       const timer = setTimeout(() => { socketHandle.destroy(); reject(new Error('launchd runtime HANDSHAKE timed out')); }, Math.max(1, deadline - Date.now()));
           const finish = (error, value) => { clearTimeout(timer); socketHandle.destroy(); error ? reject(error) : resolveHandshake(value); };
           const complete = () => { if (identity && (!requirePending || pending)) finish(null, identity); };
@@ -130,10 +130,13 @@ export function createMacOSRuntimeCallbacks(options = {}) {
       const runtimeCurrentScript = externalRoot ? join(resolve(externalRoot), 'runtime-current', 'build-control-broker', 'src', 'broker.mjs') : null;
       if (typeof configPath !== 'string' || !isAbsolute(configPath) || typeof nodePath !== 'string' || !isAbsolute(nodePath)) return { alive: false };
       const command = String((await execFile('ps', ['-ww', '-p', String(pid), '-o', 'command=']))?.stdout ?? '').trim();
-      const argv = command.split(/\s+/);
-      if (argv.length !== 3 || resolve(argv[0]) !== resolve(nodePath) || resolve(argv[2]) !== resolve(configPath)) return { alive: false };
-      if (resolve(argv[1]) !== resolve(expectedScript) && !(runtimeCurrentScript && resolve(argv[1]) === resolve(runtimeCurrentScript))) return { alive: false };
-      const resolvedScript = await realpath(argv[1]).catch(() => null);
+      // ps flattens argv without shell quoting. Splitting on whitespace rejects
+      // the internal control root's "Application Support" component. Match the
+      // complete, known three-argument command instead of guessing boundaries.
+      const script = [expectedScript, runtimeCurrentScript].filter(Boolean).find((candidate) =>
+        command === `${nodePath} ${candidate} ${configPath}`);
+      if (!script) return { alive: false };
+      const resolvedScript = await realpath(script).catch(() => null);
       if (resolvedScript !== await realpath(expectedScript)) return { alive: false };
       return { alive: true, runtimePath: expectedRuntime, scriptPath: expectedScript };
     } catch { return { alive: false }; }
@@ -153,6 +156,11 @@ export function createMacOSRuntimeCallbacks(options = {}) {
   };
 
   return {
+    stopService: async () => {
+      await execFile('launchctl', ['disable', target]);
+      await execFile('launchctl', ['bootout', target]).catch(() => {});
+      if (await serviceStatus().then(() => true).catch(() => false)) throw new Error('candidate launchd service did not stop before rollback');
+    },
     restartService: async ({ manifest, timeoutMs: callTimeoutMs = timeoutMs }) => {
       await ensureDrained();
       await enable();
@@ -195,11 +203,12 @@ export function createMacOSRuntimeCallbacks(options = {}) {
         return { pid: null, runtimeIdentity: runtime, legacy: true, stopped: true };
       }
       await enable();
-      const old = await serviceStatus().catch(() => ({ pid: null }));
-      await kickstart();
+      const old = await ensureLoaded();
+      if (!old.bootstrapped) await kickstart();
       const deadline = Date.now() + callTimeoutMs;
-      const pid = await waitForPid(old.pid, deadline);
-      const identity = await handshake(priorManifest, deadline, { requirePending: false });
+      const pid = await waitForPid(old.bootstrapped ? null : old.pid, deadline);
+      const restoredConfig = configPath ? JSON.parse((await readFile(configPath, 'utf8')).replace(/^\uFEFF/, '')) : null;
+      const identity = await handshake(priorManifest, deadline, { requirePending: false, endpoint: restoredConfig?.unixSocket ?? socket });
       const state = await probe({ pid, runtime, manifest: priorManifest });
       if (!state?.alive) throw new Error('rollback launchd process is not live');
       return { pid, runtimeIdentity: identity };

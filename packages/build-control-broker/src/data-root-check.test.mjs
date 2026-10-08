@@ -2,6 +2,7 @@ import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
+import { randomUUID } from 'node:crypto';
 import net from 'node:net';
 import { mkdtemp, mkdir, readFile, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -36,7 +37,8 @@ test('unreadable root binds socket, answers STATUS, refuses jobs & recovers peri
     probe: async () => available ? { ok: true } : { ok: false, diagnostic: { code: 'EXTERNAL_ROOT_UNREADABLE', path: '/denied', errno: 'EACCES' } },
     createService: async () => { created++; return { dispatch: async (m, emit) => { dispatched++; emit({ type: 'HANDSHAKE', runtime: SOURCE_RUNTIME_IDENTITY }); const response = { type: m.type, state: 'READY' }; emit(response); return response; }, shutdown: async () => { stopped++; } }; },
     log: async (event) => logs.push(event) });
-  const root = await mkdtemp(join(tmpdir(), 'rk-gated-')); const endpoint = join(root, 'broker.sock');
+  const root = await mkdtemp(join(tmpdir(), 'rk-gated-'));
+  const endpoint = process.platform === 'win32' ? String.raw`\\.\pipe\rk-gated-${randomUUID()}` : join(root, 'broker.sock');
   const server = createThinJobServer({ service, endpoint });
   await new Promise((resolve) => server.listen(endpoint, resolve));
   t.after(async () => { await service.shutdown(); await new Promise((resolve) => server.close(resolve)); await rm(root, { recursive: true, force: true }); });
@@ -77,11 +79,11 @@ test('initialization cannot block STATUS & invalid runtime cannot bypass gate', 
   await service.shutdown();
 });
 
-test('broker entry binds from control storage & logs LISTENING before denied data startup', { skip: process.platform === 'win32' }, async (t) => {
+test('broker entry binds from control storage & logs LISTENING before denied data startup', { skip: process.platform === 'win32' && 'POSIX broker entry uses the data-root gate; Windows initializes its native service directly' }, async (t) => {
   const root = await mkdtemp(join(tmpdir(), 'rk-broker-start-')); const control = join(root, 'control'); const data = join(root, 'missing-data');
   await mkdir(control, { mode: 0o700 });
   const endpoint = join(control, 'broker.sock'); const configPath = join(control, 'config.json');
-  await writeFile(configPath, JSON.stringify({ schemaVersion: 2, nodePath: process.execPath, broker: { controlRoot: control, externalRoot: { path: data, volumeId: 'test', mounted: false, writable: false, internal: false }, capacityBytes: 1024, stateFile: join(control, 'state.db'), activationFencePath: join(control, 'state', 'activation.json'), receiptsDir: join(data, 'receipts') }, unixSocket: endpoint, tools: [], shims: {}, defaults: {}, bounds: {} }));
+  await writeFile(configPath, JSON.stringify({ schemaVersion: 2, broker: { controlRoot: control, externalRoot: { path: data, volumeId: 'test', mounted: false, writable: false, internal: false }, capacityBytes: 1024, stateFile: join(control, 'state.db'), activationFencePath: join(control, 'state', 'activation.json'), receiptsDir: join(data, 'receipts') }, unixSocket: endpoint, tools: [], shims: {}, defaults: {}, bounds: {} }));
   const child = spawn(process.execPath, [fileURLToPath(new URL('./broker.mjs', import.meta.url)), configPath], { stdio: ['ignore', 'pipe', 'pipe'] });
   t.after(async () => {
     if (child.exitCode === null) await new Promise((resolve) => { child.once('exit', resolve); child.kill('SIGTERM'); });

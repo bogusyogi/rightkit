@@ -4953,7 +4953,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-http"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "getrandom 0.3.4",
  "rightkit-http",
@@ -7136,6 +7136,7 @@ checksum = "9a7ac20be9b7726e0bbdbf974c059676d9acb1cd414961f570a4e8231cacd7fc"
 dependencies = [
  "base64 0.23.1",
  "der 0.8.1",
+ "flate2",
  "log",
  "native-tls",
  "percent-encoding",

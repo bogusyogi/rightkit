@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import net from 'node:net';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { spawn } from 'node:child_process';
@@ -37,7 +37,7 @@ test('all named aliases normalize into a managed-agent request', () => {
   assert.deepEqual(createManagedAgentRequest({ argv0: 'cargo', workspace: '/external/work', environment: { CARGO_TARGET_DIR: '/tmp/escape' } }).observedEnvironment, { CARGO_TARGET_DIR: '/tmp/escape' });
   assert.equal(shimManifest().links.length, 5);
   assert.deepEqual(INSTALLED_MANAGED_SHIMS, ['cargo', 'rustc', 'rustdoc', 'rustup']);
-  assert.throws(() => brokerEndpoint({}), /not configured/);
+  assert.throws(() => brokerEndpoint({}, { exists: () => false }), /not configured/);
 });
 
 test('ambient Rust/Cargo overrides are captured & rejected instead of silently dropped', () => {
@@ -104,7 +104,8 @@ test('installs agent-only POSIX wrappers into an empty explicit directory', asyn
   await installAgentShims({ directory, platform: 'linux', runtimeCurrent: '/opt/rightkit/runtime-current-v2', nodePath: '/opt/rightkit/node-v2' });
   assert.match(await readFile(join(directory, 'cargo'), 'utf8'), /runtime-current-v2/);
   await writeFile(join(directory, 'foreign'), 'no');
-  await assert.rejects(installAgentShims({ directory, platform: 'linux' }), /foreign files/);
+  await installAgentShims({ directory, platform: 'linux' });
+  assert.equal(await readFile(join(directory, 'foreign'), 'utf8'), 'no');
   await rm(root, { recursive: true, force: true });
 });
 
@@ -119,8 +120,51 @@ test('owned upgrade removes only recorded obsolete non-Rust wrappers', async () 
   await assert.rejects(readFile(join(directory, 'pnpm'))); await assert.rejects(readFile(join(directory, 'npm')));
   assert.match(await readFile(join(directory, 'cargo'), 'utf8'), /RIGHTKIT_MANAGED_AGENT_SHIM='cargo'/);
   await writeFile(join(directory, 'foreign'), 'no');
-  await assert.rejects(installAgentShims({ directory, platform: 'linux' }), /foreign files/);
+  await installAgentShims({ directory, platform: 'linux' });
+  assert.equal(await readFile(join(directory, 'foreign'), 'utf8'), 'no');
   await rm(root, { recursive: true, force: true });
+});
+
+test('first shim install preserves foreign files & directories', async (t) => {
+  const directory = await mkdtemp(join(tmpdir(), 'rk-foreign-shims-'));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  await writeFile(join(directory, 'right-ctl'), 'foreign control command\n');
+  await mkdir(join(directory, 'foreign-directory'));
+  const installed = await installAgentShims({ directory, platform: 'darwin' });
+  assert.equal(await readFile(join(directory, 'right-ctl'), 'utf8'), 'foreign control command\n');
+  assert.ok((await readdir(directory)).includes('foreign-directory'));
+  assert.ok(!installed.links.includes('right-ctl'));
+});
+
+test('shim name collisions are refused before any install or obsolete cleanup', async (t) => {
+  const directory = await mkdtemp(join(tmpdir(), 'rk-shim-collision-'));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  await writeFile(join(directory, 'cargo'), 'foreign cargo\n');
+  await assert.rejects(installAgentShims({ directory, platform: 'linux' }), /overwrite foreign agent shim: cargo/);
+  assert.deepEqual(await readdir(directory), ['cargo']);
+  assert.equal(await readFile(join(directory, 'cargo'), 'utf8'), 'foreign cargo\n');
+  await rm(join(directory, 'cargo'));
+  await installAgentShims({ directory, platform: 'linux' });
+  const manifestPath = join(directory, '.rightkit-managed-agent-shims.json');
+  const previous = JSON.parse(await readFile(manifestPath, 'utf8'));
+  previous.links = [...previous.links.filter((name) => name !== 'rustdoc'), 'pnpm'];
+  await writeFile(join(directory, 'rustdoc'), 'foreign rustdoc\n');
+  await writeFile(join(directory, 'pnpm'), 'obsolete owned wrapper\n');
+  await writeFile(manifestPath, JSON.stringify(previous));
+  const before = await readFile(join(directory, 'cargo'));
+  await assert.rejects(installAgentShims({ directory, platform: 'linux' }), /overwrite foreign agent shim: rustdoc/);
+  assert.deepEqual(await readFile(join(directory, 'cargo')), before);
+  assert.equal(await readFile(join(directory, 'pnpm'), 'utf8'), 'obsolete owned wrapper\n');
+  assert.equal(await readFile(join(directory, 'rustdoc'), 'utf8'), 'foreign rustdoc\n');
+});
+
+test('Windows native shim collisions preserve foreign PE bytes', async (t) => {
+  const directory = await mkdtemp(join(tmpdir(), 'rk-shim-pe-collision-'));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  await writeFile(join(directory, 'rustc.exe'), 'foreign executable');
+  await assert.rejects(installAgentShims({ directory, platform: 'win32', runtimeCurrent: 'C:\\RightKit\\runtime-current', nodePath: 'C:\\RightKit\\node.exe', nativeLauncherBytes: Buffer.from('MZ') }), /overwrite foreign agent shim: rustc.exe/);
+  assert.deepEqual(await readdir(directory), ['rustc.exe']);
+  assert.equal(await readFile(join(directory, 'rustc.exe'), 'utf8'), 'foreign executable');
 });
 
 test('installs Windows wrappers that retain each exact shim name', async () => {
