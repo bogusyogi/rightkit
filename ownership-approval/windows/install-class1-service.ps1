@@ -9,7 +9,7 @@ param(
     [string]$AgentUser = "$env:USERDOMAIN\$env:USERNAME",
     # Signed rightkit-sandbox-exec.exe built from the published crate; its committed receipt pins sha256 & signer.
     [string]$SandboxExecSource,
-    [string]$SandboxExecReceipt = (Join-Path $PSScriptRoot 'sandbox-exec-0.3.1.receipt.json'),
+    [string]$SandboxExecReceipt,
     [switch]$DryRunOutput
 )
 Set-StrictMode -Version Latest
@@ -29,6 +29,7 @@ $parents = @($dataRoot, $brokerRoot, (Join-Path $brokerRoot 'global'))
 $trees = @($cargoHome, $gitDb, $cache, $buildRoots, $binRoot)
 if ([string]::IsNullOrWhiteSpace($AgentUser) -or $AgentUser -eq '\' -or $AgentUser -match '[\x00-\x1f]') { throw 'RK_CLASS1_AGENT_IDENTITY: explicit agent account required' }
 if ($ServiceArguments -match '[\x00-\x1f]') { throw 'RK_CLASS1_SERVICE_COMMAND: invalid service arguments' }
+if (-not $SandboxExecReceipt) { $SandboxExecReceipt = Join-Path $PSScriptRoot 'sandbox-exec-0.3.1.receipt.json' }
 if ($SandboxExecSource) {
     if ($SandboxExecSource -notmatch '^[A-Za-z]:\\') { throw 'RK_CLASS1_SANDBOX_SOURCE: absolute -SandboxExecSource required' }
     $sandboxReceipt = Get-Content -Raw -LiteralPath $SandboxExecReceipt | ConvertFrom-Json
