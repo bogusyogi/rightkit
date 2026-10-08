@@ -1,0 +1,15 @@
+{
+  "package": "@rightkit/hooks",
+  "capabilities": [
+    {
+      "capability": "lifecycle-hooks",
+      "summary": "Neutral lifecycle runtime shared by independently installable agent systems.; declaration-only detection (no precise implementation fingerprint)",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "stdin repair remains P1.",
+        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
+      ]
+    }
+  ]
+}

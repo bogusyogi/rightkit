@@ -9,13 +9,13 @@ async function fixture() {
   const root = await realpath(await mkdtemp(join(tmpdir(), 'rk-cutover-cli-')));
   const external = join(root, 'external'); const source = join(root, 'packages'); const health = join(root, 'health');
   await mkdir(external); await mkdir(source); await mkdir(health); await writeFile(join(health, 'Cargo.toml'), '[package]\nname = "rk-cutover-health"\nversion = "0.0.0"\nedition = "2021"\n');
-  const config = join(root, 'broker.json'); const plist = join(root, 'broker.plist'); const endpoint = join(external, 'broker.sock');
+  const config = join(external, 'config.json'); const plist = join(root, 'broker.plist'); const endpoint = join(external, 'broker.sock');
   await writeFile(config, JSON.stringify({ broker: { externalRoot: { path: external, volumeId: 'test', mounted: true, writable: true, internal: false }, stateFile: join(external, 'state.json'), receiptsDir: join(external, 'receipts'), activationFencePath: join(external, 'activation-fence.json'), capacityBytes: 1 }, unixSocket: endpoint }));
   await writeFile(plist, `<plist><dict><key>Label</key><string>dev.rightkit.broker</string><key>ProgramArguments</key><array><string>${process.execPath}</string><string>${join(external, 'runtime-current', 'build-control-broker', 'src', 'broker.mjs')}</string><string>${config}</string></array></dict></plist>`);
   return { root, external, source, health, config, plist, endpoint };
 }
 
-const input = (item) => ({ configPath: item.config, externalRoot: item.external, sourcePackagesRoot: item.source, sourceRevision: 'a'.repeat(40), sourceTreeDigest: 'b'.repeat(40), version: 'v2-test', launchdLabel: 'dev.rightkit.broker', uid: 501, endpoint: item.endpoint, plistPath: item.plist, healthWorkspace: item.health, timeoutMs: 100 });
+const input = (item) => ({ configPath: item.config, externalRoot: item.external, controlRoot: item.external, sourcePackagesRoot: item.source, sourceRevision: 'a'.repeat(40), sourceTreeDigest: 'b'.repeat(40), version: 'v2-test', launchdLabel: 'dev.rightkit.broker', uid: 501, endpoint: item.endpoint, plistPath: item.plist, healthWorkspace: item.health, timeoutMs: 100 });
 const drainDependencies = { restartManaged: async () => {}, guiDomainAvailable: async () => true, beginDrain: async () => ({ path: 'test', token: 'test' }), endDrain: async () => {}, proveBrokerDrain: async () => ({ open: 0, inFlight: [] }) };
 
 test('argument parser rejects unknown switches & requires exact activation identity', () => {
@@ -101,4 +101,27 @@ test('restartManagedLaunchd enables, loads and kickstarts the LaunchAgent', asyn
   const calls = [];
   await restartManagedLaunchd({ launchdLabel: 'L', uid: 501, plistPath: '/p.plist', execFile: async (file, args) => { calls.push([file, ...args]); } });
   assert.deepEqual(calls, [['launchctl', 'enable', 'gui/501/L'], ['launchctl', 'bootstrap', 'gui/501', '/p.plist'], ['launchctl', 'kickstart', 'gui/501/L']]);
+});
+
+test('split-root cutover accepts spaces & stages internally while draining external data', async () => {
+  const item = await fixture(); const control = join(item.root, 'Application Support', 'RightKit');
+  await mkdir(control, { recursive: true });
+  const config = JSON.parse(await (await import('node:fs/promises')).readFile(item.config, 'utf8'));
+  config.nodePath = process.execPath; config.broker.controlRoot = control;
+  config.broker.stateFile = join(control, 'state.json'); config.broker.activationFencePath = join(control, 'activation-fence.json');
+  config.unixSocket = join(control, 'broker.sock');
+  item.config = join(control, 'config.json');
+  await writeFile(item.config, JSON.stringify(config));
+  await writeFile(item.plist, `<plist><dict><key>Label</key><string>dev.rightkit.broker</string><key>ProgramArguments</key><array><string>${process.execPath}</string><string>${join(control, 'runtime-current', 'build-control-broker', 'src', 'broker.mjs')}</string><string>${item.config}</string></array></dict></plist>`);
+  try {
+    let installed; let fenced; let drained;
+    await runMacOSCutover({ ...input(item), controlRoot: control, endpoint: config.unixSocket }, {
+      ...drainDependencies, platform: 'darwin', beginDrain: async (root) => { fenced = root; return {}; },
+      proveBrokerDrain: async (root) => { assert.equal(root, control); return { open: 0 }; },
+      proveThinDrain: async (root) => { drained = root; return { open: 0 }; },
+      stopManaged: async () => ({ stopped: true }), install: async (options) => { installed = options; await options.drainProbe(); return {}; },
+    });
+    assert.equal(installed.externalRoot, control); assert.equal(installed.config.broker.externalRoot.path, item.external);
+    assert.equal(fenced, control); assert.equal(drained, item.external);
+  } finally { await rm(item.root, { recursive: true, force: true }); }
 });

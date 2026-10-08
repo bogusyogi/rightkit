@@ -1,0 +1,61 @@
+{
+  "package": "rightkit-ocr",
+  "capabilities": [
+    {
+      "capability": "ocr",
+      "summary": "Product-neutral OCR: Apple Vision / Windows.Media.Ocr native backends with per-line geometry, isolated worker, and verified two-stage ONNX fallback",
+      "fingerprints": [
+        {
+          "id": "ocr.cargo.leptess",
+          "type": "dependency",
+          "ecosystem": "cargo",
+          "name": "leptess",
+          "tier": "advise",
+          "usageContext": {
+            "hosts": [
+              "macos",
+              "windows"
+            ],
+            "scope": "cargo direct competing dependency; transitive findings require authenticated reachability"
+          },
+          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
+        },
+        {
+          "id": "ocr.cargo.tesseract",
+          "type": "dependency",
+          "ecosystem": "cargo",
+          "name": "tesseract",
+          "tier": "advise",
+          "usageContext": {
+            "hosts": [
+              "macos",
+              "windows"
+            ],
+            "scope": "cargo direct competing dependency; transitive findings require authenticated reachability"
+          },
+          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
+        },
+        {
+          "id": "ocr.npm.tesseract.js",
+          "type": "dependency",
+          "ecosystem": "npm",
+          "name": "tesseract.js",
+          "tier": "advise",
+          "usageContext": {
+            "hosts": [
+              "macos",
+              "windows"
+            ],
+            "scope": "npm direct competing dependency; transitive findings require authenticated reachability"
+          },
+          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
+        }
+      ],
+      "detection": "fingerprinted",
+      "policyNotes": [
+        "Internal unpublished OCR; native & ONNX backends need separate qualification.",
+        "Fingerprints identify review candidates; published two-host replacement qualification is not recorded."
+      ]
+    }
+  ]
+}

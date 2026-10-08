@@ -2,6 +2,7 @@
 import { spawnSync } from "./background-process.mjs";
 import { canonicalRepositoryIdentity, loadTrustedExternal, occurrenceHash, resolveKeyLogTrust, sha256, verifyException, verifyProtectedProvenance } from "./ownership-approval.mjs";
 import { parse as parseToml } from "smol-toml";
+import { sourceNonCode } from "./ownership-source.mjs";
 import { existsSync, lstatSync, readdirSync, readFileSync, realpathSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { acquireCommittedSource, committedSourceDataForInternalUse } from "./committed-source.mjs";
@@ -15,7 +16,7 @@ export const EXCEPTIONS_FILE = path.join(".rightkit", "ownership-exceptions.json
 const CODE_EXT = new Set([".rs", ".ts", ".tsx", ".js", ".mjs", ".cjs", ".jsx", ".swift", ".m", ".mm", ".c", ".cc", ".cpp", ".h", ".py", ".go", ".kt", ".java", ".cs"]);
 // Listed installed/build inputs retain explicit coverage diagnostics.
 const OPAQUE_DIRS = new Set(["target", ".build", "DerivedData", "Pods"]);
-export const SCANNER_VERSION = "2.4.0";
+export const SCANNER_VERSION = "2.6.0";
 export const catalogDigest = (manifest) => sha256(manifest);
 const byteDigest = (bytes) => createHash("sha256").update(bytes).digest("hex");
 const inputDigest = (file) => file.digest ?? byteDigest(file.bytes);
@@ -38,45 +39,6 @@ function sourceMatchers(manifest) {
   catalogCache.set(digest, matchers);
   if (catalogCache.size > 8) catalogCache.delete(catalogCache.keys().next().value);
   return matchers;
-}
-
-// Code-only patterns may consume string arguments, but must start outside
-// literals/comments. Keep offsets/newlines intact for multiline call reporting.
-function sourceNonCode(text, rust) {
-  const nonCode = new Uint8Array(text.length);
-  for (let i = 0; i < text.length;) {
-    const start = i;
-    if (text.startsWith("//", i) || text.startsWith("/*", i)) {
-      if (text[i + 1] === "/") {
-        i = text.indexOf("\n", i + 2);
-        if (i === -1) i = text.length;
-      } else {
-        i += 2;
-        let depth = 1;
-        while (i < text.length && depth) {
-          if (rust && text.startsWith("/*", i)) { depth++; i += 2; }
-          else if (text.startsWith("*/", i)) { depth--; i += 2; }
-          else i++;
-        }
-      }
-      nonCode.fill(1, start, i);
-      continue;
-    }
-    const raw = rust && (i === 0 || !/[\w]/.test(text[i - 1])) && /^(?:br|cr|r)(#*)"/.exec(text.slice(i));
-    if (raw) {
-      const closing = `"${raw[1]}`, end = text.indexOf(closing, i + raw[0].length);
-      i = end === -1 ? text.length : end + closing.length;
-    } else if (text[i] === '"' || (!rust && (text[i] === "'" || text[i] === "`")) ||
-      (rust && text[i] === "'" && /^'(?:\\(?:u\{[\da-fA-F]+\}|x[\da-fA-F]{2}|[^\r\n])|[^'\\\r\n])'/.test(text.slice(i)))) {
-      const quote = text[i++];
-      while (i < text.length) {
-        if (text[i] === "\\") i = Math.min(i + 2, text.length);
-        else if (text[i++] === quote) break;
-      }
-    } else { i++; continue; }
-    nonCode.fill(1, start, i);
-  }
-  return nonCode;
 }
 
 function sourceFindings(file, matchers) {
@@ -121,7 +83,8 @@ export function aggregateOwnership(rightkitRoot) {
     if (!existsSync(dir)) continue;
     for (const name of readdirSync(dir).sort()) {
       const child = path.join(dir, name);
-      let file = path.join(child, MANIFEST_FILE);
+      let file = path.join(child, "ownership-declaration.json");
+      if (!existsSync(file)) file = path.join(child, MANIFEST_FILE);
       if (!existsSync(file) && group === "swift") file = path.join(child, "rightkit-ownership.json");
       if (!existsSync(file)) continue;
       const declared = JSON.parse(readFileSync(file, "utf8"));
@@ -129,7 +92,9 @@ export function aggregateOwnership(rightkitRoot) {
       for (const capability of declared.capabilities ?? []) entries.push({ package: declared.package, ...capability });
     }
   }
-  const manifest = { schema: 1, version: "1", capabilities: entries };
+  const internalFile = path.join(rightkitRoot, "packages/release/ownership-internal-owners.json");
+  const internalOwners = existsSync(internalFile) ? JSON.parse(readFileSync(internalFile, "utf8")).owners : [];
+  const manifest = { schema: 1, version: "2", capabilities: entries, internalOwners };
   validateManifest(manifest);
   return manifest;
 }
@@ -137,7 +102,7 @@ export function aggregateOwnership(rightkitRoot) {
 export function validateManifest(manifest) {
   const ids = new Set();
   for (const c of manifest.capabilities ?? []) {
-    if (!c.package || !c.capability || !Array.isArray(c.fingerprints) || !c.fingerprints.length) throw new Error(`ownership: incomplete capability ${JSON.stringify(c).slice(0, 120)}`);
+    if (!c.package || !c.capability || !Array.isArray(c.fingerprints)) throw new Error(`ownership: incomplete capability ${JSON.stringify(c).slice(0, 120)}`);
     for (const f of c.fingerprints) {
       if (!f.id || ids.has(f.id)) throw new Error(`ownership: missing or duplicate fingerprint id ${f.id}`);
       ids.add(f.id);
@@ -435,11 +400,12 @@ function npmImportUsage(inventory) {
 
 function scanInternal(appRoot, manifest, { inventory = fileInventory(appRoot), trust, repositoryIdentity, repositoryRoot = appRoot, pathPrefix = "" } = {}) {
   const findings = [], coverage = [...inventory.coverage], deps = dependenciesFromInventory(appRoot, inventory), contentDigests = [...(deps.contentDigests ?? [])];
+  const catalogOwners = new Set(manifest.capabilities.map((entry) => entry.package));
   coverage.push(...(deps.coverage ?? []));
   const provenance = trustedProvenance(appRoot, inventory, trust, repositoryIdentity, coverage, repositoryRoot, pathPrefix);
   const npmUsage = npmImportUsage(inventory);
   for (const c of manifest.capabilities) for (const f of c.fingerprints.filter((x) => x.type === "dependency")) for (const d of deps) {
-    if (d.ecosystem === f.ecosystem && (d.name === f.name || d.alias === f.name)) {
+    if (d.ecosystem === f.ecosystem && (d.name === f.name || d.alias === f.name) && !catalogOwners.has(d.name)) {
       const qaOnly = c.capability !== "desktop-qa" && d.ecosystem === "npm" && d.devOnly && npmUsage.get(d.alias ?? d.name) === true;
       findings.push({ fingerprint: f.id, capability: c.capability, package: c.package, file: d.file, line: 0, text: `${d.ecosystem} dependency ${d.alias ? `${d.alias} aliases ` : ""}${d.name}`, local: d.local, provenance: d.source, ...(qaOnly ? { qaOnly: true } : {}) });
     }
@@ -551,12 +517,18 @@ export function evaluate(findings, exceptions, options = {}) {
 }
 
 export function capabilityTable(manifest, deps, result) {
-  return [...new Map(manifest.capabilities.map((c) => [c.capability, c.package])).entries()].map(([capability, owner]) => {
-    const declared = deps.some((d) => d.name === owner || d.name === owner.replace(/^rightkit-/, "@rightkit/"));
+  const groups = new Map();
+  for (const c of manifest.capabilities) {
+    if (!groups.has(c.capability)) groups.set(c.capability, []);
+    groups.get(c.capability).push(c.package);
+  }
+  return [...groups].map(([capability, owners]) => {
+    const owner = owners[0];
+    const declared = deps.some((d) => owners.includes(d.name) || owners.some((name) => d.name === name.replace(/^rightkit-/, "@rightkit/")));
     const own = result.violations.filter((x) => x.capability === capability), covered = result.covered.filter((x) => x.capability === capability);
     const qaOnly = (result.qaOnly ?? []).filter((x) => x.capability === capability && !covered.some((item) => item.occurrenceHash === x.occurrenceHash));
     const status = own.length ? "blocked" : covered.length ? "excepted" : qaOnly.length ? "qa-only" : declared ? "declared-dependency" : result.coverage?.length ? "unscanned" : "not-detected";
-    return { capability, owner, uses: declared, status, count: own.length + covered.length + qaOnly.length };
+    return { capability, owner, ...(owners.length > 1 ? { owners } : {}), uses: declared, status, count: own.length + covered.length + qaOnly.length };
   });
 }
 export function formatTable(rows) { return ["capability  owner  status", ...rows.map((x) => `${x.capability}  ${x.owner}  ${x.status}`)].join("\n"); }

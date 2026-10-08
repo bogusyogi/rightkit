@@ -142,7 +142,7 @@ test('buildConfig produces a config the broker’s own schema accepts', macOSOnl
   const scratch = mkdtempSync(join(tmpdir(), 'rk-bootstrap-'));
   t.after(() => rmSync(scratch, { recursive: true, force: true }));
   const sizing = deriveHostSizing(explicitMacTopology);
-  const config = await buildConfig({ externalRoot: scratch, cargoBuildJobs: sizing.cargoBuildJobs, sizing });
+  const config = await buildConfig({ externalRoot: scratch, cargoBuildJobs: sizing.cargoBuildJobs, sizing, toolchainVersion: async () => null });
   const configPath = join(scratch, 'config.json');
   writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`);
   // This is the actual validator the live broker runs on startup — if this
@@ -177,9 +177,9 @@ test('launchd does not clamp user-requested compiler children to Background QoS'
   assert.doesNotMatch(xml, /<key>(?:LowPriorityIO|LowPriorityBackgroundIO)<\/key>\s*<true\s*\/>/);
 });
 
-test('launchd supplies an external managed sccache error log', () => {
+test('launchd supplies an internal control-root sccache error log', () => {
   const xml = renderPlist({ nodePath: '/node', brokerScript: '/broker', configPath: '/external & managed/config.json', home: '/home' });
-  assert.match(xml, /<key>SCCACHE_ERROR_LOG<\/key>\s*<string>\/external &amp; managed\/rightkit-build-control\/logs\/sccache\.stderr\.log<\/string>/);
+  assert.match(xml, /<key>SCCACHE_ERROR_LOG<\/key>\s*<string>\/external &amp; managed\/logs\/sccache\.stderr\.log<\/string>/);
 });
 
 test('resolveVolumeId & rustcVersionTriple degrade to a safe default instead of throwing', async () => {
@@ -212,7 +212,7 @@ test('Mac bootstrap accepts a measured compiler-worker override', macOSOnly, asy
   const scratch = mkdtempSync(join(tmpdir(), 'rk-bootstrap-jobs-'));
   t.after(() => rmSync(scratch, { recursive: true, force: true }));
   const sizing = deriveHostSizing({ ...explicitMacTopology, cargoBuildJobs: 6 });
-  const config = await buildConfig({ externalRoot: scratch, cargoBuildJobs: 6, sizing });
+  const config = await buildConfig({ externalRoot: scratch, cargoBuildJobs: 6, sizing, toolchainVersion: async () => null });
   assert.equal(config.defaults.cargoBuildJobs, 6);
   await assert.rejects(buildConfig({ externalRoot: scratch, cargoBuildJobs: 0, sizing }), /from 1 to 256/);
 });

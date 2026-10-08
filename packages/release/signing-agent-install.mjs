@@ -1,3 +1,4 @@
+import { resolveManagedRoots } from './managed-roots.mjs';
 import * as fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -29,7 +30,7 @@ export function signingAgentPlist({ paths, node = process.execPath, home }) {
 }
 export function installSigningAgent({ home = os.userInfo().homedir, username = os.userInfo().username,
   uid = process.getuid?.(), platform = process.platform, run = spawnSync, io = fs, node = process.execPath,
-  managedRoot = "/Volumes/D/.rightkit-managed", cargoTargetDirs = [], health = requestSigningAgentSync,
+  managedRoot = resolveManagedRoots({ home }).dataRoot, cargoTargetDirs = [], health = requestSigningAgentSync,
   now = Date.now, sleep = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms) } = {}) {
   if (platform !== "darwin") throw new SigningAgentError("MAC_SIGNING_AGENT_PLATFORM", "Signing agent requires macOS");
   requireMacGuiSession({ run, uid });
@@ -46,7 +47,7 @@ export function installSigningAgent({ home = os.userInfo().homedir, username = o
   for (const root of cargoTargetDirs) {
     if (typeof root !== "string" || !path.isAbsolute(root) || ["/", home, "/Volumes", "/Volumes/D"].includes(path.resolve(root))) throw new SigningAgentError("MAC_SIGNING_AGENT_PATH_DENIED", "Cargo target root must be a dedicated absolute directory");
   }
-  for (const name of ["rightkit-signing-agent.mjs", "background-process.mjs", "codesign-argv.mjs"]) {
+  for (const name of ["rightkit-signing-agent.mjs", "background-process.mjs", "codesign-argv.mjs", "managed-roots.mjs"]) {
     const target = path.join(paths.runtime, name);
     if (io.existsSync(target)) privatePath(target, 0o600, { io, uid });
     io.writeFileSync(target, io.readFileSync(new URL(`./${name}`, import.meta.url)), { mode: 0o600 });

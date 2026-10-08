@@ -65,6 +65,8 @@ export async function stageManagedRuntime({ externalRoot, sourcePackagesRoot, ve
   await mkdir(root, { recursive: true }); await mkdir(staging, { recursive: false });
   try {
     for (const name of packageNames) { const target = join(staging, name); await mkdir(target, { recursive: true }); await Promise.all([cp(join(source, name, 'src'), join(target, 'src'), { recursive: true }), cp(join(source, name, 'package.json'), join(target, 'package.json'))]); }
+    await mkdir(join(staging, 'release'), { recursive: true });
+    await cp(join(source, 'release', 'managed-roots.mjs'), join(staging, 'release', 'managed-roots.mjs'));
     await stageRuntimeDependencies(staging, source);
     await stageOwnershipScanner(staging, source, provenance.sourceRevision);
     const addon = platform === 'win32' ? await stageWindowsJobAddon(staging, source, windowsJobAddon) : undefined;
@@ -241,7 +243,7 @@ async function verifySourceProvenance(sourcePackagesRoot, { sourceRevision, sour
   const scopedPath = normalizeGitScopedPath(filesystemScopedPath);
   // Only these packages are staged. Unrelated RightKit release/app work must
   // not block promotion of a fully committed managed runtime.
-  const runtimePaths = packageNames.map((name) => `${scopedPath}/${name}`);
+  const runtimePaths = [...packageNames.map((name) => `${scopedPath}/${name}`), `${scopedPath}/release/managed-roots.mjs`];
   const status = await gitAt(repository, ['status', '--porcelain=v1', '--untracked-files=all', '--', ...runtimePaths]);
   if (status) throw new Error(`runtime source packages root is dirty or contains untracked files: ${scopedPath}`);
   const actualRevision = await gitAt(repository, ['rev-parse', 'HEAD']); const actualTree = await gitAt(repository, ['rev-parse', `HEAD:${scopedPath}`]);
@@ -460,15 +462,22 @@ async function healthProbe({ runtime, config, nodePath, timeoutMs, healthWorkspa
     await chmod(probeContainer, 0o700);
     probeRoot = await mkdtemp(join(probeContainer, 'p-'));
   }
-  await chmod(probeRoot, 0o700); const endpoint = platform === 'win32' ? healthProbeEndpoint(platform, probeId) : join(probeRoot, 'broker.sock');
+  await chmod(probeRoot, 0o700);
+  let controlProbeRoot = probeRoot;
+  if (platform === 'darwin' && config.broker.controlRoot && resolve(config.broker.controlRoot) !== resolve(liveExternal.path)) {
+    const container = join(config.broker.controlRoot, '.rh');
+    await mkdir(container, { recursive: true, mode: 0o700 });
+    controlProbeRoot = await mkdtemp(join(container, 'p-'));
+  }
+  const endpoint = platform === 'win32' ? healthProbeEndpoint(platform, probeId) : join(controlProbeRoot, 'broker.sock');
   const { activationFencePath, ...probeBroker } = config.broker;
   // Isolated health gets its own absent fence under probeRoot. This satisfies
   // schema-v2 containment without inheriting production PENDING state.
   const probeSccache = platform === 'win32' && config.sccache?.mode === 'managed'
     ? { ...config.sccache, gatewayPort: await availableLoopbackPort() }
     : config.sccache;
-  const probeConfig = { ...config, ...(probeSccache ? { sccache: probeSccache } : {}), ...(platform === 'win32' ? { windowsPipe: endpoint } : { unixSocket: endpoint }), broker: { ...probeBroker, activationFencePath: join(probeRoot, 'activation-fence.json'), externalRoot: { ...liveExternal, path: probeRoot }, stateFile: join(probeRoot, 'state.json'), receiptsDir: join(probeRoot, 'receipts') } };
-  const configPath = join(tmpdir(), `rk-${randomUUID()}.health-config.json`); await writeFile(configPath, `${JSON.stringify(probeConfig)}\n`, { mode: 0o600 });
+  const probeConfig = { ...config, ...(probeSccache ? { sccache: probeSccache } : {}), ...(platform === 'win32' ? { windowsPipe: endpoint } : { unixSocket: endpoint }), broker: { ...probeBroker, ...(probeBroker.controlRoot ? { controlRoot: controlProbeRoot } : {}), activationFencePath: join(controlProbeRoot, 'activation-fence.json'), externalRoot: { ...liveExternal, path: probeRoot }, stateFile: join(controlProbeRoot, 'state.json'), receiptsDir: join(probeRoot, 'receipts') } };
+  const configPath = join(controlProbeRoot !== probeRoot ? controlProbeRoot : tmpdir(), `rk-${randomUUID()}.health-config.json`); await writeFile(configPath, `${JSON.stringify(probeConfig)}\n`, { mode: 0o600 });
   const spawnOptions = { stdio: ['ignore', 'ignore', 'pipe'], ...(platform === 'win32' ? { platform, loadJobAddon: () => loadRuntimeWindowsJobAddon(runtime) } : {}) };
   const child = spawnManagedProcess(nodePath, [join(runtime, 'build-control-broker', 'src', 'broker.mjs'), configPath], spawnOptions, spawn); let stderr = '';
   child.stderr.on('data', (data) => { stderr += data; });
@@ -477,11 +486,13 @@ async function healthProbe({ runtime, config, nodePath, timeoutMs, healthWorkspa
     await waitForSocket(endpoint, child, timeoutMs, () => stderr);
     if (healthWorkspace) {
       const manifest = JSON.parse(stripBom(await readFile(join(runtime, 'runtime-manifest.json'), 'utf8')));
+      await waitForBrokerDataReady({ endpoint, runtime: normalizeRuntimeIdentity(manifest), timeoutMs });
       await functionalProbe(endpoint, healthWorkspace, timeoutMs, normalizeRuntimeIdentity(manifest), Boolean(manifest.macosResourceAddon || manifest.windowsJobAddon));
     }
   } finally {
     if (child.exitCode === null) await terminateProcessTree(child, { graceMs: Math.min(1_000, timeoutMs) });
     await rm(endpoint, { force: true }); await rm(configPath, { force: true }); await removeHealthProbeRoot(probeRoot, { platform });
+    if (controlProbeRoot !== probeRoot) await removeHealthProbeRoot(controlProbeRoot, { platform });
   }
 }
 
@@ -503,3 +514,43 @@ export function functionalResourceFailure(event) {
   return snapshot.status === 'OK' ? null : snapshot.reason ?? snapshot.status;
 }
 const functionalProbe = (endpoint, workspace, timeoutMs, runtime, requireResources = false) => new Promise((resolve, reject) => { const socket = net.createConnection(endpoint); let buffer = ''; let received = false; const timer = setTimeout(() => { socket.destroy(); reject(new Error('broker functional health timed out')); }, timeoutMs); socket.once('error', (error) => { clearTimeout(timer); reject(error); }); socket.on('data', (chunk) => { buffer += chunk; for (;;) { const line = buffer.indexOf('\n'); if (line < 0) return; const event = JSON.parse(buffer.slice(0, line)); buffer = buffer.slice(line + 1); if (event.type !== 'RESULT') continue; received = true; const resourceFailure = requireResources ? functionalResourceFailure(event) : null; if (event.exitCode !== 0 || resourceFailure) { clearTimeout(timer); socket.destroy(); reject(new Error(`broker functional health failed: ${resourceFailure ?? functionalFailureDetail(event)}`)); } } }); socket.once('close', () => { clearTimeout(timer); received ? resolve() : reject(new Error('broker functional health closed without RESULT')); }); socket.once('connect', () => socket.write(`${JSON.stringify({ type: 'MANAGED_AGENT', protocol: BUILD_CONTROL_PROTOCOL, runtime, shim: 'cargo', request: { frontend: 'cargo', argv: ['--version'], workspace, environment: {} } })}\n`)); });
+
+
+// Candidate sockets now bind before data initialization. Prove readiness before
+// functional Cargo health; never treat an early HANDSHAKE as job admission.
+export async function waitForBrokerDataReady({ endpoint, runtime, timeoutMs, query = queryBrokerHealth, now = Date.now, sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)) }) {
+  const deadline = now() + timeoutMs;
+  for (;;) {
+    const remaining = deadline - now();
+    if (remaining <= 0) throw new Error('broker data readiness timed out');
+    const status = await query({ endpoint, runtime, timeoutMs: remaining });
+    if (status.type === 'STATUS' && status.state === 'READY') return status;
+    if (status.code !== 'RK_DATA_ROOT_INITIALIZING') throw Object.assign(new Error(`broker data readiness failed: ${status.code ?? status.state ?? status.error}`), { code: status.code });
+    await sleep(Math.min(25, Math.max(0, deadline - now())));
+  }
+}
+
+function queryBrokerHealth({ endpoint, runtime, timeoutMs }) {
+  return new Promise((resolve, reject) => {
+    const socket = net.createConnection(endpoint); let buffer = ''; let identity = false;
+    const timer = setTimeout(() => { socket.destroy(); reject(new Error('broker data readiness timed out')); }, timeoutMs);
+    const finish = (error, result) => { clearTimeout(timer); socket.destroy(); error ? reject(error) : resolve(result); };
+    socket.once('error', (error) => finish(error));
+    socket.once('end', () => finish(new Error('broker readiness closed without STATUS')));
+    socket.once('connect', () => socket.write(`${JSON.stringify({ type: 'STATUS', id: 'runtime-health-probe', protocol: BUILD_CONTROL_PROTOCOL, runtime })}\n`));
+    socket.on('data', (chunk) => {
+      buffer += chunk;
+      if (buffer.length > 1024 * 1024) return finish(new Error('broker readiness response exceeded limit'));
+      for (;;) {
+        const newline = buffer.indexOf('\n'); if (newline < 0) return;
+        let event; try { event = JSON.parse(buffer.slice(0, newline)); } catch (error) { return finish(error); }
+        buffer = buffer.slice(newline + 1);
+        if (event.type === 'HANDSHAKE') {
+          identity = ['version', 'clientDigest', 'brokerDigest'].every((key) => event.runtime?.[key] === runtime[key]);
+          if (!identity) return finish(new Error('broker readiness runtime digest mismatch'));
+        } else if (!identity) return finish(new Error('broker readiness omitted HANDSHAKE'));
+        else if (event.type === 'STATUS' || event.type === 'RESULT') return finish(null, event);
+      }
+    });
+  });
+}

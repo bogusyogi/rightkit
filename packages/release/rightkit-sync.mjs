@@ -189,6 +189,9 @@ export function syncConsumerCopies(root = rightkitRoot) {
     ["rightkit-versions.json", path.join(root, "packages", "build-control-policy", "src", "ownership-session-versions.json")],
     ["rightkit-drift.mjs", path.join(root, "packages", "build-control-policy", "src", "rightkit-drift.mjs")],
     ["background-process.mjs", path.join(root, "packages", "build-control-policy", "src", "background-process.mjs")],
+    ["ownership-source.mjs", path.join(root, "packages", "build-control-policy", "src", "ownership-source.mjs")],
+    ["ownership-availability.mjs", path.join(root, "packages", "build-control-policy", "src", "ownership-availability.mjs")],
+    ["ownership-availability.mjs", path.join(root, "packages", "build-control-clients", "src", "ownership-availability.mjs")],
   ];
   const updated = [];
   for (const [source, target] of targets) {

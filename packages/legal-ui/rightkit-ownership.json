@@ -1,0 +1,15 @@
+{
+  "package": "@rightkit/legal-ui",
+  "capabilities": [
+    {
+      "capability": "legal-ui",
+      "summary": "The one first-run / re-acceptance legal gate screen for Right Suite desktop apps.; declaration-only detection (no precise implementation fingerprint)",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Package contract retained; dependency declarations do not verify integration.",
+        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
+      ]
+    }
+  ]
+}

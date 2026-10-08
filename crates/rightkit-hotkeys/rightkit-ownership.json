@@ -1,0 +1,46 @@
+{
+  "package": "rightkit-hotkeys",
+  "capabilities": [
+    {
+      "capability": "global-hotkeys",
+      "summary": "Global shortcuts and low-level input hooks for Right Suite apps: chord parsing, conflict detection, CGEventTap/WH_KEYBOARD_LL primitives, push-to-talk state.",
+      "fingerprints": [
+        {
+          "id": "hotkeys.cargo.global-hotkey",
+          "type": "dependency",
+          "ecosystem": "cargo",
+          "name": "global-hotkey",
+          "tier": "advise",
+          "usageContext": {
+            "hosts": [
+              "macos",
+              "windows"
+            ],
+            "scope": "cargo direct competing dependency; transitive findings require authenticated reachability"
+          },
+          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
+        },
+        {
+          "id": "hotkeys.cargo.tauri-plugin-global-shortcut",
+          "type": "dependency",
+          "ecosystem": "cargo",
+          "name": "tauri-plugin-global-shortcut",
+          "tier": "advise",
+          "usageContext": {
+            "hosts": [
+              "macos",
+              "windows"
+            ],
+            "scope": "cargo direct competing dependency; transitive findings require authenticated reachability"
+          },
+          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
+        }
+      ],
+      "detection": "fingerprinted",
+      "policyNotes": [
+        "Package contract retained; dependency declarations do not verify integration.",
+        "Fingerprints identify review candidates; published two-host replacement qualification is not recorded."
+      ]
+    }
+  ]
+}

@@ -5,9 +5,41 @@
       "capability": "mcp",
       "summary": "MCP client/server transports, trust gate, server pool",
       "fingerprints": [
-        { "id": "mcp.cargo.rmcp", "type": "dependency", "ecosystem": "cargo", "name": "rmcp" },
-        { "id": "mcp.npm.sdk", "type": "dependency", "ecosystem": "npm", "name": "@modelcontextprotocol/sdk" },
-        { "id": "mcp.protocol.initialized", "type": "source", "pattern": "[\"']notifications/initialized[\"']" }
+        {
+          "id": "mcp.cargo.rmcp",
+          "type": "dependency",
+          "ecosystem": "cargo",
+          "name": "rmcp",
+          "tier": "advise",
+          "usageContext": {
+            "hosts": [
+              "macos",
+              "windows"
+            ],
+            "scope": "cargo direct competing dependency; transitive findings require authenticated reachability"
+          },
+          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
+        },
+        {
+          "id": "mcp.npm.sdk",
+          "type": "dependency",
+          "ecosystem": "npm",
+          "name": "@modelcontextprotocol/sdk",
+          "tier": "advise",
+          "usageContext": {
+            "hosts": [
+              "macos",
+              "windows"
+            ],
+            "scope": "npm direct competing dependency; transitive findings require authenticated reachability"
+          },
+          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
+        }
+      ],
+      "detection": "fingerprinted",
+      "policyNotes": [
+        "Client/server & transport contexts differ; trust hash repair remains P1.",
+        "Fingerprints identify review candidates; published two-host replacement qualification is not recorded."
       ]
     }
   ]

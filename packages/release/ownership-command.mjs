@@ -3,16 +3,18 @@
 // the shipped manifest from each package's declaration.
 //
 //   right-release ownership [--app <dir>] [--json]
-//   right-release ownership --write-manifest [--rightkit <tools/rightkit>]
-import { readFileSync, realpathSync, writeFileSync } from "node:fs";
+//   right-release ownership --write-manifest [--rightkit <tools/rightkit>] [--approve-new-capabilities]
+// --approve-new-capabilities permits new ids during local generation only.
+// Existing owner changes are always refused; installation needs protected authorization.
+import { realpathSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { aggregateOwnership, formatTable, MANIFEST_FILE } from "./ownership.mjs";
+import { formatTable } from "./ownership.mjs";
+import { writeOwnershipCatalog } from "./ownership-catalog.mjs";
 import { createOwnershipEvidence } from "./ownership-evidence.mjs";
 import { spawnSync } from "./background-process.mjs";
 
 const packageRoot = path.dirname(fileURLToPath(import.meta.url));
-const shipped = path.join(packageRoot, MANIFEST_FILE);
 
 function flag(args, name) {
   const i = args.indexOf(name);
@@ -20,17 +22,20 @@ function flag(args, name) {
 }
 
 export async function main(args, { evidenceFactory = createOwnershipEvidence, gitRunner = spawnSync, print = (value) => console.log(value) } = {}) {
+  if (args.includes("--help")) {
+    print("right-release ownership [--app <dir>] [--json]\nright-release ownership --write-manifest [--rightkit <dir>] [--approve-new-capabilities]\n--approve-new-capabilities permits new capability ids during local generation only. Existing owner conflicts are always refused. Protected installation authorization remains separate.");
+    return 0;
+  }
   if (["enroll", "approve-key", "revoke-key"].includes(args[0])) {
     const { main: keyMain } = await import("./ownership-key-command.mjs");
     return keyMain(args, { runner: gitRunner, print });
   }
   if (args.includes("--write-manifest")) {
     const root = path.resolve(flag(args, "--rightkit") ?? path.join(packageRoot, "..", ".."));
-    const manifest = aggregateOwnership(root);
-    writeFileSync(shipped, `${JSON.stringify(manifest, null, 2)}\n`);
-    const { syncOwnershipCatalog } = await import("../build-control-clients/src/ownership-catalog-sync.mjs");
-    syncOwnershipCatalog({ source: packageRoot });
-    console.log(`[right-release] ownership manifest: ${manifest.capabilities.length} capabilities -> ${shipped}`);
+    const manifest = writeOwnershipCatalog(root, { approveNewCapabilities: args.includes("--approve-new-capabilities") });
+    const { syncConsumerCopies } = await import("./rightkit-sync.mjs");
+    syncConsumerCopies(root);
+    print(`[right-release] ownership manifest: ${manifest.capabilities.length} owner rows -> ${path.join(root, "packages/release/rightkit-ownership.json")}`);
     return 0;
   }
   const app = path.resolve(flag(args, "--app") ?? process.cwd());

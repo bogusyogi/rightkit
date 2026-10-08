@@ -1,0 +1,46 @@
+{
+  "package": "rightkit-asr",
+  "capabilities": [
+    {
+      "capability": "speech-recognition",
+      "summary": "Internal reconciled Parakeet ONNX + Whisper (CoreML / whisper.cpp) decoding runtime for Right Suite applications",
+      "fingerprints": [
+        {
+          "id": "asr.cargo.whisper-rs",
+          "type": "dependency",
+          "ecosystem": "cargo",
+          "name": "whisper-rs",
+          "tier": "advise",
+          "usageContext": {
+            "hosts": [
+              "macos",
+              "windows"
+            ],
+            "scope": "cargo direct competing dependency; transitive findings require authenticated reachability"
+          },
+          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
+        },
+        {
+          "id": "asr.cargo.whisper-rs-sys",
+          "type": "dependency",
+          "ecosystem": "cargo",
+          "name": "whisper-rs-sys",
+          "tier": "advise",
+          "usageContext": {
+            "hosts": [
+              "macos",
+              "windows"
+            ],
+            "scope": "cargo direct competing dependency; transitive findings require authenticated reachability"
+          },
+          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
+        }
+      ],
+      "detection": "fingerprinted",
+      "policyNotes": [
+        "Internal unpublished crate; Parakeet/Whisper feature qualification required.",
+        "Fingerprints identify review candidates; published two-host replacement qualification is not recorded."
+      ]
+    }
+  ]
+}

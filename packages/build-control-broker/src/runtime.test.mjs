@@ -74,6 +74,7 @@ async function sourceFixture() {
   const root = await canonicalTempDir('rk-runtime-source-'); const packages = join(root, 'packages'); const healthWorkspace = join(root, 'health');
   for (const name of ['build-control-broker', 'build-control-core', 'build-control-clients']) await cp(join(sourcePackages, name), join(packages, name), { recursive: true });
   await mkdir(join(packages, 'release'), { recursive: true });
+  await cp(join(sourcePackages, 'release', 'managed-roots.mjs'), join(packages, 'release', 'managed-roots.mjs'));
   const scanner = await committedOwnershipScanner(sourcePackages, 'HEAD');
   for (const [file, bytes] of scanner.files) { await mkdir(dirname(join(packages, 'release', file)), { recursive: true }); await writeFile(join(packages, 'release', file), bytes); }
   await writeFile(join(packages, 'release', 'package.json'), scanner.releasePackageJson);
@@ -93,6 +94,9 @@ test('staging creates content-addressed immutable provenance-bound bundle withou
     await writeFile(join(fixture.packages, 'unrelated-release', 'draft.mjs'), 'uncommitted unrelated work');
     const staged = await stageManagedRuntime({ externalRoot: root, sourcePackagesRoot: fixture.packages, version: 'release-a', sourceRevision: fixture.revision, sourceTreeDigest: fixture.tree, windowsJobAddon: fixture.windowsJobAddon, macosResourceAddon: fixture.macosResourceAddon });
     assert.equal(staged.version, 'release-a');
+    const resolver = join(staged.runtime, 'release', 'managed-roots.mjs');
+    assert.equal(await readFile(resolver, 'utf8'), await readFile(join(sourcePackages, 'release', 'managed-roots.mjs'), 'utf8'));
+    await execFile(process.execPath, ['--input-type=module', '-e', `await import(${JSON.stringify(join(staged.runtime, 'build-control-clients', 'src', 'index.mjs'))})`], { cwd: root });
     assert.equal(staged.manifest.sourceRevision, fixture.revision); assert.equal(staged.manifest.sourceTreeDigest, fixture.tree);
     assert.equal((await readFile(join(staged.runtime, 'runtime-manifest.json'), 'utf8')).includes(staged.manifest.brokerDigest), true);
     assert.equal(JSON.parse(await readFile(join(staged.runtime, 'build-control-broker', 'node_modules', 'smol-toml', 'package.json'), 'utf8')).version, '1.7.0');
@@ -208,4 +212,15 @@ test('staged runtime carries a loadable ownership scanner and its catalog, bound
     const again = await stageManagedRuntime({ externalRoot: root, sourcePackagesRoot: fixture.packages, version: 'scanner-dirty', sourceRevision: fixture.revision, sourceTreeDigest: fixture.tree, windowsJobAddon: fixture.windowsJobAddon, macosResourceAddon: fixture.macosResourceAddon });
     assert.equal(again.runtime, staged.runtime);
   } finally { await rm(root, { recursive: true, force: true }); await rm(fixture.root, { recursive: true, force: true }); }
+});
+
+test('candidate health waits for data initialization & fails closed on unreadable data or timeout', async () => {
+  const { waitForBrokerDataReady } = await import('./runtime.mjs');
+  let calls = 0; let clock = 0;
+  const pending = { type: 'STATUS', state: 'UNAVAILABLE', code: 'RK_DATA_ROOT_INITIALIZING' };
+  const status = await waitForBrokerDataReady({ timeoutMs: 100, now: () => clock, sleep: async (ms) => { clock += ms; }, query: async () => ++calls === 1 ? pending : { type: 'STATUS', state: 'READY' } });
+  assert.equal(status.state, 'READY'); assert.equal(calls, 2);
+  await assert.rejects(waitForBrokerDataReady({ timeoutMs: 100, query: async () => ({ type: 'STATUS', code: 'EXTERNAL_ROOT_UNREADABLE' }) }), { code: 'EXTERNAL_ROOT_UNREADABLE' });
+  clock = 0;
+  await assert.rejects(waitForBrokerDataReady({ timeoutMs: 25, now: () => clock, sleep: async (ms) => { clock += ms; }, query: async () => pending }), /timed out/);
 });

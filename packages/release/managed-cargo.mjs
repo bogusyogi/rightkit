@@ -1,12 +1,11 @@
+import { discoverBrokerSocket, managedControlCandidates, resolveManagedRoots } from './managed-roots.mjs';
 import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { spawnSync } from "./background-process.mjs";
 
 export function managedRuntimeClient(env = process.env, platform = process.platform, exists = existsSync) {
-  const roots = [env.RIGHTKIT_MANAGED_ROOT, env.RIGHTKIT_EXTERNAL_ROOT,
-    platform === "win32" ? "D:\\.rightkit-managed" : platform === "darwin" ? "/Volumes/D/.rightkit-managed" : undefined]
-    .filter((root) => typeof root === "string" && root.length > 0);
+  const roots = managedControlCandidates({ env, platform });
   for (const root of roots) {
     const client = path.join(root, "runtime-current", "build-control-clients", "src", "rightkit.mjs");
     if (exists(client)) return client;
@@ -19,7 +18,7 @@ export function managedRuntimeClient(env = process.env, platform = process.platf
 export function acquireManagedRunLease({ command, env = process.env, platform = process.platform, exists = existsSync, pid = process.pid } = {}) {
   const client = managedRuntimeClient(env, platform, exists);
   if (!client) return { path: null, release() {} };
-  const runs = path.join(path.dirname(path.dirname(path.dirname(path.dirname(client)))), "rightkit-build-control", "global", "runs");
+  const runs = path.join(resolveManagedRoots({ env, platform }).dataRoot, "rightkit-build-control", "global", "runs");
   const file = path.join(runs, `${pid}-${randomUUID()}.json`);
   try {
     mkdirSync(runs, { recursive: true });
@@ -33,22 +32,26 @@ export function acquireManagedRunLease({ command, env = process.env, platform = 
 
 function managedHost(env) {
   return Boolean(env.RIGHTKIT_BUILD_BROKER_SOCKET)
-    || /(?:^|[;:])[^;:]*[/\\](?:\.rightkit-managed|rightkitmanagedagent)[/\\]agent-bin(?:[;:]|$)/i.test(String(env.PATH ?? ""));
+    || /(?:^|[;:])[^;:]*[/\\](?:\.rightkit-managed|rightkitmanagedagent|rightkit[/\\]build-control)[/\\]agent-bin(?:[;:]|$)/i.test(String(env.PATH ?? ""));
 }
 
-export function runCargoSync(args, options = {}) {
+export function runCargoSync(args, options = {}, { platform = process.platform, exists = existsSync, spawn = spawnSync } = {}) {
   const env = options.env ?? process.env;
-  const client = managedRuntimeClient(env);
+  const client = managedRuntimeClient(env, platform, exists);
   if (client) {
-    // The managed `rightkit` wrapper defaults the broker socket to <managed root>/broker.sock; calling the
-    // client directly must do the same, or agent shells without the variable fail metadata.
-    const root = path.dirname(path.dirname(path.dirname(path.dirname(client))));
-    const socket = path.join(root, "broker.sock");
-    const childEnv = !env.RIGHTKIT_BUILD_BROKER_SOCKET && existsSync(socket) ? { ...env, RIGHTKIT_BUILD_BROKER_SOCKET: socket } : env;
-    return spawnSync(process.execPath, [client, "cargo", ...args], { ...options, env: childEnv, cwd: process.cwd() });
+    const socket = discoverBrokerSocket(env, { platform, exists });
+    if (platform === 'darwin' && (!socket || !exists(socket))) return unavailable('RightKit broker socket is unavailable');
+    const childEnv = socket ? { ...env, RIGHTKIT_BUILD_BROKER_SOCKET: socket } : env;
+    const result = spawn(process.execPath, [client, "cargo", ...args], { ...options, env: childEnv });
+    if (platform === 'darwin' && result.status !== 0 && /RK_BROKER_UNAVAILABLE|RightKit broker (?:unavailable|endpoint is not configured)/i.test(String(result.stderr ?? ''))) {
+      return { ...result, error: unavailable(String(result.stderr).trim()).error };
+    }
+    return result;
   }
-  if (managedHost(env) && process.platform === "win32") {
-    return { status: null, stdout: "", stderr: "", error: new Error("installed RightKit runtime client is unavailable for managed Cargo metadata") };
-  }
-  return spawnSync("cargo", args, options);
+  if (platform === 'darwin' || (managedHost(env) && platform === 'win32')) return unavailable('installed RightKit runtime client is unavailable for managed Cargo metadata');
+  return spawn("cargo", args, options);
+}
+
+function unavailable(message) {
+  return { status: null, stdout: "", stderr: message, error: Object.assign(new Error(message), { code: 'RK_BROKER_UNAVAILABLE' }) };
 }

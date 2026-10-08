@@ -1,0 +1,15 @@
+{
+  "package": "rightkit-search",
+  "capabilities": [
+    {
+      "capability": "search",
+      "summary": "Product-neutral search query language: lexer, AST, operator values, SQL/FTS5 predicate compiler, snippets, and an in-memory filename index.",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Query language, FTS5 predicates/snippets & optional filename index; no generic full-text engine replacement.",
+        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
+      ]
+    }
+  ]
+}

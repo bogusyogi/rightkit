@@ -1,0 +1,31 @@
+{
+  "package": "@rightkit/media-ui",
+  "capabilities": [
+    {
+      "capability": "media-ui",
+      "summary": "Brand-neutral media player and image viewer/editor for Right Suite apps.",
+      "fingerprints": [
+        {
+          "id": "media-ui.npm.react-image-crop",
+          "type": "dependency",
+          "ecosystem": "npm",
+          "name": "react-image-crop",
+          "tier": "advise",
+          "usageContext": {
+            "hosts": [
+              "macos",
+              "windows"
+            ],
+            "scope": "npm direct competing dependency; transitive findings require authenticated reachability"
+          },
+          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
+        }
+      ],
+      "detection": "fingerprinted",
+      "policyNotes": [
+        "Package contract retained; dependency declarations do not verify integration.",
+        "Fingerprints identify review candidates; published two-host replacement qualification is not recorded."
+      ]
+    }
+  ]
+}

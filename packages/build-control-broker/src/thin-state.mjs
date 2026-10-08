@@ -74,16 +74,16 @@ function receiptId(value) {
 const residents = (state) => Array.isArray(state?.residents) ? state.residents : [];
 
 export class ThinState {
-  #base; #now; #locks = new Map();
+  #base; #controlRoot; #now; #locks = new Map();
 
-  static async open({ externalRoot, now = () => new Date() } = {}) {
+  static async open({ externalRoot, controlRoot, now = () => new Date() } = {}) {
     const root = requireAbsolute(externalRoot, 'externalRoot');
-    const state = new ThinState({ base: join(root, 'rightkit-build-control'), now });
+    const state = new ThinState({ base: join(root, 'rightkit-build-control'), controlRoot, now });
     await state.#initialize();
     return state;
   }
 
-  constructor({ base, now }) { this.#base = base; this.#now = now; }
+  constructor({ base, controlRoot, now }) { this.#base = base; this.#controlRoot = controlRoot; this.#now = now; }
 
   /** Serialize state transitions per workspace key (v2.8 §10.3): eviction,
    * rotation, writer/resident transitions, and finish re-read-then-write the same state file,
@@ -99,7 +99,7 @@ export class ThinState {
   get paths() {
     return Object.freeze({
       base: this.#base,
-      state: join(this.#base, 'state'),
+      state: join(this.#controlRoot ? join(this.#controlRoot, 'rightkit-build-control') : this.#base, 'state'),
       global: join(this.#base, 'global'),
       cargoHome: join(this.#base, 'global', 'cargo-home'),
       compilerCache: join(this.#base, 'global', 'compiler-cache'),
@@ -110,7 +110,7 @@ export class ThinState {
       active: join(this.#base, 'global', 'active'),
       workspaces: join(this.#base, 'ws'),
       trash: join(this.#base, 'trash'),
-      logs: join(this.#base, 'logs'),
+      logs: this.#controlRoot ? join(this.#controlRoot, 'logs') : join(this.#base, 'logs'),
       receipts: join(this.#base, 'receipts')
     });
   }

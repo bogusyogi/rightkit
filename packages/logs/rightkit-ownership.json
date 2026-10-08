@@ -1,0 +1,15 @@
+{
+  "package": "@rightkit/logs",
+  "capabilities": [
+    {
+      "capability": "structured-logging",
+      "summary": "Local-only structured logging and diagnostics client for Right Suite apps.",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Native invoke JSONL adapter; no generic JS logger replacement claimed.",
+        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
+      ]
+    }
+  ]
+}

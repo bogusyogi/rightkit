@@ -136,7 +136,7 @@ export function resolveRealRustc({ env = process.env, run = spawnSync } = {}) {
 export function resolveManagedCargoShim({ env = process.env, platform = process.platform, exists = existsSync } = {}) {
   const win = platform === "win32" || platform === "win";
   const delimiter = win ? ";" : ":";
-  const agentBin = /(?:^|[\\/])(?:\.rightkit-managed|rightkitmanagedagent)[\\/]agent-bin[\\/]?$/i;
+  const agentBin = /(?:^|[\\/])(?:\.rightkit-managed|rightkitmanagedagent|rightkit[\\/]build-control)[\\/]agent-bin[\\/]?$/i;
   for (const directory of String(env.PATH ?? "").split(delimiter).filter(Boolean)) {
     if (!agentBin.test(directory)) continue;
     for (const name of win ? ["cargo.exe", "cargo.cmd"] : ["cargo"]) {

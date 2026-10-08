@@ -1,0 +1,15 @@
+{
+  "package": "agent-room-core",
+  "capabilities": [
+    {
+      "capability": "agent-room",
+      "summary": "Shared agent room state, events, turns and local HTTP host; declaration-only detection (no precise implementation fingerprint)",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Authenticated human-seat join repair remains P1.",
+        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
+      ]
+    }
+  ]
+}

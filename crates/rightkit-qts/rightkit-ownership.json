@@ -1,0 +1,31 @@
+{
+  "package": "rightkit-qts",
+  "capabilities": [
+    {
+      "capability": "text-to-speech",
+      "summary": "Qwen3 TTS inference (GGUF + GGML), vendored from yet-another-ai/qts v0.2.0 for RightKit",
+      "fingerprints": [
+        {
+          "id": "qts.cargo.qts",
+          "type": "dependency",
+          "ecosystem": "cargo",
+          "name": "qts",
+          "tier": "advise",
+          "usageContext": {
+            "hosts": [
+              "macos",
+              "windows"
+            ],
+            "scope": "cargo direct competing dependency; transitive findings require authenticated reachability"
+          },
+          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
+        }
+      ],
+      "detection": "fingerprinted",
+      "policyNotes": [
+        "Rust library alias qts is adoption, not competing dependency when package is rightkit-qts.",
+        "Fingerprints identify review candidates; published two-host replacement qualification is not recorded."
+      ]
+    }
+  ]
+}

@@ -6,7 +6,7 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 import { generateKeyPairSync, sign } from "node:crypto";
 import { spawnSync } from "./background-process.mjs";
-import { catalogDigest, checkApp } from "./ownership.mjs";
+import { catalogDigest, checkApp, SCANNER_VERSION } from "./ownership.mjs";
 import { createCommittedOwnershipEvidenceForTest, createOwnershipEvidenceForTest, verifyOwnershipEvidenceForTest } from "./ownership-evidence.mjs";
 import { canonicalJson, createDraft, keyIdForPublicKey, sha256 } from "./ownership-approval.mjs";
 import { createKeyEvent, eventHash, keyFingerprint } from "./ownership-key-log.mjs";
@@ -135,7 +135,7 @@ test("protected evidence scans exact committed blobs & binds source tree", () =>
     assert.ok(checked.evidence.tree);
     assert.equal(checked.result.metadata.tree, checked.evidence.tree);
     assert.deepEqual(checked.result.findings.map((finding) => finding.file), ["source.rs"]);
-    assert.equal(checked.evidence.scannerVersion, "2.4.0");
+    assert.equal(checked.evidence.scannerVersion, SCANNER_VERSION);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 

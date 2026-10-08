@@ -64,7 +64,9 @@ test("consumer copies are byte-exact and only rewritten when they differ", async
     await writeFile(path.join(root, "packages", "release", "rightkit-versions.json"), '{"schema":2}\n');
     await writeFile(path.join(root, "packages", "release", "rightkit-drift.mjs"), "export {};\n");
     await writeFile(path.join(root, "packages", "release", "background-process.mjs"), "export {};\n");
-    assert.equal(syncConsumerCopies(root).length, 7);
+    await writeFile(path.join(root, "packages", "release", "ownership-source.mjs"), "export {};\n");
+    await writeFile(path.join(root, "packages", "release", "ownership-availability.mjs"), "export {};\n");
+    assert.equal(syncConsumerCopies(root).length, 10);
     assert.equal(await readFile(path.join(root, "packages", "build-control-policy", "src", "ownership-session-versions.json"), "utf8"), '{"schema":2}\n');
     assert.deepEqual(syncConsumerCopies(root), []);
   } finally { await rm(root, { recursive: true, force: true }); }
@@ -80,6 +82,9 @@ test("checked-in consumer copies match the canonical catalog and versions (run: 
     ["release/rightkit-versions.json", "build-control-policy/src/ownership-session-versions.json"],
     ["release/rightkit-drift.mjs", "build-control-policy/src/rightkit-drift.mjs"],
     ["release/background-process.mjs", "build-control-policy/src/background-process.mjs"],
+    ["release/ownership-source.mjs", "build-control-policy/src/ownership-source.mjs"],
+    ["release/ownership-availability.mjs", "build-control-policy/src/ownership-availability.mjs"],
+    ["release/ownership-availability.mjs", "build-control-clients/src/ownership-availability.mjs"],
   ];
   for (const [source, copy] of pairs) assert.equal(await readFile(path.join(packages, copy), "utf8"), await readFile(path.join(packages, source), "utf8"), `${copy} is stale`);
 });
@@ -108,7 +113,7 @@ async function syncFixture(context, versions) {
   const file = path.join(release, "rightkit-versions.json");
   await writeFile(file, `${JSON.stringify(versions, null, 2)}\n`);
   await writeFile(path.join(release, "rightkit-ownership.json"), '{"capabilities":[]}\n');
-  for (const name of ["rightkit-drift.mjs", "background-process.mjs"]) await writeFile(path.join(release, name), "export {};\n");
+  for (const name of ["rightkit-drift.mjs", "background-process.mjs", "ownership-source.mjs", "ownership-availability.mjs"]) await writeFile(path.join(release, name), "export {};\n");
   syncConsumerCopies(root);
   return { root, file, log: () => {}, fetchImpl: noFetch };
 }

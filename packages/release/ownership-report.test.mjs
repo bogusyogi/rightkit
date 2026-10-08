@@ -11,9 +11,30 @@ const manifest = { schema: 1, capabilities: [
 ] };
 const versions = { cargo: {}, stagedCargo: { "rightkit-oauth": "0.2.1" }, npm: {}, stagedNpm: {} };
 
-test("published availability uses only current or staged published registry versions", () => {
+test("availability labels unverified staging separately from publication", () => {
   assert.deepEqual(publishedAvailability(manifest.capabilities[0], versions), [{ registry: "crates.io", package: "rightkit-oauth", version: "0.2.1", state: "staged-unverified" }]);
   assert.deepEqual(publishedAvailability(manifest.capabilities[1], versions), []);
+});
+
+test("report keeps advisory findings out of blocks & declarations out of verified integration", () => {
+  const workspaceRoot = mkdtempSync(path.join(tmpdir(), "rk-report-tiers-"));
+  mkdirSync(path.join(workspaceRoot, "app"));
+  const policy = { capabilities: [
+    { package: "rightkit-test", capability: "test-capability", detection: "fingerprinted", fingerprints: [{ id: "test.npm.library", tier: "advise" }] },
+    { package: "rightkit-declared", capability: "declared-capability", detection: "declaration-only", fingerprints: [] },
+  ] };
+  const finding = { fingerprint: "test.npm.library", capability: "test-capability", file: "package.json" };
+  try {
+    const report = buildOwnershipReport({ workspaceRoot, manifest: policy, versions: {}, apps: [{ key: "app", root: "app" }], scanner: () => ({
+      rows: [{ capability: "test-capability", status: "blocked" }, { capability: "declared-capability", status: "verified-integration", uses: true }],
+      findings: [finding], violations: [finding], covered: [], problems: [], coverage: [],
+    }) });
+    assert.deepEqual(report.blocks, []);
+    assert.equal(report.apps[0].advisories.length, 1);
+    assert.equal(report.apps[0].rows[0].status, "advisory");
+    assert.equal(report.apps[0].rows[1].status, "declared-dependency");
+    assert.match(renderOwnershipMarkdown(report), /declaration-only/);
+  } finally { rmSync(workspaceRoot, { recursive: true, force: true }); }
 });
 
 test("cross-app report keeps dependency distinct from integration and hashes/deduplicates scan evidence", () => {

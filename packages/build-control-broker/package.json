@@ -11,6 +11,7 @@
     "rightkit-build-bootstrap-macos": "src/bootstrap-macos-cli.mjs",
     "rightkit-build-bootstrap-windows": "src/bootstrap-windows-cli.mjs",
     "rightkit-cache-proof": "src/cache-proof-cli.mjs",
+    "rightkit-build-control-migrate": "src/control-migration.mjs",
     "rightkit-build-storage-migrate": "src/storage-migration.mjs"
   },
   "scripts": {

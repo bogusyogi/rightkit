@@ -50,7 +50,7 @@ try {
         process.stderr.write(`rightkit: ${signal} cancelling request ${requestId}\n`);
         cancelling = cancelManagedAgentJob(requestId, { runtimeIdentity, source: 'CLIENT_SIGNAL' })
           .then((receipt) => process.stderr.write(`rightkit: cancel ${JSON.stringify(receipt)}\n`))
-          .catch((error) => process.stderr.write(`rightkit: cancel failed for ${requestId}: ${error.message}\n`));
+          .catch((error) => process.stderr.write(`rightkit: cancel failed for ${requestId}: ${error.code ? `${error.code}: ` : ''}${error.message}\n`));
       };
       const result = await submitAndWatchManagedAgentJob(message, {
         onEvent: streamJobEvent,
@@ -74,7 +74,7 @@ try {
     if (handedOff !== null) process.exitCode = handedOff;
   } else {
     if (process.argv[2] === 'storage') process.stderr.write(`${JSON.stringify({ type: 'STORAGE_FAILED', error: error.message })}\n`);
-    else process.stderr.write(`rightkit: ${error.message}\n`);
+    else process.stderr.write(`rightkit: ${error.code ? `${error.code}: ` : ''}${error.message}\n`);
     process.exitCode = process.argv[2] === 'owns' ? 2 : 125;
   }
 }

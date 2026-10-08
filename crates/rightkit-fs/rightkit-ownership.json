@@ -1,0 +1,61 @@
+{
+  "package": "rightkit-fs",
+  "capabilities": [
+    {
+      "capability": "safe-filesystem",
+      "summary": "Safe state directories, atomic writes, cross-process locks, owner-only files, and stable file identity for Right Suite apps.",
+      "fingerprints": [
+        {
+          "id": "fs.cargo.fs2",
+          "type": "dependency",
+          "ecosystem": "cargo",
+          "name": "fs2",
+          "tier": "advise",
+          "usageContext": {
+            "hosts": [
+              "macos",
+              "windows"
+            ],
+            "scope": "cargo direct competing dependency; transitive findings require authenticated reachability"
+          },
+          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
+        },
+        {
+          "id": "fs.cargo.fs4",
+          "type": "dependency",
+          "ecosystem": "cargo",
+          "name": "fs4",
+          "tier": "advise",
+          "usageContext": {
+            "hosts": [
+              "macos",
+              "windows"
+            ],
+            "scope": "cargo direct competing dependency; transitive findings require authenticated reachability"
+          },
+          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
+        },
+        {
+          "id": "fs.cargo.atomicwrites",
+          "type": "dependency",
+          "ecosystem": "cargo",
+          "name": "atomicwrites",
+          "tier": "advise",
+          "usageContext": {
+            "hosts": [
+              "macos",
+              "windows"
+            ],
+            "scope": "cargo direct competing dependency; transitive findings require authenticated reachability"
+          },
+          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
+        }
+      ],
+      "detection": "fingerprinted",
+      "policyNotes": [
+        "Windows path fallback differs from Unix descriptor-pinned behavior.",
+        "Fingerprints identify review candidates; published two-host replacement qualification is not recorded."
+      ]
+    }
+  ]
+}

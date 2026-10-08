@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+import { resolveManagedRoots } from '../../release/managed-roots.mjs';
+import { relocateControlConfig } from './control-migration.mjs';
 // Recreates the managed broker from nothing but this checkout: config.json, the
 // launchd agent, and the first activation. Everything it writes was previously
 // only ever hand-typed once per machine and never committed anywhere, so a
@@ -40,6 +42,7 @@ export function parseArgs(argv) {
   for (let index = 0; index < argv.length; index += 1) {
     const flag = argv[index];
     if (flag === '--force') { values.force = true; continue; }
+    if (flag === '--control-root') { values.controlRoot = argv[++index]; continue; }
     if (flag === '--external-root') { values.externalRoot = argv[++index]; continue; }
     if (flag === '--node') { values.nodePath = argv[++index]; continue; }
     if (flag === '--cargo-build-jobs') {
@@ -234,28 +237,30 @@ export function defaultCargoBuildJobs({ cpus = cpuCount(), totalMemoryBytes = to
   return deriveCargoBuildJobs({ cpus, totalMemoryBytes });
 }
 
-export async function buildConfig({ externalRoot, cargoBuildJobs = defaultCargoBuildJobs(), sizing = null }) {
+export async function buildConfig({ externalRoot, controlRoot = externalRoot, nodePath = process.execPath, cargoBuildJobs = defaultCargoBuildJobs(), sizing = null, discover = discoverTools, toolchainVersion = rustcVersionTriple, cacheVersion = sccacheVersion }) {
   if (!Number.isSafeInteger(cargoBuildJobs) || cargoBuildJobs < 1 || cargoBuildJobs > 256) throw new TypeError('cargoBuildJobs must be an integer from 1 to 256');
   const volume = await discoverManagedVolume(externalRoot).catch(() => null);
   sizing ??= deriveHostSizing({ managedVolumeBytes: volume?.capacityBytes ?? volumeBytes(externalRoot), cargoBuildJobs });
-  const tools = await stageManagedTools(await discoverTools(), externalRoot);
+  const tools = await stageManagedTools(await discover(), externalRoot);
   const sccacheTool = tools.find((tool) => tool.id === 'sccache');
-  const expectedSccacheVersion = await sccacheVersion(sccacheTool?.path);
+  const expectedSccacheVersion = await cacheVersion(sccacheTool?.path);
   const managedSccache = supportsSccacheVersion(expectedSccacheVersion);
-  const toolchain = (await rustcVersionTriple(tools.find((tool) => tool.id === 'rustc')?.path)) ?? 'stable-aarch64-apple-darwin';
+  const toolchain = (await toolchainVersion(tools.find((tool) => tool.id === 'rustc')?.path)) ?? 'stable-aarch64-apple-darwin';
   const targetTriple = process.arch === 'arm64' ? 'aarch64-apple-darwin' : 'x86_64-apple-darwin';
   const otherTriple = targetTriple === 'aarch64-apple-darwin' ? 'x86_64-apple-darwin' : 'aarch64-apple-darwin';
   const targetTriples = [targetTriple, otherTriple, 'aarch64-apple-ios', 'aarch64-apple-ios-sim'];
   return {
     schemaVersion: 2,
+    nodePath,
     broker: {
+      controlRoot,
       externalRoot: { path: externalRoot, volumeId: volume?.volumeId ?? (await resolveVolumeId(externalRoot)) ?? 'unknown', mounted: volume?.mounted ?? true, writable: volume?.writable ?? true, internal: false },
       capacityBytes: sizing.capacityBytes,
-      stateFile: join(externalRoot, 'state', 'broker.json'),
-      activationFencePath: join(externalRoot, 'state', 'runtime-activation.json'),
+      stateFile: join(controlRoot, 'state', 'broker.json'),
+      activationFencePath: join(controlRoot, 'state', 'runtime-activation.json'),
       receiptsDir: join(externalRoot, 'receipts'),
     },
-    unixSocket: join(externalRoot, 'broker.sock'),
+    unixSocket: join(controlRoot, 'broker.sock'),
     windowsPipe: '\\\\.\\pipe\\rightkit-build-control',
     tools,
     shims: shimTable(tools),
@@ -284,7 +289,7 @@ export async function buildConfig({ externalRoot, cargoBuildJobs = defaultCargoB
 export function renderPlist({ nodePath, brokerScript, configPath, home }) {
   // Build workers inherit launchd's QoS. User-requested compilation must not
   // inherit Background throttling; broker admission still bounds concurrency.
-  const logs = join(home, 'Library', 'Logs', 'RightKit');
+  const logs = join(posix.dirname(configPath), 'logs');
   const escape = (value) => value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   return `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -297,7 +302,7 @@ export function renderPlist({ nodePath, brokerScript, configPath, home }) {
 \t\t<key>RIGHTKIT_BUILD_BROKER_SOCKET</key>
 \t\t<string>${escape(posix.join(posix.dirname(configPath), 'broker.sock'))}</string>
 \t\t<key>SCCACHE_ERROR_LOG</key>
-\t\t<string>${escape(posix.join(posix.dirname(configPath), 'rightkit-build-control', 'logs', 'sccache.stderr.log'))}</string>
+\t\t<string>${escape(posix.join(logs, 'sccache.stderr.log'))}</string>
 \t</dict>
 \t<key>KeepAlive</key>
 \t<true/>
@@ -324,38 +329,37 @@ export function renderPlist({ nodePath, brokerScript, configPath, home }) {
 
 async function main() {
   const options = parseArgs(process.argv.slice(2));
-  const externalRoot = resolve(options.externalRoot ?? '/Volumes/D/.rightkit-managed');
   const home = homedir();
-  const configPath = join(externalRoot, 'config.json');
+  const { controlRoot, dataRoot: externalRoot, configPath } = resolveManagedRoots({ platform: 'darwin', home, controlRoot: options.controlRoot, dataRoot: options.externalRoot });
   const plistPath = join(home, 'Library', 'LaunchAgents', `${LABEL}.plist`);
-  const nodePath = await realpath(options.nodePath ?? process.execPath);
+  const existingPath = existsSync(configPath) ? configPath : join(externalRoot, 'config.json');
+  const existing = existsSync(existingPath) ? JSON.parse(stripBom(readFileSync(existingPath, 'utf8'))) : null;
+  const nodePath = await realpath(options.nodePath ?? existing?.nodePath ?? process.execPath);
 
+  if (existing && options.force) throw new Error('bootstrap-macos refuses --force against existing operator config; migrate existing config instead');
   mkdirSync(externalRoot, { recursive: true });
-  mkdirSync(join(externalRoot, 'state'), { recursive: true });
+  mkdirSync(controlRoot, { recursive: true, mode: 0o700 });
+  await chmod(controlRoot, 0o700);
+  mkdirSync(join(controlRoot, 'state'), { recursive: true, mode: 0o700 });
+  mkdirSync(join(controlRoot, 'logs'), { recursive: true, mode: 0o700 });
   mkdirSync(join(home, 'Library', 'LaunchAgents'), { recursive: true });
-  mkdirSync(join(home, 'Library', 'Logs', 'RightKit'), { recursive: true });
 
-  if (!existsSync(configPath) || options.force || options.cargoBuildJobs !== undefined) {
-    const config = await buildConfig({ externalRoot, cargoBuildJobs: options.cargoBuildJobs });
-    let preserved = [];
-    if (existsSync(configPath)) {
-      let previous = null;
-      try { previous = JSON.parse(stripBom(readFileSync(configPath, 'utf8'))); } catch { /* unreadable previous config: regenerate from defaults */ }
-      assertNoToolLoss(config, previous);
-      preserved = preserveOperatorTunedConfig(config, previous);
-    }
-    writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`);
+  if (existing) {
+    const config = relocateControlConfig(existing, { controlRoot, dataRoot: externalRoot, nodePath });
+    if (options.cargoBuildJobs !== undefined) config.defaults.cargoBuildJobs = options.cargoBuildJobs;
+    writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`, { mode: 0o600 });
+    console.log(`bootstrap-macos: preserved existing config from ${existingPath}`);
+  } else if (!existsSync(configPath)) {
+    const config = await buildConfig({ externalRoot, controlRoot, nodePath, cargoBuildJobs: options.cargoBuildJobs });
+    writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`, { mode: 0o600 });
     console.log(`bootstrap-macos: wrote ${configPath} (${config.tools.length} tools discovered)`);
-    if (preserved.length) console.log(`bootstrap-macos: preserved operator-tuned ${preserved.join(', ')} from existing config`);
-  } else {
-    console.log(`bootstrap-macos: ${configPath} already exists; pass --force to regenerate`);
   }
 
   const activeConfig = JSON.parse(await readFile(configPath, 'utf8'));
   const loaderLinks = await ensureMacOSRustToolLoaderLinks(activeConfig.tools ?? [], activeConfig.defaults?.targetTriples ?? [activeConfig.defaults?.targetTriple]);
   if (loaderLinks.length) console.log(`bootstrap-macos: verified ${loaderLinks.length} macOS Rust loader companion link(s)`);
 
-  const brokerScript = join(externalRoot, 'runtime-current', 'build-control-broker', 'src', 'broker.mjs');
+  const brokerScript = join(controlRoot, 'runtime-current', 'build-control-broker', 'src', 'broker.mjs');
   writeFileSync(plistPath, renderPlist({ nodePath, brokerScript, configPath, home }));
   console.log(`bootstrap-macos: wrote ${plistPath}`);
 
@@ -374,9 +378,9 @@ async function main() {
   }
 
   const receipt = await runMacOSCutover({
-    configPath, externalRoot, sourcePackagesRoot, sourceRevision, sourceTreeDigest,
+    configPath, externalRoot, controlRoot, sourcePackagesRoot, sourceRevision, sourceTreeDigest,
     version: `bootstrap-${sourceRevision.slice(0, 8)}-${Date.now()}`,
-    launchdLabel: LABEL, uid, endpoint: join(externalRoot, 'broker.sock'),
+    launchdLabel: LABEL, uid, endpoint: join(controlRoot, 'broker.sock'),
     plistPath, healthWorkspace, timeoutMs: options.timeoutMs, drainTimeoutMs: options.drainTimeoutMs, macosResourceAddon,
   });
   console.log(JSON.stringify(receipt, null, 2));

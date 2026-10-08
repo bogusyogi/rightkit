@@ -1,0 +1,31 @@
+{
+  "package": "@rightkit/pdf-ui",
+  "capabilities": [
+    {
+      "capability": "pdf-ui",
+      "summary": "Brand-neutral read-only PDF viewer (pdf.js) for Right Suite apps.",
+      "fingerprints": [
+        {
+          "id": "pdf-ui.npm.pdfjs-dist",
+          "type": "dependency",
+          "ecosystem": "npm",
+          "name": "pdfjs-dist",
+          "tier": "advise",
+          "usageContext": {
+            "hosts": [
+              "macos",
+              "windows"
+            ],
+            "scope": "Direct PDF rendering; injected worker/configuration & authenticated owner-only transitive dependencies are permitted"
+          },
+          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
+        }
+      ],
+      "detection": "fingerprinted",
+      "policyNotes": [
+        "Direct pdfjs-dist can be host worker configuration; owner-only transitive use needs authenticated reachability.",
+        "Fingerprints identify review candidates; published two-host replacement qualification is not recorded."
+      ]
+    }
+  ]
+}

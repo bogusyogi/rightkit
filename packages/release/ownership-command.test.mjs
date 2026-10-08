@@ -10,6 +10,15 @@ import { main } from "./ownership-command.mjs";
 const releaseRoot = path.dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = path.resolve(releaseRoot, "..", "..", "..", "..");
 
+test("ownership help documents explicit local new-capability approval & conflict refusal", async () => {
+  const printed = [];
+  const status = await main(["--help"], { evidenceFactory: () => { throw new Error("help must not scan"); }, print: (line) => printed.push(line) });
+  assert.equal(status, 0);
+  assert.match(printed[0], /--approve-new-capabilities/);
+  assert.match(printed[0], /local generation only/);
+  assert.match(printed[0], /owner conflicts are always refused/);
+});
+
 test("ownership CLI reports pending enrollment as a warning while preserving findings", async () => {
   const printed = [];
   const result = { rows: [], violations: [{ fingerprint: "pending", file: "source.rs" }], covered: [], problems: ["approval enrollment pending"], coverage: [], metadata: {} };

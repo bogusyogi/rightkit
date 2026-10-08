@@ -1,0 +1,15 @@
+{
+  "package": "@rightkit/release",
+  "capabilities": [
+    {
+      "capability": "release-tooling",
+      "summary": "Portable release CLI/SDK with fail-closed public GitHub Releases and private R2 + RightApps distribution.; declaration-only detection (no precise implementation fingerprint)",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Package contract retained; dependency declarations do not verify integration.",
+        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
+      ]
+    }
+  ]
+}

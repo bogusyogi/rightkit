@@ -152,7 +152,7 @@ test("LaunchAgent install writes private standalone runtime & required invisible
   assert.deepEqual(calls.at(-1), ["/bin/launchctl", ["bootstrap", `gui/${process.getuid()}`, paths.plist]]);
   assert.equal(fs.statSync(paths.directory).mode & 0o777, 0o700); assert.equal(fs.statSync(paths.config).mode & 0o777, 0o600);
   const config = JSON.parse(fs.readFileSync(paths.config)); assert.ok(config.roots.includes(f.managed)); assert.equal(config.pnpm, "/fixed/pnpm");
-  assert.deepEqual(fs.readdirSync(paths.runtime).sort(), ["background-process.mjs", "codesign-argv.mjs", "rightkit-signing-agent.mjs"]);
+  assert.deepEqual(fs.readdirSync(paths.runtime).sort(), ["background-process.mjs", "codesign-argv.mjs", "managed-roots.mjs", "rightkit-signing-agent.mjs"]);
   assert.match(signingAgentPlist({ paths, home: "<&'", node: '/<&"node' }), /&lt;&amp;&quot;node/);
 });
 test("install rejects no-GUI session without writing anything; failed bootstrap remains typed", (t) => {

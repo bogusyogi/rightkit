@@ -1,3 +1,4 @@
+import { resolveManagedRoots } from '../../release/managed-roots.mjs';
 import { readFile, rename, stat, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
@@ -49,7 +50,7 @@ async function writeConfig(path, config, mode, expectedRaw) {
 }
 
 export async function installAgentPolicyHooks({ home = homedir(), platform = process.platform, nodePath = process.execPath } = {}) {
-  const assets = await installPolicyAssets({ root: platform === 'win32' ? 'D:\\.rightkit-managed\\agent-policy' : '/Volumes/D/.rightkit-managed/agent-policy' });
+  const assets = await installPolicyAssets({ root: resolveManagedRoots({ platform }).agentPolicy });
   const claudePath = join(home, '.claude', 'settings.json');
   const codexPath = join(home, '.codex', 'hooks.json');
   const claude = await readConfig(claudePath);

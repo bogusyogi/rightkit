@@ -5,9 +5,41 @@
       "capability": "sqlite-storage",
       "summary": "SQLite open profiles, WAL with verified fallback, keys, migrations, backup, recovery",
       "fingerprints": [
-        { "id": "db.cargo.rusqlite", "type": "dependency", "ecosystem": "cargo", "name": "rusqlite" },
-        { "id": "db.cargo.sqlx", "type": "dependency", "ecosystem": "cargo", "name": "sqlx" },
-        { "id": "db.npm.better-sqlite3", "type": "dependency", "ecosystem": "npm", "name": "better-sqlite3" }
+        {
+          "id": "db.cargo.rusqlite",
+          "type": "dependency",
+          "ecosystem": "cargo",
+          "name": "rusqlite",
+          "tier": "advise",
+          "usageContext": {
+            "hosts": [
+              "macos",
+              "windows"
+            ],
+            "scope": "cargo direct competing dependency; transitive findings require authenticated reachability"
+          },
+          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
+        },
+        {
+          "id": "db.npm.better-sqlite3",
+          "type": "dependency",
+          "ecosystem": "npm",
+          "name": "better-sqlite3",
+          "tier": "advise",
+          "usageContext": {
+            "hosts": [
+              "macos",
+              "windows"
+            ],
+            "scope": "npm direct competing dependency; transitive findings require authenticated reachability"
+          },
+          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
+        }
+      ],
+      "detection": "fingerprinted",
+      "policyNotes": [
+        "Owns SQLite bootstrap, not schemas, migrations, queries or non-SQLite databases; sqlcipher rekey gate remains P1.",
+        "Fingerprints identify review candidates; published two-host replacement qualification is not recorded."
       ]
     }
   ]

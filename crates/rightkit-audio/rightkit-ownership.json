@@ -1,0 +1,61 @@
+{
+  "package": "rightkit-audio",
+  "capabilities": [
+    {
+      "capability": "audio",
+      "summary": "Shared audio for Right Suite apps: typed FFmpeg filter graphs, loudness gates, room tone, ducking, WAV I/O, and cpal capture with resample/downmix/recovery.",
+      "fingerprints": [
+        {
+          "id": "audio.cargo.cpal",
+          "type": "dependency",
+          "ecosystem": "cargo",
+          "name": "cpal",
+          "tier": "advise",
+          "usageContext": {
+            "hosts": [
+              "macos",
+              "windows"
+            ],
+            "scope": "cargo direct competing dependency; transitive findings require authenticated reachability"
+          },
+          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
+        },
+        {
+          "id": "audio.cargo.hound",
+          "type": "dependency",
+          "ecosystem": "cargo",
+          "name": "hound",
+          "tier": "advise",
+          "usageContext": {
+            "hosts": [
+              "macos",
+              "windows"
+            ],
+            "scope": "cargo direct competing dependency; transitive findings require authenticated reachability"
+          },
+          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
+        },
+        {
+          "id": "audio.cargo.rubato",
+          "type": "dependency",
+          "ecosystem": "cargo",
+          "name": "rubato",
+          "tier": "advise",
+          "usageContext": {
+            "hosts": [
+              "macos",
+              "windows"
+            ],
+            "scope": "cargo direct competing dependency; transitive findings require authenticated reachability"
+          },
+          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
+        }
+      ],
+      "detection": "fingerprinted",
+      "policyNotes": [
+        "Capture, WAV I/O & resampling are distinct feature contexts.",
+        "Fingerprints identify review candidates; published two-host replacement qualification is not recorded."
+      ]
+    }
+  ]
+}

@@ -9,73 +9,182 @@
           "id": "browser.cargo.chromiumoxide",
           "type": "dependency",
           "ecosystem": "cargo",
-          "name": "chromiumoxide"
+          "name": "chromiumoxide",
+          "tier": "advise",
+          "usageContext": {
+            "hosts": [
+              "macos",
+              "windows"
+            ],
+            "scope": "cargo direct competing dependency; transitive findings require authenticated reachability"
+          },
+          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
         },
         {
           "id": "browser.cargo.headless_chrome",
           "type": "dependency",
           "ecosystem": "cargo",
-          "name": "headless_chrome"
+          "name": "headless_chrome",
+          "tier": "advise",
+          "usageContext": {
+            "hosts": [
+              "macos",
+              "windows"
+            ],
+            "scope": "cargo direct competing dependency; transitive findings require authenticated reachability"
+          },
+          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
         },
         {
           "id": "browser.cargo.fantoccini",
           "type": "dependency",
           "ecosystem": "cargo",
-          "name": "fantoccini"
+          "name": "fantoccini",
+          "tier": "advise",
+          "usageContext": {
+            "hosts": [
+              "macos",
+              "windows"
+            ],
+            "scope": "cargo direct competing dependency; transitive findings require authenticated reachability"
+          },
+          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
         },
         {
           "id": "browser.cargo.thirtyfour",
           "type": "dependency",
           "ecosystem": "cargo",
-          "name": "thirtyfour"
+          "name": "thirtyfour",
+          "tier": "advise",
+          "usageContext": {
+            "hosts": [
+              "macos",
+              "windows"
+            ],
+            "scope": "cargo direct competing dependency; transitive findings require authenticated reachability"
+          },
+          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
         },
         {
           "id": "browser.npm.puppeteer",
           "type": "dependency",
           "ecosystem": "npm",
-          "name": "puppeteer"
+          "name": "puppeteer",
+          "tier": "block",
+          "usageContext": {
+            "hosts": [
+              "macos",
+              "windows"
+            ],
+            "scope": "npm direct competing dependency; transitive findings require authenticated reachability"
+          },
+          "tierReason": "Banned by owner policy; use rightkit-browser (Rust) or @rightkit/qa QaPage (raw CDP)",
+          "policy": "banned",
+          "policyAuthority": "Adrian 2026-10-08: no Puppeteer or Playwright anywhere, tests included"
         },
         {
           "id": "browser.npm.puppeteer-core",
           "type": "dependency",
           "ecosystem": "npm",
-          "name": "puppeteer-core"
+          "name": "puppeteer-core",
+          "tier": "block",
+          "usageContext": {
+            "hosts": [
+              "macos",
+              "windows"
+            ],
+            "scope": "npm direct competing dependency; transitive findings require authenticated reachability"
+          },
+          "tierReason": "Banned by owner policy; use rightkit-browser (Rust) or @rightkit/qa QaPage (raw CDP)",
+          "policy": "banned",
+          "policyAuthority": "Adrian 2026-10-08: no Puppeteer or Playwright anywhere, tests included"
         },
         {
           "id": "browser.npm.playwright-core",
           "type": "dependency",
           "ecosystem": "npm",
-          "name": "playwright-core"
+          "name": "playwright-core",
+          "tier": "block",
+          "usageContext": {
+            "hosts": [
+              "macos",
+              "windows"
+            ],
+            "scope": "Browser automation/QA candidate; CDP, assertions, accessibility & native WebDriver parity are unqualified"
+          },
+          "tierReason": "Banned by owner policy; use rightkit-browser (Rust) or @rightkit/qa QaPage (raw CDP)",
+          "policy": "banned",
+          "policyAuthority": "Adrian 2026-10-08: no Puppeteer or Playwright anywhere, tests included"
         },
         {
           "id": "browser.npm.playwright",
           "type": "dependency",
           "ecosystem": "npm",
-          "name": "playwright"
+          "name": "playwright",
+          "tier": "block",
+          "usageContext": {
+            "hosts": [
+              "macos",
+              "windows"
+            ],
+            "scope": "Browser automation/QA candidate; CDP, assertions, accessibility & native WebDriver parity are unqualified"
+          },
+          "tierReason": "Banned by owner policy; use rightkit-browser (Rust) or @rightkit/qa QaPage (raw CDP)",
+          "policy": "banned",
+          "policyAuthority": "Adrian 2026-10-08: no Puppeteer or Playwright anywhere, tests included"
         },
         {
           "id": "browser.npm.playwright-test",
           "type": "dependency",
           "ecosystem": "npm",
-          "name": "@playwright/test"
+          "name": "@playwright/test",
+          "tier": "block",
+          "usageContext": {
+            "hosts": [
+              "macos",
+              "windows"
+            ],
+            "scope": "Browser automation/QA candidate; CDP, assertions, accessibility & native WebDriver parity are unqualified"
+          },
+          "tierReason": "Banned by owner policy; use rightkit-browser (Rust) or @rightkit/qa QaPage (raw CDP)",
+          "policy": "banned",
+          "policyAuthority": "Adrian 2026-10-08: no Puppeteer or Playwright anywhere, tests included"
         },
         {
           "id": "browser.npm.selenium-webdriver",
           "type": "dependency",
           "ecosystem": "npm",
-          "name": "selenium-webdriver"
+          "name": "selenium-webdriver",
+          "tier": "advise",
+          "usageContext": {
+            "hosts": [
+              "macos",
+              "windows"
+            ],
+            "scope": "Browser automation/QA candidate; CDP, assertions, accessibility & native WebDriver parity are unqualified"
+          },
+          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
         },
         {
           "id": "browser.cargo.webdriver",
           "type": "dependency",
           "ecosystem": "cargo",
-          "name": "webdriver"
-        },
-        {
-          "id": "browser.source.chrome-discovery",
-          "type": "source",
-          "pattern": "Google[\\\\/]+Chrome[\\\\/]+Application[\\\\/]+chrome\\.exe|Google Chrome\\.app/Contents/MacOS/Google Chrome"
+          "name": "webdriver",
+          "tier": "advise",
+          "usageContext": {
+            "hosts": [
+              "macos",
+              "windows"
+            ],
+            "scope": "Browser automation/QA candidate; CDP, assertions, accessibility & native WebDriver parity are unqualified"
+          },
+          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
         }
+      ],
+      "detection": "fingerprinted",
+      "policyNotes": [
+        "CDP replacement does not establish WebDriver, Playwright assertion or QA feature parity.",
+        "Fingerprints identify review candidates; published two-host replacement qualification is not recorded."
       ]
     }
   ]

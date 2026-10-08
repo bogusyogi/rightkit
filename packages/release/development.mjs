@@ -1,3 +1,4 @@
+import { discoverBrokerSocket, resolveManagedRoots } from './managed-roots.mjs';
 import { spawnSync } from "./background-process.mjs";
 import { createHash } from "node:crypto";
 import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, statSync } from "node:fs";
@@ -27,16 +28,14 @@ export function developmentEnvironment(env = process.env) {
   delete result.CARGO_INCREMENTAL;
   const client = managedRuntimeClient(result);
   if (client) {
-    const managedRoot = result.RIGHTKIT_MANAGED_ROOT ?? result.RIGHTKIT_EXTERNAL_ROOT
-      ?? (process.platform === "win32" ? "D:\\.rightkit-managed" : process.platform === "darwin" ? "/Volumes/D/.rightkit-managed" : undefined);
-    const agentBin = managedRoot && path.join(managedRoot, "agent-bin");
+    const { agentBin } = resolveManagedRoots({ env: result });
     if (agentBin && existsSync(agentBin)) {
       const pathKey = Object.keys(result).find((key) => key.toLowerCase() === "path") ?? "PATH";
       result[pathKey] = [agentBin, result[pathKey]].filter(Boolean).join(path.delimiter);
     }
     // Same default as the agent-bin `rightkit` shim: children that run the managed client directly
     // (resolveCommand("rightkit"), build scripts) must not lose the broker endpoint.
-    const socket = managedRoot && path.join(managedRoot, "broker.sock");
+    const socket = discoverBrokerSocket(result);
     if (!result.RIGHTKIT_BUILD_BROKER_SOCKET && socket && existsSync(socket)) result.RIGHTKIT_BUILD_BROKER_SOCKET = socket;
   }
   return result;
@@ -212,7 +211,7 @@ export function resolveCommand(command, args, { root, env = process.env } = {}) 
   if (command === "rightkit") {
     const client = managedRuntimeClient(env);
     if (!client) throw new Error("installed RightKit runtime client is unavailable for development command");
-    const socket = path.join(path.dirname(path.dirname(path.dirname(path.dirname(client)))), "broker.sock");
+    const socket = discoverBrokerSocket(env);
     const childEnv = !env.RIGHTKIT_BUILD_BROKER_SOCKET && existsSync(socket) ? { ...env, RIGHTKIT_BUILD_BROKER_SOCKET: socket } : undefined;
     return { command: process.execPath, args: [client, ...args], ...(childEnv ? { env: childEnv } : {}) };
   }

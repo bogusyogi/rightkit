@@ -1,3 +1,4 @@
+import { discoverBrokerSocket, resolveManagedRoots } from '../../release/managed-roots.mjs';
 import { BUILD_CONTROL_PROTOCOL, FRONTENDS, SOURCE_RUNTIME_IDENTITY, assertRepositoryExecutionAllowed, captureDelegatedCompilerEnvironment, captureManagedRustEnvironment, normalizeBuildRequest, normalizeManagedAgentRequest, normalizeRuntimeIdentity, validateManagedRustupInvocation } from '@rightkit/build-control-core';
 import net from 'node:net';
 import { existsSync, readFileSync, realpathSync } from 'node:fs';
@@ -145,18 +146,10 @@ function managedRootOfThisClient() {
   return resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
 }
 
-export function brokerEndpoint(environment = process.env, { platform = process.platform, exists = existsSync } = {}) {
-  const endpoint = environment.RIGHTKIT_BUILD_BROKER_SOCKET;
-  if (endpoint && typeof endpoint === 'string') return endpoint;
-  // Callers outside a rightkit-wrapped shell (Tauri beforeBuildCommand, sidecar build scripts)
-  // often lack the variable. On Unix the broker socket lives at <managed root>/broker.sock;
-  // use it when it exists. Windows endpoints are named pipes and still require the variable.
-  if (platform !== 'win32') {
-    const root = environment.RIGHTKIT_MANAGED_ROOT || managedRootOfThisClient();
-    const socket = join(root, 'broker.sock');
-    if (exists(socket)) return socket;
-  }
-  throw new Error('RightKit broker endpoint is not configured');
+export function brokerEndpoint(environment = process.env, { platform = process.platform, exists = existsSync, home } = {}) {
+  const endpoint = discoverBrokerSocket(environment, { platform, exists, home, clientRoot: managedRootOfThisClient() });
+  if (endpoint) return endpoint;
+  throw Object.assign(new Error('RightKit broker endpoint is not configured'), { code: 'RK_BROKER_UNAVAILABLE' });
 }
 
 export async function sendManagedAgentRequest(message, { endpoint = brokerEndpoint(), connect = net.createConnection, onEvent = () => {} } = {}) {
@@ -166,8 +159,8 @@ export async function sendManagedAgentRequest(message, { endpoint = brokerEndpoi
     let buffer = '';
     let socket;
     const fail = (error) => { if (!settled) { settled = true; socket?.destroy(); reject(error); } };
-    try { socket = connect(endpoint); } catch (error) { fail(new Error(`RightKit broker unavailable: ${error.message}`)); return; }
-    socket.once('error', (error) => fail(new Error(`RightKit broker unavailable: ${error.message}`)));
+    try { socket = connect(endpoint); } catch (error) { fail(Object.assign(new Error(`RightKit broker unavailable: ${error.message}`, { cause: error }), { code: 'RK_BROKER_UNAVAILABLE' })); return; }
+    socket.once('error', (error) => fail(Object.assign(new Error(`RightKit broker unavailable: ${error.message}`, { cause: error }), { code: 'RK_BROKER_UNAVAILABLE' })));
     socket.once('connect', () => socket.write(`${JSON.stringify(message)}\n`));
     socket.on('data', (chunk) => {
       if (settled) return;
@@ -226,8 +219,8 @@ export async function sendJobCommand(command, { endpoint = brokerEndpoint(), con
   return new Promise((resolvePromise, reject) => {
     let settled = false; let completed = null; let handshake = false; let buffer = ''; let socket;
     const fail = (error) => { if (!settled) { settled = true; socket?.destroy(); reject(error); } };
-    try { socket = connect(endpoint); } catch (error) { fail(new Error(`RightKit broker unavailable: ${error.message}`)); return; }
-    socket.once('error', (error) => fail(new Error(`RightKit broker unavailable: ${error.message}`)));
+    try { socket = connect(endpoint); } catch (error) { fail(Object.assign(new Error(`RightKit broker unavailable: ${error.message}`, { cause: error }), { code: 'RK_BROKER_UNAVAILABLE' })); return; }
+    socket.once('error', (error) => fail(Object.assign(new Error(`RightKit broker unavailable: ${error.message}`, { cause: error }), { code: 'RK_BROKER_UNAVAILABLE' })));
     socket.once('connect', () => socket.write(`${JSON.stringify(command)}\n`));
     socket.on('data', (chunk) => {
       if (settled) return;
@@ -446,9 +439,9 @@ export async function installAgentShims({ directory, platform = process.platform
   if (!directory || !isAbsolute(directory)) throw new TypeError('agent shim directory must be absolute');
   const isPlatformAbsolute = platform === 'win32' ? win32.isAbsolute : isAbsolute;
   const target = resolve(directory);
-  const selectedRuntime = runtimeCurrent ?? (platform === 'win32' ? win32.resolve(win32.dirname(directory), 'runtime-current') : resolve(target, '..', 'runtime-current'));
+  const selectedRuntime = runtimeCurrent ?? (platform === 'darwin' ? resolveManagedRoots({ platform }).runtimeCurrent : platform === 'win32' ? win32.resolve(win32.dirname(directory), 'runtime-current') : resolve(target, '..', 'runtime-current'));
   if (![selectedRuntime, nodePath].every((value) => typeof value === 'string' && isPlatformAbsolute(value))) throw new TypeError('runtime-current & node path must be absolute');
-  const defaultBrokerEndpoint = platform === 'win32' ? null : resolve(target, '..', 'broker.sock');
+  const defaultBrokerEndpoint = platform === 'win32' ? null : platform === 'darwin' ? resolveManagedRoots({ platform }).socket : resolve(target, '..', 'broker.sock');
   const manifest = shimManifest({ installRoot: target });
   const names = manifest.links.flatMap(({ name }) => platform === 'win32' ? [`${name}.cmd`, ...(NATIVE_WINDOWS_SHIMS.includes(name) ? [`${name}.exe`] : [])] : [name]);
   const previous = await existingInstall(target);
@@ -475,7 +468,7 @@ export async function installAgentShims({ directory, platform = process.platform
   } else {
     for (const { name } of manifest.links) {
       const executable = posix.join(selectedRuntime, 'build-control-clients', 'src', name === 'rightkit' ? 'rightkit.mjs' : 'managed-agent.mjs');
-      const endpoint = `if [ -z "$RIGHTKIT_BUILD_BROKER_SOCKET" ]; then export RIGHTKIT_BUILD_BROKER_SOCKET=${shellQuote(defaultBrokerEndpoint)}; fi\n`;
+      const endpoint = platform === 'darwin' ? '' : `if [ -z "$RIGHTKIT_BUILD_BROKER_SOCKET" ]; then export RIGHTKIT_BUILD_BROKER_SOCKET=${shellQuote(defaultBrokerEndpoint)}; fi\n`;
       const identity = name === 'rightkit' ? '' : `export RIGHTKIT_MANAGED_AGENT_SHIM=${shellQuote(name)}\n`;
       const wrapper = `#!/bin/sh\n# ${INSTALL_MARKER}\n${endpoint}${identity}exec ${shellQuote(nodePath)} ${shellQuote(executable)} "$@"\n`;
       const destination = resolve(target, name);

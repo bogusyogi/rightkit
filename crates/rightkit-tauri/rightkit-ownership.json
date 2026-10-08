@@ -1,0 +1,15 @@
+{
+  "package": "rightkit-tauri",
+  "capabilities": [
+    {
+      "capability": "tauri-host-adapters",
+      "summary": "Native host services for Right Suite Tauri license and device adapters.; declaration-only detection (no precise implementation fingerprint)",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Package contract retained; dependency declarations do not verify integration.",
+        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
+      ]
+    }
+  ]
+}

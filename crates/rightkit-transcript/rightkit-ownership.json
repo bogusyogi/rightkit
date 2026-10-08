@@ -1,0 +1,46 @@
+{
+  "package": "rightkit-transcript",
+  "capabilities": [
+    {
+      "capability": "timed-transcripts",
+      "summary": "Product-neutral word-timed transcript contract, cue segmentation, and SRT/VTT/JSON import and export for Right Suite applications",
+      "fingerprints": [
+        {
+          "id": "transcript.cargo.srtparse",
+          "type": "dependency",
+          "ecosystem": "cargo",
+          "name": "srtparse",
+          "tier": "advise",
+          "usageContext": {
+            "hosts": [
+              "macos",
+              "windows"
+            ],
+            "scope": "cargo direct competing dependency; transitive findings require authenticated reachability"
+          },
+          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
+        },
+        {
+          "id": "transcript.cargo.subtp",
+          "type": "dependency",
+          "ecosystem": "cargo",
+          "name": "subtp",
+          "tier": "advise",
+          "usageContext": {
+            "hosts": [
+              "macos",
+              "windows"
+            ],
+            "scope": "cargo direct competing dependency; transitive findings require authenticated reachability"
+          },
+          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
+        }
+      ],
+      "detection": "fingerprinted",
+      "policyNotes": [
+        "Package contract retained; dependency declarations do not verify integration.",
+        "Fingerprints identify review candidates; published two-host replacement qualification is not recorded."
+      ]
+    }
+  ]
+}
