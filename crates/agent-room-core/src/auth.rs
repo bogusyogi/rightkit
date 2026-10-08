@@ -5,6 +5,11 @@ use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 use std::fmt;
 
+/// Seat roles with protocol authority: they advance phases, seal, rule, or take privileged
+/// actions (`implementer` disposes findings). Only a host-minted, seat-bound bootstrap token
+/// claims these seats. Other roles are observer-class and claimable without a token.
+pub const AUTHORITY_ROLES: &[&str] = &["human", "moderator", "implementer"];
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct JoinRequest {
@@ -14,7 +19,7 @@ pub struct JoinRequest {
     pub role: String,
     pub resume_token: Option<String>,
     /// One-time, seat-bound credential minted by `AuthRegistry::mint_bootstrap_token`.
-    /// Required to claim any human seat; never accepted for agent seats.
+    /// Required to claim any seat whose role is in [`AUTHORITY_ROLES`]; accepted for any seat.
     #[serde(default)]
     pub bootstrap_token: Option<String>,
 }
@@ -112,12 +117,12 @@ impl AuthRegistry {
             consumed_bootstrap = Some(digest);
             seat_id
         } else {
-            // Unauthenticated claims may take agent seats only. Human seats are never
-            // claimable without a seat-bound bootstrap token.
+            // Unauthenticated claims may take observer-class seats only. Any seat with
+            // authority requires a seat-bound bootstrap token.
             room.seats
                 .values()
                 .find(|seat| {
-                    seat.role != "human"
+                    !AUTHORITY_ROLES.contains(&seat.role.as_str())
                         && seat.name == request.name
                         && seat.model == request.model
                         && seat.role == request.role

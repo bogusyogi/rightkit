@@ -569,18 +569,21 @@ async fn all_agent_joins_open_positions_and_all_positions_reveal_atomically() {
     })
     .unwrap();
     let shared = Arc::new(RwLock::new(room));
-    let app = router(ServerState::new(
+    let server = ServerState::new(
         shared.clone(),
         [("human-token".into(), "human".into())],
         "pair",
         "http://127.0.0.1:43119",
-    ));
+    );
+    let app = router(server.clone());
     let join = |name: &str, model: &str, role: &str| {
         serde_json::json!({
             "room_id":"auto-room", "name":name, "model":model, "role":role, "resume_token":null,
         })
         .to_string()
     };
+    // The implementer seat has authority, so its join carries the host-minted token.
+    let codex_token = server.mint_bootstrap_token("b").unwrap();
     let a = app
         .clone()
         .oneshot(
@@ -603,7 +606,13 @@ async fn all_agent_joins_open_positions_and_all_positions_reveal_atomically() {
                 .method("POST")
                 .uri("/api/join")
                 .header(header::CONTENT_TYPE, "application/json")
-                .body(Body::from(join("Codex", "codex", "implementer")))
+                .body(Body::from(
+                    serde_json::json!({
+                        "room_id":"auto-room", "name":"Codex", "model":"codex",
+                        "role":"implementer", "resume_token":null, "bootstrap_token":codex_token,
+                    })
+                    .to_string(),
+                ))
                 .unwrap(),
         )
         .await

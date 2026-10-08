@@ -26,7 +26,7 @@ hooks = ["rusqlite/hooks"]
 
 [dependencies]
 rusqlite = { version = "0.40.1", default-features = false, features = ["backup"] }
-rightkit-fs = { version = "0.1.0", path = "../rightkit-fs" }
+rightkit-fs = { version = "0.2.0", path = "../rightkit-fs" }
 thiserror = "2"
 zeroize = "1.8"
 

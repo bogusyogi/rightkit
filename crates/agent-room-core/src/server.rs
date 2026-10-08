@@ -68,6 +68,15 @@ impl ServerState {
         self
     }
 
+    /// Mint the one-time bootstrap token for `seat_id`, which the host hands to the join of that
+    /// seat (see [`crate::auth::AUTHORITY_ROLES`]).
+    pub fn mint_bootstrap_token(&self, seat_id: &str) -> Result<String, String> {
+        let room = self.room.read().map_err(|_| "room lock poisoned")?;
+        let mut auth = self.auth.write().map_err(|_| "auth lock poisoned")?;
+        auth.mint_bootstrap_token(&room, seat_id)
+            .map_err(|error| error.to_string())
+    }
+
     pub fn bootstrap_join(&self, request: JoinRequest) -> Result<JoinResponse, String> {
         let response = {
             let room = self.room.read().map_err(|_| "room lock poisoned")?;

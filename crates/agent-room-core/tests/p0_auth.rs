@@ -287,3 +287,79 @@ fn agent_seats_still_claim_without_bootstrap_token() {
     assert_eq!(joined.seat_id, "seat-b");
     assert!(!auth.has_joined("adrian"));
 }
+
+fn room_with_seats(seats: Vec<SeatConfig>) -> Room {
+    let workspace = tempfile::tempdir().unwrap().keep();
+    Room::new(RoomConfig {
+        room_id: "auth-room".into(),
+        mode: "debate".into(),
+        at_budget: "abstain".into(),
+        workspace_root: workspace,
+        seats,
+    })
+    .unwrap()
+}
+
+#[test]
+fn unauthenticated_join_cannot_take_a_moderator_or_implementer_seat() {
+    let room = room_with_seats(vec![
+        SeatConfig::new("seat-a", "Claude", "claude", "moderator"),
+        SeatConfig::new("seat-c", "Codex", "codex", "implementer"),
+    ]);
+    let mut auth = AuthRegistry::new(&room);
+    let moderator = auth
+        .join(&room, request("Claude", "claude", "moderator"))
+        .unwrap_err();
+    assert_eq!(moderator.code, "seat_unavailable");
+    let implementer = auth
+        .join(&room, request("Codex", "codex", "implementer"))
+        .unwrap_err();
+    assert_eq!(implementer.code, "seat_unavailable");
+    assert!(!auth.has_joined("seat-a"));
+    assert!(!auth.has_joined("seat-c"));
+}
+
+#[test]
+fn token_bearing_moderator_joins_its_seat_once() {
+    let room = room();
+    let mut auth = AuthRegistry::new(&room);
+    let token = auth.mint_bootstrap_token(&room, "seat-a").unwrap();
+
+    let joined = auth
+        .join(
+            &room,
+            JoinRequest {
+                bootstrap_token: Some(token.clone()),
+                ..request("Claude", "claude", "moderator")
+            },
+        )
+        .unwrap();
+    assert_eq!(joined.seat_id, "seat-a");
+    assert_eq!(auth.authenticate(&joined.bearer_token), Some("seat-a"));
+
+    let reused = auth
+        .join(
+            &room,
+            JoinRequest {
+                bootstrap_token: Some(token),
+                ..request("Claude", "claude", "moderator")
+            },
+        )
+        .unwrap_err();
+    assert_eq!(reused.code, "bootstrap_invalid");
+}
+
+#[test]
+fn observer_seat_joins_without_a_token() {
+    let room = room_with_seats(vec![
+        SeatConfig::new("seat-a", "Claude", "claude", "moderator"),
+        SeatConfig::new("seat-o", "Watcher", "watcher", "observer"),
+    ]);
+    let mut auth = AuthRegistry::new(&room);
+    let joined = auth
+        .join(&room, request("Watcher", "watcher", "observer"))
+        .unwrap();
+    assert_eq!(joined.seat_id, "seat-o");
+    assert_eq!(auth.authenticate(&joined.bearer_token), Some("seat-o"));
+    assert!(!auth.has_joined("seat-a"));
+}

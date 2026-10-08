@@ -1,4 +1,4 @@
-use agent_room_core::auth::JoinRequest;
+use agent_room_core::auth::{JoinRequest, AUTHORITY_ROLES};
 use agent_room_core::protocol::{EventKind, Room, RoomConfig, ScopeRef, SeatConfig};
 use agent_room_core::runtime::{load_runtime, write_owner_file, write_runtime, RuntimeInfo};
 use agent_room_core::server::{serve, ServerState};
@@ -318,13 +318,18 @@ async fn serve_room(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
         .values()
         .filter(|seat| seat.role != "human")
     {
+        // Seats with authority can only be claimed with the token the host mints for them here.
+        let bootstrap_token = AUTHORITY_ROLES
+            .contains(&seat.role.as_str())
+            .then(|| state.mint_bootstrap_token(&seat.seat_id))
+            .transpose()?;
         let joined = state.bootstrap_join(JoinRequest {
             room_id: config.room.room_id.clone(),
             name: seat.name.clone(),
             model: seat.model.clone(),
             role: seat.role.clone(),
             resume_token: None,
-            bootstrap_token: None,
+            bootstrap_token,
         })?;
         let credentials = serde_json::json!({
             "bootstrap": true,

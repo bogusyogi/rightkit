@@ -1,8 +1,9 @@
+use std::collections::BTreeSet;
 use std::fs::{File, OpenOptions};
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 use serde_json::{json, Value};
@@ -31,7 +32,58 @@ pub type EventSink = Arc<dyn Fn(&Event) + Send + Sync>;
 
 /// Exclusive per-job lock; released on drop or process death.
 pub struct JobLock {
-    _file: File,
+    /// Taken on drop, before the path leaves [`held_paths`].
+    file: Option<File>,
+    path: PathBuf,
+}
+
+impl Drop for JobLock {
+    fn drop(&mut self) {
+        // Close under the registry lock: no other attempt in this process can open the
+        // file while the lock is still held (see `JobLocks::try_lock`).
+        let mut held = held_paths().lock().unwrap_or_else(|p| p.into_inner());
+        drop(self.file.take());
+        held.remove(&self.path);
+    }
+}
+
+/// Lock files this process holds. Every acquire and release runs under this mutex, so a
+/// process never has two descriptors open on one lock file.
+fn held_paths() -> &'static Mutex<BTreeSet<PathBuf>> {
+    static HELD: OnceLock<Mutex<BTreeSet<PathBuf>>> = OnceLock::new();
+    HELD.get_or_init(|| Mutex::new(BTreeSet::new()))
+}
+
+/// Take a non-blocking exclusive lock on an open lock file. `Ok(false)` when held elsewhere.
+#[cfg(unix)]
+fn try_lock_file(file: &File) -> JobResult<bool> {
+    use nix::errno::Errno;
+    use nix::fcntl::{fcntl, FcntlArg};
+    use nix::libc;
+    // POSIX record lock, not `flock`: it belongs to the process, not the open file
+    // description. A child forked by another thread inherits the descriptor until it execs,
+    // and a flock would stay held by that child, making a free job look busy.
+    let request = libc::flock {
+        l_type: libc::F_WRLCK as _,
+        l_whence: libc::SEEK_SET as _,
+        l_start: 0,
+        l_len: 0,
+        l_pid: 0,
+    };
+    match fcntl(file, FcntlArg::F_SETLK(&request)) {
+        Ok(_) => Ok(true),
+        Err(Errno::EAGAIN) | Err(Errno::EACCES) => Ok(false),
+        Err(errno) => Err(std::io::Error::from(errno).into()),
+    }
+}
+
+#[cfg(not(unix))]
+fn try_lock_file(file: &File) -> JobResult<bool> {
+    match file.try_lock() {
+        Ok(()) => Ok(true),
+        Err(std::fs::TryLockError::WouldBlock) => Ok(false),
+        Err(std::fs::TryLockError::Error(e)) => Err(e.into()),
+    }
 }
 
 /// Directory of per-job lock files. A non-terminal job whose lock is free has
@@ -53,19 +105,27 @@ impl JobLocks {
         Ok(self.dir.join(format!("{job_id}.lock")))
     }
 
-    /// `Ok(None)` when another holder has the lock.
+    /// `Ok(None)` when another holder has the lock, in this process or another.
     pub fn try_lock(&self, job_id: &str) -> JobResult<Option<JobLock>> {
+        let path = self.path(job_id)?;
         std::fs::create_dir_all(&self.dir)?;
-        let f = OpenOptions::new()
+        let mut held = held_paths().lock().unwrap_or_else(|p| p.into_inner());
+        if held.contains(&path) {
+            return Ok(None);
+        }
+        let file = OpenOptions::new()
             .create(true)
             .truncate(false)
             .write(true)
-            .open(self.path(job_id)?)?;
-        match f.try_lock() {
-            Ok(()) => Ok(Some(JobLock { _file: f })),
-            Err(std::fs::TryLockError::WouldBlock) => Ok(None),
-            Err(std::fs::TryLockError::Error(e)) => Err(e.into()),
+            .open(&path)?;
+        if !try_lock_file(&file)? {
+            return Ok(None);
         }
+        held.insert(path.clone());
+        Ok(Some(JobLock {
+            file: Some(file),
+            path,
+        }))
     }
 }
 
