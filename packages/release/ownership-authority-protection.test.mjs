@@ -80,7 +80,7 @@ function checkoutFixture() {
   const directory = mkdtempSync(path.join(tmpdir(), "rk-elevation-"));
   const root = path.join(directory, "checkout");
   mkdirSync(root, { recursive: true });
-  for (const name of ["ownership-key-command.mjs", "ownership-key-trust.mjs", "ownership-key-authority.mjs"]) writeFileSync(path.join(root, name), "checkout fixture\n");
+  for (const name of ["ownership-key-command.mjs", "ownership-key-trust.mjs", "ownership-key-authority.mjs", "ownership-repositories.json"]) writeFileSync(path.join(root, name), "checkout fixture\n");
   const requestPath = path.join(directory, "request.json");
   writeFileSync(requestPath, JSON.stringify({ schema: 1, fixture: true }));
   const digest = createHash("sha256").update(readFileSync(requestPath)).digest("hex");

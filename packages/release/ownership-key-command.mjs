@@ -259,7 +259,7 @@ function validateNative(out, expectedHost = platform) {
   return { keyId: fingerprint, publicKeyPem: out.publicKeyPem, platform: expectedHost };
 }
 function elevate(run, requestPath, digest, { modulePath = fileURLToPath(import.meta.url), nodeExe = process.execPath, hostPlatform = process.platform, audit = (target) => approvalTestOnly.protectedLocation(target, hostPlatform) } = {}) {
-  let child, wrapper, currentNode;
+  let child, wrapper, registry, currentNode;
   const refuse = (message) => { throw Object.assign(new Error(`RK_OWNERSHIP_ELEVATION_UNPROTECTED: ${message}`), { code: "RK_OWNERSHIP_ELEVATION_UNPROTECTED", type: "RK_OWNERSHIP_ELEVATION_UNPROTECTED" }); };
   try {
     if (!path.isAbsolute(requestPath) || !HEX.test(digest ?? "")) refuse("request path or SHA-256 is malformed");
@@ -286,8 +286,9 @@ function elevate(run, requestPath, digest, { modulePath = fileURLToPath(import.m
     const sourceDir = path.dirname(source);
     child = path.join(sourceDir, "ownership-key-trust.mjs");
     wrapper = path.join(sourceDir, "ownership-key-authority.mjs");
+    registry = path.join(sourceDir, "ownership-repositories.json");
     currentNode = realpathSync(nodeExe);
-    for (const target of [source, child, wrapper, currentNode]) {
+    for (const target of [source, child, wrapper, registry, currentNode]) {
       const stat = lstatSync(target);
       if (!stat.isFile() || stat.isSymbolicLink() || (hostPlatform === "win32" && (stat.attributes & 0x400)) || realpathSync(target) !== target) refuse(`elevated input must be a regular non-linked file: ${target}`);
     }

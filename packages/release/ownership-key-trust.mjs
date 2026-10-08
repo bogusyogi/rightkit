@@ -305,6 +305,62 @@ export function raiseFloorsToInstalledRelease(trust, { manifest = installedCatal
 }
 function installedCatalog() { return JSON.parse(readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "rightkit-ownership.json"), "utf8")); }
 
+/** Typed refusal: an installed registration disagrees with an existing protected registration. Nothing is written. */
+export class RepositoryRegistryDriftError extends Error {
+  constructor(message) { super(message); this.name = "RepositoryRegistryDriftError"; this.code = "RK_OWNERSHIP_REPOSITORY_DRIFT"; this.type = this.code; }
+}
+const REPOSITORY_REGISTRY_FILE = "ownership-repositories.json";
+const MAX_REGISTRY_BYTES = 256 * 1024;
+const REPOSITORY_FIELDS = ["repositoryIdentity", "roots", "visibility"];
+function installedRepositoryRegistry() {
+  const file = path.join(path.dirname(fileURLToPath(import.meta.url)), REPOSITORY_REGISTRY_FILE);
+  const stat = lstatSync(file);
+  if (!stat.isFile() || stat.isSymbolicLink() || (process.platform === "win32" && (stat.attributes & 0x400)) || stat.size > MAX_REGISTRY_BYTES) throw new Error("ownership repository registry must be a bounded regular file");
+  try { return JSON.parse(readFileSync(file, "utf8")); }
+  catch { throw new Error("ownership repository registry is malformed JSON"); }
+}
+/** Fail closed: every entry must be exact, canonical, unique, and pass validateTrustRegistry's repository rules. */
+function validatedRegistryEntries(registry) {
+  if (!exactObject(registry, ["schema", "repositories"]) || registry.schema !== 1 || !Array.isArray(registry.repositories) || !registry.repositories.length) throw new Error("ownership repository registry schema is malformed");
+  const identities = new Set();
+  for (const entry of registry.repositories) {
+    if (!exactObject(entry, REPOSITORY_FIELDS)) throw new Error("ownership repository registry entries must have exactly repositoryIdentity, roots and visibility");
+    let identity;
+    try { identity = canonicalRepositoryIdentity(entry.repositoryIdentity); }
+    catch { throw new Error("ownership repository registry identity is invalid"); }
+    if (identity !== entry.repositoryIdentity) throw new Error(`ownership repository registry identity is not canonical: ${entry.repositoryIdentity}`);
+    if (identities.has(identity)) throw new Error(`ownership repository registry duplicates ${identity}`);
+    identities.add(identity);
+  }
+  // Floors are placeholders here: only the repository rules of validateTrustRegistry are being checked.
+  const probe = validateTrustRegistry({ schema: 1, minimumScannerVersion: "0", minimumCatalogVersion: "0", revokedKeyIds: [], verifiedTrackingEvidence: [], repositories: registry.repositories, provenance: [] });
+  if (!probe.ok) throw new Error(`ownership repository registry is invalid: ${probe.problems.join("; ")}`);
+  return registry.repositories.map(copyJson);
+}
+/**
+ * Additions only, from the committed sibling registry. The trust request never supplies registrations.
+ * An identity already registered must match its roots and visibility exactly, or the whole update is refused.
+ * Provenance, exceptions, and every other field are untouched. firstInstall starts from no registrations.
+ */
+export function mergeRepositoriesFromInstalledRelease(trust, { firstInstall = false, registry = installedRepositoryRegistry() } = {}) {
+  const incoming = validatedRegistryEntries(registry);
+  if (!Array.isArray(trust?.repositories)) throw new Error("protected repository registry missing");
+  const existing = firstInstall ? [] : trust.repositories.map(copyJson);
+  const byIdentity = new Map(existing.map((entry) => [entry.repositoryIdentity, entry]));
+  const additions = [];
+  for (const entry of incoming) {
+    const current = byIdentity.get(entry.repositoryIdentity);
+    if (!current) { additions.push(entry); continue; }
+    if (canonicalJson(current.roots) !== canonicalJson(entry.roots) || current.visibility !== entry.visibility) {
+      throw new RepositoryRegistryDriftError(`protected repository registration differs from the installed release; refusing update: ${entry.repositoryIdentity}`);
+    }
+  }
+  const merged = { ...trust, repositories: [...existing, ...additions] };
+  const check = validateTrustRegistry(merged);
+  if (!check.ok) throw new Error(`merged protected repository registry is invalid: ${check.problems.join("; ")}`);
+  return merged;
+}
+
 export function performProtectedTrustUpdate({ log, rootFingerprint, baseline, authority } = {}) {
   assertElevated();
   const file = OWNERSHIP_TRUST_PATH[process.platform];
@@ -317,7 +373,8 @@ export function performProtectedTrustUpdate({ log, rootFingerprint, baseline, au
     // Re-read under the protected lock so every accepted checkpoint follows latest disk state.
     let existing = null;
     try { lstatSync(file); auditProtected(file); existing = readExisting(file); } catch (error) { if (error.code !== "ENOENT") throw error; existing = null; }
-    const trust = raiseFloorsToInstalledRelease(prepareTrustUpdate(existing, { log, rootFingerprint, baseline, authority }));
+    const prepared = prepareTrustUpdate(existing, { log, rootFingerprint, baseline, authority });
+    const trust = raiseFloorsToInstalledRelease(mergeRepositoriesFromInstalledRelease(prepared, { firstInstall: existing == null }));
     if (trust.keyAuthority) validateCommittedAuthority(trust.keyAuthority, log, trust.rootFingerprint, trust.keyCheckpoint);
     atomicProtectedWrite(file, trust);
     auditProtected(file);

@@ -274,7 +274,8 @@ test("explicit elevation accepts checkout sources and launches once with a pinne
     const child = path.join(dir, "ownership-key-trust.mjs");
     const wrapper = path.join(realpathSync(dir), "ownership-key-authority.mjs");
     const request = path.join(dir, "request.json");
-    for (const file of [source, child, wrapper]) writeFileSync(file, "// fixture\n");
+    const registry = path.join(realpathSync(dir), "ownership-repositories.json");
+    for (const file of [source, child, wrapper, registry]) writeFileSync(file, "// fixture\n");
     writeFileSync(request, "{}\n");
     const digest = createHash("sha256").update(readFileSync(request)).digest("hex");
     const calls = [];
@@ -305,7 +306,7 @@ test("cancelled OS elevation fails closed", { skip: ceremonyOptions.skip }, () =
   const dir = mkdtempSync(path.join(os.tmpdir(), "rk-elevation-cancel-"));
   try {
     const source = path.join(dir, "ownership-key-command.mjs");
-    for (const name of ["ownership-key-command.mjs", "ownership-key-trust.mjs", "ownership-key-authority.mjs"]) writeFileSync(path.join(dir, name), "// fixture\n");
+    for (const name of ["ownership-key-command.mjs", "ownership-key-trust.mjs", "ownership-key-authority.mjs", "ownership-repositories.json"]) writeFileSync(path.join(dir, name), "// fixture\n");
     const request = path.join(dir, "request.json"); writeFileSync(request, "{}\n");
     const digest = createHash("sha256").update(readFileSync(request)).digest("hex");
     assert.throws(() => __testOnly.elevate(() => ({ status: 1, stdout: "", stderr: "cancelled" }), request, digest, { modulePath: source, nodeExe: process.execPath, audit: () => ({ ok: true }) }), /failed or was cancelled/);
@@ -316,10 +317,23 @@ test("request digest mismatch fails before any OS elevation", { skip: ceremonyOp
   const dir = mkdtempSync(path.join(os.tmpdir(), "rk-elevation-digest-"));
   try {
     const source = path.join(dir, "ownership-key-command.mjs");
-    for (const name of ["ownership-key-command.mjs", "ownership-key-trust.mjs", "ownership-key-authority.mjs"]) writeFileSync(path.join(dir, name), "// fixture\n");
+    for (const name of ["ownership-key-command.mjs", "ownership-key-trust.mjs", "ownership-key-authority.mjs", "ownership-repositories.json"]) writeFileSync(path.join(dir, name), "// fixture\n");
     const request = path.join(dir, "request.json"); writeFileSync(request, "{}\n");
     let calls = 0;
     assert.throws(() => __testOnly.elevate(() => { calls++; return { status: 0 }; }, request, "c".repeat(64), { modulePath: source, nodeExe: process.execPath, audit: () => ({ ok: true }) }), /request bytes do not match pinned SHA-256/);
+    assert.equal(calls, 0);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test("elevation refuses when the sibling repository registry is missing", { skip: ceremonyOptions.skip }, () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), "rk-elevation-registry-"));
+  try {
+    const source = path.join(dir, "ownership-key-command.mjs");
+    for (const name of ["ownership-key-command.mjs", "ownership-key-trust.mjs", "ownership-key-authority.mjs"]) writeFileSync(path.join(dir, name), "// fixture\n");
+    const request = path.join(dir, "request.json"); writeFileSync(request, "{}\n");
+    const digest = createHash("sha256").update(readFileSync(request)).digest("hex");
+    let calls = 0;
+    assert.throws(() => __testOnly.elevate(() => { calls++; return { status: 0 }; }, request, digest, { modulePath: source, nodeExe: process.execPath, audit: () => ({ ok: true }) }), /RK_OWNERSHIP_ELEVATION_UNPROTECTED/);
     assert.equal(calls, 0);
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
@@ -328,7 +342,7 @@ test("macOS elevation uses one sudo prompt, hardened environment, and credential
   const dir = mkdtempSync(path.join(os.tmpdir(), "rk-elevation-mac-"));
   try {
     const source = path.join(dir, "ownership-key-command.mjs");
-    for (const name of ["ownership-key-command.mjs", "ownership-key-trust.mjs", "ownership-key-authority.mjs"]) writeFileSync(path.join(dir, name), "// fixture\n");
+    for (const name of ["ownership-key-command.mjs", "ownership-key-trust.mjs", "ownership-key-authority.mjs", "ownership-repositories.json"]) writeFileSync(path.join(dir, name), "// fixture\n");
     const request = path.join(dir, "request.json"); writeFileSync(request, "{}\n");
     const digest = createHash("sha256").update(readFileSync(request)).digest("hex");
     const calls = [];
