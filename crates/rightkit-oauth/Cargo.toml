@@ -1,15 +1,15 @@
 [package]
 name = "rightkit-oauth"
-version = "0.2.1"
+version = "0.3.0"
 edition = "2021"
 rust-version = "1.98.0"
-description = "Shared OAuth 2.0 sign-in for Right Suite apps: loopback PKCE, RFC 8628 device flow, provider presets, and stored, refreshing credentials."
+description = "Shared OAuth 2.0 sign-in for Right Suite apps: loopback PKCE, RFC 8628 device flow, provider presets, encrypted daemon persistence, and stored, refreshing credentials."
 license = "MIT OR Apache-2.0"
 readme = "README.md"
 repository = "https://github.com/bogusyogi/claude"
 keywords = ["oauth", "pkce", "loopback"]
 categories = ["authentication"]
-include = ["src/**", "tests/**", "README.md", "API.md", "LICENSE-MIT", "LICENSE-APACHE"]
+include = ["src/**", "tests/**", "examples/**", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
 
 [features]
 default = ["secrets", "system-sources"]
@@ -18,6 +18,23 @@ secrets = ["dep:rightkit-secrets"]
 # Fall back to sign-ins the GitHub CLI / Git credential helper already hold.
 system-sources = ["dep:rightkit-process"]
 
+# Framework-agnostic daemon flow plus encrypted file persistence (no desktop dependencies).
+server = ["dep:base64", "dep:ring", "dep:subtle", "dep:url", "dep:zeroize", "dep:serde", "dep:libc"]
+# Axum route example; no HTTP listener is included in the library.
+server-example = ["server", "dep:axum", "dep:tokio"]
+
+[[example]]
+name = "server_axum"
+required-features = ["server-example"]
+
+[[test]]
+name = "signin"
+required-features = ["secrets"]
+
+[[test]]
+name = "system_sources"
+required-features = ["system-sources"]
+
 [dependencies]
 rightkit-http = { path = "../rightkit-http", version = "0.2.0" }
 rightkit-secrets = { path = "../rightkit-secrets", version = "0.1.0", optional = true }
@@ -25,6 +42,16 @@ rightkit-process = { path = "../rightkit-process", version = "0.3.0", optional =
 getrandom = "0.3"
 serde_json = "1.0.150"
 sha2 = "0.10.9"
+
+base64 = { version = "0.22", optional = true }
+ring = { version = "0.17", optional = true }
+subtle = { version = "2.6", optional = true }
+url = { version = "2.5", optional = true }
+zeroize = { version = "1.8", optional = true }
+serde = { version = "1.0.228", features = ["derive"], optional = true }
+libc = { version = "0.2", optional = true }
+axum = { version = "0.8", optional = true }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net"], optional = true }
 
 [dev-dependencies]
 rightkit-http = { path = "../rightkit-http", version = "0.2.0", features = ["testing"] }

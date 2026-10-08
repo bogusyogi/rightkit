@@ -22,3 +22,52 @@ Web/CDP harnesses launch Chrome for Testing, never regular Google Chrome: on mac
 - `launchChromeForTesting(options)` starts it in its own process group with a temp profile and returns `{ wsEndpoint, port, pid, profileDir, close() }`. Launch one browser per suite and open targets per test.
 - `close()` / `closeChromeGracefully()` sends CDP `Browser.close`, waits up to 5 s, sends SIGTERM to the process group (`taskkill /T` on Windows), waits again, sends SIGKILL only last, then removes the profile. It reports the step that ended the tree.
 - `codeSignCloneEntries()` lists the macOS clone entries so tests can assert that none appear.
+
+## Raw CDP page driver (Node 26)
+
+`QaBrowserSession`, `QaPage`, `QaElement`, `QaKeyboard` & `TimeoutError` are exported from `@rightkit/qa`. Transport uses Node's built-in `WebSocket` directly; no Puppeteer, Playwright, or CDP wrapper dependency.
+
+```ts
+import { launchChromeForTesting, QaBrowserSession } from '@rightkit/qa';
+
+const chrome = await launchChromeForTesting();
+const browser = await QaBrowserSession.connect(chrome.wsEndpoint);
+try {
+  const page = await browser.newPage();
+  await page.setViewport({ width: 1280, height: 720, deviceScaleFactor: 1 });
+  await page.evaluateOnNewDocument(() => { window.localStorage.setItem('qa', '1'); });
+  await page.goto('http://127.0.0.1:3000', { waitUntil: 'networkidle0', timeout: 10_000 });
+  const button = await page.waitForSelector('button', { visible: true });
+  await button?.click();
+  await button?.dispose();
+  await page.screenshot({ path: 'viewport.png', type: 'png', captureBeyondViewport: false });
+} finally {
+  try { await browser.close(); } finally { await chrome.close(); }
+}
+```
+
+Session owns targets it creates; launcher owns browser process & profile. `connect(endpoint, { timeout, debug })` defaults to 30,000 ms per connection/command, with logging off. Positive finite deadlines apply to navigation & waits; failures use typed `TimeoutError`. `page.on(cdpMethod, listener)` subscribes to page-session events & returns an unsubscribe function. Debug callbacks receive method names only. Throwing event subscribers are isolated from transport state.
+
+Evaluation uses main frame's default execution context, awaits promises & returns values by JSON. Functions run in Chrome, so pass external values as arguments rather than closing over Node variables. JavaScript exceptions become `Error` with Chrome's message. `evaluateOnNewDocument` accepts function + arguments or source text & runs before document scripts, including subsequent reloads.
+
+`goto`/`reload` support `load`, `domcontentloaded` & `networkidle0` (zero outstanding requests for 500 ms). `waitForSelector` supports present/visible/hidden states; hidden waits return `null`. `waitForFunction` supports animation-frame or positive millisecond polling & resolves when predicate is truthy. Both name selector/predicate in timeout errors. `$`/`$$` return remote element handles, released by `dispose()`, navigation, or page closure.
+
+Click/hover scroll elements into view & use box centres. Mouse, keyboard & text input use CDP `Input` commands; `select` dispatches DOM `input`/`change` after selecting values. Keyboard supports required navigation/editing keys, letters/digits & modifier chords such as `Control+A`, `Meta+A`, or `Shift+ArrowLeft`. Screenshots return `Buffer`, optionally write `path`, & capture viewport PNG at configured DPR; `fullPage` & `captureBeyondViewport` support `false` only.
+
+| Puppeteer | QaPage equivalent |
+|---|---|
+| `puppeteer.connect({ browserWSEndpoint })` | `QaBrowserSession.connect(wsEndpoint)` |
+| `browser.newPage()` / `browser.close()` | Same calls; session closes owned targets |
+| `page.goto()` / `reload()` / `close()` | Same calls & navigation options |
+| `page.setViewport()` | Same call; CDP device metrics |
+| `page.evaluateOnNewDocument()` | Same call; function or source |
+| `page.evaluate()` / `$eval()` / `$$eval()` | Same calls; JSON results & awaited promises |
+| `page.waitForSelector()` | Same options; `QaElement` or `null` |
+| `page.waitForFunction()` | Same predicate/options/arguments; returns `void` |
+| `page.$()` / `page.$$()` | `QaElement` / `QaElement[]` |
+| `element.click/type/hover/focus/boundingBox/evaluate/dispose()` | Same calls on `QaElement` |
+| `page.click/type/hover/focus/select()` | Same calls; click accepts selector or handle |
+| `page.keyboard.press()` | Same call; named key or modifier chord |
+| `page.screenshot()` | Viewport PNG `Buffer`; optional `path` |
+
+`pnpm --dir packages/qa test` runs mock-WebSocket unit tests & real Chrome for Testing integration against local static fixture. Install Chrome through `@rightkit/qa-chrome` or set `RIGHTKIT_CHROME_FOR_TESTING`; integration requires Chrome & does not silently skip.
