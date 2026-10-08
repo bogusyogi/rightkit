@@ -1,10 +1,15 @@
 use std::{
     io,
-    process::{Child, ExitStatus},
+    process::ExitStatus,
     sync::{Arc, Mutex, MutexGuard},
-    thread,
-    time::{Duration, Instant, SystemTime},
+    time::{Duration, SystemTime},
 };
+#[cfg(unix)]
+type PlatformChild = std::process::Child;
+#[cfg(windows)]
+type PlatformChild = crate::spawn_windows::WindowsChild;
+#[cfg(unix)]
+use std::{thread, time::Instant};
 
 /// An independent exit reader. On Unix it shares std's cached reap state;
 /// on Windows it owns a duplicated process handle, never a borrowed handle value.
@@ -12,7 +17,9 @@ use std::{
 #[derive(Debug)]
 pub struct ProcessHandle {
     #[cfg(unix)]
-    child: Arc<Mutex<Child>>,
+    child: Arc<Mutex<PlatformChild>>,
+    #[cfg(unix)]
+    pid: u32,
     #[cfg(windows)]
     handle: std::os::windows::io::OwnedHandle,
     creation_time: Option<SystemTime>,
@@ -20,12 +27,15 @@ pub struct ProcessHandle {
     creation_time_ticks: Option<u64>,
 }
 
-pub(crate) fn lock_child(child: &Mutex<Child>) -> MutexGuard<'_, Child> {
+pub(crate) fn lock_child<T>(child: &Mutex<T>) -> MutexGuard<'_, T> {
     child.lock().unwrap_or_else(|poison| poison.into_inner())
 }
 
 impl ProcessHandle {
-    pub(crate) fn new(child: &Arc<Mutex<Child>>, spawned_at: SystemTime) -> io::Result<Self> {
+    pub(crate) fn new(
+        child: &Arc<Mutex<PlatformChild>>,
+        spawned_at: SystemTime,
+    ) -> io::Result<Self> {
         #[cfg(unix)]
         {
             #[cfg(target_os = "macos")]
@@ -35,6 +45,7 @@ impl ProcessHandle {
             let _ = spawned_at;
             Ok(Self {
                 child: Arc::clone(child),
+                pid: lock_child(child).id(),
                 creation_time,
             })
         }
@@ -64,6 +75,8 @@ impl ProcessHandle {
         Ok(Self {
             #[cfg(unix)]
             child: Arc::clone(&self.child),
+            #[cfg(unix)]
+            pid: self.pid,
             #[cfg(windows)]
             handle: self.handle.try_clone()?,
             creation_time: self.creation_time,
@@ -90,43 +103,141 @@ impl ProcessHandle {
         }
         #[cfg(windows)]
         {
-            use std::os::windows::{io::AsRawHandle, process::ExitStatusExt};
-            use windows::Win32::{
-                Foundation::{HANDLE, WAIT_OBJECT_0, WAIT_TIMEOUT},
-                System::Threading::{GetExitCodeProcess, WaitForSingleObject},
-            };
-            let handle = HANDLE(self.handle.as_raw_handle() as _);
-            match unsafe { WaitForSingleObject(handle, 0) } {
-                WAIT_TIMEOUT => Ok(None),
-                WAIT_OBJECT_0 => {
-                    let mut code = 0;
-                    unsafe { GetExitCodeProcess(handle, &mut code) }.map_err(io::Error::other)?;
-                    Ok(Some(ExitStatus::from_raw(code)))
-                }
-                _ => Err(io::Error::last_os_error()),
-            }
+            self.windows_wait(0)
         }
     }
 
     pub fn wait(&self) -> io::Result<ExitStatus> {
-        loop {
-            if let Some(status) = self.try_wait()? {
-                return Ok(status);
+        #[cfg(unix)]
+        {
+            #[cfg(any(
+                target_os = "linux",
+                target_os = "android",
+                target_os = "macos",
+                target_os = "ios",
+                target_os = "freebsd",
+                target_os = "openbsd",
+                target_os = "netbsd",
+                target_os = "dragonfly",
+                target_os = "solaris",
+                target_os = "illumos"
+            ))]
+            {
+                if let Some(status) = self.try_wait()? {
+                    return Ok(status);
+                }
+                loop {
+                    let mut info = std::mem::MaybeUninit::<nix::libc::siginfo_t>::uninit();
+                    // Block without reaping or holding the std-child lock. std's
+                    // waitpid below remains the sole reap/cache owner. This lets
+                    // concurrent timeouts & detached-drop stdio cleanup proceed.
+                    if unsafe {
+                        nix::libc::waitid(
+                            nix::libc::P_PID,
+                            self.pid as nix::libc::id_t,
+                            info.as_mut_ptr(),
+                            nix::libc::WEXITED | nix::libc::WNOWAIT,
+                        )
+                    } == 0
+                    {
+                        return self.try_wait()?.ok_or_else(|| {
+                            io::Error::other("completed process wait had no exit status")
+                        });
+                    }
+                    let error = io::Error::last_os_error();
+                    if error.raw_os_error() == Some(nix::libc::EINTR) {
+                        continue;
+                    }
+                    // Another reader may have reaped & cached status while waitid
+                    // was waking, causing ECHILD despite a valid cached result.
+                    if let Some(status) = self.try_wait()? {
+                        return Ok(status);
+                    }
+                    return Err(error);
+                }
             }
-            thread::sleep(Duration::from_millis(5));
+            #[cfg(not(any(
+                target_os = "linux",
+                target_os = "android",
+                target_os = "macos",
+                target_os = "ios",
+                target_os = "freebsd",
+                target_os = "openbsd",
+                target_os = "netbsd",
+                target_os = "dragonfly",
+                target_os = "solaris",
+                target_os = "illumos"
+            )))]
+            {
+                // Other Unix hosts use std's blocking waitpid & shared cache.
+                let mut child = lock_child(&self.child);
+                // An independent reader must not close owner stdin. OwnedChild::wait
+                // already closes it explicitly, matching std Child::wait.
+                let stdin = child.stdin.take();
+                let result = child.wait();
+                child.stdin = stdin;
+                result
+            }
+        }
+        #[cfg(windows)]
+        {
+            self.windows_wait(u32::MAX)?
+                .ok_or_else(|| io::Error::other("infinite process wait unexpectedly timed out"))
         }
     }
 
     pub fn wait_timeout(&self, timeout: Duration) -> io::Result<Option<ExitStatus>> {
-        let started = Instant::now();
-        loop {
-            if let Some(status) = self.try_wait()? {
-                return Ok(Some(status));
+        #[cfg(windows)]
+        {
+            let started = std::time::Instant::now();
+            loop {
+                let remaining = timeout.saturating_sub(started.elapsed());
+                // Round up sub-millisecond waits; reserve INFINITE for wait().
+                let millis = remaining.as_millis()
+                    + u128::from(!remaining.subsec_nanos().is_multiple_of(1_000_000));
+                let millis = millis.min(u128::from(u32::MAX - 1)) as u32;
+                if let Some(status) = self.windows_wait(millis)? {
+                    return Ok(Some(status));
+                }
+                if started.elapsed() >= timeout {
+                    return Ok(None);
+                }
             }
-            if started.elapsed() >= timeout {
-                return Ok(None);
+        }
+        #[cfg(unix)]
+        {
+            let started = Instant::now();
+            loop {
+                if let Some(status) = self.try_wait()? {
+                    return Ok(Some(status));
+                }
+                if started.elapsed() >= timeout {
+                    return Ok(None);
+                }
+                thread::sleep(
+                    Duration::from_millis(5).min(timeout.saturating_sub(started.elapsed())),
+                );
             }
-            thread::sleep(Duration::from_millis(5).min(timeout.saturating_sub(started.elapsed())));
+        }
+    }
+
+    #[cfg(windows)]
+    fn windows_wait(&self, millis: u32) -> io::Result<Option<ExitStatus>> {
+        use std::os::windows::{io::AsRawHandle, process::ExitStatusExt};
+        use windows::Win32::{
+            Foundation::{HANDLE, WAIT_OBJECT_0, WAIT_TIMEOUT},
+            System::Threading::{GetExitCodeProcess, WaitForSingleObject},
+        };
+        let handle = HANDLE(self.handle.as_raw_handle() as _);
+        match unsafe { WaitForSingleObject(handle, millis) } {
+            WAIT_TIMEOUT => Ok(None),
+            WAIT_OBJECT_0 => {
+                let mut code = 0;
+                unsafe { GetExitCodeProcess(handle, &mut code) }
+                    .map_err(crate::process_windows::os_error)?;
+                Ok(Some(ExitStatus::from_raw(code)))
+            }
+            _ => Err(io::Error::last_os_error()),
         }
     }
 }

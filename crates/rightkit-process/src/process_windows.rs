@@ -29,6 +29,17 @@ fn raw(handle: &impl AsHandle) -> HANDLE {
     HANDLE(handle.as_handle().as_raw_handle() as _)
 }
 
+pub(crate) fn os_error(error: windows::core::Error) -> io::Error {
+    // windows captures GetLastError before cleanup can overwrite it.
+    // HRESULT_FROM_WIN32 retains the original error in its low 16 bits.
+    let code = error.code().0 as u32;
+    if code & 0xffff_0000 == 0x8007_0000 {
+        io::Error::from_raw_os_error((code & 0xffff) as i32)
+    } else {
+        io::Error::other(error)
+    }
+}
+
 fn own(handle: HANDLE) -> OwnedHandle {
     // Each successful Win32 creation returns one newly owned kernel handle.
     unsafe { OwnedHandle::from_raw_handle(handle.0 as _) }
@@ -54,7 +65,7 @@ pub(crate) struct KillOnCloseJob(OwnedHandle);
 impl KillOnCloseJob {
     fn assign(process: &ProcessHandle) -> io::Result<Self> {
         let job = Self(own(
-            unsafe { CreateJobObjectW(None, None) }.map_err(io::Error::other)?
+            unsafe { CreateJobObjectW(None, None) }.map_err(os_error)?
         ));
         let mut limits = JOBOBJECT_EXTENDED_LIMIT_INFORMATION::default();
         limits.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
@@ -66,8 +77,8 @@ impl KillOnCloseJob {
                 std::mem::size_of_val(&limits) as u32,
             )
         }
-        .map_err(io::Error::other)?;
-        unsafe { AssignProcessToJobObject(raw(&job.0), raw(process)) }.map_err(io::Error::other)?;
+        .map_err(os_error)?;
+        unsafe { AssignProcessToJobObject(raw(&job.0), raw(process)) }.map_err(os_error)?;
         Ok(job)
     }
 }
@@ -98,8 +109,7 @@ pub(crate) fn assign_jobs(
     // Caller job precedes the empty nested RightKit job. No user code runs yet.
     if let Some(caller) = caller_job {
         assignment_result(
-            unsafe { AssignProcessToJobObject(raw(&caller), raw(process)) }
-                .map_err(io::Error::other),
+            unsafe { AssignProcessToJobObject(raw(&caller), raw(process)) }.map_err(os_error),
             mode,
             "caller job assignment",
             failures,
@@ -121,18 +131,18 @@ pub(crate) fn assign_jobs(
 /// still suspended, so its sole initial thread can be reopened safely by ID.
 pub(crate) fn resume(pid: u32) -> io::Result<()> {
     let snapshot =
-        own(unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0) }.map_err(io::Error::other)?);
+        own(unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0) }.map_err(os_error)?);
     let mut entry = THREADENTRY32 {
         dwSize: std::mem::size_of::<THREADENTRY32>() as u32,
         ..Default::default()
     };
-    unsafe { Thread32First(raw(&snapshot), &mut entry) }.map_err(io::Error::other)?;
+    unsafe { Thread32First(raw(&snapshot), &mut entry) }.map_err(os_error)?;
     loop {
         if entry.th32OwnerProcessID == pid {
             let thread =
                 own(
                     unsafe { OpenThread(THREAD_SUSPEND_RESUME, false, entry.th32ThreadID) }
-                        .map_err(io::Error::other)?,
+                        .map_err(os_error)?,
                 );
             if unsafe { ResumeThread(raw(&thread)) } == u32::MAX {
                 return Err(io::Error::last_os_error());
@@ -156,7 +166,7 @@ pub(crate) fn terminate(
 ) -> io::Result<()> {
     // Do not skip the job when its original parent already exited.
     let job_result = match job {
-        Some(job) => unsafe { TerminateJobObject(raw(&job.0), code) }.map_err(io::Error::other),
+        Some(job) => unsafe { TerminateJobObject(raw(&job.0), code) }.map_err(os_error),
         None => Ok(()),
     };
     // Even on failed assignment, preserve direct-child termination/reap.
@@ -172,7 +182,7 @@ pub(crate) fn terminate(
             {
                 Ok(())
             }
-            Err(error) => Err(io::Error::other(error)),
+            Err(error) => Err(os_error(error)),
         }
     } else {
         Ok(())

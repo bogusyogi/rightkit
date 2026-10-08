@@ -25,7 +25,7 @@ exit. Windows resumes the suspended primary thread only after assignment decisio
 
 ## Also (0.3.0)
 
-- `OwnedChild::child()` borrows std `Child` through a lock guard, including
+- `OwnedChild::child()` borrows std `Child` on Unix or `WindowsChild` on Windows through a lock guard, including
   stdin/stdout/stderr and wait/try_wait; existing stream-taking APIs remain.
 - `unix_containment(UnixContainment::Session)` runs `setsid`; Windows
   `job_assignment_mode(JobAssignmentMode::BestEffort)` retains non-fatal errors
@@ -47,6 +47,8 @@ exit. Windows resumes the suspended primary thread only after assignment decisio
   cleanup; default remains unbounded. Timed-out children go to a background reaper.
 
 ## Use
+
+`OwnedCommand::inherit_handles_only` restricts inheritance to caller handles/fds plus stdio; Windows requires `windows_spawn_config` for opaque stdio, environment-inheritance & raw-argument settings.
 
 ```rust,no_run
 use std::{process::Stdio, time::Duration};
