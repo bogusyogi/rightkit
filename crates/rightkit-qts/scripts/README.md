@@ -8,6 +8,12 @@ directly through NumPy; `gguf.quants.quantize` supplies upstream Q8_0 conversion
 
 ## Usage
 
+Header-only inventory requires Python standard library only; reads no weights:
+
+```sh
+python3 crates/rightkit-qts/scripts/inspect_safetensors_header.py /path/to/model.safetensors
+```
+
 From RightKit checkout:
 
 ```sh

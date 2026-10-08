@@ -10,6 +10,13 @@ streaming, profiling & 0.6B filename resolution retain their public signatures.
 Existing `synthesize()` also retains its zero-embedding fallback. Mode APIs are
 additive, so existing struct literals need no new fields.
 
+Set `RIGHTKIT_QTS_DUMP_CODES=/tmp/qts-codes.json` to capture first 32 generated
+codec frames as JSON `[[codebook_0, ..., codebook_15], ...]`. Capture excludes
+reference frames, persists after each frame, & resets to `[]` on each rollout.
+Recompute, cached, & streaming rollouts support it; path errors return IO errors.
+Unset variable leaves synthesis unchanged. See [1.7B static audit](AUDIT-1P7B.md)
+& [header inventory](HEADER-INVENTORY-1P7B.md).
+
 ## Mode API
 
 ```rust,no_run
@@ -56,8 +63,10 @@ pub struct ModeSynthesizeRequest<'a> {
 
 Request mode must match loaded checkpoint mode. Presets use codec embeddings at
 GGUF-provided IDs. Chinese/Auto preset dialect overrides also come from metadata.
-VoiceDesign omits speaker embedding entirely. Mode synthesis uses existing
-incremental text/codec prefill (upstream `non_streaming_mode=false`).
+VoiceDesign omits speaker embedding entirely. CustomVoice/VoiceDesign synthesis
+prefills all text plus TTS EOS before codec BOS, matching the official wrappers'
+`non_streaming_mode=true` default, including when audio delivery is streamed.
+Base synthesis retains incremental text/codec prefill.
 Instruction tokens are projected
 & prepended separately, preserving assistant/codec alignment:
 

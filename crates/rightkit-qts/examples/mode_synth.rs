@@ -17,10 +17,28 @@ fn main() {
             .find(|s| format!("{s:?}").eq_ignore_ascii_case(&a[4]))
             .expect("unknown speaker")
     });
-    let text = a.get(6).cloned().unwrap_or_else(|| "Hello! This voice was designed from a short text description.".into());
+    let text = a
+        .get(6)
+        .cloned()
+        .unwrap_or_else(|| "Hello! This voice was designed from a short text description.".into());
     let engine = qts::Qwen3TtsEngine::from_model_dir_for_mode(&a[1], mode).expect("load model");
     let req = ModeSynthesizeRequest {
-        synthesis: SynthesizeRequest { text, temperature: 0.9, top_k: 50, ..Default::default() },
+        synthesis: if std::env::var_os("QTS_GREEDY").is_some() {
+            SynthesizeRequest {
+                text,
+                temperature: 1.0,
+                top_k: 1,
+                max_audio_frames: 600,
+                ..Default::default()
+            }
+        } else {
+            SynthesizeRequest {
+                text,
+                temperature: 0.9,
+                top_k: 50,
+                ..Default::default()
+            }
+        },
         mode,
         instruct,
         speaker,
@@ -47,5 +65,9 @@ fn main() {
         wav.extend_from_slice(&((s.clamp(-1.0, 1.0) * 32767.0) as i16).to_le_bytes());
     }
     std::fs::write(&a[5], wav).expect("write wav");
-    println!("samples={} seconds={:.2}", out.pcm_f32.len(), out.pcm_f32.len() as f32 / rate as f32);
+    println!(
+        "samples={} seconds={:.2}",
+        out.pcm_f32.len(),
+        out.pcm_f32.len() as f32 / rate as f32
+    );
 }
