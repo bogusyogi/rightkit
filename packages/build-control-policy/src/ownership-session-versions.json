@@ -17,7 +17,7 @@
     "@rightkit/ax": "0.2.4",
     "@rightkit/doc-render": "0.1.3",
     "@rightkit/git": "0.2.26",
-    "@rightkit/hooks": "0.1.1",
+    "@rightkit/hooks": "0.1.2",
     "@rightkit/i18n": "0.1.0",
     "@rightkit/legal": "0.3.1",
     "@rightkit/legal-ui": "0.1.3",
@@ -75,7 +75,8 @@
       "0.1.2"
     ],
     "@rightkit/hooks": [
-      "0.1.0"
+      "0.1.0",
+      "0.1.1"
     ],
     "@rightkit/legal": [
       "0.3.0"
@@ -242,6 +243,7 @@
     "rightkit-tauri": "0.1.0"
   },
   "stagedCargo": {
+    "agent-room-core": "0.2.0",
     "rightkit-audio": "0.1.1",
     "rightkit-automation": "0.1.0",
     "rightkit-browser": "0.2.3",
@@ -256,7 +258,7 @@
     "rightkit-jobs": "0.2.2",
     "rightkit-license": "0.1.3",
     "rightkit-logs": "0.2.0",
-    "rightkit-mcp": "0.3.1",
+    "rightkit-mcp": "0.4.0",
     "rightkit-media": "0.2.3",
     "rightkit-models": "0.2.2",
     "rightkit-oauth": "0.3.0",
@@ -343,7 +345,7 @@
       "@rightkit/onboarding": "0.2.3",
       "@rightkit/pdf-ui": "0.1.2",
       "@rightkit/platform-ui": "0.1.2",
-      "@rightkit/qa": "0.3.2",
+      "@rightkit/qa": "0.4.0",
       "@rightkit/qa-chrome": "0.1.3",
       "@rightkit/release": "0.2.135",
       "@rightkit/settings-ui": "0.2.7",
@@ -377,7 +379,8 @@
     "rightkit-mcp": [
       "0.1.1",
       "0.2.0",
-      "0.3.0"
+      "0.3.0",
+      "0.3.1"
     ],
     "rightkit-media": [
       "0.2.2"

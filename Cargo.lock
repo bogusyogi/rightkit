@@ -41,7 +41,7 @@ dependencies = [
 
 [[package]]
 name = "agent-room-core"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "axum",
  "rand 0.9.5",
@@ -5015,7 +5015,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-mcp"
-version = "0.3.1"
+version = "0.4.0"
 dependencies = [
  "futures-util",
  "getrandom 0.3.4",
@@ -5044,7 +5044,10 @@ dependencies = [
 name = "rightkit-models"
 version = "0.2.2"
 dependencies = [
+ "base64 0.22.1",
+ "chrono",
  "dirs 7.0.0",
+ "ed25519-dalek",
  "flate2",
  "getrandom 0.3.4",
  "rightkit-qa",
@@ -5054,6 +5057,7 @@ dependencies = [
  "tar",
  "tempfile",
  "ureq",
+ "url",
  "zip",
 ]
 

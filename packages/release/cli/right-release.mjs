@@ -64,6 +64,8 @@ if (first === "--version" || first === "-v") {
   } else {
     run("release.mjs", ["--doctor", ...args.slice(1)]);
   }
+} else if (first === "hooks") {
+  run("ownership-hooks.mjs", args.slice(1));
 } else if (first === "suite-doctor") {
   runTest(
     ["--test", path.join(packageRoot, "right-suite-contract.test.mjs")],
@@ -187,6 +189,8 @@ Commands:
   doctor --all                                       Verify all Right Suite app release contracts
   suite-doctor                                       Verify all local Right Suite repositories
   ownership [--app <dir>] [--json]                   Fail on app copies of RightKit-owned capabilities
+  ownership --staged [--app <dir>] [--json]          Pre-commit gate: scan the staged index for block-tier findings
+  hooks install [--app <dir>]                        Install the advisory pre-commit ownership gate (pinned @rightkit/release)
   ownership enroll [--root] [--name <device>] [--root-fingerprint <sha256>] [--app <dir>]
                                                       Enroll one native key or create a signed-device request
   ownership approve-key <fingerprint|request.json>    Approve one pending device key from an active host

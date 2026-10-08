@@ -26,10 +26,7 @@ pub fn write_runtime(run_dir: &Path, info: &RuntimeInfo) -> io::Result<PathBuf> 
 }
 
 pub fn write_owner_file(path: &Path, bytes: &[u8]) -> io::Result<()> {
-    let mut file = OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(path)?;
+    let mut file = OpenOptions::new().write(true).create_new(true).open(path)?;
     file.write_all(bytes)?;
     if !bytes.ends_with(b"\n") {
         file.write_all(b"\n")?;

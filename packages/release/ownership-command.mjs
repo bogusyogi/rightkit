@@ -13,6 +13,7 @@ import { formatTable } from "./ownership.mjs";
 import { writeOwnershipCatalog } from "./ownership-catalog.mjs";
 import { createOwnershipEvidence } from "./ownership-evidence.mjs";
 import { spawnSync } from "./background-process.mjs";
+import { main as stagedMain } from "./ownership-staged.mjs";
 
 const packageRoot = path.dirname(fileURLToPath(import.meta.url));
 
@@ -23,9 +24,10 @@ function flag(args, name) {
 
 export async function main(args, { evidenceFactory = createOwnershipEvidence, gitRunner = spawnSync, print = (value) => console.log(value) } = {}) {
   if (args.includes("--help")) {
-    print("right-release ownership [--app <dir>] [--json]\nright-release ownership --write-manifest [--rightkit <dir>] [--approve-new-capabilities]\n--approve-new-capabilities permits new capability ids during local generation only. Existing owner conflicts are always refused. Protected installation authorization remains separate.");
+    print("right-release ownership [--app <dir>] [--json]\nright-release ownership --staged [--app <dir>] [--json]  (pre-commit gate: scans the index, not the working tree)\nright-release ownership --write-manifest [--rightkit <dir>] [--approve-new-capabilities]\n--approve-new-capabilities permits new capability ids during local generation only. Existing owner conflicts are always refused. Protected installation authorization remains separate.");
     return 0;
   }
+  if (args.includes("--staged")) return stagedMain(args, { print });
   if (["enroll", "approve-key", "revoke-key"].includes(args[0])) {
     const { main: keyMain } = await import("./ownership-key-command.mjs");
     return keyMain(args, { runner: gitRunner, print });

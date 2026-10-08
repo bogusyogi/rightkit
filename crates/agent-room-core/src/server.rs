@@ -481,14 +481,13 @@ fn private_json<T: for<'de> Deserialize<'de>>(state: &ServerState, name: &str) -
 }
 
 fn log_name(value: Option<&str>) -> Option<String> {
-    value
-        .and_then(|path| {
-            let normalized = path.replace('\\', "/");
-            FilePath::new(&normalized)
-                .file_name()
-                .and_then(|name| name.to_str())
-                .map(str::to_owned)
-        })
+    value.and_then(|path| {
+        let normalized = path.replace('\\', "/");
+        FilePath::new(&normalized)
+            .file_name()
+            .and_then(|name| name.to_str())
+            .map(str::to_owned)
+    })
 }
 
 fn phase_progress(room: &Room) -> PhaseProgress {

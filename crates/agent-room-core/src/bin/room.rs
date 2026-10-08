@@ -324,6 +324,7 @@ async fn serve_room(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
             model: seat.model.clone(),
             role: seat.role.clone(),
             resume_token: None,
+            bootstrap_token: None,
         })?;
         let credentials = serde_json::json!({
             "bootstrap": true,
