@@ -14,7 +14,7 @@ business message.
   after OS spawn also cleans up the partial child.
 
 Windows children are created suspended, assigned to a Job Object, then
-resumed. `windows_hide()` preserves `CREATE_NO_WINDOW` through that sequence.
+resumed. Children are hidden by default (`CREATE_NO_WINDOW`); `windows_hide()` is a no-op kept for compatibility.
 Explicit termination uses the Job Object, so descendants die while unrelated
 sibling processes survive. Unix children lead a new process group;
 `wait_or_kill` sends `SIGTERM`, waits for the bounded grace period, then sends
@@ -90,5 +90,17 @@ cargo package -p rightkit-process --allow-dirty
 Windows integration tests prove parent plus grandchild termination, sibling
 survival, bounded grace, kill-on-drop, and partial-spawn cleanup. Run the same
 suite on macOS before publication to validate Unix process-group behavior.
+
+## Windows
+
+- Spawn: `CreateProcessW` with `CREATE_SUSPENDED | CREATE_UNICODE_ENVIRONMENT | EXTENDED_STARTUPINFO_PRESENT`, plus `CREATE_NO_WINDOW` (the default) or `CREATE_BREAKAWAY_FROM_JOB` (detached). Inherited handles are limited by a `PROC_THREAD_ATTRIBUTE_HANDLE_LIST` built from the caller's handles and stdio.
+- Ownership order: a caller job from `windows_job()` is assigned first, then a new job with `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`. The primary thread is resumed by ID from a Toolhelp thread snapshot, so the child does not run outside its job.
+- `job_assignment_mode(BestEffort)` records caller-job and owned-job errors in `job_assignment_failures()`. Strict, the default, fails the spawn.
+- Termination: `terminate_tree` calls `TerminateJobObject` on the owned job, then `TerminateProcess` on the direct child. An ACCESS_DENIED from a child that is already exiting gets a 2 s wait. Processes outside the job are untouched.
+- Detached spawns (`spawn_uncontained_detached`) need the parent job to allow breakaway. The spawn fails without fallback when it does not, and a detached spawn cannot take a caller job.
+- Errors: a `HRESULT_FROM_WIN32` value (0x8007xxxx) is returned as the raw OS error. Other failures are `io::Error::other`.
+- Dependency: `windows` 0.61 under `cfg(windows)`, with features `Win32_Foundation`, `Win32_Security`, `Win32_System_Diagnostics_ToolHelp`, `Win32_System_JobObjects` and `Win32_System_Threading`. Consumers enable no Windows features.
+- The staged 0.62 bump (`tasks/handoffs/2026-10-08/inventory/windows-0.62.patch`) is not applied at HEAD.
+- The code has no session or desktop check. Nothing here was run on Windows for this section.
 
 Licensed under either MIT or Apache-2.0, at your option.

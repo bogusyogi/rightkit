@@ -6,6 +6,19 @@ The `engine` feature enables engine sidecar wiring. The `devtools` feature enabl
 
 Publish through the RightKit release workflow.
 
+## Windows
+
+- Generation: `src/lib.rs` re-exports one `windows` and `webview2-com` pair as `crate::winapi`. `wv2-0_38` selects windows 0.61 and webview2-com 0.38 (default). `wv2-0_39` selects 0.62 and 0.39. Enabling both picks 0.39. With neither, the crate fails with `compile_error!`. Tauri 2.12 apps use `default-features = false, features = ["engine", "wv2-0_39"]`.
+- The Cargo.toml comment ties 0.38 to Tauri 2.11 and 0.39 to Tauri 2.12. The Tauri lock versions are not checked here: the example app's `Cargo.lock` is stale and records rightkit-shell 0.1.0.
+- WebView2 hardening (`src/harden.rs`, `windows_impl`): sets devtools, status bar, zoom control, pinch zoom, swipe navigation and browser accelerator keys (F5, Ctrl+R, Alt+Left, F12). It registers `ContextMenuRequested` through `ICoreWebView2_11`. That handler suppresses the menu unless the target is editable and `allow_editable_menu` is set.
+- Idle (`src/idle.rs`): `ICoreWebView2_3::TrySuspend` and `SetIsVisible` on the controller.
+- Clipboard (`src/clipboard.rs`): `OpenClipboard` with 10 retries at 20 ms. Reads `CF_UNICODETEXT` and `CF_HDROP`, with file lists read through `DragQueryFileW`.
+- Notifications: WinRT toasts through `tauri-winrt-notification` 0.7, as described below.
+- Registry and shell: autostart reads and writes `HKCU\...\CurrentVersion\Run` through `reg.exe`. Scheme registration writes under `HKCU\Software\Classes` through `reg.exe`. Both use `CREATE_NO_WINDOW`. `opener` launches `rundll32.exe url.dll,FileProtocolHandler`.
+- Single instance uses the rightkit-service named pipe (`src/instance.rs`). Broker entropy comes from `SystemFunction036` in advapi32 (`src/broker.rs`).
+- Dependencies: `windows_061`/`windows_062` and `webview2_com_038`/`webview2_com_039` are optional. They enable Win32 features `Win32_Foundation`, `Win32_System_Com`, `Win32_System_DataExchange`, `Win32_System_Memory`, `Win32_System_Ole` and `Win32_UI_Shell`. Consumers select only a `wv2-*` feature.
+- Caveat: `harden.rs` and `clipboard.rs` both say they are not compiled on the macOS host. Run `rightkit cargo check -p rightkit-shell` on Windows before relying on them.
+
 ## Also (0.1.3)
 
 ### Single-instance arbitration only
