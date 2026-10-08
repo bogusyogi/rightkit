@@ -72,13 +72,21 @@ function destinationFor(line) {
 }
 
 /** Find repository subdirectories above storage threshold outside managed root. */
-export function findLargeRepositorySubdirectories({ appRoot, managedRoot = resolveManagedRoot(), thresholdBytes = DEFAULT_STORAGE_THRESHOLD_BYTES, ignored = gitIgnored } = {}) {
+export function findLargeRepositorySubdirectories({ appRoot, managedRoot = resolveManagedRoot(), thresholdBytes = DEFAULT_STORAGE_THRESHOLD_BYTES, ignored = gitIgnored, declared = [] } = {}) {
   if (!Number.isFinite(thresholdBytes) || thresholdBytes < 1) throw new TypeError("thresholdBytes must be positive");
   const root = path.resolve(appRoot);
   const ignoredRoot = managedRoot ? path.resolve(managedRoot) : null;
   const findings = [];
   const inside = (candidate, parent) => candidate === parent || candidate.startsWith(`${parent}${path.sep}`);
   const managedIgnored = ignoredRoot && inside(ignoredRoot, root) ? Boolean(ignored(ignoredRoot, root)) : false;
+  // App-declared durable stores (model stores, test fixture roots) are intentional and exempt.
+  // Each needs a reason: config `storage.declaredStores: [{ path, reason }]`, paths relative to the app root.
+  const declaredRoots = (declared ?? []).map((item) => {
+    if (!item?.path || !String(item.reason ?? "").trim()) throw new TypeError("storage.declaredStores entries need path and reason");
+    const resolved = path.resolve(root, item.path);
+    if (!inside(resolved, root) || resolved === root) throw new TypeError(`storage.declaredStores path must be inside the app root: ${item.path}`);
+    return resolved;
+  });
   const walk = (directory) => {
     let total = 0;
     let entries;
@@ -91,6 +99,7 @@ export function findLargeRepositorySubdirectories({ appRoot, managedRoot = resol
       if (stat.isSymbolicLink()) continue;
       if (stat.isDirectory()) {
         if (managedIgnored && inside(file, ignoredRoot)) continue;
+        if (declaredRoots.some((declaredRoot) => inside(file, declaredRoot))) continue;
         total += walk(file);
       } else if (stat.isFile()) total += stat.size;
     }

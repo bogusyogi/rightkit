@@ -210,7 +210,7 @@ if (opts.doctor) {
   });
   const storageFindings = [
     ...installerCopyFindings,
-    ...findLargeRepositorySubdirectories({ appRoot: root, managedRoot, thresholdBytes: Number(process.env.RIGHTKIT_ARTIFACT_STORAGE_THRESHOLD_BYTES ?? DEFAULT_STORAGE_THRESHOLD_BYTES) }),
+    ...findLargeRepositorySubdirectories({ appRoot: root, managedRoot, declared: config.storage?.declaredStores ?? [], thresholdBytes: Number(process.env.RIGHTKIT_ARTIFACT_STORAGE_THRESHOLD_BYTES ?? DEFAULT_STORAGE_THRESHOLD_BYTES) }),
   ];
   if (storageFindings.length) {
     console.log("artifact-storage: report-only storage findings detected:");

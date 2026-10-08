@@ -76,3 +76,23 @@ test("managed root inside repository is skipped only when Git ignores it", () =>
 test("storage threshold uses decimal five gigabytes", () => {
   assert.equal(DEFAULT_STORAGE_THRESHOLD_BYTES, 5_000_000_000);
 });
+
+test("declared app stores are exempt from the large-directory finding and need a reason", async () => {
+  const { mkdtempSync, mkdirSync, writeFileSync } = await import("node:fs");
+  const os = await import("node:os");
+  const pathMod = await import("node:path");
+  const { findLargeRepositorySubdirectories } = await import("./installer-storage-doctor.mjs");
+  const root = mkdtempSync(pathMod.join(os.tmpdir(), "declared-store-"));
+  mkdirSync(pathMod.join(root, ".cache", "models"), { recursive: true });
+  mkdirSync(pathMod.join(root, "scratch"), { recursive: true });
+  writeFileSync(pathMod.join(root, ".cache", "models", "m.bin"), Buffer.alloc(2048));
+  writeFileSync(pathMod.join(root, "scratch", "s.bin"), Buffer.alloc(2048));
+  const opts = { appRoot: root, managedRoot: null, thresholdBytes: 1024, ignored: () => false };
+  const all = findLargeRepositorySubdirectories(opts).map((f) => pathMod.relative(root, f.path));
+  assert.ok(all.includes(pathMod.join(".cache", "models")) && all.includes("scratch"));
+  const declared = findLargeRepositorySubdirectories({ ...opts, declared: [{ path: ".cache/models", reason: "canonical model store" }] }).map((f) => pathMod.relative(root, f.path));
+  assert.ok(!declared.some((p) => p.startsWith(pathMod.join(".cache", "models"))));
+  assert.ok(declared.includes("scratch"));
+  assert.throws(() => findLargeRepositorySubdirectories({ ...opts, declared: [{ path: ".cache/models" }] }), /reason/);
+  assert.throws(() => findLargeRepositorySubdirectories({ ...opts, declared: [{ path: "../elsewhere", reason: "x" }] }), /inside the app root/);
+});
