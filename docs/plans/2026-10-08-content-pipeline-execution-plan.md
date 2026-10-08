@@ -55,10 +55,10 @@ Integration gates R5 (through C13) and R11 (through P5) close later in the app p
 
 | Id | State |
 |---|---|
-| RK0 | in progress (Mac lead) |
+| RK0 | built (c5119392); Mac 18/0, XPS check-fixtures 55/0 (broker a6665c04); Hetzner run waits on RK7; publish waits on vendoring schemas into the crate |
 | RK2 A | in progress (Mac lead) |
-| RK2 B | requested from Win lead |
-| RK4 | in progress, local route first (Mac lead) |
+| RK2 B | closed as design decision (3451a1f9): Windows.Graphics.Capture CreateForWindow on an off-screen-visible window; 60.0/30.0 fps delivered; hidden/minimized unsupported; encode off the callback thread (RK3 requirement); live windows-rs run is RK3's first step |
+| RK4 | local route scaffolded (rightkit-align, 28/0, synthetic fixtures); real QTS audio on Mac and XPS and the paid route still open |
 | RK7 | in progress (Mac lead) |
-| RK9 | in progress, contract definition (Mac lead) |
+| RK9 | model scaffolded (rightkit-compose, 24/0); spring easing and click effects not yet modelled |
 | RK1, RK3, RK5, RK6, RK8, RK10 | waiting on their dependencies |
