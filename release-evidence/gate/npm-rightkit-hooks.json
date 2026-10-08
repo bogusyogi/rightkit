@@ -1,0 +1,27 @@
+{
+  "schema": 1,
+  "kind": "npm",
+  "name": "@rightkit/hooks",
+  "version": "0.1.2",
+  "commit": "da03f6ebc4569de7953a3cec46b9456c00d7cf24",
+  "artifactSha256": "49e427d3ef0597a1f34292f70eda5b29d3b78841da0da11323750738da5e9a10",
+  "hostPolicy": "darwin-only",
+  "hostPolicyReason": "Pure TypeScript package; tests are host-independent (Adrian 2026-10-07: macOS first)",
+  "runs": [
+    {
+      "host": {
+        "os": "darwin",
+        "arch": "arm64"
+      },
+      "commit": "da03f6ebc4569de7953a3cec46b9456c00d7cf24",
+      "command": "pnpm --dir packages/hooks test",
+      "features": [
+        "default"
+      ],
+      "operator": "claude-opus-5.5 (RightKit lead) for adrdsouza",
+      "timestamp": "2026-10-08T16:22:27Z",
+      "passed": 6,
+      "failed": 0
+    }
+  ]
+}
