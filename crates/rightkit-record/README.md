@@ -56,6 +56,25 @@ Process ownership (spawn, supervise, restart) belongs to rightkit-process. A
 helper that dies mid-take is reported as `helper_lost` and the take is
 quarantined, never completed.
 
+## Windows borderless capture
+
+Windows grants borderless capture per executable path. On the XPS (build 26300), a
+byte-identical copy of a helper that captures borderless fails at a new path:
+`SetIsBorderRequired(false)` returns `0x80070490` (Element not found), even though
+`GraphicsCaptureAccess::RequestAccessAsync(Borderless)` reports `Allowed`. The access
+status therefore does not predict the setter.
+
+- Install the helper at a stable path: the app's install directory or its `current` root.
+  Never run it from a broker build path or a temp copy, which always shows the border.
+- Grant consent once, at install or first run, for that installed path.
+- A refused setter is not fatal: the take keeps the border, the helper warns on stderr, and
+  the manifest records `capture.border {required, access, error}`. `bundle_verify` warns
+  "capture border visible".
+
+Unverified: the consent store key is believed to be
+`HKCU\Software\Microsoft\Windows\CurrentVersion\CapabilityAccessManager\ConsentStore\graphicsCaptureWithoutBorder\NonPackaged`.
+It has not been read on a host yet.
+
 ## Tests
 
 `rightkit cargo test -p rightkit-record` runs the lifecycle, bundle, redaction, reader and
