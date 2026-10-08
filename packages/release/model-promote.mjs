@@ -140,7 +140,9 @@ async function main() {
       sizeBytes: raw.artifact.sizeBytes,
     },
     evidence: { sha256: raw.evidence.sha256 },
-    manifest: raw.manifest,
+    manifest: args.artifactId === undefined
+      ? raw.manifest
+      : { ...raw.manifest, artifactId: args.artifactId },
   };
   assertPromotionConfig(config);
   assertPromotionAuthority(args.authority, config.manifest.entitlement?.appKey);
@@ -187,6 +189,7 @@ artifact.sizeBytes, and evidence.sha256 must exactly match those files.
 
 Options:
   --dry-run                 Validate real files and sign, without R2 or RightApps mutations
+  --artifact-id <slug>      Override manifest.artifactId for this promotion
   --signing-key-file <pem>  Override the protected PEM path
   --key-id <id>             Must equal ${RUNTIME_ARTIFACT_TRUSTED_KEY_ID}
 
@@ -206,11 +209,13 @@ function parseArgs(args) {
   let config = "";
   let signingKeyFile;
   let keyId = process.env.RIGHTKIT_RUNTIME_ARTIFACT_KEY_ID || RUNTIME_ARTIFACT_TRUSTED_KEY_ID;
+  let artifactId;
   let dryRun = false;
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
     if (arg === "--authority") authority = args[++i] ?? "";
     else if (arg === "--config") config = args[++i] ?? "";
+    else if (arg === "--artifact-id") artifactId = args[++i] ?? "";
     else if (arg === "--signing-key-file") signingKeyFile = args[++i] ?? "";
     else if (arg === "--key-id") keyId = args[++i] ?? "";
     else if (arg === "--dry-run") dryRun = true;
@@ -218,7 +223,7 @@ function parseArgs(args) {
   }
   if (!config) throw new Error("model promote requires --config <path>");
   if (!authority) throw new Error("model promote requires --authority <app-key>");
-  return { authority, config, signingKeyFile, keyId, dryRun };
+  return { authority, config, signingKeyFile, keyId, artifactId, dryRun };
 }
 
 function readVerificationEvidence(args, cwd) {
@@ -285,7 +290,7 @@ function assertPromotionConfig(value) {
   assertExactKeys(value.evidence, ["sha256"], "evidence");
   assertExactKeys(value.manifest, [
     "artifactKind", "entitlement", "distribution", "target", "versions", "provenance", "promotion",
-  ], "manifest config");
+  ], "manifest config", ["artifactId"]);
   assertExactKeys(value.manifest.promotion, ["promotionId", "promotedAt"], "manifest config promotion");
 }
 
@@ -294,9 +299,9 @@ function assertMetadata(actual, expected, label) {
   if (actual.sizeBytes !== expected.sizeBytes) throw new Error(`${label} size does not match promotion config`);
 }
 
-function assertExactKeys(value, expected, label) {
+function assertExactKeys(value, expected, label, optional = []) {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error(`${label} must be an object`);
-  const allowed = new Set(expected);
+  const allowed = new Set([...expected, ...optional]);
   for (const key of Object.keys(value)) if (!allowed.has(key)) throw new Error(`${label} has unknown field ${key}`);
   for (const key of expected) if (!Object.hasOwn(value, key)) throw new Error(`${label}.${key} is required`);
 }

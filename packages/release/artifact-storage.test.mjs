@@ -11,6 +11,7 @@ import {
   recordPublishedVersion,
   retainArtifacts,
   resolveArtifactDir,
+  artifactProcessIdentity,
 } from "./artifact-storage.mjs";
 
 function fixture() {
@@ -115,4 +116,36 @@ test("malformed retention lock fails closed", () => {
     writeFileSync(path.join(lock, "owner.json"), "not-json");
     assert.throws(() => beginArtifactLease({ app: "fixture", version: "1.0.0", managedRoot: fx.managedRoot }), /retention lock is held/);
   } finally { rmSync(fx.root, { recursive: true, force: true }); }
+});
+
+for (const scenario of ["dead-pid", "pid-reused", "live", "foreign-host", "legacy-dead", "legacy-live", "same-pid-reused"]) {
+  test(`lease owner identity: ${scenario}`, () => {
+    const fx = fixture(), events = [], options = { app: "fixture", version: "1.0.0", managedRoot: fx.managedRoot,
+      now: 100, ownerHost: "local", processIdentity: (pid) => ({ alive: true, startTime: pid === process.pid ? "new" : "original" }), log: (e) => events.push(e) };
+    try {
+      const previous = beginArtifactLease(options);
+      assert.equal(previous.ownerHost, "local"); assert.equal(previous.ownerStartTime, "new");
+      previous.ownerPid = scenario === "same-pid-reused" ? process.pid : 31151;
+      previous.ownerStartTime = scenario.includes("reused") ? "old" : "original";
+      if (scenario.startsWith("legacy")) { delete previous.ownerHost; delete previous.ownerStartTime; }
+      if (scenario === "foreign-host") previous.ownerHost = "remote";
+      writeFileSync(markerPath(options), JSON.stringify(previous));
+      const inspect = (pid) => ({ alive: !scenario.includes("dead") || pid === process.pid, startTime: pid === process.pid ? "new" : "original" });
+      const reclaim = () => beginArtifactLease({ ...options, now: scenario === "live" ? previous.leaseUntil + 1 : 101, processIdentity: inspect });
+      if (["live", "foreign-host", "legacy-live"].includes(scenario)) {
+        assert.throws(reclaim, /lease is held/); assert.deepEqual(events, []);
+        assert.equal(JSON.parse(readFileSync(markerPath(options))).ownerPid, 31151);
+      } else {
+        assert.equal(reclaim().ownerPid, process.pid);
+        assert.equal(events.length, 1); assert.equal(events[0].event, "artifact-lease-reclaimed");
+        assert.equal(events[0].reason, scenario.includes("dead") ? "dead-pid" : "pid-reused");
+      }
+    } finally { rmSync(fx.root, { recursive: true, force: true }); }
+  });
+}
+
+test("process start identity stays conservative when inspection denied", () => {
+  assert.deepEqual(artifactProcessIdentity(31151, { alive: () => false, run: () => assert.fail() }), { alive: false, startTime: null });
+  assert.deepEqual(artifactProcessIdentity(31151, { alive: () => true, run: () => ({ status: 1 }) }), { alive: true, startTime: null });
+  assert.deepEqual(artifactProcessIdentity(31151, { alive: () => true, run: () => ({ status: 0, stdout: "start\n" }) }), { alive: true, startTime: "start" });
 });

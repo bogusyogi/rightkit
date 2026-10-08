@@ -95,6 +95,22 @@ test("uploads immutable object, registers signed envelope, then replaces stable 
   assert.match(result.envelope.manifest.pointerKey, /\/current\/manifest\.json$/);
 });
 
+test("uses config artifactId as pointer slot", async () => {
+  const artifactId = "qwen3-tts-1p7b-customvoice-talker";
+  const input = request({
+    dryRun: true,
+    config: {
+      ...request().config,
+      manifest: { ...request().config.manifest, artifactId },
+    },
+  });
+  const result = await promoteRuntimeArtifact(input, boundaries([]));
+  assert.equal(
+    result.envelope.manifest.pointerKey,
+    `heardright/runtime-artifacts/asr-model/${artifactId}/windows/x86_64/current/manifest.json`,
+  );
+});
+
 test("dry-run validates and signs without invoking process or network boundaries", async () => {
   const events = [];
   const result = await promoteRuntimeArtifact(request({ dryRun: true }), boundaries(events));
@@ -230,6 +246,7 @@ test("model promote help documents the portable config and secure key inputs", (
   assert.match(result.stdout, /RIGHTKIT_RUNTIME_ARTIFACT_PRIVATE_KEY_FILE/);
   assert.match(result.stdout, /RIGHTAPPS_RELEASE_TOKEN/);
   assert.match(result.stdout, /--authority <app-key>/);
+  assert.match(result.stdout, /--artifact-id <slug>/);
   assert.match(result.stdout, /genright/);
   assert.match(result.stdout, /must equal manifest\.entitlement\.appKey/);
 });
@@ -264,6 +281,7 @@ test("portable CLI promotes from a clean checkout, refuses a dirty one, and reje
       manifest: {
         ...request().config.manifest,
         artifactKind: "tts-model",
+        artifactId: "config-slot",
         entitlement: { appKey: "genright", tier: "pro" },
       },
     };
@@ -273,7 +291,7 @@ test("portable CLI promotes from a clean checkout, refuses a dirty one, and reje
 
     const promoteArgs = [
       path.join(packageRoot, "cli/right-release.mjs"), "model", "promote",
-      "--authority", "genright",
+      "--authority", "genright", "--artifact-id", "cli-slot",
       "--config", path.join(root, "promotion.json"),
       "--signing-key-file", path.join(root, "key.pem"),
       "--dry-run",
@@ -282,7 +300,12 @@ test("portable CLI promotes from a clean checkout, refuses a dirty one, and reje
     assert.equal(result.status, 0, result.stderr);
     assert.match(result.stdout, /\[dry-run\] runtime artifact promotion validated/);
     assert.match(result.stdout, /app\/kind: genright\/tts-model/);
-    assert.match(result.stdout, /pointer: genright\/runtime-artifacts\/tts-model\/windows\/x86_64\/current\/manifest\.json/);
+    assert.match(result.stdout, /pointer: genright\/runtime-artifacts\/tts-model\/cli-slot\/windows\/x86_64\/current\/manifest\.json/);
+    const configArgs = [...promoteArgs];
+    configArgs.splice(configArgs.indexOf("--artifact-id"), 2);
+    const configResult = spawnSync(process.execPath, configArgs, { cwd: root, encoding: "utf8", windowsHide: true });
+    assert.equal(configResult.status, 0, configResult.stderr);
+    assert.match(configResult.stdout, /pointer: genright\/runtime-artifacts\/tts-model\/config-slot\/windows\/x86_64\/current\/manifest\.json/);
 
     for (const [authority, code] of [
       ["unknown", "RUNTIME_ARTIFACT_UNKNOWN_APP"],

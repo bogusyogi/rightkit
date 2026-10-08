@@ -26,6 +26,13 @@ fields fail. `artifact.file` & `evidence.file` resolve relative to config.
 | `provenance` | `source` (HTTPS), `sourceRevision`, `licenseId`, `noticeSha256` |
 | `promotion` | `promotionId`, `promotedAt` (exact UTC ISO timestamp, including milliseconds) |
 
+`manifest.artifactId` is optional. When absent, pointer paths keep legacy
+layout: `<app>/runtime-artifacts/<kind>/<os>/<arch>/current/manifest.json`.
+When present, it must match `^[a-z0-9]+(?:-[a-z0-9]+)*$` & be at most 128
+characters; pointer paths include `<artifactId>` after `<kind>`. Use
+`--artifact-id <slug>` to override config for one promotion. Immutable object
+keys remain content-addressed by digest in both layouts.
+
 Kinds: `asr-model`, `tts-model`, `ocr-model`, `ort-runtime`, `media-runtime`,
 `tokenizer`, `preprocessing`. Model & tokenizer kinds require `pro` entitlement
 with `private-r2` delivery. Public/bundled lanes require corresponding tiers.
@@ -60,7 +67,8 @@ upstream source; this example makes no claim that those reviews already exist.
     "artifactKind": "tts-model",
     "entitlement": { "appKey": "genright", "tier": "pro" },
     "distribution": { "delivery": "private-r2", "bucket": "rightapps-updates" },
-    "target": { "os": "windows", "arch": "x86_64" },
+    "artifactId": "qwen3-tts-1p7b-customvoice-talker",
+    "target": { "os": "any", "arch": "any" },
     "versions": {
       "runtime": "<qualified-rightkit-qts-version>",
       "model": "qwen3-tts-1.7b-customvoice-talker-q8_0",
@@ -164,13 +172,21 @@ changed here. GenRight/VoiceRight & TTS support are source changes only.
 Promotion order: immutable upload → signed-envelope registration → current
 pointer replacement. Object key for this example is
 `genright/runtime-artifacts/objects/sha256/836dcede70c86c6db1873a21644cdf07dec30c09e4f33fe81b542de832efeace/qwen3-tts-1.7b-customvoice-talker-q8_0.gguf`.
-Pointer is `genright/runtime-artifacts/tts-model/windows/x86_64/current/manifest.json`.
+Pointer is `genright/runtime-artifacts/tts-model/qwen3-tts-1p7b-customvoice-talker/any/any/current/manifest.json`.
 
-Repeat config per CustomVoice/VoiceDesign talker & predictor (`tts-model`) &
-tokenizer (`tokenizer`), using six recorded sizes/digests in
-`MODE_1P7B_MANIFEST`. Current pointer & server row are singular per
-app/kind/OS/arch: successive talker/predictor promotions replace same TTS current
-entry; both tokenizers replace same tokenizer current entry. Bind six consumer
-catalog entries to immutable keys/digests, retain signed envelopes/evidence, &
-use strictly increasing promotion timestamps within each kind. Current pointer
-is not a six-artifact bundle manifest.
+GenRight's six independent Qwen3 TTS slots use `artifactKind: "tts-model"`,
+`target: { "os": "any", "arch": "any" }`, & these artifact IDs:
+
+| Variant | Role | `artifactId` |
+| --- | --- | --- |
+| CustomVoice | talker | `qwen3-tts-1p7b-customvoice-talker` |
+| CustomVoice | predictor | `qwen3-tts-1p7b-customvoice-predictor` |
+| CustomVoice | tokenizer | `qwen3-tts-1p7b-customvoice-tokenizer` |
+| VoiceDesign | talker | `qwen3-tts-1p7b-voicedesign-talker` |
+| VoiceDesign | predictor | `qwen3-tts-1p7b-voicedesign-predictor` |
+| VoiceDesign | tokenizer | `qwen3-tts-1p7b-voicedesign-tokenizer` |
+
+Each slot has its own current pointer, so promotions do not overwrite another
+role or variant. Bind six consumer catalog entries to immutable keys/digests,
+retain signed envelopes/evidence, & use strictly increasing promotion
+timestamps within each slot.

@@ -12,6 +12,7 @@ import {
 } from "node:fs";
 import path from "node:path";
 import os from "node:os";
+import { spawnSync } from "./background-process.mjs";
 
 export const ARTIFACT_MARKER_SCHEMA = 1;
 export const DEFAULT_MANAGED_ROOT = process.platform === "win32"
@@ -59,8 +60,11 @@ export function publishedPointerPath({ app, managedRoot } = {}) {
  * Create or refresh the lease marker before a build writes managed artifacts.
  * Marker fields intentionally remain the small cross-process contract.
  */
-export function beginArtifactLease({ app, version, managedRoot, now = Date.now(), ownerPid = process.pid, leaseMs = 2 * 60 * 60 * 1000 } = {}) {
-  if (!Number.isFinite(now) || !Number.isSafeInteger(ownerPid) || ownerPid < 1 || !Number.isFinite(leaseMs) || leaseMs <= 0) {
+export function beginArtifactLease({ app, version, managedRoot, now = Date.now(), ownerPid = process.pid,
+  ownerHost = os.hostname(), processIdentity = artifactProcessIdentity,
+  log = (event) => console.error(JSON.stringify(event)), leaseMs = 2 * 60 * 60 * 1000 } = {}) {
+  if (!Number.isFinite(now) || !Number.isSafeInteger(ownerPid) || ownerPid < 1 || !Number.isFinite(leaseMs) || leaseMs <= 0
+    || typeof ownerHost !== "string" || !ownerHost) {
     throw new TypeError("artifact lease requires finite now/leaseMs and positive ownerPid");
   }
   const root = resolveArtifactRoot({ app, managedRoot });
@@ -72,14 +76,24 @@ export function beginArtifactLease({ app, version, managedRoot, now = Date.now()
     ensureDirectory(directory);
     const file = markerPath({ app, version, managedRoot });
     assertSafeMutation(file);
+    const identity = processIdentity(ownerPid);
+    let reclaimed;
     if (existsSync(file)) {
       const previous = readArtifactMarker(file);
-      if (isActiveLease(previous, now) && previous.ownerPid !== ownerPid) {
+      const state = leaseOwnerState(previous, { host: ownerHost, processIdentity });
+      const sameOwner = previous.ownerPid === ownerPid && (!previous.ownerHost || previous.ownerHost === ownerHost)
+        && (!previous.ownerStartTime || !identity.startTime || previous.ownerStartTime === identity.startTime);
+      if (state !== "dead-pid" && state !== "pid-reused" && isActiveLease(previous, now, { host: ownerHost, processIdentity }) && !sameOwner) {
         throw new Error(`artifact lease is held by PID ${previous.ownerPid}: ${app}@${version}`);
       }
+      if (state === "dead-pid" || state === "pid-reused") reclaimed = { event: "artifact-lease-reclaimed", app, version,
+        reason: state, ownerPid: previous.ownerPid, ownerHost: previous.ownerHost ?? ownerHost,
+        ownerStartTime: previous.ownerStartTime ?? null, newOwnerPid: ownerPid, timestamp: now };
     }
-    const marker = { schemaVersion: ARTIFACT_MARKER_SCHEMA, app, version, createdAt: now, ownerPid, leaseUntil: now + leaseMs };
+    const marker = { schemaVersion: ARTIFACT_MARKER_SCHEMA, app, version, createdAt: now, ownerPid,
+      ownerHost, ownerStartTime: identity.startTime ?? null, leaseUntil: now + leaseMs };
     writeJson(file, marker);
+    if (reclaimed) log(reclaimed);
     return marker;
   } finally {
     lock.release();
@@ -112,6 +126,8 @@ export function readArtifactMarker(file) {
     if (!Number.isFinite(marker[key])) throw new Error(`artifact marker ${key} must be numeric: ${file}`);
   }
   if (marker.completedAt != null && !Number.isFinite(marker.completedAt)) throw new Error(`artifact marker completedAt must be numeric: ${file}`);
+  if (marker.ownerHost != null && (typeof marker.ownerHost !== "string" || !marker.ownerHost)) throw new Error(`artifact marker ownerHost must be a nonempty string: ${file}`);
+  if (marker.ownerStartTime != null && (typeof marker.ownerStartTime !== "string" || !marker.ownerStartTime)) throw new Error(`artifact marker ownerStartTime must be a nonempty string: ${file}`);
   return marker;
 }
 
@@ -316,9 +332,31 @@ function safeRemove(target) {
   rmSync(target, { recursive: true, force: true });
 }
 
-function isActiveLease(marker, now) {
-  if (Number(marker.ownerPid) > 0 && processAlive(marker.ownerPid)) return true;
+function leaseOwnerState(marker, { host = os.hostname(), processIdentity = artifactProcessIdentity } = {}) {
+  if (Number(marker.ownerPid) <= 0 || (marker.ownerHost && marker.ownerHost !== host)) return "unknown";
+  const identity = processIdentity(marker.ownerPid);
+  if (!identity.alive) return "dead-pid";
+  if (marker.ownerStartTime && identity.startTime && marker.ownerStartTime !== identity.startTime) return "pid-reused";
+  return "live";
+}
+
+function isActiveLease(marker, now, options) {
+  const state = leaseOwnerState(marker, options);
+  if (state === "live") return true;
+  if (state === "dead-pid" || state === "pid-reused") return false;
   return Number(marker.leaseUntil) > Number(now);
+}
+
+/** Start identity is queried on the owning host; denied inspection stays conservative. */
+export function artifactProcessIdentity(pid, { platform = process.platform, run = spawnSync, alive = processAlive } = {}) {
+  if (!alive(pid)) return { alive: false, startTime: null };
+  const result = platform === "win32"
+    ? run("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command",
+      `(Get-Process -Id ${Number(pid)} -ErrorAction Stop).StartTime.ToUniversalTime().Ticks`], { encoding: "utf8", timeout: 3000, shell: false })
+    : run("/bin/ps", ["-p", String(pid), "-o", "lstart="], {
+      encoding: "utf8", timeout: 1000, shell: false, env: { ...process.env, LC_ALL: "C", TZ: "UTC" },
+    });
+  return { alive: true, startTime: result.status === 0 && result.stdout?.trim() || null };
 }
 
 function acquireRetentionLock(root, now) {

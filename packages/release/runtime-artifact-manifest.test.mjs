@@ -72,6 +72,7 @@ function validManifest(overrides = {}) {
 
 test("builds exact stable-pointer and immutable content-addressed object keys", () => {
   const manifest = validManifest();
+  assert.equal(Object.hasOwn(manifest, "artifactId"), false);
   assert.equal(
     manifest.pointerKey,
     "scraperight/runtime-artifacts/asr-model/windows/x86_64/current/manifest.json",
@@ -83,6 +84,46 @@ test("builds exact stable-pointer and immutable content-addressed object keys", 
   assert.equal(runtimeArtifactManifestPointerKey(manifest), manifest.pointerKey);
   assert.equal(runtimeArtifactObjectKey(manifest), manifest.object.r2Key);
   assert.equal(validateRuntimeArtifactManifest(manifest), manifest);
+});
+
+test("scopes current pointer by optional artifactId while keeping immutable object key unchanged", () => {
+  const legacy = validManifest();
+  const scoped = validManifest({ artifactId: "qwen3-tts-1p7b-customvoice-talker" });
+  assert.equal(
+    scoped.pointerKey,
+    "scraperight/runtime-artifacts/asr-model/qwen3-tts-1p7b-customvoice-talker/windows/x86_64/current/manifest.json",
+  );
+  assert.equal(scoped.object.r2Key, legacy.object.r2Key);
+  assert.equal(runtimeArtifactManifestPointerKey(scoped), scoped.pointerKey);
+});
+
+test("rejects invalid, null, and overlong artifactId values", () => {
+  for (const artifactId of [null, "", "UPPER", "leading-", "-trailing", "double--dash", "path/value", "safe\n", "safe\r", "a".repeat(129)]) {
+    assert.throws(() => validManifest({ artifactId }), /artifactId/);
+  }
+  assert.doesNotThrow(() => validManifest({ artifactId: "a".repeat(128) }));
+});
+
+test("GenRight Qwen3 TTS slots each use an independent any/any pointer", () => {
+  const ids = [
+    "qwen3-tts-1p7b-customvoice-talker",
+    "qwen3-tts-1p7b-customvoice-predictor",
+    "qwen3-tts-1p7b-customvoice-tokenizer",
+    "qwen3-tts-1p7b-voicedesign-talker",
+    "qwen3-tts-1p7b-voicedesign-predictor",
+    "qwen3-tts-1p7b-voicedesign-tokenizer",
+  ];
+  const pointers = ids.map((artifactId) => validManifest({
+    artifactId,
+    artifactKind: "tts-model",
+    entitlement: { appKey: "genright", tier: "pro" },
+    target: { os: "any", arch: "any" },
+    promotion: { ...validManifest().promotion, authorityAppKey: "genright" },
+  }).pointerKey);
+  assert.equal(new Set(pointers).size, ids.length);
+  for (const [index, id] of ids.entries()) {
+    assert.equal(pointers[index], `genright/runtime-artifacts/tts-model/${id}/any/any/current/manifest.json`);
+  }
 });
 
 test("signs and verifies the canonical manifest with Ed25519", () => {
@@ -148,4 +189,13 @@ test("requires an explicit compatible entitlement and delivery lane per artifact
     entitlement: { appKey: "scraperight", tier: "public" },
     distribution: { delivery: "private-r2", bucket: "rightapps-updates" },
   }), /contradict/);
+});
+
+ test("OS-independent artifacts share one any/any pointer & immutable object", () => {
+  const generic = validManifest({ target: { os: "any", arch: "any" } });
+  assert.equal(generic.pointerKey, "scraperight/runtime-artifacts/asr-model/any/any/current/manifest.json");
+  assert.equal(generic.object.r2Key, validManifest().object.r2Key);
+  for (const target of [{ os: "any", arch: "x86_64" }, { os: "darwin", arch: "any" }]) {
+    assert.throws(() => validManifest({ target }), /any\/any/);
+  }
 });

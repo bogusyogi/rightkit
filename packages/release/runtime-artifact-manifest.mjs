@@ -21,8 +21,8 @@ export const RIGHT_SUITE_APP_KEYS = Object.freeze([
   "voiceright",
 ]);
 
-const TARGET_OSES = new Set(["windows", "darwin", "linux", "ios"]);
-const TARGET_ARCHES = new Set(["x86_64", "aarch64", "universal"]);
+const TARGET_OSES = new Set(["windows", "darwin", "linux", "ios", "any"]);
+const TARGET_ARCHES = new Set(["x86_64", "aarch64", "universal", "any"]);
 const VERSION_FIELDS = Object.freeze([
   "runtime",
   "model",
@@ -32,6 +32,7 @@ const VERSION_FIELDS = Object.freeze([
   "provenance",
 ]);
 const SHA256 = /^[0-9a-f]{64}$/;
+const ARTIFACT_ID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
 export function buildRuntimeArtifactManifest(input) {
   const entitlement = cloneObject(input.entitlement);
@@ -53,6 +54,7 @@ export function buildRuntimeArtifactManifest(input) {
     provenance: cloneObject(input.provenance),
     promotion: cloneObject(input.promotion),
   };
+  if (Object.hasOwn(input, "artifactId")) manifest.artifactId = input.artifactId;
   if (manifest.distribution?.delivery === "bundled") {
     manifest.object.r2Key = null;
     manifest.pointerKey = null;
@@ -78,11 +80,15 @@ export function runtimeArtifactManifestPointerKey(value) {
   const kind = value?.artifactKind;
   const os = value?.target?.os;
   const arch = value?.target?.arch;
+  const hasArtifactId = value !== null && typeof value === "object" && Object.hasOwn(value, "artifactId");
   assertAppKey(appKey, "entitlement.appKey");
+  if (hasArtifactId) assertArtifactId(value.artifactId);
   if (!RUNTIME_ARTIFACT_KINDS.includes(kind)) fail("artifactKind is unsupported");
   if (!TARGET_OSES.has(os)) fail("target.os is unsupported");
   if (!TARGET_ARCHES.has(arch)) fail("target.arch is unsupported");
-  return `${appKey}/runtime-artifacts/${kind}/${os}/${arch}/current/manifest.json`;
+  if ((os === "any") !== (arch === "any")) fail("target any must use any/any");
+  const artifactPath = hasArtifactId ? `${value.artifactId}/` : "";
+  return `${appKey}/runtime-artifacts/${kind}/${artifactPath}${os}/${arch}/current/manifest.json`;
 }
 
 export function validateRuntimeArtifactManifest(value) {
@@ -90,7 +96,8 @@ export function validateRuntimeArtifactManifest(value) {
   assertExactKeys(value, [
     "schema", "artifactKind", "entitlement", "distribution", "target", "object", "pointerKey",
     "versions", "provenance", "promotion",
-  ], "manifest");
+  ], "manifest", ["artifactId"]);
+  if (Object.hasOwn(value, "artifactId")) assertArtifactId(value.artifactId);
   if (value.schema !== RUNTIME_ARTIFACT_SCHEMA) fail("schema must be 1");
   if (!RUNTIME_ARTIFACT_KINDS.includes(value.artifactKind)) fail("artifactKind is unsupported");
 
@@ -120,6 +127,7 @@ export function validateRuntimeArtifactManifest(value) {
   assertExactKeys(value.target, ["os", "arch"], "target");
   if (!TARGET_OSES.has(value.target.os)) fail("target.os is unsupported");
   if (!TARGET_ARCHES.has(value.target.arch)) fail("target.arch is unsupported");
+  if ((value.target.os === "any") !== (value.target.arch === "any")) fail("target any must use any/any");
 
   assertPlainObject(value.object, "object");
   assertExactKeys(value.object, ["r2Key", "filename", "sha256", "sizeBytes"], "object");
@@ -204,10 +212,16 @@ function sortDeep(value) {
   return value;
 }
 
-function assertExactKeys(value, expected, label) {
-  const expectedSet = new Set(expected);
+function assertExactKeys(value, expected, label, optional = []) {
+  const expectedSet = new Set([...expected, ...optional]);
   for (const key of Object.keys(value)) if (!expectedSet.has(key)) fail(`${label} has unknown field ${key}`);
   for (const key of expected) if (!Object.hasOwn(value, key)) fail(`${label}.${key} is required`);
+}
+
+function assertArtifactId(value) {
+  if (typeof value !== "string" || value.length > 128 || value.trim() !== value || !ARTIFACT_ID.test(value)) {
+    fail("artifactId must be a lowercase safe slug (^[a-z0-9]+(?:-[a-z0-9]+)*$), max 128 characters");
+  }
 }
 
 function assertPlainObject(value, label) {

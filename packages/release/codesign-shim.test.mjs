@@ -150,10 +150,13 @@ test("release worker injects PATH after command env overrides before spawning pr
     opts: { dryRun: false }, Date, console: { log() {} }, macosCodesignEnvironment,
     spawn(command, argv, options) { calls.push({ command, argv, options }); const child = new EventEmitter(); queueMicrotask(() => child.emit("exit", 0)); return child; } };
   runInNewContext(`${source.slice(start, end)};globalThis.launch = run;`, context);
-  for (const phase of ["prePackage", "package"]) await context.launch("tool", [phase], f.cwd, { PATH: "/command/bin:/cargo-shims:/usr/bin" });
+  for (const phase of ["build", "prePackage", "package"]) await context.launch("tool", [phase], f.cwd, { PATH: "/command/bin:/cargo-shims:/usr/bin", CI: "false", TAURI_BUNDLER_DMG_IGNORE_CI: "true" });
   for (const call of calls) {
     const entries = call.options.env.PATH.split(":");
     assert.ok(fs.existsSync(path.join(entries[0], "codesign")));
+    assert.ok(fs.existsSync(path.join(entries[0], "osascript")));
+    assert.equal(call.options.env.CI, "true");
+    assert.equal(call.options.env.TAURI_BUNDLER_DMG_IGNORE_CI, "false");
     assert.deepEqual(entries.slice(1), ["/command/bin", "/cargo-shims", "/usr/bin"]);
   }
 });
@@ -168,6 +171,7 @@ test("build runner injects shim into environment inherited by release worker", (
     resolveManagedRoot: () => f.managed, resolveArtifactDir: () => f.managed, path };
   runInNewContext(`${source.slice(start, end)};globalThis.childEnv = env;`, context);
   assert.ok(fs.existsSync(path.join(context.childEnv.PATH.split(":")[0], "codesign")));
+  assert.equal(context.childEnv.CI, "true");
   assert.ok(context.childEnv.PATH.endsWith(":/cargo-shims:/usr/bin"));
 });
 
@@ -179,7 +183,7 @@ test("right-release dev passes installed shim to every build & install child", (
     build: [{ cmd: "build" }, { cmd: "build2" }], install: { kind: "command", cmd: "install" },
   } } } }, env: { PATH: "/cargo-shims:/usr/bin", RIGHTKIT_MANAGED_ROOT: f.managed, SSH_CONNECTION: "fixture" },
     codesignEnvironment: (env) => macosCodesignEnvironment(env, { platform: "darwin" }),
-    run(command, argv, options) { seen.push(command); assert.ok(fs.existsSync(path.join(options.env.PATH.split(path.delimiter)[0], "codesign"))); return { status: 0 }; } });
+    run(command, argv, options) { seen.push(command); assert.ok(fs.existsSync(path.join(options.env.PATH.split(path.delimiter)[0], "codesign"))); assert.equal(options.env.CI, "true"); assert.equal(options.env.TAURI_BUNDLER_DMG_IGNORE_CI, "false"); return { status: 0 }; } });
   assert.deepEqual(seen, ["build", "build2", "install"]);
 });
 

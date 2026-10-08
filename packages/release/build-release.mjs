@@ -46,7 +46,7 @@ import { macosCodesignEnvironment } from "./codesign-environment.mjs";
 // and test-only edits and would force a cold Rust rebuild of every app each time.
 // Cached target directories must not outlive changes to these signing helpers.
 
-const PIPELINE_FINGERPRINT_SOURCES = ["release.mjs", "sign-windows.mjs", "sign-macos.mjs", "macos-signing-session.mjs", "codesign-environment.mjs", "codesign-shim.mjs", "codesign-argv.mjs", "rightkit-signing-agent.mjs", "notarize-macos.mjs", "macos-notarization.mjs", "signing-receipts.mjs", "tauri-bundle-marker.mjs", "nsis-payload.mjs"];
+const PIPELINE_FINGERPRINT_SOURCES = ["release.mjs", "sign-windows.mjs", "sign-macos.mjs", "macos-signing-session.mjs", "codesign-environment.mjs", "codesign-shim.mjs", "codesign-argv.mjs", "osascript-guard.mjs", "dmg-build.mjs", "dmg-layout.mjs", "rightkit-signing-agent.mjs", "notarize-macos.mjs", "macos-notarization.mjs", "signing-receipts.mjs", "tauri-bundle-marker.mjs", "nsis-payload.mjs"];
 const PIPELINE_FINGERPRINT = createHash("sha256")
   .update(PIPELINE_FINGERPRINT_SOURCES.map((file) => `${file}:${createHash("sha256").update(readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), file))).digest("hex")}`).join("\n"))
   .digest("hex")

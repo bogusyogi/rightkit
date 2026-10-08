@@ -42,6 +42,7 @@ try {
   if (githubBuildCommands.has(first)
     || first?.startsWith("-")
     || (first === "addon" && args[1] === "build")
+    || (first === "dmg" && args[1] === "build")
     || (first === "publish" && ["cargo", "swift"].includes(args[1]))) {
     assertReleaseExecutionAllowed({ command: `right-release ${args.join(" ")}`.trim() });
   }
@@ -70,6 +71,8 @@ if (first === "--version" || first === "-v") {
   );
 } else if (first === "cache") {
   run("cache-command.mjs", args.slice(1));
+} else if (first === "dmg") {
+  run("dmg-build.mjs", args.slice(1));
 } else if (first === "apple") {
   run("apple-profile-renew.mjs", args.slice(1));
 } else if (first === "publish") {
@@ -155,6 +158,9 @@ function printHelp() {
   console.log(`right-release <command> [options]
 
 Commands:
+  dmg build --app <.app> --out <dmg> --volname <name> [--background <png>]
+            [--icon-size N] [--app-position x,y] [--applications-position x,y] [--window w,h]
+                                                      Build branded UDZO image without Finder
   build [--platform mac|win] [--skip-checks] [--resume-from <phase>]
                                                       Resume macOS at prepackage, sign, package, post-sign, or harden
   dev --platform win|mac [--config <path>] [--dry-run] [--build-only]
