@@ -23,6 +23,7 @@ internal static class Program
                 case "capture": return Capturer.Run(args);
                 case "ocr": return OcrRunner.Run(args);
                 case "window": return WindowOps.Run(args);
+                case "shot": return Shot.Run(args);
                 default: return 2;
             }
         }

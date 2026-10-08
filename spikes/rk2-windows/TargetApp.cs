@@ -18,11 +18,11 @@ html,body{margin:0;height:100%;background:#ffffff;color:#000000;font-family:Aria
 <div id='frame'>FRAME 00000</div>
 <div id='bar'></div>
 <script>
-var n = 0;
+var n = 0; window.rkN = 0; window.rkDiv = 1;
 function tick() {
-  n++;
-  document.getElementById('frame').textContent = 'FRAME ' + ('00000' + n).slice(-5);
-  document.getElementById('bar').style.width = ((n * 7) % 800) + 'px';
+  n++; window.rkN = n;
+  if (n % window.rkDiv === 0) document.getElementById('frame').textContent = 'FRAME ' + ('00000' + n).slice(-5);
+  if (n % window.rkDiv === 0) document.getElementById('bar').style.width = ((n * 7) % 800) + 'px';
   requestAnimationFrame(tick);
 }
 requestAnimationFrame(tick);
@@ -72,6 +72,7 @@ requestAnimationFrame(tick);
     private sealed class TargetForm : Form
     {
         private readonly WebView2 _web = new WebView2();
+        private readonly Timer _paint = new Timer();
         private readonly Timer _poll = new Timer();
         private readonly string _hwndFile, _ready, _control;
         private string _last = "";
@@ -86,6 +87,9 @@ requestAnimationFrame(tick);
             Controls.Add(_web);
             _poll.Interval = 200;
             _poll.Tick += (s, e) => Poll();
+            _paint.Interval = 1000;
+            _paint.Tick += (s, e) => LogPaint();
+            _paint.Start();
             Shown += async (s, e) =>
             {
                 File.WriteAllText(_hwndFile, Handle.ToInt64().ToString());
@@ -104,6 +108,19 @@ requestAnimationFrame(tick);
             };
         }
 
+        // Fixture paint evidence: the page's rAF counter, sampled once per second, with a UTC timestamp.
+        private async void LogPaint()
+        {
+            try
+            {
+                if (_web.CoreWebView2 == null) return;
+                string v = await _web.CoreWebView2.ExecuteScriptAsync("window.rkN || 0");
+                File.AppendAllText(Path.Combine(Path.GetDirectoryName(_control), "paint.log"),
+                    DateTime.UtcNow.ToString("o") + " " + v + Environment.NewLine);
+            }
+            catch (Exception) { }
+        }
+
         private void Poll()
         {
             string cmd = TakeCommand(_control, ref _last);
@@ -113,6 +130,9 @@ requestAnimationFrame(tick);
                 switch (cmd)
                 {
                     // WinForms WebView2 forwards Visible to the controller's IsVisible.
+                    // Content rate for the fixture: 1 = repaint every rAF (60 Hz panel), 2 = every second rAF (30 Hz content).
+                    case "content60": _web.CoreWebView2.ExecuteScriptAsync("window.rkDiv = 1;"); break;
+                    case "content30": _web.CoreWebView2.ExecuteScriptAsync("window.rkDiv = 2;"); break;
                     case "webview-hide": _web.Visible = false; break;
                     case "webview-show": _web.Visible = true; break;
                     case "exit": Close(); break;

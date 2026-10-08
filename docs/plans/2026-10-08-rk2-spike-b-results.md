@@ -1,102 +1,134 @@
-# RK2 Spike B results: Windows.Graphics.Capture for a WebView2 HWND (2026-10-08)
+# RK2 Spike B results: Windows.Graphics.Capture for a WebView2 HWND (2026-10-08, with follow-up)
 
-Host: this Windows host (`D:\Claude`), Windows 11 Pro, build **26300** (`[Environment]::OSVersion` = 10.0.26300.0). Plan §4 names the XPS; this run is on the host available to the spike and applies to this build only.
+## Host
+
+- Machine: `BOGUS-DELL`, Dell XPS 15 9530.
+- Windows build: **10.0.26300.9550** (CurrentBuild 26300, UBR 9550, DisplayVersion 26H2). The registry ProductName still reads "Windows 10 Pro"; build 26300 is a Windows 11 build (22000 or later), so the registry label is stale.
+- GPUs: NVIDIA GeForce RTX 4070 Laptop GPU (driver 32.0.16.1692); Intel(R) Iris(R) Xe Graphics (driver 32.0.101.7084). The Intel adapter drives the internal panel.
+- Display: one display, `\\.\DISPLAY1`, primary. Logical 1382x864 at 250% scaling, physical 3456x2160.
+- **Monitor refresh: 60 Hz** (Win32_VideoController on the Intel adapter: CurrentRefreshRate 60, MinRefreshRate 60, MaxRefreshRate 60).
+
+Earlier revisions of this document named the host only as "this Windows host". This is the XPS, and the numbers below are for this build and GPU.
 
 ## Verdict
 
-- **HWND capture works for an off-screen-visible WebView2 window.** A `GraphicsCaptureItem` created with `IGraphicsCaptureItemInterop::CreateForWindow` delivered 115 frames at 26 fps while the window sat at (-10000,-10000), outside every monitor. Every frame read `STEP-07` and the counter advanced.
-- **Occlusion does not leak.** With a topmost animating marker covering the target, 111 captured frames contain zero marker pixels and zero marker OCR tokens.
-- **`IsBorderRequired = false` works** on build 26300 (set succeeded, readback `false`). Build 22000 or later is required.
-- **Hidden and minimized windows are not capturable** with a live session: no frames arrive after the change. A fresh session on an SW_HIDE window is refused by `CreateForWindow`. Neither state yields frames, so neither is supported by HWND capture. Plan R1 requires these states to be reported as unsupported, not degraded.
-- **Recommendation:** use HWND capture as the primary Windows backend for the off-screen-visible state. Declare app-hidden (SW_HIDE and WebView2 IsVisible=false) and minimized as unsupported for HWND capture. If app-hidden must be supported, the only fallback is an app-owned render surface, which this spike did not test. No monitor crop was used anywhere.
+- **HWND capture works for an off-screen-visible WebView2 window.** A `GraphicsCaptureItem` for the HWND delivers frames with correct content while the window sits at (-10000,-10000). Unchanged from the first run.
+- **Hidden and minimized windows yield no frames.** SW_HIDE, WebView2 `Visible=false` and minimize all stop delivery. A fresh session on an SW_HIDE window is refused by `CreateForWindow`. These states are unsupported for HWND capture. The only fallback in the plan is an app-owned render surface, which this spike has not tested.
+- **60 fps is delivered by the capture path, but not by our full per-frame pipeline.** Without per-frame PNG encoding, arrivals are 59.9 fps with no readback and 60.0 fps with the GPU copy and CPU map. The fixture paints at 60.0 Hz. The shortfall in the full pipeline (about 24 fps) comes from PNG encoding inside the frame callback, not from readback. The 60 fps requirement holds only if the consumer keeps up.
+- **30 fps is delivered when the content is 30 fps** (30.0 with no readback, 30.1 with map). The 30 configuration was a content-side rate, because a capture-side cap is not available (see Frame rate).
+- **Desktop screenshot: not obtained.** Every desktop grab returned near-black frames (see Placement). Placement is evidenced by window API readings at the time of each capture, not by a screenshot.
+- **windows-rs probe: not built.** The managed broker refused the build (see windows-rs). The probe source is written and unverified.
+- **Recommendation:** HWND capture as the Windows backend for the off-screen-visible state. Declare SW_HIDE, WebView2-hidden and minimized as unsupported for HWND capture. Do not put PNG or any slow work in the frame callback: copy the texture, or hand it to a worker thread, and keep the pool drained.
 
-## Commands run
+## Frame rate
 
-```
-C:\Users\adrds\.dotnet\dotnet.exe add package Microsoft.Web.WebView2        # 1.0.4258.31
-C:\Users\adrds\.dotnet\dotnet.exe add package Vortice.Direct3D11            # 3.8.3
-C:\Users\adrds\.dotnet\dotnet.exe add package Vortice.DXGI                  # 3.8.3
-C:\Users\adrds\.dotnet\dotnet.exe add package Microsoft.Windows.CsWinRT     # 2.3.1
-C:\Users\adrds\.dotnet\dotnet.exe build -c Release                          # in tools\rightkit\spikes\rk2-windows
-powershell -NoProfile -ExecutionPolicy Bypass -File run-spike.ps1           # full run, launched hidden in background, log redirected
-powershell -NoProfile -ExecutionPolicy Bypass -File analyze-spike.ps1 -RunDir <run dir>
-```
+### Method
 
-Final run directory: `scratchpad\rk2\run-20261008-224010` (scratchpad root `C:\Users\adrds\AppData\Local\Temp\claude\D--Claude\022ffa73-ccba-4bbd-9028-0cd5875863a9\scratchpad\rk2\`). Each state has `summary.json`, `frames.json`, `ocr.json` and one PNG per frame.
+The fixture animates on `requestAnimationFrame`. A counter increments per rAF, a bar moves on every update, and the target logs the rAF count to `target\paint.log` once per second.
 
-Setup detail: the installed SDK is 10.0.26100, not 10.0.22621, so the CsWinRT projection needed `<CsWinRTWindowsMetadata>10.0.26100.0</CsWinRTWindowsMetadata>`. The TFM stays `net10.0-windows10.0.22621.0`.
+Two content configurations:
 
-## Decision table (final run, 4 s visible, state change at 3000 ms, capture 8 s)
+- **content60:** repaint on every rAF. Fixture rAF rate 60.0 Hz.
+- **content30:** repaint on every second rAF. Fixture rAF rate still 60.0 Hz; content updates 30 Hz.
 
-Segments: "before" is 0–2900 ms; "after" starts 700 ms after the change to allow settling.
+Capture-side rate control was not applied. `GraphicsCaptureSession.MinUpdateInterval` is absent from the Microsoft.Windows.SDK.NET.Ref metadata for 10.0.22000, 10.0.22621 and 10.0.26100, so the 30 configuration is content-side. Frame pool size was 2 in every run; no other pool sizes were tested.
 
-| State (live: session running before the change) | Frames arrive? | Content correct? (step id / counter) | Black or stale? | Support |
-|---|---|---|---|---|
-| Visible baseline (no change) | Yes: 223 frames, 27.9 fps | 223/223 step; counter 223/223 read, 222/222 increasing pairs (144 → 619) | No black; 0 identical consecutive pairs | Supported |
-| Occluded by topmost marker (marker appears at 3000 ms) | Yes: 92 frames before, 111 after, 25.5 fps after | 111/111 step; 111/111 counter, 110/110 increasing (1449 → 1926 in this run's OCR, see note) | No black; marker present in 0 frames (red fraction 0.0, OCR 0 frames) | Supported (marker excluded) |
-| Off-screen (move to -10000,-10000 at 3000 ms) | Yes: 115 frames after, 26.3 fps | 115/115 step; 115/115 counter, 114/114 increasing | No black | Supported (window rect at end = -10000,-10000, visible=true) |
-| App-hidden: `ShowWindow SW_HIDE` at 3000 ms | No: last frame at 2989 ms, 0 frames after | n/a | Stale: no new frames (last pre-hide frame remains) | Unsupported (live) |
-| App-hidden, fresh session after SW_HIDE | `CreateForWindow` returns E_INVALIDARG (`The parameter is incorrect.`) | n/a | n/a | Unsupported (item refused) |
-| App-hidden: WebView2 control `Visible=false` at 3000 ms | No: 0 frames after change (last at ~2971 ms) | n/a | Stale: no new frames | Unsupported (live) |
-| Minimized (`SW_MINIMIZE` at 3000 ms) | No: 0 frames after change | n/a | Stale | Unsupported (live) |
-| Minimized, fresh session | Item created, 0 frames | n/a | n/a | Unsupported |
-| Minimize then restore (restore at 5500 ms) | No frames while minimized; frames resume ~1.0 s after restore (first at 6549 ms) | 30/30 step and counter after restore; 29/29 increasing; 141/142 step over the whole run | No black | Recovers after restore |
+Each run captures 8 s. Intervals are between arrival timestamps taken in the FrameArrived callback before any readback. Dropped-counter gaps come from the on-screen counter, read by OCR, and count fixture repaints that were not delivered. "Map" is the GPU copy and CPU map without PNG. "Full" is map plus PNG per frame. Source run: `fps-20261008-225503`.
 
-Notes on the table:
+### Per-run results
 
-- The pixel leak metric is `redFraction` (R>180, G<90, B<90) sampled every 4th pixel. Visible baseline: 0. Occluded run: 0 across all 111 post-change frames. Positive control (capturing the marker window itself, J): 1.00.
-- OCR leak tokens: occluded run 0 frames. Positive control J: `LEAK-MARKER-7F3A` read in 92 of 93 frames, so the OCR leak check is validated too.
-- The B counter range in the OCR summary (1449 → 1926) is for the whole run, not just the after-change segment. The "after" segment itself was verified as 110/110 increasing.
-- Frame timing: `measuredFps` comes from frame system-relative timestamps. Frames are delivered only when content changes, so the rate is limited by WebView2 repaint, not by the capture.
+| Run | Readback | Content | Arrivals | Delivered fps | Mean ms | p50 ms | p95 ms | Max ms | Gaps >1.5x median | Fixture rAF Hz | Missed paints (OCR counter) |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| S60-visible-none | none | 60 | 480 | 59.89 | 16.70 | 16.66 | 17.56 | 31.90 | 1 | 60.02 | 0 |
+| S60-visible-map | map | 60 | 481 | 60.03 | 16.66 | 16.66 | 17.68 | 21.05 | 0 | 60.01 | 0 |
+| R60-visible-full | full | 60 | 198 | 24.64 | 40.58 | 43.40 | 49.23 | 52.66 | 0 | 60.01 | 281 |
+| R60-occluded-full | full | 60 | 194 | 24.17 | 41.38 | 44.19 | 50.25 | 54.86 | 0 | 60.06 | 284 |
+| R60-offscreen-full | full | 60 | 199 | 24.75 | 40.41 | 42.09 | 50.70 | 54.38 | 0 | 60.00 | 280 |
+| S30-visible-none | none | 30 | 240 | 29.94 | 33.40 | 33.33 | 48.67 | 60.46 | 4 | 60.09 | 0 |
+| S30-visible-map | map | 30 | 242 | 30.13 | 33.19 | 33.34 | 48.47 | 50.33 | 1 | 60.11 | 0 |
+| R30-visible-full | full | 30 | 142 | 17.63 | 56.72 | 37.30 | 99.38 | 120.52 | 64 | 60.00 | 97 |
+| R30-occluded-full | full | 30 | 195 | 24.32 | 41.11 | 43.48 | 51.24 | 54.84 | 0 | 60.00 | 45 |
+| R30-offscreen-full | full | 30 | 185 | 23.11 | 43.28 | 45.81 | 52.92 | 57.51 | 0 | 59.97 | 54 |
 
-## OCR output (Windows.Media.Ocr, English (United States))
+Notes:
 
-- Visible baseline, first frame: `RK2 target window STEP-07 FRAME 00144 x`
-- Occluded, first frame: `RK2 target window STEP-07 FRAME 01449 x`
-- Off-screen, first frame: `RK2 target window STEP-07 FRAME 02859 x` (the trailing `x` is the title-bar close glyph)
-- Minimize then restore, first frame after restore: `RK2 target window STEP-07 FRAME 05933 x`; last frame: `FRAME 06259`
-- Marker positive control: `LEAK-MARKER-7F3A 23`
+- The `R30-visible-full` run has a stall: 64 gaps, p95 99 ms. It is the only run that shows one, and I did not repeat it. Every full-readback run also started a 2 s WGC monitor capture at the 3 s mark, which may have contributed. Treat the full-pipeline numbers as carrying that confound.
+- "Fixture rAF Hz" is the rAF count per second from `paint.log`. In the content30 runs rAF still runs at 60 Hz; the content updates at 30 Hz.
+- Missed paints in the 30 configuration are counted in 2-count steps (one content update = 2 rAF).
 
-Per-state OCR counters are in each `ocr.json`. Counter values in the summary are cumulative across the run.
+### Stage attribution (visible state)
+
+| Stage | 60 configuration | 30 configuration |
+|---|---|---|
+| Fixture paint, rAF rate (`paint.log`) | 60.0 Hz | 60.0 Hz (content 30 Hz) |
+| FrameArrived, no readback | 59.89 fps | 29.94 fps |
+| FrameArrived with GPU copy and CPU map | 60.03 fps | 30.13 fps |
+| Full pipeline (map plus PNG per frame) | 24.6 fps | 17.6 to 24.3 fps |
+
+The fixture paints at 60 Hz in every run. Arrivals match the paint rate with and without GPU readback. Dropping to about 24 fps happens only when each frame is also PNG-encoded in the callback (about 40 ms per frame). Dropped-counter gaps are zero in both stage runs and 280 to 284 per 8 s at 60 Hz in the full runs. The shortfall at 60 Hz is therefore the callback cost, not the fixture or the GPU path.
+
+## Placement
+
+- **Window placement at capture time** (`screen.json` per run, taken 3 s into each capture): fixture rect, IsWindowVisible, IsIconic and whether the rect intersects a monitor.
+  - Visible: rect (100,100,800,520), visible true, not iconic, on monitor.
+  - Occluded: same rect, visible true, not iconic, on monitor. A marker covered the fixture 80..940 x 80..640 for the whole capture; the marker HWND is recorded per run.
+  - Off-screen: rect (-10000,-10000,800,520), visible true, not iconic, **not on any monitor**. Frames still show the step ID on every frame (185 and 199 frames).
+- **Occlusion evidence from frames:** the fixture frames in all three occluded runs have zero red-marker pixels (maxRedFraction 0) and zero OCR marker-token frames (195 and 194 frames). Positive control, from the earlier run: the marker's own capture is 100% red, and OCR reads `LEAK-MARKER-7F3A` in 92 of 93 frames.
+- **Placement evidence accepted:** the coordinator has accepted `screen.json` (GetWindowRect, IsWindowVisible, IsIconic, monitor intersection, taken during each capture) as placement evidence in place of a desktop screenshot. The desktop screenshot is not being retried.
+- **Full-desktop screenshot: not obtained.**
+  - GDI `CopyFromScreen` over the virtual screen: mean luminance 0 (about 0.97 in one run).
+  - WGC `CreateForMonitor` on the primary monitor: near-black frames for the NVIDIA adapter (mean 0), the Intel adapter (0.48) and the Microsoft Basic Render adapter (0.51), out of 255.
+  - Cause, as far as I can tell: another app's full-screen content in the console session (session 1, active) covers the desktop. The Windows-MCP screenshot from this session shows it. I did not inspect or keep that content, and I deleted every desktop grab from the run directories. Only the JSON placement records are kept.
+  - To get the screenshot, close or minimize that full-screen app and re-run `run-fps.ps1`. I have not changed anything in the user's session.
 
 ## Build, access and border evidence
 
-- Windows build: **26300**.
-- `GraphicsCaptureAccess.RequestAccessAsync(Borderless)`: `Allowed` (no prompt).
-- `session.IsBorderRequired = false`: set OK; readback `false`.
-- `session.IsCursorCaptureEnabled = false`: set OK.
-- Item size reported as 1964x1282 for the 800x520 window. The spike process is DPI-unaware, so this is physical pixels at about 245% scale. Window rects in the logs are logical (virtualised) coordinates.
+- Windows build 26300.9550 (above).
+- `GraphicsCaptureAccess` Borderless: `Allowed`.
+- `IsBorderRequired = false`: set OK, read back `false`. `IsCursorCaptureEnabled = false`: set OK.
+- Item size reported at the fixture rect: 1964x1282 physical pixels for the 800x520 logical window (about 245% scaling; the spike process is DPI-unaware).
 
-## Sample frames (kept small, roughly 90–130 KB each)
+## windows-rs
 
-Under `D:\Claude\tools\rightkit\spikes\rk2-windows\samples\`:
+- **Probe location:** `tools/rightkit/spikes/rk2-windows/rs-probe/` with its own `Cargo.toml` (`[workspace]` empty table), `src/main.rs`.
+- **Crate and features:** `windows = "0.61"` (resolved to **0.61.3** in `rs-probe/Cargo.lock`) with features `Foundation`, `Foundation_Metadata`, `Security_Authorization_AppCapabilityAccess` (added for `GraphicsCaptureAccess::RequestAccessAsync`), `Graphics_Capture`, `Graphics_DirectX`, `Graphics_DirectX_Direct3D11`, `Win32_Foundation`, `Win32_Graphics_Direct3D`, `Win32_Graphics_Direct3D11`, `Win32_Graphics_Dxgi`, `Win32_Graphics_Dxgi_Common`, `Win32_System_WinRT`, `Win32_System_WinRT_Direct3D11`, `Win32_System_WinRT_Graphics_Capture`, `Win32_UI_WindowsAndMessaging`.
+- **Intended behaviour (not executed):** `factory::<GraphicsCaptureItem, IGraphicsCaptureItemInterop>` then `CreateForWindow`; `D3D11CreateDevice`; `CreateDirect3D11DeviceFromDXGIDevice`; `Direct3D11CaptureFramePool::CreateFreeThreaded`; `IsBorderRequired = false`; `IsCursorCaptureEnabled = false`; poll `TryGetNextFrame` for 10 frames and keep the last; `IDirect3DDxgiInterfaceAccess::GetInterface` for the texture; staging copy, `Map`, row-by-row copy; write a 32-bit top-down BMP and `probe.log`. It also checks `ApiInformation` for `GraphicsCaptureSession.MinUpdateInterval` at runtime.
+- **Build attempt 1 (first run, `--manifest-path` from `D:\Claude`):** refused by the managed broker with `rightkit: RightKit broker endpoint is not configured`. Logged in `scratchpad\rk2\rs-build.log.err`.
+- **Build, reported by the coordinator:** the probe builds when run from inside `rs-probe` without `--locked` on the first build (broker request `41e50ec5-31d0-4c20-b287-7aedf6f8ea9e`, Finished dev). The coordinator added `Security_Authorization_AppCapabilityAccess`. I did not observe this build; I have not verified it.
+- **Run attempts (this session):** from `rs-probe`, `D:\.rightkit-managed\agent-bin\rightkit.cmd cargo run -- 24775762 <outdir>` against the visible fixture, run both through a hidden `cmd /c` child and directly from the shell. Both were refused with the same message, `rightkit: RightKit broker endpoint is not configured`, and no `RIGHTKIT`/`BROKER` environment variable is set in this session. I did not configure or repair the broker and did not use raw cargo. The off-screen run was not attempted, and no readback PNG/raw or log from the probe exists yet, so the step-ID OCR, the `IsBorderRequired`/`IsCursorCaptureEnabled` log check and the access-status check are all still outstanding.
+- **Status:** the probe source is unverified by execution. Its API calls are listed in the results JSON under `windowsRsProbe`. Pending: a broker run against the visible and off-screen fixtures.
+- **Gaps to check once the broker works:** whether `MinUpdateInterval` exists in windows 0.61 metadata (the C# SDK projection lacks it on three SDK versions); whether `IDirect3DDxgiInterfaceAccess::GetInterface` is generic in the crate; `D3D11CreateDevice` argument shapes; `Close()` on frame, session and pool.
 
-- `A-visible-baseline-last.png`
-- `B-occluded-by-marker-last.png`
-- `C-off-screen-last.png`
-- `D-app-hidden-SW_HIDE-last.png` (last frame before the hide)
-- `E-app-hidden-webview2-last.png` (last frame before the WebView2 hide)
-- `F-minimized-last.png` (last frame before minimize)
-- `G-minimize-then-restore-last.png`
-- `J-control-marker-self-last.png` (positive control)
+## Earlier findings (first run, unchanged)
+
+- Visible baseline: 223 frames at 27.9 fps (the first run's rate, before the rAF fixture change), step ID on every frame, counter increasing on 222 of 222 pairs.
+- Occluded by marker (live): 111 frames after the change, step ID on every frame, marker absent.
+- Off-screen (live): 115 frames after the change, step ID on every frame.
+- SW_HIDE (live): frames stop at the hide; fresh capture refused (`E_INVALIDARG`).
+- WebView2 `Visible=false` (live): no frames after the change.
+- Minimized (live): no frames after the change. Fresh minimized session: zero frames.
+- Minimize then restore: frames resume about 1 s after restore, with step ID and counter correct.
+- Harness pitfalls fixed in the first run: `-WindowStyle Hidden` on the window-op child made `SW_SHOW` ineffective; a reused control file closed a new marker at once; the handler race at shutdown.
 
 ## Limitations and unverified items
 
-- **No visual confirmation of overlap or hiding.** The Windows-MCP screenshot tool and GDI screen grabs in this session did not show the spike windows (black output, "no windows found"). Overlap, off-screen placement and the WebView2 hide are evidenced by window rects, visibility flags, the leak metrics and capture behaviour, not by a screenshot. Unverified visually.
-- **WebView2 hide mechanism.** The WinForms `WebView2.Visible=false` was used because the WinForms control does not expose `CoreWebView2Controller`. It is assumed to forward to the controller's `IsVisible`. The effect (frames stop) is measured; the controller property was not read back.
-- **Single run, single host, single build (26300).** Not repeated; not run on the XPS named in the plan.
-- **Visible-restored grey frame.** An earlier run showed one grey frame after minimize and restore with no WebView2 content. The final run did not reproduce it: content returned about 1 s after restore. This was not investigated further.
-- **Harness bugs found and fixed during the spike** (affect any future harness, not the capture itself):
-  1. Launching the window-op child process with `-WindowStyle Hidden` made `ShowWindow(SW_SHOW)` ineffective. SW_RESTORE and a direct PowerShell `ShowWindow(5)` were unaffected. Fixed by not hiding the child. Root cause not established.
-  2. A reused marker `control.txt` still contained `exit`, closing the next marker immediately. Fixed with per-run control and HWND files.
-  3. The orchestrator's inline per-state summary printed wrong segment counts. The per-state numbers in this document come from `analyze-spike.ps1`, which reads the raw files.
-  4. A handler race at shutdown (NullReferenceException after the last frame) was fixed with a `closing` flag under the frame lock.
-- Vortice (D3D11 device/readback) and CsWinRT (WinRT marshalling) are NuGet dependencies added beyond the WebView2 and CsWinRT set named in the brief. `Microsoft.Windows.CsWinRT` is required for the WinRT marshalling types.
+- No desktop screenshot (see Placement). Placement rests on window API readings and the fixture's own frames.
+- The full-pipeline numbers include a concurrent 2 s monitor capture at the 3 s mark, and one run (`R30-visible-full`) stalled. Stage runs (none, map) did not have the monitor capture.
+- 30 fps is content-side. The capture-side `MinUpdateInterval` is not available in the SDK metadata here.
+- Frame pool size 2 only.
+- The WebView2 hide uses the WinForms control's `Visible`; the controller's `IsVisible` was not read back.
+- One host, one build, one GPU configuration.
 
 ## Files
 
-- Spike source: `D:\Claude\tools\rightkit\spikes\rk2-windows\` (`rk2.csproj`, `Program.cs`, `Native.cs`, `TargetApp.cs`, `Capturer.cs`, `OcrRunner.cs`, `WindowOps.cs`)
-- Orchestrator and analysis: `run-spike.ps1`, `analyze-spike.ps1`
-- Machine-readable results: `D:\Claude\tools\rightkit\spikes\rk2-windows\results.json`
-- Samples: `D:\Claude\tools\rightkit\spikes\rk2-windows\samples\`
-- This document: `D:\Claude\tools\rightkit\docs\plans\2026-10-08-rk2-spike-b-results.md`
+- Spike source: `D:\Claude\tools\rightkit\spikes\rk2-windows\` (`rk2.csproj`, `Program.cs`, `Native.cs`, `TargetApp.cs`, `Capturer.cs`, `Shot.cs`, `OcrRunner.cs`, `WindowOps.cs`).
+- Scripts: `run-spike.ps1` and `analyze-spike.ps1` (first run); `run-fps.ps1` and `analyze-fps.ps1` (follow-up).
+- Results: `D:\Claude\tools\rightkit\spikes\rk2-windows\results.json` (spike rows, host, frame rate, placement, windows-rs status) and `fps-results.json` (follow-up per-run table).
+- Samples: `D:\Claude\tools\rightkit\spikes\rk2-windows\samples\` (first-run frames only; no desktop images).
+- windows-rs probe: `D:\Claude\tools\rightkit\spikes\rk2-windows\rs-probe\` (not built).
+- This document: `D:\Claude\tools\rightkit\docs\plans\2026-10-08-rk2-spike-b-results.md`.
+
+
+## windows-rs build status (lead, 2026-10-08)
+
+The probe compiles through the managed broker from inside  (request 41e50ec5-31d0-4c20-b287-7aedf6f8ea9e) on  0.61.3 with the listed features, including , which  requires. So the full API path (CreateForWindow, CreateDirect3D11DeviceFromDXGIDevice, CreateFreeThreaded, border/cursor flags, staging readback) type-checks in windows-rs. Not yet executed against a live fixture: subagents lack the broker endpoint, and the lead's runner script was not permitted in this session. Runtime readback remains open for RK3.

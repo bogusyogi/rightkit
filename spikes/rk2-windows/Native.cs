@@ -56,7 +56,13 @@ internal static class Native
 
     public static string Step = "";
 
-    public static IntPtr CreateGraphicsCaptureItemForWindow(IntPtr hwnd)
+    public static IntPtr CreateGraphicsCaptureItemForWindow(IntPtr hwnd) { return CreateItem(hwnd, 3); }
+
+    [DllImport("user32.dll")] public static extern IntPtr MonitorFromPoint(POINT pt, uint flags);
+    [StructLayout(LayoutKind.Sequential)] public struct POINT { public int X, Y; }
+
+    // Shared factory call. Slot 3 = CreateForWindow, slot 4 = CreateForMonitor (IGraphicsCaptureItemInterop is IUnknown-based).
+    public static IntPtr CreateItem(IntPtr target, int slot)
     {
         const string className = "Windows.Graphics.Capture.GraphicsCaptureItem";
         Marshal.ThrowExceptionForHR(WindowsCreateString(className, className.Length, out IntPtr hs));
@@ -70,11 +76,11 @@ internal static class Native
             Step = "QueryInterface-interop";
             Marshal.ThrowExceptionForHR(Marshal.QueryInterface(factory, ref interopIid, out interop));
             IntPtr vtbl = Marshal.ReadIntPtr(interop);
-            IntPtr fn = Marshal.ReadIntPtr(vtbl, 3 * IntPtr.Size);
+            IntPtr fn = Marshal.ReadIntPtr(vtbl, slot * IntPtr.Size);
             var create = Marshal.GetDelegateForFunctionPointer<CreateForWindowFn>(fn);
             Guid itemIid = GraphicsCaptureItemIid;
             Step = "vtable CreateForWindow";
-            int hr = create(interop, hwnd, ref itemIid, out IntPtr item);
+            int hr = create(interop, target, ref itemIid, out IntPtr item);
             Marshal.ThrowExceptionForHR(hr);
             return item;
         }
