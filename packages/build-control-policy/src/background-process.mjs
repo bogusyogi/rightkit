@@ -1,6 +1,16 @@
 import childProcess from "node:child_process";
 import { promisify } from "node:util";
 
+// Windows PowerShell's inbox ACL cmdlets can fail while importing legacy
+// module type data when inherited PSModulePath entries are present.
+export function windowsPowerShellEnvironment(overrides = {}, base = process.env) {
+  const environment = { ...base, ...overrides };
+  for (const key of Object.keys(environment)) {
+    if (key.toLowerCase() === "psmodulepath") delete environment[key];
+  }
+  return environment;
+}
+
 // Release tooling has no interactive console children. Keep this policy at
 // every Node launch boundary, including fixtures & nested release commands.
 function hiddenArguments(args, options) {
