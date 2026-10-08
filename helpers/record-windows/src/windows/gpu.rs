@@ -16,7 +16,6 @@ use ::windows::Win32::Graphics::Dxgi::Common::{DXGI_FORMAT_B8G8R8A8_UNORM, DXGI_
 use ::windows::Win32::Graphics::Dxgi::IDXGIDevice;
 use ::windows::Win32::System::WinRT::Direct3D11::CreateDirect3D11DeviceFromDXGIDevice;
 
-use crate::bmp;
 use crate::error::{Code, RecordError};
 
 pub struct Device {
@@ -111,8 +110,9 @@ impl Readback {
         unsafe { self.context.CopyResource(&self.staging[slot], source) };
     }
 
-    /// Maps a slot and returns a complete BMP file image (header plus rows).
-    pub fn read_bmp(&self, slot: usize) -> Result<Vec<u8>, RecordError> {
+    /// Maps a slot and copies its rows, without padding, into `out` as packed
+    /// top-down BGRA (`width * 4` bytes per row). `out` is reused between frames.
+    pub fn read_packed(&self, slot: usize, out: &mut Vec<u8>) -> Result<(), RecordError> {
         let texture = &self.staging[slot];
         let mut mapped = D3D11_MAPPED_SUBRESOURCE::default();
         unsafe { self.context.Map(texture, 0, D3D11_MAP_READ, 0, Some(&mut mapped)) }
@@ -121,14 +121,14 @@ impl Readback {
         let height = self.height as usize;
         let row = width * 4;
         let pitch = mapped.RowPitch as usize;
-        let mut file = Vec::with_capacity(bmp::HEADER_LEN + row * height);
-        file.extend_from_slice(&bmp::header(self.width, self.height));
+        out.clear();
+        out.reserve(row * height);
         for y in 0..height {
             // Safety: Map returned pitch-strided rows of at least `row` bytes each.
             let src = unsafe { std::slice::from_raw_parts((mapped.pData as *const u8).add(y * pitch), row) };
-            file.extend_from_slice(src);
+            out.extend_from_slice(src);
         }
         unsafe { self.context.Unmap(texture, 0) };
-        Ok(file)
+        Ok(())
     }
 }

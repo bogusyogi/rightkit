@@ -2,6 +2,7 @@
 
 use std::path::PathBuf;
 
+use crate::codec::Codec;
 use crate::error::{Code, RecordError};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -10,6 +11,7 @@ pub struct CaptureArgs {
     pub out: PathBuf,
     pub fps: u32,
     pub seconds: u32,
+    pub codec: Codec,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -22,7 +24,9 @@ pub const MAX_SECONDS: u32 = 3600;
 pub fn parse(args: &[String]) -> Result<Command, RecordError> {
     let (subcommand, rest) = args
         .split_first()
-        .ok_or_else(|| invalid("usage: rightkit-record-windows capture --hwnd <decimal> --out <dir> --fps <30|60> --seconds <n>"))?;
+        .ok_or_else(|| {
+            invalid("usage: rightkit-record-windows capture --hwnd <decimal> --out <dir> --fps <30|60> --seconds <n> [--codec h264|hevc|bmp]")
+        })?;
     match subcommand.as_str() {
         "capture" => parse_capture(rest).map(Command::Capture),
         other => Err(invalid(format!("unknown subcommand '{other}'"))),
@@ -34,6 +38,7 @@ fn parse_capture(args: &[String]) -> Result<CaptureArgs, RecordError> {
     let mut out = None;
     let mut fps = None;
     let mut seconds = None;
+    let mut codec = None;
     let mut it = args.iter();
     while let Some(flag) = it.next() {
         let value = it.next().ok_or_else(|| invalid(format!("{flag} needs a value")))?;
@@ -47,6 +52,7 @@ fn parse_capture(args: &[String]) -> Result<CaptureArgs, RecordError> {
             }
             "--fps" => set_once(&mut fps, flag, parse_fps(value)?)?,
             "--seconds" => set_once(&mut seconds, flag, parse_seconds(value)?)?,
+            "--codec" => set_once(&mut codec, flag, parse_codec(value)?)?,
             other => return Err(invalid(format!("unknown flag '{other}'"))),
         }
     }
@@ -55,7 +61,12 @@ fn parse_capture(args: &[String]) -> Result<CaptureArgs, RecordError> {
         out: required(out, "--out")?,
         fps: required(fps, "--fps")?,
         seconds: required(seconds, "--seconds")?,
+        codec: codec.unwrap_or(Codec::H264),
     })
+}
+
+fn parse_codec(value: &str) -> Result<Codec, RecordError> {
+    Codec::parse(value).ok_or_else(|| invalid(format!("--codec must be h264, hevc or bmp, got '{value}'")))
 }
 
 fn parse_hwnd(value: &str) -> Result<isize, RecordError> {
@@ -124,8 +135,35 @@ mod tests {
                 out: PathBuf::from("D:/tmp/out"),
                 fps: 60,
                 seconds: 5,
+                codec: Codec::H264,
             })
         );
+    }
+
+    #[test]
+    fn codec_defaults_to_h264_and_accepts_each_value() {
+        let base = ["capture", "--hwnd", "1", "--out", "o", "--fps", "30", "--seconds", "1"];
+        let Command::Capture(default) = parse(&argv(&base)).unwrap();
+        assert_eq!(default.codec, Codec::H264);
+        for (value, codec) in [("h264", Codec::H264), ("hevc", Codec::Hevc), ("bmp", Codec::Bmp)] {
+            let mut items = base.to_vec();
+            items.extend(["--codec", value]);
+            let Command::Capture(c) = parse(&argv(&items)).unwrap();
+            assert_eq!(c.codec, codec, "codec {value}");
+        }
+    }
+
+    #[test]
+    fn rejects_unknown_and_duplicate_codec() {
+        let base = ["capture", "--hwnd", "1", "--out", "o", "--fps", "30", "--seconds", "1"];
+        let mut bad = base.to_vec();
+        bad.extend(["--codec", "vp9"]);
+        let err = parse(&argv(&bad)).unwrap_err();
+        assert_eq!(err.code, Code::ArgInvalid);
+        assert!(err.message.contains("vp9"));
+        let mut dup = base.to_vec();
+        dup.extend(["--codec", "h264", "--codec", "bmp"]);
+        assert!(parse(&argv(&dup)).unwrap_err().message.contains("more than once"));
     }
 
     #[test]

@@ -11,6 +11,9 @@ pub enum Code {
     OutDirNotEmpty,
     CaptureUnsupported,
     CaptureFailed,
+    /// The requested encoder MFT is not registered or cannot be configured.
+    /// Never replaced by a silent fallback to another codec.
+    CodecUnavailable,
     Io,
 }
 
@@ -24,6 +27,7 @@ impl Code {
             Code::OutDirNotEmpty => "RK_RECORD_OUT_DIR_NOT_EMPTY",
             Code::CaptureUnsupported => "RK_RECORD_CAPTURE_UNSUPPORTED",
             Code::CaptureFailed => "RK_RECORD_CAPTURE_FAILED",
+            Code::CodecUnavailable => "RK_RECORD_CODEC_UNAVAILABLE",
             Code::Io => "RK_RECORD_IO",
         }
     }
@@ -33,7 +37,7 @@ impl Code {
         match self {
             Code::ArgInvalid => 2,
             Code::WindowNotFound | Code::WindowHidden | Code::WindowMinimized | Code::OutDirNotEmpty => 3,
-            Code::CaptureUnsupported | Code::CaptureFailed | Code::Io => 1,
+            Code::CaptureUnsupported | Code::CaptureFailed | Code::CodecUnavailable | Code::Io => 1,
         }
     }
 }
