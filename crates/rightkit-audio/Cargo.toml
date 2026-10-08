@@ -41,7 +41,6 @@ windows = { version = "0.62.2", features = [
   "Win32_UI_WindowsAndMessaging",
 ] }
 windows-core = "0.62.2"
-windows-implement = "0.60"
 
 [dev-dependencies]
 tempfile = "3"
