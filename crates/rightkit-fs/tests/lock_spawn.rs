@@ -1,3 +1,4 @@
+#![cfg(unix)]
 //! File locks must not look held because another thread forked a child.
 //!
 //! A child forked while a lock descriptor is open inherits that descriptor until it execs.

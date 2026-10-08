@@ -64,6 +64,7 @@ impl CloneError {
         }
     }
 
+    #[cfg(target_os = "macos")]
     fn io(path: &Path, source: io::Error) -> Self {
         Self::Io {
             path: path.to_path_buf(),
