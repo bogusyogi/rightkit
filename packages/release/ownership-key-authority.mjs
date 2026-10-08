@@ -184,6 +184,7 @@ if (process.argv[1] && realOrSelf(process.argv[1]) === realOrSelf(fileURLToPath(
     catch (error) { if (error.code !== "ENOENT") throw error; }
     const updated = performProtectedTrustUpdate(request);
     const checkpoint = persistCheckpoint(updated.trust, Buffer.from(JSON.stringify(request.log)), file, (target) => auditPath(target, false));
-    process.stdout.write(`${JSON.stringify({ path: file, checkpoint })}\n`);
+    for (const item of updated.warnings) process.stderr.write(`${item.code}: ${item.message}\n`);
+    process.stdout.write(`${JSON.stringify({ path: file, checkpoint, warnings: updated.warnings })}\n`);
   } catch (error) { process.stderr.write(`${error.message}\n`); process.exitCode = 2; }
 }

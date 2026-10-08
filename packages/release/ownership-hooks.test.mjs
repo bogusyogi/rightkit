@@ -34,7 +34,9 @@ test("install writes an executable pre-commit that runs the pinned gate, and rei
   assert.equal(first.status, "installed");
   const hook = path.join(app, ".git", "hooks", "pre-commit");
   assert.match(readFileSync(hook, "utf8"), new RegExp(HOOK_MARKER));
-  assert.ok(statSync(hook).mode & 0o100, "hook must be executable");
+  // Windows has no POSIX mode bits, so the executable-bit check is Unix-only there.
+  if (process.platform === "win32") t.diagnostic("skipped executable-bit assertion on win32: no POSIX mode bits");
+  else assert.ok(statSync(hook).mode & 0o100, "hook must be executable");
   assert.equal(installPreCommitHook(app).status, "unchanged");
 });
 

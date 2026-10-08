@@ -12,6 +12,8 @@
     { "repositoryIdentity": "https://github.com/bogusyogi/voiceright", "roots": ["."], "visibility": "private" },
     { "repositoryIdentity": "https://github.com/bogusyogi/postright", "roots": ["."], "visibility": "private" },
     { "repositoryIdentity": "https://github.com/orthic-labs/cockpit", "roots": ["."], "visibility": "public" },
-    { "repositoryIdentity": "https://github.com/orthic-labs/legion", "roots": ["."], "visibility": "public" }
+    { "repositoryIdentity": "https://github.com/orthic-labs/legion", "roots": ["."], "visibility": "public" },
+    { "repositoryIdentity": "https://github.com/bogusyogi/workright", "roots": ["."], "visibility": "private" },
+    { "repositoryIdentity": "https://github.com/orthic-labs/sellright", "roots": ["."], "visibility": "public" }
   ]
 }

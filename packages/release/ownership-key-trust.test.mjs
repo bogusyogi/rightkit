@@ -6,7 +6,7 @@ import path from "node:path";
 import test from "node:test";
 import { evaluateWindowsAcl, validateTrustRegistry } from "./ownership-approval.mjs";
 import { createKeyEvent, keyFingerprint, verifyKeyLog } from "./ownership-key-log.mjs";
-import { __testOnly, mergeRepositoriesFromInstalledRelease, prepareTrustUpdate, RepositoryRegistryDriftError } from "./ownership-key-trust.mjs";
+import { __testOnly, mergeRepositoriesFromInstalledRelease, prepareTrustUpdate, REPOSITORY_DRIFT_CODE, REPOSITORY_REGISTRY_MALFORMED_CODE } from "./ownership-key-trust.mjs";
 
 function makeKey(platform = "windows", deviceName = "Test device") {
   const pair = generateKeyPairSync("ec", { namedCurve: "prime256v1" });
@@ -192,22 +192,47 @@ const trustWith = (repositories) => ({
 test("registry merge adds a new registration and leaves existing entries, provenance and other fields untouched", () => {
   const existing = trustWith([repo(CODERIGHT)]);
   const snapshot = structuredClone(existing);
-  const merged = mergeRepositoriesFromInstalledRelease(existing, { registry: registryOf([repo(CODERIGHT), repo(COCKPIT, "public")]) });
+  const { trust: merged, warnings } = mergeRepositoriesFromInstalledRelease(existing, { registry: registryOf([repo(CODERIGHT), repo(COCKPIT, "public")]) });
   assert.deepEqual(merged.repositories, [repo(CODERIGHT), repo(COCKPIT, "public")]);
   assert.deepEqual({ ...merged, repositories: undefined }, { ...snapshot, repositories: undefined });
+  assert.deepEqual(warnings, []);
   assert.deepEqual(existing, snapshot, "input trust must not be mutated");
 });
 
-test("registry merge refuses the whole update when an existing identity differs in roots or visibility", () => {
-  const visibilityDrift = trustWith([repo(COCKPIT, "private")]);
-  assert.throws(() => mergeRepositoriesFromInstalledRelease(visibilityDrift, { registry: registryOf([repo(COCKPIT, "public")]) }), (error) => error instanceof RepositoryRegistryDriftError && error.code === "RK_OWNERSHIP_REPOSITORY_DRIFT" && /orthic-labs\/cockpit/.test(error.message));
-  const rootsDrift = trustWith([repo(COCKPIT, "public", ["packages"])]);
-  assert.throws(() => mergeRepositoriesFromInstalledRelease(rootsDrift, { registry: registryOf([repo(COCKPIT, "public", ["."])]) }), RepositoryRegistryDriftError);
-  // A new identity next to a drifted one must not be applied either: nothing is returned.
-  assert.throws(() => mergeRepositoriesFromInstalledRelease(visibilityDrift, { registry: registryOf([repo("https://github.com/orthic-labs/legion", "public"), repo(COCKPIT, "public")]) }), RepositoryRegistryDriftError);
+test("registry drift keeps the protected entry, skips that registry entry with a typed warning, and still adds others", () => {
+  const { first, second, pin } = fixture();
+  const current = prepareTrustUpdate(null, { log: first, rootFingerprint: pin, baseline: { ...baseline, repositories: [repo(COCKPIT, "private")] } });
+  const advanced = prepareTrustUpdate(current, { log: second, rootFingerprint: pin, baseline: { schema: 1 } });
+  const legion = repo("https://github.com/orthic-labs/legion", "public");
+  const { trust: merged, warnings } = mergeRepositoriesFromInstalledRelease(advanced, { registry: registryOf([repo(COCKPIT, "public"), legion]) });
+  assert.deepEqual(merged.repositories, [repo(COCKPIT, "private"), legion]);
+  assert.equal(warnings.length, 1);
+  assert.equal(warnings[0].code, REPOSITORY_DRIFT_CODE);
+  assert.equal(warnings[0].type, REPOSITORY_DRIFT_CODE);
+  assert.equal(warnings[0].repositoryIdentity, COCKPIT);
+  assert.match(warnings[0].message, /orthic-labs\/cockpit/);
+  // The checkpoint of the committed key log still applies alongside the drift warning.
+  assert.deepEqual(merged.keyCheckpoint, verifyKeyLog(second, { rootFingerprint: pin }).checkpoint);
 });
 
-test("registry merge rejects every malformed registry without a partial merge", () => {
+test("roots drift is also a warning, not a refusal", () => {
+  const rootsDrift = trustWith([repo(COCKPIT, "public", ["packages"])]);
+  const { trust, warnings } = mergeRepositoriesFromInstalledRelease(rootsDrift, { registry: registryOf([repo(COCKPIT, "public", ["."])]) });
+  assert.deepEqual(trust.repositories, [repo(COCKPIT, "public", ["packages"])]);
+  assert.deepEqual(warnings.map((w) => w.code), [REPOSITORY_DRIFT_CODE]);
+});
+
+test("a revocation-shaped update proceeds despite registry drift", () => {
+  const { root, second, pin } = fixture();
+  const revoked = appendSigned(second, root, "revoke", { keyId: second.events[1].payload.subject.keyId });
+  const current = prepareTrustUpdate(null, { log: second, rootFingerprint: pin, baseline: { ...baseline, repositories: [repo(COCKPIT, "private")] } });
+  const prepared = prepareTrustUpdate(current, { log: revoked, rootFingerprint: pin, baseline: { schema: 1 } });
+  const { trust, warnings } = mergeRepositoriesFromInstalledRelease(prepared, { registry: registryOf([repo(COCKPIT, "public")]) });
+  assert.deepEqual(trust.keyCheckpoint, verifyKeyLog(revoked, { rootFingerprint: pin }).checkpoint);
+  assert.equal(warnings[0].code, REPOSITORY_DRIFT_CODE);
+});
+
+test("a malformed registry skips the whole registry merge with a typed warning while the trust update proceeds", () => {
   const existing = trustWith([repo(CODERIGHT)]);
   const snapshot = structuredClone(existing);
   const good = repo("https://github.com/orthic-labs/legion", "public");
@@ -224,12 +249,13 @@ test("registry merge rejects every malformed registry without a partial merge", 
     "empty roots": { schema: 1, repositories: [repo("https://github.com/orthic-labs/legion", "public", [])] },
     "empty list": { schema: 1, repositories: [] },
     "non-array list": { schema: 1, repositories: {} },
+    "partial valid plus invalid": { schema: 1, repositories: [good, repo("https://github.com/orthic-labs/x", "bogus")] },
   };
   for (const [label, registry] of Object.entries(malformed)) {
-    assert.throws(() => mergeRepositoriesFromInstalledRelease(existing, { registry }), /ownership repository registry|repository registry/, label);
+    const { trust, warnings } = mergeRepositoriesFromInstalledRelease(existing, { registry });
+    assert.deepEqual(trust.repositories, existing.repositories, label);
+    assert.deepEqual(warnings.map((w) => w.code), [REPOSITORY_REGISTRY_MALFORMED_CODE], label);
   }
-  // Valid first entry plus invalid second entry: the valid addition must not survive alone.
-  assert.throws(() => mergeRepositoriesFromInstalledRelease(existing, { registry: registryOf([good, repo("https://github.com/orthic-labs/x", "bogus")]) }));
   assert.deepEqual(existing, snapshot);
 });
 
@@ -239,22 +265,30 @@ test("request-supplied baseline registrations cannot enter protected registry", 
   const registry = registryOf([repo(CODERIGHT)]);
   // First install: the baseline is ignored for registrations, only the committed registry seeds them.
   const freshPrepared = prepareTrustUpdate(null, { log: first, rootFingerprint: pin, baseline: { ...baseline, repositories: [evil] } });
-  assert.deepEqual(mergeRepositoriesFromInstalledRelease(freshPrepared, { firstInstall: true, registry }).repositories, [repo(CODERIGHT)]);
+  assert.deepEqual(mergeRepositoriesFromInstalledRelease(freshPrepared, { firstInstall: true, registry }).trust.repositories, [repo(CODERIGHT)]);
   // Later update: request policy fields cannot add registrations to an existing protected trust.
   const current = prepareTrustUpdate(null, { log: first, rootFingerprint: pin, baseline });
   const advanced = prepareTrustUpdate(current, { log: second, rootFingerprint: pin, baseline: { schema: 1, repositories: [evil] } });
-  assert.deepEqual(mergeRepositoriesFromInstalledRelease(advanced, { registry }).repositories, [repo(CODERIGHT)]);
-  assert.equal(mergeRepositoriesFromInstalledRelease(advanced, { registry }).repositories.some((x) => x.repositoryIdentity === evil.repositoryIdentity), false);
+  assert.deepEqual(mergeRepositoriesFromInstalledRelease(advanced, { registry }).trust.repositories, [repo(CODERIGHT)]);
+  assert.equal(mergeRepositoriesFromInstalledRelease(advanced, { registry }).trust.repositories.some((x) => x.repositoryIdentity === evil.repositoryIdentity), false);
 });
 
-test("seeded ownership-repositories.json validates and carries the default policy plus three additions", () => {
+test("seeded ownership-repositories.json validates; the default policy carries no registrations", () => {
   const seeded = JSON.parse(readFileSync(new URL("./ownership-repositories.json", import.meta.url), "utf8"));
   const policy = JSON.parse(readFileSync(new URL("./ownership-default-policy.json", import.meta.url), "utf8"));
   assert.equal(validateTrustRegistry({ ...policy, repositories: seeded.repositories }).ok, true);
-  assert.equal(seeded.repositories.length, 12);
-  for (const entry of policy.repositories) assert.deepEqual(seeded.repositories.find((x) => x.repositoryIdentity === entry.repositoryIdentity), entry);
-  assert.deepEqual(seeded.repositories.slice(9).map((x) => [x.repositoryIdentity, x.visibility]), [["https://github.com/bogusyogi/postright", "private"], ["https://github.com/orthic-labs/cockpit", "public"], ["https://github.com/orthic-labs/legion", "public"]]);
-  // Reading from the installed sibling path: a first install from the default policy yields exactly the seeded set.
+  assert.deepEqual(policy.repositories, []);
+  assert.equal(seeded.repositories.length, 14);
+  assert.deepEqual(seeded.repositories.slice(9).map((x) => [x.repositoryIdentity, x.visibility]), [
+    ["https://github.com/bogusyogi/postright", "private"],
+    ["https://github.com/orthic-labs/cockpit", "public"],
+    ["https://github.com/orthic-labs/legion", "public"],
+    ["https://github.com/bogusyogi/workright", "private"],
+    ["https://github.com/orthic-labs/sellright", "public"],
+  ]);
+  assert.equal(seeded.repositories.some((x) => /rightsuite/.test(x.repositoryIdentity)), false);
+  // First install from the default policy yields exactly the committed registry entries.
   const installed = mergeRepositoriesFromInstalledRelease({ ...policy, repositories: [] }, { firstInstall: true });
-  assert.deepEqual(installed.repositories, seeded.repositories);
+  assert.deepEqual(installed.trust.repositories, seeded.repositories);
+  assert.deepEqual(installed.warnings, []);
 });
