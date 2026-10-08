@@ -8,7 +8,8 @@ pub const MAX_ERROR_BODY_BYTES: usize = 64 * 1024;
 pub enum HttpError {
     /// URL, header, or request construction failed before anything was sent.
     InvalidRequest(String),
-    /// Connection, TLS, or socket failure. `connect_phase` is true when nothing
+    /// Connection, TLS, socket failure, or exhausted redirect limit.
+    /// `connect_phase` is true when nothing
     /// can have reached the server (safe to retry any method).
     Transport {
         message: String,

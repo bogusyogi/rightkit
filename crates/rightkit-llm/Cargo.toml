@@ -12,9 +12,9 @@ categories = ["api-bindings"]
 include = ["src/**", "tests/**", "assets/**", "README.md", "LICENSE-MIT", "LICENSE-APACHE"]
 
 [dependencies]
-rightkit-http = { version = "0.1.0", path = "../rightkit-http" }
+rightkit-http = { version = "0.2.0", path = "../rightkit-http" }
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.150"
 
 [dev-dependencies]
-rightkit-http = { version = "0.1.0", path = "../rightkit-http", features = ["testing"] }
+rightkit-http = { version = "0.2.0", path = "../rightkit-http", features = ["testing"] }

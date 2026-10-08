@@ -22,7 +22,7 @@ fn client_with(retry: RetryPolicy) -> Client {
     Client::new(ClientConfig {
         retry,
         request_timeout: Duration::from_secs(5),
-        response_timeout: Duration::from_secs(5),
+        response_timeout: Some(Duration::from_secs(5)),
         ..ClientConfig::default()
     })
 }
@@ -214,7 +214,7 @@ fn response_timeout_fires_and_is_retried_for_idempotent_only() {
     let server =
         MockServer::start(|_, _| MockResponse::text(200, "late").delay(Duration::from_millis(700)));
     let cfg = ClientConfig {
-        response_timeout: Duration::from_millis(150),
+        response_timeout: Some(Duration::from_millis(150)),
         request_timeout: Duration::from_secs(5),
         retry: fast_retry(2),
         ..ClientConfig::default()
@@ -261,6 +261,199 @@ fn redirects_are_not_followed_by_default() {
         .unwrap();
     assert_eq!(resp.status, 302);
     assert_eq!(server.request_count(), 1);
+}
+
+#[test]
+fn redirect_limit_errors_as_transport_and_retries_only_idempotent_methods() {
+    let server = MockServer::start(|_, _| MockResponse::new(302).header("Location", "/loop"));
+    let client = Client::new(ClientConfig {
+        max_redirects: 2,
+        retry: fast_retry(2),
+        ..ClientConfig::default()
+    });
+    assert!(client.config().max_redirects_will_error);
+    for (method, expected_requests) in [(Method::Get, 6), (Method::Post, 3)] {
+        let before = server.request_count();
+        let err = client
+            .send_any(&Request::new(method, server.url("/loop")))
+            .unwrap_err();
+        match err {
+            HttpError::Transport {
+                message,
+                connect_phase: false,
+            } => assert_eq!(message, "too many redirects"),
+            other => panic!("unexpected {other:?}"),
+        }
+        assert_eq!(server.request_count() - before, expected_requests);
+    }
+}
+
+#[test]
+fn redirect_limit_can_return_final_redirect_without_retry() {
+    let server = MockServer::start(|_, _| {
+        MockResponse::text(302, "still redirecting").header("Location", "/loop")
+    });
+    let client = Client::new(ClientConfig {
+        max_redirects: 2,
+        max_redirects_will_error: false,
+        retry: fast_retry(2),
+        ..ClientConfig::default()
+    });
+    let response = client.send_any(&Request::get(server.url("/loop"))).unwrap();
+    assert_eq!(response.status, 302);
+    assert_eq!(response.header("location"), Some("/loop"));
+    assert_eq!(response.text(), "still redirecting");
+    assert_eq!(response.attempts, 1);
+    assert_eq!(server.request_count(), 3);
+}
+
+// gzip-compressed "hello gzip", with deterministic mtime=0; no test dependency needed.
+const GZIP_BODY: &[u8] = &[
+    31, 139, 8, 0, 0, 0, 0, 0, 2, 255, 203, 72, 205, 201, 201, 87, 72, 175, 202, 44, 0, 0, 25, 106,
+    210, 223, 10, 0, 0, 0,
+];
+
+#[cfg(feature = "gzip")]
+#[test]
+fn gzip_negotiates_and_decodes_buffered_and_streamed_bodies() {
+    let server = MockServer::start(|_, _| {
+        MockResponse::new(200)
+            .header("Content-Encoding", "gzip")
+            .body(GZIP_BODY.to_vec())
+    });
+    let client = client_with(RetryPolicy::none());
+    let response = client.send_any(&Request::get(server.url("/gzip"))).unwrap();
+    assert_eq!(response.body, b"hello gzip");
+    let mut body = Vec::new();
+    client
+        .stream(&Request::get(server.url("/gzip")))
+        .unwrap()
+        .into_reader()
+        .read_to_end(&mut body)
+        .unwrap();
+    assert_eq!(body, b"hello gzip");
+    assert_eq!(server.request_count(), 2);
+    for request in server.requests() {
+        assert_eq!(request.header("accept-encoding"), Some("gzip"));
+    }
+}
+
+#[cfg(not(feature = "gzip"))]
+#[test]
+fn disabling_gzip_omits_negotiation_and_preserves_compressed_bytes() {
+    let server = MockServer::start(|_, _| {
+        MockResponse::new(200)
+            .header("Content-Encoding", "gzip")
+            .body(GZIP_BODY.to_vec())
+    });
+    let response = client_with(RetryPolicy::none())
+        .send_any(&Request::get(server.url("/gzip")))
+        .unwrap();
+    assert_eq!(response.body, GZIP_BODY);
+    assert_eq!(server.requests()[0].header("accept-encoding"), None);
+}
+
+#[test]
+fn receive_body_timeout_fires_after_fast_headers_in_buffered_and_streamed_calls() {
+    let server = MockServer::start(|_, _| {
+        MockResponse::new(200).chunks(vec![
+            (Duration::ZERO, b"fast".to_vec()),
+            (Duration::from_millis(700), b"late".to_vec()),
+        ])
+    });
+    let client = Client::new(ClientConfig {
+        response_timeout: Some(Duration::from_millis(500)),
+        recv_body_timeout: Some(Duration::from_millis(150)),
+        request_timeout: Duration::from_secs(5),
+        retry: RetryPolicy::none(),
+        ..ClientConfig::default()
+    });
+    let err = client.send(&Request::get(server.url("/slow"))).unwrap_err();
+    assert!(
+        matches!(err, HttpError::Timeout(ref phase) if phase == "RecvBody"),
+        "{err:?}"
+    );
+
+    let mut reader = client
+        .stream(&Request::get(server.url("/slow")))
+        .unwrap()
+        .into_reader();
+    let mut first = [0; 4];
+    reader.read_exact(&mut first).unwrap();
+    assert_eq!(&first, b"fast");
+    let err = reader.read_to_end(&mut Vec::new()).unwrap_err();
+    assert!(matches!(
+        ureq::Error::from(err),
+        ureq::Error::Timeout(ureq::Timeout::RecvBody)
+    ));
+    assert_eq!(server.request_count(), 2, "body reads are never replayed");
+}
+
+#[test]
+fn receive_body_timeout_is_total_phase_budget_despite_progress() {
+    let server = MockServer::start(|_, _| {
+        MockResponse::new(200).chunks(vec![
+            (Duration::from_millis(100), b"one".to_vec()),
+            (Duration::from_millis(100), b"two".to_vec()),
+            (Duration::from_millis(100), b"three".to_vec()),
+        ])
+    });
+    let client = Client::new(ClientConfig {
+        recv_body_timeout: Some(Duration::from_millis(250)),
+        request_timeout: Duration::from_secs(5),
+        retry: RetryPolicy::none(),
+        ..ClientConfig::default()
+    });
+    let err = client
+        .send(&Request::get(server.url("/progress")))
+        .unwrap_err();
+    assert!(
+        matches!(err, HttpError::Timeout(ref phase) if phase == "RecvBody"),
+        "{err:?}"
+    );
+}
+
+#[test]
+fn optional_phase_deadlines_allow_delayed_headers_and_progressing_body() {
+    let server = MockServer::start(|_, _| {
+        MockResponse::new(200)
+            .delay(Duration::from_millis(300))
+            .chunks(vec![
+                (Duration::from_millis(100), b"one".to_vec()),
+                (Duration::from_millis(100), b"two".to_vec()),
+                (Duration::from_millis(100), b"three".to_vec()),
+            ])
+    });
+    let client = Client::new(ClientConfig {
+        connect_timeout: None,
+        response_timeout: None,
+        recv_body_timeout: None,
+        stream_timeout: None,
+        request_timeout: Duration::from_secs(5),
+        retry: RetryPolicy::none(),
+        ..ClientConfig::default()
+    });
+    assert_eq!(client.config().connect_timeout, None);
+    assert_eq!(client.config().response_timeout, None);
+    let request = Request::get(server.url("/progress"));
+    assert_eq!(client.send(&request).unwrap().body, b"onetwothree");
+    let mut body = Vec::new();
+    client
+        .stream(&request)
+        .unwrap()
+        .into_reader()
+        .read_to_end(&mut body)
+        .unwrap();
+    assert_eq!(body, b"onetwothree");
+    assert_eq!(server.request_count(), 2);
+}
+
+#[test]
+fn default_phase_deadlines_preserve_previous_durations() {
+    let config = ClientConfig::default();
+    assert_eq!(config.connect_timeout, Some(Duration::from_secs(10)));
+    assert_eq!(config.response_timeout, Some(Duration::from_secs(60)));
+    assert_eq!(config.recv_body_timeout, None);
 }
 
 #[test]

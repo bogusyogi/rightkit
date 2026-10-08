@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-http"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Brand-neutral blocking HTTP client for Right Suite apps: timeouts, retry/backoff with Retry-After, SSE streaming, redacted secrets, and untrusted web-text wrapping."
@@ -9,10 +9,12 @@ readme = "README.md"
 repository = "https://github.com/bogusyogi/claude"
 keywords = ["http", "retry", "sse", "streaming"]
 categories = ["web-programming::http-client"]
-include = ["src/**", "tests/**", "README.md", "API.md", "LICENSE-MIT", "LICENSE-APACHE"]
+include = ["src/**", "tests/**", "README.md", "CHANGELOG.md", "API.md", "LICENSE-MIT", "LICENSE-APACHE"]
 
 [features]
-default = []
+default = ["gzip"]
+# Automatic gzip negotiation and transparent response decoding, matching ureq defaults.
+gzip = ["ureq/gzip"]
 # In-process mock HTTP server for tests of this crate and its consumers.
 testing = []
 
@@ -24,4 +26,4 @@ sha2 = "0.10.9"
 getrandom = "0.3"
 
 [dev-dependencies]
-rightkit-http = { path = ".", features = ["testing"] }
+rightkit-http = { path = ".", default-features = false, features = ["testing"] }
