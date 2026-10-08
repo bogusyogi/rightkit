@@ -256,7 +256,7 @@ test("explicit elevation accepts checkout sources and launches once with a pinne
   try {
     const source = path.join(dir, "ownership-key-command.mjs");
     const child = path.join(dir, "ownership-key-trust.mjs");
-    const wrapper = path.join(dir, "ownership-key-authority.mjs");
+    const wrapper = path.join(realpathSync(dir), "ownership-key-authority.mjs");
     const request = path.join(dir, "request.json");
     for (const file of [source, child, wrapper]) writeFileSync(file, "// fixture\n");
     writeFileSync(request, "{}\n");
@@ -280,6 +280,7 @@ test("explicit elevation accepts checkout sources and launches once with a pinne
       assert.match(elevationCalls[0][0], /powershell\.exe$/i);
       assert.equal(elevationCalls[0][1][0], "-NoProfile");
       assert.equal(elevationCalls[0][1][1], "-EncodedCommand");
+      assert.equal(Object.keys(elevationCalls[0][2].env).some((key) => key.toLowerCase() === "psmodulepath"), false);
     }
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
@@ -322,7 +323,7 @@ test("macOS elevation uses one sudo prompt, hardened environment, and credential
     assert.equal(calls.filter(([command, args]) => command === "/usr/bin/sudo" && args[0] === "-K").length, 1);
     const [, args, options] = calls.find(([command, args]) => command === "/usr/bin/sudo" && args[0] === "-k");
     assert.equal(args[1], realpathSync(process.execPath));
-    assert.equal(args[2], path.join(dir, "ownership-key-authority.mjs"));
+    assert.equal(args[2], path.join(realpathSync(dir), "ownership-key-authority.mjs"));
     assert.deepEqual({ NODE_OPTIONS: options.env.NODE_OPTIONS, NODE_PATH: options.env.NODE_PATH }, { NODE_OPTIONS: "", NODE_PATH: "" });
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
