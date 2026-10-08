@@ -10,7 +10,7 @@ import { constants, mkdirSync, readFileSync, writeFileSync, existsSync } from 'n
 import { chmod, copyFile, lstat, mkdir, open, readFile, realpath, symlink } from 'node:fs/promises';
 import { availableParallelism as cpuCount, homedir, totalmem } from 'node:os';
 import { deriveCargoBuildJobs, deriveHostSizing, hostBounds, volumeBytes } from './host-sizing.mjs';
-import { dirname, isAbsolute, join, resolve } from 'node:path';
+import { dirname, isAbsolute, join, posix, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { runMacOSCutover } from './runtime-cutover-macos-cli.mjs';
 import { assertNoToolLoss, preserveOperatorTunedConfig, stripBom } from './config.mjs';
@@ -292,9 +292,9 @@ export function renderPlist({ nodePath, brokerScript, configPath, home }) {
 \t\t<key>PATH</key>
 \t\t<string>${escape(process.env.PATH ?? '/usr/bin:/bin:/usr/sbin:/sbin')}</string>
 \t\t<key>RIGHTKIT_BUILD_BROKER_SOCKET</key>
-\t\t<string>${escape(join(dirname(configPath), 'broker.sock'))}</string>
+\t\t<string>${escape(posix.join(posix.dirname(configPath), 'broker.sock'))}</string>
 \t\t<key>SCCACHE_ERROR_LOG</key>
-\t\t<string>${escape(join(dirname(configPath), 'rightkit-build-control', 'logs', 'sccache.stderr.log'))}</string>
+\t\t<string>${escape(posix.join(posix.dirname(configPath), 'rightkit-build-control', 'logs', 'sccache.stderr.log'))}</string>
 \t</dict>
 \t<key>KeepAlive</key>
 \t<true/>

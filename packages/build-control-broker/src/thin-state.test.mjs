@@ -162,7 +162,7 @@ test('GC evicts idle current generations LRU-first when the cap requires it', as
     const evicted = [];
     const evictIdle = async (candidate) => { evicted.push(candidate.canonicalRoot); return item.state.evictIdleWorkspace(candidate.canonicalRoot, { sizeBytes: candidate.sizeBytes }); };
     // 128 bytes over a 72-byte cap reclaims to 90 % (64): one eviction suffices.
-    const result = await item.state.gc({ capBytes: 72, evictIdle, recentMs: 0 });
+    const result = await item.state.gc({ capBytes: 72, evictIdle, recentMs: 0, graceMs: 0 });
     assert.deepEqual(evicted, [newRoot]);
     assert.equal(result.evicted.length, 1);
     assert.equal(result.evicted[0].evictedGeneration, 1);
@@ -244,7 +244,7 @@ test('GC continues past a refused oldest-LRU candidate to the next eligible work
       if (candidate.canonicalRoot === oldest) { refused.push(candidate.canonicalRoot); return null; }
       return item.state.evictIdleWorkspace(candidate.canonicalRoot, { sizeBytes: candidate.sizeBytes });
     };
-    const result = await item.state.gc({ capBytes: 64, evictIdle, recentMs: 0 });
+    const result = await item.state.gc({ capBytes: 64, evictIdle, recentMs: 0, graceMs: 0 });
     assert.deepEqual(refused, [oldest], 'oldest-LRU must be attempted first');
     assert.deepEqual(result.evicted.map((entry) => entry.canonicalRoot), [newest], 'GC must continue to the next candidate after refusal');
     assert.equal(result.unenforceable, null, 'cap must be enforceable once a later candidate evicts');
