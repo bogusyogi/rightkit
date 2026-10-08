@@ -7,9 +7,9 @@ param(
     [string]$ServiceExecutable,
     [string]$ServiceArguments = '',
     [string]$AgentUser = "$env:USERDOMAIN\$env:USERNAME",
-    # Published rightkit-sandbox-exec.exe and its expected SHA-256; installed into the service-owned bin.
+    # Signed rightkit-sandbox-exec.exe built from the published crate; its committed receipt pins sha256 & signer.
     [string]$SandboxExecSource,
-    [string]$SandboxExecSha256,
+    [string]$SandboxExecReceipt = (Join-Path $PSScriptRoot 'sandbox-exec-0.3.1.receipt.json'),
     [switch]$DryRunOutput
 )
 Set-StrictMode -Version Latest
@@ -29,7 +29,12 @@ $parents = @($dataRoot, $brokerRoot, (Join-Path $brokerRoot 'global'))
 $trees = @($cargoHome, $gitDb, $cache, $buildRoots, $binRoot)
 if ([string]::IsNullOrWhiteSpace($AgentUser) -or $AgentUser -eq '\' -or $AgentUser -match '[\x00-\x1f]') { throw 'RK_CLASS1_AGENT_IDENTITY: explicit agent account required' }
 if ($ServiceArguments -match '[\x00-\x1f]') { throw 'RK_CLASS1_SERVICE_COMMAND: invalid service arguments' }
-if ($SandboxExecSource -and ($SandboxExecSource -notmatch '^[A-Za-z]:\\' -or $SandboxExecSha256 -notmatch '^[0-9a-fA-F]{64}$')) { throw 'RK_CLASS1_SANDBOX_SOURCE: absolute -SandboxExecSource and 64-hex -SandboxExecSha256 required' }
+if ($SandboxExecSource) {
+    if ($SandboxExecSource -notmatch '^[A-Za-z]:\\') { throw 'RK_CLASS1_SANDBOX_SOURCE: absolute -SandboxExecSource required' }
+    $sandboxReceipt = Get-Content -Raw -LiteralPath $SandboxExecReceipt | ConvertFrom-Json
+    $SandboxExecSha256 = [string]$sandboxReceipt.binarySha256; $sandboxSigner = [string]$sandboxReceipt.signerThumbprint
+    if ($SandboxExecSha256 -notmatch '^[0-9a-fA-F]{64}$' -or $sandboxSigner -notmatch '^[0-9a-fA-F]{40}$') { throw 'RK_CLASS1_SANDBOX_RECEIPT: receipt needs binarySha256 & signerThumbprint' }
+}
 
 # This path does not inspect live roots/service, require elevation, compile, or mutate.
 if ($DryRunOutput -or $WhatIfPreference) {
@@ -38,7 +43,7 @@ if ($DryRunOutput -or $WhatIfPreference) {
     Write-Output "PLAN legacy task: refuse running jobs; disable $legacyTask after migration"
     foreach ($root in $parents) { Write-Output "PLAN parent: $root; owner=$serviceAccount; inheritance=removed; service=FullControl; agent=$AgentUser ReadAndExecute" }
     foreach ($root in $trees) { Write-Output "PLAN tree: $root; reject reparse points; recursive owner=$serviceAccount; inheritance=removed; service=FullControl; agent=$AgentUser ReadAndExecute" }
-    Write-Output "PLAN sandbox launcher: $(if ($SandboxExecSource) { $SandboxExecSource } else { '<none; existing copy kept>' }) -> $sandboxExec; verify SHA-256 before and after copy; owner=$serviceAccount"
+    Write-Output "PLAN sandbox launcher: $(if ($SandboxExecSource) { $SandboxExecSource } else { '<none; existing copy kept>' }) -> $sandboxExec; verify receipt SHA-256 & Authenticode signer before copy, SHA-256 after; owner=$serviceAccount"
     Write-Output 'PLAN credentials: untouched'
     return
 }
@@ -222,7 +227,9 @@ foreach ($root in $trees) {
 # Install the launcher only after bin is service-owned, then verify the installed bytes.
 if ($SandboxExecSource -and $PSCmdlet.ShouldProcess($sandboxExec, 'Install rightkit-sandbox-exec.exe')) {
     Assert-NoReparse $SandboxExecSource
-    if ((Get-FileHash -Algorithm SHA256 -LiteralPath $SandboxExecSource).Hash -ne $SandboxExecSha256.ToUpperInvariant()) { throw 'RK_CLASS1_SANDBOX_DIGEST: source does not match -SandboxExecSha256' }
+    if ((Get-FileHash -Algorithm SHA256 -LiteralPath $SandboxExecSource).Hash -ne $SandboxExecSha256.ToUpperInvariant()) { throw 'RK_CLASS1_SANDBOX_DIGEST: source does not match receipt binarySha256' }
+    $signature = Get-AuthenticodeSignature -LiteralPath $SandboxExecSource
+    if ($signature.Status -ne 'Valid' -or $signature.SignerCertificate.Thumbprint -ne $sandboxSigner.ToUpperInvariant()) { throw "RK_CLASS1_SANDBOX_SIGNER: Authenticode $($signature.Status); signer must match receipt signerThumbprint" }
     Copy-Item -LiteralPath $SandboxExecSource -Destination $sandboxExec -Force
     Protect-Item $sandboxExec
     if ((Get-FileHash -Algorithm SHA256 -LiteralPath $sandboxExec).Hash -ne $SandboxExecSha256.ToUpperInvariant()) { throw 'RK_CLASS1_SANDBOX_DIGEST: installed launcher readback mismatch' }
