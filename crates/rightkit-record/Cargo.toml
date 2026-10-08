@@ -13,8 +13,38 @@ include = ["src/**", "tests/**", "Cargo.toml", "rightkit-ownership.json"]
 name = "rightkit_record"
 path = "src/lib.rs"
 
+[[bin]]
+name = "rightkit-record-helper"
+path = "src/bin/rightkit-record-helper/main.rs"
+
 [dependencies]
 rightkit-contracts = { path = "../rightkit-contracts" }
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.150"
 blake3 = "1.8"
+
+# Same version and features as helpers/record-windows (RK3 first cut).
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.61", features = [
+    "Foundation",
+    "Foundation_Metadata",
+    "Security_Authorization_AppCapabilityAccess",
+    "Graphics_Capture",
+    "Graphics_DirectX",
+    "Graphics_DirectX_Direct3D11",
+    "Win32_Foundation",
+    "Win32_Graphics_Direct3D",
+    "Win32_Graphics_Direct3D11",
+    "Win32_Graphics_Dxgi",
+    "Win32_Graphics_Dxgi_Common",
+    "Win32_Graphics_Gdi",
+    "Win32_Media_MediaFoundation",
+    "Win32_System_Com",
+    "Win32_System_Performance",
+    "Win32_System_Registry",
+    "Win32_System_WinRT",
+    "Win32_System_WinRT_Direct3D11",
+    "Win32_System_WinRT_Graphics_Capture",
+    "Win32_UI_HiDpi",
+    "Win32_UI_WindowsAndMessaging",
+] }

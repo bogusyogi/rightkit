@@ -16,7 +16,10 @@
 //! `clean.mp4` (or a track), and `hashes.json`, which is the record-session
 //! manifest. The bundle is read-only after stop.
 
-#![forbid(unsafe_code)]
+// Unsafe code is forbidden in the platform-neutral core. The Windows capture
+// module talks to COM, Direct3D and Media Foundation, so it alone allows it.
+#![cfg_attr(not(windows), forbid(unsafe_code))]
+#![cfg_attr(windows, deny(unsafe_code))]
 
 pub mod backend;
 mod bundle;
@@ -30,6 +33,17 @@ pub mod recorder;
 pub mod redact;
 pub mod support;
 pub mod verify;
+
+// Pure helpers the Windows capture uses. Compiled for tests on every OS.
+#[cfg(any(windows, test))]
+mod codec;
+#[cfg(any(windows, test))]
+mod pacer;
+
+/// Windows.Graphics.Capture backend, the Windows side of the [`Backend`] seam.
+#[cfg(windows)]
+#[allow(unsafe_code)]
+pub mod windows;
 
 pub use backend::{
     track_file, track_id, Backend, BackendPlan, Failure, Finished, FrameSample, HelperEvent,

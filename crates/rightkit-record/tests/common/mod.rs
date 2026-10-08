@@ -46,6 +46,8 @@ impl Drop for Scratch {
 }
 
 /// Restores write permission under `path`, so a test can tamper with a sealed bundle.
+// Windows has no world-writable hazard: `set_readonly(false)` is the only way to clear the flag there.
+#[allow(clippy::permissions_set_readonly_false)]
 pub fn make_writable(path: &Path) {
     let Ok(meta) = fs::metadata(path) else {
         return;

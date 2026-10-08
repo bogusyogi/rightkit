@@ -5473,6 +5473,7 @@ dependencies = [
  "rightkit-contracts",
  "serde",
  "serde_json",
+ "windows 0.61.1",
 ]
 
 [[package]]
