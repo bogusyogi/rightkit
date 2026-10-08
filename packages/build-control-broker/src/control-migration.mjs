@@ -1,16 +1,18 @@
 #!/usr/bin/env node
-import { chmod, cp, lstat, mkdir, readFile, readlink, readdir, realpath, symlink, unlink, writeFile } from 'node:fs/promises';
+import { chmod, cp, lstat, mkdir, readFile, readlink, readdir, realpath, rename, rm, symlink, unlink, writeFile } from 'node:fs/promises';
+import { randomUUID } from 'node:crypto';
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { homedir } from 'node:os';
 import { resolveManagedRoots } from '../../release/managed-roots.mjs';
 import { renderPlist } from './bootstrap-macos-cli.mjs';
 import { isDirectMain } from './bootstrap-windows-cli.mjs';
+import { snapshotRuntimeSelection } from './runtime.mjs';
 
 const CONTROL_ENTRIES = ['config.json', 'state.db', 'state.db-wal', 'state.db-shm', 'agent-policy', 'ownership-install', 'signing-agent', 'state', 'logs'];
 const within = (root, path) => { const tail = relative(root, path); return tail === '' || (tail !== '..' && !tail.startsWith(`..${sep}`) && !isAbsolute(tail)); };
 
 /** Preserve operator fields; rebase only control paths, never bulk build data. */
-export function relocateControlConfig(config, { controlRoot, dataRoot, nodePath = config.nodePath ?? process.execPath }) {
+export function relocateControlConfig(config, { controlRoot, dataRoot }) {
   const oldRoot = resolve(config.broker.externalRoot.path);
   const oldControl = config.broker.controlRoot && resolve(config.broker.controlRoot);
   const rebase = (value) => {
@@ -25,7 +27,9 @@ export function relocateControlConfig(config, { controlRoot, dataRoot, nodePath 
     return join(control ? controlRoot : dataRoot, tail);
   };
   const next = rebase(config);
-  next.nodePath = nodePath;
+  // Node belongs to plist/bootstrap, not broker configuration. Older runtimes
+  // reject this key, so never emit it into a migrated config.
+  delete next.nodePath;
   next.broker.controlRoot = controlRoot;
   next.broker.externalRoot.path = dataRoot;
   const stateRoot = oldControl ?? oldRoot;
@@ -35,6 +39,23 @@ export function relocateControlConfig(config, { controlRoot, dataRoot, nodePath 
     ? join(controlRoot, relative(stateRoot, config.broker.activationFencePath)) : join(controlRoot, 'state', 'runtime-activation.json');
   next.unixSocket = join(controlRoot, 'broker.sock');
   return next;
+}
+
+export async function ensureLegacyControlLinks({ controlRoot, dataRoot, apply = true }) {
+  controlRoot = resolve(controlRoot); dataRoot = resolve(dataRoot);
+  if (controlRoot === dataRoot) return [];
+  const links = ['broker.sock', 'runtime-current'].map((name) => ({ path: join(dataRoot, name), target: join(controlRoot, name) }));
+  // Check both before making either change, including dangling symlinks.
+  for (const link of links) {
+    const info = await lstat(link.path).catch((error) => error.code === 'ENOENT' ? null : Promise.reject(error));
+    if (info && !info.isSymbolicLink()) throw new Error(`legacy compatibility path must be a symlink: ${link.path}`);
+  }
+  if (apply) for (const link of links) {
+    const temporary = `${link.path}.${randomUUID()}.tmp`;
+    try { await symlink(link.target, temporary); await rename(temporary, link.path); }
+    finally { await rm(temporary, { force: true }); }
+  }
+  return links;
 }
 
 export function parseControlMigrationArgs(argv) {
@@ -55,8 +76,10 @@ export async function migrateControlPlane({ oldRoot, controlRoot, dataRoot, node
   const roots = resolveManagedRoots({ platform: 'darwin', home, controlRoot, dataRoot });
   oldRoot = await realpath(resolve(oldRoot ?? roots.dataRoot)); controlRoot = resolve(roots.controlRoot); dataRoot = resolve(roots.dataRoot);
   if (within(oldRoot, controlRoot) || within(controlRoot, oldRoot)) throw new TypeError('control root must be separate from legacy root');
-  const config = JSON.parse((await readFile(join(oldRoot, 'config.json'), 'utf8')).replace(/^\uFEFF/, ''));
-  const next = relocateControlConfig(config, { controlRoot, dataRoot, nodePath: nodePath ?? config.nodePath ?? process.execPath });
+  if (apply && await lstat(roots.configPath).catch((error) => error.code === 'ENOENT' ? null : Promise.reject(error))) throw new Error(`migration destination already exists: ${roots.configPath}`);
+  const configBytes = await readFile(join(oldRoot, 'config.json'));
+  const config = JSON.parse(configBytes.toString('utf8').replace(/^\uFEFF/, ''));
+  const next = relocateControlConfig(config, { controlRoot, dataRoot });
   const current = await realpath(join(oldRoot, 'runtime-current'));
   if (!within(oldRoot, current) || !basename(current).startsWith('runtime-') || !(await lstat(current)).isDirectory()) throw new Error('runtime-current must select a runtime directory below legacy root');
   const links = [];
@@ -83,7 +106,8 @@ export async function migrateControlPlane({ oldRoot, controlRoot, dataRoot, node
   }
   // The signing agent stays at its internal Orthic Labs path (resolveManagedRoots().signingAgent).
   const copies = entries.filter((name) => name !== 'signing-agent').map((name) => ({ from: join(oldRoot, name), to: join(controlRoot, name) }));
-  const plist = renderPlist({ nodePath: next.nodePath, brokerScript: join(controlRoot, 'runtime-current', 'build-control-broker', 'src', 'broker.mjs'), configPath: roots.configPath, home });
+  const plist = renderPlist({ nodePath: nodePath ?? config.nodePath ?? process.execPath, brokerScript: join(controlRoot, 'runtime-current', 'build-control-broker', 'src', 'broker.mjs'), configPath: roots.configPath, home });
+  const compatibilityLinks = await ensureLegacyControlLinks({ controlRoot, dataRoot, apply: false });
   if (apply) {
     // Migration expects an inactive destination. Never merge or clobber state.
     for (const name of [...entries, 'runtime-current']) {
@@ -104,8 +128,10 @@ export async function migrateControlPlane({ oldRoot, controlRoot, dataRoot, node
     }
     await writeFile(join(controlRoot, 'config.json'), `${JSON.stringify(next, null, 2)}\n`, { mode: 0o600, flag: 'wx' });
     await symlink(basename(current), join(controlRoot, 'runtime-current'));
+    await snapshotRuntimeSelection({ root: controlRoot, configPath: roots.configPath, prior: basename(current), configBytes });
+    await ensureLegacyControlLinks({ controlRoot, dataRoot });
   }
-  return { dryRun: !apply, controlRoot, dataRoot, copies, runtimeCurrent: basename(current), config: next, plist };
+  return { dryRun: !apply, controlRoot, dataRoot, copies, compatibilityLinks, runtimeCurrent: basename(current), config: next, plist };
 }
 
 if (isDirectMain({ moduleUrl: import.meta.url })) {

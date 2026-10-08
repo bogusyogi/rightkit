@@ -3,7 +3,7 @@ import { BUILD_CONTROL_PROTOCOL, FRONTENDS, SOURCE_RUNTIME_IDENTITY, assertRepos
 import net from 'node:net';
 import { existsSync, readFileSync, realpathSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
-import { chmod, mkdir, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises';
+import { chmod, lstat, mkdir, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises';
 import { basename, dirname, isAbsolute, join, posix, resolve, win32 } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -409,11 +409,11 @@ async function existingInstall(directory) {
     return null;
   }
   if (entries.length === 0) return null;
-  if (!entries.includes(INSTALL_MANIFEST)) throw new Error('agent shim directory is not an owned RightKit install');
+  if (!entries.includes(INSTALL_MANIFEST)) return null;
+  if (!(await lstat(resolve(directory, INSTALL_MANIFEST))).isFile()) throw new Error('agent shim directory has invalid ownership manifest');
   let manifest;
   try { manifest = JSON.parse(stripBom(await readFile(resolve(directory, INSTALL_MANIFEST), 'utf8'))); } catch { throw new Error('agent shim directory has invalid ownership manifest'); }
-  const owned = ownedLinkNames(manifest); owned.add(INSTALL_MANIFEST);
-  if (!entries.every((entry) => owned.has(entry))) throw new Error('agent shim directory contains foreign files');
+  ownedLinkNames(manifest);
   return manifest;
 }
 
@@ -445,9 +445,15 @@ export async function installAgentShims({ directory, platform = process.platform
   const manifest = shimManifest({ installRoot: target });
   const names = manifest.links.flatMap(({ name }) => platform === 'win32' ? [`${name}.cmd`, ...(NATIVE_WINDOWS_SHIMS.includes(name) ? [`${name}.exe`] : [])] : [name]);
   const previous = await existingInstall(target);
+  const priorNames = previous ? ownedLinkNames(previous) : new Set();
+  // Preflight every collision before deleting obsolete entries or writing any
+  // wrapper. Neighbors outside the ownership manifest remain untouched.
+  for (const name of names) {
+    const exists = await lstat(resolve(target, name)).catch((error) => error.code === 'ENOENT' ? null : Promise.reject(error));
+    if (exists && !priorNames.has(name)) throw new Error(`refusing to overwrite foreign agent shim: ${name}`);
+  }
   if (previous) {
-    const priorNames = ownedLinkNames(previous);
-    for (const name of priorNames) if (!names.includes(name)) await rm(resolve(target, name), { force: false });
+    for (const name of priorNames) if (!names.includes(name)) await rm(resolve(target, name), { force: true });
   }
   if (platform === 'win32') {
     const temporaryLauncher = join(dirname(target), `.rightkit-native-launcher-${process.pid}-${Math.random().toString(16).slice(2)}.exe`);

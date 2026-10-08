@@ -8,7 +8,7 @@ import { dirname, join } from 'node:path';
 import { promisify } from 'node:util';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { OWNERSHIP_SCANNER_DIR, OWNERSHIP_SCANNER_ENTRIES, committedOwnershipScanner, RUNTIME_ACTIVATION_FENCE_SCHEMA, commitRuntimeActivationFence, functionalFailureDetail, functionalResourceFailure, healthProbeEndpoint, installManagedRuntime, loadRuntimeWindowsJobAddon, normalizeGitScopedPath, prepareRuntimeActivationFence, removeHealthProbeRoot, replaceRuntimeSelection, stageManagedRuntime, syncDirectoryForPlatform } from './runtime.mjs';
+import { OWNERSHIP_SCANNER_DIR, OWNERSHIP_SCANNER_ENTRIES, committedOwnershipScanner, RUNTIME_ACTIVATION_FENCE_SCHEMA, commitRuntimeActivationFence, functionalFailureDetail, functionalResourceFailure, healthProbeEndpoint, installManagedRuntime, loadRuntimeWindowsJobAddon, normalizeGitScopedPath, prepareRuntimeActivationFence, removeHealthProbeRoot, replaceRuntimeSelection, snapshotRuntimeSelection, stageManagedRuntime, syncDirectoryForPlatform } from './runtime.mjs';
 
 const execFile = promisify(nodeExecFile);
 const sourcePackages = fileURLToPath(new URL('../..', import.meta.url));
@@ -96,7 +96,7 @@ test('staging creates content-addressed immutable provenance-bound bundle withou
     assert.equal(staged.version, 'release-a');
     const resolver = join(staged.runtime, 'release', 'managed-roots.mjs');
     assert.equal(await readFile(resolver, 'utf8'), await readFile(join(sourcePackages, 'release', 'managed-roots.mjs'), 'utf8'));
-    await execFile(process.execPath, ['--input-type=module', '-e', `await import(${JSON.stringify(join(staged.runtime, 'build-control-clients', 'src', 'index.mjs'))})`], { cwd: root });
+    await execFile(process.execPath, ['--input-type=module', '-e', `await import(${JSON.stringify(pathToFileURL(join(staged.runtime, 'build-control-clients', 'src', 'index.mjs')).href)})`], { cwd: root });
     assert.equal(staged.manifest.sourceRevision, fixture.revision); assert.equal(staged.manifest.sourceTreeDigest, fixture.tree);
     assert.equal((await readFile(join(staged.runtime, 'runtime-manifest.json'), 'utf8')).includes(staged.manifest.brokerDigest), true);
     assert.equal(JSON.parse(await readFile(join(staged.runtime, 'build-control-broker', 'node_modules', 'smol-toml', 'package.json'), 'utf8')).version, '1.7.0');
@@ -158,13 +158,24 @@ test('Mac staging requires a regular, digest-pinned native resource addon', { sk
 test('activation fence remains PENDING through candidate probe then rolls selection back without admission', async () => {
   const root = await canonicalTempDir('rk-runtime-'); const fixture = await sourceFixture(); try {
     const fence = join(root, 'state', 'activation-fence.json'); const prior = join(root, 'runtime-prior'); await cp(join(fixture.packages, 'build-control-core'), prior, { recursive: true }); await symlink('runtime-prior', join(root, 'runtime-current'));
-    let rollback = false;
+    const configPath = join(root, 'config.json');
+    const oldBytes = Buffer.from('\uFEFF{\n  "schemaVersion": 2\n}\n\n');
+    await writeFile(configPath, oldBytes);
+    const rollbackSnapshot = await snapshotRuntimeSelection({ root, configPath });
+    await writeFile(configPath, '{"schemaVersion":2,"nodePath":"/new/node"}\n');
+    let rollback = false; let stopped = false;
     await assert.rejects(installManagedRuntime({
-      externalRoot: root, sourcePackagesRoot: fixture.packages, healthWorkspace: fixture.healthWorkspace, version: 'release-a', config: { broker: { externalRoot: { path: root }, activationFencePath: fence } },
+      externalRoot: root, sourcePackagesRoot: fixture.packages, configPath, rollbackSnapshot, stopService: async () => { stopped = true; assert.notEqual(await readlink(join(root, 'runtime-current')), 'runtime-prior'); }, healthWorkspace: fixture.healthWorkspace, version: 'release-a', config: { broker: { externalRoot: { path: root }, activationFencePath: fence } },
       windowsJobAddon: fixture.windowsJobAddon, macosResourceAddon: fixture.macosResourceAddon, health: async () => {}, restartService: async ({ activation }) => {
         const state = JSON.parse(await readFile(activation.path, 'utf8')); assert.equal(state.schema, RUNTIME_ACTIVATION_FENCE_SCHEMA); assert.equal(state.state, 'PENDING');
         assert.equal(state.state === 'COMMITTED', false, 'candidate must reject SUBMIT/MANAGED_AGENT while PENDING'); return { pid: 101, runtimeIdentity: activation.runtime };
-      }, probeService: async () => { throw new Error('post-switch probe refused'); }, rollbackService: async () => { rollback = true; }, processProbe: async () => ({ alive: true, runtimePath: root }),
+      }, probeService: async () => { throw new Error('post-switch probe refused'); }, rollbackService: async () => {
+        assert.equal(stopped, true);
+        assert.equal(await readlink(join(root, 'runtime-current')), 'runtime-prior');
+        assert.deepEqual(await readFile(configPath), oldBytes);
+        assert.equal(Object.hasOwn(JSON.parse(oldBytes.toString().replace(/^\uFEFF/, '')), 'nodePath'), false);
+        rollback = true;
+      }, processProbe: async () => ({ alive: true, runtimePath: root }),
     }), /activation rolled back/);
     assert.equal(rollback, true); assert.equal(await readlink(join(root, 'runtime-current')), 'runtime-prior'); await assert.rejects(readFile(fence));
   } finally { await rm(root, { recursive: true, force: true }); await rm(fixture.root, { recursive: true, force: true }); }
@@ -173,13 +184,47 @@ test('activation fence remains PENDING through candidate probe then rolls select
 test('activation commits only after exact post-switch process proof', async () => {
   const root = await canonicalTempDir('rk-runtime-'); const fixture = await sourceFixture(); try {
     const fence = join(root, 'state', 'activation-fence.json'); let runtime;
+    await mkdir(join(root, 'runtime-prior')); await symlink('runtime-prior', join(root, 'runtime-current'));
+    const configPath = join(root, 'config.json');
+    await writeFile(configPath, '{"schemaVersion":2}\n');
+    const rollbackSnapshot = await snapshotRuntimeSelection({ root, configPath });
+    const candidateBytes = '{"schemaVersion":2,"defaults":{"cargoBuildJobs":7}}\n';
+    await writeFile(configPath, candidateBytes);
     const result = await installManagedRuntime({
-      externalRoot: root, sourcePackagesRoot: fixture.packages, healthWorkspace: fixture.healthWorkspace, version: 'release-a', config: { broker: { externalRoot: { path: root }, activationFencePath: fence } }, windowsJobAddon: fixture.windowsJobAddon, macosResourceAddon: fixture.macosResourceAddon, health: async () => {},
+      externalRoot: root, sourcePackagesRoot: fixture.packages, configPath, rollbackSnapshot, stopService: async () => { throw new Error('must not stop committed candidate'); }, healthWorkspace: fixture.healthWorkspace, version: 'release-a', config: { broker: { externalRoot: { path: root }, activationFencePath: fence } }, windowsJobAddon: fixture.windowsJobAddon, macosResourceAddon: fixture.macosResourceAddon, health: async () => {},
       restartService: async ({ manifest, runtime: candidate }) => { runtime = candidate; return { pid: 101, runtimeIdentity: manifest }; },
       probeService: async ({ manifest }) => ({ pid: 101, runtimeIdentity: manifest }), rollbackService: async () => { throw new Error('must not rollback committed candidate'); }, processProbe: async () => ({ alive: true, runtimePath: runtime }),
     });
     assert.equal(result.version, 'release-a'); assert.deepEqual(JSON.parse(await readFile(fence, 'utf8')).state, 'COMMITTED');
+    assert.equal(await readFile(configPath, 'utf8'), candidateBytes);
+    await assert.rejects(readFile(rollbackSnapshot.path), { code: 'ENOENT' });
   } finally { await rm(root, { recursive: true, force: true }); await rm(fixture.root, { recursive: true, force: true }); }
+});
+
+test('failed candidate stop preserves pending fence & never restores a mixed config/runtime pair', async (t) => {
+  const root = await canonicalTempDir('rk-runtime-stop-'); const fixture = await sourceFixture();
+  t.after(async () => { await rm(root, { recursive: true, force: true }); await rm(fixture.root, { recursive: true, force: true }); });
+  await mkdir(join(root, 'runtime-prior')); await symlink('runtime-prior', join(root, 'runtime-current'));
+  const configPath = join(root, 'config.json'); const fence = join(root, 'state', 'activation-fence.json');
+  await writeFile(configPath, '{"schemaVersion":2}\n');
+  const rollbackSnapshot = await snapshotRuntimeSelection({ root, configPath });
+  const candidateBytes = '{"schemaVersion":2,"defaults":{"cargoBuildJobs":7}}\n';
+  await writeFile(configPath, candidateBytes);
+  let rollbackCalled = false;
+  await assert.rejects(installManagedRuntime({
+    externalRoot: root, sourcePackagesRoot: fixture.packages, configPath, rollbackSnapshot,
+    healthWorkspace: fixture.healthWorkspace, version: 'stop-failure', config: { broker: { externalRoot: { path: root }, activationFencePath: fence } },
+    windowsJobAddon: fixture.windowsJobAddon, macosResourceAddon: fixture.macosResourceAddon, health: async () => {},
+    restartService: async ({ manifest }) => ({ pid: 101, runtimeIdentity: manifest }),
+    probeService: async () => { throw new Error('candidate probe failed'); },
+    stopService: async () => { throw new Error('candidate still running'); },
+    rollbackService: async () => { rollbackCalled = true; }, processProbe: async () => ({ alive: true }),
+  }), /selected candidate without rollback: candidate still running/);
+  assert.equal(rollbackCalled, false);
+  assert.notEqual(await readlink(join(root, 'runtime-current')), 'runtime-prior');
+  assert.equal(await readFile(configPath, 'utf8'), candidateBytes);
+  assert.equal(JSON.parse(await readFile(fence, 'utf8')).state, 'PENDING');
+  assert.equal(JSON.parse(await readFile(rollbackSnapshot.path, 'utf8')).prior, 'runtime-prior');
 });
 
 test('fence token prevents stale or substituted pending state from commit', async () => {

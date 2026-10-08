@@ -7,6 +7,7 @@ import { readFile, realpath, stat } from 'node:fs/promises';
 import { isAbsolute, resolve } from 'node:path';
 import { loadBrokerConfig } from './config.mjs';
 import { installManagedRuntimeMacOS } from './runtime-cutover-macos.mjs';
+import { discardRuntimeSnapshot, restoreRuntimeSelection, snapshotRuntimeSelection } from './runtime.mjs';
 import { absoluteHostPath as absolute, assertDirectory, assertFile, beginCutoverDrain, contained, endCutoverDrain, proveBrokerRequestsDrained, proveThinRequestsDrained } from './cutover-shared.mjs';
 // A `file://${process.argv[1]}` comparison never matches on Windows, where
 // argv[1] is a drive path: the CLI exited 0 having silently done nothing.
@@ -102,7 +103,9 @@ export async function runMacOSCutover(input, dependencies = {}) {
   if (!exactPlistLabel(plist, options.launchdLabel)) throw new Error('plist Label differs from --label');
   const programArguments = plistProgramArguments(plist); const runtimeScript = resolve(controlRoot, 'runtime-current', 'build-control-broker', 'src', 'broker.mjs');
   if (programArguments.length !== 3 || programArguments.some((value) => !isAbsolute(value)) || resolve(programArguments[1]) !== runtimeScript || resolve(programArguments[2]) !== configPath) throw new Error('plist ProgramArguments must be exact node, runtime-current broker, & config paths');
-  const nodePath = await canonicalize(programArguments[0]); await assertFile(nodePath, 'plist Node executable', statFile);
+  await assertFile(await canonicalize(programArguments[0]), 'plist Node executable', statFile);
+  // Probe the literal argv launchd uses; canonicalizing a Node symlink changes ps identity.
+  const nodePath = programArguments[0];
   // The managed LaunchAgent lives in the user's GUI domain, which exists only while someone is logged in
   // at the console. Without it, stopping the broker cannot be undone (2026-10-06): refuse before touching it.
   if (!(await guiDomainAvailable(options.uid))) throw new Error(`no GUI login session for uid ${options.uid} (launchctl gui/${options.uid} unavailable); log in at the Mac before bootstrap or cutover — the running broker was left untouched`);
@@ -126,15 +129,25 @@ export async function runMacOSCutover(input, dependencies = {}) {
     }
     // From the stop on, any failure must bring the broker back (see runWindowsCutover).
     let stopProof; let result;
+    const rollbackSnapshot = options.rollbackSnapshot ?? await snapshotRuntimeSelection({ root: controlRoot, configPath });
     try {
     stopProof = await stopManaged({ launchdLabel: options.launchdLabel, uid: options.uid, plistPath, endpoint: options.endpoint });
     result = await install({
       externalRoot: controlRoot, sourcePackagesRoot, sourceRevision: options.sourceRevision, sourceTreeDigest: options.sourceTreeDigest, config, version: options.version, launchdLabel: options.launchdLabel, uid: options.uid, endpoint: options.endpoint,
-      plistPath, configPath, nodePath, healthWorkspace, healthTimeoutMs: options.timeoutMs, timeoutMs: options.timeoutMs, macosResourceAddon: options.macosResourceAddon,
+      plistPath, configPath, nodePath, rollbackSnapshot, healthWorkspace, healthTimeoutMs: options.timeoutMs, timeoutMs: options.timeoutMs, macosResourceAddon: options.macosResourceAddon,
       drainProbe: async () => proveThinDrain(externalRoot),
     });
+    if (rollbackSnapshot) await discardRuntimeSnapshot(rollbackSnapshot);
     } catch (error) {
-      try { await restartManaged({ launchdLabel: options.launchdLabel, uid: options.uid, plistPath }); error.brokerRestored = true; }
+      try {
+        if (rollbackSnapshot && !error.runtimeRestored) {
+          await stopManaged({ launchdLabel: options.launchdLabel, uid: options.uid, plistPath, endpoint: options.endpoint });
+          await restoreRuntimeSelection(rollbackSnapshot, { platform });
+        }
+        await restartManaged({ launchdLabel: options.launchdLabel, uid: options.uid, plistPath });
+        if (rollbackSnapshot) await discardRuntimeSnapshot(rollbackSnapshot);
+        error.brokerRestored = true;
+      }
       catch (restartError) { error.brokerRestored = false; error.message += `; broker restart also failed: ${restartError?.message ?? restartError}`; }
       throw error;
     }

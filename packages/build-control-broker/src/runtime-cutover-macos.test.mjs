@@ -23,7 +23,8 @@ function harness({ open = 0, unloaded = false } = {}) {
     if (args[0] === 'kickstart') { pid += 1; return { stdout: '' }; }
     throw new Error('unexpected command');
   };
-  const netModule = { createConnection() {
+  const netModule = { createConnection(endpoint) {
+    calls.push(['socket.connect', endpoint]);
     const listeners = {};
     const handle = { once(type, fn) { listeners[type] = fn; return handle; }, on(type, fn) { listeners[type] = fn; return handle; }, write(value) { calls.push(['socket.write', value]); }, destroy() {} };
     queueMicrotask(() => { listeners.connect?.(); listeners.data?.(Buffer.from(`${JSON.stringify({ type: 'HANDSHAKE', runtime: manifest })}\n${JSON.stringify({ type: 'STATUS', id: 'runtime-health-probe', state: 'ACTIVATION_PENDING', runtime: manifest })}\n`)); });
@@ -74,21 +75,72 @@ test('macOS cutover bootstraps exact supplied plist when service is unloaded', m
 });
 
 test('macOS process probe binds launchd PID to exact resolved runtime script', async () => {
-  const root = await realpath(await mkdtemp(join(tmpdir(), 'rk-cutover-process-')));
+  const temporary = await realpath(await mkdtemp(join(tmpdir(), 'rk-cutover-process-')));
+  const root = join(temporary, 'Library', 'Application Support', 'RightKit', 'build-control');
+  await mkdir(root, { recursive: true });
   try {
     const runtime = join(root, 'runtime-hash'); const script = join(runtime, 'build-control-broker', 'src', 'broker.mjs');
     await mkdir(join(runtime, 'build-control-broker', 'src'), { recursive: true }); await writeFile(script, ''); await symlink('runtime-hash', join(root, 'runtime-current'));
+    let suffix = '';
     const callbacks = createMacOSRuntimeCallbacks({
       launchdLabel: 'dev.rightkit.broker', endpoint: join(root, 'broker.sock'), externalRoot: root, plistPath: join(root, 'broker.plist'), configPath: join(root, 'config.json'), nodePath: process.execPath, drainProbe: async () => 0,
       processKill: () => {},
       execFile: async (_file, args) => {
         if (args[0] === 'print') return { stdout: 'pid = 42\n' };
-        if (args[0] === '-ww') return { stdout: `${process.execPath} ${join(root, 'runtime-current', 'build-control-broker', 'src', 'broker.mjs')} ${join(root, 'config.json')}\n` };
+        if (args[0] === '-ww') return { stdout: `${process.execPath} ${join(root, 'runtime-current', 'build-control-broker', 'src', 'broker.mjs')} ${join(root, 'config.json')}${suffix}\n` };
         throw new Error('unexpected command');
       },
     });
     assert.deepEqual(await callbacks.processProbe({ pid: 42, runtime }), { alive: true, runtimePath: runtime, scriptPath: script });
-  } finally { await rm(root, { recursive: true, force: true }); }
+    suffix = ' --foreign-argument';
+    assert.deepEqual(await callbacks.processProbe({ pid: 42, runtime }), { alive: false });
+    assert.deepEqual(await callbacks.processProbe({ pid: 41, runtime }), { alive: false });
+  } finally { await rm(temporary, { recursive: true, force: true }); }
+});
+
+test('activation handshake uses supplied socket even with legacy socket environment', async (t) => {
+  const previous = process.env.RIGHTKIT_BUILD_BROKER_SOCKET;
+  process.env.RIGHTKIT_BUILD_BROKER_SOCKET = '/legacy/broker.sock';
+  t.after(() => { if (previous === undefined) delete process.env.RIGHTKIT_BUILD_BROKER_SOCKET; else process.env.RIGHTKIT_BUILD_BROKER_SOCKET = previous; });
+  const { callbacks, calls } = harness({ unloaded: true });
+  const result = await callbacks.restartService({ manifest });
+  await callbacks.probeService({ manifest, restart: result });
+  assert.deepEqual(calls.filter(([kind]) => kind === 'socket.connect'), [['socket.connect', '/tmp/rk.sock'], ['socket.connect', '/tmp/rk.sock']]);
+});
+
+test('rollback unloads candidate & bootstraps prior once using restored config socket', async (t) => {
+  const root = await mkdtemp(join(tmpdir(), 'rk-rollback-launchd-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const prior = 'runtime-prior'; const configPath = join(root, 'config.json');
+  await mkdir(join(root, prior));
+  await writeFile(join(root, prior, 'runtime-manifest.json'), JSON.stringify({ ...manifest, sourceRevision: 'a'.repeat(40), sourceTreeDigest: 'b'.repeat(40) }));
+  await writeFile(configPath, JSON.stringify({ unixSocket: '/restored/legacy.sock' }));
+  let loaded = true; const calls = [];
+  const callbacks = createMacOSRuntimeCallbacks({
+    launchdLabel: 'dev.rightkit.broker', uid: 501, externalRoot: root, configPath,
+    endpoint: '/candidate/internal.sock', plistPath: join(root, 'broker.plist'), drainProbe: async () => 0,
+    processProbe: async () => ({ alive: true }), timeoutMs: 200,
+    execFile: async (_file, args) => {
+      calls.push(args);
+      if (args[0] === 'print') { if (!loaded) throw new Error('unloaded'); return { stdout: 'pid = 42\n' }; }
+      if (args[0] === 'bootout') loaded = false;
+      if (args[0] === 'bootstrap') loaded = true;
+      return { stdout: '' };
+    },
+    netModule: { createConnection(endpoint) {
+      assert.equal(endpoint, '/restored/legacy.sock');
+      const listeners = {}; const handle = { once(type, fn) { listeners[type] = fn; return handle; }, on(type, fn) { listeners[type] = fn; return handle; }, write() {}, destroy() {} };
+      queueMicrotask(() => { listeners.connect?.(); listeners.data?.(`${JSON.stringify({ type: 'HANDSHAKE', runtime: manifest })}\n`); });
+      return handle;
+    } },
+  });
+  await callbacks.stopService();
+  assert.equal(loaded, false);
+  assert.deepEqual(calls.slice(0, 2), [['disable', 'gui/501/dev.rightkit.broker'], ['bootout', 'gui/501/dev.rightkit.broker']]);
+  const result = await callbacks.rollbackService({ prior, manifest });
+  assert.equal(result.pid, 42);
+  assert.equal(calls.filter(([command]) => command === 'bootstrap').length, 1);
+  assert.equal(calls.some(([command]) => command === 'kickstart'), false);
 });
 
 test('first cutover rollback keeps legacy admission stopped', async () => {

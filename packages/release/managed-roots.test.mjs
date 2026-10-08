@@ -11,6 +11,8 @@ test('Mac control is internal & bulk data remains external; Windows keeps one ro
   assert.equal(roots.agentPolicy, `${roots.controlRoot}/agent-policy`);
   const windows = resolveManagedRoots({ platform: 'win32', env: {} });
   assert.equal(windows.controlRoot, 'D:\\.rightkit-managed');
+  assert.equal(windows.dataRoot, windows.controlRoot);
+  assert.equal(windows.socket, null);
   assert.equal(windows.runtimeCurrent, 'D:\\.rightkit-managed\\runtime-current');
   assert.equal(resolveManagedRoots({ ...options, env: { RIGHTKIT_MANAGED_ROOT: '/data' } }).controlRoot, roots.controlRoot);
 });

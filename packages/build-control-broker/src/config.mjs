@@ -2,7 +2,7 @@ import { HOST_DERIVED_BOUNDS } from './host-sizing.mjs';
 import { readFile as defaultReadFile } from 'node:fs/promises';
 import { isAbsolute, normalize, relative, win32 } from 'node:path';
 
-const topLevel = new Set(['schemaVersion', 'broker', 'unixSocket', 'windowsPipe', 'tools', 'shims', 'defaults', 'outputPolicy', 'bounds', 'sccache', 'externalCommands', 'ownership', 'indexRefreshRetry', 'coalesceIdenticalRequests', 'nodePath']);
+const topLevel = new Set(['schemaVersion', 'broker', 'unixSocket', 'windowsPipe', 'tools', 'shims', 'defaults', 'outputPolicy', 'bounds', 'sccache', 'externalCommands', 'ownership', 'indexRefreshRetry', 'coalesceIdenticalRequests']);
 const brokerFields = new Set(['externalRoot', 'capacityBytes', 'stateFile', 'receiptsDir', 'activationFencePath', 'controlRoot']);
 const externalRootFields = new Set(['path', 'volumeId', 'mounted', 'writable', 'internal']);
 const toolFields = new Set(['id', 'path', 'root', 'sha256']);
@@ -158,7 +158,10 @@ function validateBounds(value, { capacity }) {
 
 /** Reject malformed or ambiguous configuration before a process can bind a live endpoint. */
 export function validateBrokerConfig(value) {
-  const config = object(value, 'broker config'); only(config, topLevel, 'broker config');
+  // Legacy: the first control-plane migration wrote nodePath into broker config. The plist owns
+  // the node path now; accept and drop it so configs written by that migration still load.
+  const { nodePath: _legacyNodePath, ...current } = object(value, 'broker config');
+  const config = current; only(config, topLevel, 'broker config');
   const schemaVersion = config.schemaVersion ?? 2;
   if (schemaVersion !== 2) throw new TypeError('schemaVersion must be 2');
 
@@ -186,7 +189,6 @@ export function validateBrokerConfig(value) {
   const hasUnixSocket = config.unixSocket !== undefined; const hasWindowsPipe = config.windowsPipe !== undefined;
   if (!hasUnixSocket && !hasWindowsPipe) throw new TypeError('unixSocket or windowsPipe is required');
   const normalized = { schemaVersion, ...config, broker: normalizedBroker };
-  if (config.nodePath !== undefined) normalized.nodePath = absolute(config.nodePath, 'nodePath');
   normalized.indexRefreshRetry = config.indexRefreshRetry === undefined ? true : requiredBoolean(config.indexRefreshRetry, 'indexRefreshRetry');
   normalized.coalesceIdenticalRequests = config.coalesceIdenticalRequests === undefined ? true : requiredBoolean(config.coalesceIdenticalRequests, 'coalesceIdenticalRequests');
   delete normalized.unixSocket; delete normalized.windowsPipe;

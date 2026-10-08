@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, realpath, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, readlink, realpath, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 import { parseMacOSCutoverArgs, proveThinRequestsDrained, runMacOSCutover } from './runtime-cutover-macos-cli.mjs';
+import { snapshotRuntimeSelection } from './runtime.mjs';
 
 async function fixture() {
   const root = await realpath(await mkdtemp(join(tmpdir(), 'rk-cutover-cli-')));
@@ -21,6 +22,34 @@ const drainDependencies = { restartManaged: async () => {}, guiDomainAvailable: 
 test('argument parser rejects unknown switches & requires exact activation identity', () => {
   assert.throws(() => parseMacOSCutoverArgs(['--config', '/a']), /--external-root is required/);
   assert.throws(() => parseMacOSCutoverArgs(['--nope', '/x']), /unknown/);
+});
+
+test('cutover restores pre-bootstrap config bytes & pointer even when staging fails', { skip: process.platform !== 'darwin' && 'Mac rollback uses POSIX symlink replacement & directory fsync' }, async (t) => {
+  const item = await fixture();
+  t.after(() => rm(item.root, { recursive: true, force: true }));
+  await mkdir(join(item.external, 'runtime-prior'));
+  await symlink('runtime-prior', join(item.external, 'runtime-current'));
+  const oldBytes = Buffer.from(`\uFEFF${await readFile(item.config, 'utf8')}\n\n`);
+  await writeFile(item.config, oldBytes);
+  const rollbackSnapshot = await snapshotRuntimeSelection({ root: item.external, configPath: item.config });
+  const rewritten = JSON.parse(oldBytes.toString().replace(/^\uFEFF/, ''));
+  rewritten.defaults = { cargoBuildJobs: 7 };
+  await writeFile(item.config, JSON.stringify(rewritten));
+  const calls = [];
+  const error = await runMacOSCutover({ ...input(item), rollbackSnapshot }, {
+    ...drainDependencies, platform: 'darwin',
+    stopManaged: async () => { calls.push('stop'); return { stopped: true }; },
+    install: async () => { throw new Error('staging failed'); },
+    restartManaged: async () => {
+      calls.push('restart');
+      assert.equal(await readlink(join(item.external, 'runtime-current')), 'runtime-prior');
+      assert.deepEqual(await readFile(item.config), oldBytes);
+    },
+  }).catch((caught) => caught);
+  assert.match(error.message, /staging failed/);
+  assert.equal(error.brokerRestored, true);
+  assert.deepEqual(calls, ['stop', 'stop', 'restart']);
+  await assert.rejects(readFile(rollbackSnapshot.path), { code: 'ENOENT' });
 });
 
 test('thin drain proof reports absent state & rejects active markers', async () => {
@@ -107,7 +136,7 @@ test('split-root cutover accepts spaces & stages internally while draining exter
   const item = await fixture(); const control = join(item.root, 'Application Support', 'RightKit');
   await mkdir(control, { recursive: true });
   const config = JSON.parse(await (await import('node:fs/promises')).readFile(item.config, 'utf8'));
-  config.nodePath = process.execPath; config.broker.controlRoot = control;
+  config.broker.controlRoot = control;
   config.broker.stateFile = join(control, 'state.json'); config.broker.activationFencePath = join(control, 'activation-fence.json');
   config.unixSocket = join(control, 'broker.sock');
   item.config = join(control, 'config.json');

@@ -53,7 +53,7 @@ export async function storageMain(argv, { stdout = process.stdout, stderr = proc
     for (const path of options.trash) {
       if (isLegacyQaTempRoot(path, options.managedRoot)) { await noSymlinkPath(path); continue; }
       if (inside(path, options.managedRoot) || inside(options.managedRoot, path)) throw new Error('managed storage cannot be selected for one-off Trash');
-      if (options.trashKind === 'run') { await trashRun({ ...options, path, apply: false }); continue; }
+      if (options.trashKind === 'run') { await trashRun({ ...options, path, apply: false, move }); continue; }
       if (!/(archive|trash|research)/i.test(basename(path)) && !/\.(dmg|pkg|msi|exe)$/i.test(path)) throw new Error('one-off Trash requires explicitly named archive/trash/research/installer');
       await noSymlinkPath(path);
     }
