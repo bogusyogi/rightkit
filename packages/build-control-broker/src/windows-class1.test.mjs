@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { mkdtemp, mkdir, readFile, rm, symlink, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, rm, symlink, writeFile, realpath } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -11,7 +11,7 @@ import { restrictedChildSpec, validateRestrictedChildSpec } from './windows-rest
 
 const run = promisify(execFile);
 const script = fileURLToPath(new URL('../../../ownership-approval/windows/install-class1-service.ps1', import.meta.url));
-async function fixture(t) { const root = await mkdtemp(join(tmpdir(), 'rk-class1-')); t.after(() => rm(root, { recursive: true, force: true })); return root; }
+async function fixture(t) { const root = await realpath(await mkdtemp(join(tmpdir(), 'rk-class1-'))); t.after(() => rm(root, { recursive: true, force: true })); return root; }
 
 test('real-copy bound accepts exact ceiling & refuses byte/count overflow; clone avoids real-copy cost', () => {
   const bound = { bytes: WINDOWS_COPY_COST_BOUND_BYTES, fileCount: WINDOWS_COPY_COST_BOUND_FILES, blockClone: false };
