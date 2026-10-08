@@ -658,15 +658,24 @@ mod tool_settings_tests {
             fs::write(p, "fixture tool").unwrap();
         }
         let settings_file = root.join("settings.env");
-        fs::write(&settings_file, format!("GENRIGHT_FFPROBE={}\n", legacy.display())).unwrap();
-        let mut settings = Settings::load(&settings_file).unwrap().with_env_override(false);
+        fs::write(
+            &settings_file,
+            format!("GENRIGHT_FFPROBE={}\n", legacy.display()),
+        )
+        .unwrap();
+        let mut settings = Settings::load(&settings_file)
+            .unwrap()
+            .with_env_override(false);
         assert_eq!(locate_ffprobe("genright", &settings), Some(legacy.clone()));
         assert_eq!(locate_ffprobe("scraperight", &settings), Some(legacy));
         settings.set("SCRAPE_RIGHT_FFPROBE", app.to_string_lossy());
         assert_eq!(locate_ffprobe("scrape-right", &settings), Some(app));
         settings.set("RIGHTKIT_QA_FFPROBE", generic.to_string_lossy());
         assert_eq!(locate_ffprobe("scrape-right", &settings), Some(generic));
-        settings.set("RIGHTKIT_QA_FFPROBE", root.join("missing").to_string_lossy());
+        settings.set(
+            "RIGHTKIT_QA_FFPROBE",
+            root.join("missing").to_string_lossy(),
+        );
         assert_eq!(locate_ffprobe("scrape-right", &settings), None);
         fs::remove_dir_all(root).unwrap();
     }

@@ -124,7 +124,10 @@ fn every_notice_file_is_packaged_with_the_crate() {
 }
 
 /// Real artifacts present on this machine must hash to their approved digests.
+/// Reads ignored binaries in sibling app checkouts, so it audits workstation
+/// state rather than this crate; run it explicitly with `--ignored`.
 #[test]
+#[ignore = "audits app checkout binaries outside this crate"]
 fn real_local_artifacts_and_locks_match_their_catalog_records() {
     let catalog = NativeCatalog::embedded().unwrap();
     let root = root();
