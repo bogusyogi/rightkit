@@ -1,11 +1,11 @@
 //! Windows.Graphics.Capture backend for one HWND (RK2 Spike B design).
 //!
 //! The FrameArrived callback takes the frame, copies it into a staging slot, and
-//! hands the slot index to a worker. Pacing, readback, encoding (or BMP writes)
-//! and events run on the worker, so no encode or disk work happens in the callback.
-//! The worker never runs on the capture thread.
+//! hands the slot index to a worker. Pacing, drop aggregation, readback, encoding
+//! (or BMP writes) and events run on the worker, so no encode or disk work happens
+//! in the callback. The worker never runs on the capture thread.
 //!
-//! This module depends only on `crate::{args, bmp, codec, error, pacer, record}`
+//! This module depends only on `crate::{args, bmp, codec, error, journal, pacer, record}`
 //! and the `windows` crate, so it moves unchanged into rightkit-record.
 
 mod gpu;
@@ -14,7 +14,7 @@ mod window;
 
 use std::ffi::c_void;
 use std::fs::{self, File};
-use std::io::{BufWriter, Write};
+use std::io::BufWriter;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender, SyncSender};
@@ -37,13 +37,15 @@ use ::windows::Win32::System::WinRT::{RoInitialize, RO_INIT_MULTITHREADED};
 use ::windows::Win32::System::WinRT::Graphics::Capture::IGraphicsCaptureItemInterop;
 use ::windows::Win32::UI::HiDpi::{SetProcessDpiAwarenessContext, DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2};
 use ::windows::Win32::System::WinRT::Direct3D11::IDirect3DDxgiInterfaceAccess;
+use rightkit_contracts::types::record_event::DropReason;
 use serde_json::{json, Value};
 
 use crate::args::CaptureArgs;
 use crate::bmp;
 use crate::codec::{self, Codec};
 use crate::error::{Code, RecordError};
-use crate::pacer::{Decision, Pacer};
+use crate::journal::Journal;
+use crate::pacer::{Closed, Decision, DropAggregator, Losses, Pacer};
 use crate::record::{self, ClockDraft, DraftInput};
 
 /// Staging slots in the ring. Each in-flight frame holds one slot.
@@ -51,11 +53,132 @@ const SLOTS: usize = 6;
 const STATUS_PARTIAL: &str = "partial_quarantined";
 const MP4_NAME: &str = "capture.mp4";
 
+type EventJournal = Journal<BufWriter<File>>;
+
 /// Entry point. Writes the encoded video (or BMP frames), events and the
-/// record-session draft into `args.out`.
+/// record-session draft into `args.out`. Session events bracket the capture on
+/// every exit path, including a refused window and a setup error.
 pub fn run(args: &CaptureArgs) -> Result<Value, RecordError> {
     let _ = unsafe { SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2) };
     prepare_out_dir(&args.out, args.codec)?;
+    let now_ms = unix_millis();
+    let session_id = format!("bundle.win-{now_ms}");
+    let created_at = record::iso8601_utc((now_ms / 1000) as i64);
+
+    let file = File::create(args.out.join("events.ndjson")).map_err(|e| io_error("create events.ndjson", e))?;
+    let journal: Arc<Mutex<EventJournal>> = Arc::new(Mutex::new(Journal::new(BufWriter::new(file), session_id.clone())));
+    lock(&journal).session_start(qpc_now_ns())?;
+
+    let captured = capture(args, &journal);
+    let ended = {
+        let mut guard = lock(&journal);
+        guard.session_end(qpc_now_ns()).and_then(|()| guard.flush())
+    };
+    let captured = match (captured, ended) {
+        (Err(err), _) | (Ok(_), Err(err)) => return Err(err),
+        (Ok(captured), Ok(())) => captured,
+    };
+
+    let event_count = lock(&journal).count();
+    let initial = &captured.initial;
+    let output = &captured.output;
+    let stop_error = captured.stop_error;
+    let reason = match &stop_error {
+        Some(err) => format!("first cut, not complete: capture stopped early ({err}); no bundle writer yet"),
+        None => "first cut, not complete: no bundle writer; scenario, target, files, dependencies and redaction not produced".to_string(),
+    };
+    let clock = output.first_host_ns.map(|first| ClockDraft { host_ns_at_start: captured.host_ns_at_start, first_host_ns: first });
+    let os_build = window::os_build();
+    let scale = f64::from(initial.dpi) / 96.0;
+    let rect = initial.rect;
+    let bounds_pt = [
+        f64::from(rect.left) * 96.0 / f64::from(initial.dpi),
+        f64::from(rect.top) * 96.0 / f64::from(initial.dpi),
+        f64::from(rect.right - rect.left) * 96.0 / f64::from(initial.dpi),
+        f64::from(rect.bottom - rect.top) * 96.0 / f64::from(initial.dpi),
+    ];
+    let visibility_state = if initial.on_monitor { "on_screen_visible" } else { "off_screen_visible" };
+    let dropped = output.paced_drops + output.encoder_drops + captured.backpressure + captured.size_mismatch + captured.copy_failures;
+    let draft = record::session_draft(&DraftInput {
+        bundle_id: &session_id,
+        created_at: &created_at,
+        reason: &reason,
+        os_build: &os_build,
+        fps: args.fps,
+        codec: args.codec.draft_codec(),
+        scale,
+        width: captured.width,
+        height: captured.height,
+        visibility_state,
+        bounds_pt,
+        dpi: initial.dpi,
+        clock,
+        frames_count: output.kept,
+        frames_dropped: dropped,
+        events_count: event_count,
+    });
+    let draft_path = args.out.join("record-session.draft.json");
+    fs::write(&draft_path, serde_json::to_string_pretty(&draft).unwrap_or_default())
+        .map_err(|e| io_error("write record-session.draft.json", e))?;
+    let validation = record::validate_draft(&draft);
+
+    if let Some(err) = stop_error {
+        return Err(err);
+    }
+    let seconds = captured.elapsed.as_secs_f64().max(f64::MIN_POSITIVE);
+    let output_file = match args.codec {
+        Codec::Bmp => None,
+        _ => Some(args.out.join(MP4_NAME)),
+    };
+    Ok(json!({
+        "ok": true,
+        "outDir": args.out,
+        "status": STATUS_PARTIAL,
+        "requestedFps": args.fps,
+        "codec": args.codec.as_str(),
+        "container": args.codec.container(),
+        "encoder": captured.encoder,
+        "outputFile": output_file,
+        "encodedSize": { "width": captured.encoded_size.0, "height": captured.encoded_size.1 },
+        "visibilityState": visibility_state,
+        "elapsedMs": captured.elapsed.as_millis() as u64,
+        "arrived": captured.arrived,
+        "kept": output.kept,
+        "achievedFps": output.kept as f64 / seconds,
+        "pacedDrops": output.paced_drops,
+        "encoderDrops": output.encoder_drops,
+        "backpressureDrops": captured.backpressure,
+        "sizeMismatchDrops": captured.size_mismatch,
+        "copyFailures": captured.copy_failures,
+        "events": event_count,
+        "recordSessionDraft": {
+            "path": draft_path,
+            "validatesAsRecordSession": validation.is_ok(),
+            "validationError": validation.err(),
+        },
+    }))
+}
+
+/// What a capture attempt that reached the worker leaves behind for the report.
+struct Captured {
+    initial: window::WindowState,
+    width: u32,
+    height: u32,
+    encoded_size: (u32, u32),
+    encoder: Option<Value>,
+    host_ns_at_start: u64,
+    elapsed: Duration,
+    arrived: u64,
+    backpressure: u64,
+    size_mismatch: u64,
+    copy_failures: u64,
+    output: WorkerOutput,
+    /// Failure that ended the capture early, or the worker's own error.
+    stop_error: Option<RecordError>,
+}
+
+/// Runs the capture. Returns an error for refusals and setup failures, before any frame.
+fn capture(args: &CaptureArgs, journal: &Arc<Mutex<EventJournal>>) -> Result<Captured, RecordError> {
     let hwnd = HWND(args.hwnd as *mut c_void);
     let initial = window::check(hwnd)?;
 
@@ -81,9 +204,6 @@ pub fn run(args: &CaptureArgs) -> Result<Value, RecordError> {
     let (width, height) = (size.Width as u32, size.Height as u32);
 
     // Encoder setup runs before capture starts, so a missing codec fails with no capture.
-    let events = BufWriter::new(
-        File::create(args.out.join("events.ndjson")).map_err(|e| io_error("create events.ndjson", e))?,
-    );
     let (sink, encoder, encoded_size) = match args.codec {
         Codec::Bmp => (Sink::Bmp { frames: args.out.join("frames") }, None, (width, height)),
         _ => {
@@ -132,14 +252,11 @@ pub fn run(args: &CaptureArgs) -> Result<Value, RecordError> {
         height,
     });
 
-    let now_ms = unix_millis();
-    let session_id = format!("bundle.win-{now_ms}");
-    let created_at = record::iso8601_utc((now_ms / 1000) as i64);
     let worker = {
         let shared = Arc::clone(&shared);
-        let session_id = session_id.clone();
+        let journal = Arc::clone(journal);
         let fps = args.fps;
-        thread::spawn(move || worker(shared, frames_rx, fps, events, session_id, sink))
+        thread::spawn(move || worker(shared, frames_rx, fps, journal, sink))
     };
 
     let callback_shared = Arc::clone(&shared);
@@ -175,86 +292,23 @@ pub fn run(args: &CaptureArgs) -> Result<Value, RecordError> {
     let elapsed = started.elapsed();
     // The worker finalizes the sink here, on the normal, error and refusal paths alike.
     let output = shutdown(&shared, &pool, &session, token, worker);
+    let stop_error = failure.or_else(|| output.error.clone());
 
-    let kept = output.kept;
-    let paced_drops = output.paced_drops;
-    let backpressure = shared.backpressure_drops.load(Ordering::Relaxed);
-    let size_mismatch = shared.size_mismatch_drops.load(Ordering::Relaxed);
-    let copy_failures = shared.copy_failures.load(Ordering::Relaxed);
-    let arrived = shared.arrived.load(Ordering::Relaxed);
-    let dropped = paced_drops + backpressure + size_mismatch + copy_failures;
-
-    let stop_error = failure.clone().or_else(|| output.error.clone());
-    let reason = match &stop_error {
-        Some(err) => format!("first cut, not complete: capture stopped early ({err}); no bundle writer yet"),
-        None => "first cut, not complete: no bundle writer; scenario, target, files, dependencies and redaction not produced".to_string(),
-    };
-    let clock = output.first_host_ns.map(|first| ClockDraft { host_ns_at_start, first_host_ns: first });
-    let os_build = window::os_build();
-    let scale = f64::from(initial.dpi) / 96.0;
-    let rect = initial.rect;
-    let bounds_pt = [
-        f64::from(rect.left) * 96.0 / f64::from(initial.dpi),
-        f64::from(rect.top) * 96.0 / f64::from(initial.dpi),
-        f64::from(rect.right - rect.left) * 96.0 / f64::from(initial.dpi),
-        f64::from(rect.bottom - rect.top) * 96.0 / f64::from(initial.dpi),
-    ];
-    let draft = record::session_draft(&DraftInput {
-        bundle_id: &session_id,
-        created_at: &created_at,
-        reason: &reason,
-        os_build: &os_build,
-        fps: args.fps,
-        codec: args.codec.draft_codec(),
-        scale,
+    Ok(Captured {
+        initial,
         width,
         height,
-        visibility_state: (!initial.on_monitor).then_some("off_screen_visible"),
-        bounds_pt,
-        dpi: initial.dpi,
-        clock,
-        frames_count: kept,
-        frames_dropped: dropped,
-        events_count: output.events,
-    });
-    let draft_path = args.out.join("record-session.draft.json");
-    fs::write(&draft_path, serde_json::to_string_pretty(&draft).unwrap_or_default())
-        .map_err(|e| io_error("write record-session.draft.json", e))?;
-    let validation = record::validate_draft(&draft);
-
-    if let Some(err) = stop_error {
-        return Err(err);
-    }
-    let seconds = elapsed.as_secs_f64().max(f64::MIN_POSITIVE);
-    let output_file = match args.codec {
-        Codec::Bmp => None,
-        _ => Some(args.out.join(MP4_NAME)),
-    };
-    Ok(json!({
-        "ok": true,
-        "outDir": args.out,
-        "status": STATUS_PARTIAL,
-        "requestedFps": args.fps,
-        "codec": args.codec.as_str(),
-        "container": args.codec.container(),
-        "encoder": encoder,
-        "outputFile": output_file,
-        "encodedSize": { "width": encoded_size.0, "height": encoded_size.1 },
-        "elapsedMs": elapsed.as_millis() as u64,
-        "arrived": arrived,
-        "kept": kept,
-        "achievedFps": kept as f64 / seconds,
-        "pacedDrops": paced_drops,
-        "backpressureDrops": backpressure,
-        "sizeMismatchDrops": size_mismatch,
-        "copyFailures": copy_failures,
-        "events": output.events,
-        "recordSessionDraft": {
-            "path": draft_path,
-            "validatesAsRecordSession": validation.is_ok(),
-            "validationError": validation.err(),
-        },
-    }))
+        encoded_size,
+        encoder,
+        host_ns_at_start,
+        elapsed,
+        arrived: shared.arrived.load(Ordering::Relaxed),
+        backpressure: shared.backpressure_drops.load(Ordering::Relaxed),
+        size_mismatch: shared.size_mismatch_drops.load(Ordering::Relaxed),
+        copy_failures: shared.copy_failures.load(Ordering::Relaxed),
+        output,
+        stop_error,
+    })
 }
 
 struct Shared {
@@ -269,6 +323,16 @@ struct Shared {
     readback: Mutex<gpu::Readback>,
     width: u32,
     height: u32,
+}
+
+impl Shared {
+    /// Totals of the losses the callback has counted so far. Monotonic.
+    fn losses(&self) -> Losses {
+        Losses {
+            backpressure: self.backpressure_drops.load(Ordering::Relaxed),
+            unknown: self.size_mismatch_drops.load(Ordering::Relaxed) + self.copy_failures.load(Ordering::Relaxed),
+        }
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -292,10 +356,9 @@ impl Sink {
     }
 }
 
-/// Worker-owned output state: the sink, the events writer and a reusable BGRA buffer.
+/// Worker-owned frame state: the sink and a reusable BGRA buffer.
 struct Recorder {
     sink: Sink,
-    events: BufWriter<File>,
     scratch: Vec<u8>,
 }
 
@@ -303,7 +366,8 @@ struct Recorder {
 struct WorkerOutput {
     kept: u64,
     paced_drops: u64,
-    events: u64,
+    /// Frames that arrived after a sink failure and were not written.
+    encoder_drops: u64,
     first_host_ns: Option<u64>,
     error: Option<RecordError>,
 }
@@ -372,35 +436,56 @@ fn take_slot(shared: &Shared) -> Option<usize> {
     lock(&shared.free_rx).try_recv().ok()
 }
 
-/// Worker thread: paces, reads back kept frames, writes them to the sink and
-/// events, then finalizes the sink. Finalization runs after errors too.
+/// Worker thread: paces, aggregates drops, reads back kept frames, writes them to
+/// the sink and events, then finalizes the sink. Finalization runs after errors too.
 fn worker(
     shared: Arc<Shared>,
     rx: Receiver<FrameMsg>,
     fps: u32,
-    events: BufWriter<File>,
-    session_id: String,
+    journal: Arc<Mutex<EventJournal>>,
     sink: Sink,
 ) -> WorkerOutput {
     let mut output = WorkerOutput::default();
-    let mut recorder = Recorder { sink, events, scratch: Vec::new() };
+    let mut recorder = Recorder { sink, scratch: Vec::new() };
     let mut pacer = Pacer::new(fps);
+    let mut aggregator = DropAggregator::new(fps);
+    let mut closed: Vec<Closed> = Vec::new();
+    let mut seen = Losses::default();
     for msg in rx {
-        if output.error.is_none() {
-            match pacer.offer(msg.host_ns as i64) {
-                Decision::Drop => output.paced_drops += 1,
-                Decision::Keep => {
-                    if let Err(err) = keep_frame(&shared, &mut output, &mut recorder, &session_id, msg) {
-                        output.error = Some(err);
-                        shared.stopped.store(true, Ordering::Release);
-                    }
-                }
+        let now = shared.losses();
+        let losses = Losses {
+            backpressure: now.backpressure.saturating_sub(seen.backpressure),
+            unknown: now.unknown.saturating_sub(seen.unknown),
+        };
+        seen = now;
+        if output.error.is_some() {
+            output.encoder_drops += 1;
+        } else {
+            let kept = pacer.offer(msg.host_ns as i64) == Decision::Keep;
+            aggregator.arrival(msg.host_ns as i64, kept, losses, &mut closed);
+            write_drops(&journal, msg.host_ns, &mut closed, &mut output);
+            if !kept {
+                output.paced_drops += 1;
+            } else if let Err(err) = keep_frame(&shared, &mut output, &mut recorder, &journal, msg) {
+                output.error = Some(err);
+                output.encoder_drops += 1;
+                shared.stopped.store(true, Ordering::Release);
             }
         }
         let _ = shared.free_tx.send(msg.slot);
     }
-    if let Err(e) = recorder.events.flush() {
-        output.error.get_or_insert_with(|| io_error("flush events.ndjson", e));
+
+    let end_ns = output.first_host_ns.unwrap_or(0);
+    aggregator.finish(&mut closed);
+    write_drops(&journal, end_ns, &mut closed, &mut output);
+    if output.encoder_drops > 0 {
+        // Sink failures are one run: they are reported together, after the last kept frame.
+        let count = u32::try_from(output.encoder_drops).unwrap_or(u32::MAX);
+        let interval_ms = f64::from(count) * 1000.0 / f64::from(fps);
+        let result = lock(&journal).frame_dropped(end_ns, count, interval_ms, DropReason::Encoder);
+        if let Err(err) = result {
+            output.error.get_or_insert(err);
+        }
     }
     if let Err(err) = recorder.sink.finalize() {
         output.error.get_or_insert(err);
@@ -408,11 +493,21 @@ fn worker(
     output
 }
 
+/// Writes the closed drop runs as frame_dropped events. A write failure is kept as the worker error.
+fn write_drops(journal: &Mutex<EventJournal>, host_ns: u64, closed: &mut Vec<Closed>, output: &mut WorkerOutput) {
+    for run in closed.drain(..) {
+        let result = lock(journal).frame_dropped(host_ns, run.count, run.interval_ms, run.reason);
+        if let Err(err) = result {
+            output.error.get_or_insert(err);
+        }
+    }
+}
+
 fn keep_frame(
     shared: &Shared,
     output: &mut WorkerOutput,
     rec: &mut Recorder,
-    session_id: &str,
+    journal: &Mutex<EventJournal>,
     msg: FrameMsg,
 ) -> Result<(), RecordError> {
     let first = *output.first_host_ns.get_or_insert(msg.host_ns);
@@ -433,17 +528,7 @@ fn keep_frame(
         }
     }
     output.kept += 1;
-
-    let line = record::frame_ready(session_id, output.events, index, msg.host_ns, sample_pts_ns);
-    // Schema validation compiles the schema, so it runs once per session, not per frame.
-    if index == 0 {
-        record::validate_event(&line).map_err(|e| RecordError::new(Code::Io, format!("record-event invalid: {e}")))?;
-    }
-    rec.events
-        .write_all(format!("{line}\n").as_bytes())
-        .map_err(|e| io_error("write events.ndjson", e))?;
-    output.events += 1;
-    Ok(())
+    lock(journal).frame_ready(index, msg.host_ns, sample_pts_ns)
 }
 
 /// Stops capture, lets the worker drain and finalize, and returns its output. Safe to call on any path.
