@@ -99,9 +99,6 @@ impl Harness {
     pub fn new(app: &str, root: impl Into<PathBuf>) -> Result<Self> {
         let root = root.into();
         let settings = Settings::discover(&root)?;
-        if let Some(p) = crate::media::locate_tool("ffprobe", &settings, "RIGHTKIT_QA_FFPROBE") {
-            crate::media::set_ffprobe_bin(p);
-        }
         Ok(Self::with_parts(app, root, settings))
     }
 
@@ -113,9 +110,6 @@ impl Harness {
     ) -> Result<Self> {
         let root = root.into();
         let settings = Settings::discover(&root)?;
-        if let Some(p) = crate::media::locate_tool("ffprobe", &settings, "RIGHTKIT_QA_FFPROBE") {
-            crate::media::set_ffprobe_bin(p);
-        }
         Ok(Self::with_parts_in_managed_root(
             app,
             root,
@@ -148,6 +142,9 @@ impl Harness {
         settings: Settings,
         managed_root: Option<&Path>,
     ) -> Self {
+        if let Some(p) = locate_ffprobe(app, &settings) {
+            crate::media::set_ffprobe_bin(p);
+        }
         let run = Some(
             crate::workspace::create_impl_for_harness(managed_root, app)
                 .unwrap_or_else(|e| panic!("cannot create managed QA run: {e}")),
@@ -601,6 +598,22 @@ impl Scenario {
     }
 }
 
+// Resolve explicit Settings pins before PATH discovery. Generic key wins, followed
+// by this app's key and GenRight's historical key for existing settings files.
+fn locate_ffprobe(app: &str, settings: &Settings) -> Option<PathBuf> {
+    let app_key: String = app
+        .to_uppercase()
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() { c } else { '_' })
+        .collect();
+    let app_key = format!("{app_key}_FFPROBE");
+    let key = ["RIGHTKIT_QA_FFPROBE", app_key.as_str(), "GENRIGHT_FFPROBE"]
+        .into_iter()
+        .find(|key| settings.get(key).is_some())
+        .unwrap_or("RIGHTKIT_QA_FFPROBE");
+    crate::media::locate_tool("ffprobe", settings, key)
+}
+
 /// Filesystem-safe scenario directory name (bounded length, hash suffix keeps it unique).
 pub fn slug(name: &str) -> String {
     let base: String = name
@@ -628,4 +641,33 @@ pub fn read_summary(evidence_root: &Path) -> Result<Vec<Value>> {
         .filter(|l| !l.trim().is_empty())
         .map(|l| Ok(serde_json::from_str(l)?))
         .collect()
+}
+
+#[cfg(test)]
+mod tool_settings_tests {
+    use super::*;
+
+    #[test]
+    fn ffprobe_settings_accept_app_and_legacy_keys_before_path_discovery() {
+        let root = std::env::temp_dir().join(format!("rkqa-ffprobe-{}", new_id()));
+        fs::create_dir_all(&root).unwrap();
+        let generic = root.join("generic");
+        let app = root.join("app");
+        let legacy = root.join("legacy");
+        for p in [&generic, &app, &legacy] {
+            fs::write(p, "fixture tool").unwrap();
+        }
+        let settings_file = root.join("settings.env");
+        fs::write(&settings_file, format!("GENRIGHT_FFPROBE={}\n", legacy.display())).unwrap();
+        let mut settings = Settings::load(&settings_file).unwrap().with_env_override(false);
+        assert_eq!(locate_ffprobe("genright", &settings), Some(legacy.clone()));
+        assert_eq!(locate_ffprobe("scraperight", &settings), Some(legacy));
+        settings.set("SCRAPE_RIGHT_FFPROBE", app.to_string_lossy());
+        assert_eq!(locate_ffprobe("scrape-right", &settings), Some(app));
+        settings.set("RIGHTKIT_QA_FFPROBE", generic.to_string_lossy());
+        assert_eq!(locate_ffprobe("scrape-right", &settings), Some(generic));
+        settings.set("RIGHTKIT_QA_FFPROBE", root.join("missing").to_string_lossy());
+        assert_eq!(locate_ffprobe("scrape-right", &settings), None);
+        fs::remove_dir_all(root).unwrap();
+    }
 }

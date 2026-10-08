@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, writeFile, readFile, rm, lstat, symlink, readdir, chmod, utimes, realpath } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { retentionPlan, pruneManaged, startStorageRun, withStorageLock, storageReport, moveToVolumeTrash, volumeRoot, noSymlinkPath, STORAGE_DEFAULTS, pruneLegacyQaTemp } from './storage.mjs';
+import { retentionPlan, pruneManaged, startStorageRun, withStorageLock, storageReport, moveToVolumeTrash, volumeRoot, noSymlinkPath, STORAGE_DEFAULTS, pruneLegacyQaTemp, trashRun } from './storage.mjs';
 import { ownershipStorageFindings } from './storage-ownership.mjs';
 import { deviceSupportPlan, connectedDeviceVersions, xcodeManagedArgs } from './xcode-storage.mjs';
 const now = 2_000_000_000_000, day = 86400_000;
@@ -31,7 +31,29 @@ test('run budget overrides newest count but protects live PID, lease & youth', a
 test('dry-run leaves roots & apply removes only eligible marked roots', async t => { const root = await fixture(t); const old = await row(root, 'app', 'old', now - 4 * day); const unknown = join(root, 'runs/app/unknown'); await mkdir(unknown); await writeFile(join(unknown, 'private'), 'data'); const plan = await pruneManaged({ managedRoot: root, app: 'app', now, keep: 0, apply: false }); assert.equal(plan.remove.length, 1); await lstat(old); await pruneManaged({ managedRoot: root, app: 'app', now, keep: 0, apply: true }); await assert.rejects(lstat(old), { code: 'ENOENT' }); assert.equal(await readFile(join(unknown, 'private'), 'utf8'), 'data'); });
 test('artifacts retain latest three plus published; unknown publication preserves all', async t => { const root = await fixture(t); for (let i = 0; i < 5; i++) await row(root, 'app', `v${i}`, now - i * day, { kind: 'artifacts' }); assert.equal((await retentionPlan({ managedRoot: root, app: 'app', kind: 'artifacts', now })).remove.length, 0); await writeFile(join(root, 'artifacts/app/published.json'), JSON.stringify({ versions: ['v4'] })); const plan = await retentionPlan({ managedRoot: root, app: 'app', kind: 'artifacts', now }); assert.deepEqual(plan.remove.map(r => r.meta.version), ['v3']); });
 test('path traversal, symlink ancestors & simultaneous retention fail closed', async t => { const root = await fixture(t); await assert.rejects(retentionPlan({ managedRoot: root, app: '../escape' })); const actual = join(root, 'actual'); await mkdir(actual); await symlink(actual, join(root, 'runs')); await assert.rejects(pruneManaged({ managedRoot: root, app: 'app', apply: true }), /symlink/); await withStorageLock(actual, () => assert.rejects(withStorageLock(actual, () => {}), /busy/)); });
-test('managed run exports scratch & Xcode paths & finish releases owner', async t => { const root = await fixture(t); const run = await startStorageRun({ managedRoot: root, app: 'app' }); assert.equal(run.env.RIGHTKIT_RUN_ROOT, run.root); assert.ok(run.env.TMPDIR.startsWith(run.root)); const args = await xcodeManagedArgs({ managedRoot: root, runRoot: run.root }); assert.equal(args[0], '-derivedDataPath'); assert.ok(args[1].startsWith(run.root)); await run.finish(); const meta = JSON.parse(await readFile(join(run.root, '.rightkit-run.json'))); assert.equal(meta.ownerPid, 0); await assert.rejects(xcodeManagedArgs({ managedRoot: root, runRoot: run.root }), /live/); });
+test('managed run exports short socket-safe temp & retention owns its companion', async t => {
+  const root = join(await fixture(t), 'long-managed-root-'.repeat(8));
+  const run = await startStorageRun({ managedRoot: root, app: 'scraperight', runId: 'long-run-id-'.repeat(12) });
+  const marker = join(run.root, '.rightkit-run.json');
+  const active = JSON.parse(await readFile(marker));
+  t.after(() => active.appRoot && rm(active.appRoot, { recursive: true, force: true }));
+  assert.equal(run.env.RIGHTKIT_RUN_ROOT, run.root);
+  assert.equal(run.env.TMP, run.env.TMPDIR); assert.equal(run.env.TEMP, run.env.TMPDIR);
+  const socket = join(run.env.TMPDIR, `tsx-${process.getuid?.() ?? 501}`, '1234567890.pipe');
+  if (process.platform !== 'win32') assert.ok(Buffer.byteLength(socket) < 104, socket);
+  const binding = JSON.parse(await readFile(join(active.appRoot, '.rightkit-app.json')));
+  assert.equal(binding.runRoot, await realpath(run.root));
+  assert.equal(binding.runId, 'long-run-id-'.repeat(12));
+  assert.equal((await pruneManaged({ managedRoot: root, app: 'scraperight', keep: 0, minAgeMs: 0, apply: true })).applied.length, 0);
+  await lstat(run.env.TMPDIR);
+  const args = await xcodeManagedArgs({ managedRoot: root, runRoot: run.root });
+  assert.ok(args[1].startsWith(run.root));
+  await run.finish();
+  assert.equal(JSON.parse(await readFile(marker)).ownerPid, 0);
+  await assert.rejects(xcodeManagedArgs({ managedRoot: root, runRoot: run.root }), /live/);
+  await pruneManaged({ managedRoot: root, app: 'scraperight', keep: 0, minAgeMs: 0, apply: true });
+  await assert.rejects(lstat(run.env.TMPDIR), { code: 'ENOENT' });
+});
 test('device support retains newest two, connected & recently used versions', async t => { const root = await fixture(t); for (const v of ['18.0', '19.0', '20.0', '21.0', '22.0']) await mkdir(join(root, `${v} (build)`)); const plan = await deviceSupportPlan({ directory: root, connectedVersions: ['18.0'], recent: { '19.0': now - day }, now }); assert.deepEqual(plan.remove.map(r => r.version), ['20.0']); assert.equal(plan.retain.length, 4); });
 test('device discovery validates snapshots & current/deprecated properties', () => { assert.throws(() => connectedDeviceVersions({}), /incomplete/); assert.deepEqual(connectedDeviceVersions({ result: { devices: [{ connectionProperties: { tunnelState: 'connected' }, deviceProperties: { osVersionNumber: '18.0' } }, { properties: { connection: { tunnelState: 'connected' }, device: { osVersionNumber: '19.1' } } }] } }), ['18.0', '19.1']); assert.throws(() => connectedDeviceVersions({ result: { devices: [{ connectionProperties: { tunnelState: 'connected' } }] } }), /unavailable/); });
 test('report aggregates managed/unmanaged categories & per-app offenders', async t => { const root = await fixture(t); await row(root, 'app', 'run', now); const app = join(root, 'repo'); await mkdir(join(app, '.cache'), { recursive: true }); await writeFile(join(app, '.cache/blob'), 'hello'); const report = await storageReport({ managedRoot: root, apps: [{ app: 'app', path: app }] }); assert.equal(report.totals.unmanagedBytes, 5); assert.ok(report.totals.managedBytes > 40); assert.equal(report.totals.byCategory['unmanaged:app-cache'], 5); assert.equal(report.errors.length, 0); });
@@ -41,6 +63,19 @@ test('Trash dry run is same-volume & never mutates source', async t => { const r
 test('Trash apply moves one-off items in temp volume without deleting contents', async t => { const root = await fixture(t); const source = join(root, 'archive-old'); await mkdir(source); await writeFile(join(source, 'private'), 'preserved'); const receipt = await moveToVolumeTrash(source, { apply: true, locateVolume: async () => root, volume: root }); await assert.rejects(lstat(source), { code: 'ENOENT' }); assert.equal(await readFile(join(receipt.destination, 'private'), 'utf8'), 'preserved'); });
 test('Trash creates shared sticky volume root & private current-user directory', async t => { const root = await fixture(t); const source = join(root, 'archive-old'); await writeFile(source, 'preserved'); const receipt = await moveToVolumeTrash(source, { apply: true, locateVolume: async () => root, volume: root }); const rootStat = await lstat(join(root, '.Trashes')); const userStat = await lstat(dirname(receipt.destination)); if (process.platform !== 'win32') { assert.equal(rootStat.mode & 0o1777, 0o1777); assert.equal(userStat.mode & 0o777, 0o700); } if (process.getuid) assert.equal(userStat.uid, process.getuid()); });
 test('Trash accepts existing Finder-style 01333 root without changing it', async t => { const root = await fixture(t); const source = join(root, 'archive-old'); await writeFile(source, 'preserved'); const trashRoot = join(root, '.Trashes'); await mkdir(trashRoot); if (process.platform !== 'win32') await chmod(trashRoot, 0o1333); const receipt = await moveToVolumeTrash(source, { apply: true, locateVolume: async () => root, volume: root }); const rootStat = await lstat(trashRoot); if (process.platform !== 'win32') { assert.equal(rootStat.mode & 0o7777, 0o1333); await chmod(trashRoot, 0o1777); } assert.equal(await readFile(join(receipt.destination), 'utf8'), 'preserved'); });
+test('Trash accepts unreadable sticky 01311 root & refuses non-sticky roots', { skip: process.platform === 'win32' }, async t => {
+  const root = await fixture(t), trash = join(root, '.Trashes'), source = join(root, 'archive-old');
+  await mkdir(trash); await chmod(trash, 0o1311);
+  t.after(() => chmod(trash, 0o1777).catch(e => { if (e.code !== 'ENOENT') throw e; }));
+  await writeFile(source, 'preserved');
+  const receipt = await moveToVolumeTrash(source, { apply: true, locateVolume: async () => root });
+  assert.equal((await lstat(trash)).mode & 0o7777, 0o1311);
+  assert.equal((await lstat(dirname(receipt.destination))).mode & 0o777, 0o700);
+  await chmod(trash, 0o777); await writeFile(source, 'keep');
+  await assert.rejects(moveToVolumeTrash(source, { apply: true, locateVolume: async () => root }), /sticky/);
+  assert.equal(await readFile(source, 'utf8'), 'keep');
+  await chmod(trash, 0o1777);
+});
 test('Trash refuses symlinked fixture Trash roots before mutation', async t => { const root = await fixture(t); const source = join(root, 'archive-old'); const outside = join(root, 'outside'); await mkdir(source); await writeFile(join(source, 'private'), 'preserved'); await mkdir(outside); await symlink(outside, join(root, '.Trashes')); await assert.rejects(moveToVolumeTrash(source, { apply: true, locateVolume: async () => root, volume: root }), /symlink/); await lstat(source); });
 test('Trash dry run refuses symlinked fixture Trash roots', async t => { const root = await fixture(t); const source = join(root, 'archive-old'); const outside = join(root, 'outside'); await writeFile(source, 'preserved'); await mkdir(outside); await symlink(outside, join(root, '.Trashes')); await assert.rejects(moveToVolumeTrash(source, { apply: false, locateVolume: async () => root, volume: root }), /symlink/); await lstat(source); });
 test('Trash refuses symlinked user directory before mutation', async t => { const root = await fixture(t); const source = join(root, 'archive-old'); const outside = join(root, 'outside'); const uid = process.getuid?.(); if (uid === undefined) return; await writeFile(source, 'preserved'); await mkdir(outside); await mkdir(join(root, '.Trashes')); await chmod(join(root, '.Trashes'), 0o1777); await symlink(outside, join(root, '.Trashes', String(uid))); await assert.rejects(moveToVolumeTrash(source, { apply: true, locateVolume: async () => root, volume: root }), /symlink/); await lstat(source); });
@@ -103,4 +138,56 @@ test('core retention cleans registered QA companions & preserves live owners', a
   await writeFile(marker, JSON.stringify({ ...meta, appRoot: home }));
   await pruneManaged({ managedRoot: root, app: 'app', now, keep: 0, apply: true });
   await assert.rejects(lstat(home), { code: 'ENOENT' });
+});
+
+test('run Trash lists old app cache folders & preserves youth, live PIDs, leases & unknown locks', async t => {
+  const root = await fixture(t), cache = join(root, 'app/.cache');
+  const make = async name => { const p = join(cache, name); await mkdir(p, { recursive: true }); await writeFile(join(p, 'log'), 'preserved'); return p; };
+  const old = await make('run-old'), young = await make('run-young'), live = await make('run-live'), locked = await make('run-locked'), lease = await make('run-lease');
+  await writeFile(join(live, 'app.pid'), String(process.pid));
+  await mkdir(join(locked, 'app.lock'));
+  await writeFile(join(lease, 'owner.json'), JSON.stringify({ pid: 0, leaseUntil: Date.now() + day }));
+  for (const p of [old, live, locked, lease]) await ageLegacy(p);
+  const move = (path, options) => moveToVolumeTrash(path, { ...options, locateVolume: async () => root });
+  const options = { managedRoot: join(root, 'managed'), move };
+  const dry = await trashRun({ ...options, path: old });
+  assert.equal(dry.kind, 'run'); assert.equal(dry.applied, false); await lstat(old);
+  for (const [path, reason] of [[young, 'younger-than-minimum'], [live, 'live-owner-or-lock'], [locked, 'unknown-lock-owner'], [lease, 'live-owner-or-lock']]) {
+    assert.equal((await trashRun({ ...options, path, apply: true })).reason, reason);
+    await lstat(path);
+  }
+  const receipt = await trashRun({ ...options, path: old, apply: true });
+  assert.equal(await readFile(join(receipt.destination, 'log'), 'utf8'), 'preserved');
+  await assert.rejects(lstat(old), { code: 'ENOENT' });
+  await assert.rejects(trashRun({ ...options, path: root }), /requires/);
+  await assert.rejects(trashRun({ ...options, path: young, minAgeMs: -1 }), /age/);
+});
+
+test('run Trash rejects incomplete markers, symlinks & changed owners; supports age override', async t => {
+  const root = await fixture(t), run = await row(root, 'app', 'completed', now - 4 * day);
+  const options = { managedRoot: root, path: run, now, alive: () => false, move: async () => ({ applied: false }) };
+  assert.equal((await trashRun(options)).reason, 'incomplete-or-invalid-run');
+  const marker = join(run, '.rightkit-run.json'), meta = JSON.parse(await readFile(marker));
+  await writeFile(marker, JSON.stringify({ ...meta, completedAt: now - day / 2 }));
+  await ageLegacy(run);
+  assert.equal((await trashRun(options)).reason, 'younger-than-minimum');
+  assert.equal((await trashRun({ ...options, minAgeMs: 0 })).kind, 'run');
+  await writeFile(marker, JSON.stringify({ ...meta, ownerPid: 123, completedAt: now - 3 * day }));
+  await ageLegacy(run);
+  let checks = 0;
+  await assert.rejects(trashRun({ ...options, apply: true, alive: pid => pid === 123 && ++checks > 2 }), /owner changed/);
+  const link = join(root, 'linked'); await symlink(run, link);
+  await assert.rejects(trashRun({ ...options, path: link }), /symlink/);
+});
+
+test('legacy QA companion Trash follows binding to live managed owner', async t => {
+  const root = await fixture(t), run = await startStorageRun({ managedRoot: root, app: 'app' });
+  const meta = JSON.parse(await readFile(join(run.root, '.rightkit-run.json')));
+  t.after(() => rm(meta.appRoot, { recursive: true, force: true }));
+  await ageLegacy(meta.appRoot);
+  const plan = await trashRun({ path: meta.appRoot, managedRoot: root });
+  assert.equal(plan.reason, 'live-owner-or-lock');
+  await run.finish();
+  const dry = await trashRun({ path: meta.appRoot, managedRoot: root });
+  assert.equal(dry.skipped, undefined); assert.equal(dry.kind, 'run');
 });

@@ -260,7 +260,7 @@
     "rightkit-pdf": "0.1.0",
     "rightkit-playback": "0.1.1",
     "rightkit-process": "0.3.1",
-    "rightkit-qa": "0.2.12",
+    "rightkit-qa": "0.2.13",
     "rightkit-qts": "0.2.1",
     "rightkit-qts-ggml": "0.1.0",
     "rightkit-qts-ggml-sys": "0.1.0",
@@ -395,7 +395,8 @@
       "0.2.8",
       "0.2.9",
       "0.2.10",
-      "0.2.11"
+      "0.2.11",
+      "0.2.12"
     ],
     "rightkit-sandbox": [
       "0.1.0",

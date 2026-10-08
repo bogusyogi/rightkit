@@ -25,3 +25,25 @@ test('CLI prune discovers legacy QA temp roots & accepts their explicit Trash se
   assert.equal(await readFile(join(receipt.destination, 'app.log'), 'utf8'), 'launch log');
   await assert.rejects(lstat(legacy), { code: 'ENOENT' });
 });
+
+test('CLI run Trash dry-run lists completed cache folders & apply retains live or young runs', async t => {
+  const root = await mkdtemp(join(tmpdir(), 'rightkit-storage-cli-')); t.after(() => rm(root, { recursive: true, force: true }));
+  const cache = join(root, 'app/.cache'), old = join(cache, 'old-run'), live = join(cache, 'live-run'), young = join(cache, 'young-run');
+  for (const p of [old, live, young]) { await mkdir(p, { recursive: true }); await writeFile(join(p, 'log'), 'app log'); }
+  await writeFile(join(live, 'owner.json'), JSON.stringify({ pid: process.pid }));
+  const aged = new Date(Date.now() - 3 * 86400_000); for (const p of [old, live]) await utimes(p, aged, aged);
+  let output = '';
+  const io = { stdout: { write: s => output += s }, move: (path, options) => moveToVolumeTrash(path, { ...options, locateVolume: async () => root }) };
+  const args = ['--managed-root', join(root, 'managed'), '--broker', 'skip', '--trash-kind', 'run', '--trash', old, '--trash', live, '--trash', young];
+  assert.equal(await storageMain(['prune', '--dry-run', ...args], io), 0);
+  const dry = JSON.parse(output).trash; assert.equal(dry[0].applied, false); assert.equal(dry[1].reason, 'live-owner-or-lock'); assert.equal(dry[2].reason, 'younger-than-minimum');
+  await lstat(old); output = '';
+  assert.equal(await storageMain(['prune', '--apply', ...args], io), 0);
+  const receipt = JSON.parse(output).trash[0]; assert.equal(await readFile(join(receipt.destination, 'log'), 'utf8'), 'app log');
+  await lstat(live); await lstat(young);
+  await assert.rejects(lstat(old), { code: 'ENOENT' });
+  assert.equal(parseStorageArgs(['prune', '--dry-run', '--trash', young, '--trash-kind', 'run', '--min-age-hours', '12']).minAgeMs, 12 * 3600_000);
+  for (const age of ['-1', 'NaN', 'Infinity']) assert.throws(() => parseStorageArgs(['prune', '--dry-run', '--min-age-hours', age]), /nonnegative/);
+  assert.throws(() => parseStorageArgs(['prune', '--dry-run', '--trash-kind', 'repo', '--trash', cache]), /trash-kind/);
+  await assert.rejects(storageMain(['prune', '--dry-run', '--trash', root, '--trash-kind', 'run', '--managed-root', join(root, 'managed'), '--broker', 'skip'], io), /managed storage/);
+});

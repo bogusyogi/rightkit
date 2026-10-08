@@ -1,4 +1,4 @@
-import { lstat, readdir, readFile, writeFile, mkdir, rename, rm, realpath, stat, chmod } from 'node:fs/promises';
+import { lstat, readdir, readFile, writeFile, mkdir, mkdtemp, rename, rm, realpath, stat, chmod } from 'node:fs/promises';
 import { basename, dirname, join, relative, resolve, sep } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { existsSync } from 'node:fs';
@@ -111,7 +111,18 @@ export async function startStorageRun({ managedRoot = managedStorageRoot(), app,
     const marker = join(root, '.rightkit-run.json'); const meta = { schemaVersion: 1, app, runId, createdAt: now, ownerPid: process.pid, leaseUntil: 0 };
     await writeFile(marker, JSON.stringify(meta), { flag: 'wx' });
     for (const dir of ['scratch', 'captures', 'evidence', 'DerivedData']) await mkdir(join(root, dir));
-    return { root, env: { RIGHTKIT_RUN_ROOT: root, RIGHTKIT_QA_RUN_ID: runId, RIGHTKIT_QA_EVIDENCE_DIR: join(root, 'evidence'), TMPDIR: join(root, 'scratch'), TMP: join(root, 'scratch'), TEMP: join(root, 'scratch') }, finish: async () => { await noSymlinkPath(root); const temporary = `${marker}.${randomUUID()}.tmp`; await writeFile(temporary, JSON.stringify({ ...meta, ownerPid: 0, leaseUntil: 0, completedAt: Date.now() }), { flag: 'wx' }); await rename(temporary, marker); } };
+    // Share QA's registered companion protocol; Unix sockets cannot use long run roots.
+    const parent = join(process.platform === 'darwin' ? '/private/tmp' : await realpath(tmpdir()), 'rightkit-qa');
+    await noSymlinkPath(parent); await mkdir(parent, { recursive: true });
+    const home = await mkdtemp(join(parent, `${app.slice(0, 16)}-`));
+    try {
+      await writeFile(join(home, '.rightkit-app.json'), JSON.stringify({ runRoot: await realpath(root), app, runId }), { flag: 'wx' });
+      for (const dir of ['tmp', 'evidence', 'captures']) await mkdir(join(home, dir));
+      meta.appRoot = home;
+      await writeFile(marker, JSON.stringify(meta));
+    } catch (error) { await rm(home, { recursive: true, force: true }); throw error; }
+    const temp = join(home, 'tmp');
+    return { root, env: { RIGHTKIT_RUN_ROOT: root, RIGHTKIT_QA_RUN_ID: runId, RIGHTKIT_QA_EVIDENCE_DIR: join(root, 'evidence'), TMPDIR: temp, TMP: temp, TEMP: temp }, finish: async () => { await noSymlinkPath(root); const temporary = `${marker}.${randomUUID()}.tmp`; const current = await json(marker); await writeFile(temporary, JSON.stringify({ ...current, ownerPid: 0, leaseUntil: 0, completedAt: Date.now() }), { flag: 'wx' }); await rename(temporary, marker); } };
   });
 }
 
@@ -138,6 +149,15 @@ export function isLegacyQaTempRoot(path, managedRoot) {
 // Pre-governance roots have no run marker. Inspect nested owners/services/locks
 // before moving an old root; unknown locks & symlinks fail closed.
 async function legacyQaOwner(path, alive, now) {
+  // QA app homes carry a binding rather than a local PID: inspect their run owner.
+  if (existsSync(join(path, '.rightkit-app.json'))) {
+    const binding = await json(await noSymlinkPath(join(path, '.rightkit-app.json')));
+    if (typeof binding.runRoot !== 'string' || typeof binding.app !== 'string' || typeof binding.runId !== 'string') return 'unknown-lock-owner';
+    const runRoot = await noSymlinkPath(binding.runRoot);
+    const meta = await json(await noSymlinkPath(join(runRoot, '.rightkit-run.json')));
+    if (!validMeta(meta, 'runs', binding.app, binding.runId) || meta.appRoot !== await realpath(path)) return 'unknown-lock-owner';
+    if (ownerAlive(meta, now, alive)) return 'live-owner-or-lock';
+  }
   for (const entry of await entries(path)) {
     const child = join(path, entry.name);
     if (entry.isSymbolicLink()) return 'symlink-or-unknown-owner';
@@ -155,7 +175,43 @@ async function legacyQaOwner(path, alive, now) {
   return null;
 }
 
+/** Explicit app run folders, including unmarked pre-governance cache/QA runs. */
+export async function trashRun({ path, managedRoot = managedStorageRoot(), apply = false, now = Date.now(), minAgeMs = STORAGE_DEFAULTS.runMinAgeMs, alive = pidAlive, move = moveToVolumeTrash }) {
+  if (!Number.isFinite(minAgeMs) || minAgeMs < 0) throw new Error('invalid run minimum age');
+  path = await noSymlinkPath(path);
+  const markerPath = join(path, '.rightkit-run.json');
+  const marked = existsSync(markerPath);
+  const cacheRun = ['.cache', '.audit'].includes(basename(dirname(path)));
+  const legacyRun = basename(dirname(path)) === 'rightkit-qa' || isLegacyQaTempRoot(path, managedRoot);
+  if (!marked && !cacheRun && !legacyRun) throw new Error('run Trash requires an app cache run, legacy QA run, or completed run marker');
+  const check = async () => {
+    const s = await lstat(path);
+    if (!s.isDirectory() || s.isSymbolicLink()) return 'symlink-or-not-directory';
+    if (process.getuid && s.uid !== process.getuid()) return 'different-owner';
+    let completedAt = 0;
+    if (marked) {
+      const meta = await json(await noSymlinkPath(markerPath));
+      if (!validMeta(meta, 'runs', meta.app, basename(path)) || typeof meta.app !== 'string' || !Number.isFinite(meta.completedAt) || meta.completedAt <= 0) return 'incomplete-or-invalid-run';
+      completedAt = meta.completedAt;
+      if (ownerAlive(meta, now, alive)) return 'live-owner-or-lock';
+      // Registered companions must be removed through managed retention, not orphaned in Trash.
+      if (meta.appRoot !== undefined) return 'registered-companion-use-managed-retention';
+    }
+    const owner = await legacyQaOwner(path, alive, now);
+    if (owner) return owner;
+    if (now - Math.max(s.mtimeMs, completedAt) < minAgeMs) return 'younger-than-minimum';
+    return null;
+  };
+  const inspect = () => check().catch(() => 'unreadable-owner');
+  const reason = await inspect();
+  if (reason) return { source: path, kind: 'run', applied: false, skipped: true, reason };
+  const bytes = await measureTree(path);
+  if (apply && await inspect()) throw new Error(`run Trash owner changed: ${path}`);
+  return { ...await move(path, { apply, now }), kind: 'run', bytes, reason: 'completed-app-run' };
+}
+
 export async function pruneLegacyQaTemp({ managedRoot, apply = false, now = Date.now(), minAgeMs = STORAGE_DEFAULTS.runMinAgeMs, alive = pidAlive, move = moveToVolumeTrash } = {}) {
+  if (!Number.isFinite(minAgeMs) || minAgeMs < 0) throw new Error('invalid run minimum age');
   const parent = await noSymlinkPath(join(managedRoot, 'tmp', 'rightkit-qa'));
   const result = { root: parent, remove: [], skipped: [], moves: [] };
   for (const entry of await entries(parent)) {
@@ -188,7 +244,7 @@ async function ensureVolumeTrash(actualVolume, uid, device) {
   await noSymlinkPath(root);
   const rootStat = await lstat(root);
   const currentUid = process.getuid?.();
-  if (!rootStat.isDirectory() || rootStat.dev !== device || (process.platform !== 'win32' && ((rootStat.mode & 0o1333) !== 0o1333 || (currentUid !== undefined && rootStat.uid !== currentUid && rootStat.uid !== 0)))) throw new Error('volume Trash root must be a same-volume sticky directory');
+  if (!rootStat.isDirectory() || rootStat.dev !== device || (process.platform !== 'win32' && (rootStat.mode & 0o1000) === 0)) throw new Error('volume Trash root must be a same-volume sticky directory');
   await noSymlinkPath(path);
   let pathCreated = false;
   try { await mkdir(path, { mode: 0o700 }); pathCreated = true; } catch (error) { if (error.code !== 'EEXIST') throw error; }

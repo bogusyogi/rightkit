@@ -1,10 +1,10 @@
 import { spawn } from 'node:child_process';
 import { readFile, readdir } from 'node:fs/promises';
 import { basename, join, resolve } from 'node:path';
-import { managedStorageRoot, noSymlinkPath, inside, storageReport, pruneManaged, startStorageRun, moveToVolumeTrash, isLegacyQaTempRoot, pruneLegacyQaTemp } from '../../build-control-core/src/storage.mjs';
+import { managedStorageRoot, noSymlinkPath, inside, storageReport, pruneManaged, startStorageRun, moveToVolumeTrash, isLegacyQaTempRoot, pruneLegacyQaTemp, trashRun } from '../../build-control-core/src/storage.mjs';
 import { xcodeManagedArgs, discoverDeviceVersions, connectedDeviceVersions, pruneDeviceSupport, recordDeviceUse } from '../../build-control-core/src/xcode-storage.mjs';
 
-const usage = 'rightkit storage report|doctor|prune --dry-run|--apply [--managed-root DIR] [--app NAME=DIR] [--external DIR] [--trash PATH] [--broker auto|skip] [--device-support DIR --devices-json FILE] | run --app NAME -- COMMAND [ARGS] | xcode-args --run-root DIR';
+const usage = 'rightkit storage report|doctor|prune --dry-run|--apply [--managed-root DIR] [--app NAME=DIR] [--external DIR] [--trash PATH --trash-kind run --min-age-hours 24] [--broker auto|skip] [--device-support DIR --devices-json FILE] | run --app NAME -- COMMAND [ARGS] | xcode-args --run-root DIR';
 export function parseStorageArgs(argv) {
   const command = argv[0]; if (!['report', 'doctor', 'prune', 'run', 'xcode-args'].includes(command)) throw new Error(usage);
   const options = { command, apps: [], external: [], trash: [], apply: false, managedRoot: managedStorageRoot() }; const seen = new Set();
@@ -12,14 +12,16 @@ export function parseStorageArgs(argv) {
     const flag = argv[i];
     if (flag === '--') { options.child = argv.slice(i + 1); break; }
     if (['--apply', '--dry-run'].includes(flag)) { if (seen.has('mode')) throw new Error('select exactly one prune mode'); seen.add('mode'); options.apply = flag === '--apply'; continue; }
-    if (!['--managed-root', '--app', '--external', '--trash', '--device-support', '--devices-json', '--run-root', '--workspace', '--broker'].includes(flag) || !argv[i + 1] || argv[i + 1].startsWith('--')) throw new Error(`invalid storage option: ${flag}`);
+    if (!['--managed-root', '--app', '--external', '--trash', '--trash-kind', '--min-age-hours', '--device-support', '--devices-json', '--run-root', '--workspace', '--broker'].includes(flag) || !argv[i + 1] || argv[i + 1].startsWith('--')) throw new Error(`invalid storage option: ${flag}`);
     const value = argv[++i];
     if (['--external', '--trash'].includes(flag)) options[flag.slice(2)].push(resolve(value));
     else if (flag === '--app') { if (command === 'run') options.app = value; else { const split = value.indexOf('='); if (split < 1) throw new Error('--app requires NAME=DIR'); options.apps.push({ app: value.slice(0, split), path: resolve(value.slice(split + 1)) }); } }
-    else { if (seen.has(flag)) throw new Error(`duplicate option: ${flag}`); seen.add(flag); const key = { '--managed-root': 'managedRoot', '--device-support': 'deviceSupport', '--devices-json': 'devicesJson', '--run-root': 'runRoot', '--workspace': 'workspace', '--broker': 'broker' }[flag]; options[key] = key === 'broker' ? value : resolve(value); }
+    else { if (seen.has(flag)) throw new Error(`duplicate option: ${flag}`); seen.add(flag); const key = { '--managed-root': 'managedRoot', '--device-support': 'deviceSupport', '--devices-json': 'devicesJson', '--run-root': 'runRoot', '--workspace': 'workspace', '--broker': 'broker', '--trash-kind': 'trashKind', '--min-age-hours': 'minAgeMs' }[flag]; options[key] = key === 'minAgeMs' ? Number(value) * 3600_000 : ['broker', 'trashKind'].includes(key) ? value : resolve(value); }
   }
   if (command === 'prune' && !seen.has('mode')) throw new Error('prune requires --dry-run or --apply');
-  if (command !== 'prune' && (seen.has('mode') || options.trash.length || options.deviceSupport)) throw new Error('prune options require prune command');
+  if (command !== 'prune' && (seen.has('mode') || options.trash.length || options.deviceSupport || options.trashKind || options.minAgeMs !== undefined)) throw new Error('prune options require prune command');
+  if (options.trashKind && (options.trashKind !== 'run' || !options.trash.length)) throw new Error('--trash-kind requires run & --trash PATH');
+  if (options.minAgeMs !== undefined && (!Number.isFinite(options.minAgeMs) || options.minAgeMs < 0)) throw new Error('--min-age-hours requires a nonnegative number');
   if (command === 'run' && (!options.app || !options.child?.length)) throw new Error('run requires --app NAME -- COMMAND');
   if (command === 'xcode-args' && !options.runRoot && process.env.RIGHTKIT_RUN_ROOT) options.runRoot = resolve(process.env.RIGHTKIT_RUN_ROOT);
   if (options.broker && !['auto', 'skip'].includes(options.broker)) throw new Error('--broker requires auto|skip');
@@ -51,15 +53,17 @@ export async function storageMain(argv, { stdout = process.stdout, stderr = proc
     for (const path of options.trash) {
       if (isLegacyQaTempRoot(path, options.managedRoot)) { await noSymlinkPath(path); continue; }
       if (inside(path, options.managedRoot) || inside(options.managedRoot, path)) throw new Error('managed storage cannot be selected for one-off Trash');
+      if (options.trashKind === 'run') { await trashRun({ ...options, path, apply: false }); continue; }
       if (!/(archive|trash|research)/i.test(basename(path)) && !/\.(dmg|pkg|msi|exe)$/i.test(path)) throw new Error('one-off Trash requires explicitly named archive/trash/research/installer');
       await noSymlinkPath(path);
     }
     result = { mode: options.apply ? 'apply' : 'dry-run', managed: [], trash: [] };
-    result.legacyQa = await pruneLegacyQaTemp({ managedRoot: options.managedRoot, apply: options.apply, move });
+    result.legacyQa = await pruneLegacyQaTemp({ managedRoot: options.managedRoot, apply: options.apply, minAgeMs: options.minAgeMs, move });
     for (const kind of ['runs', 'artifacts']) for (const app of await readdir(join(options.managedRoot, kind), { withFileTypes: true }).catch(e => e.code === 'ENOENT' ? [] : Promise.reject(e))) if (app.isDirectory() && !app.name.startsWith('.')) result.managed.push(await pruneManaged({ managedRoot: options.managedRoot, app: app.name, kind, apply: options.apply }));
     for (const path of options.trash) {
       if (isLegacyQaTempRoot(path, options.managedRoot)) continue;
       if (inside(path, options.managedRoot) || inside(options.managedRoot, path)) throw new Error('managed storage cannot be selected for one-off Trash');
+      if (options.trashKind === 'run') { result.trash.push(await trashRun({ ...options, path, move })); continue; }
       if (!/(archive|trash|research)/i.test(basename(path)) && !/\.(dmg|pkg|msi|exe)$/i.test(path)) throw new Error('one-off Trash requires explicitly named archive/trash/research/installer');
       result.trash.push(await move(path, { apply: options.apply }));
     }
