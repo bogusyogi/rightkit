@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Draft/import/verify utilities. Signing is intentionally absent; native prompts own signing.
-import { readFileSync, writeFileSync } from "node:fs";
+import { readFileSync, writeFileSync, realpathSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createDraft, loadTrustedExternal, policyEntryDigest, validateRecord, verifyException } from "./ownership-approval.mjs";
@@ -43,7 +43,8 @@ export function main(args) {
   }
   throw new Error("usage: node ownership-approval-command.mjs --draft input.json [--out draft.json] | --import signed.json --out record.json | --verify signed.json --context scan.json");
 }
-if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+const realOrSelf = (file) => { try { return realpathSync(file); } catch { return path.resolve(file); } };
+if (process.argv[1] && realOrSelf(process.argv[1]) === realOrSelf(fileURLToPath(import.meta.url))) {
   try { process.exitCode = main(process.argv.slice(2)); }
   catch (error) { console.error(`[right-release] ownership approval: ${error.message}`); process.exitCode = 1; }
 }

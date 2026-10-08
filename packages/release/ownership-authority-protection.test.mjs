@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { generateKeyPairSync, sign } from "node:crypto";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync, realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -124,7 +124,7 @@ test("verified installed elevation passes absolute trust path & checkpoint wrapp
       assert.ok(child.includes(path.join(fixture.root, "release/ownership-key-authority.mjs")));
       assert.ok(child.includes("--trust-script"));
     } else {
-      assert.ok(calls[0].args.includes(path.join(fixture.root, "release/ownership-key-trust.mjs")));
+      assert.ok(calls[0].args.includes(path.join(realpathSync(fixture.root), "release/ownership-key-trust.mjs")));
       assert.equal(calls.at(-1).args[0], "-K");
     }
   } finally { rmSync(fixture.directory, { recursive: true, force: true }); }
