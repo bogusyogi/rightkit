@@ -4,5 +4,11 @@
 <dict>
 	<key>com.apple.application-identifier</key>
 	<string>6KLGD3LLKF.com.orthiclabs.rightkit.ownership-approval</string>
+	<key>com.apple.developer.team-identifier</key>
+	<string>6KLGD3LLKF</string>
+	<key>keychain-access-groups</key>
+	<array>
+		<string>6KLGD3LLKF.com.orthiclabs.rightkit.ownership-approval</string>
+	</array>
 </dict>
 </plist>

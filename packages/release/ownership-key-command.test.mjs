@@ -145,6 +145,28 @@ test("native cancellation is attempted once and leaves no committed metadata or 
   } finally { f.cleanup(); }
 });
 
+test("native preflight error stops enrollment even when process reports zero exit", ceremonyOptions, async () => {
+  const f = setup();
+  try {
+    let nativeCalls = 0, elevations = 0;
+    const messages = [];
+    f.deps.print = (message) => messages.push(message);
+    f.deps.runner = (cmd, args, opts) => {
+      if (cmd === "native-helper") {
+        nativeCalls++;
+        return { status: 0, stdout: "", stderr: "RightKit ownership keychain preflight: missing entitlement" };
+      }
+      return f.runner(cmd, args, opts);
+    };
+    f.deps.elevate = () => { elevations++; };
+    assert.equal(await main(["enroll", "--root"], f.deps), 1);
+    assert.equal(nativeCalls, 1); assert.equal(elevations, 0);
+    assert.equal(f.trustHolder.trust, null);
+    assert.match(messages.join("\n"), /missing entitlement/);
+    assert.equal(f.runner("git", ["-C", f.repo, "status", "--porcelain", "--untracked-files=all"]).stdout.trim(), "");
+  } finally { f.cleanup(); }
+});
+
 test("failed first-host elevation resumes from committed genesis with key discovery only", ceremonyOptions, async () => {
   const f = setup();
   try {

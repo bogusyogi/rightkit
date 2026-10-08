@@ -237,7 +237,9 @@ function helperFor(run) {
 }
 function invokeHelper(run, helper, args) {
   const r = run(helper, args);
-  if (r.status !== 0) throw new Error(String(r.stderr || "native ownership operation cancelled or failed").trim());
+  if (r.status !== 0 || String(r.stderr ?? "").includes("RightKit ownership keychain preflight:")) {
+    throw new Error(String(r.stderr || "native ownership operation cancelled or failed").trim());
+  }
   return String(r.stdout ?? "");
 }
 function helperFile(run, helper, args, outPath, what) {
