@@ -34,7 +34,7 @@
     "@rightkit/shell": "0.1.0",
     "@rightkit/tauri": "0.1.1",
     "@rightkit/theme": "0.2.1",
-    "@rightkit/updates": "0.2.4"
+    "@rightkit/updates": "0.2.5"
   },
   "legacyNpm": {
     "@rightkit/ax": [
@@ -218,6 +218,9 @@
       "0.1.0",
       "0.1.1",
       "0.1.2"
+    ],
+    "@rightkit/updates": [
+      "0.2.4"
     ]
   },
   "cargo": {
@@ -346,7 +349,7 @@
       "@rightkit/shell": "0.1.0",
       "@rightkit/tauri": "0.1.1",
       "@rightkit/theme": "0.2.1",
-      "@rightkit/updates": "0.2.4"
+      "@rightkit/updates": "0.2.5"
     }
   },
   "legacyCargo": {
