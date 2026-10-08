@@ -218,7 +218,7 @@ impl Backend for WindowsBackend {
         let _ = unsafe { RoInitialize(RO_INIT_MULTITHREADED) };
         let access =
             GraphicsCaptureAccess::RequestAccessAsync(GraphicsCaptureAccessKind::Borderless)
-                .and_then(|operation| operation.get())
+                .and_then(|operation| operation.join())
                 .map_err(|e| {
                     capture_error(Code::Unsupported, "graphics capture access request", e)
                 })?;

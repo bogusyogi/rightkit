@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-record"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 rust-version = "1.98.0"
 publish = false
@@ -32,7 +32,7 @@ rightkit-process = { path = "../rightkit-process" }
 
 # Same version and features as helpers/record-windows (RK3 first cut).
 [target.'cfg(windows)'.dependencies]
-windows = { version = "0.61", features = [
+windows = { version = "0.62", features = [
     "Foundation",
     "Foundation_Metadata",
     "Security_Authorization_AppCapabilityAccess",

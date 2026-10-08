@@ -5494,7 +5494,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-record"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "blake3",
  "hmac-sha256",
@@ -5504,7 +5504,7 @@ dependencies = [
  "rightkit-secrets",
  "serde",
  "serde_json",
- "windows 0.61.1",
+ "windows 0.62.2",
 ]
 
 [[package]]
