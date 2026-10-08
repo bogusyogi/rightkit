@@ -52,6 +52,9 @@ export function buildCargoPublishPlan({ crate, crateDir, dryRun, allowDirty = fa
     { label: "registry dry-run", command: "cargo", args: dryRunArgs },
   ];
   if (!dryRun) plan.push(
+    // `publish --dry-run` leaves its archive under target/package/tmp-crate on current Cargo; package
+    // explicitly so target/package/<name>-<version>.crate is the exact archive hashed & uploaded.
+    { label: "package archive", command: "cargo", args: ["package", "--no-verify", "-p", crate, ...(allowDirty ? ["--allow-dirty"] : [])] },
     { label: "package location", command: "cargo", args: ["metadata", "--format-version", "1", "--no-deps"], capture: true },
     { label: "registry publish", internal: "upload-archive" },
   );

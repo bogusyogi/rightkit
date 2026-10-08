@@ -22,6 +22,7 @@ test("cargo publish plan always runs local safety gates before upload", () => {
     "clippy",
     "package contents",
     "registry dry-run",
+    "package archive",
     "package location",
     "registry publish",
   ]);
