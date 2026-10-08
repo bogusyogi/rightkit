@@ -30,7 +30,7 @@ rightkit-secrets = { path = "../rightkit-secrets" }
 [target.'cfg(target_os = "macos")'.dependencies]
 rightkit-process = { path = "../rightkit-process" }
 
-# Same version and features as helpers/record-windows (RK3 first cut).
+# WGC + Media Foundation capture; folded in from the retired helpers/record-windows (RK3).
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.62", features = [
     "Foundation",
