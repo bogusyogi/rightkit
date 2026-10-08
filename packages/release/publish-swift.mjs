@@ -11,6 +11,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "./background-process.mjs";
+import { digestBytes } from "./publication-artifacts.mjs";
 import { scanCrateForSecrets } from "./publish-cargo.mjs";
 import { enforcePublicationGate, defaultEvidencePath } from "./publication-gate.mjs";
 
@@ -71,8 +72,8 @@ export function buildSwiftPublishPlan({ packageDir, name, version, repo, dryRun 
   return plan;
 }
 
-function git(args, cwd) {
-  const result = spawnSync("git", args, { cwd, encoding: "utf8", windowsHide: true });
+function git(args, cwd, execute = spawnSync) {
+  const result = execute("git", args, { cwd, encoding: "utf8", windowsHide: true });
   if (result.error) throw result.error;
   if (result.status !== 0) throw new Error(`git ${args.join(" ")} failed: ${(result.stderr ?? "").trim()}`);
   return (result.stdout ?? "").trim();
@@ -85,20 +86,21 @@ function copyTree(from, to) {
     const source = path.join(from, entry.name);
     const target = path.join(to, entry.name);
     if (entry.isDirectory()) copyTree(source, target);
-    else if (entry.isFile()) fs.copyFileSync(source, target);
+    else if (entry.isFile()) { fs.copyFileSync(source, target); fs.chmodSync(target, fs.statSync(source).mode & 0o777); }
+    else throw new Error(`unsupported Swift source entry: ${entry.name}`);
   }
 }
 
-function mirrorAndTag(step, packageDir, work) {
+function mirrorAndTag(step, packageDir, work, execute) {
   const mirror = path.join(work, "rightkit-swift"); // SwiftPM names the package by repo directory
-  if (step.repo) git(["clone", step.repo, mirror], work);
-  else { fs.mkdirSync(mirror, { recursive: true }); git(["init", "-q", "-b", "main"], mirror); }
+  if (step.repo) git(["clone", step.repo, mirror], work, execute);
+  else { fs.mkdirSync(mirror, { recursive: true }); git(["init", "-q", "-b", "main"], mirror, execute); }
   for (const entry of fs.readdirSync(mirror)) if (entry !== ".git") fs.rmSync(path.join(mirror, entry), { recursive: true, force: true });
   copyTree(packageDir, mirror);
-  git(["add", "-A"], mirror);
-  git(["-c", "user.email=release@rightsuite.invalid", "-c", "user.name=right-release", "commit", "-q", "--allow-empty", "-m", `RightKitSwift ${step.tag}`], mirror);
-  if (git(["tag", "-l", step.tag], mirror) !== "") throw new Error(`tag ${step.tag} already exists: bump VERSION`);
-  git(["tag", step.tag], mirror);
+  git(["add", "-A"], mirror, execute);
+  git(["-c", "user.email=release@rightsuite.invalid", "-c", "user.name=right-release", "commit", "-q", "--allow-empty", "-m", `RightKitSwift ${step.tag}`], mirror, execute);
+  if (git(["tag", "-l", step.tag], mirror, execute) !== "") throw new Error(`tag ${step.tag} already exists: bump VERSION`);
+  git(["tag", step.tag], mirror, execute);
   return mirror;
 }
 
@@ -118,33 +120,58 @@ function consumeFresh(step, mirror, work, execute) {
   if (!pins.includes(`"version" : "${step.tag}"`)) throw new Error(`consumer did not resolve exact tag ${step.tag}`);
 }
 
+// Evidence binds this exact git-archive command, rooted at the package tree.
+export function verifySwiftSourceArchive(bytes, evidence) {
+  if (!/^[a-f0-9]{64}$/.test(evidence?.artifactSha256 ?? "")) throw new Error("Swift source archive hash evidence is required");
+  if (digestBytes(bytes) !== evidence.artifactSha256) throw new Error("Swift source archive sha256 does not match evidence artifactSha256");
+  return bytes;
+}
+
 export function runSwiftPublish(options, execute = spawnSync) {
   const packageDir = options.packageDir;
   const { name, version } = readPackageIdentity(packageDir);
   const workspaceRoot = path.resolve(options.workspace ?? path.join(packageDir, "..", ".."));
-  enforcePublicationGate({
+  const gate = enforcePublicationGate({
     kind: "swift", name, version, packagePath: packageDir,
     evidencePath: path.resolve(options.evidence ?? defaultEvidencePath(workspaceRoot, "swift", name)),
   }, { dryRun: options.dryRun });
+  const prefix = git(["rev-parse", "--show-prefix"], packageDir, execute).replace(/\/$/, "");
+  const sourceCommit = gate.evidence?.commit ?? "HEAD";
+  const tree = git(["rev-parse", prefix ? `${sourceCommit}:${prefix}` : `${sourceCommit}^{tree}`], packageDir, execute);
+  const archive = execute("git", ["archive", "--format=tar", "--mtime=1970-01-01T00:00:00Z", tree], { cwd: packageDir, windowsHide: true, maxBuffer: 128 * 1024 * 1024 });
+  if (archive.error || archive.status !== 0 || !archive.stdout?.length) throw new Error("Swift source archive creation failed");
+  const bytes = Buffer.from(archive.stdout);
+  if (gate.ok || !options.dryRun) verifySwiftSourceArchive(bytes, gate.evidence);
   const plan = buildSwiftPublishPlan({ ...options, packageDir, name, version });
   const work = fs.mkdtempSync(path.join(os.tmpdir(), "rightkit-swift-publish-"));
   let mirror = null;
+  let sealedCommit;
+  const snapshot = path.join(work, "source");
+  fs.mkdirSync(snapshot);
   try {
+    const extracted = execute("tar", ["-xf", "-", "-C", snapshot], { input: bytes, windowsHide: true });
+    if (extracted.error || extracted.status !== 0) throw new Error("Swift source archive extraction failed");
+    const identity = readPackageIdentity(snapshot);
+    if (identity.name !== name || identity.version !== version) throw new Error("Swift source archive identity mismatch");
     for (const step of plan) {
       process.stdout.write(`[right-release] swift ${step.label}\n`);
       if (step.internal === "secret-scan") {
-        const violations = scanCrateForSecrets(packageDir);
+        const violations = scanCrateForSecrets(snapshot);
         if (violations.length) throw new Error(`secret scan rejected: ${violations.join(", ")}`);
         continue;
       }
-      if (step.internal === "mirror") { mirror = mirrorAndTag(step, packageDir, work); continue; }
+      if (step.internal === "mirror") { mirror = mirrorAndTag(step, snapshot, work, execute);
+        if (git(["rev-parse", `${step.tag}^{tree}`], mirror, execute) !== tree) throw new Error("Swift mirror differs from verified source archive");
+        sealedCommit = git(["rev-parse", step.tag], mirror, execute);
+        continue; }
       if (step.internal === "consume") { consumeFresh(step, mirror, work, execute); continue; }
       if (step.internal === "push") {
-        git(["push", "origin", "HEAD"], mirror);
-        git(["push", "origin", step.tag], mirror);
+        if (git(["rev-parse", `${sealedCommit}^{tree}`], mirror, execute) !== tree || git(["rev-parse", step.tag], mirror, execute) !== sealedCommit) throw new Error("Swift publication tag changed after verification");
+        const branch = git(["symbolic-ref", "--short", "HEAD"], mirror, execute);
+        git(["push", "--atomic", "origin", `${sealedCommit}:refs/heads/${branch}`, `${sealedCommit}:refs/tags/${step.tag}`], mirror, execute);
         continue;
       }
-      const result = execute(step.command, step.args, { cwd: packageDir, encoding: "utf8", windowsHide: true, stdio: "inherit" });
+      const result = execute(step.command, step.args.map((arg) => arg === packageDir ? snapshot : arg), { cwd: snapshot, encoding: "utf8", windowsHide: true, stdio: "inherit" });
       if (result.error) {
         if (result.error.code === "ENOENT") {
           throw new Error(`${step.command} not found -- run publish swift on macOS/Linux with the Swift toolchain installed`);

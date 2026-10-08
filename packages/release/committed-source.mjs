@@ -132,7 +132,7 @@ function acquire(root, { expectedCommit, expectedTree, requiredPaths = [], runne
   const rows = parseTree(runGit(root, ["ls-tree", "-r", "-z", "--full-tree", tree], { encoding: "buffer", maxBuffer: MAX_TREE_BYTES, timeout: COMMAND_TIMEOUT_MS, runner, env }), objectFormat);
   const wanted = new Set(requiredPaths.filter(validatePath));
   const shouldRead = (row) => row.type === "blob" && row.mode !== "120000" && (
-    wanted.has(row.rel) || ["Cargo.toml", "package.json", "Package.swift", "ownership-exceptions.json"].includes(path.posix.basename(row.rel)) ||
+    wanted.has(row.rel) || ["Cargo.toml", "package.json", "Package.swift", "ownership-exceptions.json", "Cargo.lock", "pnpm-lock.yaml", "package-lock.json", "npm-shrinkwrap.json", "yarn.lock"].includes(path.posix.basename(row.rel)) ||
     /\.(?:rs|ts|tsx|js|mjs|cjs|jsx|swift|m|mm|c|cc|cpp|h|py|go|kt|java|cs)$/i.test(row.rel)
   );
   const candidates = rows.filter(shouldRead);

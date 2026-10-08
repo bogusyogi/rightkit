@@ -43,10 +43,30 @@ ${PACKAGE_MANAGER_SETUP}
 ${OWNERSHIP_STEP}
       - run: node scripts/release/build-candidate.mjs --version "${{ github.event.release.tag_name }}" --platform current --out "release/candidates/publish"
       - run: node scripts/release/check-release.mjs release/candidates/publish
+      # check-release must supply publication-evidence.json with artifactSha256.
+      # Capture gated bytes before publication; never hash the source path during readback.
       - id: tarball
         shell: bash
         run: |
-          TARBALL="release/candidates/publish/$(node -e 'const c=require("./release/candidates/publish/compatibility.json");process.stdout.write(c.packageName.replace(/^@/, "").replace("/", "-")+"-"+c.version+".tgz")')"
-          test -f "$TARBALL"
-          echo "path=$TARBALL" >> "$GITHUB_OUTPUT"
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          import { prepareNpmPublication } from '@rightkit/release/publication-gate.mjs';
+          const root = 'release/candidates/publish';
+          const c = JSON.parse(fs.readFileSync(`${root}/compatibility.json`));
+          const tarball = `${root}/${c.packageName.replace(/^@/, '').replace('/', '-')}-${c.version}.tgz`;
+          const proof = prepareNpmPublication({ name: c.packageName, version: c.version, tarball, evidencePath: `${root}/publication-evidence.json` });
+          // Only safe single-line metadata may enter GitHub outputs.
+          for (const value of [tarball, proof.name, proof.version]) if (/[\r\n]/.test(value)) throw new Error('unsafe npm publication identity');
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, `path=${tarball}\nname=${proof.name}\nversion=${proof.version}\nsha1=${proof.sha1}\n`);
+          NODE
       - run: npm publish "${{ steps.tarball.outputs.path }}"${NPM_PROVENANCE_FLAG} --access public
+      - name: Require registry byte equality
+        env:
+          NPM_PUBLICATION_NAME: ${{ steps.tarball.outputs.name }}
+          NPM_PUBLICATION_VERSION: ${{ steps.tarball.outputs.version }}
+          NPM_PUBLICATION_SHA1: ${{ steps.tarball.outputs.sha1 }}
+        run: |
+          node --input-type=module <<'NODE'
+          import { verifyNpmRegistryBytes } from '@rightkit/release/publication-gate.mjs';
+          verifyNpmRegistryBytes({ name: process.env.NPM_PUBLICATION_NAME, version: process.env.NPM_PUBLICATION_VERSION, sha1: process.env.NPM_PUBLICATION_SHA1 });
+          NODE

@@ -3,6 +3,8 @@ import { createHash, generateKeyPairSync, sign } from "node:crypto";
 import { spawnSync } from "./background-process.mjs";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
+import { mkdtempSync, writeFileSync, readFileSync, rmSync } from "node:fs";
+import { digestBytes } from "./publication-artifacts.mjs";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
@@ -10,6 +12,7 @@ import { fileURLToPath } from "node:url";
 import {
   RUNTIME_ARTIFACT_TRUSTED_KEY_ID,
   RuntimeArtifactPromotionError,
+  defaultUpload,
   defaultWindowsRuntimeArtifactSigningKeyFile,
   loadRuntimeArtifactSigningKey,
   promoteRuntimeArtifact,
@@ -368,3 +371,46 @@ test("does not forward signing or RightApps credentials into the Wrangler upload
   assert.equal(env.RIGHTAPPS_RELEASE_TOKEN, undefined);
   assert.equal(env.RIGHTAPPS_RELEASE_TOKEN_FILE, undefined);
 });
+
+for (const mode of ["unsealed", "mismatch", "swap", "happy"]) {
+  test(`model promote: ${mode} uses production upload boundary with mocked transport`, async () => {
+    const root = mkdtempSync(path.join(os.tmpdir(), "rightkit-model-byte-test-"));
+    try {
+      const input = request(), bytes = Buffer.from("model fixture"), proof = Buffer.from("evaluation");
+      input.artifactFile = path.join(root, "model.onnx"); input.evidenceFile = path.join(root, "evaluation.json");
+      input.config.artifact = { filename: "model.onnx", sha256: digestBytes(bytes), sizeBytes: bytes.length };
+      input.config.evidence.sha256 = digestBytes(proof);
+      writeFileSync(input.artifactFile, bytes); writeFileSync(input.evidenceFile, proof);
+      if (mode === "unsealed") delete input.config.artifact.sha256;
+      if (mode === "mismatch") writeFileSync(input.artifactFile, "tampered");
+      const events = [], remote = new Map();
+      const run = (_command, args, options) => {
+        const key = args[args.indexOf("put") + 1] ?? args[args.indexOf("get") + 1];
+        if (args.includes("put")) {
+          events.push("put");
+          if (args.includes("--pipe")) remote.set(key, Buffer.from(options.input));
+          else {
+            if (mode === "swap") writeFileSync(input.artifactFile, "swapped during transport");
+            remote.set(key, readFileSync(args[args.indexOf("--file") + 1]));
+          }
+          return { status: 0 };
+        }
+        if (args.includes("get")) {
+          events.push("get");
+          const target = args[args.indexOf("get") + 1];
+          writeFileSync(args[args.indexOf("--file") + 1], remote.get(target)); return { status: 0 };
+        }
+        throw new Error(`unexpected ${args}`);
+      };
+      const deps = { upload: (args) => defaultUpload(args, { run }), register: async () => events.push("register") };
+      if (mode === "happy") {
+        await promoteRuntimeArtifact(input, deps);
+        assert.deepEqual(events, ["put", "get", "register", "put"]);
+      } else {
+        await assert.rejects(promoteRuntimeArtifact(input, deps), mode === "swap" ? /remove remote key/ : /required|HASH_MISMATCH/);
+        assert.equal(events.includes("register"), false);
+        if (mode !== "swap") assert.equal(events.length, 0);
+      }
+    } finally { rmSync(root, { recursive: true, force: true }); }
+  });
+}

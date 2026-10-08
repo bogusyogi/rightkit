@@ -7,8 +7,10 @@ import test from "node:test";
 import { execFileSync } from "./background-process.mjs";
 import { canonicalAddonManifest, createAddonManifest } from "./addon-contract.mjs";
 import { prepareGitHubAddonRelease, prepareGitHubDirectRelease, prepareGitHubRelease, publishGitHubRelease } from "./github-release.mjs";
+import { readVerifiedArtifact } from "./publication-artifacts.mjs";
 import { RIGHTRELEASE_MANIFEST_SIGNER, verifyManifestCatalogSignature } from "./sign-release-manifest.mjs";
 
+const captured = (assets) => new Map(assets.map((file) => [file, readVerifiedArtifact(file, { sha256: sha256(readFileSync(file)) })]));
 const sha256 = (value) => createHash("sha256").update(value).digest("hex");
 
 function fixture() {
@@ -84,7 +86,7 @@ test("existing GitHub add-on release is verified without upload mutation", () =>
     if (args[0] === "release" && args[1] === "download") { mkdirSync(args[args.indexOf("--dir") + 1], { recursive: true }); writeFileSync(path.join(args[args.indexOf("--dir") + 1], path.basename(asset)), "sealed"); return options.allowFailure ? { ok: true, output: "" } : ""; }
     throw new Error(`unexpected mutation: ${args.join(" ")}`);
   };
-  const result = publishGitHubRelease({ kind: "addon", manifest: { files: [] }, sealedDir: path.dirname(asset), tag: "immutable", assets: [asset], manifestUrl: "https://example.test/manifest" }, { repo: "Orthic-Labs/Membrane", run });
+  const result = publishGitHubRelease({ kind: "addon", publicationArtifacts: captured([asset]), manifest: { files: [] }, sealedDir: path.dirname(asset), tag: "immutable", assets: [asset], manifestUrl: "https://example.test/manifest" }, { repo: "Orthic-Labs/Membrane", run });
   assert.equal(result.status, "already-verified");
   assert.equal(calls.some((args) => args[0] === "release" && args[1] === "upload"), false);
 });
@@ -99,11 +101,11 @@ test("partial GitHub add-on release uploads only missing assets then verifies al
     if (args[0] === "release" && args[1] === "upload") { for (const value of args.slice(3, args.indexOf("--repo"))) { uploads.push(path.basename(value)); remote.set(path.basename(value), readFileSync(value, "utf8")); } return ""; }
     throw new Error(`unexpected call: ${args.join(" ")}`);
   };
-  const result = publishGitHubRelease({ kind: "addon", manifest: { files: [] }, sealedDir: root, tag: "immutable", assets: [first, second], manifestUrl: "https://example.test/manifest" }, { repo: "Orthic-Labs/Membrane", run });
+  const result = publishGitHubRelease({ kind: "addon", publicationArtifacts: captured([first, second]), manifest: { files: [] }, sealedDir: root, tag: "immutable", assets: [first, second], manifestUrl: "https://example.test/manifest" }, { repo: "Orthic-Labs/Membrane", run });
   assert.equal(result.status, "resumed-verified"); assert.deepEqual(uploads, ["second"]);
 });
 
-test("direct GitHub plan publishes archive plus manifest authority and evidence without installer", () => {
+function directFixture() {
   const root = mkdtempSync(path.join(os.tmpdir(), "right-release-direct-github-"));
   const archive = path.join(root, "cutright-windows-x86_64.zip");
   const provenance = path.join(root, "cutright-windows-x86_64.intoto.jsonl");
@@ -140,6 +142,11 @@ test("direct GitHub plan publishes archive plus manifest authority and evidence 
     return { status: 0, stdout: JSON.stringify({ verified: true, catalogStatus: "Valid", signatureStatus: "Valid", subject: signer.subject, certificateSha256: signer.certificateSha256 }), stderr: "" };
   };
   const plan = prepareGitHubDirectRelease({ repoRoot: root, repo: "Orthic-Labs/CutRight", manifestPath: manifest, signaturePath: signature, checksumsPath: checksums, archivePaths: [archive], provenancePaths: [provenance], sbomPaths: [sbom], signing: { signer }, signatureCommandRunner, signaturePlatform: "win32" });
+  return { plan, root, archive, manifest, signature, checksums, provenance, sbom, signer, signatureCommandRunner };
+}
+
+test("direct GitHub plan publishes archive plus manifest authority and evidence without installer", () => {
+  const { plan, root, archive, manifest, signature, checksums, provenance, sbom, signer, signatureCommandRunner } = directFixture();
   assert.equal(plan.kind, "direct-release");
   assert.equal(plan.assets.length, 6);
   assert.ok(plan.assets.some((file) => file.endsWith(".zip")));
@@ -199,4 +206,86 @@ test("direct GitHub publication accepts only strict stable SemVer", () => {
     writeFileSync(signature, "catalog"); writeFileSync(checksums, "{}");
     assert.throws(() => prepareGitHubDirectRelease({ repoRoot: root, repo: "Orthic-Labs/CutRight", manifestPath: manifest, signaturePath: signature, checksumsPath: checksums }), /stable SemVer/);
   }
+});
+
+function githubMock(plan, { swap, corrupt = false } = {}) {
+  const remote = new Map(), calls = [];
+  const run = (_command, args) => {
+    calls.push(args);
+    if (args[0] === "repo") return JSON.stringify({ visibility: "PUBLIC" });
+    if (args[1] === "view") return { ok: false, error: "not found" };
+    if (args[1] === "create") return "";
+    if (args[1] === "upload") {
+      if (swap) swap();
+      for (const file of args.slice(3, args.indexOf("--repo"))) remote.set(path.basename(file), corrupt ? Buffer.from("wrong remote bytes") : readFileSync(file));
+      return "";
+    }
+    if (args[1] === "download") {
+      const name = args[args.indexOf("--pattern") + 1], dir = args[args.indexOf("--dir") + 1];
+      writeFileSync(path.join(dir, name), remote.get(name));
+      return { ok: true };
+    }
+    throw new Error(`unexpected call ${args}`);
+  };
+  return { run, calls, remote };
+}
+for (const kind of ["sealed release", "add-on", "direct SDK"]) {
+  const makePlan = () => {
+    if (kind === "direct SDK") return directFixture().plan;
+    if (kind === "add-on") {
+      const fx = addonFixture();
+      return prepareGitHubAddonRelease({ repoRoot: fx.root, config: fx.config, platform: "win", repo: "Orthic-Labs/Membrane" });
+    }
+    const fx = fixture();
+    return prepareGitHubRelease({ repoRoot: fx.root, releaseId: fx.releaseId, platform: "win", repo: "Orthic-Labs/CutRight" });
+  };
+  test(`${kind}: unsealed publication refused before transport`, () => {
+    const plan = makePlan();
+    delete plan.publicationArtifacts;
+    if (kind === "direct SDK") { writeFileSync(plan.signaturePath, ""); }
+    const mock = githubMock(plan);
+    assert.throws(() => publishGitHubRelease(plan, { repo: "Orthic-Labs/CutRight", run: mock.run, trustCommandRunner: () => ({ status: 0, stdout: "TeamIdentifier=6KLGD3LLKF", stderr: "" }) }), /sealed|signed|signature/);
+    assert.equal(mock.calls.length, 0);
+  });
+  test(`${kind}: changed local payload refused before transport`, () => {
+    const plan = makePlan(); writeFileSync(plan.assets[0], "tampered");
+    const mock = githubMock(plan);
+    assert.throws(() => publishGitHubRelease(plan, { repo: "Orthic-Labs/CutRight", run: mock.run, trustCommandRunner: () => ({ status: 0, stdout: "TeamIdentifier=6KLGD3LLKF", stderr: "" }) }), /changed|replaced|mismatch/);
+    assert.equal(mock.calls.length, 0);
+  });
+  test(`${kind}: transport swap caught by readback against captured evidence`, () => {
+    const plan = makePlan();
+    const mock = githubMock(plan, { swap: () => writeFileSync(plan.assets[0], "swapped during upload") });
+    assert.throws(() => publishGitHubRelease(plan, { repo: "Orthic-Labs/CutRight", run: mock.run, trustCommandRunner: () => ({ status: 0, stdout: "TeamIdentifier=6KLGD3LLKF", stderr: "" }) }), /remove remote asset/);
+    assert.equal(mock.calls.some((args) => args[1] === "delete"), false);
+  });
+  test(`${kind}: happy path verifies every remote payload`, () => {
+    const plan = makePlan(), mock = githubMock(plan);
+    const result = publishGitHubRelease(plan, { repo: "Orthic-Labs/CutRight", run: mock.run, trustCommandRunner: () => ({ status: 0, stdout: "TeamIdentifier=6KLGD3LLKF", stderr: "" }) });
+    assert.equal(result.status, "verified");
+    assert.equal(mock.calls.filter((args) => args[1] === "download").length, plan.assets.length);
+  });
+}
+test("direct SDK refuses payload absent from signed manifest evidence", () => {
+  const fx = directFixture(), extra = path.join(fx.root, "unbound.txt"); writeFileSync(extra, "unsealed");
+  fx.plan.assets.push(extra);
+  assert.throws(() => publishGitHubRelease(fx.plan, { repo: "Orthic-Labs/CutRight", run: () => assert.fail("remote called") }), /lacks signed evidence/);
+});
+
+test("direct SDK refuses authority replacement during signature verification", () => {
+  const fx = directFixture();
+  const runner = (command, args, options) => {
+    writeFileSync(fx.signature, "swapped authority");
+    return fx.signatureCommandRunner(command, args, options);
+  };
+  assert.throws(() => publishGitHubRelease(fx.plan, { repo: "Orthic-Labs/CutRight", signatureCommandRunner: runner, run: () => assert.fail("unexpected remote mutation") }), /SOURCE_CHANGED/);
+});
+test("upload, legacy publish, github --release and github --addon share verified publisher", () => {
+  const cli = readFileSync(new URL("./cli/right-release.mjs", import.meta.url), "utf8");
+  const upload = readFileSync(new URL("./upload-release.mjs", import.meta.url), "utf8");
+  const github = readFileSync(new URL("./github-release.mjs", import.meta.url), "utf8");
+  assert.match(cli, /\["upload", "upload-release.mjs"\]/);
+  assert.match(cli, /first === "publish"[\s\S]*run\("upload-release.mjs", rest\)/);
+  assert.match(upload, /publishGitHubRelease\(plan/);
+  assert.match(github, /prepareGitHubAddonRelease\([\s\S]*prepareGitHubRelease\([\s\S]*publishGitHubRelease\(plan, options\)/);
 });

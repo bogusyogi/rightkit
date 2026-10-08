@@ -12,16 +12,17 @@ const string = (value) => typeof value === "string";
 const boolean = (value) => typeof value === "boolean";
 const ordinal = (value) => Number.isSafeInteger(value) && value >= 0;
 const version = (value) => text(value) && /^\d+(?:\.\d+)*$/.test(value);
-const coverage = (value) => Array.isArray(value) && value.every((entry) => fields(entry, { path: text, status: text, reason: text }));
+const coverage = (value) => Array.isArray(value) && value.every((entry) => fields(entry, { path: text, status: text, reason: text }, { detail: text }));
 const finding = (value, extra = {}) => fields(value, { fingerprint: text, capability: text, package: text, file: text, line: ordinal }, {
-  kind: (v) => ["source", "dependency"].includes(v), lineText: string, ordinal, text: string, occurrenceHash: digest,
+  kind: (v) => ["source", "dependency", "transitive-dependency"].includes(v), lineText: string, ordinal, text: string, occurrenceHash: digest,
+  lockfile: text, dependencyPath: (v) => strings(v) && v.length >= 3,
   ecosystem: text, name: text, alias: nullableText, section: text, requirement: nullableText, features: strings,
   defaultFeatures: (v) => v === null || boolean(v), source: nullableText, resolvedVersion: nullableText, local: boolean, provenance: nullableText, tier: (v) => ["block", "advise"].includes(v), policy: text, ...extra,
-});
+}) && (value.kind !== "transitive-dependency" || text(value.name) && text(value.resolvedVersion) && text(value.source) && strings(value.dependencyPath) && value.dependencyPath.length >= 3 && value.dependencyPath.at(-1) === value.name && value.lockfile === value.file);
 const findings = (value) => Array.isArray(value) && value.every((entry) => finding(entry));
 const provenance = (value, extra = {}) => fields(value, { kind: (v) => ["third-party", "generated"].includes(v), requestId: text, contentDigest: digest }, extra);
 const contentDigests = (value) => Array.isArray(value) && value.every((entry) => fields(entry, { path: text, digest: (v) => digest(v) || typeof v === "string" && /^git:[a-f0-9]{40,64}$/.test(v) }, { provenance }));
-const rows = (value) => Array.isArray(value) && value.every((entry) => fields(entry, { capability: text, owner: text, uses: boolean, status: text, count: ordinal }, { root: text }));
+const rows = (value) => Array.isArray(value) && value.every((entry) => fields(entry, { capability: text, owner: text, uses: boolean, status: text, count: ordinal }, { root: text, owners: strings }));
 const metadata = (value) => fields(value, { repositoryIdentity: nullableText, scannerVersion: text, catalogVersion: text, catalogDigest: digest, coverage }, {
   commit: nullableText, tree: text, host: text, scannedAt: text, contentDigests, pathBase: text, pathPrefix: string,
   provenance: (v) => Array.isArray(v) && v.every((entry) => provenance(entry, { paths: strings })),

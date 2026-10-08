@@ -95,6 +95,11 @@ export function occurrenceHash(finding) {
     if (typeof finding.lineText !== "string" || /[\r\n]/.test(finding.lineText) || !Number.isSafeInteger(finding.ordinal) || finding.ordinal < 0) throw new Error("source occurrence requires full lineText and nonnegative ordinal");
     return sha256({ v: 2, kind, fingerprint: finding.fingerprint, path: finding.file, lineText: finding.lineText, ordinal: finding.ordinal });
   }
+  if (kind === "transitive-dependency") {
+    if (!["cargo", "npm"].includes(finding.ecosystem) || typeof finding.name !== "string" || !finding.name || typeof finding.resolvedVersion !== "string" || !finding.resolvedVersion || typeof finding.source !== "string" || !finding.source
+      || !Array.isArray(finding.dependencyPath) || finding.dependencyPath.length < 3 || finding.dependencyPath.some((name) => typeof name !== "string" || !name) || finding.dependencyPath.at(-1) !== finding.name) throw new Error("malformed transitive dependency occurrence identity");
+    return sha256({ v: 2, kind, fingerprint: finding.fingerprint, path: finding.file, ecosystem: finding.ecosystem, name: finding.name, resolvedVersion: finding.resolvedVersion, source: finding.source, dependencyPath: finding.dependencyPath });
+  }
   if (kind !== "dependency") throw new Error("unknown occurrence kind");
   const ecosystem = finding.ecosystem === "swiftpm" ? "swift" : finding.ecosystem;
   if (!["cargo", "npm", "swift"].includes(ecosystem) || typeof finding.name !== "string" || !finding.name || typeof finding.section !== "string" || !finding.section
@@ -104,6 +109,8 @@ export function occurrenceHash(finding) {
   return sha256({ v: 2, kind, fingerprint: finding.fingerprint, path: finding.file, ecosystem, name: finding.name, alias: finding.alias, section: finding.section, requirement: finding.requirement,
     features: [...new Set(finding.features)].sort(), defaultFeatures: finding.defaultFeatures, source: finding.source, resolvedVersion: finding.resolvedVersion });
 }
+// Schema-v2 envelopes retain source/dependency kinds; lock routes are dependency occurrences.
+const exceptionOccurrenceKind = (f) => f.kind === "transitive-dependency" ? "dependency" : f.kind ?? (f.ecosystem ? "dependency" : "source");
 function nullableString(value) { return value === null || typeof value === "string" && value.length > 0; }
 function validFingerprint(value) { return typeof value === "string" && /^[a-z0-9][a-z0-9._-]{1,127}$/.test(value) && !HEX.test(value); }
 function occurrencePath(value) { return typeof value === "string" && !!value && value !== "." && exactRepositoryPath(value) && !/^[A-Za-z]:/.test(value); }
@@ -245,7 +252,7 @@ export function createDraft({ repositoryIdentity, policyDigest, fingerprint, fin
   if (!validDate(issued)) throw new Error("invalid issued date");
   if (!Array.isArray(findings)) throw new Error("draft findings must be an array of current occurrences");
   const deadline = new Date(`${issued}T00:00:00Z`); deadline.setUTCDate(deadline.getUTCDate() + 90);
-  const occurrences = findings.map((f) => ({ path: f.file, kind: f.kind ?? (f.ecosystem ? "dependency" : "source"), hash: occurrenceHash(f) })).sort((a, b) => a.path.localeCompare(b.path) || a.hash.localeCompare(b.hash));
+  const occurrences = findings.map((f) => ({ path: f.file, kind: exceptionOccurrenceKind(f), hash: occurrenceHash(f) })).sort((a, b) => a.path.localeCompare(b.path) || a.hash.localeCompare(b.hash));
   const payload = { repositoryIdentity: canonicalRepositoryIdentity(repositoryIdentity), policyDigest, fingerprint, minimumScannerVersion, minimumCatalogVersion, occurrences, reason, owner, issued, expires: expires ?? deadline.toISOString().slice(0, 10), requestId: requestId ?? null, trackingRef: trackingRef ?? null };
   return { schema: APPROVAL_SCHEMA, payload, signature: null };
 }
@@ -404,7 +411,7 @@ export function verifyException(record, { repositoryIdentity, catalogDigest, pol
   if (typeof policyDigest !== "string" || !HEX.test(policyDigest) || r.policyDigest !== policyDigest) return { ok: false, problems: ["ownership fingerprint policy digest missing or changed"] };
   if (!Array.isArray(findings)) return { ok: false, problems: ["current findings missing or malformed"] };
   let current;
-  try { current = findings.filter((f) => f.fingerprint === r.fingerprint).map((f) => ({ path: f.file, kind: f.kind ?? (f.ecosystem ? "dependency" : "source"), hash: occurrenceHash(f) })); }
+  try { current = findings.filter((f) => f.fingerprint === r.fingerprint).map((f) => ({ path: f.file, kind: exceptionOccurrenceKind(f), hash: occurrenceHash(f) })); }
   catch (error) { return { ok: false, problems: [error.message] }; }
   for (const item of r.occurrences) if (!current.some((f) => f.path === item.path && f.hash === item.hash && f.kind === item.kind)) problems.push(`baseline occurrence changed or missing: ${item.path} (${item.hash})`);
   if (problems.length) return { ok: false, problems };

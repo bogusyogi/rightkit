@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { readFileSync, statSync } from "node:fs";
+import { readFileSync, statSync, openSync, fstatSync, readSync, closeSync } from "node:fs";
 import path from "node:path";
 import { verifySealedRelease } from "./release-state.mjs";
 import { verifyOwnershipEvidence } from "./ownership-evidence.mjs";
@@ -88,4 +88,21 @@ export function verifyPublicationRelease({ sealedDir, repoRoot, appRoot, commit,
   }
   if (!artifacts.size) throw new PublicationError("PUBLICATION_SEAL_INVALID", "sealed release has no artifacts");
   return { ...sealed, artifacts };
+}
+
+// Bounded memory for large artifacts. Transport must read back against this digest.
+export function verifyArtifactFile(file, evidence) {
+  if (!/^[a-f0-9]{64}$/.test(evidence?.sha256 ?? "")) throw new PublicationError("PUBLICATION_SEAL_INVALID", "publication hash evidence is required");
+  const fd = openSync(file, "r");
+  try {
+    const before = fstatSync(fd), hash = createHash("sha256"), chunk = Buffer.alloc(1024 * 1024);
+    let sizeBytes = 0, count;
+    while (sizeBytes < before.size && (count = readSync(fd, chunk, 0, Math.min(chunk.length, before.size - sizeBytes), null)) > 0) {
+      hash.update(chunk.subarray(0, count)); sizeBytes += count;
+    }
+    if (!sameIdentity(before, fstatSync(fd))) throw new PublicationError("PUBLICATION_SOURCE_CHANGED", `artifact changed while hashing: ${file}`);
+    if (hash.digest("hex") !== evidence.sha256) throw new PublicationError("PUBLICATION_HASH_MISMATCH", `artifact sha256 mismatch: ${file}`);
+    if (evidence.sizeBytes !== undefined && sizeBytes !== evidence.sizeBytes) throw new PublicationError("PUBLICATION_SIZE_MISMATCH", `artifact size mismatch: ${file}`);
+    return { file, sha256: evidence.sha256, sizeBytes, identity: before };
+  } finally { closeSync(fd); }
 }

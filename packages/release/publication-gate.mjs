@@ -10,7 +10,7 @@ import path from "node:path";
 import { spawnSync } from "./background-process.mjs";
 import { recordPublished } from "./rightkit-sync.mjs";
 import { fileURLToPath } from "node:url";
-import { digestBytes } from "./publication-artifacts.mjs";
+import { digestBytes, readVerifiedArtifact } from "./publication-artifacts.mjs";
 
 export const GATE_SCHEMA = 1;
 export const REQUIRED_HOSTS = Object.freeze(["darwin", "win32"]);
@@ -85,7 +85,8 @@ export const NPM_KEYCHAIN_SERVICE = "npm-rightkit-publish";
 
 // `right-release publish npm --package <name> [--evidence <file>] [--dry-run]` runs the gate only.
 // Add `--publish --tarball <file>` to publish that exact gated tarball: its sha256 must equal the
-// evidence artifactSha256, the token is read from the macOS Keychain inside this process (never
+// evidence artifactSha256. Mandatory registry readback compares against captured bytes,
+// so a source-path swap cannot return success or record publication. The token is read from the macOS Keychain inside this process (never
 // printed or passed on a command line), and the registry shasum is verified after publication.
 /** `right-release publish npm --check-auth`: prove the Keychain token authenticates (whoami +
  * @rightkit package access) without publishing. Prints only the username and counts. */
@@ -154,17 +155,32 @@ export function publishGatedTarball({ name, version, tarball, evidencePath }, de
       { encoding: "utf8", env: { ...process.env, RIGHTKIT_NPM_TOKEN: token }, windowsHide: true });
     const out = redact(`${result.stdout ?? ""}${result.stderr ?? ""}`);
     if (result.error || result.status !== 0) throw new Error(`npm publish failed for ${name}@${version}:\n${out.trim()}`);
-    process.stdout.write(`[right-release] published ${name}@${version}\n`);
+    process.stdout.write(`[right-release] submitted ${name}@${version}\n`);
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
   const sha1 = crypto.createHash("sha1").update(bytes).digest("hex");
+  verifyNpmRegistryBytes({ name, version, sha1 }, deps);
+  (deps.recordPublished ?? recordPublished)({ registry: "npm", name, version });
+}
+
+// CI and the authenticated helper share mandatory, fail-closed registry equality.
+export function prepareNpmPublication({ name, version, tarball, evidencePath }) {
+  if (!name || !version) throw new Error("npm publication identity is required");
+  const evidence = JSON.parse(fs.readFileSync(evidencePath, "utf8"));
+  const artifact = readVerifiedArtifact(tarball, { sha256: evidence.artifactSha256 });
+  return { name, version, sha1: crypto.createHash("sha1").update(artifact.bytes).digest("hex"), sha256: artifact.sha256 };
+}
+
+export function verifyNpmRegistryBytes({ name, version, sha1 }, deps = {}) {
+  if (!name || !version || !/^[a-f0-9]{40}$/.test(sha1 ?? "")) throw new Error("captured npm publication hash evidence is required");
+  const run = deps.spawnSync ?? spawnSync;
   const deadline = Date.now() + (deps.verifyTimeoutMs ?? 10 * 60 * 1000);
   for (;;) {
     const view = run("npm", ["view", `${name}@${version}`, "dist.shasum", "--prefer-online", "--registry", "https://registry.npmjs.org/"], { encoding: "utf8", windowsHide: true });
     const registry = (view.stdout ?? "").trim();
-    if (registry === sha1) { process.stdout.write(`[right-release] registry bytes verified for ${name}@${version} (shasum ${sha1})\n`); (deps.recordPublished ?? recordPublished)({ registry: "npm", name, version }); return; }
-    if (registry && registry !== sha1) throw new Error(`registry shasum ${registry} != gated tarball ${sha1} for ${name}@${version}`);
+    if (!view.error && view.status === 0 && registry === sha1) { process.stdout.write(`[right-release] registry bytes verified for ${name}@${version} (shasum ${sha1})\n`); return; }
+    if (registry && registry !== sha1) throw new Error(`registry shasum ${registry} != gated tarball ${sha1} for ${name}@${version}; inspect remote package ${name}@${version}`);
     if (Date.now() > deadline) throw new Error(`${name}@${version} not visible on the registry after publish; verify later with npm view`);
     (deps.sleep ?? ((ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms)))(15000);
   }

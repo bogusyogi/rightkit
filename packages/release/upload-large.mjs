@@ -1,86 +1,35 @@
 #!/usr/bin/env node
-import { accessSync, statSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { spawnSync } from "./background-process.mjs";
+import { verifySealedRelease } from "./release-state.mjs";
+import { uploadVerifiedR2File } from "./r2-verified-upload.mjs";
 
-const ACCOUNT_ID = "03ae77ccd7a07bcbb2dcfde47fa7ba3a";
-const BUCKETS = new Map([
-  ["public", "rightapps-downloads"],
-  ["private", "rightapps-updates"],
-]);
-const RUNNER = { cmd: "pnpm", prefix: ["dlx"] };
-
-const [, , localFile, r2Key, bucketAlias = "public"] = process.argv;
-if (!localFile || !r2Key) {
-  console.error("Usage: node upload-large.mjs <localFile> <r2Key> [public|private]");
-  process.exit(1);
+export function runLargeUpload(argv, { run = spawnSync, env = process.env } = {}) {
+  const [localFile, r2Key, bucketAlias = "public", flag, evidencePath, ...extra] = argv;
+  if (!localFile || !r2Key) throw new Error("Usage: upload-large <file> <key> public|private --evidence <json> | --seal <sealed-dir>");
+  if (!["public", "private"].includes(bucketAlias)) throw new Error(`invalid bucket alias ${bucketAlias}; expected public|private`);
+  if (!["--evidence", "--seal"].includes(flag) || !evidencePath || extra.length) throw new Error("publication seal or hash evidence is required (--seal or --evidence)");
+  let evidence;
+  if (flag === "--seal") {
+    const sealed = verifySealedRelease(path.resolve(evidencePath));
+    if (path.dirname(path.resolve(localFile)) !== path.resolve(sealed.sealedDir)) throw new Error("artifact is outside sealed directory");
+    evidence = sealed.manifest.files.find((entry) => entry.name === path.basename(localFile));
+  } else {
+    const value = JSON.parse(readFileSync(evidencePath, "utf8"));
+    evidence = { sha256: value.artifactSha256, sizeBytes: value.sizeBytes };
+  }
+  // Validate before runner discovery or any remote operation, including dry runs.
+  uploadVerifiedR2File(localFile, evidence, r2Key, bucketAlias, { dryRun: true });
+  const probe = run("pnpm", ["--version"], { env, stdio: "ignore", shell: process.platform === "win32", windowsHide: true });
+  if (probe.error || probe.status !== 0) throw new Error("no package runner found: pnpm dlx");
+  const object = `${bucketAlias === "public" ? "rightapps-downloads" : "rightapps-updates"}/${r2Key}`;
+  console.log(`wrangler r2 object put ${object} --remote (mandatory hash readback)`);
+  console.log("runner: pnpm dlx");
+  return uploadVerifiedR2File(localFile, evidence, r2Key, bucketAlias, { run, env, dryRun: env.RIGHT_RELEASE_UPLOAD_DRY_RUN === "1" });
 }
-
-const bucket = BUCKETS.get(bucketAlias);
-if (!bucket) {
-  console.error(`upload-large: invalid bucket alias ${bucketAlias}; expected public|private`);
-  process.exit(1);
-}
-
-try {
-  accessSync(localFile);
-} catch {
-  console.error(`upload-large: missing local file: ${localFile}`);
-  process.exit(1);
-}
-
-const fileSize = statSync(localFile).size;
-const object = `${bucket}/${r2Key}`;
-const wranglerArgs = ["wrangler@4", "r2", "object", "put", object, "--file", path.resolve(localFile), "--remote"];
-const env = cleanCloudflareEnv(process.env);
-
-console.log(`Uploading ${path.basename(localFile)} (${(fileSize / 1024 / 1024).toFixed(1)} MB) -> ${object}`);
-console.log(`wrangler r2 object put ${object} --file ${path.resolve(localFile)} --remote`);
-
-// Resolve the package runner before the dry-run exit: a release box without one cannot upload,
-// and that must fail here rather than after a signed build has already been produced.
-const runner = resolveRunner(env);
-if (!runner) {
-  console.error(
-    "upload-large: no package runner found. Tried: " +
-      "pnpm dlx. Install the pinned workspace package manager before release.",
-  );
-  process.exit(1);
-}
-console.log(`runner: ${[runner.cmd, ...runner.prefix].join(" ")}`);
-
-if (process.env.RIGHT_RELEASE_UPLOAD_DRY_RUN === "1") {
-  process.exit(0);
-}
-
-const result = spawnSync(runner.cmd, [...runner.prefix, ...wranglerArgs], {
-  env,
-  stdio: "inherit",
-  shell: process.platform === "win32",
-  windowsHide: true,
-});
-
-if (result.error) {
-  console.error(`upload-large: failed to start wrangler: ${result.error.message}`);
-  process.exit(1);
-}
-process.exit(result.status ?? 1);
-
-function resolveRunner(env) {
-  const probe = spawnSync(RUNNER.cmd, ["--version"], {
-    env,
-    stdio: "ignore",
-    shell: process.platform === "win32",
-    windowsHide: true,
-  });
-  return !probe.error && probe.status === 0 ? RUNNER : null;
-}
-
-function cleanCloudflareEnv(source) {
-  const env = { ...source, CLOUDFLARE_ACCOUNT_ID: source.CLOUDFLARE_ACCOUNT_ID || ACCOUNT_ID };
-  delete env.CLOUDFLARE_API_KEY;
-  delete env.CLOUDFLARE_EMAIL;
-  delete env.CF_API_KEY;
-  delete env.CF_EMAIL;
-  return env;
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  try { runLargeUpload(process.argv.slice(2)); }
+  catch (error) { console.error(`upload-large: ${error.message}`); process.exitCode = 1; }
 }
