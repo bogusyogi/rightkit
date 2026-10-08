@@ -6,16 +6,6 @@
   "minimumCatalogDigest": "875594919178efe146b32276cb21e21a715ca787fb1cc39db425b21bafb02df6",
   "revokedKeyIds": [],
   "verifiedTrackingEvidence": [],
-  "repositories": [
-    { "repositoryIdentity": "https://github.com/bogusyogi/coderight", "roots": ["."], "visibility": "private" },
-    { "repositoryIdentity": "https://github.com/bogusyogi/cutright", "roots": ["."], "visibility": "private" },
-    { "repositoryIdentity": "https://github.com/bogusyogi/genright", "roots": ["."], "visibility": "private" },
-    { "repositoryIdentity": "https://github.com/bogusyogi/heardright", "roots": ["."], "visibility": "private" },
-    { "repositoryIdentity": "https://github.com/bogusyogi/mailright", "roots": ["."], "visibility": "private" },
-    { "repositoryIdentity": "https://github.com/bogusyogi/rightsites", "roots": ["."], "visibility": "private" },
-    { "repositoryIdentity": "https://github.com/bogusyogi/scraperight", "roots": ["."], "visibility": "private" },
-    { "repositoryIdentity": "https://github.com/bogusyogi/viewright", "roots": ["."], "visibility": "private" },
-    { "repositoryIdentity": "https://github.com/bogusyogi/voiceright", "roots": ["."], "visibility": "private" }
-  ],
+  "repositories": [],
   "provenance": []
 }

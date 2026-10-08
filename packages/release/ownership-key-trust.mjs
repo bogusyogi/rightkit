@@ -305,10 +305,10 @@ export function raiseFloorsToInstalledRelease(trust, { manifest = installedCatal
 }
 function installedCatalog() { return JSON.parse(readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "rightkit-ownership.json"), "utf8")); }
 
-/** Typed refusal: an installed registration disagrees with an existing protected registration. Nothing is written. */
-export class RepositoryRegistryDriftError extends Error {
-  constructor(message) { super(message); this.name = "RepositoryRegistryDriftError"; this.code = "RK_OWNERSHIP_REPOSITORY_DRIFT"; this.type = this.code; }
-}
+/** Typed, non-blocking warnings from the registry merge. The trust update still applies everything else. */
+export const REPOSITORY_DRIFT_CODE = "RK_OWNERSHIP_REPOSITORY_DRIFT";
+export const REPOSITORY_REGISTRY_MALFORMED_CODE = "RK_OWNERSHIP_REPOSITORY_REGISTRY_MALFORMED";
+const warning = (code, message, repositoryIdentity) => ({ code, type: code, message, ...(repositoryIdentity ? { repositoryIdentity } : {}) });
 const REPOSITORY_REGISTRY_FILE = "ownership-repositories.json";
 const MAX_REGISTRY_BYTES = 256 * 1024;
 const REPOSITORY_FIELDS = ["repositoryIdentity", "roots", "visibility"];
@@ -339,26 +339,32 @@ function validatedRegistryEntries(registry) {
 }
 /**
  * Additions only, from the committed sibling registry. The trust request never supplies registrations.
- * An identity already registered must match its roots and visibility exactly, or the whole update is refused.
+ * Returns { trust, warnings }; it never throws for registry problems, so revocations and floors always apply.
+ * - An identity already registered with different roots or visibility keeps its protected entry unchanged,
+ *   that registry entry is skipped, and a RK_OWNERSHIP_REPOSITORY_DRIFT warning is returned.
+ * - A malformed registry file skips the whole registry merge with a RK_OWNERSHIP_REPOSITORY_REGISTRY_MALFORMED warning.
  * Provenance, exceptions, and every other field are untouched. firstInstall starts from no registrations.
  */
-export function mergeRepositoriesFromInstalledRelease(trust, { firstInstall = false, registry = installedRepositoryRegistry() } = {}) {
-  const incoming = validatedRegistryEntries(registry);
+export function mergeRepositoriesFromInstalledRelease(trust, { firstInstall = false, registry } = {}) {
   if (!Array.isArray(trust?.repositories)) throw new Error("protected repository registry missing");
   const existing = firstInstall ? [] : trust.repositories.map(copyJson);
+  let incoming;
+  try { incoming = validatedRegistryEntries(registry ?? installedRepositoryRegistry()); }
+  catch (error) { return { trust: { ...trust, repositories: existing }, warnings: [warning(REPOSITORY_REGISTRY_MALFORMED_CODE, `repository registration merge skipped: ${error.message}`)] }; }
   const byIdentity = new Map(existing.map((entry) => [entry.repositoryIdentity, entry]));
   const additions = [];
+  const warnings = [];
   for (const entry of incoming) {
     const current = byIdentity.get(entry.repositoryIdentity);
     if (!current) { additions.push(entry); continue; }
     if (canonicalJson(current.roots) !== canonicalJson(entry.roots) || current.visibility !== entry.visibility) {
-      throw new RepositoryRegistryDriftError(`protected repository registration differs from the installed release; refusing update: ${entry.repositoryIdentity}`);
+      warnings.push(warning(REPOSITORY_DRIFT_CODE, `protected repository registration differs from the installed release; kept protected entry, skipped registry entry: ${entry.repositoryIdentity}`, entry.repositoryIdentity));
     }
   }
   const merged = { ...trust, repositories: [...existing, ...additions] };
   const check = validateTrustRegistry(merged);
   if (!check.ok) throw new Error(`merged protected repository registry is invalid: ${check.problems.join("; ")}`);
-  return merged;
+  return { trust: merged, warnings };
 }
 
 export function performProtectedTrustUpdate({ log, rootFingerprint, baseline, authority } = {}) {
@@ -374,11 +380,12 @@ export function performProtectedTrustUpdate({ log, rootFingerprint, baseline, au
     let existing = null;
     try { lstatSync(file); auditProtected(file); existing = readExisting(file); } catch (error) { if (error.code !== "ENOENT") throw error; existing = null; }
     const prepared = prepareTrustUpdate(existing, { log, rootFingerprint, baseline, authority });
-    const trust = raiseFloorsToInstalledRelease(mergeRepositoriesFromInstalledRelease(prepared, { firstInstall: existing == null }));
+    const merged = mergeRepositoriesFromInstalledRelease(prepared, { firstInstall: existing == null });
+    const trust = raiseFloorsToInstalledRelease(merged.trust);
     if (trust.keyAuthority) validateCommittedAuthority(trust.keyAuthority, log, trust.rootFingerprint, trust.keyCheckpoint);
     atomicProtectedWrite(file, trust);
     auditProtected(file);
-    return { path: file, trust };
+    return { path: file, trust, warnings: merged.warnings };
   } finally { releaseLock(); }
 }
 
@@ -401,6 +408,7 @@ if (process.argv[1] && realOrSelf(process.argv[1]) === realOrSelf(fileURLToPath(
     const request = readPinnedRequest(process.argv[3], process.argv[5]);
     if (!exactObject(request, ["schema", "log", "rootFingerprint", ...(Object.hasOwn(request ?? {}, "baseline") ? ["baseline"] : []), ...(Object.hasOwn(request ?? {}, "authority") ? ["authority"] : [])]) || request.schema !== 1 || !Array.isArray(request.log?.events) || request.log.schema !== 1) throw new Error("key trust request schema is malformed");
     const result = performProtectedTrustUpdate({ log: request.log, rootFingerprint: request.rootFingerprint, baseline: request.baseline, authority: request.authority });
-    process.stdout.write(`${JSON.stringify({ path: result.path, checkpoint: result.trust.keyCheckpoint })}\n`);
+    for (const item of result.warnings) process.stderr.write(`${item.code}: ${item.message}\n`);
+    process.stdout.write(`${JSON.stringify({ path: result.path, checkpoint: result.trust.keyCheckpoint, warnings: result.warnings })}\n`);
   } catch (error) { process.stderr.write(`${error.message}\n`); process.exitCode = 2; }
 }
