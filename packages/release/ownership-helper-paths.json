@@ -1,8 +1,8 @@
 {
   "schema": 1,
   "windows": {
-    "path": "C:\\Users\\adrds\\.rightkit-managed\\ownership-approval\\windows\\content-8d12e39ee6bac3bf8332df8dc61c74637e2eda6becbcc39746fe1ed5a1fe7ef6\\RightKit.OwnershipApproval.Windows.exe",
-    "sha256": "8d12e39ee6bac3bf8332df8dc61c74637e2eda6becbcc39746fe1ed5a1fe7ef6"
+    "path": "C:\\Users\\adrds\\.rightkit-managed\\ownership-approval\\windows\\content-6df7a0a80c70cc9b9a66a9c30d5956500d505f8d15f9c98563a4e8e63a60f12f\\RightKit.OwnershipApproval.Windows.exe",
+    "sha256": "6df7a0a80c70cc9b9a66a9c30d5956500d505f8d15f9c98563a4e8e63a60f12f"
   },
   "macos": {
     "path": "/Users/adrdsouza/.rightkit-managed/ownership-approval/macos/content-2c30864bdb666a1ca1e4388ea7a3bc83cb985196d666b96cc30e1da7cd5b0e6b/RightKitOwnershipApproval.app/Contents/MacOS/ownership-approval",
