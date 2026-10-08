@@ -77,16 +77,38 @@ pub fn write_reference_wav(path: &Path, seconds: f64) -> Result<()> {
     Ok(())
 }
 
+static FFPROBE: std::sync::RwLock<Option<PathBuf>> = std::sync::RwLock::new(None);
+
+/// Pin the ffprobe binary for this process. The harness calls this with the tool
+/// [`locate_tool`] finds through its Settings file, so lookups survive scrubbed envs.
+pub fn set_ffprobe_bin(path: impl Into<PathBuf>) {
+    if let Ok(mut slot) = FFPROBE.write() {
+        *slot = Some(path.into());
+    }
+}
+
+/// Env override, then the binary pinned by [`set_ffprobe_bin`], then `ffprobe` on PATH.
 pub fn ffprobe_bin() -> String {
-    std::env::var("RIGHTKIT_QA_FFPROBE")
-        .or_else(|_| std::env::var("GENRIGHT_FFPROBE"))
-        .unwrap_or_else(|_| "ffprobe".into())
+    if let Ok(v) =
+        std::env::var("RIGHTKIT_QA_FFPROBE").or_else(|_| std::env::var("GENRIGHT_FFPROBE"))
+    {
+        return v;
+    }
+    if let Some(p) = FFPROBE.read().ok().and_then(|slot| slot.clone()) {
+        return p.to_string_lossy().into_owned();
+    }
+    "ffprobe".into()
 }
 
 /// `ffprobe -show_format -show_streams` as JSON; errors if ffprobe is absent.
 pub fn ffprobe(path: &Path, tracker: &Tracker) -> Result<Value> {
+    ffprobe_with(&ffprobe_bin(), path, tracker)
+}
+
+/// [`ffprobe`] with an explicit binary.
+pub fn ffprobe_with(bin: &str, path: &Path, tracker: &Tracker) -> Result<Value> {
     let out = run_owned(
-        &ffprobe_bin(),
+        bin,
         &[
             "-v".into(),
             "quiet".into(),

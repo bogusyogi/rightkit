@@ -167,11 +167,19 @@ pub fn run_suite(cfg: &QaConfig, opts: &SuiteOptions) -> Result<SuiteReport> {
 }
 
 /// Test/embedding entry point with an explicit managed root.
-pub fn run_suite_in_managed_root(cfg: &QaConfig, opts: &SuiteOptions, managed_root: &Path) -> Result<SuiteReport> {
+pub fn run_suite_in_managed_root(
+    cfg: &QaConfig,
+    opts: &SuiteOptions,
+    managed_root: &Path,
+) -> Result<SuiteReport> {
     run_suite_at(cfg, opts, Some(managed_root))
 }
 
-fn run_suite_at(cfg: &QaConfig, opts: &SuiteOptions, managed_override: Option<&Path>) -> Result<SuiteReport> {
+fn run_suite_at(
+    cfg: &QaConfig,
+    opts: &SuiteOptions,
+    managed_override: Option<&Path>,
+) -> Result<SuiteReport> {
     let platform = platform()?;
     let tier = opts
         .tier

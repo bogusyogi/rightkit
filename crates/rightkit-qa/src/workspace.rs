@@ -37,11 +37,18 @@ pub fn create_managed(run_id: Option<&str>, app_key: &str) -> Result<QaWorkspace
     create_impl(None, run_id, app_key)
 }
 
-pub(crate) fn create_impl_for_harness(managed_root: Option<&Path>, app_key: &str) -> Result<QaWorkspace> {
+pub(crate) fn create_impl_for_harness(
+    managed_root: Option<&Path>,
+    app_key: &str,
+) -> Result<QaWorkspace> {
     create_impl(managed_root, None, app_key)
 }
 
-fn create_impl(cache_root: Option<&Path>, run_id: Option<&str>, app_key: &str) -> Result<QaWorkspace> {
+fn create_impl(
+    cache_root: Option<&Path>,
+    run_id: Option<&str>,
+    app_key: &str,
+) -> Result<QaWorkspace> {
     let app_key = require_text(app_key, "app")?;
     let managed = storage::create(cache_root, &app_key, run_id, Duration::from_secs(24 * 3600))?;
     let run_id = managed.marker.run_id.clone();
@@ -128,7 +135,10 @@ pub fn dispose(
     let mut report = DisposeReport::default();
     if let Ok(marker_bytes) = fs::read(ws.root.join(storage::RUN_MARKER)) {
         if let Ok(marker) = serde_json::from_slice(&marker_bytes) {
-            let _ = storage::finish(&storage::ManagedRun { root: ws.root.clone(), marker });
+            let _ = storage::finish(&storage::ManagedRun {
+                root: ws.root.clone(),
+                marker,
+            });
         }
     }
     let mut targets = vec![ws.data_dir.clone()];

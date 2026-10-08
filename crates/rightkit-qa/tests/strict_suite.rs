@@ -88,7 +88,8 @@ command = "x"
 fn wrong_content_fails_and_right_content_binds_identity() {
     let wrong = tmp("wrong");
     let cfg = app(&wrong, &[("wrong", WRONG)]);
-    let r = run_suite_in_managed_root(&cfg, &SuiteOptions::default(), &wrong.join("managed")).unwrap();
+    let r =
+        run_suite_in_managed_root(&cfg, &SuiteOptions::default(), &wrong.join("managed")).unwrap();
     assert_eq!(
         r.exit_code, 1,
         "exists+eq with the wrong value must not pass"

@@ -10,10 +10,10 @@
 use rightkit_qa::config::QaConfig;
 use rightkit_qa::evidence::Bundle;
 use rightkit_qa::guard::{scripts_from_package_json, validate, Backend, ContractInput};
+use rightkit_qa::process;
 use rightkit_qa::scenario::{discover, unmet_requirement, Scenario};
 use rightkit_qa::suite::{run_suite, select, SuiteOptions};
 use rightkit_qa::util::{err, Result};
-use rightkit_qa::process;
 use std::path::{Path, PathBuf};
 
 struct Args(Vec<String>);

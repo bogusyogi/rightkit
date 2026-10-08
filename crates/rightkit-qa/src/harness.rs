@@ -39,8 +39,8 @@ use serde_json::{json, Value};
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
 use std::sync::Arc;
+use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 /// Settings key read for the tier override unless [`Harness::with_tier_key`] changes it.
@@ -82,7 +82,9 @@ pub struct Harness {
 
 impl Drop for Harness {
     fn drop(&mut self) {
-        if Arc::strong_count(&self.run) != 1 { return; }
+        if Arc::strong_count(&self.run) != 1 {
+            return;
+        }
         if let Ok(mut run) = self.run.lock() {
             if let Some(ws) = run.take() {
                 let _ = crate::workspace::dispose(&ws, true, 3, 10);
@@ -97,6 +99,9 @@ impl Harness {
     pub fn new(app: &str, root: impl Into<PathBuf>) -> Result<Self> {
         let root = root.into();
         let settings = Settings::discover(&root)?;
+        if let Some(p) = crate::media::locate_tool("ffprobe", &settings, "RIGHTKIT_QA_FFPROBE") {
+            crate::media::set_ffprobe_bin(p);
+        }
         Ok(Self::with_parts(app, root, settings))
     }
 
@@ -108,7 +113,15 @@ impl Harness {
     ) -> Result<Self> {
         let root = root.into();
         let settings = Settings::discover(&root)?;
-        Ok(Self::with_parts_in_managed_root(app, root, settings, managed_root))
+        if let Some(p) = crate::media::locate_tool("ffprobe", &settings, "RIGHTKIT_QA_FFPROBE") {
+            crate::media::set_ffprobe_bin(p);
+        }
+        Ok(Self::with_parts_in_managed_root(
+            app,
+            root,
+            settings,
+            managed_root,
+        ))
     }
 
     /// Like [`Harness::new`] with settings already loaded.
@@ -129,8 +142,16 @@ impl Harness {
         Self::with_parts_at(app, root, settings, Some(managed_root.as_path()))
     }
 
-    fn with_parts_at(app: &str, root: PathBuf, settings: Settings, managed_root: Option<&Path>) -> Self {
-        let run = Some(crate::workspace::create_impl_for_harness(managed_root, app).unwrap_or_else(|e| panic!("cannot create managed QA run: {e}")));
+    fn with_parts_at(
+        app: &str,
+        root: PathBuf,
+        settings: Settings,
+        managed_root: Option<&Path>,
+    ) -> Self {
+        let run = Some(
+            crate::workspace::create_impl_for_harness(managed_root, app)
+                .unwrap_or_else(|e| panic!("cannot create managed QA run: {e}")),
+        );
         let evidence_root = run.as_ref().expect("managed run").evidence_dir.clone();
         let run_root = run.as_ref().expect("managed run").root.clone();
         Self {
@@ -176,7 +197,10 @@ impl Harness {
     pub fn with_evidence_root(mut self, dir: impl Into<PathBuf>) -> Self {
         let dir = dir.into();
         if !self.allow_external_evidence && !dir.starts_with(&self.run_root) {
-            panic!("QA evidence root must be inside managed run root: {}", self.run_root.display());
+            panic!(
+                "QA evidence root must be inside managed run root: {}",
+                self.run_root.display()
+            );
         }
         self.evidence_root = dir;
         self
@@ -567,7 +591,9 @@ impl Scenario {
     /// A fresh scratch directory inside this run's managed root. It is
     /// removed when the scenario passes or skips; kept on failure for debugging.
     pub fn scratch(&self, label: &str) -> PathBuf {
-        let d = self.scratch_root.join(format!("rkqa-{}-{}", slug(label), &new_id()[..8]));
+        let d = self
+            .scratch_root
+            .join(format!("rkqa-{}-{}", slug(label), &new_id()[..8]));
         let _ = fs::create_dir_all(&d);
         let d = d.canonicalize().unwrap_or(d);
         self.scratches.lock().unwrap().push(d.clone());

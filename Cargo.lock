@@ -5148,7 +5148,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-qa"
-version = "0.2.9"
+version = "0.2.10"
 dependencies = [
  "libc",
  "png 0.18.1",
