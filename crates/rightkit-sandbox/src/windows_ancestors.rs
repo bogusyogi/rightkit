@@ -158,9 +158,9 @@ fn validate_owner_prefix(prefix: &str) -> Result<(), SandboxError> {
             segments.len() >= 2
                 && segments.iter().all(|segment| {
                     !segment.is_empty()
-                        && segment.bytes().all(|b| {
-                            b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-'
-                        })
+                        && segment
+                            .bytes()
+                            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
                 })
         });
     if !valid {
@@ -546,9 +546,8 @@ impl AppContainerAncestorLease {
                 "ancestor lease requires an AppContainer SID starting with S-1-15-2-".into(),
             ));
         }
-        let sid = LocalSid::parse(&text).map_err(|e| {
-            SandboxError::InvalidPolicy(format!("invalid AppContainer SID: {e}"))
-        })?;
+        let sid = LocalSid::parse(&text)
+            .map_err(|e| SandboxError::InvalidPolicy(format!("invalid AppContainer SID: {e}")))?;
         // Canonical text shares refcounts with backend leases & sweep ownership keys.
         let text = sid_string(sid.0)?;
         Ok(Self {
