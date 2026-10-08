@@ -7,11 +7,16 @@ use crate::error::{Error, Result};
 use crate::namespace::Namespace;
 use crate::secret::Secret;
 use std::sync::Mutex;
-use windows_sys::Win32::Foundation::{GetLastError, ERROR_NOT_FOUND};
+use windows_sys::Win32::Foundation::{
+    CloseHandle, GetLastError, ERROR_NOT_FOUND, HANDLE, WAIT_ABANDONED, WAIT_FAILED, WAIT_OBJECT_0,
+    WAIT_TIMEOUT,
+};
 use windows_sys::Win32::Security::Credentials::{
     CredDeleteW, CredFree, CredReadW, CredWriteW, CREDENTIALW, CRED_PERSIST_LOCAL_MACHINE,
     CRED_TYPE_GENERIC,
 };
+use windows_sys::Win32::Security::Cryptography::{BCryptHash, BCRYPT_SHA256_ALG_HANDLE};
+use windows_sys::Win32::System::Threading::{CreateMutexW, ReleaseMutex, WaitForSingleObject};
 
 fn wide(s: &str) -> Vec<u16> {
     s.encode_utf16().chain(std::iter::once(0)).collect()
@@ -26,9 +31,70 @@ fn code(op: &'static str, err: u32) -> Error {
 
 pub struct CredentialManagerBackend;
 
-/// Serializes read-then-write for `add_if_absent` inside one process. Credential Manager has no
-/// create-only flag, so a concurrent writer in ANOTHER process can still race (documented).
+/// Retained process-local serialization; `AccountLock` also covers other processes.
 static ADD_LOCK: Mutex<()> = Mutex::new(());
+
+struct AccountLock {
+    handle: HANDLE,
+    acquired: bool,
+}
+
+impl AccountLock {
+    fn acquire(ns: &Namespace, account: &str) -> Result<Self> {
+        let input = format!("{}\0{}", ns.service(), account);
+        let mut digest = [0u8; 32];
+        unsafe {
+            let status = BCryptHash(
+                BCRYPT_SHA256_ALG_HANDLE,
+                std::ptr::null(),
+                0,
+                input.as_ptr(),
+                input.len() as u32,
+                digest.as_mut_ptr(),
+                digest.len() as u32,
+            );
+            if status < 0 {
+                return Err(Error::Backend {
+                    op: "lock hash",
+                    code: status as i64,
+                });
+            }
+            let suffix: String = digest[..16].iter().map(|b| format!("{b:02x}")).collect();
+            let name = wide(&format!("Local\\rightkit-secrets-{suffix}"));
+            let handle = CreateMutexW(std::ptr::null(), 0, name.as_ptr());
+            if handle.is_null() {
+                return Err(code("lock create", GetLastError()));
+            }
+            let mut guard = Self {
+                handle,
+                acquired: false,
+            };
+            match WaitForSingleObject(handle, 10_000) {
+                WAIT_OBJECT_0 | WAIT_ABANDONED => {
+                    guard.acquired = true;
+                    Ok(guard)
+                }
+                WAIT_TIMEOUT => Err(Error::Timeout {
+                    op: "lock",
+                    secs: 10,
+                }),
+                WAIT_FAILED => Err(code("lock wait", GetLastError())),
+                other => Err(code("lock wait", other)),
+            }
+        }
+    }
+}
+
+impl Drop for AccountLock {
+    fn drop(&mut self) {
+        unsafe {
+            if self.acquired {
+                ReleaseMutex(self.handle);
+            }
+            CloseHandle(self.handle);
+        }
+    }
+}
 
 impl CredentialManagerBackend {
     fn read(&self, ns: &Namespace, account: &str, want_blob: bool) -> Result<Option<Secret>> {
@@ -105,6 +171,7 @@ impl Backend for CredentialManagerBackend {
         let _g = ADD_LOCK
             .lock()
             .map_err(|_| Error::Unavailable("lock poisoned".into()))?;
+        let _account = AccountLock::acquire(ns, account)?;
         if self.exists(ns, account, mode)? {
             return Ok(false);
         }

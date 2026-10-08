@@ -4850,7 +4850,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-browser"
-version = "0.2.2"
+version = "0.2.3"
 dependencies = [
  "chromiumoxide",
  "futures",
@@ -5219,7 +5219,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-secrets"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "base64 0.22.1",
  "getrandom 0.3.4",
