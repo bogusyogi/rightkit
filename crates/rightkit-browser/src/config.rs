@@ -34,6 +34,9 @@ pub struct LaunchOptions {
     pub use_system_chrome_only: bool,
     pub viewport: (u32, u32),
     pub launch_timeout: Duration,
+    /// Deadline for each CDP request, including `Page.navigate`. Default 30 s (chromiumoxide's).
+    /// Raise it for dev servers whose first load is slow (e.g. Vite's cold dependency optimizer).
+    pub request_timeout: Duration,
     /// Extra Chrome flags, with or without leading `--`.
     pub extra_args: Vec<String>,
     /// Defaults to `<profile>/downloads` for temporary profiles and
@@ -77,6 +80,7 @@ impl Default for LaunchOptions {
             use_system_chrome_only: false,
             viewport: (1280, 800),
             launch_timeout: Duration::from_secs(60),
+            request_timeout: Duration::from_secs(30),
             extra_args: Vec::new(),
             download_dir: None,
             upload_root: None,
@@ -110,6 +114,11 @@ impl LaunchOptions {
     }
     pub fn admission(mut self, hook: AdmissionHook) -> Self {
         self.admission = Some(hook);
+        self
+    }
+    /// Per-request CDP deadline (navigation included).
+    pub fn request_timeout(mut self, timeout: Duration) -> Self {
+        self.request_timeout = timeout;
         self
     }
     pub fn network(mut self, policy: NetworkPolicy) -> Self {

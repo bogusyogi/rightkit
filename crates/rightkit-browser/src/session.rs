@@ -12,6 +12,7 @@ use chromiumoxide::cdp::browser_protocol::browser::{
     PermissionDescriptor, PermissionSetting, ResetPermissionsParams, SetDownloadBehaviorBehavior,
     SetDownloadBehaviorParams, SetPermissionParams,
 };
+use chromiumoxide::handler::HandlerConfig;
 use futures::StreamExt;
 use std::collections::HashSet;
 use std::ffi::OsString;
@@ -193,6 +194,7 @@ impl BrowserSession {
         }
         args.push("about:blank".into());
         let launch_timeout = opts.launch_timeout;
+        let request_timeout = opts.request_timeout;
         #[cfg(windows)]
         let job = opts.windows_job.take();
         #[cfg(not(windows))]
@@ -203,7 +205,11 @@ impl BrowserSession {
         .await
         .map_err(|e| BrowserError::Launch(e.to_string()))??;
         let pid = Some(proc.child.id());
-        let (browser, mut handler) = Browser::connect(proc.ws_url.clone())
+        let config = HandlerConfig {
+            request_timeout,
+            ..HandlerConfig::default()
+        };
+        let (browser, mut handler) = Browser::connect_with_config(proc.ws_url.clone(), config)
             .await
             .map_err(|e| BrowserError::Launch(e.to_string()))?;
         let proc = Arc::new(StdMutex::new(Some(proc)));
