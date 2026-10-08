@@ -1,14 +1,28 @@
 # rightkit-watch
 
-Filesystem watching for Right Suite apps (see `API.md` in the lane folder for the contract).
+Filesystem watching for Right Suite apps. It is built on `notify` and has three layers:
 
-* `subscribe` — async multi-subscriber watcher. Ported from CodeRight `coderight_tools::file_watcher`,
-  itself derived from the Apache-2.0 codex `file-watcher` crate.
-* `sync` — thread-based `FileSetWatcher` (grant-gated, parent-directory watching) and `DirWatchSet`
-  (capped explorer watches). Derived from ViewRight `src-tauri/src/watcher.rs`.
-* `coalesce` — rename-storm coalescing that reports net filesystem truth per batch.
+* `subscribe`: async multi-subscriber watcher. Ported from CodeRight `coderight_tools::file_watcher`, itself derived from the Apache-2.0 codex `file-watcher` crate. Reference-counted OS watches, canonical-path matching, missing-path fallback, and throttled or debounced receivers.
+* `sync`: thread-based `FileSetWatcher` (grant-gated, parent-directory watching) and `DirWatchSet` (capped, evicting explorer watches). Derived from ViewRight `src-tauri/src/watcher.rs`. No async runtime needed.
+* `coalesce`: rename-storm coalescing that reports net filesystem truth per batch.
 
-Licensed MIT OR Apache-2.0.
+**Use it** when an app must react to file changes, and needs one policy for debouncing, rename handling, grant checks, and rescans.
+
+**Do not use it** to poll, to watch network file systems as a guarantee (the backend decides what events arrive), or to replace an app's own file-change semantics.
+
+## Features
+
+None. The crate has no Cargo features. Dependencies: `notify` (8.2), `tokio` (`rt`, `sync`, `time`, `macros`), and `tracing`. The crate re-exports `notify`.
+
+## Platform support
+
+The crate has no platform-specific code in `src/`. The only `cfg(unix)` is a test (`recursive_directory_snapshot_does_not_follow_symlinks`). Backend behavior comes from `notify`. For example, the README describes FSEvents on macOS supplying unpaired rename hints as Modify events.
+
+Published version: see `INDEX.md` at the repository root. Release notes for the 0.2.0 and 0.3.x additions are below. This crate has no `CHANGELOG.md`.
+
+## Example
+
+Illustrative; not compiled as a doctest. The integration tests in `tests/` exercise the same APIs: `tests/e2e.rs`, `tests/typed.rs`, `tests/options.rs`, and `tests/directory_options.rs`.
 
 ## Also (0.3.1)
 
@@ -17,7 +31,7 @@ as file-set streams: `max_wait: None` for trailing quiet only, `Some(duration)`
 for a forced deadline, `coalesce: false` for immediate backend hints, kind
 filters, tolerated arm failures, discard on disconnect & snapshot reconciliation.
 
-```rust
+```rust,ignore
 use std::{path::Path, time::Duration};
 use rightkit_watch::{DirWatchSet, EventFilter, WatchEventKind, WatchOptions};
 
@@ -66,7 +80,7 @@ without depending directly on `notify`.
    adjacent untracked halves pair too. Unpaired halves become Delete/Create after
    250 ms. FSEvents supplies unpaired rename hints as Modify events.
 
-   ```rust
+   ```rust,ignore
    use rightkit_watch::{FileWatcher, WatchEvent};
 
    let watch = FileWatcher::watch_typed(".")?;
@@ -83,7 +97,7 @@ without depending directly on `notify`.
    channel state; backend errors arrive as `WatchEvent::Error`. The stream queue is
    unbounded; drain it regularly.
 
-   ```rust
+   ```rust,ignore
    use rightkit_watch::{FileWatcher, WatchEvent};
 
    let watch = FileWatcher::watch_typed(".")?; // registration errors propagate
@@ -97,7 +111,7 @@ without depending directly on `notify`.
 3. **Recursive directory sets.** Defaults stay nonrecursive. Opt in explicitly;
    capacity counts watched roots, including their descendants.
 
-   ```rust
+   ```rust,ignore
    use std::{path::Path, time::Duration};
    use rightkit_watch::DirWatchSet;
 
@@ -109,7 +123,7 @@ without depending directly on `notify`.
    filesystem semantics & collapsed rename chains. It returns `Err` on gaps,
    retaining pending changes so callers can reconcile explicitly.
 
-   ```rust
+   ```rust,ignore
    use rightkit_watch::{ChangeCoalescer, FileWatcher};
 
    let watch = FileWatcher::watch_typed(".")?;
@@ -141,7 +155,7 @@ Streams are unbounded; drain regularly. Errors & overflow always bypass filters.
    Existing `TypedWatcher` also offers `recv_record`, `try_recv_record` &
    `recv_record_timeout`; these consume the same queue as its existing methods.
 
-   ```rust
+   ```rust,ignore
    use std::{path::Path, path::PathBuf};
    use rightkit_watch::{EventFilter, FileSetWatcher, WatchEventKind, WatchOptions};
 
@@ -162,7 +176,7 @@ Streams are unbounded; drain regularly. Errors & overflow always bypass filters.
    an enabled rescan; mutation output still obeys debounce policy. Normal input disconnect flushes pending changes unless
    discard-on-disconnect is enabled.
 
-   ```rust
+   ```rust,ignore
    use std::{path::{Path, PathBuf}, time::Duration};
    use rightkit_watch::{FileSetWatcher, WatchOptions};
 
@@ -181,7 +195,7 @@ Streams are unbounded; drain regularly. Errors & overflow always bypass filters.
    remain watched. Even an entirely unavailable set can return a handle & its
    failure records. Backend creation/thread startup failures still return `Err`.
 
-   ```rust
+   ```rust,ignore
    use std::path::{Path, PathBuf};
    use rightkit_watch::{FileSetWatcher, WatchEvent, WatchOptions};
 
@@ -200,7 +214,7 @@ Streams are unbounded; drain regularly. Errors & overflow always bypass filters.
    With `false`, input disconnect flushes pending changes; consumer disconnect
    emits a tracing warning & stops. `is_finished()` reports worker completion.
 
-   ```rust
+   ```rust,ignore
    use std::path::{Path, PathBuf};
    use rightkit_watch::{FileSetWatcher, WatchOptions};
 
@@ -217,7 +231,7 @@ Streams are unbounded; drain regularly. Errors & overflow always bypass filters.
    disabling both options provides hint-only delivery. FSEvents can report only
    a parent path, so skipped reconciliation may leave child deletion unreported.
 
-   ```rust
+   ```rust,ignore
    use std::path::{Path, PathBuf};
    use rightkit_watch::{FileSetWatcher, WatchOptions};
 
@@ -233,7 +247,7 @@ Streams are unbounded; drain regularly. Errors & overflow always bypass filters.
    become Delete/Create & retain their exact raw Name kind. This does not undo
    native FSEvents coalescing. Disable reconciliation too for backend hints only.
 
-   ```rust
+   ```rust,ignore
    use std::path::{Path, PathBuf};
    use rightkit_watch::{FileSetWatcher, WatchOptions};
 
@@ -246,7 +260,7 @@ Streams are unbounded; drain regularly. Errors & overflow always bypass filters.
 7. **Backend re-export.** Consumers can name backend types from this crate's
    `notify` dependency (currently the `8.2.0` requirement), without adding their own.
 
-   ```rust
+   ```rust,ignore
    use rightkit_watch::{notify, WatchEventRecord};
 
    fn raw_kind(record: &WatchEventRecord) -> Option<notify::EventKind> {

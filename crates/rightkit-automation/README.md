@@ -1,6 +1,8 @@
 # rightkit-automation
 
-Brand-neutral desktop automation on macOS and Windows, Rust only. One implementation for CodeRight (computer use), HeardRight (dictation delivery), CutRight/GenRight QA and `right-ctl`. Replaces `rightkit-computer` (folded in, deprecated) and the generic parts of HeardRight's `heardright_platform` and `heardright-command-host` (moved, not copied: see `docs/MOVED_FROM.md`).
+Brand-neutral desktop automation for macOS and Windows, in Rust only. It observes apps, windows and accessibility trees, and acts on them through an input ladder that never goes to a higher tier unless the caller allows it, recording which tier ran. It replaces `rightkit-computer` (folded in, deprecated). Generic parts of HeardRight's `heardright_platform` and `heardright-command-host` moved here; see `docs/MOVED_FROM.md`. HeardRight's locked rules travel with it (`docs/LOCKED_RULES.md`).
+
+Catalog capability: `desktop-automation`. Not published (`publish = false`).
 
 ```text
 snapshot  ->  stable element ids (AX / UIA), freshness guard
@@ -11,28 +13,64 @@ act       ->  kill switch -> allowlist -> lease fence -> freshness -> secure/cre
 
 | Capability | Where |
 |---|---|
-| macOS AX tree walk, focus, native write, per-pid events, per-window capture | `src/macos/` (~1.2k lines, zero third-party deps) |
-| Windows UIA tree walk, Invoke/Toggle/Select/Expand/Value/Scroll/Text patterns, window messages, SendInput, PrintWindow, clipboard | `src/win/` (1.05k lines; **not compiled or run on Windows yet**) |
+| macOS AX tree walk, focus, native write, per-pid events, per-window capture | `src/macos/` (zero third-party dependencies) |
+| Windows UIA tree walk, Invoke/Toggle/Select/Expand/Value/Scroll/Text patterns, window messages, SendInput, PrintWindow, clipboard | `src/win/` |
 | Engine: ids, freshness guard, ladder, receipts | `src/engine.rs` |
-| Control lease, epoch fencing, acked input sequence (CodeRight PTY-002) | `src/lease.rs` |
-| Admission pre-action hook (CodeRight EFF-001) | `src/admission.rs` |
+| Control lease, epoch fencing, acknowledged input sequence | `src/lease.rs` |
+| Admission pre-action hook | `src/admission.rs` |
 | Lifecycle events, content-free metrics | `src/events.rs` |
 | Allowlist, deny list, kill switch, risk classes, credential gates | `src/policy.rs` |
-| Screenshot redaction (secure + credential fields + caller hook), PNG decode | `src/redact.rs`, `src/png.rs` |
-| Text delivery with read-back proof (HeardRight rules) | `src/delivery.rs`, `src/proof.rs` |
+| Screenshot redaction, PNG decode | `src/redact.rs`, `src/png.rs` |
+| Text delivery with read-back proof | `src/delivery.rs`, `src/proof.rs` |
 | Fail-closed app-data root | `src/paths.rs` (via `rightkit-service::Suite`) |
+
+## When to use it
+
+- Use it when an in-process Rust app or CLI must observe and act on a desktop app in the background, with receipts for each step.
+- Use it when a caller needs the kill switch, allowlist and admission hook around every effect.
+
+Do not use it for Right Suite apps that expose their own in-app control service: use `rightkit-agent-tools` or `rightkit-control`. The crate does not run as a daemon.
+
+## Cargo features
+
+None. The crate has no `[features]` table. The Windows backend is compiled with `cfg(windows)` and depends on the `windows` crate.
+
+## Usage
+
+Illustrative. These calls are taken from `examples/mac_proof.rs`:
+
+```rust
+use rightkit_automation::*;
+
+let automation = Automation::new(platform, policy); // platform: NativePlatform
+let snap = automation.snapshot(Target::app(pid), Limits { max_depth: 14, max_nodes: 900 })?;
+```
+
+`policy` is a `Policy` (allowlist and deny list). `NativePlatform` is `macos::MacPlatform` on macOS and `win::WinPlatform` on Windows. See `examples/mac_proof.rs` for how the platform value is built and for an `act` call.
+
+## Platform support
+
+- macOS: the accessibility (AX) backend, verified by `tests/e2e_mac.rs` and `examples/mac_proof.rs`.
+- Windows: the UI Automation backend in `src/win/`. Verify it on a Windows host before you rely on it: `rightkit cargo test -p rightkit-automation --test e2e_win -- --nocapture`.
+- Threading (macOS): NSWorkspace publishes the app list and frontmost app through the main run loop. Call from the main thread of a CLI or test, or from any thread of an app whose main loop runs.
+- `launch` uses the system `open` command on macOS. It uses `screencapture` only if `CGWindowListCreateImage` is missing. Both run as waited children, so a strict zero-child profile should not call `launch`.
 
 ## Safety rules enforced here
 
-* Never types credentials: payloads that look like credentials, and credential-labelled or secure fields, are refused at every tier, including delivery. No override flag.
-* Evidence never lands relative to the working directory (`JsonlEvidence::open` and `screenshot` require absolute paths; `paths::evidence_dir()` fails closed).
-* Screenshots are redacted before they are returned; if a region must be masked and the file cannot be rewritten the capture is deleted and the call errors.
-* Per-app allowlist (`Policy`) is checked before launch when the spec names the app, and again on the launched process.
-* Kill switch (`kill()`) fails every act, snapshot and batch step closed.
+- Never types credentials. Payloads that look like credentials, and credential-labelled or secure fields, are refused at every tier, including delivery. No override flag.
+- Evidence never lands relative to the working directory. `JsonlEvidence::open` and `screenshot` require absolute paths, and `paths::evidence_dir()` fails closed.
+- Screenshots are redacted before they are returned. If a region must be masked and the file cannot be rewritten, the capture is deleted and the call errors.
+- The per-app allowlist (`Policy`) is checked before launch when the spec names the app, and again on the launched process.
+- The kill switch (`kill()`) fails every act, snapshot and batch step closed.
 
-## Tests
+## Tests and examples
 
-* `tests/e2e_mac.rs` — real TextEdit and Calculator, launched in the background, frontmost verified unchanged, everything closed afterwards. `harness = false` (must run on the main thread). Needs Accessibility and Screen Recording for the *test host*; absent permissions FAIL, never skip. A managed-broker run has neither: run the built binary from a granted shell (`BIN=$(ls -t <target>/debug/deps/e2e_mac-* | grep -v '\.d$' | head -1); $BIN`).
-* `tests/e2e_win.rs` — real Notepad on Windows. Type-checked on every OS; run it on the Windows host (`rightkit cargo test -p rightkit-automation --test e2e_win -- --nocapture`).
-* `tests/engine.rs` — the same engine against a **simulated** desktop (`mock::MockPlatform`). Kept only for states no harmless real app exposes (secure field, recreated editor, lossy clipboard, lying native write).
-* `examples/mac_proof.rs`, `examples/win_smoke.rs` — evidence-producing proofs.
+- `tests/e2e_mac.rs`: real TextEdit and Calculator, launched in the background. The frontmost app is verified unchanged, and everything opened is closed afterwards. `harness = false`, so it runs on the main thread. It needs Accessibility and Screen Recording for the test host. If those permissions are absent the test fails; it does not skip. A managed-broker run lacks both, so run the built binary from a granted shell.
+- `tests/e2e_win.rs`: real Notepad on Windows. It is type-checked on every OS.
+- `tests/engine.rs`: the engine against a simulated desktop (`mock::MockPlatform`). It covers states that no harmless real app exposes: secure field, recreated editor, lossy clipboard, and a native write that reports success falsely.
+- `tests/kill.rs`: kill-switch behaviour.
+- `examples/mac_proof.rs` and `examples/win_smoke.rs`: evidence-producing proofs.
+
+## Version and changes
+
+Published version: not published. See [INDEX.md](../../INDEX.md). No CHANGELOG.md in this crate.

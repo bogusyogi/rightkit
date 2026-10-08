@@ -1,8 +1,47 @@
 # rightkit-mcp
 
-Shared MCP client and server host for Right Suite apps. See API.md in the lane deliverables for the full contract.
+Shared Model Context Protocol (MCP) client and server host for Right Suite apps. It owns three things: MCP client connections over stdio and streamable HTTP (plus legacy HTTP+SSE as an opt-in), a server host that serves MCP over stdio or loopback HTTP with per-tool admission, and the workspace trust gate that approves stdio servers before they spawn. It also provides a connection pool, a qualified-tool catalog, and an OAuth hook through `AuthProvider`.
 
-## Trust approvals (0.3.2): re-approval required
+**Use it** when a Right Suite app needs to call MCP servers, or expose its own tools to MCP clients, and needs the shared trust gate and admission policy rather than a per-app implementation.
+
+**Do not use it** as a general MCP SDK (it wraps no external SDK), for non-MCP JSON-RPC, or for sandbox confinement. Confinement is supplied by the host through `ProcessLauncher` (see `rightkit-sandbox`); this crate does not confine processes on its own.
+
+The public API is re-exported from `src/lib.rs`. The trust store, client, pool, server host, and config parser are the main entry points.
+
+## Features
+
+| Feature | Default | Pulls in | Effect |
+|---|---|---|---|
+| `exact-json-ids` | off | `serde_json/arbitrary_precision` | Echoes JSON-RPC ids with their exact numeric spelling (for example `1e+2` or integers above `u64`). Changes number round-tripping for the whole dependency graph, so it is off by default. |
+
+There are no other Cargo features. HTTP uses `ureq` and `reqwest`, both with `rustls`.
+
+## Platform support
+
+The crate has one platform-specific branch, `cfg(windows)`, in `src/client_features.rs`. Other code uses portable `std` and `tokio` APIs. Process confinement is not implemented here. Only the caller's `ProcessLauncher` can confine a child process.
+
+Published version: see `INDEX.md` at the repository root. Release notes: see `CHANGELOG.md` in this crate.
+
+## Example
+
+The snippets below are illustrative. They show the public API shape; they are not compiled by the crate's test suite. For a compiled example, see `examples/example_server.rs`, run with `rightkit cargo run -p rightkit-mcp --example example_server -- stdio` (or `-- http`). The integration tests in `tests/` exercise client and server behavior.
+
+```rust,ignore
+use rightkit_mcp::*;
+use serde_json::json;
+
+let client = McpClient::connect("filesystem", ServerSpec::Stdio {
+    command: "my-mcp-server".into(),
+    args: vec![],
+    env: Default::default(),
+    cwd: None,
+}, ClientOptions::default())?;
+let tools = client.list_tools()?;
+let result = client.call_tool("read_file", json!({"path": "notes.txt"}))?;
+client.close();
+```
+
+## Trust approvals (0.4.0): re-approval required
 
 Workspace-declared stdio servers are gated before spawn. The approval fingerprint now binds the full launch configuration by value: command, args, cwd, and every environment variable's name **and value**. Changing `PATH`, `NODE_OPTIONS`, or any other env value invalidates the approval.
 
@@ -16,7 +55,7 @@ All additions are opt-in. Existing `ClientOptions`, `ServerOptions`, `ServerSpec
 
 1. **Legacy HTTP+SSE:** one persistent GET stream announces its POST endpoint & carries replies. Relative endpoints resolve against configured URL. Scheme, normalized hostname & effective port must match; explicit origin allow-list entries permit selected alternatives. Redirects stay disabled.
 
-```rust,no_run
+```rust,ignore
 use rightkit_mcp::*;
 # fn example() -> Result<()> {
 let client = McpClient::connect_with_extensions(
@@ -35,7 +74,7 @@ client.ping()?;
 
 2. **Per-call session/headers & cancellation:** overrides never replace shared session, including case-insensitive `Mcp-Session-Id` header overrides. Cancellation returns `Cancelled` promptly (the HTTP connection may stay open while hyper drains the response) & sends a best-effort `notifications/cancelled` with original request ID, headers & session (except initialize). Cancellation notification has a 200ms cap. Stdio cancellation retains connection while waiting for replies; cancelling a blocked stdin write retires its child to interrupt shared pipe I/O.
 
-```rust,no_run
+```rust,ignore
 use rightkit_mcp::*;
 use serde_json::json;
 # fn example(client: std::sync::Arc<McpClient>) -> Result<()> {
@@ -54,7 +93,7 @@ let result = call.join().unwrap();
 
 3. **Confined process launch:** launcher gets exact program, args, environment delta & cwd, then returns an owned `ProcessChild` & readable/writable stdio. Closures implement `ProcessLauncher`; default launch behavior is unchanged. Sandbox adapters implement child ID/kill/try-wait/wait while retaining AppContainer/seatbelt supervision & return their own pipes through `LaunchedProcess`. Native `std::process::Child` already implements this trait; `LaunchedProcess::from_child` takes its piped stdin/stdout.
 
-```rust,no_run
+```rust,ignore
 use rightkit_mcp::*;
 use std::sync::Arc;
 # fn example(spec: ServerSpec) -> Result<()> {
@@ -71,7 +110,7 @@ let client = McpClient::connect_with_extensions("confined", spec,
 
 4. **Session-bound elicitation:** callback receives original params & session context, returning MCP elicitation result. Default callback supplied at connect binds to that connection's own session. Additional session handlers must be registered explicitly; per-call override never borrows another session's handler. On shared stdio/legacy SSE, `params._meta.relatedRequestId` (or `params.relatedRequestId`) selects originating call; unassociated requests require an unambiguous session.
 
-```rust,no_run
+```rust,ignore
 use rightkit_mcp::*;
 use serde_json::json;
 use std::sync::Arc;
@@ -87,7 +126,7 @@ client.set_elicitation_handler(&session, Arc::new(|context, params| {
 
 5. **Async parsed dispatch:** handler returns complete result payload or `None` for legacy fallback. Each independent dispatch future retains original JSON-RPC ID; async batches poll handlers concurrently & return replies in completion order. Missing/null IDs, initialized/batch policy & tool admission retain configured semantics. Transport adapters drive these futures & write returned envelopes.
 
-```rust,no_run
+```rust,ignore
 use rightkit_mcp::*;
 use serde_json::{json, Value};
 use std::{future::Future, pin::Pin, sync::Arc};
@@ -109,7 +148,7 @@ assert_eq!(reply.unwrap()["id"], "original-id");
 
 6. **Protocol versions & bounded responses:** configured lists negotiate lexicographically highest common date-version via `supportedProtocolVersions` initialize extension. Standard peers still receive `protocolVersion` & their selected version must belong to client list. Unconfigured defaults retain `2025-03-26` pin & existing supported list. Client response/frame limits default to 16MiB on extended connections, reject before truncation & preserve UTF-8 across stream chunks. Server checked dispatch validates encoded envelopes; existing unchecked dispatch remains unchanged. IDs clone original parsed JSON values, including arbitrary-precision numbers.
 
-```rust,no_run
+```rust,ignore
 use rightkit_mcp::*;
 use serde_json::json;
 # fn example(host: ServerHost, spec: ServerSpec) -> Result<()> {
@@ -139,7 +178,7 @@ All new provider methods have legacy defaults. Default initialized handling, mis
 
 Membrane adapters can select:
 
-```rust
+```rust,ignore
 use rightkit_mcp::{BatchPolicy, IdPolicy, InitializedPolicy, ServerOptions, StdioInputMode};
 use serde_json::Value;
 

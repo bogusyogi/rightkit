@@ -12,6 +12,13 @@ truth for the pieces every app would otherwise reimplement and let drift.
 | `RightKitPurchases` | StoreKit 2 purchases, entitlement ledger and access hints behind a `PurchaseBackend` seam. `PurchaseOutcome.unknown` covers StoreKit's `@unknown default` result and shows `PurchaseMessages.unknownOutcome`. |
 | `RightKitCloudSync` | Generic CloudKit private-zone sync engine. One adapter can own several record types (`recordType(of:)`, `recordType(forItemID:)`) and read direct types it never uploads (`directRecordTypes`, written through `CloudSyncEngine.writeDirect`). `SyncTransport.fetchRecord(named:)` reads one live record. App-side failures back off with the engine (`noteFailure`, `raiseRetryGate(toAtLeast:)`, `retryGate`). `adoptLegacyLedger` imports a pre-RightKit ledger with its change token and versions without an account call. `encodeForUpload` / `SyncLazyPayload` produce payloads lazily at upload time. `SyncTrigger.submit`. |
 | `RightKitUI` | Generic adaptive-glass surface primitive: regular/clear native Liquid Glass + ConcentricRectangle on iOS/macOS 26, material fallback on older OS versions, and opaque accessibility fallback. Product radii, colors, layout, motion, and behavior stay app-local. |
+| `RightKitStore` | App Group primitives: cross-process command queue, file lock, owner lease, and revisioned state store. |
+| `RightKitImportQueue` | Share-extension intake: the pending share payload shared between an extension and its app, and a queue that imports it. |
+| `RightKitLiveActivity` | Live Activity lifecycle rules (session binding, terminal restart, adoption, watchdog). The app supplies its own phase type. |
+| `RightKitWatchBridge` | WatchConnectivity transfer ledger and delivery states. |
+| `RightKitIntents` | App Intents recording bridge: Darwin notifications, microphone permission handshake, and recording actions. |
+| `RightKitAppleCredentials` | Security.framework credential backend: raw-status probing (`probeStatus`) and all-location deletion (`deleteAnyScope`). |
+| `RightKitOverlay` | Overlay state, hit testing, and the non-activating overlay panel model. |
 
 ## RightKitLicense configuration (0.3.5)
 
@@ -172,6 +179,10 @@ host.
 
 Pins are always exact (`exact:`), never `from:` ranges: a consumer upgrade is a deliberate
 edit of the pin, recorded in `rightkit-versions.json`.
+
+The version in the examples below is illustrative. The version apps may pin is the `swift` section of
+`packages/release/rightkit-versions.json`. `VERSION` is the version under development and is not published until
+the manifest records it.
 
 ```swift
 // Package.swift

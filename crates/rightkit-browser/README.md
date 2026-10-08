@@ -1,31 +1,32 @@
 # rightkit-browser
 
-Version **0.2.1**. Shared CDP browser runtime (Chrome/Edge via chromiumoxide).
-Real `Input.dispatch*` input, multi-page sessions, persistent profiles, headless
-or headed. Defaults remain headless, muted & temporary-profile-based.
+Shared Chrome DevTools Protocol browser runtime for Right Suite products. `BrowserSession` owns one Chrome process and any number of pages. Input is real `Input.dispatch*Event` input, so `event.isTrusted`, `:hover`, focus and default actions behave as they do for a user. Sessions run headless, muted and on a temporary profile by default; headed and persistent profiles are opt-in.
 
-Launch resolves Chrome for Testing (`chrome_for_testing_path`): `LaunchOptions::chrome_path`,
-then `RIGHTKIT_CHROME_FOR_TESTING`, then RightKit-managed versions, app installs
-& newest Puppeteer/Playwright cache builds. Managed versions use numeric version
-order, newest first, matching `@rightkit/qa-chrome` 0.1.2:
+Catalog capability: `browser-automation`.
 
-| Platform | Managed executable |
-|---|---|
-| macOS ARM64 | `~/Library/Application Support/Orthic Labs/shared/chrome-for-testing/<version>/chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing` |
-| macOS x64 | `~/Library/Application Support/Orthic Labs/shared/chrome-for-testing/<version>/chrome-mac-x64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing` |
-| Windows | `%LOCALAPPDATA%\Orthic Labs\shared\chrome-for-testing\<version>\chrome-win64\chrome.exe` |
-| Linux | `$XDG_DATA_HOME/Orthic Labs/shared/chrome-for-testing/<version>/chrome-linux64/chrome` (data home defaults to `~/.local/share`) |
+## What it owns
 
-`RIGHTKIT_CHROME_FOR_TESTING_ROOT` overrides only managed root; explicit
-executable overrides retain priority. `CHROME_FOR_TESTING_ROOT_ENV` exports its name.
-Missing CfT returns `BrowserError::ChromeForTestingNotFound` with install instructions.
+- `BrowserSession`: one Chrome process, multi-page sessions, graceful shutdown and drop.
+- `ProfileSpec`: a temporary profile, a named persistent profile (`named_profile(root, name)`), or a caller-owned directory (`profile_dir(path)`).
+- `NetworkPolicy`: blocks loopback, link-local, private, reserved and `file:` targets, including redirects, subresources and proxied connections. Denials are typed (`BrowserError::Blocked`).
+- `AdmissionHook`: gates each effect before it runs. `BrowserEvent` reports start, stop, crash and denied events.
+- `BrowserPage::observe`: returns element refs that are checked for staleness before use.
+- Chrome for Testing resolution (`chrome_for_testing_path`) and the explicit system-browser modes.
 
-`LaunchOptions::system_chrome()` retains CfT preference & falls back to
-`find_chrome()` only when CfT resolution fails. New `system_chrome_only()`
-resolves exclusively through `find_chrome()` (including its `CHROME` override),
-ignores `chrome_path` & CfT discovery, & returns `BrowserError::ChromeNotFound`
-if no system Chrome/Chromium/Edge exists. Last selection builder wins.
-Regular macOS Chrome leaks a code-sign bundle clone per killed instance.
+## When to use it
+
+- Use it to drive a real Chromium page from Rust with trusted input, for QA, scraping or product automation.
+- Use it when pages must be reached through an SSRF-safe network policy.
+
+Do not use it for Safari or Firefox, or for desktop apps (see `rightkit-automation` and `rightkit-control`).
+
+## Cargo features
+
+None. The crate has no `[features]` table. Dependencies include `chromiumoxide` 0.9, `tokio`, `url`, and `rightkit-process` for owned child processes.
+
+## Usage
+
+Taken from the crate README and from `LaunchOptions` in `src/config.rs`. Illustrative: it is a `no_run` example.
 
 ```rust,no_run
 use rightkit_browser::{BrowserSession, LaunchOptions};
@@ -41,18 +42,46 @@ session.shutdown().await;
 # }
 ```
 
-`profile_dir(path)` selects `ProfileSpec::Directory(PathBuf)`. Launch validates
-absolute path, existence & directory type without creating it. Any existing
-directory is accepted, including real Chrome user-data directories, spaces,
-Unicode & filesystem-supported characters; named-profile validation stays
-exclusive to `named_profile(root, name)`. Paths remain native `OsString` argv
-elements for `--user-data-dir`, with OS quoting handled by `Command`.
+Loopback fixtures are blocked by default. `tests/e2e.rs` opts in for a local test server with `LaunchOptions::default().network(NetworkPolicy::default().allow_host("127.0.0.1"))`.
 
-Caller owns directory access; this mode creates no RightKit profile lock.
-Default downloads use `<profile>/rightkit-downloads` (created at launch), or
-set `LaunchOptions::download_dir` explicitly. Profile directory never receives
-temporary-profile cleanup on shutdown, cancellation, failed launch or drop.
+## Chrome resolution
 
-`shutdown()` closes gracefully: CDP `Browser.close`, then SIGTERM to the process group, then
-SIGKILL, each with a 5 s bound. `Drop` sends SIGTERM, waits up to 5 s, then SIGKILL. The
-temporary profile is removed once Chrome has exited.
+Launch resolves Chrome for Testing (`chrome_for_testing_path`) in this order: `LaunchOptions::chrome_path`, then the `RIGHTKIT_CHROME_FOR_TESTING` environment variable, then RightKit-managed versions, app installs, and the newest Puppeteer or Playwright cache builds. Managed versions are tried in numeric version order, newest first.
+
+| Platform | Managed executable |
+|---|---|
+| macOS ARM64 | `~/Library/Application Support/Orthic Labs/shared/chrome-for-testing/<version>/chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing` |
+| macOS x64 | `~/Library/Application Support/Orthic Labs/shared/chrome-for-testing/<version>/chrome-mac-x64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing` |
+| Windows | `%LOCALAPPDATA%\Orthic Labs\shared\chrome-for-testing\<version>\chrome-win64\chrome.exe` |
+| Linux | `$XDG_DATA_HOME/Orthic Labs/shared/chrome-for-testing/<version>/chrome-linux64/chrome` (`XDG_DATA_HOME` defaults to `~/.local/share`) |
+
+- `RIGHTKIT_CHROME_FOR_TESTING_ROOT` overrides only the managed root. An explicit executable override keeps priority.
+- If Chrome for Testing is missing, launch returns `BrowserError::ChromeForTestingNotFound` with install instructions.
+- `LaunchOptions::system_chrome()` keeps the Chrome for Testing preference and falls back to `find_chrome()` only when that resolution fails.
+- `LaunchOptions::system_chrome_only()` resolves only through `find_chrome()`, including its `CHROME` override. It ignores `chrome_path` and Chrome for Testing discovery. If no system Chrome, Chromium or Edge exists, it returns `BrowserError::ChromeNotFound`.
+- The last selection builder wins.
+- On macOS, a killed Chrome instance can leave a code-sign clone of its bundle behind when it does not shut down cleanly (`src/config.rs`).
+
+## Profiles
+
+- `profile_dir(path)` selects `ProfileSpec::Directory`. Launch checks that the path is absolute, exists and is a directory, without creating it. Any existing directory is accepted, including real Chrome user-data directories, paths with spaces, and Unicode names. Named-profile validation stays exclusive to `named_profile(root, name)`.
+- The caller owns that directory. This mode creates no RightKit profile lock, and shutdown, cancellation, failed launch or drop never removes it.
+- Downloads go to `<profile>/rightkit-downloads` (created at launch), or to `LaunchOptions::download_dir` when it is set.
+
+## Shutdown
+
+`shutdown()` closes gracefully: CDP `Browser.close`, then SIGTERM to the process group, then SIGKILL, each step bounded at 5 s. `Drop` sends SIGTERM, waits up to 5 s, then sends SIGKILL. A temporary profile is removed once Chrome has exited.
+
+## Platform support
+
+Chrome or Edge through chromiumoxide. Platform-specific paths are in the resolution table above. Process-group signalling uses Unix signals, so the shutdown sequence described above applies on Unix hosts.
+
+## Tests
+
+- `tests/e2e.rs`: real headless Chrome against a local static page. Assertions read page state produced by trusted input.
+- `tests/policy_e2e.rs`: network-policy behaviour.
+- `tests/cft_close.rs`: Chrome for Testing close behaviour.
+
+## Version and changes
+
+Published version: see [INDEX.md](../../INDEX.md). Version history: [CHANGELOG.md](CHANGELOG.md).

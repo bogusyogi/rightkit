@@ -21,7 +21,7 @@ rightkit-service = { version = "0.1.0", path = "../rightkit-service" }
 rightkit-automation = { version = "0.1.0", path = "../rightkit-automation", optional = true }
 rightkit-browser = { version = "0.2.2", path = "../rightkit-browser", optional = true }
 rightkit-speech-client = { version = "0.3.0", path = "../rightkit-speech-client", optional = true }
-rightkit-mcp = { version = "0.4.0", path = "../rightkit-mcp", optional = true }
+rightkit-mcp = { version = "0.5.0", path = "../rightkit-mcp", optional = true }
 serde.workspace = true
 serde_json.workspace = true
 tokio = { version = "1", features = ["rt-multi-thread", "time"], optional = true }

@@ -1,13 +1,40 @@
 # rightkit-ocr
 
-Internal, unpublished shared OCR runtime extracted from the byte-identical
-CodeRight and ScrapeRight implementations characterized on 2026-07-14.
+Product-neutral OCR for Right Suite apps. It owns preprocessing, tensor construction, detector and recognizer sessions, DirectML-to-CPU fallback diagnostics, boxes, reading order, de-duplication, CTC decoding, typed errors, safe canonical artifact paths, and SHA-256 verification of model files. It also has native backends that return per-line geometry: Apple Vision on macOS and `Windows.Media.Ocr` on Windows.
 
-The crate owns preprocessing, tensor construction, detector/recognizer
-sessions, DirectML-to-CPU fallback diagnostics, boxes, reading order,
-de-duplication, CTC decoding, typed errors, safe canonical artifact paths, and
-SHA-256 verification. Apps retain runtime/model locations, environment
-compatibility, jobs, telemetry, downloads, and UI.
+**Use it** to read text from an image in a Right Suite app, through the native backend or the verified two-stage ONNX pipeline (`OcrEngine`, `ocr_image_with_manifest`).
+
+**Do not use it** to download models, pick model locations, manage ONNX Runtime installs, run jobs, or send telemetry. Apps keep those. Use `rightkit-ort` for ONNX Runtime library resolution and sessions.
+
+The public API is in `src/lib.rs`: `OcrEngine::load` and `OcrEngine::load_with_manifest` create an engine, `run` and `run_lines` read text, and `OcrArtifactManifest` carries the resolved provenance.
+
+## Features
+
+None. The crate has no Cargo features. Platform backends are selected by `cfg` (see Platform support).
+
+The crate also ships a `rightkit-ocr` binary (`src/bin/rightkit-ocr.rs`).
+
+## Platform support
+
+- macOS: Apple Vision native backend (`src/native/vision.rs`, `objc2-vision` and related crates), plus the ONNX path.
+- Windows: `Windows.Media.Ocr` native backend (`src/native/win_native.rs`), plus the ONNX path with DirectML and CPU fallback.
+- Other targets: the ONNX path is the only code path; the crate has no native backend there. This README does not claim support for other targets.
+
+Published version: see `INDEX.md` at the repository root. Release notes: see `CHANGELOG.md`, if present in this crate; this crate has none, so use `INDEX.md`.
+
+## Example
+
+Illustrative; not compiled as a doctest. For compiled usage, see `tests/native_e2e.rs` and `tests/real_model_e2e.rs`.
+
+```rust,ignore
+use rightkit_ocr::OcrEngine;
+use std::path::Path;
+
+// `manifest` is an OcrArtifactManifest carrying the resolved provenance label
+// and source from the signed artifact catalog (see Fail-closed provenance below).
+let mut engine = OcrEngine::load_with_manifest(Path::new("/app/models/ocr"), &manifest)?;
+let text = engine.run(&image)?; // image: &image::RgbImage
+```
 
 ## Fail-closed provenance decision
 
@@ -36,13 +63,13 @@ record, not from inference.
 The committed PNG fixture is test data, not a model. No ONNX model or ONNX
 Runtime binary is bundled.
 
-## Publication blockers
+## Publication status
 
-- ~~Authoritative model label/source and license record.~~ Resolved 2026-07-14
-  (PP-OCRv6, official PaddlePaddle, Apache-2.0 — see `PROVENANCE.toml`).
-- Signed Right Release model and per-OS ORT artifact catalog.
-- ~~macOS bundled-dylib parity evidence.~~ Passed 2026-10-06 (`tests/real_model_e2e.rs`).
-- Adapter parity after both apps migrate.
+Recorded blockers as of 2026-10-06. Check `INDEX.md` for the current state.
+
+- Signed Right Release model and per-OS ORT artifact catalog: open.
+- Adapter parity after both apps migrate: open.
+- macOS bundled-dylib parity evidence: passed 2026-10-06 (`tests/real_model_e2e.rs`).
 
 Licensed under MIT OR Apache-2.0. Models and ONNX Runtime retain independent
 licenses and attribution obligations.

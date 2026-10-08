@@ -1,11 +1,41 @@
 # rightkit-models
 
-Shared local-model manifest and installer for Right Suite apps: model revisions
-and quantizations, resumable verified downloads (ETag/Range, SHA-256), hardened
-archive extraction (tar.gz/zip), atomic activation with rollback, and hardware
-fit (disk, RAM, GPU) preflight. Product-neutral; apps supply the manifest.
+Shared local-model manifest and installer for Right Suite apps. It owns model revisions and quantizations, resumable verified downloads (ETag and Range, SHA-256), hardened archive extraction (tar.gz and zip), atomic activation with rollback, shared runtime directories with reference counting, and hardware-fit preflight (disk, RAM, GPU). It is product-neutral: apps supply the manifest.
 
-Also (0.2.0):
+**Use it** when an app must download, verify, adopt, activate, or garbage-collect local model or runtime files, and needs the same install semantics as other Right Suite apps.
+
+**Do not use it** to run models, to choose which model an app should use, or to fetch arbitrary files. Inference lives in the app or in crates such as `rightkit-qts`, `rightkit-ort`, and `rightkit-ocr`.
+
+## Features
+
+| Feature | Default | Pulls in | Effect |
+|---|---|---|---|
+| `rightapps` | off | `ed25519-dalek`, `base64`, `url`, `chrono` | Enables `RuntimeArtifactClient`, which resolves and installs RightApps promoted private artifacts with signed-manifest verification. Without it, only the app-supplied manifest path compiles. |
+
+The default feature set is empty.
+
+## Platform support
+
+Platform-specific code is gated with `cfg(windows)`, `cfg(target_os = "macos")`, and `cfg(unix)`, mainly in `alias.rs`, `disk.rs`, `hardware.rs`, and the `suite/` modules. The store layout, locking, and path validation are the same code on each platform. Symlink and hard-link behavior follows the host file system. `Hardware::probe_with` accepts an app-supplied override for hosts where the probe is unreliable.
+
+Published version: see `INDEX.md` at the repository root. Release notes: this crate has no `CHANGELOG.md`; see `INDEX.md`.
+
+## Example
+
+Illustrative. The model store and install calls below are shown with the types from `src/store.rs` and `src/install.rs`. For compiled usage, see `tests/install.rs`, `tests/adoption.rs`, and `tests/e2e_resume.rs`.
+
+```rust,ignore
+use rightkit_models::{InstallOptions, Store};
+
+let store = Store::new("/application-data/models", "my-app");
+// Build a manifest for the app's model (see the crate's spec module), then
+// install it through the store's install API. Progress and activation events
+// are delivered to a callback supplied by the app.
+```
+
+## Additional capabilities
+
+Added in 0.2.0:
 
 - `Store::adopt` / `adopt_with`: verify an existing install against the pins
   and record it without downloading (hard link on the same volume, else copy;
@@ -25,7 +55,7 @@ Also (0.2.0):
   `FitKind::{RentalOnly, Api}`, `Hardware::probe_with(HardwareOverride)`
   (app-supplied path or JSON, lenient shape), `ProfileAlias`.
 
-Also (0.2.1):
+Added in 0.2.1:
 
 - `Store::adopt_then_install`: partial adoption in one locked install: adopt
   every present, pin-matching file (hard link, else copy), download only the
@@ -39,17 +69,19 @@ Also (0.2.1):
   loopback mock (`http://` on `127.0.0.0/8`, `localhost` or `[::1]` only;
   never read from the environment). `Store::download_url` shows the result.
 
-Also (0.2.2):
+Added in 0.2.2:
 
 - Shared-runtime reference counting: `Store::register_shared(app, kind, version)` records that an app uses `<tools root>/<kind>/<version>` in `tools/refs` (the tools root is `tools` beside the store root, or `Store::with_tools_root`); `Store::unregister_shared(app)` drops them, and `Store::unregister_app` now does so too (its return value is still model ids).
 - `Store::gc_shared(kinds)` removes, under the registry lock, unreferenced `tools/<kind>/<version>` directories for the listed kinds only (unlisted tools such as yt-dlp are never touched; an empty list removes nothing) and returns the `(kind, version)` pairs; symlinks are never followed, `tools/refs` is untouched, and a corrupt ref aborts with nothing removed.
 - `suite::paths::shared_runtime_dir(kind, version)` / `shared_runtime_dir_at(tools_root, kind, version)` validate both as single safe path segments (`InvalidSpec` otherwise).
 
-See `tests/install.rs`, `tests/adoption.rs`, `tests/partial_alias_rewrite.rs`
-and `tests/e2e_resume.rs` (rightkit-qa `MockServer`: Range, dropped
-connections, servers without resume) for end-to-end usage.
+See `tests/install.rs`, `tests/adoption.rs`, `tests/partial_alias_rewrite.rs`,
+`tests/e2e_resume.rs`, and `tests/shared_runtime_gc.rs` for end-to-end usage. The tests use the
+`rightkit-qa` `MockServer` (Range, dropped connections, servers without resume) as a dev-dependency.
 
 ## RightApps promoted private artifacts (`rightapps` feature)
+
+The example below is illustrative and not compiled as a doctest. It shows the call sequence, and the host in the example is a placeholder, not a verified endpoint.
 
 `RuntimeArtifactClient` resolves an artifact ID, current promotion row ID or
 signed manifest pointer through `POST /v1/apps/:appKey/runtime-artifacts/resolve`.
@@ -65,13 +97,13 @@ Pin the raw 32-byte Ed25519 public key corresponding to
 It must equal server `RIGHTSITES_RUNTIME_ARTIFACT_PUBLIC_KEY`; never trust a key
 returned by resolve. Signing-key material is not needed in consumers.
 
-```rust,no_run
+```rust,ignore
 # #[cfg(feature = "rightapps")]
 # fn install(signed_token: &str, runtime_public_key: [u8; 32]) -> Result<(), Box<dyn std::error::Error>> {
 use rightkit_models::{RuntimeArtifactClient, Store, InstallOptions};
 use rightkit_models::rightapps::RuntimeArtifactTarget;
 
-let client = RuntimeArtifactClient::new("https://api.spoares.com", runtime_public_key)?;
+let client = RuntimeArtifactClient::new("https://api.example.invalid", runtime_public_key)?; // placeholder host
 let artifact = client.resolve(
     "genright",
     "qwen3-customvoice",
@@ -111,8 +143,7 @@ bind digest & filename. Artifact IDs use lowercase slug syntax
 its promotion slot; resolution never substitutes a different pointer. Legacy
 manifests omit `artifactId` & retain their original signed JSON.
 
-Enable `features = ["rightapps"]` on the exact registry version containing this
-change after publication. This source change does not alter registry pins.
+Enable with `features = ["rightapps"]`.
 
 JS interoperability fixture regeneration (test-only deterministic key):
 
@@ -120,3 +151,5 @@ JS interoperability fixture regeneration (test-only deterministic key):
 node crates/rightkit-models/tests/fixtures/generate-runtime-vectors.mjs
 rightkit cargo test -p rightkit-models --features rightapps
 ```
+
+Test-only commands. Run Rust through `rightkit cargo` per the workspace's `docs/rules/rightkit.md`.

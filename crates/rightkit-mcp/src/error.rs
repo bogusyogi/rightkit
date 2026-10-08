@@ -47,6 +47,8 @@ pub enum McpError {
     },
     Config(String),
     Io(String),
+    /// The OS random source failed or produced unusable output; no secret was generated.
+    RandomUnavailable(String),
     /// Original stdio error, retained by opt-in fail-fast serving.
     IoError(std::sync::Arc<std::io::Error>),
 }
@@ -91,6 +93,7 @@ impl fmt::Display for McpError {
             }
             McpError::Config(m) => write!(f, "config error: {m}"),
             McpError::Io(m) => write!(f, "io error: {m}"),
+            McpError::RandomUnavailable(m) => write!(f, "random source unavailable: {m}"),
             McpError::IoError(e) => write!(f, "io error: {e}"),
         }
     }

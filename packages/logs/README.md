@@ -1,42 +1,44 @@
 # @rightkit/logs
 
-Local-only structured logging for Right Suite webviews. It has no network or
-Tauri dependency: each app injects its existing `invoke` function and provides
-a closed allowlist of content-free fields.
+Local-only structured logging for Right Suite webviews. The client batches schema-v1 JSON events and sends them to three shared native commands. It has no network and no Tauri dependency: the app injects its own `invoke`.
 
-The SDK batches schema-v1 JSON events into three shared native commands:
+| Item | Value |
+|---|---|
+| Where it runs | App webview UI (client). The Rust host writes the JSONL files. |
+| Rust pair | `rightkit-logs` (privacy-safe local JSONL logging and diagnostics) |
+| Version | see INDEX.md |
+| License | MIT OR Apache-2.0 |
 
-- `rightkit_logs_write`
-- `rightkit_logs_collect`
-- `rightkit_logs_clear`
+Nothing uploads automatically. The user collects a diagnostics bundle and decides whether to share it.
 
-The Rust host implements those commands with the published `rightkit-logs` crate.
-Nothing uploads automatically; the user explicitly collects a diagnostics
-bundle and decides whether to share it.
+## Entry points
 
-Install `rightkit-logs` from crates.io at the version pinned by RightKit's
-release manifest. Canonical Rust source lives only in `crates/rightkit-logs`;
-app repositories must not vendor npm-carried or local copies.
+| Import | Contents |
+|---|---|
+| `@rightkit/logs` | `createLogsClient(config)`; constants `RIGHTKIT_LOGS_WRITE_COMMAND` (`rightkit_logs_write`), `RIGHTKIT_LOGS_COLLECT_COMMAND` (`rightkit_logs_collect`), `RIGHTKIT_LOGS_CLEAR_COMMAND` (`rightkit_logs_clear`); types `LogLevel`, `LogFields`, `StructuredLogEvent`, `LogsInvoke`, `LogsClientConfig`, `LogsClient` |
+
+`LogsClientConfig`: `invoke`, `allowedFields` (closed list of field names that reach disk), `maxBufferedEvents`, `flushIntervalMs` (0 for explicit flush), `now`.
+
+Peer dependencies: none.
+
+## Example
 
 ```ts
-import { invoke } from '@tauri-apps/api/core';
-import { createLogsClient } from '@rightkit/logs';
+import { invoke } from "@tauri-apps/api/core";
+import { createLogsClient } from "@rightkit/logs";
 
 export const logs = createLogsClient({
   invoke,
-  allowedFields: ['surface', 'count', 'duration_ms', 'code'],
+  allowedFields: ["surface", "count", "duration_ms", "code"],
 });
 
-logs.info('app_started', { surface: 'shell' });
+logs.info("app_started", { surface: "shell" });
+await logs.flush();
 ```
 
-## Publish
+Fields not in `allowedFields` are dropped. When the buffer is full, the oldest event is dropped and a `logs_dropped` marker is written.
 
-This package is public/free on npm under the RightKit organization. The
-publishing token must have read/write access to all `@rightkit` packages and
-bypass 2FA for automation, then run:
+## Known issues
 
-```powershell
-pnpm --filter @rightkit/logs build
-npm publish --workspace packages/logs
-```
+- `@rightkit/tauri` repeats the three command-name literals instead of importing these constants (`packages/tauri/src/index.ts`). One of them should own the names (npm audit 2026-10-08, logs finding 1).
+- `settings-ui` peers this package with no upper bound (`>=0.1.0`).

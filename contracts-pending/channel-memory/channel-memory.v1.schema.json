@@ -1,0 +1,390 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:rightkit:contract:channel-memory:v1",
+  "title": "RightKit channel memory (v1)",
+  "description": "Channel memory for one venture, channel and account: voice, visual system, pillars, cadence, banned moves, do and don't guidance, licence scope, proof bank, external observations, lessons, performance notes, reference style notes, model defaults and identity bindings. Each revision is immutable; a correction is a new revision whose supersedes names the revision it replaces. Proofs are the only authoritative facts. Observations (website or platform text) are stored separately with authoritative fixed to false, so they can never enter the proof bank. Semantic rules that JSON Schema cannot express (revision and supersedes ordering, unique ids within each collection, date order) are enforced by rightkit-channel-memory. Sources: PostRight execution plan P3 (lines 80 to 85), P4 (lines 98 to 100), P6 (line 113) and line 33 (daemon authority); GenRight execution plan G7 (lines 82 to 89, including licence scope on line 83). The schema is pending RightKit's contracts crate: it lives in contracts-pending until RK6 is accepted into contracts/.",
+  "version": "1.0.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "contract", "contractVersion", "memoryId", "revision", "createdAt", "scope", "brandCode",
+    "voice", "visualSystem", "pillars", "cadence", "guidance", "bannedMoves", "bannedPhrases",
+    "licenceScope", "proofs", "observations", "lessons", "performanceNotes", "references", "provenance"
+  ],
+  "properties": {
+    "contract": { "const": "channel-memory" },
+    "contractVersion": { "$ref": "#/$defs/contractVersion" },
+    "memoryId": { "$ref": "#/$defs/id" },
+    "revision": { "type": "integer", "minimum": 1 },
+    "supersedes": { "type": ["integer", "null"], "minimum": 1 },
+    "createdAt": { "$ref": "#/$defs/timestamp" },
+    "scope": { "$ref": "#/$defs/scope" },
+    "brandCode": { "type": "string", "pattern": "^[a-z][a-z0-9-]{1,31}$" },
+    "voice": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["tone", "audience"],
+      "properties": {
+        "tone": { "$ref": "#/$defs/text" },
+        "audience": { "$ref": "#/$defs/text" },
+        "narration": { "$ref": "#/$defs/text" },
+        "personaNotes": { "$ref": "#/$defs/text" }
+      }
+    },
+    "visualSystem": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["style", "layout", "captionStyle", "pacing", "sound"],
+      "properties": {
+        "style": { "$ref": "#/$defs/text" },
+        "layout": { "$ref": "#/$defs/text" },
+        "captionStyle": { "$ref": "#/$defs/text" },
+        "pacing": { "$ref": "#/$defs/text" },
+        "sound": { "$ref": "#/$defs/text" },
+        "typography": { "$ref": "#/$defs/text" },
+        "palette": { "type": "array", "maxItems": 12, "items": { "$ref": "#/$defs/hex" } }
+      }
+    },
+    "pillars": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 12,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "name", "description"],
+        "properties": {
+          "id": { "$ref": "#/$defs/id" },
+          "name": { "type": "string", "minLength": 1, "maxLength": 120 },
+          "description": { "$ref": "#/$defs/text" }
+        }
+      }
+    },
+    "cadence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["postsPerDay", "timezone", "batch"],
+      "properties": {
+        "postsPerDay": { "type": "integer", "minimum": 0, "maximum": 50 },
+        "timezone": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "batch": { "enum": ["overnight", "daytime", "none"] },
+        "batchWindow": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["start", "end"],
+          "properties": {
+            "start": { "$ref": "#/$defs/clock" },
+            "end": { "$ref": "#/$defs/clock" }
+          }
+        }
+      }
+    },
+    "guidance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["doList", "dontList"],
+      "properties": {
+        "doList": { "type": "array", "maxItems": 100, "items": { "$ref": "#/$defs/text" } },
+        "dontList": { "type": "array", "maxItems": 100, "items": { "$ref": "#/$defs/text" } }
+      }
+    },
+    "bannedMoves": {
+      "type": "array",
+      "maxItems": 200,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "description", "appliesTo"],
+        "properties": {
+          "id": { "$ref": "#/$defs/id" },
+          "description": { "$ref": "#/$defs/text" },
+          "appliesTo": { "enum": ["hook", "script", "caption", "carousel", "any"] }
+        }
+      }
+    },
+    "bannedPhrases": {
+      "type": "array",
+      "maxItems": 500,
+      "uniqueItems": true,
+      "items": { "type": "string", "minLength": 1, "maxLength": 80 }
+    },
+    "licenceScope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["monetised", "assetRights"],
+      "properties": {
+        "monetised": { "type": "boolean" },
+        "assetRights": { "enum": ["commercial_safe", "licensed", "editorial_only"] }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "monetised": { "const": true } }, "required": ["monetised"] },
+          "then": { "properties": { "assetRights": { "const": "commercial_safe" } } }
+        }
+      ]
+    },
+    "proofs": {
+      "type": "array",
+      "maxItems": 5000,
+      "items": { "$ref": "#/$defs/proof" }
+    },
+    "observations": {
+      "type": "array",
+      "maxItems": 5000,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "origin", "text", "observedAt", "authoritative", "source"],
+        "properties": {
+          "id": { "$ref": "#/$defs/id" },
+          "origin": { "enum": ["website", "platform_text", "scrape"] },
+          "text": { "$ref": "#/$defs/text" },
+          "observedAt": { "$ref": "#/$defs/timestamp" },
+          "authoritative": { "const": false },
+          "source": { "$ref": "#/$defs/source" }
+        }
+      }
+    },
+    "lessons": {
+      "type": "array",
+      "maxItems": 1000,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "text", "recordedAt", "source"],
+        "properties": {
+          "id": { "$ref": "#/$defs/id" },
+          "text": { "$ref": "#/$defs/text" },
+          "recordedAt": { "$ref": "#/$defs/timestamp" },
+          "source": { "$ref": "#/$defs/source" }
+        }
+      }
+    },
+    "performanceNotes": {
+      "type": "array",
+      "maxItems": 1000,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "platform", "metric", "window", "sampleSize", "summary", "caveat", "source"],
+        "properties": {
+          "id": { "$ref": "#/$defs/id" },
+          "platform": { "$ref": "#/$defs/id" },
+          "metric": {
+            "enum": ["views", "retention_30s", "average_view_duration", "saves", "shares", "comments", "follows", "link_clicks", "other"]
+          },
+          "window": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["from", "to"],
+            "properties": {
+              "from": { "$ref": "#/$defs/date" },
+              "to": { "$ref": "#/$defs/date" }
+            }
+          },
+          "sampleSize": { "type": "integer", "minimum": 1 },
+          "summary": { "$ref": "#/$defs/text" },
+          "caveat": { "$ref": "#/$defs/text" },
+          "source": { "$ref": "#/$defs/source" }
+        }
+      }
+    },
+    "references": {
+      "type": "array",
+      "maxItems": 500,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "kind", "styleNotes", "source"],
+        "properties": {
+          "id": { "$ref": "#/$defs/id" },
+          "kind": { "enum": ["reel", "screenshot", "website", "ad"] },
+          "styleNotes": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["type", "captionStyle", "layout", "pacing", "sound"],
+            "properties": {
+              "type": { "$ref": "#/$defs/text" },
+              "captionStyle": { "$ref": "#/$defs/text" },
+              "layout": { "$ref": "#/$defs/text" },
+              "pacing": { "$ref": "#/$defs/text" },
+              "sound": { "$ref": "#/$defs/text" },
+              "palette": { "type": "array", "maxItems": 12, "items": { "$ref": "#/$defs/hex" } }
+            }
+          },
+          "source": { "$ref": "#/$defs/source" }
+        }
+      }
+    },
+    "modelDefaults": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "image": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "video": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "voice": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "music": { "type": "string", "minLength": 1, "maxLength": 200 }
+      }
+    },
+    "identityBindings": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "characters": {
+          "type": "array",
+          "maxItems": 50,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["id", "anchorAssetId", "status"],
+            "properties": {
+              "id": { "$ref": "#/$defs/id" },
+              "anchorAssetId": { "$ref": "#/$defs/assetId" },
+              "status": { "enum": ["active", "retired"] }
+            }
+          }
+        },
+        "productReferences": {
+          "type": "array",
+          "maxItems": 200,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["id", "assetId"],
+            "properties": {
+              "id": { "$ref": "#/$defs/id" },
+              "assetId": { "$ref": "#/$defs/assetId" }
+            }
+          }
+        },
+        "voice": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["voiceId", "provider"],
+          "properties": {
+            "voiceId": { "type": "string", "minLength": 1, "maxLength": 200 },
+            "provider": { "type": "string", "minLength": 1, "maxLength": 64 },
+            "pronunciation": {
+              "type": "array",
+              "maxItems": 500,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["term", "respelling"],
+                "properties": {
+                  "term": { "type": "string", "minLength": 1, "maxLength": 120 },
+                  "respelling": { "type": "string", "minLength": 1, "maxLength": 120 }
+                }
+              }
+            }
+          }
+        },
+        "brandAssets": {
+          "type": "array",
+          "maxItems": 200,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["id", "assetId", "role"],
+            "properties": {
+              "id": { "$ref": "#/$defs/id" },
+              "assetId": { "$ref": "#/$defs/assetId" },
+              "role": { "enum": ["logo", "font", "colour_reference", "other"] }
+            }
+          }
+        }
+      }
+    },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["authoredBy", "sources"],
+      "properties": {
+        "authoredBy": { "enum": ["adrian", "seed", "decoder", "skill", "daemon"] },
+        "sources": { "type": "array", "minItems": 1, "maxItems": 500, "items": { "$ref": "#/$defs/source" } }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "revision": { "const": 1 } }, "required": ["revision"] },
+      "then": { "not": { "required": ["supersedes"] } }
+    }
+  ],
+  "$defs": {
+    "contractVersion": { "type": "string", "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$" },
+    "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9._-]{0,63}$" },
+    "assetId": { "type": "string", "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$" },
+    "timestamp": { "type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?(Z|[+-]\\d{2}:\\d{2})$" },
+    "date": { "type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}$" },
+    "clock": { "type": "string", "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$" },
+    "hex": { "type": "string", "pattern": "^#[0-9A-Fa-f]{6}$" },
+    "text": { "type": "string", "minLength": 1, "maxLength": 2000 },
+    "scope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["venture", "channel", "account"],
+      "properties": {
+        "venture": { "$ref": "#/$defs/id" },
+        "channel": { "$ref": "#/$defs/id" },
+        "account": { "$ref": "#/$defs/id" }
+      }
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "ref"],
+      "properties": {
+        "kind": {
+          "enum": ["roadmap_file", "hook_bank", "ad_pattern", "website", "connected_account", "interview", "analytics_export", "reel_decoder", "adrian_correction", "daemon"]
+        },
+        "ref": { "type": "string", "minLength": 1, "maxLength": 500 }
+      }
+    },
+    "proof": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "subject", "value", "units", "observedFrom", "sourceExcerpt", "approval", "permittedClaims", "origin", "source"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "subject": { "$ref": "#/$defs/text" },
+        "value": { "type": "number" },
+        "units": { "type": "string", "maxLength": 40 },
+        "observedFrom": { "$ref": "#/$defs/date" },
+        "observedTo": { "$ref": "#/$defs/date" },
+        "sourceExcerpt": { "$ref": "#/$defs/text" },
+        "origin": { "enum": ["interview", "connected_account", "roadmap_file"] },
+        "source": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "ref"],
+          "properties": {
+            "kind": { "enum": ["interview", "connected_account", "roadmap_file", "adrian_correction"] },
+            "ref": { "type": "string", "minLength": 1, "maxLength": 500 }
+          }
+        },
+        "approval": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["status"],
+          "properties": {
+            "status": { "enum": ["approved", "pending", "withdrawn"] },
+            "approvedBy": { "type": "string", "minLength": 1, "maxLength": 64 },
+            "approvedAt": { "$ref": "#/$defs/timestamp" }
+          }
+        },
+        "permittedClaims": { "type": "array", "maxItems": 20, "items": { "$ref": "#/$defs/text" } }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "approval": { "properties": { "status": { "const": "approved" } }, "required": ["status"] } }, "required": ["approval"] },
+          "then": { "properties": { "approval": { "required": ["approvedBy", "approvedAt"] } } }
+        },
+        {
+          "if": { "properties": { "approval": { "properties": { "status": { "enum": ["pending", "withdrawn"] } }, "required": ["status"] } }, "required": ["approval"] },
+          "then": { "properties": { "permittedClaims": { "maxItems": 0 } } }
+        }
+      ]
+    }
+  }
+}
