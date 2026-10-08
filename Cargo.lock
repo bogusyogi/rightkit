@@ -4877,13 +4877,13 @@ version = "0.1.0"
 
 [[package]]
 name = "rightkit-control"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "rightkit-service",
  "serde_json",
  "tauri",
  "webview2-com 0.39.1",
- "windows 0.62.2",
+ "windows 0.61.1",
 ]
 
 [[package]]
@@ -5152,7 +5152,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-qa"
-version = "0.2.11"
+version = "0.2.12"
 dependencies = [
  "libc",
  "png 0.18.1",
