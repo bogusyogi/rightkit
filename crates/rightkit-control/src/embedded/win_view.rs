@@ -256,6 +256,95 @@ pub fn eval<R: Runtime>(win: &WebviewWindow<R>, js: &str) -> Result<String, Stri
     Ok(str_field(&r, "value").unwrap_or_default())
 }
 
+#[repr(C)]
+#[derive(Default)]
+struct Rect {
+    left: i32,
+    top: i32,
+    right: i32,
+    bottom: i32,
+}
+
+#[link(name = "user32")]
+extern "system" {
+    fn GetClientRect(hwnd: *mut std::ffi::c_void, rect: *mut Rect) -> i32;
+    fn GetWindowRect(hwnd: *mut std::ffi::c_void, rect: *mut Rect) -> i32;
+    fn SetWindowPos(
+        hwnd: *mut std::ffi::c_void,
+        after: *mut std::ffi::c_void,
+        x: i32,
+        y: i32,
+        width: i32,
+        height: i32,
+        flags: u32,
+    ) -> i32;
+}
+
+/// SetWindowPos has no work-area clamp. Preserve visibility, z-order and focus.
+pub fn set_viewport<R: Runtime>(
+    win: &WebviewWindow<R>,
+    width: u32,
+    height: u32,
+) -> Result<(u32, u32), String> {
+    let hwnd = win.hwnd().map_err(|e| e.to_string())?.0 as usize;
+    let target = (width as f64, height as f64);
+    let measure = || -> Result<(f64, f64), String> {
+        let s = eval(win, "innerWidth + ',' + innerHeight")?;
+        let (w, h) = s.split_once(',').ok_or("CSS viewport measurement failed")?;
+        Ok((
+            w.parse().map_err(|_| "invalid CSS width")?,
+            h.parse().map_err(|_| "invalid CSS height")?,
+        ))
+    };
+    let mut viewport = measure()?;
+    for _ in 0..3 {
+        if viewport.0 <= 0.0 || viewport.1 <= 0.0 {
+            return Err("CSS viewport is empty".into());
+        }
+        let (tx, rx) = channel();
+        win.run_on_main_thread(move || unsafe {
+            let hwnd = hwnd as *mut std::ffi::c_void;
+            let (mut client, mut frame) = (Rect::default(), Rect::default());
+            let result = (|| {
+                if GetClientRect(hwnd, &mut client) == 0 || GetWindowRect(hwnd, &mut frame) == 0 {
+                    return Err(std::io::Error::last_os_error().to_string());
+                }
+                let scale = (client.right - client.left) as f64 / viewport.0;
+                let w = (frame.right - frame.left) as f64 + (target.0 - viewport.0) * scale;
+                let h = (frame.bottom - frame.top) as f64 + (target.1 - viewport.1) * scale;
+                if SetWindowPos(
+                    hwnd,
+                    std::ptr::null_mut(),
+                    0,
+                    0,
+                    w.round() as i32,
+                    h.round() as i32,
+                    0x0002 | 0x0004 | 0x0010 | 0x0200,
+                ) == 0
+                {
+                    return Err(std::io::Error::last_os_error().to_string());
+                }
+                Ok(())
+            })();
+            let _ = tx.send(result);
+        })
+        .map_err(|e| e.to_string())?;
+        rx.recv_timeout(Duration::from_secs(10))
+            .map_err(|_| "window resize timed out")??;
+        for _ in 0..10 {
+            viewport = measure()?;
+            if viewport == target {
+                return Ok((width, height));
+            }
+            std::thread::sleep(Duration::from_millis(20));
+        }
+    }
+    Err(format!(
+        "viewport mismatch: requested {width}x{height}, measured {}x{}",
+        viewport.0, viewport.1
+    ))
+}
+
 pub fn screenshot<R: Runtime>(win: &WebviewWindow<R>) -> Result<Vec<u8>, String> {
     let r = cdp(win, "Page.captureScreenshot", r#"{"format":"png"}"#.into())?;
     let b64 = str_field(&r, "data").ok_or("no screenshot data")?;

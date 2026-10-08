@@ -14,7 +14,7 @@ use std::ffi::{c_char, c_void, CStr, CString};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc::{channel, Sender};
 use std::sync::OnceLock;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tauri::{Runtime, WebviewWindow};
 
 type Id = *mut c_void;
@@ -36,6 +36,15 @@ extern "C" {
     fn class_getInstanceMethod(class: Id, name: Sel) -> Id;
     fn method_getImplementation(method: Id) -> *const c_void;
     fn method_setImplementation(method: Id, imp: *const c_void) -> *const c_void;
+    fn object_getClass(obj: Id) -> Id;
+    fn object_setClass(obj: Id, class: Id) -> Id;
+    fn objc_allocateClassPair(base: Id, name: *const c_char, extra: usize) -> Id;
+    fn objc_registerClassPair(class: Id);
+    fn objc_disposeClassPair(class: Id);
+    fn class_addMethod(class: Id, name: Sel, imp: *const c_void, types: *const c_char) -> bool;
+    fn method_getTypeEncoding(method: Id) -> *const c_char;
+    #[cfg(target_arch = "x86_64")]
+    fn objc_msgSend_stret();
     static _NSConcreteStackBlock: *const c_void;
 }
 #[link(name = "AppKit", kind = "framework")]
@@ -72,6 +81,23 @@ unsafe fn sel(n: &str) -> Sel {
 
 /// Typed `objc_msgSend`: `msg!(Ret; obj, "selector:", Type = arg, ...)`.
 macro_rules! msg {
+    (NSRect; $obj:expr, $sel:expr $(, $t:ty = $a:expr)*) => {{
+        // NSRect is returned indirectly on Intel, directly on Apple Silicon.
+        #[cfg(target_arch = "x86_64")]
+        {
+            let mut rect = std::mem::MaybeUninit::<NSRect>::uninit();
+            let f: unsafe extern "C" fn(*mut NSRect, Id, Sel $(, $t)*) =
+                std::mem::transmute(objc_msgSend_stret as *const c_void);
+            f(rect.as_mut_ptr(), $obj, sel($sel) $(, $a)*);
+            rect.assume_init()
+        }
+        #[cfg(not(target_arch = "x86_64"))]
+        {
+            let f: unsafe extern "C" fn(Id, Sel $(, $t)*) -> NSRect =
+                std::mem::transmute(objc_msgSend as *const c_void);
+            f($obj, sel($sel) $(, $a)*)
+        }
+    }};
     ($ret:ty; $obj:expr, $sel:expr $(, $t:ty = $a:expr)*) => {{
         let f: unsafe extern "C" fn(Id, Sel $(, $t)*) -> $ret = std::mem::transmute(objc_msgSend as *const c_void);
         f($obj, sel($sel) $(, $a)*)
@@ -196,9 +222,171 @@ struct NSRect {
 
 /// The page's CSS viewport size, measured in the page.
 fn css_viewport<R: Runtime>(win: &WebviewWindow<R>) -> Option<(f64, f64)> {
-    let s = eval(win, "innerWidth + ',' + innerHeight").ok()?;
-    let (w, h) = s.split_once(',')?;
-    Some((w.trim().parse().ok()?, h.trim().parse().ok()?))
+    parse_css_viewport(&eval(win, CSS_VIEWPORT).ok()?).ok()
+}
+
+const CSS_VIEWPORT: &str = "innerWidth + ',' + innerHeight";
+const VIEWPORT_TIMEOUT: Duration = Duration::from_secs(2);
+
+fn parse_css_viewport(s: &str) -> Result<(f64, f64), String> {
+    let invalid = || format!("invalid CSS viewport readback: {s:?}");
+    let (w, h) = s.split_once(',').ok_or_else(invalid)?;
+    let size: (f64, f64) = (
+        w.trim().parse().map_err(|_| invalid())?,
+        h.trim().parse().map_err(|_| invalid())?,
+    );
+    if !size.0.is_finite() || !size.1.is_finite() || size.0 < 0.0 || size.1 < 0.0 {
+        return Err(invalid());
+    }
+    Ok(size)
+}
+
+/// The caller waits off the main thread. Zero/stale dimensions and transient JS
+/// failures must not become inputs to another resize. Each evaluation shares the
+/// deadline, including a missing WebKit completion callback.
+fn poll_css_viewport(
+    target: Option<(f64, f64)>,
+    mut read: impl FnMut(Duration) -> Result<(f64, f64), String>,
+    mut elapsed: impl FnMut() -> Duration,
+    mut wait: impl FnMut(Duration),
+) -> Result<(f64, f64), String> {
+    let mut measured = None;
+    let mut last_error = None;
+    loop {
+        let remaining = VIEWPORT_TIMEOUT.saturating_sub(elapsed());
+        if remaining.is_zero() {
+            let requested = target
+                .map(|(w, h)| format!("requested {w}x{h}, "))
+                .unwrap_or_default();
+            let actual = measured
+                .map(|(w, h)| format!("measured {w}x{h}"))
+                .unwrap_or_else(|| "no CSS viewport measurement".into());
+            let error = last_error.map(|e| format!("; {e}")).unwrap_or_default();
+            return Err(format!(
+                "CSS viewport readback timed out: {requested}{actual}{error}"
+            ));
+        }
+        match read(remaining.min(Duration::from_millis(250))) {
+            Ok(size) => {
+                measured = Some(size);
+                if size.0 > 0.0 && size.1 > 0.0 && target.is_none_or(|t| size == t) {
+                    return Ok(size);
+                }
+            }
+            Err(e) => last_error = Some(e),
+        }
+        wait(Duration::from_millis(20).min(VIEWPORT_TIMEOUT.saturating_sub(elapsed())));
+    }
+}
+
+fn wait_css_viewport<R: Runtime>(
+    win: &WebviewWindow<R>,
+    target: Option<(f64, f64)>,
+) -> Result<(f64, f64), String> {
+    let start = Instant::now();
+    poll_css_viewport(
+        target,
+        |timeout| parse_css_viewport(&eval_with_timeout(win, CSS_VIEWPORT, timeout)?),
+        || start.elapsed(),
+        std::thread::sleep,
+    )
+}
+
+extern "C" fn unconstrained_frame(_: Id, _: Sel, rect: NSRect, _: Id) -> NSRect {
+    rect
+}
+
+/// An ivar-free subclass affects only this window during setFrame. Restore its
+/// original class on every Rust exit; no process-wide swizzle or focus change.
+struct UnconstrainedWindow(Id, Id);
+impl UnconstrainedWindow {
+    unsafe fn enter(window: Id) -> Result<Self, String> {
+        let base = object_getClass(window);
+        let name = CString::new(format!("RightKitUnconstrained_{:x}", base as usize)).unwrap();
+        let mut subclass = objc_getClass(name.as_ptr());
+        if subclass.is_null() {
+            let selector = sel("constrainFrameRect:toScreen:");
+            let method = class_getInstanceMethod(base, selector);
+            if method.is_null() {
+                return Err("NSWindow frame constraint method unavailable".into());
+            }
+            subclass = objc_allocateClassPair(base, name.as_ptr(), 0);
+            if subclass.is_null() {
+                return Err("NSWindow resize subclass allocation failed".into());
+            }
+            if !class_addMethod(
+                subclass,
+                selector,
+                unconstrained_frame as *const c_void,
+                method_getTypeEncoding(method),
+            ) {
+                objc_disposeClassPair(subclass);
+                return Err("NSWindow resize override installation failed".into());
+            }
+            objc_registerClassPair(subclass);
+        }
+        object_setClass(window, subclass);
+        Ok(Self(window, base))
+    }
+}
+impl Drop for UnconstrainedWindow {
+    fn drop(&mut self) {
+        unsafe {
+            object_setClass(self.0, self.1);
+        }
+    }
+}
+
+/// Set native content size without visible-screen clamping, then measure CSS.
+/// Layout/zoom/titlebar insets are measured rather than assuming frame == viewport.
+pub fn set_viewport<R: Runtime>(
+    win: &WebviewWindow<R>,
+    width: u32,
+    height: u32,
+) -> Result<(u32, u32), String> {
+    let target = (width as f64, height as f64);
+    let viewport = wait_css_viewport(win, None)?;
+    on_view(win, move |wk| unsafe {
+        let window = msg!(Id; wk, "window");
+        if window.is_null() {
+            return Err("webview has no window".to_string());
+        }
+        let bounds = msg!(NSRect; wk, "bounds");
+        let mut view_frame = msg!(NSRect; wk, "frame");
+        let frame = msg!(NSRect; window, "frame");
+        let mut content = msg!(NSRect; window, "contentRectForFrameRect:", NSRect = frame);
+        let scale = bounds.size.width / viewport.0;
+        let dw = (target.0 - viewport.0) * scale;
+        let dh = (target.1 - viewport.1) * scale;
+        content.size.width += dw;
+        content.size.height += dh;
+        view_frame.size.width += dw;
+        view_frame.size.height += dh;
+        if !scale.is_finite()
+            || scale <= 0.0
+            || view_frame.size.width <= 0.0
+            || view_frame.size.height <= 0.0
+        {
+            return Err("invalid native webview bounds for viewport resize".into());
+        }
+        let frame = msg!(NSRect; window, "frameRectForContentRect:", NSRect = content);
+        {
+            let _scope = UnconstrainedWindow::enter(window)?;
+            // display:NO never orders, activates, or makes the window key.
+            msg!((); window, "setFrame:display:", NSRect = frame, bool = false);
+        }
+        // Hidden windows may defer Tauri's resize notification. Explicitly
+        // update this view too; preserve its origin, zoom and content insets.
+        let content_view = msg!(Id; window, "contentView");
+        msg!((); content_view, "layoutSubtreeIfNeeded");
+        msg!((); wk, "setFrame:", NSRect = view_frame);
+        msg!((); wk, "layoutSubtreeIfNeeded");
+        Ok::<(), String>(())
+    })??;
+    // Return from the AppKit block before scheduling/waiting on WebKit's JS.
+    // Hidden pages throttle rAF; poll real page dimensions on the service thread.
+    let measured = wait_css_viewport(win, Some(target))?;
+    Ok((measured.0 as u32, measured.1 as u32))
 }
 
 /// CSS viewport (x, y) -> window coordinates. The CSS viewport is the bottom of the
@@ -416,6 +604,14 @@ extern "C" fn shot_done(blk: *mut Blk, image: Id, err: Id) {
 
 /// Evaluate JS in the page; the script must already produce a string.
 pub fn eval<R: Runtime>(win: &WebviewWindow<R>, js: &str) -> Result<String, String> {
+    eval_with_timeout(win, js, Duration::from_secs(15))
+}
+
+fn eval_with_timeout<R: Runtime>(
+    win: &WebviewWindow<R>,
+    js: &str,
+    timeout: Duration,
+) -> Result<String, String> {
     let (tx, rx) = channel::<Result<String, String>>();
     let js = js.to_string();
     win.with_webview(move |pv| unsafe {
@@ -425,20 +621,22 @@ pub fn eval<R: Runtime>(win: &WebviewWindow<R>, js: &str) -> Result<String, Stri
         msg!((); wk, "evaluateJavaScript:completionHandler:", Id = nsstring(&js), *mut Blk = &mut b);
     })
     .map_err(|e| e.to_string())?;
-    rx.recv_timeout(Duration::from_secs(15))
+    rx.recv_timeout(timeout)
         .map_err(|_| "eval timed out".to_string())?
 }
 
 /// PNG of the webview contents via `takeSnapshotWithConfiguration:`.
 pub fn screenshot<R: Runtime>(win: &WebviewWindow<R>) -> Result<Vec<u8>, String> {
     let (tx, rx) = channel::<Result<Vec<u8>, String>>();
-    win.with_webview(move |pv| unsafe {
-        let wk = pv.inner();
+    on_view(win, move |wk| unsafe {
+        let config = msg!(Id; class("WKSnapshotConfiguration"), "new");
+        let bounds = msg!(NSRect; wk, "bounds");
+        msg!((); config, "setRect:", NSRect = bounds);
         let data = Box::into_raw(Box::new(tx)) as *mut c_void;
         let mut b = block(shot_done as *const c_void, data);
-        msg!((); wk, "takeSnapshotWithConfiguration:completionHandler:", Id = std::ptr::null_mut(), *mut Blk = &mut b);
-    })
-    .map_err(|e| e.to_string())?;
+        msg!((); wk, "takeSnapshotWithConfiguration:completionHandler:", Id = config, *mut Blk = &mut b);
+        msg!((); config, "release");
+    })?;
     rx.recv_timeout(Duration::from_secs(15))
         .map_err(|_| "screenshot timed out".to_string())?
 }
@@ -446,6 +644,155 @@ pub fn screenshot<R: Runtime>(win: &WebviewWindow<R>) -> Result<Vec<u8>, String>
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn scripted_readback(
+        target: Option<(f64, f64)>,
+        samples: &[Result<&str, &str>],
+    ) -> (Result<(f64, f64), String>, Duration, Vec<Duration>) {
+        let clock = Cell::new(Duration::ZERO);
+        let mut samples_iter = samples.iter();
+        let mut timeouts = Vec::new();
+        let result = poll_css_viewport(
+            target,
+            |timeout| {
+                timeouts.push(timeout);
+                let sample = samples_iter
+                    .next()
+                    .unwrap_or_else(|| samples.last().unwrap());
+                match sample {
+                    Ok(s) => parse_css_viewport(s),
+                    Err(e) => {
+                        if *e == "eval timed out" {
+                            clock.set(clock.get() + timeout);
+                        }
+                        Err(e.to_string())
+                    }
+                }
+            },
+            || clock.get(),
+            |delay| clock.set(clock.get() + delay),
+        );
+        (result, clock.get(), timeouts)
+    }
+
+    #[test]
+    fn css_readback_parses_real_dimensions_and_rejects_invalid_values() {
+        assert_eq!(
+            parse_css_viewport(" 1440, 1000 ").unwrap(),
+            (1440.0, 1000.0)
+        );
+        assert_eq!(parse_css_viewport("0,0").unwrap(), (0.0, 0.0));
+        for s in [
+            "", "1440", "1440,", "null", "NaN,1000", "1440,inf", "-1,1000",
+        ] {
+            assert!(parse_css_viewport(s).is_err(), "{s}");
+        }
+    }
+
+    #[test]
+    fn css_readback_retries_empty_errors_and_stale_layout_until_target() {
+        let samples = [
+            Ok("0,0"),
+            Ok(""),
+            Err("javascript error"),
+            Ok("900,640"),
+            Ok("1440,0"),
+            Ok("1440,1000"),
+        ];
+        let (result, elapsed, attempts) = scripted_readback(Some((1440.0, 1000.0)), &samples);
+        assert_eq!(result.unwrap(), (1440.0, 1000.0));
+        assert_eq!(attempts.len(), samples.len());
+        assert_eq!(elapsed, Duration::from_millis(100));
+    }
+
+    #[test]
+    fn css_initial_readback_waits_for_nonzero_dimensions() {
+        let (result, _, attempts) = scripted_readback(None, &[Ok("0,0"), Ok("900,640")]);
+        assert_eq!(result.unwrap(), (900.0, 640.0));
+        assert_eq!(attempts.len(), 2);
+    }
+
+    #[test]
+    fn css_readback_timeout_reports_measured_mismatch_and_empty_viewport() {
+        for (sample, measured) in [("900,640", "measured 900x640"), ("0,0", "measured 0x0")] {
+            let (result, elapsed, _) = scripted_readback(Some((1440.0, 1000.0)), &[Ok(sample)]);
+            let error = result.unwrap_err();
+            assert!(error.contains("requested 1440x1000"), "{error}");
+            assert!(error.contains(measured), "{error}");
+            assert_eq!(elapsed, VIEWPORT_TIMEOUT);
+        }
+    }
+
+    #[test]
+    fn css_missing_callbacks_share_deadline_instead_of_waiting_fifteen_seconds() {
+        let (result, elapsed, timeouts) =
+            scripted_readback(Some((1440.0, 1000.0)), &[Err("eval timed out")]);
+        let error = result.unwrap_err();
+        assert!(error.contains("no CSS viewport measurement"), "{error}");
+        assert!(error.contains("eval timed out"), "{error}");
+        assert_eq!(elapsed, VIEWPORT_TIMEOUT);
+        assert_eq!(timeouts.len(), 8);
+        assert_eq!(timeouts.last(), Some(&Duration::from_millis(110)));
+    }
+
+    #[test]
+    fn css_failed_readback_preserves_last_measured_dimensions() {
+        let (result, elapsed, _) = scripted_readback(
+            Some((1440.0, 1000.0)),
+            &[Ok("900,640"), Err("eval timed out")],
+        );
+        let error = result.unwrap_err();
+        assert!(error.contains("measured 900x640"), "{error}");
+        assert!(error.contains("eval timed out"), "{error}");
+        assert_eq!(elapsed, VIEWPORT_TIMEOUT);
+    }
+
+    #[test]
+    fn resize_override_is_scoped_to_one_instance_and_restores_class() {
+        // NSObject stand-ins exercise Objective-C dispatch/ABI without WindowServer.
+        extern "C" fn constrained(_: Id, _: Sel, mut rect: NSRect, _: Id) -> NSRect {
+            rect.size.height = 789.0;
+            rect
+        }
+        unsafe {
+            let selector = sel("constrainFrameRect:toScreen:");
+            let base = objc_allocateClassPair(class("NSObject"), c"RightKitResizeTest".as_ptr(), 0);
+            assert!(!base.is_null());
+            let method = class_getInstanceMethod(class("NSWindow"), selector);
+            assert!(!method.is_null());
+            assert!(class_addMethod(
+                base,
+                selector,
+                constrained as *const c_void,
+                method_getTypeEncoding(method)
+            ));
+            objc_registerClassPair(base);
+            let first = msg!(Id; base, "new");
+            let second = msg!(Id; base, "new");
+            let rect = NSRect {
+                origin: NSPoint { x: 13.0, y: 17.0 },
+                size: NSSize {
+                    width: 1440.0,
+                    height: 1000.0,
+                },
+            };
+            let read = |obj| msg!(NSRect; obj, "constrainFrameRect:toScreen:", NSRect = rect, Id = std::ptr::null_mut());
+            assert_eq!(read(first).size.height, 789.0);
+            {
+                let _scope = UnconstrainedWindow::enter(first).unwrap();
+                let actual = read(first);
+                assert_eq!(actual.size.height, 1000.0);
+                assert_eq!(actual.size.width, 1440.0);
+                assert_eq!((actual.origin.x, actual.origin.y), (13.0, 17.0));
+                assert_eq!(read(second).size.height, 789.0);
+                assert_eq!(object_getClass(second), base);
+            }
+            assert_eq!(object_getClass(first), base);
+            assert_eq!(read(first).size.height, 789.0);
+            msg!((); first, "release");
+            msg!((); second, "release");
+        }
+    }
 
     #[test]
     fn native_pointer_buttons_include_press_drag_and_release() {

@@ -27,6 +27,25 @@ directory; `APP_TARGET` names the standalone fixture's managed debug directory.
 
 The `tauri-plugin` feature enables the embedded Tauri control server.
 
+### Native viewport sizing
+
+`set_viewport {width:1440,height:1000}` accepts integer CSS dimensions in
+`1..=16384` & returns measured `innerWidth`/`innerHeight`. It passes command
+effect admission & never activates, orders, or makes windows key. macOS computes
+`frameRectForContentRect:` on AppKit's main thread & temporarily subclasses only
+target NSWindow to bypass `constrainFrameRect:toScreen:` during `setFrame:display:NO`.
+Original class is restored immediately. Windows uses `SetWindowPos` with no move,
+z-order change, or activation. Other platforms return typed `unsupported`.
+
+macOS explicitly resizes hidden WKWebView & completes native layout before
+polling page dimensions outside AppKit's main-thread block. Readback retries
+zero/stale dimensions & transient JS failures for up to 2 s, including callback
+timeouts; failure reports requested & last measured dimensions.
+
+`rightkit-qa::Control::set_viewport(width, height)` returns measured dimensions.
+WKWebView snapshots explicitly cover full bounds; fixture proof checks hidden
+1440×1000 CSS content, scale-aware PNG dimensions & foreground stability.
+
 Publish through the RightKit release workflow.
 
 ## Control-plane guarantees (0.1.2)
