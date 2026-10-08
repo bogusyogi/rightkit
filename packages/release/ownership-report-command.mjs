@@ -63,7 +63,12 @@ export async function main(args, io = {}) {
     const scanned = scanResults.get(app.key);
     if (!scanned) throw new Error("configured app root missing; marked unscanned");
     if (scanned.error) throw new Error(scanned.error);
-    return scanned.value;
+    // The protected worker returns { inputs, trust, report, verdict } (or { error }); never treat
+    // that envelope itself as a report, which would read as a false zero-finding scan.
+    if (scanned.value?.error) throw new Error(`${scanned.value.code ?? "RK_OWNERSHIP_UNVERIFIED"}: ${scanned.value.error}`);
+    const scan = scanned.value?.report;
+    if (!scan || typeof scan !== "object" || !Array.isArray(scan.violations) || !Array.isArray(scan.problems)) throw new Error("scanner worker returned no ownership report; marked unscanned");
+    return scan;
   } });
   const markdown = renderOwnershipMarkdown(report);
   const json = formatOwnershipJson(report);

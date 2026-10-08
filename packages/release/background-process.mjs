@@ -27,6 +27,14 @@ export function spawnSync(command, args, options) {
   return childProcess.spawnSync(command, ...hiddenArguments(args, options));
 }
 
+// Native ownership ceremonies must be able to show their Windows Hello UI.
+// Keep this exception explicit so ordinary release subprocesses stay hidden.
+export function spawnSyncInteractive(command, args, options) {
+  return childProcess.spawnSync(command, ...(Array.isArray(args)
+    ? [args, { ...options, shell: false, windowsHide: false }]
+    : [[], { ...(args ?? options), shell: false, windowsHide: false }]));
+}
+
 export function execFileSync(file, args, options) {
   return childProcess.execFileSync(file, ...hiddenArguments(args, options));
 }

@@ -46,6 +46,15 @@ for (const name of ["spawn", "spawnSync", "execFileSync", "execFile"]) {
   });
 }
 
+test("interactive sync launcher explicitly shows a child window", (t) => {
+  const sentinel = {};
+  const mocked = t.mock.method(childProcess, "spawnSync", () => sentinel);
+  const options = { windowsHide: true, cwd: "fixture" };
+  assert.equal(background.spawnSyncInteractive("fixture", ["--enroll"], options), sentinel);
+  assert.deepEqual(mocked.mock.calls[0].arguments, ["fixture", ["--enroll"], { ...options, shell: false, windowsHide: false }]);
+  assert.equal(options.windowsHide, true);
+});
+
 test("execFile preserves callback-only overload", (t) => {
   const mocked = t.mock.method(childProcess, "execFile", () => ({}));
   const callback = () => {};
