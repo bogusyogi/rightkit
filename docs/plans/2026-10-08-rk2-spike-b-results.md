@@ -119,6 +119,25 @@ The fixture paints at 60 Hz in every run. Arrivals match the paint rate with and
 - The WebView2 hide uses the WinForms control's `Visible`; the controller's `IsVisible` was not read back.
 - One host, one build, one GPU configuration.
 
+## Long soak (180 s)
+
+Question from the macOS side: does WKWebView's rAF rate fall from 60 Hz to about 10 Hz after 17 to 47 s when the view is off-screen? Test here: the same C# harness and rAF fixture as the 8 s runs, for 180 s, with capture active.
+
+- **Setup:** `run-soak.ps1` (launches the target, applies the placement, runs capture) and `analyze-soak.ps1` (per-second series). Capture: `--fps 60 --readback none --pool 2`, so arrival timing only with no GPU copy and no PNG. There is no capture-side rate cap (see Frame rate).
+- **Off-screen:** fixture moved to (-10000,-10000) before capture. Soak directory `soak-off-20261008-233719`.
+- **Occluded on-screen:** fixture at (100,100), covered by the topmost marker at (80,80) 860x560 for the whole run. Soak directory `soak-occluded-20261008-234153`.
+- **Browser arguments:** `TargetApp.cs` sets none. The fixture uses the WebView2 defaults (no `CreationProperties`, no `AdditionalBrowserArguments`, so no `--disable-background-timer-throttling`). I added an env-gated `RK2_BROWSER_ARGS` hook for a retry. Retry not needed, because neither run dropped.
+
+| Mode | rAF per s, min / mean / max | rAF seconds below 55 | Arrivals per s over full seconds 0 to 179, min / mean / max | Arrival seconds below 55 | First drop | Recovery |
+|---|---|---|---|---|---|---|
+| Off-screen (-10000,-10000) | 59.09 / 60.01 / 60.94 | 0 | 58 / 59.94 / 61 | 0 | none | n/a |
+| Occluded, on-screen | 59.13 / 60.01 / 60.93 | 0 | 57 / 59.92 / 61 | 0 | none | n/a |
+
+- **No drop in either mode over 180 s.** The rAF rate stayed within about 1 Hz of 60 for the whole run, and the arrival rate stayed at 60 per second.
+- **Partial second 180:** the capture runs a few tens of milliseconds past 180.0 s, so the last bucket is partial. It holds 2 arrivals (off-screen) and 0 (occluded). It is excluded from the full-second figures and is not a drop.
+- **Sampling:** the rAF per-second rate is computed from paint samples taken once a second, so it carries about +/-1 Hz of timer jitter.
+- **Scope:** one run per mode on this host (Windows, WebView2 defaults, 250% scaling, 60 Hz panel). The macOS collapse was not reproduced on Windows. It was not tested with the throttling arguments because no drop occurred.
+
 ## Files
 
 - Spike source: `D:\Claude\tools\rightkit\spikes\rk2-windows\` (`rk2.csproj`, `Program.cs`, `Native.cs`, `TargetApp.cs`, `Capturer.cs`, `Shot.cs`, `OcrRunner.cs`, `WindowOps.cs`).

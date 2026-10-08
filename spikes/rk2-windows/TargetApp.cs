@@ -96,6 +96,10 @@ requestAnimationFrame(tick);
                 _poll.Start();
                 try
                 {
+                    // Optional browser arguments (throttling retry). Unset = WebView2 defaults.
+                    string browserArgs = Environment.GetEnvironmentVariable("RK2_BROWSER_ARGS");
+                    if (!string.IsNullOrEmpty(browserArgs))
+                        _web.CreationProperties = new Microsoft.Web.WebView2.WinForms.CoreWebView2CreationProperties { AdditionalBrowserArguments = browserArgs };
                     await _web.EnsureCoreWebView2Async();
                     _web.CoreWebView2.NavigationCompleted += (s2, e2) =>
                         File.WriteAllText(_ready, "ready success=" + e2.IsSuccess);
