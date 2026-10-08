@@ -10,6 +10,7 @@ import { loadBrokerConfig } from './config.mjs';
 import { ThinJobService, createThinJobServer } from './thin-job-service.mjs';
 import { prepareUnixSocketEndpoint, removeStaleUnixSocket, secureUnixSocketEndpoint } from './utilities.mjs';
 import { secureWindowsBrokerProcessDefaultDacl } from './windows-job.mjs';
+import { startHeartbeat } from './watchdog.mjs';
 const configPath = process.argv[2] ?? process.env.RIGHTKIT_BUILD_BROKER_CONFIG;
 if (!configPath) throw new Error('explicit broker JSON config path is required');
 const config = await loadBrokerConfig(configPath);
@@ -28,10 +29,12 @@ if (process.platform !== 'win32') {
   await removeStaleUnixSocket(endpoint);
 }
 const server = createThinJobServer({ service, endpoint });
+let stopHeartbeat = () => {};
 try {
   await new Promise((resolve, reject) => { server.once('error', reject); server.listen(endpoint, resolve); });
   if (process.platform !== 'win32') await secureUnixSocketEndpoint(endpoint);
   await lifecycle.append({ type: 'LISTENING', endpoint, pid: process.pid });
+  stopHeartbeat = startHeartbeat({ append: (event) => lifecycle.append(event) });
   process.stdout.write(`${JSON.stringify({ type: 'LISTENING', endpoint, pid: process.pid })}\n`);
   void service.check?.().catch((error) => { process.stderr.write(`${error.stack ?? error}\n`); });
 } catch (error) {
@@ -53,6 +56,7 @@ const stop = async (signal = null) => {
     endpoint,
     runtime: runtimeIdentity,
   });
+  stopHeartbeat();
   server.close();
   await service.shutdown();
   await lifecycle.close();

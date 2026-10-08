@@ -1,5 +1,6 @@
 import os from "node:os";
 import path from "node:path";
+import { refuseManagedEnvSecrets } from "./managed-host-secrets.mjs";
 
 export function notarytoolAuthArgs({ profile, env = process.env } = {}) {
   // A configured profile explicitly selects Keychain authentication. Inherited
@@ -10,6 +11,9 @@ export function notarytoolAuthArgs({ profile, env = process.env } = {}) {
     }
     return ["--keychain-profile", profile.trim()];
   }
+  // Env-selected App Store Connect API auth is refused on managed hosts; the
+  // provisioned Keychain profile is the only automatic source there.
+  refuseManagedEnvSecrets(env, ["APPLE_API_KEY_PATH", "APPLE_API_KEY", "APPLE_API_ISSUER"]);
   const keyPath = env.APPLE_API_KEY_PATH?.trim();
   const keyId = env.APPLE_API_KEY?.trim();
   const issuer = env.APPLE_API_ISSUER?.trim();

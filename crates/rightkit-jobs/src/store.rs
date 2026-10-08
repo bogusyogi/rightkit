@@ -600,8 +600,29 @@ impl JobStore {
     /// `Err(illegal_transition)` for a move the status model forbids; a hook
     /// error rolls everything back.
     pub fn transition(&self, job_id: &str, t: &Transition) -> JobResult<Option<JobRecord>> {
+        self.transition_in(job_id, None, t)
+    }
+
+    /// [`JobStore::transition`] for the attempt holding `generation`: rejected
+    /// with `stale_attempt` (nothing written) once a newer generation exists.
+    pub fn transition_fenced(
+        &self,
+        job_id: &str,
+        generation: i64,
+        t: &Transition,
+    ) -> JobResult<Option<JobRecord>> {
+        self.transition_in(job_id, Some(generation), t)
+    }
+
+    fn transition_in(
+        &self,
+        job_id: &str,
+        fence: Option<i64>,
+        t: &Transition,
+    ) -> JobResult<Option<JobRecord>> {
         let mut conn = self.c();
         let tx = write_txn(&mut conn)?;
+        check_fence(&tx, job_id, fence)?;
         let before = self.load(&tx, job_id)?;
         if before.job.is_terminal() {
             return Ok(None);
@@ -611,16 +632,56 @@ impl JobStore {
         Ok(Some(after))
     }
 
+    /// Current attempt generation of `job_id` (0 for a job never run). Bumped by
+    /// every run start (see [`JobStore::begin_run`]); survives restarts.
+    pub fn generation(&self, job_id: &str) -> JobResult<i64> {
+        self.c()
+            .query_row(
+                "SELECT attempt_gen FROM jobs WHERE job_id=?1",
+                [job_id],
+                |r| r.get(0),
+            )
+            .optional()?
+            .ok_or_else(|| JobError::new("job_not_found", format!("no such job: {job_id}")))
+    }
+
+    /// Supersede the attempt holding `generation` without starting a run: the
+    /// generation advances, so every write still carrying the old one is
+    /// rejected. Returns the new generation, which the fencing owner uses for
+    /// its own writes. `stale_attempt` if `generation` is no longer current.
+    pub fn fence(&self, job_id: &str, generation: i64) -> JobResult<i64> {
+        let mut conn = self.c();
+        let tx = write_txn(&mut conn)?;
+        check_fence(&tx, job_id, Some(generation))?;
+        tx.execute(
+            "UPDATE jobs SET attempt_gen=attempt_gen+1, updated_at=?2 WHERE job_id=?1",
+            params![job_id, now()],
+        )?;
+        let next = generation + 1;
+        tx.commit()?;
+        Ok(next)
+    }
+
     /// Set extension columns without changing status.
     pub fn set_ext(&self, job_id: &str, ext: &Ext) -> JobResult<JobRecord> {
+        self.set_ext_in(job_id, None, ext)
+    }
+
+    /// [`JobStore::set_ext`] for the attempt holding `generation` (fenced).
+    pub fn set_ext_fenced(&self, job_id: &str, generation: i64, ext: &Ext) -> JobResult<JobRecord> {
+        self.set_ext_in(job_id, Some(generation), ext)
+    }
+
+    fn set_ext_in(&self, job_id: &str, fence: Option<i64>, ext: &Ext) -> JobResult<JobRecord> {
         let t = Transition {
             ext: ext.clone(),
             ..Transition::default()
         };
-        match self.transition(job_id, &t)? {
+        match self.transition_in(job_id, fence, &t)? {
             Some(r) => Ok(r),
             // Terminal jobs still accept extension data (e.g. a final cost).
             None => self.write(|conn| {
+                check_fence(conn, job_id, fence)?;
                 let before = self.load(conn, job_id)?;
                 self.exec(conn, &before, &t)
             }),
@@ -636,29 +697,87 @@ impl JobStore {
     /// Start a run: move to the model's run status (if any) and optionally
     /// count an attempt, in one transaction with the hook.
     pub fn begin_run(&self, job_id: &str, count_attempt: bool) -> JobResult<Option<JobRecord>> {
-        self.transition(
-            job_id,
-            &Transition {
-                to: self.cfg.statuses.run_status_name().map(Into::into),
-                count_attempt,
-                ..Transition::default()
-            },
-        )
+        Ok(self
+            .begin_run_fenced(job_id, count_attempt)?
+            .map(|(r, _)| r))
+    }
+
+    /// [`JobStore::begin_run`] that also returns the new attempt generation. The
+    /// run start advances the generation in the same transaction, so every
+    /// earlier attempt's writes are fenced from this point on.
+    pub fn begin_run_fenced(
+        &self,
+        job_id: &str,
+        count_attempt: bool,
+    ) -> JobResult<Option<(JobRecord, i64)>> {
+        let t = Transition {
+            to: self.cfg.statuses.run_status_name().map(Into::into),
+            count_attempt,
+            ..Transition::default()
+        };
+        let mut conn = self.c();
+        let tx = write_txn(&mut conn)?;
+        let before = self.load(&tx, job_id)?;
+        if before.job.is_terminal() {
+            return Ok(None);
+        }
+        let after = self.exec(&tx, &before, &t)?;
+        tx.execute(
+            "UPDATE jobs SET attempt_gen=attempt_gen+1 WHERE job_id=?1",
+            [job_id],
+        )?;
+        let generation: i64 = tx.query_row(
+            "SELECT attempt_gen FROM jobs WHERE job_id=?1",
+            [job_id],
+            |r| r.get(0),
+        )?;
+        tx.commit()?;
+        Ok(Some((after, generation)))
     }
 
     /// Give back the attempt a paused-by-handoff run consumed (a handoff is
     /// not the job's fault, so it must not count toward `max_attempts`).
     pub fn refund_attempt(&self, job_id: &str) -> JobResult<()> {
-        self.c().execute(
+        self.refund_attempt_in(job_id, None)
+    }
+
+    /// [`JobStore::refund_attempt`] for the attempt holding `generation` (fenced).
+    pub fn refund_attempt_fenced(&self, job_id: &str, generation: i64) -> JobResult<()> {
+        self.refund_attempt_in(job_id, Some(generation))
+    }
+
+    fn refund_attempt_in(&self, job_id: &str, fence: Option<i64>) -> JobResult<()> {
+        let mut conn = self.c();
+        let tx = write_txn(&mut conn)?;
+        check_fence(&tx, job_id, fence)?;
+        tx.execute(
             "UPDATE jobs SET attempts=MAX(attempts-1,0), updated_at=?2 WHERE job_id=?1",
             params![job_id, now()],
         )?;
+        tx.commit()?;
         Ok(())
     }
 
     /// Record a non-fatal error without changing status (paused, recoverable).
     pub fn record_error(&self, job_id: &str, error: &JobError) -> JobResult<()> {
-        self.c().execute(
+        self.record_error_in(job_id, None, error)
+    }
+
+    /// [`JobStore::record_error`] for the attempt holding `generation` (fenced).
+    pub fn record_error_fenced(
+        &self,
+        job_id: &str,
+        generation: i64,
+        error: &JobError,
+    ) -> JobResult<()> {
+        self.record_error_in(job_id, Some(generation), error)
+    }
+
+    fn record_error_in(&self, job_id: &str, fence: Option<i64>, error: &JobError) -> JobResult<()> {
+        let mut conn = self.c();
+        let tx = write_txn(&mut conn)?;
+        check_fence(&tx, job_id, fence)?;
+        tx.execute(
             "UPDATE jobs SET error_json=?2, updated_at=?3 WHERE job_id=?1",
             params![
                 job_id,
@@ -668,13 +787,24 @@ impl JobStore {
                 now()
             ],
         )?;
+        tx.commit()?;
         Ok(())
     }
 
     pub fn fail(&self, job_id: &str, error: &JobError) -> JobResult<bool> {
+        self.fail_in(job_id, None, error)
+    }
+
+    /// [`JobStore::fail`] for the attempt holding `generation` (fenced).
+    pub fn fail_fenced(&self, job_id: &str, generation: i64, error: &JobError) -> JobResult<bool> {
+        self.fail_in(job_id, Some(generation), error)
+    }
+
+    fn fail_in(&self, job_id: &str, fence: Option<i64>, error: &JobError) -> JobResult<bool> {
         Ok(self
-            .transition(
+            .transition_in(
                 job_id,
+                fence,
                 &Transition::to(FAILED)
                     .error(Some(error.to_json_with(self.cfg.includes_retryable()))),
             )?
@@ -683,9 +813,24 @@ impl JobStore {
 
     /// Complete with a result. False if the job went terminal (cancelled) first.
     pub fn complete(&self, job_id: &str, result: &Value) -> JobResult<bool> {
+        self.complete_in(job_id, None, result)
+    }
+
+    /// [`JobStore::complete`] for the attempt holding `generation` (fenced).
+    pub fn complete_fenced(
+        &self,
+        job_id: &str,
+        generation: i64,
+        result: &Value,
+    ) -> JobResult<bool> {
+        self.complete_in(job_id, Some(generation), result)
+    }
+
+    fn complete_in(&self, job_id: &str, fence: Option<i64>, result: &Value) -> JobResult<bool> {
         Ok(self
-            .transition(
+            .transition_in(
                 job_id,
+                fence,
                 &Transition::to(COMPLETE).result(result.clone()).error(None),
             )?
             .is_some())
@@ -728,9 +873,29 @@ impl JobStore {
         job_id: &str,
         max_attempts: i64,
     ) -> JobResult<Option<Submission>> {
+        self.begin_submission_in(job_id, None, max_attempts)
+    }
+
+    /// [`JobStore::begin_submission`] for the attempt holding `generation` (fenced).
+    pub fn begin_submission_fenced(
+        &self,
+        job_id: &str,
+        generation: i64,
+        max_attempts: i64,
+    ) -> JobResult<Option<Submission>> {
+        self.begin_submission_in(job_id, Some(generation), max_attempts)
+    }
+
+    fn begin_submission_in(
+        &self,
+        job_id: &str,
+        fence: Option<i64>,
+        max_attempts: i64,
+    ) -> JobResult<Option<Submission>> {
         let col = self.external_col()?.to_string();
         let mut conn = self.c();
         let tx = write_txn(&mut conn)?;
+        check_fence(&tx, job_id, fence)?;
         let before = self.load(&tx, job_id)?;
         if before.job.is_terminal() {
             return Ok(None);
@@ -784,9 +949,31 @@ impl JobStore {
         external_id: &str,
         to: Option<&str>,
     ) -> JobResult<Option<JobRecord>> {
+        self.accept_submission_in(job_id, None, external_id, to)
+    }
+
+    /// [`JobStore::accept_submission`] for the attempt holding `generation` (fenced).
+    pub fn accept_submission_fenced(
+        &self,
+        job_id: &str,
+        generation: i64,
+        external_id: &str,
+        to: Option<&str>,
+    ) -> JobResult<Option<JobRecord>> {
+        self.accept_submission_in(job_id, Some(generation), external_id, to)
+    }
+
+    fn accept_submission_in(
+        &self,
+        job_id: &str,
+        fence: Option<i64>,
+        external_id: &str,
+        to: Option<&str>,
+    ) -> JobResult<Option<JobRecord>> {
         let col = self.external_col()?.to_string();
         let mut conn = self.c();
         let tx = write_txn(&mut conn)?;
+        check_fence(&tx, job_id, fence)?;
         let before = self.load(&tx, job_id)?;
         if before.job.is_terminal() {
             return Ok(None);
@@ -814,9 +1001,31 @@ impl JobStore {
         error: &JobError,
         to: Option<&str>,
     ) -> JobResult<Option<JobRecord>> {
+        self.fail_submission_in(job_id, None, error, to)
+    }
+
+    /// [`JobStore::fail_submission`] for the attempt holding `generation` (fenced).
+    pub fn fail_submission_fenced(
+        &self,
+        job_id: &str,
+        generation: i64,
+        error: &JobError,
+        to: Option<&str>,
+    ) -> JobResult<Option<JobRecord>> {
+        self.fail_submission_in(job_id, Some(generation), error, to)
+    }
+
+    fn fail_submission_in(
+        &self,
+        job_id: &str,
+        fence: Option<i64>,
+        error: &JobError,
+        to: Option<&str>,
+    ) -> JobResult<Option<JobRecord>> {
         let col = self.external_col()?.to_string();
         let mut conn = self.c();
         let tx = write_txn(&mut conn)?;
+        check_fence(&tx, job_id, fence)?;
         let before = self.load(&tx, job_id)?;
         if before.job.is_terminal() {
             return Ok(None);
@@ -890,6 +1099,24 @@ impl JobStore {
         self.add_event_with(job_id, None, stage, None, progress, message)
     }
 
+    /// [`JobStore::add_event`] for the attempt holding `generation` (fenced):
+    /// a stale attempt's progress never reaches the event stream.
+    pub fn add_event_fenced(
+        &self,
+        job_id: &str,
+        generation: i64,
+        stage: &str,
+        progress: Option<f64>,
+        message: Option<&str>,
+    ) -> JobResult<Event> {
+        let mut conn = self.c();
+        let tx = write_txn(&mut conn)?;
+        check_fence(&tx, job_id, Some(generation))?;
+        let ev = add_event_on(&tx, job_id, None, stage, None, progress, message)?;
+        tx.commit()?;
+        Ok(ev)
+    }
+
     /// Like [`JobStore::add_event`], recording an explicit `status` and/or
     /// `attempt` on the event instead of the job row's (`None` keeps the row
     /// value). An explicit status must be in the configured vocabulary
@@ -909,36 +1136,7 @@ impl JobStore {
             }
         }
         let conn = self.c();
-        let (row_status, row_attempt): (String, i64) = conn
-            .query_row(
-                "SELECT status, attempts FROM jobs WHERE job_id=?1",
-                [job_id],
-                |r| Ok((r.get(0)?, r.get(1)?)),
-            )
-            .optional()?
-            .ok_or_else(|| JobError::new("job_not_found", format!("no such job: {job_id}")))?;
-        let status = status.map(String::from).unwrap_or(row_status);
-        let attempt = attempt.unwrap_or(row_attempt);
-        let at = now();
-        conn.execute(
-            "INSERT INTO job_events (job_id, at, status, stage, attempt, progress, message) VALUES (?1,?2,?3,?4,?5,?6,?7)",
-            params![job_id, at, status, stage, attempt, progress, message],
-        )?;
-        let seq = conn.last_insert_rowid();
-        conn.execute(
-            "DELETE FROM job_events WHERE job_id=?1 AND seq <= COALESCE((SELECT seq FROM job_events WHERE job_id=?1 ORDER BY seq DESC LIMIT 1 OFFSET ?2), 0)",
-            params![job_id, MAX_EVENTS],
-        )?;
-        Ok(Event {
-            seq,
-            job_id: job_id.into(),
-            at,
-            status,
-            stage: stage.into(),
-            attempt,
-            progress,
-            message: message.map(Into::into),
-        })
+        add_event_on(&conn, job_id, status, stage, attempt, progress, message)
     }
 
     /// Events with `seq > after`, in order. Poll with the last seen `seq` to stream.
@@ -993,6 +1191,32 @@ impl JobStore {
         self.add_artifact_with_id(job_id, &uuid::Uuid::new_v4().to_string(), path, mime)
     }
 
+    /// [`JobStore::add_artifact`] for the attempt holding `generation` (fenced).
+    /// The generation is checked again when the row is written.
+    pub fn add_artifact_fenced(
+        &self,
+        job_id: &str,
+        generation: i64,
+        path: &Path,
+        mime: &str,
+    ) -> JobResult<Artifact> {
+        let (sha256, bytes) = hash_file(path)?;
+        let a = Artifact {
+            artifact_id: uuid::Uuid::new_v4().to_string(),
+            job_id: job_id.into(),
+            path: path.to_string_lossy().into_owned(),
+            sha256,
+            bytes: bytes as i64,
+            mime: mime.into(),
+        };
+        let mut conn = self.c();
+        let tx = write_txn(&mut conn)?;
+        check_fence(&tx, job_id, Some(generation))?;
+        self.insert_artifact(&tx, &a)?;
+        tx.commit()?;
+        Ok(a)
+    }
+
     /// Like [`JobStore::add_artifact`] with an app-chosen (e.g. content-derived)
     /// id. Idempotent: the same id replaces its row.
     pub fn add_artifact_with_id(
@@ -1018,8 +1242,12 @@ impl JobStore {
     /// Index an already-hashed artifact (idempotent by id).
     pub fn record_artifact(&self, a: &Artifact) -> JobResult<()> {
         self.get(&a.job_id)?;
+        self.insert_artifact(&self.c(), a)
+    }
+
+    fn insert_artifact(&self, conn: &Connection, a: &Artifact) -> JobResult<()> {
         let n = &self.cfg.artifacts;
-        self.c().execute(
+        conn.execute(
             &format!(
                 "INSERT OR REPLACE INTO {} ({}, job_id, path, sha256, bytes, mime, created_at) VALUES (?1,?2,?3,?4,?5,?6,?7)",
                 n.table, n.id_column
@@ -1063,6 +1291,68 @@ impl JobStore {
             Err(e) => Err(e),
         }
     }
+}
+
+/// Reject a write from a superseded attempt. `None` is an unfenced store call.
+fn check_fence(conn: &Connection, job_id: &str, fence: Option<i64>) -> JobResult<()> {
+    let Some(expected) = fence else {
+        return Ok(());
+    };
+    let current: i64 = conn
+        .query_row(
+            "SELECT attempt_gen FROM jobs WHERE job_id=?1",
+            [job_id],
+            |r| r.get(0),
+        )
+        .optional()?
+        .ok_or_else(|| JobError::new("job_not_found", format!("no such job: {job_id}")))?;
+    if current == expected {
+        Ok(())
+    } else {
+        Err(JobError::stale_attempt(job_id))
+    }
+}
+
+/// Append one event on `conn` (a connection or a transaction).
+fn add_event_on(
+    conn: &Connection,
+    job_id: &str,
+    status: Option<&str>,
+    stage: &str,
+    attempt: Option<i64>,
+    progress: Option<f64>,
+    message: Option<&str>,
+) -> JobResult<Event> {
+    let (row_status, row_attempt): (String, i64) = conn
+        .query_row(
+            "SELECT status, attempts FROM jobs WHERE job_id=?1",
+            [job_id],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .optional()?
+        .ok_or_else(|| JobError::new("job_not_found", format!("no such job: {job_id}")))?;
+    let status = status.map(String::from).unwrap_or(row_status);
+    let attempt = attempt.unwrap_or(row_attempt);
+    let at = now();
+    conn.execute(
+        "INSERT INTO job_events (job_id, at, status, stage, attempt, progress, message) VALUES (?1,?2,?3,?4,?5,?6,?7)",
+        params![job_id, at, status, stage, attempt, progress, message],
+    )?;
+    let seq = conn.last_insert_rowid();
+    conn.execute(
+        "DELETE FROM job_events WHERE job_id=?1 AND seq <= COALESCE((SELECT seq FROM job_events WHERE job_id=?1 ORDER BY seq DESC LIMIT 1 OFFSET ?2), 0)",
+        params![job_id, MAX_EVENTS],
+    )?;
+    Ok(Event {
+        seq,
+        job_id: job_id.into(),
+        at,
+        status,
+        stage: stage.into(),
+        attempt,
+        progress,
+        message: message.map(Into::into),
+    })
 }
 
 /// Create or additively adopt the schema. Never drops or rewrites data.
@@ -1126,7 +1416,8 @@ fn init_schema(conn: &Connection, cfg: &StoreConfig) -> rusqlite::Result<JobResu
   acked_by TEXT,
   acked_at TEXT,
   created_at TEXT NOT NULL,
-  updated_at TEXT NOT NULL",
+  updated_at TEXT NOT NULL,
+  attempt_gen INTEGER NOT NULL DEFAULT 0",
     );
     for c in &cfg.columns {
         ddl.push_str(",\n  ");
@@ -1158,6 +1449,11 @@ CREATE INDEX IF NOT EXISTS {t}_job ON {t}(job_id);",
         ("jobs".into(), "acked_by".into(), "TEXT".into()),
         ("jobs".into(), "acked_at".into(), "TEXT".into()),
         ("job_events".into(), "progress".into(), "REAL".into()),
+        (
+            "jobs".into(),
+            "attempt_gen".into(),
+            "INTEGER NOT NULL DEFAULT 0".into(),
+        ),
     ];
     for c in &cfg.columns {
         if c.required() && !has_col(conn, "jobs", &c.name)? {

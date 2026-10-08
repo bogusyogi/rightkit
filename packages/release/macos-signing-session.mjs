@@ -6,6 +6,7 @@ import { spawnSync } from "./background-process.mjs";
 import { requestSigningAgentSync, validateNotaryAgentReport } from "./signing-agent-client.mjs";
 import { installSigningAgent, requireMacGuiSession } from "./signing-agent-install.mjs";
 import { signingAgentPaths, defaultSigningRoots, ensurePrivateDirectory, privatePath, within, NOTARIZATION_TIMEOUT_MS, MAX_NOTARIZATION_TIMEOUT_MS } from "./rightkit-signing-agent.mjs";
+import { refuseManagedEnvSecrets } from "./managed-host-secrets.mjs";
 
 export class MacSigningSessionError extends Error {
   constructor(code, message) {
@@ -173,6 +174,8 @@ export function runMacGuiNotarization({ kind = "notarize", file, profile = "appl
 
 export function signMacUpdaterFiles(files, options = {}) {
   const { cwd = process.cwd(), env = process.env, run = spawnSync, username = os.userInfo().username } = options;
+  // Inherited updater key material must not bypass the Keychain or GUI signing agent on managed hosts.
+  refuseManagedEnvSecrets(env, ["TAURI_SIGNING_PRIVATE_KEY", "TAURI_SIGNING_PRIVATE_KEY_PASSWORD"]);
   const commands = files.map((file) => ["exec", "tauri", "signer", "sign", file]);
   const signingEnv = { ...env, TAURI_SIGNING_PRIVATE_KEY_PASSWORD: env.TAURI_SIGNING_PRIVATE_KEY_PASSWORD ?? "" };
   if (env.SSH_CONNECTION || env.SSH_TTY || env.SSH_CLIENT || (!signingEnv.TAURI_SIGNING_PRIVATE_KEY && detectMacSigningSession({ env, run }).guiRunner)) {

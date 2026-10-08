@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { verifyArtifactFile, readVerifiedArtifact, digestBytes } from "./publication-artifacts.mjs";
 import { uploadVerifiedR2File, uploadVerifiedR2Artifact } from "./r2-verified-upload.mjs";
+import { refuseManagedEnvSecrets } from "./managed-host-secrets.mjs";
 import { realpathSync } from "node:fs";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
@@ -104,6 +105,7 @@ export function defaultWindowsRuntimeArtifactSigningKeyFile(env = process.env) {
 }
 
 export async function loadRuntimeArtifactSigningKey({ env = process.env, platform = process.platform, explicitFile } = {}) {
+  refuseManagedEnvSecrets(env, ["RIGHTKIT_RUNTIME_ARTIFACT_PRIVATE_KEY", "RIGHTKIT_RUNTIME_ARTIFACT_PRIVATE_KEY_FILE"]);
   const direct = env.RIGHTKIT_RUNTIME_ARTIFACT_PRIVATE_KEY;
   if (direct?.trim()) return direct.replace(/\\n/g, "\n");
   const configuredFile = explicitFile || env.RIGHTKIT_RUNTIME_ARTIFACT_PRIVATE_KEY_FILE;

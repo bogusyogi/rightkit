@@ -70,6 +70,14 @@ adapts it to an app, including an existing database (adopted in place, additive 
   `Dispatcher::without_builtin`, `with_doctor`, and `with_cli_target` adjust built-ins
   and CLI targets.
 
+### 0.2.3 additions
+
+- **Attempt fencing** — each run start advances a durable generation (`JobStore::generation`).
+  Writes through `JobControl` from an attempt that was superseded (e.g. a stalled worker
+  abandoned by the watchdog) fail with `stale_attempt` and change nothing. The watchdog fences
+  an abandoned attempt before it releases the job lock. Use `JobControl::generation()` to see
+  the generation a handler writes under. Writes through `JobControl::store()` are not fenced.
+
 ### 0.2.1 additions
 
 - **Events with explicit status/attempt** — `JobStore::add_event_with(job_id, status, stage,

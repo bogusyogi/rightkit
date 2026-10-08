@@ -1,4 +1,5 @@
 import { execFile } from "./background-process.mjs";
+import { refuseManagedEnvSecrets } from "./managed-host-secrets.mjs";
 import { readFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -19,6 +20,7 @@ async function readTokenFile(file) {
 }
 
 export async function loadReleaseToken({ env = process.env, platform = process.platform } = {}) {
+  refuseManagedEnvSecrets(env, ["RIGHTAPPS_RELEASE_TOKEN", "RIGHTAPPS_RELEASE_TOKEN_FILE"]);
   const direct = env.RIGHTAPPS_RELEASE_TOKEN?.trim();
   if (direct) return direct;
 

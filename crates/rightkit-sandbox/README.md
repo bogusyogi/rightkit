@@ -6,6 +6,14 @@ Confinement backends: macOS Seatbelt, Linux Landlock/seccomp, and Windows AppCon
 
 Publish through the RightKit release workflow.
 
+## Captured output (0.3.0)
+
+- `SandboxedChild::wait_with_output(timeout)` caps each stream at `DEFAULT_OUTPUT_CAP` (16 MiB);
+  `wait_with_output_capped(timeout, cap)` sets it. `SandboxOutput::truncated` reports discarded
+  bytes or a stream that did not reach end-of-pipe.
+- The timeout covers the whole process tree and its pipes. A descendant that keeps stdout or
+  stderr open past the deadline gets the tree killed, and the call returns `timed_out`.
+
 ## Also (0.2.0)
 
 Windows launches resolve granted workspace paths with `GetFinalPathNameByHandleW`

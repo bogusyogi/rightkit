@@ -4965,7 +4965,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-jobs"
-version = "0.2.2"
+version = "0.2.3"
 dependencies = [
  "rightkit-db",
  "rightkit-framed-sidecar",
@@ -5044,10 +5044,7 @@ dependencies = [
 name = "rightkit-models"
 version = "0.2.2"
 dependencies = [
- "base64 0.22.1",
- "chrono",
  "dirs 7.0.0",
- "ed25519-dalek",
  "flate2",
  "getrandom 0.3.4",
  "rightkit-qa",
@@ -5057,7 +5054,6 @@ dependencies = [
  "tar",
  "tempfile",
  "ureq",
- "url",
  "zip",
 ]
 
@@ -5215,7 +5211,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-sandbox"
-version = "0.2.4"
+version = "0.3.0"
 dependencies = [
  "libc",
  "portable-pty",

@@ -3,6 +3,7 @@ import { spawnSync } from "./background-process.mjs";
 import { existsSync, readFileSync, rmSync } from "node:fs";
 import path from "node:path";
 import { signMacUpdaterFiles } from "./macos-signing-session.mjs";
+import { refuseManagedEnvSecrets, MANAGED_HOST_ENV_SECRET_REFUSED } from "./managed-host-secrets.mjs";
 
 const args = process.argv.slice(2);
 const files = [];
@@ -15,6 +16,10 @@ for (let i = 0; i < args.length; i++) {
 if (!files.length) fail("at least one --file is required");
 
 const env = { ...process.env };
+if (!dryRun) {
+  try { refuseManagedEnvSecrets(process.env, ["TAURI_SIGNING_PRIVATE_KEY", "TAURI_SIGNING_PRIVATE_KEY_PASSWORD"]); }
+  catch (error) { fail(`[${MANAGED_HOST_ENV_SECRET_REFUSED}] ${error.message}`); }
+}
 if (!dryRun && !env.TAURI_SIGNING_PRIVATE_KEY) {
   if (process.platform === "win32") {
     const key = path.join(env.APPDATA || "", "ViewRight", "updater.key");
