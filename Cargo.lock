@@ -4231,18 +4231,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "process-wrap"
-version = "8.2.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a3ef4f2f0422f23a82ec9f628ea2acd12871c81a9362b02c43c1aa86acfc3ba1"
-dependencies = [
- "indexmap 2.14.0",
- "nix 0.30.1",
- "tracing",
- "windows 0.61.1",
-]
-
-[[package]]
 name = "prost"
 version = "0.13.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4644,7 +4632,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-agent-tools"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "rightkit-automation",
  "rightkit-browser",
@@ -4659,7 +4647,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-asr"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "eyre",
  "half",
@@ -4682,7 +4670,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-audio"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "cpal",
  "hound",
@@ -4713,7 +4701,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-browser"
-version = "0.2.0"
+version = "0.2.2"
 dependencies = [
  "chromiumoxide",
  "futures",
@@ -4745,7 +4733,7 @@ dependencies = [
  "rightkit-service",
  "serde_json",
  "tauri",
- "webview2-com",
+ "webview2-com 0.39.1",
  "windows 0.62.2",
 ]
 
@@ -4762,7 +4750,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-db"
-version = "0.2.1"
+version = "0.3.0"
 dependencies = [
  "libc",
  "rightkit-fs",
@@ -4774,12 +4762,13 @@ dependencies = [
 
 [[package]]
 name = "rightkit-embed"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "ort",
  "rightkit-ort",
  "rusqlite",
  "serde_json",
+ "sha2 0.10.9",
  "tempfile",
  "thiserror 2.0.21",
  "tokenizers",
@@ -4825,7 +4814,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-jobs"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "rightkit-db",
  "rightkit-framed-sidecar",
@@ -4875,7 +4864,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-mcp"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "getrandom 0.3.4",
  "serde",
@@ -4887,7 +4876,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-media"
-version = "0.2.2"
+version = "0.2.3"
 dependencies = [
  "rightkit-process",
  "serde",
@@ -4915,7 +4904,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-oauth"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "getrandom 0.3.4",
  "rightkit-http",
@@ -4928,7 +4917,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-ocr"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "base64 0.22.1",
  "image",
@@ -4947,7 +4936,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-ort"
-version = "0.1.4"
+version = "0.2.0"
 dependencies = [
  "half",
  "ort",
@@ -4984,7 +4973,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-playback"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "parking_lot",
  "rightkit-media",
@@ -4997,17 +4986,16 @@ dependencies = [
 
 [[package]]
 name = "rightkit-process"
-version = "0.2.1"
+version = "0.3.0"
 dependencies = [
  "nix 0.30.1",
- "process-wrap",
  "trybuild",
  "windows 0.61.1",
 ]
 
 [[package]]
 name = "rightkit-qa"
-version = "0.2.7"
+version = "0.2.8"
 dependencies = [
  "png 0.18.1",
  "rightkit-browser",
@@ -5027,7 +5015,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-qts"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "hound",
  "ort",
@@ -5057,7 +5045,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-sandbox"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "libc",
  "portable-pty",
@@ -5112,7 +5100,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-shell"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "block2",
  "objc2",
@@ -5125,8 +5113,11 @@ dependencies = [
  "serde",
  "serde_json",
  "tauri",
+ "tauri-winrt-notification",
  "tempfile",
- "webview2-com",
+ "webview2-com 0.38.2",
+ "webview2-com 0.39.1",
+ "windows 0.61.1",
  "windows 0.62.2",
 ]
 
@@ -5185,7 +5176,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-vad"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "hound",
  "ort",
@@ -5195,7 +5186,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-watch"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "notify",
  "tempfile",
@@ -6200,7 +6191,7 @@ dependencies = [
  "tray-icon",
  "url",
  "webkit2gtk",
- "webview2-com",
+ "webview2-com 0.39.1",
  "window-vibrancy",
  "windows 0.62.2",
 ]
@@ -6288,7 +6279,7 @@ dependencies = [
  "thiserror 2.0.21",
  "url",
  "webkit2gtk",
- "webview2-com",
+ "webview2-com 0.39.1",
  "windows 0.62.2",
 ]
 
@@ -6313,7 +6304,7 @@ dependencies = [
  "tauri-utils",
  "url",
  "webkit2gtk",
- "webview2-com",
+ "webview2-com 0.39.1",
  "windows 0.62.2",
  "wry",
 ]
@@ -6365,6 +6356,17 @@ dependencies = [
  "dunce",
  "embed-resource",
  "toml 1.1.2+spec-1.1.0",
+]
+
+[[package]]
+name = "tauri-winrt-notification"
+version = "0.7.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9ed071c670382e85fc2f48ae706492d8c338f4f89bf72520d32f8abfe880aade"
+dependencies = [
+ "thiserror 2.0.21",
+ "windows 0.61.1",
+ "windows-version",
 ]
 
 [[package]]
@@ -7216,12 +7218,26 @@ dependencies = [
 
 [[package]]
 name = "webview2-com"
+version = "0.38.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7130243a7a5b33c54a444e54842e6a9e133de08b5ad7b5861cd8ed9a6a5bc96a"
+dependencies = [
+ "webview2-com-macros",
+ "webview2-com-sys 0.38.2",
+ "windows 0.61.1",
+ "windows-core 0.61.2",
+ "windows-implement",
+ "windows-interface",
+]
+
+[[package]]
+name = "webview2-com"
 version = "0.39.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3f89fca7a704cee10dcb3654c1dbb8941d1783132f1917358af75bec37a7d7e6"
 dependencies = [
  "webview2-com-macros",
- "webview2-com-sys",
+ "webview2-com-sys 0.39.1",
  "windows 0.62.2",
  "windows-core 0.62.2",
 ]
@@ -7235,6 +7251,17 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.118",
+]
+
+[[package]]
+name = "webview2-com-sys"
+version = "0.38.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "381336cfffd772377d291702245447a5251a2ffa5bad679c99e61bc48bacbf9c"
+dependencies = [
+ "thiserror 2.0.21",
+ "windows 0.61.1",
+ "windows-core 0.61.2",
 ]
 
 [[package]]
@@ -7871,7 +7898,7 @@ dependencies = [
  "url",
  "webkit2gtk",
  "webkit2gtk-sys",
- "webview2-com",
+ "webview2-com 0.39.1",
  "windows 0.62.2",
  "windows-core 0.62.2",
  "windows-version",

@@ -4,7 +4,9 @@
 //! descriptors, arguments, results & transport errors.
 
 use crate::{Caller, Effect, ToolError, ToolSpec, Toolbox};
-use rightkit_mcp::{McpError, Result, ToolAnnotations, ToolDescriptor, ToolProvider, ToolResult, ServerHost};
+use rightkit_mcp::{
+    McpError, Result, ServerHost, ToolAnnotations, ToolDescriptor, ToolProvider, ToolResult,
+};
 use serde_json::Value;
 use std::sync::Arc;
 
@@ -16,7 +18,10 @@ pub struct ToolboxProvider {
 
 impl ToolboxProvider {
     pub fn new(toolbox: Arc<Toolbox>, caller: impl Into<String>) -> Self {
-        Self { toolbox, caller: Caller::new(caller) }
+        Self {
+            toolbox,
+            caller: Caller::new(caller),
+        }
     }
 
     pub fn toolbox(&self) -> &Arc<Toolbox> {
@@ -71,4 +76,3 @@ pub fn serve_stdio(toolbox: Arc<Toolbox>, caller: impl Into<String>) -> Result<(
     let provider = Arc::new(ToolboxProvider::new(toolbox, caller));
     ServerHost::new("right-ctl", env!("CARGO_PKG_VERSION"), provider).serve_stdio()
 }
-

@@ -39,12 +39,21 @@ fn fail(e: &ToolError) -> ExitCode {
 /// `k=v` pairs (value parsed as JSON when it is, else a string) or one JSON object.
 fn parse_args(rest: &[String]) -> Result<Value, ToolError> {
     if rest.len() == 1 && rest[0].trim_start().starts_with('{') {
-        return serde_json::from_str(&rest[0]).map_err(|e| ToolError::new(ERR_INVALID_ARGS, format!("bad JSON: {e}")));
+        return serde_json::from_str(&rest[0])
+            .map_err(|e| ToolError::new(ERR_INVALID_ARGS, format!("bad JSON: {e}")));
     }
     let mut m = serde_json::Map::new();
     for r in rest {
-        let (k, v) = r.split_once('=').ok_or_else(|| ToolError::new(ERR_INVALID_ARGS, format!("expected key=value or a JSON object, got `{r}`")))?;
-        m.insert(k.to_string(), serde_json::from_str(v).unwrap_or_else(|_| Value::String(v.to_string())));
+        let (k, v) = r.split_once('=').ok_or_else(|| {
+            ToolError::new(
+                ERR_INVALID_ARGS,
+                format!("expected key=value or a JSON object, got `{r}`"),
+            )
+        })?;
+        m.insert(
+            k.to_string(),
+            serde_json::from_str(v).unwrap_or_else(|_| Value::String(v.to_string())),
+        );
     }
     Ok(Value::Object(m))
 }
@@ -58,7 +67,10 @@ fn mcp_serve(tb: Arc<Toolbox>) -> ExitCode {
     match rightkit_agent_tools::mcp::serve_stdio(tb, CTL_CALLER) {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
-            eprintln!("{}", json!({"error": {"code": "mcp_error", "message": e.to_string(), "retryable": false}}));
+            eprintln!(
+                "{}",
+                json!({"error": {"code": "mcp_error", "message": e.to_string(), "retryable": false}})
+            );
             ExitCode::from(1)
         }
     }
@@ -76,7 +88,14 @@ fn full_toolbox(suite: &Suite, apps: &[String]) -> Result<Toolbox, ToolError> {
     let mut tb = control_toolbox(suite, &names)?;
     #[cfg(all(feature = "automation", any(target_os = "macos", windows)))]
     {
-        let policy = rightkit_automation::Policy::new(std::env::var("RIGHT_CTL_DESKTOP_ALLOW").unwrap_or_default().split(',').filter(|s| !s.is_empty()).map(str::to_string).collect::<Vec<_>>());
+        let policy = rightkit_automation::Policy::new(
+            std::env::var("RIGHT_CTL_DESKTOP_ALLOW")
+                .unwrap_or_default()
+                .split(',')
+                .filter(|s| !s.is_empty())
+                .map(str::to_string)
+                .collect::<Vec<_>>(),
+        );
         let auto = Arc::new(rightkit_automation::native(policy));
         tb.register_all(backends::desktop::desktop_tools(auto))?;
         tb.allow(CTL_CALLER, ["desktop.*"]);
@@ -94,7 +113,10 @@ fn main() -> ExitCode {
     let mut argv: Vec<String> = std::env::args().skip(1).collect();
     let mut suite_root: Option<String> = None;
     let mut journal: Option<String> = None;
-    while let Some(i) = argv.iter().position(|a| a == "--suite-root" || a == "--journal") {
+    while let Some(i) = argv
+        .iter()
+        .position(|a| a == "--suite-root" || a == "--journal")
+    {
         if i + 1 >= argv.len() {
             return usage();
         }
@@ -141,7 +163,12 @@ fn main() -> ExitCode {
             }
             let calls: Vec<Value> = match serde_json::from_str(&input) {
                 Ok(c) => c,
-                Err(e) => return fail(&ToolError::new(ERR_INVALID_ARGS, format!("stdin must be a JSON array of {{tool,args}}: {e}"))),
+                Err(e) => {
+                    return fail(&ToolError::new(
+                        ERR_INVALID_ARGS,
+                        format!("stdin must be a JSON array of {{tool,args}}: {e}"),
+                    ))
+                }
             };
             let apps: Vec<String> = calls
                 .iter()
@@ -160,7 +187,11 @@ fn main() -> ExitCode {
             let mut results = vec![];
             let mut code = ExitCode::SUCCESS;
             for c in &calls {
-                match tb.call(&caller, c["tool"].as_str().unwrap_or_default(), c["args"].clone()) {
+                match tb.call(
+                    &caller,
+                    c["tool"].as_str().unwrap_or_default(),
+                    c["args"].clone(),
+                ) {
                     Ok(v) => results.push(json!({"ok": true, "result": v})),
                     Err(e) => {
                         results.push(json!({"ok": false, "error": e.to_value()}));
@@ -202,12 +233,16 @@ fn main() -> ExitCode {
     let rest = &argv[2..];
 
     let (tool, args) = if app == "heardright" && verb == "transcribe" {
-        let Some(file) = rest.first() else { return usage() };
+        let Some(file) = rest.first() else {
+            return usage();
+        };
         let mut a = match parse_args(&rest[1..]) {
             Ok(a) => a,
             Err(e) => return fail(&e),
         };
-        a["path"] = json!(std::fs::canonicalize(file).map(|p| p.display().to_string()).unwrap_or_else(|_| file.clone()));
+        a["path"] = json!(std::fs::canonicalize(file)
+            .map(|p| p.display().to_string())
+            .unwrap_or_else(|_| file.clone()));
         ("speech.transcribe".to_string(), a)
     } else if backends::control::CONTROL_METHODS.contains(&verb.as_str()) && verb != "command" {
         match parse_args(rest) {
@@ -224,7 +259,10 @@ fn main() -> ExitCode {
         } else {
             (verb, rest.to_vec())
         };
-        (format!("{app}.command"), json!({"name": name, "args": args.join(" ")}))
+        (
+            format!("{app}.command"),
+            json!({"name": name, "args": args.join(" ")}),
+        )
     };
 
     match tb.call(&caller, &tool, args) {

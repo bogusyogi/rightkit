@@ -206,9 +206,9 @@ pub fn note_visible(app: &AppHandle<Wry>) {
 
 #[cfg(windows)]
 mod platform {
+    use crate::winapi::webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2_3;
+    use crate::winapi::windows::core::Interface;
     use tauri::{AppHandle, Manager, Wry};
-    use webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2_3;
-    use windows::core::Interface;
 
     use crate::ShellState;
 
@@ -233,12 +233,13 @@ mod platform {
                 unsafe {
                     if let Ok(core) = webview.controller().CoreWebView2() {
                         if let Ok(core3) = core.cast::<ICoreWebView2_3>() {
-                            let handler = webview2_com::TrySuspendCompletedHandler::create(
-                                Box::new(|error, _suspended| {
-                                    error?;
-                                    Ok(())
-                                }),
-                            );
+                            let handler =
+                                crate::winapi::webview2_com::TrySuspendCompletedHandler::create(
+                                    Box::new(|error, _suspended| {
+                                        error?;
+                                        Ok(())
+                                    }),
+                                );
                             let _ = core3.TrySuspend(&handler);
                         }
                     }

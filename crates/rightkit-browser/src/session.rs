@@ -36,6 +36,22 @@ enum ProfileGuard {
     Existing,
 }
 
+/// Remove the session's profile. A temporary profile is deleted with bounded retries:
+/// on Windows a just-terminated helper can hold a handle for a moment after its job ends.
+fn release_profile(guard: Option<ProfileGuard>) {
+    if let Some(ProfileGuard::Temp(dir)) = guard {
+        let path = dir.path().to_path_buf();
+        drop(dir);
+        let deadline = std::time::Instant::now() + Duration::from_secs(3);
+        while path.exists()
+            && std::fs::remove_dir_all(&path).is_err()
+            && std::time::Instant::now() < deadline
+        {
+            std::thread::sleep(Duration::from_millis(100));
+        }
+    }
+}
+
 fn prepare_profile(profile: &ProfileSpec) -> Result<(ProfileGuard, PathBuf, PathBuf)> {
     match profile {
         ProfileSpec::Temporary => {
@@ -484,7 +500,7 @@ impl BrowserSession {
             let grace = if hard { Duration::ZERO } else { GRACE };
             let _ = tokio::task::spawn_blocking(move || p.terminate_gracefully(grace)).await;
         }
-        drop(self.profile_guard.lock().unwrap().take());
+        release_profile(self.profile_guard.lock().unwrap().take());
         for p in self.pages.lock().unwrap().drain(..) {
             p.abort_pumps();
         }
@@ -551,7 +567,7 @@ impl Drop for BrowserSession {
             p.terminate_gracefully(GRACE);
         }
         // Chrome has exited: now the temporary profile can go.
-        drop(self.profile_guard.lock().unwrap().take());
+        release_profile(self.profile_guard.lock().unwrap().take());
         self.emit_stopped("dropped");
     }
 }

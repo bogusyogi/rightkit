@@ -12,7 +12,20 @@ use std::sync::Arc;
 use std::time::Duration;
 
 /// The control methods of the in-app server (`rightkit_control::embedded::METHODS`).
-pub const CONTROL_METHODS: &[&str] = &["health", "click", "move", "drag", "wheel", "key", "type", "eval", "dom", "ax", "screenshot", "command"];
+pub const CONTROL_METHODS: &[&str] = &[
+    "health",
+    "click",
+    "move",
+    "drag",
+    "wheel",
+    "key",
+    "type",
+    "eval",
+    "dom",
+    "ax",
+    "screenshot",
+    "command",
+];
 
 /// The `app` label this crate's clients present to services (their allowlist key).
 pub const CLIENT_APP: &str = "right-ctl";
@@ -42,21 +55,40 @@ pub struct AppProfile {
 impl AppProfile {
     /// Every control method; any app command.
     pub fn standard(app: &str) -> Self {
-        Self { app: app.into(), service: format!("control-{app}"), methods: CONTROL_METHODS.iter().map(|s| s.to_string()).collect(), commands: CommandPolicy::Any, sensitive: false }
+        Self {
+            app: app.into(),
+            service: format!("control-{app}"),
+            methods: CONTROL_METHODS.iter().map(|s| s.to_string()).collect(),
+            commands: CommandPolicy::Any,
+            sensitive: false,
+        }
     }
 
     /// An app whose own data must not leave through generic channels: `health`
     /// and an explicit command list only. Commands the hard rules forbid are
     /// dropped from the list.
     pub fn sensitive(app: &str, commands: &[&str]) -> Self {
-        let commands = commands.iter().filter(|c| exposure::forbidden(c).is_none()).map(|c| c.to_string()).collect();
-        Self { app: app.into(), service: format!("control-{app}"), methods: vec!["health".into(), "command".into()], commands: CommandPolicy::Only(commands), sensitive: true }
+        let commands = commands
+            .iter()
+            .filter(|c| exposure::forbidden(c).is_none())
+            .map(|c| c.to_string())
+            .collect();
+        Self {
+            app: app.into(),
+            service: format!("control-{app}"),
+            methods: vec!["health".into(), "command".into()],
+            commands: CommandPolicy::Only(commands),
+            sensitive: true,
+        }
     }
 
     /// The built-in profile for `app`: HeardRight is sensitive, everything else standard.
     pub fn for_app(app: &str) -> Self {
         match app {
-            "heardright" => Self::sensitive("heardright", &["health", "version", "list_models", "model_status"]),
+            "heardright" => Self::sensitive(
+                "heardright",
+                &["health", "version", "list_models", "model_status"],
+            ),
             _ => Self::standard(app),
         }
     }
@@ -78,7 +110,9 @@ impl AppProfile {
             if m == "command" {
                 match &self.commands {
                     CommandPolicy::Any => out.push(format!("{}.command:*", self.app)),
-                    CommandPolicy::Only(names) => out.extend(names.iter().map(|n| format!("{}.command:{n}", self.app))),
+                    CommandPolicy::Only(names) => {
+                        out.extend(names.iter().map(|n| format!("{}.command:{n}", self.app)))
+                    }
                 }
             } else {
                 out.push(format!("{}.{m}", self.app));
@@ -88,7 +122,8 @@ impl AppProfile {
     }
 
     fn method_enabled(&self, m: &str) -> bool {
-        self.methods.iter().any(|x| x == m) && !(self.sensitive && GENERIC_READ_METHODS.contains(&m))
+        self.methods.iter().any(|x| x == m)
+            && !(self.sensitive && GENERIC_READ_METHODS.contains(&m))
     }
 }
 
@@ -139,7 +174,11 @@ struct ControlTool {
 }
 
 fn map_err(e: ServiceError) -> ToolError {
-    ToolError { code: e.code, message: e.message, retryable: e.retryable }
+    ToolError {
+        code: e.code,
+        message: e.message,
+        retryable: e.retryable,
+    }
 }
 
 impl Tool for ControlTool {
@@ -159,7 +198,10 @@ impl Tool for ControlTool {
                 CommandPolicy::Only(l) => l.iter().any(|c| c == name),
             };
             if !allowed || exposure::forbidden(name).is_some() {
-                return Err(ToolError::new(ERR_NOT_ALLOWED, format!("command `{name}` is not exposed for {}", self.profile.app)));
+                return Err(ToolError::new(
+                    ERR_NOT_ALLOWED,
+                    format!("command `{name}` is not exposed for {}", self.profile.app),
+                ));
             }
             let a = match &args["args"] {
                 Value::Null => String::new(),
@@ -170,7 +212,13 @@ impl Tool for ControlTool {
         } else {
             args
         };
-        let client = Client::connect_with(&self.suite, &self.profile.service, CLIENT_APP, Some(Duration::from_secs(30))).map_err(map_err)?;
+        let client = Client::connect_with(
+            &self.suite,
+            &self.profile.service,
+            CLIENT_APP,
+            Some(Duration::from_secs(30)),
+        )
+        .map_err(map_err)?;
         client.call(&self.method, params).map_err(map_err)
     }
 }
@@ -183,7 +231,12 @@ pub fn control_tools(suite: &Suite, profile: &AppProfile) -> Vec<Arc<dyn Tool>> 
         .map(|m| {
             let (desc, effect, schema) = method_schema(m);
             let description = format!("{desc} (app: {})", profile.app);
-            Arc::new(ControlTool { spec: ToolSpec::new(format!("{}.{m}", profile.app), description, effect, schema), suite: suite.clone(), profile: profile.clone(), method: m.to_string() }) as Arc<dyn Tool>
+            Arc::new(ControlTool {
+                spec: ToolSpec::new(format!("{}.{m}", profile.app), description, effect, schema),
+                suite: suite.clone(),
+                profile: profile.clone(),
+                method: m.to_string(),
+            }) as Arc<dyn Tool>
         })
         .collect()
 }

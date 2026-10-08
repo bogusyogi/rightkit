@@ -167,13 +167,13 @@ mod imp {
     //! NOT compiled on this (macOS) host: verify with `rightkit cargo check -p rightkit-shell` on
     //! the Windows agent (see API.md).
     use super::*;
-    use windows::core::PCWSTR;
-    use windows::Win32::Foundation::{HANDLE, HGLOBAL, HWND};
-    use windows::Win32::System::DataExchange::*;
-    use windows::Win32::System::Memory::{
+    use crate::winapi::windows::core::PCWSTR;
+    use crate::winapi::windows::Win32::Foundation::{HANDLE, HGLOBAL, HWND};
+    use crate::winapi::windows::Win32::System::DataExchange::*;
+    use crate::winapi::windows::Win32::System::Memory::{
         GlobalAlloc, GlobalLock, GlobalSize, GlobalUnlock, GMEM_MOVEABLE,
     };
-    use windows::Win32::UI::Shell::{DragQueryFileW, HDROP};
+    use crate::winapi::windows::Win32::UI::Shell::{DragQueryFileW, HDROP};
 
     const CF_UNICODETEXT: u32 = 13;
     const CF_HDROP: u32 = 15;

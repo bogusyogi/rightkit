@@ -4,8 +4,16 @@
 //! non-negative badge, foreground attention cue, Do-Not-Disturb suppression through
 //! [`crate::presence`]). The delivery itself is a direct OS call instead of a plugin:
 //! `UNUserNotificationCenter` on macOS, which also gives the read-back used by QA
-//! ([`delivered`], [`authorization`]). Other platforms report `unsupported` until their native
-//! toast path is verified on a host of that platform; nothing is faked.
+//! ([`delivered`], [`authorization`]); a WinRT toast on Windows (the backend
+//! `tauri-plugin-notification` uses). Other platforms report `unsupported`; nothing is faked.
+//!
+//! Windows: a toast is attributed to an AppUserModelID (AUMID). An installed app owns one through
+//! its Start-menu shortcut (Tauri's NSIS/MSI installers set it to the bundle `identifier`); the
+//! shell passes `tauri.conf.json`'s `identifier` as the default and [`set_app_id`] overrides it.
+//! An unpackaged dev build has no AUMID, so toasts fall back to PowerShell's and carry its
+//! name and icon. Windows exposes neither a per-app permission prompt nor a delivered-toast
+//! read-back through this backend: [`authorization`] reports `authorized` and [`delivered`] is
+//! empty; [`clear_delivered`] is a no-op.
 //!
 //! Notification settings that apps persist (sound on/off, sound name, per-category toggles —
 //! HeardRight and MailRight keep these in their own stores) arrive on every request; the shell owns
@@ -121,6 +129,78 @@ pub fn plan(
 
 pub fn normalize_badge(count: i64) -> u32 {
     count.clamp(0, i64::from(u32::MAX)) as u32
+}
+
+static APP_ID: Mutex<Option<String>> = Mutex::new(None);
+/// Toast attribution used before an app registers its own: PowerShell's AUMID (dev builds only).
+pub const FALLBACK_APP_ID: &str =
+    r"{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}\WindowsPowerShell\v1.0\powershell.exe";
+
+/// Windows toast AppUserModelID. Call before the first notification; overrides the default the
+/// shell derives from the Tauri bundle identifier. Ignored off Windows.
+pub fn set_app_id(id: &str) {
+    *APP_ID.lock().unwrap_or_else(|e| e.into_inner()) =
+        Some(id.trim().to_owned()).filter(|s| !s.is_empty());
+}
+
+pub(crate) fn set_default_app_id(id: &str) {
+    let mut g = APP_ID.lock().unwrap_or_else(|e| e.into_inner());
+    if g.is_none() && !id.trim().is_empty() {
+        *g = Some(id.trim().to_owned());
+    }
+}
+
+/// The AUMID toasts will use (configured, else [`FALLBACK_APP_ID`]).
+pub fn app_id() -> String {
+    resolve_app_id(APP_ID.lock().unwrap_or_else(|e| e.into_inner()).as_deref())
+}
+
+pub fn resolve_app_id(configured: Option<&str>) -> String {
+    configured
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .unwrap_or(FALLBACK_APP_ID)
+        .to_owned()
+}
+
+/// Windows toast sounds by their short name; anything else (including macOS names such as
+/// `Glass`) maps to the default toast sound.
+pub fn windows_sound(name: &str) -> &'static str {
+    match name.trim().to_ascii_lowercase().as_str() {
+        "im" => "IM",
+        "mail" => "Mail",
+        "reminder" => "Reminder",
+        "sms" => "SMS",
+        _ => "Default",
+    }
+}
+
+/// Everything a Windows toast needs, built without touching the OS.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ToastPayload {
+    pub app_id: String,
+    pub title: String,
+    pub body: String,
+    /// `None` is silent.
+    pub sound: Option<&'static str>,
+}
+
+pub fn toast_payload(
+    req: &NotificationRequest,
+    plan: &NotificationPlan,
+    app_id: Option<&str>,
+    quiet: bool,
+) -> ToastPayload {
+    ToastPayload {
+        app_id: resolve_app_id(app_id),
+        title: req.title.trim().to_owned(),
+        body: req.body.trim().to_owned(),
+        sound: plan
+            .sound_name
+            .as_deref()
+            .filter(|_| !quiet)
+            .map(windows_sound),
+    }
 }
 
 /// What happened to a request.
@@ -387,7 +467,53 @@ mod platform {
     }
 }
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(windows)]
+mod platform {
+    use tauri_winrt_notification::{Sound, Toast};
+
+    use super::{DeliveredNotification, NotificationPlan, NotificationRequest};
+    use crate::error::ShellError;
+
+    pub const SUPPORTED: bool = true;
+
+    /// Windows has no per-app permission prompt; Focus Assist is the user's, not read here.
+    pub fn authorization() -> Result<String, ShellError> {
+        Ok("authorized".into())
+    }
+
+    pub fn post(
+        _: &str,
+        req: &NotificationRequest,
+        plan: &NotificationPlan,
+    ) -> Result<(), ShellError> {
+        let quiet = std::env::var_os("RIGHTKIT_QA_BACKGROUND").as_deref()
+            == Some(std::ffi::OsStr::new("1"));
+        let p = super::toast_payload(req, plan, Some(&super::app_id()), quiet);
+        let sound = p.sound.map(|n| match n {
+            "IM" => Sound::IM,
+            "Mail" => Sound::Mail,
+            "Reminder" => Sound::Reminder,
+            "SMS" => Sound::SMS,
+            _ => Sound::Default,
+        });
+        Toast::new(&p.app_id)
+            .title(&p.title)
+            .text1(&p.body)
+            .sound(sound)
+            .show()
+            .map_err(|e| ShellError::Other(format!("show toast: {e}")))
+    }
+
+    pub fn delivered() -> Result<Vec<DeliveredNotification>, ShellError> {
+        Ok(Vec::new())
+    }
+
+    pub fn clear(_: &[String]) -> Result<(), ShellError> {
+        Ok(())
+    }
+}
+
+#[cfg(not(any(target_os = "macos", windows)))]
 mod platform {
     use super::{DeliveredNotification, NotificationPlan, NotificationRequest};
     use crate::error::ShellError;
@@ -395,7 +521,7 @@ mod platform {
     pub const SUPPORTED: bool = false;
 
     fn unsupported() -> ShellError {
-        ShellError::Unsupported("native notifications are implemented for macOS; this platform's toast path is not yet verified".into())
+        ShellError::Unsupported("native notifications are implemented for macOS and Windows".into())
     }
     pub fn authorization() -> Result<String, ShellError> {
         Ok("unsupported".into())
@@ -408,5 +534,84 @@ mod platform {
     }
     pub fn clear(_: &[String]) -> Result<(), ShellError> {
         Err(unsupported())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn req(title: &str, body: &str, sound: bool, name: Option<&str>) -> NotificationRequest {
+        NotificationRequest {
+            title: title.into(),
+            body: body.into(),
+            navigate_path: None,
+            sound_enabled: sound,
+            sound_name: name.map(Into::into),
+        }
+    }
+
+    fn plan_for(r: &NotificationRequest) -> NotificationPlan {
+        plan(r, &NotificationState::new(), Instant::now())
+    }
+
+    #[test]
+    fn app_id_resolution() {
+        assert_eq!(
+            resolve_app_id(Some(" com.example.mail ")),
+            "com.example.mail"
+        );
+        assert_eq!(resolve_app_id(Some("  ")), FALLBACK_APP_ID);
+        assert_eq!(resolve_app_id(None), FALLBACK_APP_ID);
+    }
+
+    #[test]
+    fn sound_names_map_to_windows_sounds() {
+        assert_eq!(windows_sound("mail"), "Mail");
+        assert_eq!(windows_sound(" SMS "), "SMS");
+        assert_eq!(windows_sound("Glass"), "Default");
+    }
+
+    #[test]
+    fn toast_payload_is_built_from_request_and_plan() {
+        let r = req("  New mail ", " Hello ", true, Some("Mail"));
+        let p = toast_payload(&r, &plan_for(&r), Some("com.example.mail"), false);
+        assert_eq!(
+            p,
+            ToastPayload {
+                app_id: "com.example.mail".into(),
+                title: "New mail".into(),
+                body: "Hello".into(),
+                sound: Some("Mail"),
+            }
+        );
+    }
+
+    #[test]
+    fn toast_payload_is_silent_when_sound_off_throttled_or_quiet() {
+        let r = req("t", "b", false, None);
+        assert_eq!(toast_payload(&r, &plan_for(&r), None, false).sound, None);
+        let r = req("t", "b", true, None);
+        let p = plan_for(&r);
+        assert_eq!(toast_payload(&r, &p, None, false).sound, Some("Default"));
+        assert_eq!(toast_payload(&r, &p, None, true).sound, None);
+        assert_eq!(toast_payload(&r, &p, None, true).app_id, FALLBACK_APP_ID);
+    }
+
+    #[test]
+    fn empty_title_and_dnd_are_suppressed_before_the_platform() {
+        let s = NotificationState::new();
+        let out = post(&req(" ", "b", false, None), &s, false).unwrap();
+        assert_eq!(out.suppressed, Some("empty-title"));
+        let out = post(&req("t", "b", false, None), &s, true).unwrap();
+        assert_eq!(out.suppressed, Some("dnd"));
+    }
+
+    #[test]
+    fn support_flag_matches_platform() {
+        assert_eq!(
+            status(&NotificationState::new()).supported,
+            cfg!(any(target_os = "macos", windows))
+        );
     }
 }

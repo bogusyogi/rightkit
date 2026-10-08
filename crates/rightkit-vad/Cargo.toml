@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-vad"
-version = "0.0.1"
+version = "0.0.2"
 edition = "2021"
 rust-version = "1.98.0"
 publish = false
@@ -18,8 +18,8 @@ ort = { version = "=2.0.0-rc.13", default-features = false, features = ["std", "
 
 [dev-dependencies]
 hound = "3.5"
-rightkit-media = { path = "../rightkit-media", version = "=0.2.2" }
-rightkit-ort = { path = "../rightkit-ort", version = "=0.1.4" }
+rightkit-media = { path = "../rightkit-media", version = "0.2.3" }
+rightkit-ort = { path = "../rightkit-ort", version = "0.2.0" }
 
 [features]
 default = ["ort-defaults"]

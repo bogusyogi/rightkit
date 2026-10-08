@@ -11,14 +11,21 @@ pub struct JsonlJournal {
 
 impl JsonlJournal {
     pub fn new(path: impl Into<PathBuf>) -> Self {
-        Self { path: path.into(), lock: Mutex::new(()) }
+        Self {
+            path: path.into(),
+            lock: Mutex::new(()),
+        }
     }
 }
 
 impl Journal for JsonlJournal {
     fn record(&self, event: &ToolEvent) {
         let _g = self.lock.lock().unwrap_or_else(|e| e.into_inner());
-        if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(&self.path) {
+        if let Ok(mut f) = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&self.path)
+        {
             let _ = writeln!(f, "{}", event.to_value());
         }
     }

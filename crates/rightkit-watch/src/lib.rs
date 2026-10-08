@@ -11,6 +11,7 @@
 pub mod coalesce;
 pub mod subscribe;
 pub mod sync;
+pub mod typed;
 
 pub use coalesce::{ChangeBatch, ChangeCoalescer, Rename};
 pub use subscribe::{
@@ -21,3 +22,4 @@ pub use sync::{
     DirWatchSet, FileChange, FileChangeKind, FileSetWatcher, GrantCheck, DEFAULT_DEBOUNCE,
     DEFAULT_MAX_WAIT, EXPLORER_DEBOUNCE, EXPLORER_WATCH_CAP,
 };
+pub use typed::{TypedWatcher, WatchError, WatchEvent};

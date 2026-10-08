@@ -37,7 +37,10 @@ pub const FORBIDDEN_PHRASES: &[&[&str]] = &[
 ];
 
 fn tokens(name: &str) -> Vec<String> {
-    name.split(|c: char| !c.is_ascii_alphanumeric()).filter(|t| !t.is_empty()).map(|t| t.to_ascii_lowercase()).collect()
+    name.split(|c: char| !c.is_ascii_alphanumeric())
+        .filter(|t| !t.is_empty())
+        .map(|t| t.to_ascii_lowercase())
+        .collect()
 }
 
 /// `Some(reason)` when `name` (a tool name, or an app command name) is never exposed.
@@ -45,13 +48,22 @@ pub fn forbidden(name: &str) -> Option<String> {
     let toks = tokens(name);
     for t in &toks {
         if FORBIDDEN_TOKENS.contains(&t.as_str()) {
-            return Some(format!("`{t}` is never exposed to agents (no dictation, paste, pasteboard or history)"));
+            return Some(format!(
+                "`{t}` is never exposed to agents (no dictation, paste, pasteboard or history)"
+            ));
         }
     }
     for p in FORBIDDEN_PHRASES {
-        let hit = toks.windows(p.len()).any(|w| w.iter().zip(p.iter()).all(|(a, b)| a.trim_end_matches('s') == *b));
+        let hit = toks.windows(p.len()).any(|w| {
+            w.iter()
+                .zip(p.iter())
+                .all(|(a, b)| a.trim_end_matches('s') == *b)
+        });
         if hit {
-            return Some(format!("`{}` is never exposed to agents (dictation rule)", p.join("_")));
+            return Some(format!(
+                "`{}` is never exposed to agents (dictation rule)",
+                p.join("_")
+            ));
         }
     }
     None

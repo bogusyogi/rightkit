@@ -6,6 +6,7 @@ use std::ffi::OsString;
 use std::ops::Deref;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, Weak};
+use std::time::Duration;
 use zeroize::Zeroizing;
 
 mod backup;
@@ -19,10 +20,11 @@ pub use rusqlite;
 mod migrate;
 mod recover;
 
-pub use backup::{online_backup_to, BackupProgress};
+pub use backup::{online_backup_to, restore_from, BackupProgress};
 pub use migrate::{
-    add_column_if_missing, column_exists, migrate, pending_marker, rollback_to, user_version,
-    MigrateOptions, Migration, MigrationReport, PendingMarker, Step,
+    add_column_if_missing, column_exists, migrate, migration_version, pending_marker, rollback_to,
+    rollback_to_with_storage, user_version, MigrateOptions, Migration, MigrationReport,
+    PendingMarker, Step, VersionStorage,
 };
 #[cfg(feature = "sqlcipher")]
 pub use recover::rekey;
@@ -113,6 +115,9 @@ pub type ConnInit = Arc<dyn Fn(&Connection) -> rusqlite::Result<()> + Send + Syn
 #[derive(Clone)]
 pub struct DbOptions {
     pub path: PathBuf,
+    /// SQLite busy wait, installed before key verification or any bootstrap statement.
+    /// Default: five seconds.
+    pub busy_timeout: Duration,
     /// SQLCipher passphrase-style key (base64-ish charset). See also [`DbOptions::raw_key`].
     pub key: Option<Zeroizing<String>>,
     /// SQLCipher raw 256-bit key, applied as `x'<hex>'` (no KDF). Takes precedence over `key`.
@@ -139,6 +144,7 @@ impl DbOptions {
     pub fn new(path: impl Into<PathBuf>) -> Self {
         Self {
             path: path.into(),
+            busy_timeout: Duration::from_millis(BUSY_TIMEOUT_MS),
             key: None,
             raw_key: None,
             profile: CacheProfile::Default,
@@ -202,6 +208,57 @@ impl DbOptions {
         self.open(ConnectionKind::Reader)
     }
 
+    /// Open exactly `path` read-only, without creating it or running mutating bootstrap.
+    /// URI parameters are passed to SQLite unchanged. Journal fallback, permissions,
+    /// `init`, optimization, and migrations are skipped; key and timeout still apply.
+    pub fn open_read_only(&self) -> Result<Connection> {
+        self.open_existing_at(&self.path, OpenFlags::SQLITE_OPEN_READ_ONLY)
+    }
+
+    /// Open exactly `path` read-write without CREATE or mutating bootstrap.
+    /// Uses the same minimal setup as [`Self::open_read_only`].
+    pub fn open_existing_writer(&self) -> Result<Connection> {
+        self.open_existing_at(&self.path, OpenFlags::SQLITE_OPEN_READ_WRITE)
+    }
+
+    /// Open a private, ephemeral database. `path`, filesystem permissions, journal
+    /// selection/fallback, and mmap are ignored; other bootstrap options still apply.
+    pub fn open_in_memory(&self) -> Result<Connection> {
+        let key = self.key_pragma_value()?;
+        let conn = Connection::open_in_memory()?;
+        self.initialize(&conn, key.as_ref().map(|k| k.as_str()))?;
+        configure_connection(&conn, self, ConnectionKind::Memory, None)?;
+        if self.integrity_check_on_open {
+            integrity_check(&conn, self.is_keyed())?;
+        }
+        Ok(conn)
+    }
+
+    fn open_existing_at(&self, path: &Path, access: OpenFlags) -> Result<Connection> {
+        let key = self.key_pragma_value()?;
+        let conn = Connection::open_with_flags(
+            path,
+            access | OpenFlags::SQLITE_OPEN_URI | OpenFlags::SQLITE_OPEN_NO_MUTEX,
+        )?;
+        conn.busy_timeout(self.busy_timeout)?;
+        apply_key_first(&conn, key.as_ref().map(|k| k.as_str()))?;
+        verify_key(&conn)?;
+        if self.integrity_check_on_open {
+            integrity_check(&conn, self.is_keyed())?;
+        }
+        Ok(conn)
+    }
+
+    fn initialize(&self, conn: &Connection, key: Option<&str>) -> Result<()> {
+        conn.busy_timeout(self.busy_timeout)?;
+        apply_key_first(conn, key)?;
+        verify_key(conn)?;
+        if let Some(init) = &self.init {
+            init(conn)?;
+        }
+        Ok(())
+    }
+
     pub fn open_read_pool(&self, cap: usize) -> Result<ReadPool> {
         ReadPool::open(self.clone(), cap)
     }
@@ -249,11 +306,7 @@ impl DbOptions {
         if self.owner_only {
             rightkit_fs::restrict_owner_only(path)?;
         }
-        apply_key_first(&conn, key.as_ref().map(|k| k.as_str()))?;
-        verify_key(&conn)?;
-        if let Some(init) = &self.init {
-            init(&conn)?;
-        }
+        self.initialize(&conn, key.as_ref().map(|k| k.as_str()))?;
         let journal = configure_connection(&conn, self, kind, forced)?;
         if self.integrity_check_on_open {
             integrity_check(&conn, self.is_keyed())?;
@@ -284,6 +337,21 @@ impl DbOptions {
     }
 }
 
+/// Default-options read-only open; never creates a missing database.
+pub fn open_read_only(path: impl AsRef<Path>) -> Result<Connection> {
+    DbOptions::new(path.as_ref()).open_read_only()
+}
+
+/// Default-options read-write open; never creates a missing database.
+pub fn open_existing_writer(path: impl AsRef<Path>) -> Result<Connection> {
+    DbOptions::new(path.as_ref()).open_existing_writer()
+}
+
+/// Default-options private in-memory database.
+pub fn open_in_memory() -> Result<Connection> {
+    DbOptions::new(":memory:").open_in_memory()
+}
+
 fn harden_sidecars(db: &Path) -> Result<()> {
     for suffix in ["-wal", "-shm"] {
         let mut name = OsString::from(db.file_name().ok_or(DbError::InvalidDatabasePath)?);
@@ -297,6 +365,7 @@ fn harden_sidecars(db: &Path) -> Result<()> {
 enum ConnectionKind {
     Writer,
     Reader,
+    Memory,
 }
 
 /// What journal setup did.
@@ -313,8 +382,11 @@ fn configure_connection(
     kind: ConnectionKind,
     forced: Option<JournalSelect>,
 ) -> Result<Opened> {
-    conn.busy_timeout(std::time::Duration::from_millis(BUSY_TIMEOUT_MS))?;
-    let opened = configure_journal(conn, options, kind, forced)?;
+    let opened = if matches!(kind, ConnectionKind::Memory) {
+        Opened::AsRequested
+    } else {
+        configure_journal(conn, options, kind, forced)?
+    };
     let synchronous = match options.durability {
         DurabilityProfile::Full => "FULL",
         DurabilityProfile::Normal => "NORMAL",
@@ -327,7 +399,9 @@ fn configure_connection(
     }
     if options.profile == CacheProfile::LargeWorkingSet {
         conn.pragma_update(None, "cache_size", -65_536_i64)?;
-        conn.pragma_update(None, "mmap_size", 268_435_456_i64)?;
+        if !matches!(kind, ConnectionKind::Memory) {
+            conn.pragma_update(None, "mmap_size", 268_435_456_i64)?;
+        }
     }
     optimize_on_open(conn)?;
     if matches!(kind, ConnectionKind::Reader) {

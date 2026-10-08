@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-jobs"
-version = "0.2.1"
+version = "0.2.2"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Persistent job store, runner, and stdio/CLI command contract for Right Suite engines."
@@ -12,10 +12,10 @@ categories = ["asynchronous"]
 include = ["src/**", "tests/**", "README.md", "LICENSE-MIT", "LICENSE-APACHE"]
 
 [dependencies]
-rightkit-db = { version = "=0.2.1", path = "../rightkit-db" }
-rightkit-framed-sidecar = { version = "=0.1.0", path = "../rightkit-framed-sidecar" }
-rightkit-process = { version = "=0.2.1", path = "../rightkit-process" }
-rightkit-service = { version = "=0.1.0", path = "../rightkit-service" }
+rightkit-db = { version = "0.3.0", path = "../rightkit-db" }
+rightkit-framed-sidecar = { version = "0.1.0", path = "../rightkit-framed-sidecar" }
+rightkit-process = { version = "0.3.0", path = "../rightkit-process" }
+rightkit-service = { version = "0.1.0", path = "../rightkit-service" }
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.150"
 sha2 = "0.10"

@@ -6,12 +6,12 @@ business message.
 
 ## Ownership boundary
 
-- `OwnedCommand` is the only way to create an `OwnedChild`. The crate may
-  terminate that child and its descendants because it created and owns them.
+- `OwnedCommand` is the only way to create an `OwnedChild`. Ordinary spawns own
+  their tree; explicitly detached spawns leave lifetime with the caller.
 - `AdoptedProcess` can only report an existing PID and whether it is running.
   It deliberately has no terminate method. There is no public `kill_pid` API.
-- Dropping `OwnedChild` terminates and reaps its tree. A failure after OS spawn
-  but before wrapper completion also cleans up the partial child.
+- Dropping an ordinary `OwnedChild` terminates and reaps its tree. A failure
+  after OS spawn also cleans up the partial child.
 
 Windows children are created suspended, assigned to a Job Object, then
 resumed. `windows_hide()` preserves `CREATE_NO_WINDOW` through that sequence.
@@ -20,9 +20,31 @@ sibling processes survive. Unix children lead a new process group;
 `wait_or_kill` sends `SIGTERM`, waits for the bounded grace period, then sends
 `SIGKILL` to the group and reaps it.
 
-`process-wrap` is pinned exactly to `8.2.1`. Its `tracing` feature is required
-because that version's Windows Job Object implementation references the
-feature-gated tracing macro even when the caller does not emit tracing events.
+Native std children retain their group/job identity independently of direct-child
+exit. Windows resumes the suspended primary thread only after assignment decisions.
+
+## Also (0.3.0)
+
+- `OwnedChild::child()` borrows std `Child` through a lock guard, including
+  stdin/stdout/stderr and wait/try_wait; existing stream-taking APIs remain.
+- `unix_containment(UnixContainment::Session)` runs `setsid`; Windows
+  `job_assignment_mode(JobAssignmentMode::BestEffort)` retains non-fatal errors
+  in `job_assignment_failures()`. Strict assignment remains default.
+- `terminate_tree_with_options(TerminationOptions)` sends Unix TERM immediately,
+  then KILL after configurable tree-wide `grace` (zero means immediate escalation).
+  Retained group/job also works after parent exit; `windows_exit_code` accepts 1067.
+  `terminate_tree_bounded_with_options(timeout, options)` bounds grace plus reap.
+- `spawn_uncontained_detached()` skips owner containment and survives owner drop.
+  Windows requires parent-job breakaway permission and fails without fallback.
+  Unix starts a separate session and reaps asynchronously; configure stdio so EOF
+  or closed pipes do not request application shutdown.
+- `process_handle()` returns an independent `ProcessHandle` exit reader/waiter.
+  Windows implements `AsHandle` with an owned duplicate and exposes FILETIME
+  `creation_time_ticks()`; `creation_time()` reports native time on Windows/macOS,
+  spawn observation time on other Unix hosts. Unix readers share std's cached reap
+  state. Release `child()` guards before calling another accessor or reader.
+- `partial_spawn_cleanup_timeout(Duration::from_secs(5))` bounds failed-spawn
+  cleanup; default remains unbounded. Timed-out children go to a background reaper.
 
 ## Use
 

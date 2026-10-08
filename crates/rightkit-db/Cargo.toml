@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-db"
-version = "0.2.1"
+version = "0.3.0"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Correct-by-default SQLite and SQLCipher connection bootstrap for Right Suite apps."
@@ -15,10 +15,11 @@ include = ["src/**", "tests/**", "README.md", "LICENSE-MIT", "LICENSE-APACHE"]
 default = ["bundled"]
 bundled = ["rusqlite/bundled"]
 sqlcipher = ["rusqlite/bundled-sqlcipher-vendored-openssl"]
+hooks = ["rusqlite/hooks"]
 
 [dependencies]
 rusqlite = { version = "0.40.1", default-features = false, features = ["backup"] }
-rightkit-fs = { version = "=0.1.0", path = "../rightkit-fs" }
+rightkit-fs = { version = "0.1.0", path = "../rightkit-fs" }
 thiserror = "2"
 zeroize = "1.8"
 

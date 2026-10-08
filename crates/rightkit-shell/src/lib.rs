@@ -31,6 +31,7 @@ pub mod lifecycle;
 pub mod menu;
 pub mod nav;
 pub mod notify;
+pub mod open_url;
 pub mod opener;
 pub mod presence;
 pub mod recovery;
@@ -38,6 +39,16 @@ pub mod stream;
 pub mod tray;
 pub mod watchdog;
 pub mod window_state;
+/// The `windows` / `webview2-com` generation selected by `wv2-0_38` / `wv2-0_39`.
+#[cfg(windows)]
+pub(crate) mod winapi {
+    #[cfg(not(any(feature = "wv2-0_38", feature = "wv2-0_39")))]
+    compile_error!("on Windows enable `wv2-0_38` (Tauri 2.11, default) or `wv2-0_39` (Tauri 2.12)");
+    #[cfg(all(feature = "wv2-0_38", not(feature = "wv2-0_39")))]
+    pub use ::{webview2_com_038 as webview2_com, windows_061 as windows};
+    #[cfg(feature = "wv2-0_39")]
+    pub use ::{webview2_com_039 as webview2_com, windows_062 as windows};
+}
 pub mod windows;
 
 use std::collections::HashMap;
@@ -113,6 +124,9 @@ pub struct ShellState {
     pub stream_scheme: Option<String>,
 }
 
+/// Called on the first instance when a later launch forwards its argv and working directory.
+pub type SecondInstanceCallback = Arc<dyn Fn(&AppHandle<Wry>, &[String], &str) + Send + Sync>;
+
 pub struct ShellBuilder {
     app_id: String,
     app_name: String,
@@ -130,6 +144,7 @@ pub struct ShellBuilder {
     tray: Option<TraySpec>,
     watchdog: Option<WatchdogConfig>,
     on_menu: Option<MenuCallback>,
+    on_second_instance: Option<SecondInstanceCallback>,
     stream: Option<(String, StreamPolicy)>,
     recovery: Option<RecoverySpec>,
     idle_after: Option<std::time::Duration>,
@@ -165,6 +180,7 @@ impl Shell {
             tray: None,
             watchdog: Some(WatchdogConfig::default()),
             on_menu: None,
+            on_second_instance: None,
             stream: None,
             recovery: None,
             idle_after: None,
@@ -240,6 +256,17 @@ impl ShellBuilder {
         self
     }
     /// Rust-side handler for custom menu item clicks (the event is always emitted too).
+    /// Replace the default second-launch behaviour (event + reveal the main window) with `f`,
+    /// which receives the first instance's handle, the second launch's argv and its cwd, and fully
+    /// owns focus. Arbitration is unchanged. URLs on that argv still reach [`open_url`] handlers
+    /// and [`open_url::current_urls`] before `f` runs.
+    pub fn on_second_instance(
+        mut self,
+        f: impl Fn(&AppHandle<Wry>, &[String], &str) + Send + Sync + 'static,
+    ) -> Self {
+        self.on_second_instance = Some(Arc::new(f));
+        self
+    }
     pub fn on_menu(mut self, f: impl Fn(&AppHandle<Wry>, &str) + Send + Sync + 'static) -> Self {
         self.on_menu = Some(Arc::new(f));
         self
@@ -374,11 +401,20 @@ fn setup(
     let mut single = String::from("disabled");
     if cfg.single_instance {
         let for_cb = app.clone();
+        let custom = cfg.on_second_instance.clone();
         let version = app.package_info().version.to_string();
         match instance::arbitrate(
             &cfg.app_id,
             &version,
-            Arc::new(move |s| lifecycle::on_second_instance(&for_cb, &s.argv, &s.cwd)),
+            Arc::new(move |s| {
+                lifecycle::route_second_instance(
+                    &for_cb,
+                    custom.as_ref(),
+                    &s.argv,
+                    &s.cwd,
+                    lifecycle::on_second_instance,
+                )
+            }),
         ) {
             instance::Arbitration::Primary(h) => {
                 hosted = Some(h);
@@ -529,6 +565,8 @@ fn setup(
     state
         .deep
         .push_all(argv.iter().map(String::as_str), &state.schemes);
+    notify::set_default_app_id(&app.config().identifier);
+    open_url::deliver(&argv);
     Ok(())
 }
 

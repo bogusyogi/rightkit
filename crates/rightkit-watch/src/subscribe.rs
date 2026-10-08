@@ -382,6 +382,13 @@ pub struct FileWatcher {
 }
 
 impl FileWatcher {
+    /// Starts a recursive, typed event stream without requiring a Tokio runtime.
+    /// Backend creation and root registration failures are returned to the caller.
+    /// Keep the returned watcher alive; dropping it stops the backend and worker.
+    pub fn watch_typed(path: impl AsRef<Path>) -> Result<crate::TypedWatcher, crate::WatchError> {
+        crate::TypedWatcher::start(path.as_ref())
+    }
+
     /// Creates a live filesystem watcher and starts its background event loop
     /// on the current Tokio runtime.
     pub fn new() -> notify::Result<Self> {

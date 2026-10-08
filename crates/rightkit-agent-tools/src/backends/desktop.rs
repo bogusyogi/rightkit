@@ -7,7 +7,8 @@
 
 use crate::spec::*;
 use rightkit_automation::{
-    Action, ActOptions, Automation, Button, Error as AutoError, Fence, Guard, LeaseRequest, Limits, Node, Platform, RiskClass, Target, Tier,
+    ActOptions, Action, Automation, Button, Error as AutoError, Fence, Guard, LeaseRequest, Limits,
+    Node, Platform, RiskClass, Target, Tier,
 };
 use serde_json::{json, Value};
 use std::path::Path;
@@ -41,8 +42,14 @@ fn tier(s: Option<&str>) -> Result<Tier, ToolError> {
         Some("in_app") => Ok(Tier::InApp),
         // Foreground input is the explicit opt-in the engine requires; agents
         // may not request it through this interface.
-        Some("foreground") => Err(ToolError::new(ERR_NOT_ALLOWED, "foreground input is not available through agent tools")),
-        Some(o) => Err(ToolError::new(ERR_INVALID_ARGS, format!("unknown tier `{o}`"))),
+        Some("foreground") => Err(ToolError::new(
+            ERR_NOT_ALLOWED,
+            "foreground input is not available through agent tools",
+        )),
+        Some(o) => Err(ToolError::new(
+            ERR_INVALID_ARGS,
+            format!("unknown tier `{o}`"),
+        )),
     }
 }
 
@@ -66,7 +73,11 @@ fn node_json(n: &Node) -> Value {
 }
 
 fn action(a: &Value) -> Result<Action, ToolError> {
-    let s = |k: &str| a[k].as_str().map(str::to_string).ok_or_else(|| ToolError::new(ERR_INVALID_ARGS, format!("action.{k} is required")));
+    let s = |k: &str| {
+        a[k].as_str()
+            .map(str::to_string)
+            .ok_or_else(|| ToolError::new(ERR_INVALID_ARGS, format!("action.{k} is required")))
+    };
     Ok(match a["kind"].as_str().unwrap_or_default() {
         "press" => Action::Press,
         "focus" => Action::Focus,
@@ -78,12 +89,33 @@ fn action(a: &Value) -> Result<Action, ToolError> {
                 (Some(x), Some(y)) => Some((x, y)),
                 _ => None,
             },
-            button: if a["button"] == "right" { Button::Right } else { Button::Left },
+            button: if a["button"] == "right" {
+                Button::Right
+            } else {
+                Button::Left
+            },
             count: a["count"].as_u64().unwrap_or(1) as u32,
         },
-        "scroll" => Action::Scroll { dx: a["dx"].as_f64().unwrap_or(0.0), dy: a["dy"].as_f64().unwrap_or(0.0) },
-        "menu_press" => Action::MenuPress(a["path"].as_array().map(|v| v.iter().filter_map(|x| x.as_str().map(str::to_string)).collect()).unwrap_or_default()),
-        other => return Err(ToolError::new(ERR_INVALID_ARGS, format!("unknown action kind `{other}`"))),
+        "scroll" => Action::Scroll {
+            dx: a["dx"].as_f64().unwrap_or(0.0),
+            dy: a["dy"].as_f64().unwrap_or(0.0),
+        },
+        "menu_press" => Action::MenuPress(
+            a["path"]
+                .as_array()
+                .map(|v| {
+                    v.iter()
+                        .filter_map(|x| x.as_str().map(str::to_string))
+                        .collect()
+                })
+                .unwrap_or_default(),
+        ),
+        other => {
+            return Err(ToolError::new(
+                ERR_INVALID_ARGS,
+                format!("unknown action kind `{other}`"),
+            ))
+        }
     })
 }
 
@@ -103,7 +135,10 @@ impl<P: Platform> Tool for FnTool<P> {
 }
 
 fn pid(a: &Value) -> Result<i32, ToolError> {
-    a["pid"].as_i64().map(|p| p as i32).ok_or_else(|| ToolError::new(ERR_INVALID_ARGS, "`pid` is required"))
+    a["pid"]
+        .as_i64()
+        .map(|p| p as i32)
+        .ok_or_else(|| ToolError::new(ERR_INVALID_ARGS, "`pid` is required"))
 }
 
 fn target(a: &Value) -> Result<Target, ToolError> {
@@ -116,10 +151,20 @@ fn target(a: &Value) -> Result<Target, ToolError> {
 
 /// `desktop.*` tools over one automation engine (native, or the mock in tests).
 pub fn desktop_tools<P: Platform>(auto: Arc<Automation<P>>) -> Vec<Arc<dyn Tool>> {
-    let mk = |name: &str, desc: &str, effect: Effect, schema: Value, run: fn(&Automation<P>, Value) -> Result<Value, ToolError>| -> Arc<dyn Tool> {
-        Arc::new(FnTool { spec: ToolSpec::new(name, desc, effect, schema), auto: auto.clone(), run })
+    let mk = |name: &str,
+              desc: &str,
+              effect: Effect,
+              schema: Value,
+              run: fn(&Automation<P>, Value) -> Result<Value, ToolError>|
+     -> Arc<dyn Tool> {
+        Arc::new(FnTool {
+            spec: ToolSpec::new(name, desc, effect, schema),
+            auto: auto.clone(),
+            run,
+        })
     };
-    let pid_only = json!({"type": "object", "properties": {"pid": {"type": "integer"}}, "required": ["pid"]});
+    let pid_only =
+        json!({"type": "object", "properties": {"pid": {"type": "integer"}}, "required": ["pid"]});
     vec![
         mk("desktop.status", "Permissions and platform of the automation backend.", Effect::Observe, json!({"type": "object", "properties": {}}), |a, _| {
             let s = a.status();

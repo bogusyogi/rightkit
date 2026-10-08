@@ -18,7 +18,7 @@ tauri-plugin = ["dep:tauri", "dep:webview2-com", "dep:windows", "dep:rightkit-se
 
 [dependencies]
 tauri = { version = "2", optional = true }
-rightkit-service = { version = "=0.1.0", path = "../rightkit-service", optional = true }
+rightkit-service = { version = "0.1.0", path = "../rightkit-service", optional = true }
 serde_json = { version = "1.0.150", optional = true }
 
 [target.'cfg(windows)'.dependencies]

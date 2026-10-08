@@ -46,6 +46,8 @@ pub fn quit(app: &AppHandle<Wry>) {
 
 pub(crate) fn deliver_links<'a>(app: &AppHandle<Wry>, raw: impl IntoIterator<Item = &'a str>) {
     let state = app.state::<ShellState>();
+    let raw: Vec<&str> = raw.into_iter().collect();
+    crate::open_url::deliver(&raw);
     state.deep.push_all(raw, &state.schemes);
     flush_links(app);
 }
@@ -57,6 +59,25 @@ pub(crate) fn flush_links(app: &AppHandle<Wry>) {
     }
     for link in state.deep.drain() {
         let _ = app.emit(EVENT_DEEP_LINK, link);
+    }
+}
+
+/// An app's second-instance callback: (app, argv, cwd).
+pub(crate) type SecondInstanceFn<A> = std::sync::Arc<dyn Fn(&A, &[String], &str) + Send + Sync>;
+
+/// Second-launch routing: URLs reach the open-URL hub first, then the app's callback owns the
+/// rest; without one the `default` (event, deep links, reveal) runs.
+pub(crate) fn route_second_instance<A>(
+    app: &A,
+    custom: Option<&SecondInstanceFn<A>>,
+    argv: &[String],
+    cwd: &str,
+    default: impl Fn(&A, &[String], &str),
+) {
+    crate::open_url::deliver_second_instance(argv);
+    match custom {
+        Some(f) => f(app, argv, cwd),
+        None => default(app, argv, cwd),
     }
 }
 
@@ -159,4 +180,37 @@ fn shutdown(app: &AppHandle<Wry>) {
         .lock()
         .unwrap_or_else(|e| e.into_inner())
         .take();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::cell::Cell;
+    use std::sync::{Arc, Mutex};
+
+    type Calls = Arc<Mutex<Vec<(Vec<String>, String)>>>;
+
+    #[test]
+    fn default_runs_without_a_callback() {
+        let ran = Cell::new(0);
+        let argv = vec!["app".to_owned()];
+        route_second_instance(&(), None, &argv, "/w", |_, a, c| {
+            assert_eq!((a, c), (&argv[..], "/w"));
+            ran.set(ran.get() + 1);
+        });
+        assert_eq!(ran.get(), 1);
+    }
+
+    #[test]
+    fn custom_callback_gets_argv_and_cwd_and_suppresses_default() {
+        let calls: Calls = Arc::default();
+        let c = calls.clone();
+        let cb: SecondInstanceFn<()> =
+            Arc::new(move |_, a, cwd| c.lock().unwrap().push((a.to_vec(), cwd.to_owned())));
+        let argv = vec!["app".to_owned(), "--x".to_owned()];
+        route_second_instance(&(), Some(&cb), &argv, "/work", |_, _, _| {
+            panic!("default focus behaviour must not run")
+        });
+        assert_eq!(*calls.lock().unwrap(), vec![(argv, "/work".to_owned())]);
+    }
 }

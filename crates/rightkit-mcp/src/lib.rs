@@ -18,8 +18,9 @@ pub use events::{EventSink, LifecycleKind, McpEvent};
 pub use pool::{Catalog, ConnectionPool, PoolConfig, QualifiedTool, ServerEntry};
 pub use sanitize::{parse_qualified_name, sanitize_tool_name};
 pub use server::{
-    Admission, AdmissionHook, AdmissionRequest, HttpServeOptions, HttpServer, ReadOnlyPolicy,
-    ServerHost, ServerTransport, ToolProvider,
+    Admission, AdmissionHook, AdmissionRequest, BatchPolicy, HttpServeOptions, HttpServer,
+    IdPolicy, InitializedPolicy, ReadContext, ReadOnlyPolicy, RequestContext, ServerHost,
+    ServerOptions, ServerTransport, StdioInputMode, ToolProvider,
 };
 pub use trust::{fingerprint, PendingApproval, ServerSource, TrustDecision, TrustStore};
 pub use types::*;

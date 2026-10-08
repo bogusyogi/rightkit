@@ -150,12 +150,12 @@ mod macos {
 #[cfg(windows)]
 mod windows_impl {
     use super::*;
-    use webview2_com::ContextMenuRequestedEventHandler;
-    use webview2_com::Microsoft::Web::WebView2::Win32::{
+    use crate::winapi::webview2_com::ContextMenuRequestedEventHandler;
+    use crate::winapi::webview2_com::Microsoft::Web::WebView2::Win32::{
         ICoreWebView2Settings3, ICoreWebView2Settings5, ICoreWebView2Settings6, ICoreWebView2_11,
     };
-    use windows::core::Interface;
-    use windows::core::BOOL;
+    use crate::winapi::windows::core::Interface;
+    use crate::winapi::windows::core::BOOL;
 
     /// WebView2 side of the same policy. NOT compiled on this (macOS) host: compile and verify on
     /// the Windows agent with `rightkit cargo check -p rightkit-shell` (see API.md).

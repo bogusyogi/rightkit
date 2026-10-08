@@ -38,8 +38,9 @@ pub mod session;
 
 #[cfg(feature = "session")]
 pub use environment::{
-    cpu_thread_budget, init_environment, shared_pool_active, EnvironmentOptions, EnvironmentReport,
-    GlobalPool,
+    cpu_thread_budget, init_environment, init_environment_with_options, shared_pool_active,
+    EnvironmentInitOptions, EnvironmentInitReport, EnvironmentOptions, EnvironmentReport,
+    EnvironmentStatus, GlobalPool,
 };
 #[cfg(feature = "session")]
 pub use probe::{probe_providers, ProviderDiagnostic, ProviderKind};
@@ -48,12 +49,59 @@ pub use session::{BuiltSession, ExecutionProvider, SessionError, SessionOptions}
 
 use std::fmt;
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
+
+static CONFIGURED_RUNTIME: Mutex<Option<PathBuf>> = Mutex::new(None);
+
+/// Clear inherited `ORT_DYLIB_PATH` in release builds; no-op in debug builds.
+/// This keeps shell-exported development paths from steering shipped apps,
+/// consistent with the policy that inherited `ORT_DYLIB_PATH` fails closed.
+///
+/// Call at process startup, before any thread spawns, runtime binding or ORT
+/// use. Removing a process environment variable requires exclusive access to
+/// the environment; this function does not unload an already-loaded runtime.
+pub fn clear_inherited_runtime_for_release() {
+    clear_inherited_runtime_with(|| std::env::remove_var("ORT_DYLIB_PATH"));
+}
+
+// Injected removal keeps release/debug tests free of process env mutation.
+fn clear_inherited_runtime_with(remove_path: impl FnOnce()) {
+    if cfg!(not(debug_assertions)) {
+        remove_path();
+    }
+}
+
+/// Read a caller-named development override as an explicit runtime candidate.
+/// Unset or empty values return `None`; release builds always return `None`
+/// without reading the variable. Path validation remains in runtime resolution.
+pub fn developer_override_candidate(env_name: &str) -> Option<RuntimeCandidate> {
+    if cfg!(debug_assertions) {
+        nonempty_env_path(env_name)
+            .map(|path| RuntimeCandidate::new(path, CandidateSource::Explicit))
+    } else {
+        None
+    }
+}
+
+/// Return the last path successfully bound by this crate for this process,
+/// falling back to a non-empty `ORT_DYLIB_PATH` when no binding is recorded.
+/// Read-only: no resolution, file check, environment mutation or ORT loading.
+/// Missing-mode bindings are included; this is not proof of a loaded library.
+pub fn configured_runtime() -> Option<PathBuf> {
+    let recorded = CONFIGURED_RUNTIME
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .clone();
+    recorded.or_else(|| nonempty_env_path("ORT_DYLIB_PATH"))
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CandidateSource {
     Explicit,
     Bundled,
     AppData,
+    /// Caller-opted-in `<workspace>/tools/bin/<runtime filename>`.
+    LegacyDefault,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -86,6 +134,30 @@ pub struct RuntimeSelection {
     pub path: PathBuf,
     pub source: CandidateSource,
     pub diagnostics: Vec<CandidateDiagnostic>,
+}
+
+/// Binding policy; defaults retain strict file validation & conflict refusal.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct RuntimeBindingOptions {
+    /// Overwrite ORT_DYLIB_PATH, including an invalid existing value. This does
+    /// not replace a library already loaded by ort. Use before any ORT use.
+    pub force_replace: bool,
+    /// If no regular file resolves, bind the first missing candidate. Existing
+    /// directories, invalid filenames & unsafe paths remain errors.
+    pub allow_missing: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RuntimeBindingStatus {
+    Ready,
+    /// Path recorded & bound, but absent. Callers own degraded-mode messaging.
+    Missing,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RuntimeBinding {
+    pub selection: RuntimeSelection,
+    pub status: RuntimeBindingStatus,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -294,24 +366,97 @@ pub fn installed_runtime_candidate(executable: &Path, subdir: &str) -> Option<Ru
     ))
 }
 
+/// Explicit legacy candidate; never searched unless the caller supplies it.
+/// Relative roots are rejected rather than resolved against process cwd.
+pub fn legacy_runtime_candidate(workspace_root: &Path) -> Result<RuntimeCandidate, RuntimeError> {
+    if !workspace_root.is_absolute() {
+        return Err(RuntimeError::UnsafePath {
+            path: workspace_root.to_path_buf(),
+        });
+    }
+    Ok(RuntimeCandidate::new(
+        workspace_root
+            .join("tools")
+            .join("bin")
+            .join(runtime_filename()),
+        CandidateSource::LegacyDefault,
+    ))
+}
+
 /// Configure ORT only after resolving a caller-supplied, absolute regular file.
 /// Existing configuration is preserved and must canonicalize to the same file.
 pub fn configure_runtime(
     candidates: impl IntoIterator<Item = RuntimeCandidate>,
 ) -> Result<RuntimeSelection, RuntimeError> {
-    let selection = resolve_runtime(candidates)?;
-    if let Some(configured) = nonempty_env_path("ORT_DYLIB_PATH") {
+    configure_runtime_with_options(candidates, &RuntimeBindingOptions::default())
+        .map(|binding| binding.selection)
+}
+
+/// Bind explicit candidates under caller-selected policy. Available regular
+/// files win in caller order; missing mode falls back to the first absent path
+/// only when no file resolves. Missing paths retain their supplied absolute
+/// spelling because they cannot be canonicalized.
+///
+/// Call before starting worker threads or using any ORT API: this mutates a
+/// process environment variable, not ort's already-loaded library handle.
+pub fn configure_runtime_with_options(
+    candidates: impl IntoIterator<Item = RuntimeCandidate>,
+    options: &RuntimeBindingOptions,
+) -> Result<RuntimeBinding, RuntimeError> {
+    let binding = configure_runtime_with_env(
+        candidates,
+        options,
+        nonempty_env_path("ORT_DYLIB_PATH"),
+        |path| std::env::set_var("ORT_DYLIB_PATH", path),
+    )?;
+    *CONFIGURED_RUNTIME
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(binding.selection.path.clone());
+    Ok(binding)
+}
+
+// Injected environment writer avoids process-global mutation in unit tests.
+fn configure_runtime_with_env(
+    candidates: impl IntoIterator<Item = RuntimeCandidate>,
+    options: &RuntimeBindingOptions,
+    configured: Option<PathBuf>,
+    set_path: impl FnOnce(&Path),
+) -> Result<RuntimeBinding, RuntimeError> {
+    let binding = match resolve_runtime(candidates) {
+        Ok(selection) => RuntimeBinding {
+            selection,
+            status: RuntimeBindingStatus::Ready,
+        },
+        Err(RuntimeError::NotFound { diagnostics }) if options.allow_missing => {
+            let Some(missing) = diagnostics.iter().find(|candidate| !candidate.exists) else {
+                return Err(RuntimeError::NotFound { diagnostics });
+            };
+            RuntimeBinding {
+                selection: RuntimeSelection {
+                    path: missing.path.clone(),
+                    source: missing.source,
+                    diagnostics,
+                },
+                status: RuntimeBindingStatus::Missing,
+            }
+        }
+        Err(error) => return Err(error),
+    };
+    if let Some(configured) = configured.filter(|_| !options.force_replace) {
+        if options.allow_missing && configured == binding.selection.path {
+            return Ok(binding);
+        }
         let configured = canonical_if_file(&configured)?;
-        if configured != selection.path {
+        if configured != binding.selection.path {
             return Err(RuntimeError::AlreadyConfigured {
                 configured,
-                selected: selection.path,
+                selected: binding.selection.path,
             });
         }
-        return Ok(selection);
+        return Ok(binding);
     }
-    std::env::set_var("ORT_DYLIB_PATH", &selection.path);
-    Ok(selection)
+    set_path(&binding.selection.path);
+    Ok(binding)
 }
 
 fn nonempty_env_path(name: &str) -> Option<PathBuf> {
@@ -331,4 +476,211 @@ fn canonical_if_file(path: &Path) -> Result<PathBuf, RuntimeError> {
             path: path.to_path_buf(),
             message: error.to_string(),
         })
+}
+
+#[cfg(test)]
+mod binding_tests {
+    use super::*;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    #[cfg(debug_assertions)]
+    #[test]
+    fn clearing_inherited_runtime_is_noop_in_debug() {
+        clear_inherited_runtime_with(|| panic!("debug must preserve inherited runtime"));
+    }
+
+    #[cfg(not(debug_assertions))]
+    #[test]
+    fn clearing_inherited_runtime_removes_it_in_release() {
+        let mut inherited = Some(PathBuf::from("shell-exported-dev-runtime"));
+        clear_inherited_runtime_with(|| inherited = None);
+        assert_eq!(inherited, None);
+    }
+
+    struct Fixture(PathBuf);
+
+    impl Fixture {
+        fn new() -> Self {
+            static NEXT: AtomicUsize = AtomicUsize::new(0);
+            let root = std::env::temp_dir().join(format!(
+                "rightkit-ort-binding-{}-{}",
+                std::process::id(),
+                NEXT.fetch_add(1, Ordering::Relaxed)
+            ));
+            std::fs::create_dir_all(&root).unwrap();
+            Self(root.canonicalize().unwrap())
+        }
+
+        fn candidate(&self, directory: &str, exists: bool) -> RuntimeCandidate {
+            let path = self.0.join(directory).join(runtime_filename());
+            if exists {
+                std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+                std::fs::write(&path, b"not a real ORT binary").unwrap();
+            }
+            RuntimeCandidate::new(path, CandidateSource::Explicit)
+        }
+    }
+
+    impl Drop for Fixture {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    #[test]
+    fn binding_defaults_preserve_conflicts_and_require_files() {
+        let options = RuntimeBindingOptions::default();
+        assert!(!options.force_replace);
+        assert!(!options.allow_missing);
+        let fixture = Fixture::new();
+        let first = fixture.candidate("first", true);
+        let second = fixture.candidate("second", true);
+        let error = configure_runtime_with_env([second], &options, Some(first.path), |_| {
+            panic!("must not overwrite")
+        })
+        .unwrap_err();
+        assert!(matches!(error, RuntimeError::AlreadyConfigured { .. }));
+        let error = configure_runtime_with_env(
+            [fixture.candidate("missing", false)],
+            &options,
+            None,
+            |_| panic!("must not bind missing path by default"),
+        )
+        .unwrap_err();
+        assert!(matches!(error, RuntimeError::NotFound { .. }));
+    }
+
+    #[test]
+    fn forced_replacement_overwrites_existing_or_invalid_configuration() {
+        let fixture = Fixture::new();
+        let first = fixture.candidate("first", true);
+        let selected = fixture.candidate("second", true);
+        for configured in [first.path, PathBuf::from("invalid-relative-path")] {
+            let mut written = None;
+            let report = configure_runtime_with_env(
+                [selected.clone()],
+                &RuntimeBindingOptions {
+                    force_replace: true,
+                    ..Default::default()
+                },
+                Some(configured),
+                |path| written = Some(path.to_path_buf()),
+            )
+            .unwrap();
+            let expected = selected.path.canonicalize().unwrap();
+            assert_eq!(written, Some(expected.clone()));
+            assert_eq!(report.selection.path, expected);
+            assert_eq!(report.status, RuntimeBindingStatus::Ready);
+        }
+    }
+
+    #[test]
+    fn missing_mode_binds_records_and_reuses_first_absent_candidate() {
+        let fixture = Fixture::new();
+        let first = fixture.candidate("missing-first", false);
+        let second = fixture.candidate("missing-second", false);
+        let options = RuntimeBindingOptions {
+            allow_missing: true,
+            ..Default::default()
+        };
+        let mut written = None;
+        let report = configure_runtime_with_env([first.clone(), second], &options, None, |path| {
+            written = Some(path.to_path_buf())
+        })
+        .unwrap();
+        assert_eq!(report.status, RuntimeBindingStatus::Missing);
+        assert_eq!(report.selection.path, first.path);
+        assert_eq!(written, Some(first.path.clone()));
+        assert_eq!(report.selection.diagnostics.len(), 2);
+        assert!(report
+            .selection
+            .diagnostics
+            .iter()
+            .all(|d| !d.exists && !d.is_file));
+        let repeated =
+            configure_runtime_with_env([first.clone()], &options, Some(first.path), |_| {
+                panic!("matching binding must be preserved")
+            })
+            .unwrap();
+        assert_eq!(repeated.status, RuntimeBindingStatus::Missing);
+    }
+
+    #[test]
+    fn missing_mode_prefers_available_files_and_never_binds_directories() {
+        let fixture = Fixture::new();
+        let available = fixture.candidate("available", true);
+        let options = RuntimeBindingOptions {
+            allow_missing: true,
+            ..Default::default()
+        };
+        let report = configure_runtime_with_env(
+            [fixture.candidate("absent", false), available.clone()],
+            &options,
+            None,
+            |_| {},
+        )
+        .unwrap();
+        assert_eq!(report.status, RuntimeBindingStatus::Ready);
+        assert_eq!(
+            report.selection.path,
+            available.path.canonicalize().unwrap()
+        );
+        let directory = fixture.candidate("directory", false);
+        std::fs::create_dir_all(&directory.path).unwrap();
+        let error = configure_runtime_with_env([directory], &options, None, |_| {
+            panic!("directory must not be bound")
+        })
+        .unwrap_err();
+        assert!(matches!(error, RuntimeError::NotFound { .. }));
+    }
+
+    #[test]
+    fn forced_missing_binding_overwrites_existing_configuration() {
+        let fixture = Fixture::new();
+        let previous = fixture.candidate("previous", true);
+        let missing = fixture.candidate("missing", false);
+        let mut written = None;
+        let report = configure_runtime_with_env(
+            [missing.clone()],
+            &RuntimeBindingOptions {
+                force_replace: true,
+                allow_missing: true,
+            },
+            Some(previous.path),
+            |path| written = Some(path.to_path_buf()),
+        )
+        .unwrap();
+        assert_eq!(report.status, RuntimeBindingStatus::Missing);
+        assert_eq!(written, Some(missing.path));
+    }
+
+    #[test]
+    fn permissive_options_still_reject_unsafe_paths_and_system_runtime() {
+        let fixture = Fixture::new();
+        let options = RuntimeBindingOptions {
+            force_replace: true,
+            allow_missing: true,
+        };
+        for (candidate, expected) in [
+            (
+                RuntimeCandidate::new(runtime_filename(), CandidateSource::Explicit),
+                "relative",
+            ),
+            (
+                RuntimeCandidate::new(fixture.0.join("wrong.bin"), CandidateSource::Explicit),
+                "filename",
+            ),
+            (fixture.candidate("System32", false), "system"),
+        ] {
+            let error = configure_runtime_with_env([candidate], &options, None, |_| {
+                panic!("unsafe candidate must not be bound")
+            })
+            .unwrap_err();
+            assert!(match expected {
+                "relative" => matches!(error, RuntimeError::UnsafePath { .. }),
+                "filename" => matches!(error, RuntimeError::UnexpectedFilename { .. }),
+                _ => matches!(error, RuntimeError::SystemRuntimeRejected { .. }),
+            });
+        }
+    }
 }

@@ -54,6 +54,28 @@ pub struct ChangeCoalescer {
 }
 
 impl ChangeCoalescer {
+    /// Absorb a typed event without constructing backend events. Gaps return an
+    /// error: the caller must reconcile its snapshot before trusting this batch.
+    /// No pending changes are cleared when an error is returned.
+    pub fn push_watch_event(&mut self, event: &crate::WatchEvent) -> Result<(), crate::WatchError> {
+        use crate::WatchEvent;
+        let mut touch = |path: &PathBuf, first| {
+            self.touched.entry(path.clone()).or_insert(Touch { first });
+        };
+        match event {
+            WatchEvent::Create(path) => touch(path, First::Created),
+            WatchEvent::Modify(path) | WatchEvent::Delete(path) => touch(path, First::Other),
+            WatchEvent::Rename { from, to } => {
+                touch(from, First::Other);
+                touch(to, First::Other);
+                self.push_rename(from.clone(), to.clone());
+            }
+            WatchEvent::Error(error) => return Err(error.clone()),
+            WatchEvent::Overflow => return Err(crate::WatchError::Overflow),
+        }
+        Ok(())
+    }
+
     pub fn new() -> Self {
         Self::default()
     }
@@ -130,4 +152,91 @@ impl ChangeCoalescer {
 
 fn exists(path: &Path) -> bool {
     path.symlink_metadata().is_ok()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{WatchError, WatchEvent};
+
+    #[test]
+    fn typed_adapter_feeds_all_kinds_and_collapses_rename_chain() {
+        let mut coalescer = ChangeCoalescer::new();
+        for event in [
+            WatchEvent::Create("new".into()),
+            WatchEvent::Modify("new".into()),
+            WatchEvent::Modify("changed".into()),
+            WatchEvent::Delete("gone".into()),
+            WatchEvent::Rename {
+                from: "a".into(),
+                to: "b".into(),
+            },
+            WatchEvent::Rename {
+                from: "b".into(),
+                to: "c".into(),
+            },
+        ] {
+            coalescer.push_watch_event(&event).unwrap();
+        }
+        assert_eq!(coalescer.touched.len(), 6);
+        assert!(coalescer.touched[Path::new("new")].first == First::Created);
+        for path in ["changed", "gone", "a", "b", "c"] {
+            assert!(coalescer.touched[Path::new(path)].first == First::Other);
+        }
+        assert_eq!(
+            coalescer.renames,
+            vec![(PathBuf::from("a"), PathBuf::from("c"))]
+        );
+    }
+
+    #[test]
+    fn typed_adapter_returns_gaps_without_losing_pending_changes() {
+        let mut coalescer = ChangeCoalescer::new();
+        coalescer
+            .push_watch_event(&WatchEvent::Create("pending".into()))
+            .unwrap();
+        let error = WatchError::Backend {
+            message: "unavailable".into(),
+            paths: vec!["root".into()],
+        };
+        assert_eq!(
+            coalescer.push_watch_event(&WatchEvent::Error(error.clone())),
+            Err(error)
+        );
+        assert_eq!(
+            coalescer.push_watch_event(&WatchEvent::Overflow),
+            Err(WatchError::Overflow)
+        );
+        assert_eq!(coalescer.touched.len(), 1);
+        assert!(coalescer.touched.contains_key(Path::new("pending")));
+    }
+
+    #[test]
+    fn typed_adapter_drain_reports_net_state_without_backend_events() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().canonicalize().unwrap();
+        let from = root.join("from");
+        let to = root.join("to");
+        let new = root.join("new");
+        let temporary = root.join("temporary");
+        std::fs::write(&to, "renamed payload").unwrap();
+        std::fs::write(&new, "new payload").unwrap();
+        let mut coalescer = ChangeCoalescer::new();
+        for event in [
+            WatchEvent::Rename {
+                from: from.clone(),
+                to: to.clone(),
+            },
+            WatchEvent::Create(new.clone()),
+            WatchEvent::Create(temporary.clone()),
+            WatchEvent::Delete(temporary),
+        ] {
+            coalescer.push_watch_event(&event).unwrap();
+        }
+        let batch = coalescer.drain();
+        assert_eq!(batch.changed, vec![new, to.clone()]);
+        assert_eq!(batch.removed, vec![from.clone()]);
+        assert_eq!(batch.renamed, vec![Rename { from, to }]);
+        assert!(coalescer.is_empty());
+    }
 }

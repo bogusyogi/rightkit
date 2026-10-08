@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-ort"
-version = "0.1.4"
+version = "0.2.0"
 edition = "2021"
 rust-version = "1.98.0"
 license = "MIT OR Apache-2.0"
@@ -41,4 +41,4 @@ windows-sys = { version = "0.61.2", features = ["Win32_System_SystemInformation"
 
 [dev-dependencies]
 # E2E checks the real runtime file against the approved native-library catalog.
-rightkit-media = { path = "../rightkit-media", version = "=0.2.2" }
+rightkit-media = { path = "../rightkit-media", version = "0.2.3" }

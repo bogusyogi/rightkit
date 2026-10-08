@@ -18,17 +18,59 @@ pub trait ToolProvider: Send + Sync {
     fn list(&self) -> Vec<ToolDescriptor>;
     /// Unknown tool => `Err(McpError::ToolNotFound)`. `Ok(ToolResult::error(..))` is a tool-level failure.
     fn call(&self, name: &str, args: Value) -> Result<ToolResult>;
+    /// Complete tools/list payload; preserves custom metadata & pagination.
+    fn list_tools(&self, _request: &Value, _context: &RequestContext) -> Result<Value> {
+        Ok(json!({"tools": self.list()}))
+    }
+    /// Optional verbatim tools/call payload, invoked only after admission.
+    /// Receives original params, including missing/null arguments. With an admission
+    /// hook, calls must have a string name; without one, raw calls may omit the name.
+    fn call_tool(&self, _request: &Value, _context: &RequestContext) -> Option<Result<Value>> {
+        None
+    }
     fn resources(&self) -> Vec<ResourceDescriptor> {
         vec![]
+    }
+    fn list_resources(&self, _request: &Value, _context: &RequestContext) -> Result<Value> {
+        Ok(json!({"resources": self.resources()}))
+    }
+    /// None keeps the legacy method-not-found response; Some opts in.
+    fn list_resource_templates(
+        &self,
+        _request: &Value,
+        _context: &RequestContext,
+    ) -> Option<Result<Value>> {
+        None
     }
     fn read_resource(&self, uri: &str) -> Result<ResourceContents> {
         Err(McpError::ToolNotFound(uri.into()))
     }
+    /// Complete resources/read payload. Grants are caller claims, not authorization.
+    fn read_resource_with_context(&self, uri: &str, _context: &ReadContext<'_>) -> Result<Value> {
+        self.read_resource(uri).map(|c| json!({"contents": [c]}))
+    }
     fn prompts(&self) -> Vec<PromptDescriptor> {
         vec![]
     }
+    /// Complete prompts/list payload, including application-specific metadata.
+    fn list_prompts(&self, _request: &Value, _context: &RequestContext) -> Result<Value> {
+        Ok(json!({"prompts": self.prompts()}))
+    }
     fn get_prompt(&self, name: &str, _args: Value) -> Result<Vec<PromptMessage>> {
         Err(McpError::ToolNotFound(name.into()))
+    }
+    /// Complete prompts/get payload, including metadata or application-level errors.
+    fn get_prompt_payload(&self, request: &Value, _context: &RequestContext) -> Result<Value> {
+        let name = request
+            .pointer("/params/name")
+            .and_then(Value::as_str)
+            .unwrap_or("");
+        let args = request
+            .pointer("/params/arguments")
+            .cloned()
+            .unwrap_or(Value::Null);
+        self.get_prompt(name, args)
+            .map(|m| json!({"messages": m.iter().map(PromptMessage::to_value).collect::<Vec<_>>()}))
     }
 }
 
@@ -36,6 +78,81 @@ pub trait ToolProvider: Send + Sync {
 pub enum ServerTransport {
     Stdio,
     Http { peer: SocketAddr },
+}
+
+/// Host-supplied context for raw dispatch & request-aware handlers.
+/// Transport serving fills transport/session; metadata defaults to null.
+#[derive(Debug, Clone, PartialEq)]
+pub struct RequestContext {
+    pub transport: ServerTransport,
+    pub session: Option<String>,
+    pub metadata: Value,
+}
+
+impl Default for RequestContext {
+    fn default() -> Self {
+        Self {
+            transport: ServerTransport::Stdio,
+            session: None,
+            metadata: Value::Null,
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct ReadContext<'a> {
+    pub request: &'a Value,
+    pub context: &'a RequestContext,
+    /// String entries from params.accessGrants, in order; nonstrings are ignored.
+    pub access_grants: Vec<&'a str>,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum IdPolicy {
+    /// Missing/null ids are notifications & never invoke handlers.
+    #[default]
+    Notifications,
+    /// Missing/null ids invoke handlers & receive a response with id:null (Membrane).
+    NullResponse,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum InitializedPolicy {
+    /// Treat notifications/initialized like any unknown method.
+    #[default]
+    Dispatch,
+    /// Always ignore notifications/initialized, even with an id (Membrane).
+    Ignore,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum BatchPolicy {
+    #[default]
+    Process,
+    /// One -32600 Invalid Request response with id:null, without invoking handlers.
+    Reject,
+    /// No response & no handler calls (Membrane).
+    Ignore,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum StdioInputMode {
+    #[default]
+    ParseErrorReply,
+    /// Malformed JSON ends serving with io::ErrorKind::InvalidData (Membrane).
+    FailFast,
+}
+
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct ServerOptions {
+    pub id_policy: IdPolicy,
+    pub initialized_policy: InitializedPolicy,
+    pub batch_policy: BatchPolicy,
+    /// None preserves "method not found: {method}"; Membrane uses "Method not found".
+    pub method_not_found_message: Option<String>,
+    /// Verbatim initialize result; None preserves negotiation & generated capabilities.
+    pub initialize_result: Option<Value>,
+    pub stdio_input_mode: StdioInputMode,
 }
 
 pub struct AdmissionRequest<'a> {
@@ -101,6 +218,7 @@ struct Inner {
     provider: Arc<dyn ToolProvider>,
     admission: Option<Arc<dyn AdmissionHook>>,
     events: Option<EventSink>,
+    options: ServerOptions,
 }
 
 #[derive(Clone)]
@@ -109,8 +227,7 @@ pub struct ServerHost {
 }
 
 struct Ctx {
-    transport: ServerTransport,
-    session: Option<String>,
+    request: RequestContext,
     /// Local id of this serving run (`mcps-N`), used for lifecycle events.
     run: String,
 }
@@ -135,6 +252,7 @@ impl ServerHost {
                 provider,
                 admission: None,
                 events: None,
+                options: ServerOptions::default(),
             }),
         }
     }
@@ -148,6 +266,7 @@ impl ServerHost {
             provider: i.provider.clone(),
             admission: i.admission.clone(),
             events: i.events.clone(),
+            options: i.options.clone(),
         };
         f(&mut n);
         ServerHost { inner: Arc::new(n) }
@@ -155,6 +274,29 @@ impl ServerHost {
 
     pub fn with_admission(self, hook: Arc<dyn AdmissionHook>) -> Self {
         self.rebuild(|i| i.admission = Some(hook))
+    }
+
+    pub fn with_options(self, options: ServerOptions) -> Self {
+        self.rebuild(|i| i.options = options)
+    }
+
+    /// Dispatch a parsed frame without transport I/O or HTTP session issuance.
+    pub fn dispatch(&self, request: &Value) -> Option<Value> {
+        self.dispatch_with_context(request, &RequestContext::default())
+    }
+
+    pub fn dispatch_with_context(
+        &self,
+        request: &Value,
+        context: &RequestContext,
+    ) -> Option<Value> {
+        self.dispatch_frame(
+            request,
+            &Ctx {
+                request: context.clone(),
+                run: next_id("mcps"),
+            },
+        )
     }
 
     /// Receives start/stop/crash (serving runs) and denied (admission, HTTP gates) events.
@@ -194,9 +336,29 @@ impl ServerHost {
     }
 
     pub fn serve_stdio_on(&self, reader: impl BufRead, writer: impl Write) -> Result<()> {
+        self.serve_stdio_on_io(reader, writer).map_err(|e| {
+            if self.inner.options.stdio_input_mode == StdioInputMode::FailFast {
+                McpError::IoError(Arc::new(e))
+            } else {
+                e.into()
+            }
+        })
+    }
+
+    /// Like serve_stdio, returning original I/O errors without string conversion.
+    pub fn serve_stdio_io(&self) -> std::io::Result<()> {
+        let stdin = std::io::stdin();
+        self.serve_stdio_on_io(stdin.lock(), std::io::stdout())
+    }
+
+    /// Honors stdio_input_mode; read/write/flush errors are returned unchanged.
+    pub fn serve_stdio_on_io(
+        &self,
+        reader: impl BufRead,
+        writer: impl Write,
+    ) -> std::io::Result<()> {
         let ctx = Ctx {
-            transport: ServerTransport::Stdio,
-            session: None,
+            request: RequestContext::default(),
             run: next_id("mcps"),
         };
         self.emit(
@@ -216,7 +378,7 @@ impl ServerHost {
                     LifecycleKind::Crash,
                     &ctx.run,
                     "stdio",
-                    format!("serving failed: {e}"),
+                    format!("serving failed: io error: {e}"),
                     None,
                 );
                 Err(e)
@@ -224,14 +386,22 @@ impl ServerHost {
         }
     }
 
-    fn stdio_loop(&self, reader: impl BufRead, mut writer: impl Write, ctx: &Ctx) -> Result<()> {
+    fn stdio_loop(
+        &self,
+        reader: impl BufRead,
+        mut writer: impl Write,
+        ctx: &Ctx,
+    ) -> std::io::Result<()> {
         for line in reader.lines() {
             let line = line?;
             if line.trim().is_empty() {
                 continue;
             }
             let reply = match serde_json::from_str::<Value>(&line) {
-                Ok(msg) => self.handle_any(msg, ctx).0,
+                Ok(msg) => self.dispatch_frame(&msg, ctx),
+                Err(e) if self.inner.options.stdio_input_mode == StdioInputMode::FailFast => {
+                    return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, e));
+                }
                 Err(e) => Some(rpc_error(&Value::Null, -32700, format!("parse error: {e}"))),
             };
             if let Some(r) = reply {
@@ -244,22 +414,8 @@ impl ServerHost {
 
     /// Returns (reply, issued-session-id-if-initialize).
     fn handle_any(&self, msg: Value, ctx: &Ctx) -> (Option<Value>, Option<String>) {
-        if let Value::Array(items) = msg {
-            let replies: Vec<Value> = items
-                .into_iter()
-                .filter_map(|m| self.handle_one(&m, ctx))
-                .collect();
-            return (
-                if replies.is_empty() {
-                    None
-                } else {
-                    Some(Value::Array(replies))
-                },
-                None,
-            );
-        }
         let is_init = msg.get("method").and_then(Value::as_str) == Some("initialize");
-        let reply = self.handle_one(&msg, ctx);
+        let reply = self.dispatch_frame(&msg, ctx);
         let sid = if is_init && reply.as_ref().is_some_and(|r| r.get("result").is_some()) {
             Some(random_hex(16))
         } else {
@@ -268,51 +424,109 @@ impl ServerHost {
         (reply, sid)
     }
 
+    fn dispatch_frame(&self, msg: &Value, ctx: &Ctx) -> Option<Value> {
+        if let Value::Array(items) = msg {
+            return match self.inner.options.batch_policy {
+                BatchPolicy::Process => {
+                    let replies: Vec<Value> = items
+                        .iter()
+                        .filter_map(|m| self.handle_one(m, ctx))
+                        .collect();
+                    if replies.is_empty() {
+                        None
+                    } else {
+                        Some(Value::Array(replies))
+                    }
+                }
+                BatchPolicy::Reject => Some(rpc_error(&Value::Null, -32600, "Invalid Request")),
+                BatchPolicy::Ignore => None,
+            };
+        }
+        self.handle_one(msg, ctx)
+    }
+
+    fn method_not_found(&self, id: &Value, method: &str) -> Value {
+        rpc_error(
+            id,
+            -32601,
+            self.inner
+                .options
+                .method_not_found_message
+                .clone()
+                .unwrap_or_else(|| format!("method not found: {method}")),
+        )
+    }
+
     fn handle_one(&self, msg: &Value, ctx: &Ctx) -> Option<Value> {
         let method = msg.get("method").and_then(Value::as_str)?;
+        if method == "notifications/initialized"
+            && self.inner.options.initialized_policy == InitializedPolicy::Ignore
+        {
+            return None;
+        }
         let id = match msg.get("id") {
             Some(id) if !id.is_null() => id.clone(),
+            _ if self.inner.options.id_policy == IdPolicy::NullResponse => Value::Null,
             _ => return None, // notification
         };
         let params = msg.get("params").cloned().unwrap_or(Value::Null);
         let out = match method {
             "initialize" => Ok(self.initialize(&params)),
             "ping" => Ok(json!({})),
-            "tools/list" => Ok(self.tools_list()),
-            "tools/call" => self.tools_call(&params, ctx),
-            "resources/list" => Ok(json!({"resources": self.inner.provider.resources()})),
+            "tools/list" => self.tools_list(msg, ctx),
+            "tools/call" => self.tools_call(msg, &params, ctx),
+            "resources/list" => self.inner.provider.list_resources(msg, &ctx.request),
+            "resources/templates/list" => {
+                match self
+                    .inner
+                    .provider
+                    .list_resource_templates(msg, &ctx.request)
+                {
+                    Some(result) => result,
+                    None => return Some(self.method_not_found(&id, method)),
+                }
+            }
             "resources/read" => {
                 let uri = params.get("uri").and_then(Value::as_str).unwrap_or("");
-                self.inner
-                    .provider
-                    .read_resource(uri)
-                    .map(|c| json!({"contents": [c]}))
+                let access_grants = params
+                    .get("accessGrants")
+                    .and_then(Value::as_array)
+                    .map(|entries| entries.iter().filter_map(Value::as_str).collect())
+                    .unwrap_or_default();
+                self.inner.provider.read_resource_with_context(
+                    uri,
+                    &ReadContext {
+                        request: msg,
+                        context: &ctx.request,
+                        access_grants,
+                    },
+                )
             }
-            "prompts/list" => Ok(json!({"prompts": self.inner.provider.prompts()})),
-            "prompts/get" => {
-                let name = params.get("name").and_then(Value::as_str).unwrap_or("");
-                let args = params.get("arguments").cloned().unwrap_or(Value::Null);
-                self.inner.provider.get_prompt(name, args).map(|m| {
-                    json!({"messages": m.iter().map(PromptMessage::to_value).collect::<Vec<_>>()})
-                })
-            }
-            _ => {
-                return Some(rpc_error(
-                    &id,
-                    -32601,
-                    format!("method not found: {method}"),
-                ))
-            }
+            "prompts/list" => self.inner.provider.list_prompts(msg, &ctx.request),
+            "prompts/get" => self.inner.provider.get_prompt_payload(msg, &ctx.request),
+            _ => return Some(self.method_not_found(&id, method)),
         };
         Some(match out {
             Ok(result) => json!({"jsonrpc": "2.0", "id": id, "result": result}),
             Err(McpError::ToolNotFound(n)) => rpc_error(&id, -32602, format!("unknown: {n}")),
             Err(McpError::Rpc { code, message }) => rpc_error(&id, code, message),
+            Err(McpError::RpcWithData {
+                code,
+                message,
+                data,
+            }) => {
+                let mut reply = rpc_error(&id, code, message);
+                reply["error"]["data"] = data;
+                reply
+            }
             Err(e) => rpc_error(&id, -32603, e.to_string()),
         })
     }
 
     fn initialize(&self, params: &Value) -> Value {
+        if let Some(result) = &self.inner.options.initialize_result {
+            return result.clone();
+        }
         let requested = params
             .get("protocolVersion")
             .and_then(Value::as_str)
@@ -341,25 +555,33 @@ impl ServerHost {
         r
     }
 
-    fn tools_list(&self) -> Value {
-        let tools: Vec<ToolDescriptor> = self
-            .inner
-            .provider
-            .list()
-            .into_iter()
-            .filter(|t| self.inner.admission.as_ref().is_none_or(|a| a.expose(t)))
-            .collect();
-        json!({"tools": tools})
+    fn tools_list(&self, request: &Value, ctx: &Ctx) -> Result<Value> {
+        let mut payload = self.inner.provider.list_tools(request, &ctx.request)?;
+        if let Some(hook) = &self.inner.admission {
+            if let Some(tools) = payload.get_mut("tools").and_then(Value::as_array_mut) {
+                // Deserialize only for policy inspection; retain every raw field on output.
+                tools.retain(|tool| {
+                    serde_json::from_value::<ToolDescriptor>(tool.clone())
+                        .is_ok_and(|descriptor| hook.expose(&descriptor))
+                });
+            }
+        }
+        Ok(payload)
     }
 
-    fn tools_call(&self, params: &Value, ctx: &Ctx) -> Result<Value> {
-        let name = params
-            .get("name")
-            .and_then(Value::as_str)
-            .ok_or_else(|| McpError::Rpc {
+    fn tools_call(&self, request: &Value, params: &Value, ctx: &Ctx) -> Result<Value> {
+        if params.get("name").and_then(Value::as_str).is_none() {
+            if self.inner.admission.is_none() {
+                if let Some(result) = self.inner.provider.call_tool(request, &ctx.request) {
+                    return result;
+                }
+            }
+            return Err(McpError::Rpc {
                 code: -32602,
                 message: "missing tool name".into(),
-            })?;
+            });
+        }
+        let name = params.get("name").and_then(Value::as_str).unwrap_or("");
         let args = params
             .get("arguments")
             .cloned()
@@ -379,12 +601,12 @@ impl ServerHost {
                     tool: name,
                     args: &args,
                     descriptor: descriptor.as_ref(),
-                    transport: ctx.transport,
-                    session: ctx.session.as_deref(),
+                    transport: ctx.request.transport,
+                    session: ctx.request.session.as_deref(),
                 })
             };
             if let Admission::Deny(reason) = verdict {
-                let transport = match ctx.transport {
+                let transport = match ctx.request.transport {
                     ServerTransport::Stdio => "stdio",
                     ServerTransport::Http { .. } => "http",
                 };
@@ -399,6 +621,9 @@ impl ServerHost {
                 r.structured = Some(json!({"denied": true, "reason": reason}));
                 return Ok(r.to_value());
             }
+        }
+        if let Some(result) = self.inner.provider.call_tool(request, &ctx.request) {
+            return result;
         }
         if descriptor.is_none() {
             return Err(McpError::ToolNotFound(name.into()));
@@ -687,8 +912,11 @@ fn handle_http(
         }
     };
     let ctx = Ctx {
-        transport: ServerTransport::Http { peer },
-        session,
+        request: RequestContext {
+            transport: ServerTransport::Http { peer },
+            session,
+            metadata: Value::Null,
+        },
         run: run.to_string(),
     };
     let (reply, new_sid) = host.handle_any(msg, &ctx);

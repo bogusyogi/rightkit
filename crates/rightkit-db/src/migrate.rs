@@ -3,7 +3,7 @@
 //! The library owns the *mechanism*; apps own the schemas. Rules, taken from the strongest
 //! donors (CodeRight `storage::migrations`, MailRight `db::migrations`, WorkRight `local-store`):
 //!
-//! - versions are contiguous from 1 and tracked in `PRAGMA user_version`;
+//! - versions are contiguous from 1 and default to `PRAGMA user_version`;
 //! - each step runs in its own `BEGIN IMMEDIATE` transaction together with its version bump, so
 //!   a failing step rolls back to the last good version;
 //! - before the first pending step on a non-empty database an online backup is taken to
@@ -14,7 +14,7 @@
 //! - rollback replays `down` steps and refuses when any step in the range lacks one.
 
 use crate::{DbError, DbOptions, Result};
-use rusqlite::Connection;
+use rusqlite::{Connection, OptionalExtension};
 use std::path::{Path, PathBuf};
 
 pub enum Step {
@@ -60,8 +60,21 @@ impl Migration {
     }
 }
 
+/// Where migration versions are stored. Table storage uses Blueprint-compatible
+/// `key TEXT PRIMARY KEY, value TEXT NOT NULL` rows, leaving `user_version` untouched.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub enum VersionStorage {
+    #[default]
+    UserVersion,
+    /// Table names must contain only ASCII letters, digits, or underscores.
+    /// Keys are bound parameters and may contain arbitrary text.
+    Table { table: String, key: String },
+}
+
 #[derive(Clone)]
 pub struct MigrateOptions {
+    /// Version location shared by reads and transactional migration writes.
+    pub version_storage: VersionStorage,
     /// Take a pre-migration backup when migrating an existing (version > 0) on-disk database.
     pub backup: bool,
     /// Key source for the backup (SQLCipher); `DbOptions::open_writer_migrated` fills this in.
@@ -76,6 +89,7 @@ pub struct MigrateOptions {
 impl Default for MigrateOptions {
     fn default() -> Self {
         Self {
+            version_storage: VersionStorage::default(),
             backup: true,
             backup_options: None,
             forward_compatible: None,
@@ -110,6 +124,58 @@ pub fn user_version(conn: &Connection) -> Result<i64> {
 fn set_user_version(conn: &Connection, version: i64) -> rusqlite::Result<()> {
     // `user_version` cannot be bound as a parameter; the value is an i64, never text.
     conn.execute_batch(&format!("PRAGMA user_version = {version};"))
+}
+
+/// Read the selected migration version without creating a table or row.
+/// Missing table/key means zero; malformed or negative versions are refused.
+pub fn migration_version(conn: &Connection, storage: &VersionStorage) -> Result<i64> {
+    let VersionStorage::Table { table, key } = storage else {
+        return user_version(conn);
+    };
+    check_ident(table)?;
+    let exists: bool = conn.query_row(
+        "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name=?1 COLLATE NOCASE)",
+        [table],
+        |row| row.get(0),
+    )?;
+    if !exists {
+        return Ok(0);
+    }
+    let value: Option<String> = conn
+        .query_row(
+            &format!("SELECT CAST(\"value\" AS TEXT) FROM \"{table}\" WHERE \"key\"=?1"),
+            [key],
+            |row| row.get(0),
+        )
+        .optional()?;
+    match value {
+        None => Ok(0),
+        Some(value) => value
+            .parse::<i64>()
+            .ok()
+            .filter(|version| *version >= 0)
+            .ok_or_else(|| DbError::InvalidMigrations(format!("invalid stored version {value:?}"))),
+    }
+}
+
+// Called only inside the migration/down transaction, after identifier validation.
+fn set_version(conn: &Connection, storage: &VersionStorage, version: i64) -> rusqlite::Result<()> {
+    match storage {
+        VersionStorage::UserVersion => set_user_version(conn, version),
+        VersionStorage::Table { table, key } => {
+            conn.execute_batch(&format!(
+                "CREATE TABLE IF NOT EXISTS \"{table}\" (\"key\" TEXT PRIMARY KEY, \"value\" TEXT NOT NULL);"
+            ))?;
+            conn.execute(
+                &format!(
+                    "INSERT INTO \"{table}\"(\"key\",\"value\") VALUES(?1,?2) \
+                     ON CONFLICT(\"key\") DO UPDATE SET \"value\"=excluded.\"value\""
+                ),
+                rusqlite::params![key, version.to_string()],
+            )?;
+            Ok(())
+        }
+    }
 }
 
 pub fn validate(migrations: &[Migration]) -> Result<()> {
@@ -156,7 +222,7 @@ pub fn migrate(
     options: &MigrateOptions,
 ) -> Result<MigrationReport> {
     validate(migrations)?;
-    let current = user_version(conn)?;
+    let current = migration_version(conn, &options.version_storage)?;
     let max = migrations.last().map(|m| m.version).unwrap_or(0);
     let mut report = MigrationReport {
         from: current,
@@ -204,7 +270,7 @@ pub fn migrate(
             Step::Sql(sql) => conn.execute_batch(sql),
             Step::Code(run) => run(conn),
         }
-        .and_then(|()| set_user_version(conn, migration.version));
+        .and_then(|()| set_version(conn, &options.version_storage, migration.version));
         match applied {
             Ok(()) => {
                 conn.execute_batch("COMMIT;")?;
@@ -234,8 +300,23 @@ pub fn migrate(
 /// Revert to `target` by replaying each step's `down`, highest first, one transaction per step.
 /// Refuses before touching anything unless every step in the range has a `down`.
 pub fn rollback_to(conn: &Connection, migrations: &[Migration], target: i64) -> Result<Vec<i64>> {
+    rollback_to_with_storage(conn, migrations, target, &VersionStorage::UserVersion)
+}
+
+/// Revert using the same version storage selected for [`migrate`].
+pub fn rollback_to_with_storage(
+    conn: &Connection,
+    migrations: &[Migration],
+    target: i64,
+    storage: &VersionStorage,
+) -> Result<Vec<i64>> {
     validate(migrations)?;
-    let current = user_version(conn)?;
+    if target < 0 {
+        return Err(DbError::Rollback(
+            "target version must be nonnegative".into(),
+        ));
+    }
+    let current = migration_version(conn, storage)?;
     if current <= target {
         return Err(DbError::Rollback(format!(
             "already at v{current}, at or below target v{target}"
@@ -260,7 +341,7 @@ pub fn rollback_to(conn: &Connection, migrations: &[Migration], target: i64) -> 
         conn.execute_batch("BEGIN IMMEDIATE;")?;
         let result = conn
             .execute_batch(down)
-            .and_then(|()| set_user_version(conn, version - 1));
+            .and_then(|()| set_version(conn, storage, version - 1));
         match result {
             Ok(()) => {
                 conn.execute_batch("COMMIT;")?;

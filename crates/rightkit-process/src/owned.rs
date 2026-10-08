@@ -1,26 +1,71 @@
+use crate::process_handle::{lock_child, ProcessHandle};
 use std::{
     ffi::OsStr,
     io,
     num::NonZeroU32,
     process::{Child, ChildStderr, ChildStdin, ChildStdout, Command, ExitStatus},
-    sync::{
-        atomic::{AtomicU32, Ordering},
-        Arc,
-    },
+    sync::{Arc, Mutex, MutexGuard},
     thread,
-    time::{Duration, Instant},
+    time::{Duration, Instant, SystemTime},
 };
 
-use process_wrap::std::{StdChildWrapper, StdCommandWrap, StdCommandWrapper};
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum JobAssignmentMode {
+    #[default]
+    Strict,
+    BestEffort,
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum UnixContainment {
+    #[default]
+    ProcessGroup,
+    Session,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct TerminationOptions {
+    /// Send TERM immediately on Unix, then KILL after this tree-wide grace.
+    pub grace: Duration,
+    /// Passed to TerminateJobObject/TerminateProcess on Windows.
+    pub windows_exit_code: u32,
+}
+impl Default for TerminationOptions {
+    fn default() -> Self {
+        Self {
+            grace: Duration::ZERO,
+            windows_exit_code: 1,
+        }
+    }
+}
+impl TerminationOptions {
+    pub fn with_grace(mut self, grace: Duration) -> Self {
+        self.grace = grace;
+        self
+    }
+    pub fn with_windows_exit_code(mut self, code: u32) -> Self {
+        self.windows_exit_code = code;
+        self
+    }
+}
+
+/// Every failed assignment in a best-effort Windows spawn is retained.
+#[derive(Debug)]
+pub struct JobAssignmentFailure {
+    pub stage: &'static str,
+    pub error: io::Error,
+}
 
 #[derive(Debug)]
 pub struct OwnedCommand {
     command: Command,
     windows_hidden: bool,
     caller_job: CallerJob,
+    job_assignment: JobAssignmentMode,
+    unix_containment: UnixContainment,
+    // None preserves the existing unbounded partial-spawn reap.
+    partial_spawn_cleanup_timeout: Option<Duration>,
 }
-
-/// The caller's job object (Windows), duplicated until the child has been assigned to it.
 #[cfg(windows)]
 type CallerJob = Option<std::os::windows::io::OwnedHandle>;
 #[cfg(not(windows))]
@@ -28,29 +73,23 @@ type CallerJob = Option<std::convert::Infallible>;
 
 impl OwnedCommand {
     pub fn new(program: impl AsRef<OsStr>) -> Self {
-        // windowless: from_command enables CREATE_NO_WINDOW for every OwnedCommand.
         Self::from_command(Command::new(program))
     }
-
-    /// On Windows the child gets CREATE_NO_WINDOW by default: RightKit hosts are GUI apps and
-    /// background services, so a console window would only ever flash on the user's desktop.
+    /// GUI/service children are hidden on Windows by default.
     pub fn from_command(command: Command) -> Self {
         Self {
             command,
             windows_hidden: true,
-            caller_job: Default::default(),
+            caller_job: None,
+            job_assignment: JobAssignmentMode::Strict,
+            unix_containment: UnixContainment::ProcessGroup,
+            partial_spawn_cleanup_timeout: None,
         }
     }
-
     pub fn command_mut(&mut self) -> &mut Command {
         &mut self.command
     }
-
-    /// Run the child with a scrubbed environment: everything is cleared, then
-    /// only the named variables that are set in this process are copied
-    /// across (HeardRight's sidecar whitelist). Include `PATH` and the
-    /// platform basics yourself, or start from [`DEFAULT_ENV_ALLOWLIST`].
-    /// Variables set explicitly afterwards through [`Self::command_mut`] win.
+    /// Clear environment, then copy only named variables set in this process.
     pub fn env_allowlist<I, S>(&mut self, keys: I) -> &mut Self
     where
         I: IntoIterator<Item = S>,
@@ -66,9 +105,6 @@ impl OwnedCommand {
         }
         self
     }
-
-    /// Remove the named variables from the child's inherited environment
-    /// (secrets, BYOK keys) without clearing the rest.
     pub fn env_strip<I, S>(&mut self, keys: I) -> &mut Self
     where
         I: IntoIterator<Item = S>,
@@ -79,18 +115,12 @@ impl OwnedCommand {
         }
         self
     }
-
-    /// Kept for callers written before hiding became the default; it is now a no-op.
+    /// Compatibility no-op: hidden is already the default.
     pub fn windows_hide(&mut self) -> &mut Self {
         self.windows_hidden = true;
         self
     }
-
-    /// Windows: also bind the child to the caller's job object (an in-process host's own
-    /// job), before the child runs its first instruction. RightKit's kill-on-close jobs nest
-    /// beneath it and none of them allow breakaway, so terminating or closing the caller's
-    /// job kills the child and everything it spawned. The handle is duplicated here and the
-    /// duplicate is closed as soon as the child has been assigned.
+    /// Duplicate caller job; assign before the empty nested RightKit job.
     #[cfg(windows)]
     pub fn windows_job(
         &mut self,
@@ -99,20 +129,115 @@ impl OwnedCommand {
         self.caller_job = Some(job.try_clone_to_owned()?);
         Ok(self)
     }
-
+    /// Ignored on Unix. BestEffort reports errors on OwnedChild.
+    pub fn job_assignment_mode(&mut self, mode: JobAssignmentMode) -> &mut Self {
+        self.job_assignment = mode;
+        self
+    }
+    /// Ignored on Windows. Session runs setsid before exec.
+    pub fn unix_containment(&mut self, mode: UnixContainment) -> &mut Self {
+        self.unix_containment = mode;
+        self
+    }
+    /// Bound failed-spawn cleanup. Timed-out children go to a background reaper.
+    pub fn partial_spawn_cleanup_timeout(&mut self, timeout: Duration) -> &mut Self {
+        self.partial_spawn_cleanup_timeout = Some(timeout);
+        self
+    }
     pub fn spawn(self) -> io::Result<OwnedChild> {
-        spawn_owned(
-            self.command,
-            self.windows_hidden,
-            false,
-            None,
-            self.caller_job,
-        )
+        self.spawn_inner(false, false, None)
+    }
+    /// Shared launch with no owner job or terminate-on-drop. Unix uses setsid;
+    /// Windows requires breakaway and never falls back when escape is denied.
+    /// Stdio follows Command: dropping piped stdin can still deliver EOF.
+    pub fn spawn_uncontained_detached(self) -> io::Result<OwnedChild> {
+        self.spawn_inner(true, false, None)
+    }
+    fn spawn_inner(
+        mut self,
+        detached: bool,
+        fail_after_spawn: bool,
+        captured_pid: Option<Arc<std::sync::atomic::AtomicU32>>,
+    ) -> io::Result<OwnedChild> {
+        if detached && self.caller_job.is_some() {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "detached launch cannot join a caller job",
+            ));
+        }
+        #[cfg(unix)]
+        {
+            use std::os::unix::process::CommandExt;
+            let session = detached || self.unix_containment == UnixContainment::Session;
+            // Only async-signal-safe libc calls run between fork and exec.
+            unsafe {
+                self.command.pre_exec(move || {
+                    let result = if session {
+                        nix::libc::setsid()
+                    } else {
+                        nix::libc::setpgid(0, 0)
+                    };
+                    if result < 0 {
+                        Err(io::Error::last_os_error())
+                    } else {
+                        Ok(())
+                    }
+                });
+            }
+        }
+        #[cfg(windows)]
+        crate::process_windows::configure(&mut self.command, detached, self.windows_hidden);
+        #[cfg(unix)]
+        let _ = (self.windows_hidden, self.job_assignment);
+        #[cfg(windows)]
+        let _ = self.unix_containment;
+        let spawned_at = SystemTime::now();
+        let child = self.command.spawn()?;
+        let pid = child.id();
+        if let Some(captured) = captured_pid {
+            captured.store(pid, std::sync::atomic::Ordering::SeqCst);
+        }
+        let child = Arc::new(Mutex::new(child));
+        let handle = match ProcessHandle::new(&child, spawned_at) {
+            Ok(handle) => handle,
+            Err(error) => {
+                cleanup_direct(child, self.partial_spawn_cleanup_timeout);
+                return Err(error);
+            }
+        };
+        let mut partial = PartialChild {
+            child: Some(OwnedChild {
+                child,
+                handle,
+                pid,
+                detached,
+                terminate_on_drop: !detached,
+                tree_terminated: false,
+                assignment_failures: Vec::new(),
+                #[cfg(windows)]
+                job: None,
+            }),
+            timeout: self.partial_spawn_cleanup_timeout,
+        };
+        #[cfg(windows)]
+        if !detached {
+            let owned = partial.child.as_mut().expect("partial child is present");
+            crate::process_windows::assign_jobs(
+                &owned.handle,
+                self.caller_job.take(),
+                self.job_assignment,
+                &mut owned.job,
+                &mut owned.assignment_failures,
+            )?;
+            crate::process_windows::resume(pid)?;
+        }
+        if fail_after_spawn {
+            return Err(io::Error::other("injected post-spawn wrapping failure"));
+        }
+        Ok(partial.child.take().expect("partial child is present"))
     }
 }
 
-/// Variables a sidecar normally needs to run at all; a base for
-/// [`OwnedCommand::env_allowlist`].
 pub const DEFAULT_ENV_ALLOWLIST: &[&str] = &[
     "PATH",
     "HOME",
@@ -137,20 +262,22 @@ pub const DEFAULT_ENV_ALLOWLIST: &[&str] = &[
 
 #[derive(Debug)]
 pub struct OwnedChild {
-    child: Option<Box<dyn StdChildWrapper>>,
+    child: Arc<Mutex<Child>>,
+    handle: ProcessHandle,
+    // Captured before any wait can reap the direct child.
+    pid: u32,
+    detached: bool,
+    terminate_on_drop: bool,
+    tree_terminated: bool,
+    assignment_failures: Vec<JobAssignmentFailure>,
+    #[cfg(windows)]
+    job: Option<crate::process_windows::KillOnCloseJob>,
 }
-
-/// Result of [`OwnedChild::terminate_tree_bounded`].
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ReapOutcome {
-    /// Already gone, or the exit was observed within the bound.
     Exited(ExitStatus),
-    /// The kill was issued but the OS did not report the exit in time (a
-    /// process wedged in the kernel, e.g. releasing a GPU model). The caller is
-    /// not blocked; the owned handle still reaps on drop.
     TimedOut,
 }
-
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum WaitOutcome {
     Exited(ExitStatus),
@@ -159,363 +286,255 @@ pub enum WaitOutcome {
 
 impl OwnedChild {
     pub fn id(&self) -> u32 {
-        self.child().id()
+        self.pid
     }
-
+    /// Borrow std Child, including stdio, wait and try_wait. Release this guard
+    /// before another accessor or exit reader; it holds the shared reap lock.
+    pub fn child(&self) -> MutexGuard<'_, Child> {
+        lock_child(&self.child)
+    }
     pub fn take_stdin(&mut self) -> Option<ChildStdin> {
-        self.child_mut().stdin().take()
+        self.child().stdin.take()
     }
-
     pub fn take_stdout(&mut self) -> Option<ChildStdout> {
-        self.child_mut().stdout().take()
+        self.child().stdout.take()
     }
-
     pub fn take_stderr(&mut self) -> Option<ChildStderr> {
-        self.child_mut().stderr().take()
+        self.child().stderr.take()
     }
-
+    pub fn job_assignment_failures(&self) -> &[JobAssignmentFailure] {
+        &self.assignment_failures
+    }
+    pub fn process_handle(&self) -> io::Result<ProcessHandle> {
+        self.handle.try_clone()
+    }
+    pub fn creation_time(&self) -> Option<SystemTime> {
+        self.handle.creation_time()
+    }
+    #[cfg(windows)]
+    pub fn creation_time_ticks(&self) -> Option<u64> {
+        self.handle.creation_time_ticks()
+    }
     pub fn try_wait(&mut self) -> io::Result<Option<ExitStatus>> {
-        self.child_mut().try_wait()
+        self.child().try_wait()
     }
-
+    // Preserve std Child::wait's stdin-close behavior without holding the
+    // shared reap lock across a blocking wait.
     pub fn wait(&mut self) -> io::Result<ExitStatus> {
-        self.child_mut().wait()
+        drop(self.child().stdin.take());
+        self.handle.wait()
     }
-
     pub fn wait_timeout(&mut self, timeout: Duration) -> io::Result<Option<ExitStatus>> {
-        let started = Instant::now();
-        loop {
-            if let Some(status) = self.try_wait()? {
-                return Ok(Some(status));
-            }
-            if started.elapsed() >= timeout {
-                return Ok(None);
-            }
-            thread::sleep(Duration::from_millis(5).min(timeout.saturating_sub(started.elapsed())));
-        }
+        self.handle.wait_timeout(timeout)
     }
-
     pub fn wait_or_kill(&mut self, grace: Duration) -> io::Result<WaitOutcome> {
         #[cfg(unix)]
-        self.child().signal(nix::libc::SIGTERM)?;
-
+        if !self.tree_terminated {
+            self.signal(nix::libc::SIGTERM)?;
+        }
         if let Some(status) = self.wait_timeout(grace)? {
             return Ok(WaitOutcome::Exited(status));
         }
         self.terminate_tree().map(WaitOutcome::Terminated)
     }
-
+    /// Immediate forced termination, preserving the existing default.
+    /// Retained group/job is signalled even after the parent was reaped.
     pub fn terminate_tree(&mut self) -> io::Result<ExitStatus> {
-        if let Some(status) = self.try_wait()? {
-            return Ok(status);
-        }
-        self.child_mut().start_kill()?;
-        self.child_mut().wait()
+        self.force_kill(1)?;
+        self.wait()
     }
-
-    /// Kill the whole tree now and wait at most `timeout` for the OS to report
-    /// the exit. Unlike [`Self::terminate_tree`] this never blocks past the
-    /// bound, so tray-quit / window-close paths stay responsive even if the
-    /// child cannot be reaped promptly (HeardRight's bounded reap).
+    /// Unix: TERM now, tree-wide grace, then KILL even if parent exited.
+    /// Windows: immediately terminate retained job with supplied exit code.
+    pub fn terminate_tree_with_options(
+        &mut self,
+        options: TerminationOptions,
+    ) -> io::Result<ExitStatus> {
+        self.start_termination(options)?;
+        self.wait()
+    }
     pub fn terminate_tree_bounded(&mut self, timeout: Duration) -> io::Result<ReapOutcome> {
-        if let Some(status) = self.try_wait()? {
-            return Ok(ReapOutcome::Exited(status));
+        self.terminate_tree_bounded_with_options(timeout, TerminationOptions::default())
+    }
+    /// timeout covers grace plus reap; grace is clipped to timeout.
+    pub fn terminate_tree_bounded_with_options(
+        &mut self,
+        timeout: Duration,
+        mut options: TerminationOptions,
+    ) -> io::Result<ReapOutcome> {
+        let started = Instant::now();
+        options.grace = options.grace.min(timeout);
+        self.start_termination(options)?;
+        Ok(
+            match self.wait_timeout(timeout.saturating_sub(started.elapsed()))? {
+                Some(status) => ReapOutcome::Exited(status),
+                None => ReapOutcome::TimedOut,
+            },
+        )
+    }
+    fn start_termination(&mut self, options: TerminationOptions) -> io::Result<()> {
+        #[cfg(unix)]
+        if !self.tree_terminated {
+            self.signal(nix::libc::SIGTERM)?;
+            let started = Instant::now();
+            while started.elapsed() < options.grace {
+                // Reap an exited leader promptly; descendants still keep the
+                // captured group alive, so their grace is never shortened.
+                let _ = self.handle.try_wait()?;
+                if !self.tree_exists()? {
+                    break;
+                }
+                thread::sleep(
+                    Duration::from_millis(5).min(options.grace.saturating_sub(started.elapsed())),
+                );
+            }
         }
-        self.child_mut().start_kill()?;
-        Ok(match self.wait_timeout(timeout)? {
-            Some(status) => ReapOutcome::Exited(status),
-            None => ReapOutcome::TimedOut,
-        })
+        self.force_kill(options.windows_exit_code)
     }
-
-    fn child(&self) -> &dyn StdChildWrapper {
-        self.child
-            .as_deref()
-            .expect("owned child is always present")
+    #[cfg(unix)]
+    fn signal(&self, signal: i32) -> io::Result<()> {
+        // Detached children only own their direct pid. Never signal a reused
+        // direct pid once std has observed exit.
+        if self.detached && self.handle.try_wait()?.is_some() {
+            return Ok(());
+        }
+        let target = if self.detached {
+            self.pid as i32
+        } else {
+            -(self.pid as i32)
+        };
+        if unsafe { nix::libc::kill(target, signal) } == 0 {
+            return Ok(());
+        }
+        let error = io::Error::last_os_error();
+        if error.raw_os_error() == Some(nix::libc::ESRCH) {
+            Ok(())
+        } else {
+            Err(error)
+        }
     }
-
-    fn child_mut(&mut self) -> &mut dyn StdChildWrapper {
-        self.child
-            .as_deref_mut()
-            .expect("owned child is always present")
+    #[cfg(unix)]
+    fn tree_exists(&self) -> io::Result<bool> {
+        if self.detached && self.handle.try_wait()?.is_some() {
+            return Ok(false);
+        }
+        let target = if self.detached {
+            self.pid as i32
+        } else {
+            -(self.pid as i32)
+        };
+        if unsafe { nix::libc::kill(target, 0) } == 0 {
+            return Ok(true);
+        }
+        let error = io::Error::last_os_error();
+        if error.raw_os_error() == Some(nix::libc::ESRCH) {
+            Ok(false)
+        } else {
+            Err(error)
+        }
+    }
+    fn force_kill(&mut self, code: u32) -> io::Result<()> {
+        if self.tree_terminated {
+            return Ok(());
+        }
+        #[cfg(unix)]
+        {
+            let _ = code;
+            self.signal(nix::libc::SIGKILL)?;
+        }
+        #[cfg(windows)]
+        crate::process_windows::terminate(&self.handle, self.job.as_ref(), code)?;
+        self.tree_terminated = true;
+        Ok(())
+    }
+}
+impl Drop for OwnedChild {
+    fn drop(&mut self) {
+        if self.terminate_on_drop {
+            let _ = self.terminate_tree();
+        } else if self.detached {
+            #[cfg(unix)]
+            {
+                // Shared launch still needs eventual reaping. Close owner pipes
+                // now; poll cached std state without blocking exit-reader locks.
+                {
+                    let mut child = self.child();
+                    drop(child.stdin.take());
+                    drop(child.stdout.take());
+                    drop(child.stderr.take());
+                }
+                if let Ok(reader) = self.handle.try_clone() {
+                    let _ = thread::Builder::new()
+                        .name("rightkit-detached-reap".into())
+                        .spawn(move || {
+                            let _ = reader.wait();
+                        });
+                }
+            }
+        }
     }
 }
 
-impl Drop for OwnedChild {
+struct PartialChild {
+    child: Option<OwnedChild>,
+    timeout: Option<Duration>,
+}
+impl Drop for PartialChild {
     fn drop(&mut self) {
-        let _ = self.terminate_tree();
+        if let Some(mut child) = self.child.take() {
+            // Disable unbounded normal Drop before bounded cleanup.
+            child.terminate_on_drop = false;
+            let _ = child.force_kill(1);
+            cleanup_direct(Arc::clone(&child.child), self.timeout);
+        }
     }
+}
+fn cleanup_direct(child: Arc<Mutex<Child>>, timeout: Option<Duration>) {
+    let _ = lock_child(&child).kill();
+    let Some(timeout) = timeout else {
+        let _ = lock_child(&child).wait();
+        return;
+    };
+    let started = Instant::now();
+    loop {
+        match lock_child(&child).try_wait() {
+            Ok(Some(_)) => return,
+            Err(_) => break,
+            Ok(None) => {}
+        }
+        if started.elapsed() >= timeout {
+            break;
+        }
+        thread::sleep(Duration::from_millis(5).min(timeout.saturating_sub(started.elapsed())));
+    }
+    // std Child does not reap on Drop. Transfer timed-out children to a waiter.
+    let _ = thread::Builder::new()
+        .name("rightkit-partial-reap".into())
+        .spawn(move || {
+            let _ = lock_child(&child).wait();
+        });
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct AdoptedProcess {
     pid: NonZeroU32,
 }
-
 impl AdoptedProcess {
     pub fn new(pid: NonZeroU32) -> Self {
         Self { pid }
     }
-
     pub fn id(&self) -> u32 {
         self.pid.get()
     }
-
     pub fn is_running(&self) -> io::Result<bool> {
         process_is_running(self.pid)
     }
 }
-
-#[derive(Debug)]
-struct CleanupWrapper {
-    captured_pid: Option<Arc<AtomicU32>>,
-    caller_job: CallerJob,
-}
-
-impl StdCommandWrapper for CleanupWrapper {
-    fn post_spawn(&mut self, child: &mut Child, _core: &StdCommandWrap) -> io::Result<()> {
-        if let Some(pid) = &self.captured_pid {
-            pid.store(child.id(), Ordering::SeqCst);
-        }
-        Ok(())
-    }
-
-    fn wrap_child(
-        &mut self,
-        #[cfg_attr(not(windows), allow(unused_mut))] mut child: Box<dyn StdChildWrapper>,
-        _core: &StdCommandWrap,
-    ) -> io::Result<Box<dyn StdChildWrapper>> {
-        // Runs first, while process-wrap's JobObject still holds the child suspended, so the
-        // child and everything it later spawns land in these jobs. The caller's job comes
-        // first: a process can join a non-empty job only while it belongs to none, and the
-        // empty RightKit jobs assigned after it then nest beneath it. A suspended child that
-        // cannot be bound is killed, never left behind.
-        #[cfg(not(windows))]
-        let _ = self.caller_job.take();
-        #[cfg(windows)]
-        let kill_on_close = {
-            let bound = match self.caller_job.take() {
-                Some(job) => assign_to_caller_job(&job, child.inner()),
-                None => Ok(()),
-            }
-            .and_then(|()| KillOnCloseJob::assign(child.inner()));
-            match bound {
-                Ok(job) => Some(job),
-                Err(error) => {
-                    let _ = child.start_kill();
-                    let _ = child.wait();
-                    return Err(error);
-                }
-            }
-        };
-        Ok(Box::new(CleanupChild {
-            child: Some(child),
-            #[cfg(windows)]
-            _kill_on_close: kill_on_close,
-        }))
-    }
-}
-
-#[cfg(windows)]
-fn assign_to_caller_job(job: &std::os::windows::io::OwnedHandle, child: &Child) -> io::Result<()> {
-    use std::os::windows::io::AsRawHandle;
-    use windows::Win32::{Foundation::HANDLE, System::JobObjects::AssignProcessToJobObject};
-    unsafe {
-        AssignProcessToJobObject(
-            HANDLE(job.as_raw_handle() as _),
-            HANDLE(child.as_raw_handle() as _),
-        )
-    }
-    .map_err(|e| io::Error::other(format!("bind child to the caller's job object: {e}")))
-}
-
-/// process-wrap's std `JobObject` never sets JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE, so a host that
-/// dies without running destructors (crash, TerminateProcess) left its tree running on Windows.
-/// This second job's only handle lives in the host; when the host goes away for any reason the
-/// kernel closes it and kills every process in the tree.
-#[cfg(windows)]
-#[derive(Debug)]
-struct KillOnCloseJob(windows::Win32::Foundation::HANDLE);
-
-#[cfg(windows)]
-impl KillOnCloseJob {
-    fn assign(child: &Child) -> io::Result<Self> {
-        use std::os::windows::io::AsRawHandle;
-        use windows::Win32::{
-            Foundation::HANDLE,
-            System::JobObjects::{
-                AssignProcessToJobObject, CreateJobObjectW, JobObjectExtendedLimitInformation,
-                SetInformationJobObject, JOBOBJECT_EXTENDED_LIMIT_INFORMATION,
-                JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
-            },
-        };
-        let job = Self(unsafe { CreateJobObjectW(None, None) }.map_err(io::Error::other)?);
-        let mut info = JOBOBJECT_EXTENDED_LIMIT_INFORMATION::default();
-        info.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
-        unsafe {
-            SetInformationJobObject(
-                job.0,
-                JobObjectExtendedLimitInformation,
-                &info as *const _ as *const _,
-                std::mem::size_of_val(&info) as u32,
-            )
-        }
-        .map_err(io::Error::other)?;
-        unsafe { AssignProcessToJobObject(job.0, HANDLE(child.as_raw_handle() as _)) }
-            .map_err(io::Error::other)?;
-        Ok(job)
-    }
-}
-
-#[cfg(windows)]
-impl Drop for KillOnCloseJob {
-    fn drop(&mut self) {
-        let _ = unsafe { windows::Win32::Foundation::CloseHandle(self.0) };
-    }
-}
-
-// The raw job handle is only closed on drop; moving it between threads is sound.
-#[cfg(windows)]
-unsafe impl Send for KillOnCloseJob {}
-#[cfg(windows)]
-unsafe impl Sync for KillOnCloseJob {}
-
-#[derive(Debug)]
-struct CleanupChild {
-    child: Option<Box<dyn StdChildWrapper>>,
-    // Dropped after `child`'s own Drop ran; closing it kills anything still in the tree.
-    #[cfg(windows)]
-    _kill_on_close: Option<KillOnCloseJob>,
-}
-
-impl CleanupChild {
-    fn child(&self) -> &dyn StdChildWrapper {
-        self.child.as_deref().expect("cleanup child is present")
-    }
-
-    fn child_mut(&mut self) -> &mut dyn StdChildWrapper {
-        self.child.as_deref_mut().expect("cleanup child is present")
-    }
-}
-
-impl StdChildWrapper for CleanupChild {
-    fn inner(&self) -> &Child {
-        self.child().inner()
-    }
-
-    fn inner_mut(&mut self) -> &mut Child {
-        self.child_mut().inner_mut()
-    }
-
-    fn into_inner(mut self: Box<Self>) -> Child {
-        self.child
-            .take()
-            .expect("cleanup child is present")
-            .into_inner()
-    }
-
-    fn stdin(&mut self) -> &mut Option<ChildStdin> {
-        self.child_mut().stdin()
-    }
-
-    fn stdout(&mut self) -> &mut Option<ChildStdout> {
-        self.child_mut().stdout()
-    }
-
-    fn stderr(&mut self) -> &mut Option<ChildStderr> {
-        self.child_mut().stderr()
-    }
-
-    fn id(&self) -> u32 {
-        self.child().id()
-    }
-
-    fn start_kill(&mut self) -> io::Result<()> {
-        self.child_mut().start_kill()
-    }
-
-    fn try_wait(&mut self) -> io::Result<Option<ExitStatus>> {
-        self.child_mut().try_wait()
-    }
-
-    fn wait(&mut self) -> io::Result<ExitStatus> {
-        self.child_mut().wait()
-    }
-
-    #[cfg(unix)]
-    fn signal(&self, signal: i32) -> io::Result<()> {
-        self.child().signal(signal)
-    }
-}
-
-impl Drop for CleanupChild {
-    fn drop(&mut self) {
-        let Some(child) = self.child.as_deref_mut() else {
-            return;
-        };
-        if !matches!(child.try_wait(), Ok(Some(_))) {
-            let _ = child.start_kill();
-            let _ = child.wait();
-        }
-    }
-}
-
-#[derive(Debug)]
-struct FailAfterSpawn;
-
-impl StdCommandWrapper for FailAfterSpawn {
-    fn wrap_child(
-        &mut self,
-        _child: Box<dyn StdChildWrapper>,
-        _core: &StdCommandWrap,
-    ) -> io::Result<Box<dyn StdChildWrapper>> {
-        Err(io::Error::other("injected post-spawn wrapping failure"))
-    }
-}
-
-fn spawn_owned(
-    command: Command,
-    windows_hidden: bool,
-    fail_after_spawn: bool,
-    captured_pid: Option<Arc<AtomicU32>>,
-    caller_job: CallerJob,
-) -> io::Result<OwnedChild> {
-    let mut command = StdCommandWrap::from(command);
-    command.wrap(CleanupWrapper {
-        captured_pid,
-        caller_job,
-    });
-
-    #[cfg(windows)]
-    {
-        use process_wrap::std::{CreationFlags, JobObject};
-        use windows::Win32::System::Threading::CREATE_NO_WINDOW;
-
-        if windows_hidden {
-            command.wrap(CreationFlags(CREATE_NO_WINDOW));
-        }
-        command.wrap(JobObject);
-    }
-
-    #[cfg(unix)]
-    {
-        use process_wrap::std::ProcessGroup;
-        let _ = windows_hidden;
-        command.wrap(ProcessGroup::leader());
-    }
-
-    if fail_after_spawn {
-        command.wrap(FailAfterSpawn);
-    }
-
-    command
-        .spawn()
-        .map(|child| OwnedChild { child: Some(child) })
-}
-
 #[cfg(test)]
-fn spawn_for_test(command: Command, captured_pid: Arc<AtomicU32>) -> io::Result<OwnedChild> {
-    spawn_owned(command, true, true, Some(captured_pid), Default::default())
+fn spawn_for_test(
+    command: Command,
+    captured_pid: Arc<std::sync::atomic::AtomicU32>,
+) -> io::Result<OwnedChild> {
+    OwnedCommand::from_command(command).spawn_inner(false, true, Some(captured_pid))
 }
 
 #[cfg(windows)]
@@ -570,6 +589,89 @@ fn process_is_running(pid: NonZeroU32) -> io::Result<bool> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn option_defaults_preserve_existing_behavior() {
+        let command = super::OwnedCommand::new("unused");
+        assert_eq!(command.job_assignment, super::JobAssignmentMode::Strict);
+        assert_eq!(
+            command.unix_containment,
+            super::UnixContainment::ProcessGroup
+        );
+        assert_eq!(command.partial_spawn_cleanup_timeout, None);
+        assert_eq!(
+            super::TerminationOptions::default().grace,
+            std::time::Duration::ZERO
+        );
+        assert_eq!(super::TerminationOptions::default().windows_exit_code, 1);
+    }
+
+    #[test]
+    fn option_builders_keep_every_requested_value() {
+        use super::{JobAssignmentMode, OwnedCommand, TerminationOptions, UnixContainment};
+        use std::time::Duration;
+        let mut command = OwnedCommand::new("unused");
+        command
+            .job_assignment_mode(JobAssignmentMode::BestEffort)
+            .unix_containment(UnixContainment::Session)
+            .partial_spawn_cleanup_timeout(Duration::from_secs(5));
+        assert_eq!(command.job_assignment, JobAssignmentMode::BestEffort);
+        assert_eq!(command.unix_containment, UnixContainment::Session);
+        assert_eq!(
+            command.partial_spawn_cleanup_timeout,
+            Some(Duration::from_secs(5))
+        );
+        let options = TerminationOptions::default()
+            .with_grace(Duration::from_millis(100))
+            .with_windows_exit_code(1067);
+        assert_eq!(options.grace, Duration::from_millis(100));
+        assert_eq!(options.windows_exit_code, 1067);
+    }
+
+    #[test]
+    fn zero_bound_partial_spawn_failure_still_reaps_the_child() {
+        use std::{
+            num::NonZeroU32,
+            process::Command,
+            sync::{
+                atomic::{AtomicU32, Ordering},
+                Arc,
+            },
+            thread,
+            time::{Duration, Instant},
+        };
+        let command = if cfg!(windows) {
+            let mut command = Command::new("powershell.exe");
+            command.args([
+                "-NoLogo",
+                "-NoProfile",
+                "-NonInteractive",
+                "-Command",
+                "Start-Sleep -Seconds 30",
+            ]);
+            command
+        } else {
+            let mut command = Command::new("/bin/sh");
+            command.args(["-c", "exec sleep 30"]);
+            command
+        };
+        let mut command = super::OwnedCommand::from_command(command);
+        command.partial_spawn_cleanup_timeout(Duration::ZERO);
+        let captured = Arc::new(AtomicU32::new(0));
+        let started = Instant::now();
+        assert!(command
+            .spawn_inner(false, true, Some(Arc::clone(&captured)))
+            .is_err());
+        assert!(started.elapsed() < Duration::from_secs(3));
+        let pid = captured.load(Ordering::SeqCst);
+        assert_ne!(pid, 0);
+        let process = super::AdoptedProcess::new(NonZeroU32::new(pid).unwrap());
+        let started = Instant::now();
+        while process.is_running().unwrap() {
+            assert!(started.elapsed() < Duration::from_secs(5));
+            thread::sleep(Duration::from_millis(5));
+        }
+    }
+
     #[test]
     fn owned_commands_hide_their_console_window_by_default() {
         assert!(super::OwnedCommand::new("x").windows_hidden);

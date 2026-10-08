@@ -10,6 +10,12 @@ pub enum SandboxError {
     InvalidPolicy(String),
     /// Requested confinement is not available here (fail closed).
     Unsupported(String),
+    /// Windows ancestor ACL setup/cleanup failed; includes the physical path & Win32 code.
+    #[cfg(windows)]
+    AncestorAccess {
+        path: std::path::PathBuf,
+        win32_error: u32,
+    },
     /// OS-level spawn/setup failure.
     Io(std::io::Error),
 }
@@ -20,6 +26,12 @@ impl std::fmt::Display for SandboxError {
             Self::ResourceDenied(d) => write!(f, "{d}"),
             Self::InvalidPolicy(m) => write!(f, "invalid sandbox policy: {m}"),
             Self::Unsupported(m) => write!(f, "sandbox unsupported: {m}"),
+            #[cfg(windows)]
+            Self::AncestorAccess { path, win32_error } => write!(
+                f,
+                "AppContainer ancestor access failed on {}: Win32 error {win32_error}",
+                path.display()
+            ),
             Self::Io(e) => write!(f, "sandbox spawn failed: {e}"),
         }
     }

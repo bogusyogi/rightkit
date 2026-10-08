@@ -46,8 +46,18 @@ pub struct ToolSpec {
 }
 
 impl ToolSpec {
-    pub fn new(name: impl Into<String>, description: impl Into<String>, effect: Effect, input_schema: Value) -> Self {
-        Self { name: name.into(), description: description.into(), input_schema, effect }
+    pub fn new(
+        name: impl Into<String>,
+        description: impl Into<String>,
+        effect: Effect,
+        input_schema: Value,
+    ) -> Self {
+        Self {
+            name: name.into(),
+            description: description.into(),
+            input_schema,
+            effect,
+        }
     }
 }
 
@@ -61,10 +71,18 @@ pub struct ToolError {
 
 impl ToolError {
     pub fn new(code: impl Into<String>, message: impl Into<String>) -> Self {
-        Self { code: code.into(), message: message.into(), retryable: false }
+        Self {
+            code: code.into(),
+            message: message.into(),
+            retryable: false,
+        }
     }
     pub fn retryable(code: impl Into<String>, message: impl Into<String>) -> Self {
-        Self { code: code.into(), message: message.into(), retryable: true }
+        Self {
+            code: code.into(),
+            message: message.into(),
+            retryable: true,
+        }
     }
     pub fn to_value(&self) -> Value {
         json!({"code": self.code, "message": self.message, "retryable": self.retryable})

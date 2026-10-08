@@ -23,16 +23,18 @@ impl ChromeProc {
     /// wait up to `grace`, then SIGKILL the group. Windows: terminate the job's tree.
     /// Then stops the watchdog.
     pub(crate) fn terminate_gracefully(&mut self, grace: Duration) {
-        if !matches!(self.child.try_wait(), Ok(Some(_))) {
-            #[cfg(unix)]
-            if self.child.wait_or_kill(grace).is_err() {
-                let _ = self.child.terminate_tree();
-            }
-            #[cfg(not(unix))]
-            {
-                let _ = grace;
-                let _ = self.child.terminate_tree();
-            }
+        #[cfg(unix)]
+        if !matches!(self.child.try_wait(), Ok(Some(_))) && self.child.wait_or_kill(grace).is_err()
+        {
+            let _ = self.child.terminate_tree();
+        }
+        // Windows: always terminate the retained job, even when the browser process has
+        // already exited: its renderer/GPU/utility helpers outlive it and keep the profile
+        // directory open. Bounded so Drop can never hang.
+        #[cfg(not(unix))]
+        {
+            let _ = grace;
+            let _ = self.child.terminate_tree_bounded(Duration::from_secs(2));
         }
         if let Some(w) = self._watchdog.as_mut() {
             let _ = w.terminate_tree();

@@ -13,7 +13,7 @@ publish = false
 # cfg(windows) only, so the Windows backend compiles on the Windows host.
 [dependencies]
 # Only for the fail-closed app-data root (`Suite::resolve`); no I/O at runtime beyond that.
-rightkit-service = { version = "=0.1.0", path = "../rightkit-service" }
+rightkit-service = { version = "0.1.0", path = "../rightkit-service" }
 serde_json = "1.0.150"
 
 [dev-dependencies]

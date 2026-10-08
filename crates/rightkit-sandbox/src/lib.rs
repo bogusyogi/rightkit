@@ -32,3 +32,5 @@ pub use resources::{
     Reservation, ResourceAuthority, ResourceDenied, ResourceKind, ResourceProfile,
 };
 pub use spawn::{Sandbox, SandboxOutput, SandboxedChild};
+#[cfg(windows)]
+pub use windows_appcontainer::sweep_stale_appcontainer_ancestor_aces;

@@ -20,10 +20,15 @@ mod journal;
 mod spec;
 mod toolbox;
 
-pub use backends::control::{control_tools, AppProfile, CommandPolicy, CLIENT_APP, CONTROL_METHODS};
+pub use backends::control::{
+    control_tools, AppProfile, CommandPolicy, CLIENT_APP, CONTROL_METHODS,
+};
 pub use journal::JsonlJournal;
 pub use spec::*;
-pub use toolbox::{DeniedBy, Journal, MemoryJournal, Metrics, ToolAdmission, ToolEvent, ToolRequest, Toolbox, Verdict};
+pub use toolbox::{
+    DeniedBy, Journal, MemoryJournal, Metrics, ToolAdmission, ToolEvent, ToolRequest, Toolbox,
+    Verdict,
+};
 
 #[cfg(feature = "mcp")]
 pub mod mcp;

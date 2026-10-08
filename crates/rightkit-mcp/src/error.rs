@@ -11,6 +11,12 @@ pub enum McpError {
         code: i64,
         message: String,
     },
+    /// JSON-RPC error with verbatim data (including explicit null).
+    RpcWithData {
+        code: i64,
+        message: String,
+        data: serde_json::Value,
+    },
     ToolNotFound(String),
     /// Refused by an admission hook or a recorded trust denial; nothing ran.
     Denied(String),
@@ -26,6 +32,8 @@ pub enum McpError {
     },
     Config(String),
     Io(String),
+    /// Original stdio error, retained by opt-in fail-fast serving.
+    IoError(std::sync::Arc<std::io::Error>),
 }
 
 pub type Result<T> = std::result::Result<T, McpError>;
@@ -36,6 +44,7 @@ impl fmt::Display for McpError {
             McpError::Transport(m) => write!(f, "transport error: {m}"),
             McpError::Protocol(m) => write!(f, "protocol error: {m}"),
             McpError::Rpc { code, message } => write!(f, "rpc error {code}: {message}"),
+            McpError::RpcWithData { code, message, .. } => write!(f, "rpc error {code}: {message}"),
             McpError::ToolNotFound(n) => write!(f, "not found: {n}"),
             McpError::Denied(m) => write!(f, "denied: {m}"),
             McpError::NotApproved(p) => write!(
@@ -55,11 +64,19 @@ impl fmt::Display for McpError {
             }
             McpError::Config(m) => write!(f, "config error: {m}"),
             McpError::Io(m) => write!(f, "io error: {m}"),
+            McpError::IoError(e) => write!(f, "io error: {e}"),
         }
     }
 }
 
-impl std::error::Error for McpError {}
+impl std::error::Error for McpError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            McpError::IoError(e) => Some(e.as_ref()),
+            _ => None,
+        }
+    }
+}
 
 impl From<std::io::Error> for McpError {
     fn from(e: std::io::Error) -> Self {

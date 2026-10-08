@@ -6,7 +6,7 @@
 //!   targets that do not exist yet are watchable, deletions are reported, bursts are bounded by a
 //!   max-wait so a continuous storm still flushes, and rename storms are coalesced.
 //! * [`DirWatchSet`] is the explorer-tree primitive: capped, idempotent, oldest-evicted
-//!   non-recursive directory watches with one callback per debounced batch.
+//!   directory watches with one callback per debounced batch (optionally recursive).
 //!
 //! The donor emitted through a Tauri `AppHandle`; here emission is a plain callback so any app
 //! (Tauri, CLI, daemon) wires its own transport.
@@ -273,10 +273,11 @@ impl DirMap {
     }
 }
 
-/// Capped set of non-recursive directory watches.
+/// Capped set of directory watches. Non-recursive unless explicitly opted in.
 pub struct DirWatchSet {
     cap: usize,
     quiet: Duration,
+    recursive: bool,
     inner: Mutex<DirMap>,
 }
 
@@ -288,9 +289,15 @@ impl Default for DirWatchSet {
 
 impl DirWatchSet {
     pub fn new(cap: usize, quiet: Duration) -> Self {
+        Self::with_recursive(cap, quiet, false)
+    }
+
+    /// Creates a watch set with an explicit recursion mode. The cap counts roots.
+    pub fn with_recursive(cap: usize, quiet: Duration, recursive: bool) -> Self {
         Self {
             cap: cap.max(1),
             quiet,
+            recursive,
             inner: Mutex::new(DirMap::default()),
         }
     }
@@ -343,7 +350,14 @@ impl DirWatchSet {
                 }
             }
         })?;
-        watcher.watch(&key, RecursiveMode::NonRecursive)?;
+        watcher.watch(
+            &key,
+            if self.recursive {
+                RecursiveMode::Recursive
+            } else {
+                RecursiveMode::NonRecursive
+            },
+        )?;
         let quiet = self.quiet;
         let thread = thread::Builder::new()
             .name("rightkit-watch-dir".into())
@@ -376,5 +390,17 @@ impl Drop for DirWatchSet {
         for key in keys {
             guard.remove(&key);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn directory_recursion_is_opt_in() {
+        assert!(!DirWatchSet::default().recursive);
+        assert!(!DirWatchSet::new(1, DEFAULT_DEBOUNCE).recursive);
+        assert!(DirWatchSet::with_recursive(1, DEFAULT_DEBOUNCE, true).recursive);
     }
 }

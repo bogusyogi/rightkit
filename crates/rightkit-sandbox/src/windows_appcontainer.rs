@@ -15,6 +15,10 @@
 
 use crate::windows_job::{WindowsJob, DEFAULT_ACTIVE_PROCESS_LIMIT};
 use crate::{EnvPolicy, NetworkPolicy, SandboxCommand, SandboxError, SandboxPolicy};
+#[path = "windows_ancestors.rs"]
+mod ancestors;
+pub use ancestors::sweep_stale_appcontainer_ancestor_aces;
+use ancestors::{AncestorLease, PROFILE_PREFIX};
 use std::collections::{BTreeMap, HashMap};
 use std::ffi::{c_void, OsStr};
 use std::io;
@@ -882,6 +886,7 @@ impl Drop for GrantLease {
 #[derive(Default)]
 struct LeaseSet {
     items: Mutex<Vec<GrantLease>>,
+    ancestors: Mutex<Vec<AncestorLease>>,
 }
 
 // ---------------------------------------------------------------------------------------
@@ -1551,7 +1556,16 @@ pub(crate) fn spawn(
         .collect();
     key.sort();
     let profile =
-        AppContainerProfile::ensure(&format!("rightkit.sandbox.{:016x}", fnv1a(&key.join("|"))))?;
+        AppContainerProfile::ensure(&format!("{PROFILE_PREFIX}{:016x}", fnv1a(&key.join("|"))))?;
+    for (path, _) in &grants {
+        let lease = AncestorLease::acquire(path, &profile.sid_text)?;
+        profile
+            .leases
+            .ancestors
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .push(lease);
+    }
     for (path, writable) in &grants {
         profile
             .lease(path, *writable)

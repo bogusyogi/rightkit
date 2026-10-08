@@ -13,8 +13,14 @@ use std::time::Duration;
 
 fn map(e: ClientError) -> ToolError {
     match e {
-        ClientError::NoService => ToolError::retryable("speech_service_unavailable", "no live speech service (start HeardRight or another host)"),
-        ClientError::HandoffRetry => ToolError::retryable("speech_service_handoff", "the speech host is handing off; retry"),
+        ClientError::NoService => ToolError::retryable(
+            "speech_service_unavailable",
+            "no live speech service (start HeardRight or another host)",
+        ),
+        ClientError::HandoffRetry => ToolError::retryable(
+            "speech_service_handoff",
+            "the speech host is handing off; retry",
+        ),
         other => ToolError::new("speech_error", format!("{other:?}")),
     }
 }
@@ -31,7 +37,10 @@ impl Tool for Transcribe {
     fn call(&self, ctx: &CallCtx, args: Value) -> Result<Value, ToolError> {
         let path = Path::new(args["path"].as_str().unwrap_or_default());
         if !path.is_absolute() || !path.is_file() {
-            return Err(ToolError::new(ERR_INVALID_ARGS, "`path` must be an absolute path to an existing media file"));
+            return Err(ToolError::new(
+                ERR_INVALID_ARGS,
+                "`path` must be an absolute path to an existing media file",
+            ));
         }
         let stall = Duration::from_secs(args["stall_timeout_secs"].as_u64().unwrap_or(120));
         let mut opts = TranscribeOptions::new(stall);
@@ -54,7 +63,8 @@ impl Tool for Transcribe {
             }
         });
         opts = opts.cancel_token(token);
-        let r = speech::transcribe_via_service_with(&self.root, HostRole::CutRight, path, &mut opts);
+        let r =
+            speech::transcribe_via_service_with(&self.root, HostRole::CutRight, path, &mut opts);
         watcher_done.store(true, std::sync::atomic::Ordering::SeqCst);
         let _ = w.join();
         let r = r.map_err(map)?;
@@ -74,7 +84,11 @@ impl Tool for Capabilities {
     fn call(&self, _ctx: &CallCtx, _args: Value) -> Result<Value, ToolError> {
         let mut c = speech::connect(&self.root).map_err(map)?;
         let caps = c.capabilities(Duration::from_secs(15)).map_err(map)?;
-        let engines: Vec<Value> = caps.engines.iter().map(|e| json!({"id": e.id, "languages": e.languages, "ready": e.ready})).collect();
+        let engines: Vec<Value> = caps
+            .engines
+            .iter()
+            .map(|e| json!({"id": e.id, "languages": e.languages, "ready": e.ready}))
+            .collect();
         Ok(json!({"capabilities": caps.capabilities, "engines": engines}))
     }
 }

@@ -41,9 +41,23 @@ pub trait ToolAdmission: Send + Sync {
 /// Lifecycle events for the caller's journal. Content-free.
 #[derive(Debug, Clone, PartialEq)]
 pub enum ToolEvent {
-    Started { caller: String, tool: String },
-    Denied { caller: String, tool: String, by: DeniedBy, reason: String },
-    Settled { caller: String, tool: String, ok: bool, error_code: Option<String>, millis: u64 },
+    Started {
+        caller: String,
+        tool: String,
+    },
+    Denied {
+        caller: String,
+        tool: String,
+        by: DeniedBy,
+        reason: String,
+    },
+    Settled {
+        caller: String,
+        tool: String,
+        ok: bool,
+        error_code: Option<String>,
+        millis: u64,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -57,9 +71,26 @@ pub enum DeniedBy {
 impl ToolEvent {
     pub fn to_value(&self) -> Value {
         match self {
-            ToolEvent::Started { caller, tool } => json!({"event": "started", "caller": caller, "tool": tool}),
-            ToolEvent::Denied { caller, tool, by, reason } => json!({"event": "denied", "caller": caller, "tool": tool, "by": format!("{by:?}").to_lowercase(), "reason": reason}),
-            ToolEvent::Settled { caller, tool, ok, error_code, millis } => json!({"event": "settled", "caller": caller, "tool": tool, "ok": ok, "error": error_code, "ms": millis}),
+            ToolEvent::Started { caller, tool } => {
+                json!({"event": "started", "caller": caller, "tool": tool})
+            }
+            ToolEvent::Denied {
+                caller,
+                tool,
+                by,
+                reason,
+            } => {
+                json!({"event": "denied", "caller": caller, "tool": tool, "by": format!("{by:?}").to_lowercase(), "reason": reason})
+            }
+            ToolEvent::Settled {
+                caller,
+                tool,
+                ok,
+                error_code,
+                millis,
+            } => {
+                json!({"event": "settled", "caller": caller, "tool": tool, "ok": ok, "error": error_code, "ms": millis})
+            }
         }
     }
 }
@@ -80,7 +111,10 @@ impl MemoryJournal {
 }
 impl Journal for MemoryJournal {
     fn record(&self, event: &ToolEvent) {
-        self.0.lock().unwrap_or_else(|e| e.into_inner()).push(event.clone());
+        self.0
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .push(event.clone());
     }
 }
 
@@ -128,7 +162,13 @@ impl Default for Toolbox {
 
 impl Toolbox {
     pub fn new() -> Self {
-        Self { tools: BTreeMap::new(), allow: HashMap::new(), admission: None, journals: vec![], counters: Counters::default() }
+        Self {
+            tools: BTreeMap::new(),
+            allow: HashMap::new(),
+            admission: None,
+            journals: vec![],
+            counters: Counters::default(),
+        }
     }
 
     /// Register a tool. Names that the hard exposure rules forbid are refused
@@ -147,8 +187,15 @@ impl Toolbox {
     }
 
     /// Let `caller` use tools matching `patterns` (`*`, `prefix*`, exact; see [`pattern_matches`]).
-    pub fn allow<I: IntoIterator<Item = S>, S: Into<String>>(&mut self, caller: &str, patterns: I) -> &mut Self {
-        self.allow.entry(caller.to_string()).or_default().extend(patterns.into_iter().map(Into::into));
+    pub fn allow<I: IntoIterator<Item = S>, S: Into<String>>(
+        &mut self,
+        caller: &str,
+        patterns: I,
+    ) -> &mut Self {
+        self.allow
+            .entry(caller.to_string())
+            .or_default()
+            .extend(patterns.into_iter().map(Into::into));
         self
     }
 
@@ -172,7 +219,9 @@ impl Toolbox {
     }
 
     fn permitted(&self, caller: &str, tool: &str, subject: Option<&str>) -> bool {
-        let Some(patterns) = self.allow.get(caller) else { return false };
+        let Some(patterns) = self.allow.get(caller) else {
+            return false;
+        };
         match subject {
             Some(s) => {
                 let full = format!("{tool}:{s}");
@@ -185,12 +234,18 @@ impl Toolbox {
     /// Specs visible to `caller`: only tools it may call at all (subject-carrying
     /// tools are listed when any pattern could match them).
     pub fn list_for(&self, caller: &str) -> Vec<ToolSpec> {
-        let Some(patterns) = self.allow.get(caller) else { return vec![] };
+        let Some(patterns) = self.allow.get(caller) else {
+            return vec![];
+        };
         self.tools
             .values()
             .filter(|t| {
                 let n = &t.spec().name;
-                patterns.iter().any(|p| pattern_matches(p, n) || p.starts_with(&format!("{n}:")) || (p.ends_with('*') && n.starts_with(p.trim_end_matches('*'))))
+                patterns.iter().any(|p| {
+                    pattern_matches(p, n)
+                        || p.starts_with(&format!("{n}:"))
+                        || (p.ends_with('*') && n.starts_with(p.trim_end_matches('*')))
+                })
             })
             .map(|t| t.spec().clone())
             .collect()
@@ -206,9 +261,21 @@ impl Toolbox {
         }
     }
 
-    fn deny(&self, caller: &str, tool: &str, by: DeniedBy, code: &str, reason: String) -> ToolError {
+    fn deny(
+        &self,
+        caller: &str,
+        tool: &str,
+        by: DeniedBy,
+        code: &str,
+        reason: String,
+    ) -> ToolError {
         self.counters.denied.fetch_add(1, Ordering::SeqCst);
-        self.emit(ToolEvent::Denied { caller: caller.into(), tool: tool.into(), by, reason: reason.clone() });
+        self.emit(ToolEvent::Denied {
+            caller: caller.into(),
+            tool: tool.into(),
+            by,
+            reason: reason.clone(),
+        });
         ToolError::new(code, reason)
     }
 
@@ -216,17 +283,38 @@ impl Toolbox {
         self.call_cancellable(caller, name, args, &CancelToken::new())
     }
 
-    pub fn call_cancellable(&self, caller: &Caller, name: &str, args: Value, cancel: &CancelToken) -> Result<Value, ToolError> {
+    pub fn call_cancellable(
+        &self,
+        caller: &Caller,
+        name: &str,
+        args: Value,
+        cancel: &CancelToken,
+    ) -> Result<Value, ToolError> {
         self.counters.calls.fetch_add(1, Ordering::SeqCst);
-        let tool = self.tools.get(name).cloned().ok_or_else(|| ToolError::new(ERR_UNKNOWN_TOOL, format!("no tool `{name}`")))?;
+        let tool = self
+            .tools
+            .get(name)
+            .cloned()
+            .ok_or_else(|| ToolError::new(ERR_UNKNOWN_TOOL, format!("no tool `{name}`")))?;
         let subject = tool.subject(&args);
 
-        if let Some(why) = exposure::forbidden(name).or_else(|| subject.as_deref().and_then(exposure::forbidden)) {
+        if let Some(why) =
+            exposure::forbidden(name).or_else(|| subject.as_deref().and_then(exposure::forbidden))
+        {
             return Err(self.deny(&caller.app, name, DeniedBy::Exposure, ERR_NOT_EXPOSED, why));
         }
         if !self.permitted(&caller.app, name, subject.as_deref()) {
-            let what = subject.as_deref().map(|s| format!("{name}:{s}")).unwrap_or_else(|| name.to_string());
-            return Err(self.deny(&caller.app, name, DeniedBy::Allowlist, ERR_NOT_ALLOWED, format!("`{}` may not call `{what}`", caller.app)));
+            let what = subject
+                .as_deref()
+                .map(|s| format!("{name}:{s}"))
+                .unwrap_or_else(|| name.to_string());
+            return Err(self.deny(
+                &caller.app,
+                name,
+                DeniedBy::Allowlist,
+                ERR_NOT_ALLOWED,
+                format!("`{}` may not call `{what}`", caller.app),
+            ));
         }
         if let Err(e) = validate_args(&tool.spec().input_schema, &args) {
             return Err(self.deny(&caller.app, name, DeniedBy::Arguments, ERR_INVALID_ARGS, e));
@@ -237,7 +325,10 @@ impl Toolbox {
             tool: name.to_string(),
             subject,
             effect: tool.spec().effect,
-            arg_keys: args.as_object().map(|o| o.keys().cloned().collect()).unwrap_or_default(),
+            arg_keys: args
+                .as_object()
+                .map(|o| o.keys().cloned().collect())
+                .unwrap_or_default(),
             arg_bytes: args.to_string().len(),
         };
         if let Some(h) = &self.admission {
@@ -246,10 +337,17 @@ impl Toolbox {
             }
         }
 
-        self.emit(ToolEvent::Started { caller: caller.app.clone(), tool: name.into() });
+        self.emit(ToolEvent::Started {
+            caller: caller.app.clone(),
+            tool: name.into(),
+        });
         let started = Instant::now();
         let ctx = CallCtx { caller, cancel };
-        let res = if cancel.is_cancelled() { Err(ToolError::new(ERR_CANCELLED, "cancelled before start")) } else { tool.call(&ctx, args) };
+        let res = if cancel.is_cancelled() {
+            Err(ToolError::new(ERR_CANCELLED, "cancelled before start"))
+        } else {
+            tool.call(&ctx, args)
+        };
         let (ok, code) = match &res {
             Ok(_) => (true, None),
             Err(e) => (false, Some(e.code.clone())),
@@ -262,7 +360,13 @@ impl Toolbox {
         if let Some(h) = &self.admission {
             h.settle(&req, ok, code.as_deref());
         }
-        self.emit(ToolEvent::Settled { caller: caller.app.clone(), tool: name.into(), ok, error_code: code, millis: started.elapsed().as_millis() as u64 });
+        self.emit(ToolEvent::Settled {
+            caller: caller.app.clone(),
+            tool: name.into(),
+            ok,
+            error_code: code,
+            millis: started.elapsed().as_millis() as u64,
+        });
         res
     }
 }

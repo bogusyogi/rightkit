@@ -27,12 +27,26 @@ pub struct BrowserTools {
 
 impl BrowserTools {
     pub fn new(opts: LaunchOptions) -> Result<Arc<Self>, ToolError> {
-        let rt = tokio::runtime::Builder::new_multi_thread().worker_threads(2).enable_all().build().map_err(|e| ToolError::new("runtime", e.to_string()))?;
-        Ok(Arc::new(Self { rt, opts, session: Mutex::new(None) }))
+        let rt = tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(2)
+            .enable_all()
+            .build()
+            .map_err(|e| ToolError::new("runtime", e.to_string()))?;
+        Ok(Arc::new(Self {
+            rt,
+            opts,
+            session: Mutex::new(None),
+        }))
     }
 
     fn session(&self) -> Result<Arc<BrowserSession>, ToolError> {
-        self.session.lock().unwrap_or_else(|e| e.into_inner()).clone().ok_or_else(|| ToolError::new("no_session", "no browser session: call browser.open first"))
+        self.session
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
+            .ok_or_else(|| {
+                ToolError::new("no_session", "no browser session: call browser.open first")
+            })
     }
 
     fn page(&self) -> Result<Arc<BrowserPage>, ToolError> {
@@ -41,7 +55,11 @@ impl BrowserTools {
 
     /// Close the browser now (also happens on drop).
     pub fn shutdown(&self) {
-        let s = self.session.lock().unwrap_or_else(|e| e.into_inner()).take();
+        let s = self
+            .session
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .take();
         if let Some(s) = s {
             self.rt.block_on(s.shutdown());
         }
@@ -49,8 +67,17 @@ impl BrowserTools {
 
     /// The `browser.*` tool set bound to this instance.
     pub fn tools(self: &Arc<Self>) -> Vec<Arc<dyn Tool>> {
-        let mk = |name: &str, desc: &str, effect: Effect, schema: Value, run: fn(&BrowserTools, Value) -> Result<Value, ToolError>| -> Arc<dyn Tool> {
-            Arc::new(WebTool { spec: ToolSpec::new(name, desc, effect, schema), host: self.clone(), run })
+        let mk = |name: &str,
+                  desc: &str,
+                  effect: Effect,
+                  schema: Value,
+                  run: fn(&BrowserTools, Value) -> Result<Value, ToolError>|
+         -> Arc<dyn Tool> {
+            Arc::new(WebTool {
+                spec: ToolSpec::new(name, desc, effect, schema),
+                host: self.clone(),
+                run,
+            })
         };
         let target = json!({"ref": {"type": "string", "description": "node ref from browser.read"}, "selector": {"type": "string", "description": "CSS selector matching exactly one element"}});
         vec![
@@ -126,9 +153,15 @@ impl BrowserTools {
 impl Drop for BrowserTools {
     fn drop(&mut self) {
         // Runtime is dropped after; block briefly on shutdown so Chrome never outlives us.
-        let s = self.session.get_mut().unwrap_or_else(|e| e.into_inner()).take();
+        let s = self
+            .session
+            .get_mut()
+            .unwrap_or_else(|e| e.into_inner())
+            .take();
         if let Some(s) = s {
-            let _ = self.rt.block_on(async { tokio::time::timeout(Duration::from_secs(10), s.shutdown()).await });
+            let _ = self.rt.block_on(async {
+                tokio::time::timeout(Duration::from_secs(10), s.shutdown()).await
+            });
         }
     }
 }

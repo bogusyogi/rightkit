@@ -12,7 +12,7 @@ use rusqlite::backup::{Backup, StepResult};
 use rusqlite::Connection;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 static COUNTER: AtomicU64 = AtomicU64::new(0);
 
@@ -33,6 +33,7 @@ pub fn online_backup_to(
     let temp = temp_path(target)?;
     let result = (|| -> Result<()> {
         let mut dst = Connection::open(&temp)?;
+        dst.busy_timeout(options.busy_timeout)?;
         apply_key_first(&dst, key.as_ref().map(|k| k.as_str()))?;
         {
             let backup = Backup::new(source, &mut dst)?;
@@ -81,6 +82,71 @@ pub fn online_backup_to(
         remove_with_sidecars(&temp);
     }
     result
+}
+
+/// Validate `backup_path` before copying it into an already-open `destination`.
+/// Uses the SQLite backup API, including committed WAL contents. `options` supplies
+/// the backup's key and timeout; its path is ignored. Invalid backups never touch
+/// `destination`. The destination must be writable and outside a transaction.
+pub fn restore_from(
+    options: &DbOptions,
+    destination: &mut Connection,
+    backup_path: &Path,
+) -> Result<()> {
+    let source = validated_backup(options, backup_path)?;
+    restore_validated(options, &source, destination)
+}
+
+impl DbOptions {
+    /// Validate the backup first, then open the existing live database without
+    /// bootstrap and restore it. Neither missing backup nor missing live DB is created.
+    /// The backup must use the same SQLCipher key as these options.
+    pub fn restore_from(&self, backup_path: impl AsRef<Path>) -> Result<()> {
+        let source = validated_backup(self, backup_path.as_ref())?;
+        let mut destination = self.open_existing_writer()?;
+        restore_validated(self, &source, &mut destination)
+    }
+}
+
+fn validated_backup(options: &DbOptions, path: &Path) -> Result<Connection> {
+    let source = options.open_existing_at(path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+    // Keep the checked snapshot stable until Backup has finished reading it.
+    source.execute_batch("BEGIN;")?;
+    let messages = {
+        let mut statement = source.prepare("PRAGMA integrity_check")?;
+        let rows = statement.query_map([], |row| row.get::<_, String>(0))?;
+        rows.collect::<rusqlite::Result<Vec<_>>>()?
+    };
+    if messages.is_empty()
+        || messages
+            .iter()
+            .any(|message| !message.trim().eq_ignore_ascii_case("ok"))
+    {
+        return Err(DbError::Integrity(messages.join("; ")));
+    }
+    Ok(source)
+}
+
+fn restore_validated(
+    options: &DbOptions,
+    source: &Connection,
+    destination: &mut Connection,
+) -> Result<()> {
+    let backup = Backup::new(source, destination)?;
+    let started = Instant::now();
+    loop {
+        match backup.step(512)? {
+            StepResult::Done => return Ok(()),
+            StepResult::More => {}
+            StepResult::Busy | StepResult::Locked => {
+                if started.elapsed() >= options.busy_timeout {
+                    return Err(DbError::Backup("restore busy timeout expired".into()));
+                }
+                std::thread::sleep(Duration::from_millis(25));
+            }
+            _ => return Err(DbError::Backup("unexpected restore step result".into())),
+        }
+    }
 }
 
 fn temp_path(target: &Path) -> Result<PathBuf> {

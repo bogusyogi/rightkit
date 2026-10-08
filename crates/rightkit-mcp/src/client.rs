@@ -2,6 +2,7 @@
 
 use std::collections::{BTreeMap, HashMap};
 use std::io::{BufRead, BufReader, Read, Write};
+use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::path::PathBuf;
 use std::process::{Child, ChildStdin, Command, Stdio};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -61,6 +62,7 @@ impl ClientOptions {
 /// Identity a connection reports its lifecycle under.
 #[derive(Clone)]
 struct Lifecycle {
+    /// Captured once per connection; reader and Drop retain this same identity.
     session_id: String,
     server: String,
     transport: &'static str,
@@ -84,6 +86,12 @@ impl Lifecycle {
             e.pid = pid;
             e
         });
+    }
+    fn emit_safely(&self, kind: LifecycleKind, reason: impl Into<String>, pid: Option<u32>) {
+        if let Err(payload) = catch_unwind(AssertUnwindSafe(|| self.emit(kind, reason, pid))) {
+            // Even a custom panic payload's destructor must not unwind from Drop.
+            std::mem::forget(payload);
+        }
     }
 }
 
@@ -188,33 +196,33 @@ impl StdioConn {
                     _ => {}
                 }
             }
+            if !k2.load(Ordering::SeqCst) {
+                // Unasked end of output: report a crash with the exit status when the OS has it.
+                let mut status = None;
+                for _ in 0..25 {
+                    if k2.load(Ordering::SeqCst) {
+                        break;
+                    }
+                    status = lock(&c2).try_wait().ok().flatten();
+                    if status.is_some() {
+                        break;
+                    }
+                    std::thread::sleep(Duration::from_millis(20));
+                }
+                if !k2.load(Ordering::SeqCst) {
+                    let reason = match status {
+                        Some(s) => format!("server process exited unexpectedly ({s})"),
+                        None => "server closed its output".to_string(),
+                    };
+                    l2.emit_safely(LifecycleKind::Crash, reason, Some(pid));
+                }
+            }
+            // Publish this connection's crash before EOF wakes a caller that can reconnect.
+            // A panicking sink must not prevent pending requests from being released.
             a2.store(false, Ordering::SeqCst);
             for (_, tx) in lock(&p2).drain() {
                 let _ = tx.send(Err(McpError::Closed));
             }
-            if k2.load(Ordering::SeqCst) {
-                return;
-            }
-            // Unasked end of output: report a crash with the exit status when the OS has it.
-            let mut status = None;
-            for _ in 0..25 {
-                if k2.load(Ordering::SeqCst) {
-                    return;
-                }
-                status = lock(&c2).try_wait().ok().flatten();
-                if status.is_some() {
-                    break;
-                }
-                std::thread::sleep(Duration::from_millis(20));
-            }
-            if k2.load(Ordering::SeqCst) {
-                return;
-            }
-            let reason = match status {
-                Some(s) => format!("server process exited unexpectedly ({s})"),
-                None => "server closed its output".to_string(),
-            };
-            l2.emit(LifecycleKind::Crash, reason, Some(pid));
         });
         Ok(StdioConn {
             child,
@@ -266,7 +274,7 @@ impl Drop for StdioConn {
         let _ = c.wait();
         drop(c);
         self.life
-            .emit(LifecycleKind::Stop, "closed", Some(self.pid));
+            .emit_safely(LifecycleKind::Stop, "closed", Some(self.pid));
     }
 }
 
@@ -395,7 +403,7 @@ impl HttpConn {
 impl Drop for HttpConn {
     fn drop(&mut self) {
         if self.started.swap(false, Ordering::SeqCst) {
-            self.life.emit(LifecycleKind::Stop, "closed", None);
+            self.life.emit_safely(LifecycleKind::Stop, "closed", None);
         }
     }
 }
