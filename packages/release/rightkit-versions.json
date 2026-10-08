@@ -361,7 +361,7 @@
       "@rightkit/release": "0.2.135",
       "@rightkit/settings-ui": "0.2.7",
       "@rightkit/shell": "0.1.0",
-      "@rightkit/tauri": "0.1.1",
+      "@rightkit/tauri": "0.2.0",
       "@rightkit/theme": "0.2.1",
       "@rightkit/updates": "0.2.5"
     }
