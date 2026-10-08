@@ -41,7 +41,7 @@ dependencies = [
 
 [[package]]
 name = "agent-room-core"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "axum",
  "rand 0.9.5",
@@ -4935,9 +4935,10 @@ dependencies = [
 
 [[package]]
 name = "rightkit-fs"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "libc",
+ "nix 0.30.1",
  "serde",
  "serde_json",
  "tempfile",
@@ -4965,8 +4966,9 @@ dependencies = [
 
 [[package]]
 name = "rightkit-jobs"
-version = "0.2.3"
+version = "0.2.4"
 dependencies = [
+ "nix 0.30.1",
  "rightkit-db",
  "rightkit-framed-sidecar",
  "rightkit-process",
@@ -5042,7 +5044,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-models"
-version = "0.2.2"
+version = "0.2.3"
 dependencies = [
  "base64 0.22.1",
  "chrono",
