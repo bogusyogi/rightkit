@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { spawnSync } from "./background-process.mjs";
 import { runCargoSync } from "./managed-cargo.mjs";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import test, { after } from "node:test";
 import {
   assertNoRightKitCargoOverrides,
@@ -17,6 +17,7 @@ import {
 } from "./cargo-contract.mjs";
 import { assertAsrAdapterPair } from "./asr-artifact-adoption.mjs";
 import { resolveConfiguredBuildInputs } from "./release-invocation.mjs";
+import { compareVersions } from "./rightkit-sync.mjs";
 
 const workspace = path.resolve(
   process.env.RIGHT_SUITE_CONTRACT_WORKSPACE
@@ -26,7 +27,7 @@ const workspace = path.resolve(
 // a not-yet-renamed checkout may still have `rightapps`. Resolve whichever exists so the contract
 // passes on both. (The runtime service namespace stays `rightapps` — that is deliberately untouched.)
 const siteRepoDir = existsSync(path.join(workspace, "rightsites")) ? "rightsites" : "rightapps";
-const versionsPath = path.join(path.dirname(new URL(import.meta.url).pathname.replace(/^\/(\w:)/, "$1")), "rightkit-versions.json");
+const versionsPath = path.join(path.dirname(fileURLToPath(import.meta.url)), "rightkit-versions.json");
 const versions = JSON.parse(readFileSync(versionsPath, "utf8"));
 const isolatedCargoHome = mkdtempSync(path.join(tmpdir(), "rightkit-cargo-home-"));
 after(() => rmSync(isolatedCargoHome, { recursive: true, force: true }));
@@ -501,10 +502,33 @@ test("RightKit exposes one current version manifest", () => {
   assert.equal(versions.cargo["rightkit-license"], "0.1.2");
   assert.equal(versions.cargo["rightkit-logs"], "0.1.0");
   assert.equal(versions.cargo["rightkit-tauri"], "0.1.0");
-    // recordPublished rewrites the staged table on every publish; assert its shape, not a snapshot.
-    for (const [name, version] of Object.entries(versions.stagedCargo)) assert.match(version, /^\d+\.\d+\.\d+$/, `stagedCargo ${name}`);
+  // recordPublished rewrites the staged table on every publish; assert its shape, not a snapshot.
+  for (const [name, version] of Object.entries(versions.stagedCargo)) assert.match(version, /^\d+\.\d+\.\d+$/, `stagedCargo ${name}`);
+  for (const [name, list] of Object.entries(versions.legacyCargo ?? {})) for (const version of list) assert.match(version, /^\d+\.\d+\.\d+$/, `legacyCargo ${name}`);
   assert.deepEqual(versions.stagedSwift, { "rightkit-swift": { url: "https://github.com/bogusyogi/rightkit-swift.git", version: "0.3.1" } });
   getCurrentCargoVersionContract();
+});
+
+test("superseded published rollout versions remain in legacy", () => {
+  // One bounded local lookup; exported/standalone packages still enforce recorded publication below.
+  const head = spawnSync("git", ["show", "HEAD:./rightkit-versions.json"], {
+    cwd: path.dirname(versionsPath), encoding: "utf8", timeout: 5_000, maxBuffer: 1024 * 1024,
+  });
+  const previous = head.status === 0 ? JSON.parse(head.stdout) : null;
+  for (const [registry, stagedKey, legacyKey] of [["npm", "stagedNpm", "legacyNpm"], ["cargo", "stagedCargo", "legacyCargo"]]) {
+    for (const [name, published] of Object.entries(versions.registry?.[registry] ?? {})) {
+      const staged = versions[stagedKey]?.[name];
+      if (!staged || compareVersions(published, staged) >= 0 || published === versions[registry]?.[name]) continue;
+      assert.ok(versions[legacyKey]?.[name]?.includes(published), `${name} published ${published} is older than staged ${staged}; retain it in ${legacyKey}`);
+    }
+    for (const [name, stagedBefore] of Object.entries(previous?.[stagedKey] ?? {})) {
+      const stagedNow = versions[stagedKey]?.[name];
+      const published = stagedBefore === previous.registry?.[registry]?.[name]
+        || stagedBefore === versions.registry?.[registry]?.[name];
+      if (!published || !stagedNow || compareVersions(stagedBefore, stagedNow) >= 0) continue;
+      assert.ok(versions[legacyKey]?.[name]?.includes(stagedBefore), `${name} published HEAD staging ${stagedBefore} was superseded by ${stagedNow}; retain it in ${legacyKey}`);
+    }
+  }
 });
 
 test("Cargo metadata uses managed Cargo directly on Windows", () => {

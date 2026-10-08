@@ -35,11 +35,69 @@ export function rightkitPublishables(root = rightkitRoot) {
   return { crates, packages };
 }
 
+const SEMVER = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-((?:0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*)(?:\.(?:0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*))*))?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/;
+
 export function compareVersions(left, right) {
-  const parse = (value) => String(value).split("-")[0].split(".").map((part) => Number.parseInt(part, 10) || 0);
-  const a = parse(left); const b = parse(right);
-  for (let i = 0; i < 3; i += 1) if (a[i] !== b[i]) return a[i] - b[i];
+  const a = String(left).match(SEMVER); const b = String(right).match(SEMVER);
+  if (!a || !b) throw new Error(`invalid semver: ${!a ? left : right}`);
+  const compare = (x, y) => x < y ? -1 : x > y ? 1 : 0;
+  for (let i = 1; i <= 3; i += 1) {
+    const order = compare(BigInt(a[i]), BigInt(b[i]));
+    if (order) return order;
+  }
+  if (!a[4] || !b[4]) return compare(Boolean(b[4]), Boolean(a[4]));
+  const ap = a[4].split("."); const bp = b[4].split(".");
+  for (let i = 0; i < Math.max(ap.length, bp.length); i += 1) {
+    if (ap[i] === undefined || bp[i] === undefined) return compare(ap.length, bp.length);
+    const an = /^\d+$/.test(ap[i]); const bn = /^\d+$/.test(bp[i]);
+    const order = an && bn ? compare(BigInt(ap[i]), BigInt(bp[i]))
+      : an !== bn ? (an ? -1 : 1) : compare(ap[i], bp[i]);
+    if (order) return order;
+  }
   return 0;
+}
+
+const versionKeys = (registry) => {
+  if (!["npm", "cargo"].includes(registry)) throw new Error(`unknown registry: ${registry}; expected npm or cargo`);
+  return registry === "npm" ? ["stagedNpm", "legacyNpm"] : ["stagedCargo", "legacyCargo"];
+};
+
+// Use publication evidence captured before replacing registry[name], never staging alone.
+function retainPublished(versions, { registry, name, version }, candidates, latest) {
+  const [, legacyKey] = versionKeys(registry);
+  const recorded = versions.registry?.[registry]?.[name];
+  const eligible = candidates.filter((previous) => previous && compareVersions(previous, version) < 0
+    && (previous === recorded || previous === latest));
+  if (!eligible.length) return;
+  versions[legacyKey] ??= {};
+  versions[legacyKey][name] = [...new Set([...(versions[legacyKey][name] ?? []), ...eligible])].sort(compareVersions);
+}
+
+/** Stage a rollout while preserving published pins, then refresh consumer copies. */
+export async function stageVersion({ registry, name, version }, { file = VERSIONS_FILE, root = rightkitRoot, log = (line) => process.stdout.write(`${line}\n`), fetchImpl = fetch } = {}) {
+  const [stagedKey] = versionKeys(registry);
+  if (typeof name !== "string" || !name.trim()) throw new Error("stage requires a package or crate name");
+  if (typeof version !== "string" || !SEMVER.test(version)) throw new Error(`invalid semver: ${version}`);
+  const versions = JSON.parse(readFileSync(file, "utf8"));
+  const current = versions[stagedKey]?.[name] ?? versions[registry]?.[name] ?? null;
+  if (current && compareVersions(version, current) < 0) throw new Error(`refusing to stage ${name} ${version} below ${current}`);
+  const next = structuredClone(versions);
+  const recorded = next.registry?.[registry]?.[name];
+  let latest;
+  if (current && compareVersions(current, version) < 0 && current !== recorded) {
+    const [result] = await registryLatest({ crates: registry === "cargo" ? [name] : [], packages: registry === "npm" ? [name] : [] }, { fetchImpl });
+    latest = result.version;
+  }
+  retainPublished(next, { registry, name, version }, [current, recorded], latest);
+  next[stagedKey] ??= {};
+  next[stagedKey][name] = version;
+  next[stagedKey] = Object.fromEntries(Object.entries(next[stagedKey]).sort(([a], [b]) => a.localeCompare(b)));
+  const written = JSON.stringify(next) !== JSON.stringify(versions);
+  if (written) writeFileSync(file, `${JSON.stringify(next, null, 2)}\n`);
+  const copies = syncConsumerCopies(root);
+  log(`${registry} ${name}: ${current ?? "unlisted"} -> ${version}`);
+  for (const copy of copies) log(`refreshed ${copy}`);
+  return { changes: current !== version ? [{ registry, name, from: current, to: version }] : [], copies, written };
 }
 
 async function fetchJson(fetchImpl, url) {
@@ -71,20 +129,19 @@ export function applyRegistryLatest(versions, latest) {
   const next = structuredClone(versions); const changes = []; let verified = 0;
   for (const { registry, name, version } of latest) {
     if (!version) continue;
+    const [stagedKey] = versionKeys(registry);
+    const current = next[stagedKey]?.[name] ?? next[registry]?.[name] ?? null;
+    const recorded = next.registry?.[registry]?.[name];
+    retainPublished(next, { registry, name, version }, [current, recorded], version);
+    // A registry can lag an unpublished staged rollout: its published pin still stays allowed.
+    if (current && compareVersions(version, current) < 0) {
+      retainPublished(next, { registry, name, version: current }, [recorded, version], version);
+    }
     // What the registry serves: the only versions adoption recommends (staged may still be unpublished).
     next.registry ??= { cargo: {}, npm: {} }; next.registry[registry] ??= {};
     if (next.registry[registry][name] !== version) { next.registry[registry][name] = version; verified += 1; }
-    const stagedKey = registry === "cargo" ? "stagedCargo" : "stagedNpm";
-    const legacyKey = registry === "cargo" ? "legacyCargo" : "legacyNpm";
-    const current = next[stagedKey]?.[name] ?? next[registry]?.[name] ?? null;
     if (current && compareVersions(version, current) <= 0) continue;
     next[stagedKey] ??= {};
-    const previous = next[stagedKey][name];
-    if (previous && previous !== next[registry]?.[name]) {
-      next[legacyKey] ??= {};
-      const legacy = new Set(next[legacyKey][name] ?? []); legacy.add(previous);
-      next[legacyKey][name] = [...legacy].sort(compareVersions);
-    }
     next[stagedKey][name] = version;
     next[stagedKey] = Object.fromEntries(Object.entries(next[stagedKey]).sort(([a], [b]) => a.localeCompare(b)));
     changes.push({ registry, name, from: current, to: version });
@@ -96,24 +153,26 @@ export function applyRegistryLatest(versions, latest) {
 export async function syncRightkitVersions({ check = false, fetchImpl = fetch, file = VERSIONS_FILE, root = rightkitRoot, log = (line) => process.stdout.write(`${line}\n`) } = {}) {
   const versions = JSON.parse(readFileSync(file, "utf8"));
   const latest = await registryLatest(rightkitPublishables(root), { fetchImpl });
-  const { versions: next, changes, verified } = applyRegistryLatest(versions, latest);
+  const { versions: next, changes } = applyRegistryLatest(versions, latest);
   for (const change of changes) log(`${change.registry} ${change.name}: ${change.from ?? "unlisted"} -> ${change.to}`);
   const unpublished = latest.filter((item) => !item.version).map((item) => `${item.registry}:${item.name}`);
   if (unpublished.length) log(`never published: ${unpublished.join(", ")}`);
   if (!changes.length) log("rightkit-versions.json matches the registries");
   if (check) return { changes, unpublished, copies: [], written: false };
-  if (changes.length || verified) writeFileSync(file, `${JSON.stringify(next, null, 2)}\n`);
+  const written = JSON.stringify(next) !== JSON.stringify(versions);
+  if (written) writeFileSync(file, `${JSON.stringify(next, null, 2)}\n`);
   const copies = syncConsumerCopies(root);
   for (const copy of copies) log(`refreshed ${copy}`);
-  return { changes, unpublished, copies, written: changes.length > 0 };
+  return { changes, unpublished, copies, written };
 }
 
 /** Record one just-published version (the registry index can lag the upload) and refresh the copies.
  * Called by right-release after a verified cargo or npm publish; never fails the publish itself. */
 export function recordPublished({ registry, name, version }, { file = VERSIONS_FILE, root = rightkitRoot, log = (line) => process.stdout.write(`${line}\n`) } = {}) {
   try {
-    const { versions: next, changes, verified } = applyRegistryLatest(JSON.parse(readFileSync(file, "utf8")), [{ registry, name, version }]);
-    if (changes.length || verified) writeFileSync(file, `${JSON.stringify(next, null, 2)}\n`);
+    const versions = JSON.parse(readFileSync(file, "utf8"));
+    const { versions: next, changes } = applyRegistryLatest(versions, [{ registry, name, version }]);
+    if (JSON.stringify(next) !== JSON.stringify(versions)) writeFileSync(file, `${JSON.stringify(next, null, 2)}\n`);
     const copies = syncConsumerCopies(root);
     log(`[right-release] release feed: ${name} ${version} ${changes.length ? "staged" : "already current"}${copies.length ? `; refreshed ${copies.length} copies` : ""}; commit rightkit-versions.json and its copies`);
   } catch (error) { log(`[right-release] release feed not updated (${error.message}); run node rightkit-sync.mjs`); }
@@ -143,8 +202,16 @@ export function syncConsumerCopies(root = rightkitRoot) {
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  const check = process.argv.includes("--check");
-  syncRightkitVersions({ check })
-    .then(({ changes }) => { if (check && changes.length) process.exitCode = 1; })
-    .catch((error) => { process.stderr.write(`rightkit-sync: ${error.message}\n`); process.exitCode = 1; });
+  const main = async () => {
+    const args = process.argv.slice(2);
+    if (args[0] === "stage") {
+      if (args.length !== 4) throw new Error("usage: node rightkit-sync.mjs stage <npm|cargo> <name> <version>");
+      await stageVersion({ registry: args[1], name: args[2], version: args[3] });
+      return;
+    }
+    const check = args.includes("--check");
+    const { changes } = await syncRightkitVersions({ check });
+    if (check && changes.length) process.exitCode = 1;
+  };
+  main().catch((error) => { process.stderr.write(`rightkit-sync: ${error.message}\n`); process.exitCode = 1; });
 }
