@@ -446,7 +446,7 @@ private func keychainPreflight() throws {
   case errSecSuccess, errSecItemNotFound, errSecInteractionNotAllowed:
     print("Keychain preflight: PASS (data-protection group \(group) is available; no authentication performed).")
   case errSecMissingEntitlement:
-    throw ApprovalError.keychainPreflight("signed helper lacks data-protection access to \(group); check com.apple.application-identifier")
+    throw ApprovalError.keychainPreflight("signed helper lacks data-protection access to \(group); verify its embedded Developer ID profile authorizes this app ID, signing certificate and keychain access group")
   default:
     throw ApprovalError.keychainPreflight("SecItemCopyMatching returned OSStatus \(status)")
   }
