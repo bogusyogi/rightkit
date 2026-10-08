@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-db"
-version = "0.3.0"
+version = "0.3.1"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Correct-by-default SQLite and SQLCipher connection bootstrap for Right Suite apps."
@@ -14,7 +14,14 @@ include = ["src/**", "tests/**", "README.md", "LICENSE-MIT", "LICENSE-APACHE"]
 [features]
 default = ["bundled"]
 bundled = ["rusqlite/bundled"]
-sqlcipher = ["rusqlite/bundled-sqlcipher-vendored-openssl"]
+# SQLCipher with vendored OpenSSL (the same crypto provider on every OS).
+sqlcipher = ["cipher", "rusqlite/bundled-sqlcipher-vendored-openssl"]
+# SQLCipher with the system crypto provider (CommonCrypto on Apple, libcrypto elsewhere).
+# Use it where existing encrypted databases were created with system crypto; switching the
+# provider is not a silent refactor.
+sqlcipher-system = ["cipher", "rusqlite/bundled-sqlcipher"]
+# Enabled by either SQLCipher feature; gates keyed-open and rekey code. Not meant to be named directly.
+cipher = []
 hooks = ["rusqlite/hooks"]
 
 [dependencies]

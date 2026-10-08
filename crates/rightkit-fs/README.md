@@ -5,5 +5,6 @@ Safe filesystem state for Right Suite apps: descriptor-pinned state directories
 (`FileLock`), owner-only files (`write_private_file`, `ensure_private_dir`), and
 stable file identity across renames (`IdentityStore`).
 
-See `API.md` in the lane folder for the per-app migration table. Unix is fully
-descriptor-pinned; Windows uses a path-based fallback that refuses reparse points.
+See `API.md` in the lane folder for the per-app migration table. Unix operations
+are descriptor-relative; Windows operations are handle-relative and refuse reparse
+points. Ancestor replacement cannot redirect a pinned state directory.

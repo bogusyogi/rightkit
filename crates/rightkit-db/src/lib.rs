@@ -1,6 +1,9 @@
 // Unsafe is confined to the host-name FFI in `host`.
 #![deny(unsafe_code)]
 
+#[cfg(all(feature = "sqlcipher", feature = "sqlcipher-system"))]
+compile_error!("rightkit-db features `sqlcipher` and `sqlcipher-system` are mutually exclusive; enable exactly one");
+
 use rusqlite::{Connection, OpenFlags, Transaction, TransactionBehavior};
 use std::ffi::OsString;
 use std::ops::Deref;
@@ -26,7 +29,7 @@ pub use migrate::{
     rollback_to_with_storage, user_version, MigrateOptions, Migration, MigrationReport,
     PendingMarker, Step, VersionStorage,
 };
-#[cfg(feature = "sqlcipher")]
+#[cfg(feature = "cipher")]
 pub use recover::rekey;
 pub use recover::{quarantine_database, OpenOutcome, RecoveryPolicy};
 
@@ -39,7 +42,7 @@ pub type Result<T> = std::result::Result<T, DbError>;
 pub enum DbError {
     #[error("SQLite error: {0}")]
     Sqlite(#[from] rusqlite::Error),
-    #[error("a SQLCipher key requires the rightkit-db `sqlcipher` feature")]
+    #[error("a SQLCipher key requires the rightkit-db `sqlcipher` or `sqlcipher-system` feature")]
     SqlcipherFeatureRequired,
     #[error("SQLCipher key contains characters that are unsafe for PRAGMA interpolation")]
     InvalidSqlcipherKey,
@@ -320,12 +323,12 @@ impl DbOptions {
     /// The `PRAGMA key` right-hand side (already quoted), validated against injection.
     fn key_pragma_value(&self) -> Result<Option<Zeroizing<String>>> {
         if let Some(raw) = &self.raw_key {
-            #[cfg(not(feature = "sqlcipher"))]
+            #[cfg(not(feature = "cipher"))]
             {
                 let _ = raw;
                 return Err(DbError::SqlcipherFeatureRequired);
             }
-            #[cfg(feature = "sqlcipher")]
+            #[cfg(feature = "cipher")]
             {
                 let hex: String = raw.iter().map(|b| format!("{b:02x}")).collect();
                 return Ok(Some(Zeroizing::new(format!("\"x'{hex}'\""))));
@@ -512,7 +515,7 @@ pub fn write_txn(conn: &mut Connection) -> Result<Transaction<'_>> {
         .map_err(Into::into)
 }
 
-#[cfg(feature = "sqlcipher")]
+#[cfg(feature = "cipher")]
 fn apply_key_first(conn: &Connection, key: Option<&str>) -> Result<()> {
     if let Some(key) = key {
         let statement = Zeroizing::new(format!("PRAGMA key = {key};"));
@@ -521,7 +524,7 @@ fn apply_key_first(conn: &Connection, key: Option<&str>) -> Result<()> {
     Ok(())
 }
 
-#[cfg(not(feature = "sqlcipher"))]
+#[cfg(not(feature = "cipher"))]
 fn apply_key_first(_conn: &Connection, key: Option<&str>) -> Result<()> {
     if key.is_some() {
         return Err(DbError::SqlcipherFeatureRequired);
@@ -530,7 +533,7 @@ fn apply_key_first(_conn: &Connection, key: Option<&str>) -> Result<()> {
 }
 
 fn validate_key(key: Option<&str>) -> Result<()> {
-    #[cfg(not(feature = "sqlcipher"))]
+    #[cfg(not(feature = "cipher"))]
     if key.is_some() {
         return Err(DbError::SqlcipherFeatureRequired);
     }

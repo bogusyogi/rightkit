@@ -116,7 +116,7 @@ fn checkpoint_and_optimize_helpers_report_results() {
     optimize_boundary(&conn).unwrap();
 }
 
-#[cfg(not(feature = "sqlcipher"))]
+#[cfg(not(feature = "cipher"))]
 #[test]
 fn plain_build_rejects_a_key_instead_of_silently_ignoring_it() {
     let dir = tempfile::tempdir().unwrap();
@@ -130,7 +130,7 @@ fn plain_build_rejects_a_key_instead_of_silently_ignoring_it() {
     assert!(!path.exists());
 }
 
-#[cfg(feature = "sqlcipher")]
+#[cfg(feature = "cipher")]
 #[test]
 fn sqlcipher_key_is_applied_before_any_database_access() {
     let dir = tempfile::tempdir().unwrap();

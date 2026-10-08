@@ -1,0 +1,632 @@
+//! Native bindings match winternl.h/winbase.h. No path is retained for operations.
+use super::{EntryKind, EntryStat};
+use crate::error::{FsError, Result};
+use std::ffi::{c_void, OsStr};
+use std::fs::File;
+use std::io;
+use std::mem::{offset_of, size_of};
+use std::os::windows::ffi::OsStrExt;
+use std::os::windows::io::{AsRawHandle, FromRawHandle};
+use std::path::{Component, Path, PathBuf, Prefix};
+use std::ptr::{null, null_mut};
+use std::sync::Mutex;
+
+type Handle = *mut c_void;
+const READ_ATTRIBUTES: u32 = 0x80;
+const SYNCHRONIZE: u32 = 0x0010_0000;
+const DELETE: u32 = 0x0001_0000;
+const SHARE_READ_WRITE: u32 = 3; // Deliberately excludes FILE_SHARE_DELETE.
+const FILE_OPEN: u32 = 1;
+const FILE_CREATE: u32 = 2;
+const FILE_OPEN_IF: u32 = 3;
+const DIRECTORY_FILE: u32 = 1;
+const NON_DIRECTORY_FILE: u32 = 0x40;
+const OPEN_REPARSE_POINT: u32 = 0x0020_0000;
+const SYNCHRONOUS_IO_NONALERT: u32 = 0x20;
+const ATTRIBUTE_DIRECTORY: u32 = 0x10;
+const ATTRIBUTE_REPARSE_POINT: u32 = 0x400;
+const FILE_ATTRIBUTE_TAG_INFO: i32 = 9;
+const FILE_DISPOSITION_INFO: i32 = 4;
+const FILE_RENAME_INFORMATION: i32 = 10;
+const FILE_ID_BOTH_DIRECTORY_INFO: i32 = 10;
+const FILE_ID_BOTH_DIRECTORY_RESTART_INFO: i32 = 11;
+
+#[repr(C)]
+struct UnicodeString {
+    length: u16,
+    maximum_length: u16,
+    buffer: *mut u16,
+}
+
+#[repr(C)]
+struct ObjectAttributes {
+    length: u32,
+    root_directory: Handle,
+    object_name: *mut UnicodeString,
+    attributes: u32,
+    security_descriptor: *mut c_void,
+    security_quality_of_service: *mut c_void,
+}
+
+#[repr(C)]
+struct IoStatusBlock {
+    status: usize, // NTSTATUS / pointer union.
+    information: usize,
+}
+
+#[repr(C)]
+struct AttributeTagInfo {
+    attributes: u32,
+    tag: u32,
+}
+
+#[repr(C)]
+#[derive(PartialEq, Eq)]
+struct FileIdInfo {
+    volume: u64,
+    id: [u8; 16],
+}
+
+#[repr(C)]
+struct RenameInfo {
+    replace_if_exists: u8,
+    root_directory: Handle,
+    file_name_length: u32,
+    file_name: [u16; 1],
+}
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+struct DirectoryInfo {
+    next_entry_offset: u32,
+    file_index: u32,
+    creation_time: i64,
+    last_access_time: i64,
+    last_write_time: i64,
+    change_time: i64,
+    end_of_file: i64,
+    allocation_size: i64,
+    attributes: u32,
+    file_name_length: u32,
+    ea_size: u32,
+    short_name_length: i8,
+    short_name: [u16; 12],
+    file_id: i64,
+    file_name: [u16; 1],
+}
+
+#[link(name = "ntdll")]
+unsafe extern "system" {
+    fn NtCreateFile(
+        file: *mut Handle,
+        access: u32,
+        attributes: *mut ObjectAttributes,
+        status: *mut IoStatusBlock,
+        allocation: *const i64,
+        file_attributes: u32,
+        share: u32,
+        disposition: u32,
+        options: u32,
+        ea: *const c_void,
+        ea_length: u32,
+    ) -> i32;
+    fn NtSetInformationFile(
+        file: Handle,
+        status: *mut IoStatusBlock,
+        info: *const c_void,
+        size: u32,
+        class: i32,
+    ) -> i32;
+    fn RtlNtStatusToDosError(status: i32) -> u32;
+}
+
+#[link(name = "kernel32")]
+unsafe extern "system" {
+    fn CreateFileW(
+        name: *const u16,
+        access: u32,
+        share: u32,
+        security: *const c_void,
+        disposition: u32,
+        flags: u32,
+        template: Handle,
+    ) -> Handle;
+    fn GetFileInformationByHandleEx(file: Handle, class: i32, info: *mut c_void, size: u32) -> i32;
+    fn SetFileInformationByHandle(file: Handle, class: i32, info: *const c_void, size: u32) -> i32;
+    fn LocalFree(memory: *mut c_void) -> *mut c_void;
+}
+
+#[link(name = "advapi32")]
+unsafe extern "system" {
+    fn ConvertStringSecurityDescriptorToSecurityDescriptorW(
+        string: *const u16,
+        revision: u32,
+        descriptor: *mut *mut c_void,
+        size: *mut u32,
+    ) -> i32;
+}
+
+struct SecurityDescriptor(*mut c_void);
+impl SecurityDescriptor {
+    fn owner_only(shown: &Path, directory: bool) -> Result<Self> {
+        let sid = crate::private::current_process_sid_string(shown)?;
+        let inherit = if directory { "OICI" } else { "" };
+        let sddl: Vec<u16> = format!("D:P(A;{inherit};FA;;;{sid})")
+            .encode_utf16()
+            .chain(Some(0))
+            .collect();
+        let mut raw = null_mut();
+        // SAFETY: NUL-terminated SDDL; API allocates the returned descriptor.
+        if unsafe {
+            ConvertStringSecurityDescriptorToSecurityDescriptorW(
+                sddl.as_ptr(),
+                1,
+                &mut raw,
+                null_mut(),
+            )
+        } == 0
+        {
+            return Err(FsError::io(shown, io::Error::last_os_error()));
+        }
+        Ok(Self(raw))
+    }
+}
+impl Drop for SecurityDescriptor {
+    fn drop(&mut self) {
+        // SAFETY: allocation returned by ConvertStringSecurityDescriptorToSecurityDescriptorW.
+        unsafe { LocalFree(self.0) };
+    }
+}
+
+#[derive(Debug)]
+pub struct Dir {
+    file: File,
+    enumeration: Mutex<()>,
+}
+
+fn attributes(file: &File, shown: &Path) -> Result<u32> {
+    let mut info = AttributeTagInfo {
+        attributes: 0,
+        tag: 0,
+    };
+    // SAFETY: open handle and correctly sized writable structure.
+    if unsafe {
+        GetFileInformationByHandleEx(
+            file.as_raw_handle(),
+            FILE_ATTRIBUTE_TAG_INFO,
+            (&mut info as *mut AttributeTagInfo).cast(),
+            size_of::<AttributeTagInfo>() as u32,
+        )
+    } == 0
+    {
+        return Err(FsError::io(shown, io::Error::last_os_error()));
+    }
+    if info.attributes & ATTRIBUTE_REPARSE_POINT != 0 {
+        return Err(FsError::Symlink(shown.to_path_buf()));
+    }
+    Ok(info.attributes)
+}
+
+pub(super) fn valid_component(name: &str) -> bool {
+    !name.is_empty()
+        && name != "."
+        && name != ".."
+        && !name.ends_with(['.', ' '])
+        && !name
+            .chars()
+            .any(|c| c < ' ' || matches!(c, '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|'))
+        && name.encode_utf16().count() <= 255
+}
+
+fn component(name: &OsStr) -> Result<Vec<u16>> {
+    let shown = name.to_string_lossy();
+    // Lossy names are refused rather than addressing a different entry.
+    let text = name
+        .to_str()
+        .ok_or_else(|| FsError::BadName(shown.into_owned()))?;
+    if !valid_component(text) {
+        return Err(FsError::BadName(text.to_string()));
+    }
+    Ok(name.encode_wide().collect())
+}
+
+impl Dir {
+    fn open_path(path: &Path) -> Result<Self> {
+        let wide: Vec<u16> = path.as_os_str().encode_wide().chain(Some(0)).collect();
+        if wide[..wide.len() - 1].contains(&0) {
+            return Err(FsError::BadName(path.display().to_string()));
+        }
+        // SAFETY: NUL-terminated path, no security/template pointers. OPEN_REPARSE_POINT
+        // opens the leaf itself; identity is compared with the component walk before use.
+        let raw = unsafe {
+            CreateFileW(
+                wide.as_ptr(),
+                1 | READ_ATTRIBUTES | SYNCHRONIZE,
+                SHARE_READ_WRITE,
+                null(),
+                3,
+                0x0200_0000 | 0x0020_0000,
+                null_mut(),
+            ) // FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT
+        };
+        if raw as isize == -1 || raw.is_null() {
+            return Err(FsError::io(path, io::Error::last_os_error()));
+        }
+        // SAFETY: CreateFileW returned a fresh owned handle.
+        Self::verified(unsafe { File::from_raw_handle(raw) }, path)
+    }
+
+    fn identity(&self, shown: &Path) -> Result<FileIdInfo> {
+        let mut id = FileIdInfo {
+            volume: 0,
+            id: [0; 16],
+        };
+        // SAFETY: live directory handle and a correctly sized FileIdInfo out-parameter.
+        if unsafe {
+            GetFileInformationByHandleEx(
+                self.file.as_raw_handle(),
+                18,
+                (&mut id as *mut FileIdInfo).cast(),
+                size_of::<FileIdInfo>() as u32,
+            )
+        } == 0
+        {
+            return Err(FsError::io(shown, io::Error::last_os_error()));
+        }
+        Ok(id)
+    }
+
+    fn verified(file: File, shown: &Path) -> Result<Self> {
+        if attributes(&file, shown)? & ATTRIBUTE_DIRECTORY == 0 {
+            return Err(FsError::NotADirectory(shown.to_path_buf()));
+        }
+        Ok(Self {
+            file,
+            enumeration: Mutex::new(()),
+        })
+    }
+
+    fn open_at(&self, name: &OsStr, access: u32, disposition: u32, options: u32) -> Result<File> {
+        let shown = Path::new(name);
+        let mut wide = component(name)?;
+        let len = u16::try_from(wide.len() * 2)
+            .map_err(|_| FsError::BadName(shown.display().to_string()))?;
+        let mut name = UnicodeString {
+            length: len,
+            maximum_length: len,
+            buffer: wide.as_mut_ptr(),
+        };
+        let security = if disposition != FILE_OPEN {
+            Some(SecurityDescriptor::owner_only(
+                shown,
+                options & DIRECTORY_FILE != 0,
+            )?)
+        } else {
+            None
+        };
+        let mut object = ObjectAttributes {
+            length: size_of::<ObjectAttributes>() as u32,
+            root_directory: self.file.as_raw_handle(),
+            object_name: &mut name,
+            attributes: 0x40, // OBJ_CASE_INSENSITIVE, never OBJ_INHERIT.
+            security_descriptor: security.as_ref().map_or(null_mut(), |s| s.0),
+            security_quality_of_service: null_mut(),
+        };
+        let mut status = IoStatusBlock {
+            status: 0,
+            information: 0,
+        };
+        let mut raw = null_mut();
+        // SAFETY: live root handle, bounded single component, valid structures; synchronous
+        // open finishes before any buffers or security descriptor are released.
+        let result = unsafe {
+            NtCreateFile(
+                &mut raw,
+                access | READ_ATTRIBUTES | SYNCHRONIZE,
+                &mut object,
+                &mut status,
+                null(),
+                0x80,
+                SHARE_READ_WRITE,
+                disposition,
+                options | OPEN_REPARSE_POINT | SYNCHRONOUS_IO_NONALERT,
+                null(),
+                0,
+            )
+        };
+        if result < 0 {
+            // SAFETY: translates NTSTATUS, not thread-local GetLastError.
+            let error =
+                io::Error::from_raw_os_error(unsafe { RtlNtStatusToDosError(result) } as i32);
+            return Err(if error.kind() == io::ErrorKind::AlreadyExists {
+                FsError::AlreadyExists(shown.to_path_buf())
+            } else {
+                FsError::io(shown, error)
+            });
+        }
+        if raw.is_null() || raw as isize == -1 {
+            return Err(FsError::Unavailable(
+                "NtCreateFile returned no child handle",
+            ));
+        }
+        // SAFETY: successful NtCreateFile transfers ownership of this handle.
+        let file = unsafe { File::from_raw_handle(raw) };
+        attributes(&file, shown)?;
+        Ok(file)
+    }
+
+    pub fn pin(path: &Path, create: bool) -> Result<Self> {
+        if path.as_os_str().is_empty() {
+            return Err(FsError::BadName(String::new()));
+        }
+        let absolute = if path.is_absolute() {
+            path.to_path_buf()
+        } else {
+            std::env::current_dir()
+                .map_err(|e| FsError::io(path, e))?
+                .join(path)
+        };
+        let mut parts = absolute.components();
+        let mut root = PathBuf::new();
+        match parts.next() {
+            Some(Component::Prefix(p))
+                if matches!(
+                    p.kind(),
+                    Prefix::Disk(_)
+                        | Prefix::VerbatimDisk(_)
+                        | Prefix::UNC(_, _)
+                        | Prefix::VerbatimUNC(_, _)
+                ) =>
+            {
+                root.push(p.as_os_str())
+            }
+            _ => return Err(FsError::BadName(path.display().to_string())),
+        }
+        if !matches!(parts.next(), Some(Component::RootDir)) {
+            return Err(FsError::BadName(path.display().to_string()));
+        }
+        root.push("\\");
+        let mut current = Self::open_path(&root)?;
+        for part in parts {
+            match part {
+                Component::CurDir => continue,
+                Component::Normal(name) => {
+                    root.push(name);
+                    let file = current.open_at(
+                        name,
+                        1,
+                        if create { FILE_OPEN_IF } else { FILE_OPEN },
+                        DIRECTORY_FILE,
+                    )?;
+                    current = Self::verified(file, &root)?;
+                }
+                _ => return Err(FsError::BadName(path.display().to_string())),
+            }
+        }
+        // Retain one CreateFileW handle for the state directory, checked against the
+        // no-reparse component walk. Any ancestor swap during this final open fails closed.
+        let pinned = Self::open_path(&absolute)?;
+        if current.identity(path)? != pinned.identity(path)? {
+            return Err(FsError::IdentityChanged(path.to_path_buf()));
+        }
+        Ok(pinned)
+    }
+
+    pub fn child(&self, name: &str) -> Result<Self> {
+        let file = self.open_at(OsStr::new(name), 1, FILE_OPEN_IF, DIRECTORY_FILE)?;
+        Self::verified(file, Path::new(name))
+    }
+
+    pub fn stat(&self, name: &str) -> Result<Option<EntryStat>> {
+        let file = match self.open_at(OsStr::new(name), READ_ATTRIBUTES, FILE_OPEN, 0) {
+            Ok(file) => file,
+            Err(e) if e.is_not_found() => return Ok(None),
+            Err(e) => return Err(e),
+        };
+        let m = file.metadata().map_err(|e| FsError::io(name, e))?;
+        Ok(Some(EntryStat {
+            kind: if m.is_dir() {
+                EntryKind::Dir
+            } else if m.is_file() {
+                EntryKind::File
+            } else {
+                EntryKind::Other
+            },
+            size: m.len(),
+            dev: 0,
+            ino: 0,
+            mode: 0,
+            modified_unix_ms: m
+                .modified()
+                .ok()
+                .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                .map(|d| d.as_millis() as u64)
+                .unwrap_or(0),
+        }))
+    }
+
+    pub fn open_read(&self, name: &str) -> Result<File> {
+        self.open_at(OsStr::new(name), 1, FILE_OPEN, NON_DIRECTORY_FILE)
+    }
+
+    pub fn create_new(&self, name: &str) -> Result<File> {
+        self.open_at(
+            OsStr::new(name),
+            0x0012_0116,
+            FILE_CREATE,
+            NON_DIRECTORY_FILE,
+        ) // FILE_GENERIC_WRITE
+    }
+
+    fn rename(&self, from: &str, to: &str, replace: bool) -> Result<()> {
+        let wide = component(OsStr::new(to))?;
+        // Refuse an observed reparse destination. If it races this check, the kernel rename
+        // replaces the directory entry itself; it never opens or writes through the link.
+        if replace {
+            if let Some(st) = self.stat(to)? {
+                if st.kind != EntryKind::File {
+                    return Err(FsError::NotAFile(to.into()));
+                }
+            }
+        }
+        let source = self.open_at(OsStr::new(from), DELETE, FILE_OPEN, NON_DIRECTORY_FILE)?;
+        let offset = offset_of!(RenameInfo, file_name);
+        let bytes = size_of::<RenameInfo>() + wide.len() * 2;
+        let mut buffer = vec![0usize; bytes.div_ceil(size_of::<usize>())];
+        let info = buffer.as_mut_ptr().cast::<RenameInfo>();
+        // SAFETY: aligned allocation covers the header and complete UTF-16 name.
+        unsafe {
+            (*info).replace_if_exists = u8::from(replace);
+            (*info).root_directory = self.file.as_raw_handle();
+            (*info).file_name_length = (wide.len() * 2) as u32;
+            std::ptr::copy_nonoverlapping(
+                wide.as_ptr(),
+                buffer.as_mut_ptr().cast::<u8>().add(offset).cast::<u16>(),
+                wide.len(),
+            );
+            let mut status = IoStatusBlock {
+                status: 0,
+                information: 0,
+            };
+            // The native rename API resolves this single component against RootDirectory.
+            // Keep the pinned handle rather than asking Win32 to translate a DOS path.
+            let result = NtSetInformationFile(
+                source.as_raw_handle(),
+                &mut status,
+                info.cast(),
+                bytes as u32,
+                FILE_RENAME_INFORMATION,
+            );
+            if result < 0 {
+                let e = io::Error::from_raw_os_error(RtlNtStatusToDosError(result) as i32);
+                return Err(if e.kind() == io::ErrorKind::AlreadyExists {
+                    FsError::AlreadyExists(to.into())
+                } else {
+                    FsError::io(to, e)
+                });
+            }
+        }
+        Ok(())
+    }
+
+    pub fn rename_replace(&self, from: &str, to: &str) -> Result<()> {
+        self.rename(from, to, true)
+    }
+
+    pub fn link_new(&self, from: &str, to: &str) -> Result<()> {
+        // Windows publishes by atomic no-replace rename rather than a hard link. The
+        // caller's subsequent temp unlink sees NotFound, which it already ignores.
+        self.rename(from, to, false)
+    }
+
+    pub fn unlink(&self, name: &str) -> Result<()> {
+        let file = self.open_at(OsStr::new(name), DELETE, FILE_OPEN, NON_DIRECTORY_FILE)?;
+        let delete: u8 = 1; // FILE_DISPOSITION_INFO.DeleteFile is BOOLEAN, not BOOL.
+                            // SAFETY: live child handle, opened without reparse traversal or delete sharing.
+        if unsafe {
+            SetFileInformationByHandle(
+                file.as_raw_handle(),
+                FILE_DISPOSITION_INFO,
+                (&delete as *const u8).cast(),
+                1,
+            )
+        } == 0
+        {
+            return Err(FsError::io(name, io::Error::last_os_error()));
+        }
+        Ok(())
+    }
+
+    pub fn sync(&self) {
+        let _ = self.file.sync_all();
+    }
+
+    pub fn names(&self, limit: usize) -> Result<Vec<String>> {
+        let _guard = self
+            .enumeration
+            .lock()
+            .map_err(|_| FsError::Unavailable("directory enumeration lock poisoned"))?;
+        // FILE_ID_BOTH_DIR_INFO requires 8-byte alignment, including on 32-bit Windows.
+        let mut buffer = vec![0u64; 8192];
+        let capacity = buffer.len() * size_of::<u64>();
+        let mut class = FILE_ID_BOTH_DIRECTORY_RESTART_INFO;
+        let mut out = Vec::new();
+        loop {
+            buffer.fill(0);
+            // SAFETY: open directory and writable, aligned 64 KiB buffer.
+            if unsafe {
+                GetFileInformationByHandleEx(
+                    self.file.as_raw_handle(),
+                    class,
+                    buffer.as_mut_ptr().cast(),
+                    capacity as u32,
+                )
+            } == 0
+            {
+                let e = io::Error::last_os_error();
+                return if e.raw_os_error() == Some(18) {
+                    // ERROR_NO_MORE_FILES
+                    Ok(out)
+                } else {
+                    Err(FsError::io(".", e))
+                };
+            }
+            class = FILE_ID_BOTH_DIRECTORY_INFO;
+            let mut offset = 0usize;
+            loop {
+                if offset > capacity - size_of::<DirectoryInfo>() {
+                    return Err(FsError::Unavailable(
+                        "malformed directory information header",
+                    ));
+                }
+                // SAFETY: bounded header in initialized allocation.
+                let info = unsafe {
+                    std::ptr::read_unaligned(
+                        buffer
+                            .as_ptr()
+                            .cast::<u8>()
+                            .add(offset)
+                            .cast::<DirectoryInfo>(),
+                    )
+                };
+                let start = offset + offset_of!(DirectoryInfo, file_name);
+                let len = info.file_name_length as usize;
+                if len == 0 || !len.is_multiple_of(2) || len > capacity - start {
+                    return Err(FsError::Unavailable("malformed directory information name"));
+                }
+                // SAFETY: bounded even-sized UTF-16 slice, aligned by directory record ABI.
+                let name = unsafe {
+                    std::slice::from_raw_parts(
+                        buffer.as_ptr().cast::<u8>().add(start).cast::<u16>(),
+                        len / 2,
+                    )
+                };
+                let name = String::from_utf16(name)
+                    .map_err(|_| FsError::Unavailable("non-Unicode state entry name"))?;
+                if name != "." && name != ".." {
+                    if out.len() >= limit {
+                        return Err(FsError::TooManyEntries(limit));
+                    }
+                    out.push(name);
+                }
+                let next = info.next_entry_offset as usize;
+                if next == 0 {
+                    break;
+                }
+                if !next.is_multiple_of(8)
+                    || next < offset_of!(DirectoryInfo, file_name) + len
+                    || next > capacity - offset
+                {
+                    return Err(FsError::Unavailable(
+                        "malformed directory information offset",
+                    ));
+                }
+                offset += next;
+            }
+        }
+    }
+}
+
+#[cfg(all(test, windows))]
+#[path = "windows_tests.rs"]
+mod tests;
