@@ -31,7 +31,7 @@ export function acquireManagedRunLease({ command, env = process.env, platform = 
   return { path: file, release() { rmSync(file, { force: true }); } };
 }
 
-function managedHost(env) {
+export function managedHost(env) {
   return Boolean(env.RIGHTKIT_BUILD_BROKER_SOCKET)
     || /(?:^|[;:])[^;:]*[/\\](?:\.rightkit-managed|rightkitmanagedagent|rightkit[/\\]build-control)[/\\]agent-bin(?:[;:]|$)/i.test(String(env.PATH ?? ""));
 }

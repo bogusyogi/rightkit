@@ -71,3 +71,20 @@ Acceptance for future remediation: managed marker + each listed ambient input
 must produce refusal without credential use, subprocess launch or secret-bearing
 diagnostics; managed host with protected credential source must succeed;
 unmanaged compatibility must remain intact.
+
+## Pending protected loaders
+
+Refusal is applied only where a protected source exists and remains usable
+(release token, runtime-artifact signing key, updater signing, macOS signing
+session, notarization API auth). The sites below are unchanged: their only
+provisioned credential source is the environment variable, so refusing it would
+break operations on managed hosts. Each needs a Keychain / credential-store
+loader before its env fallback can be refused:
+
+- Cloudflare R2 / API token: `CLOUDFLARE_API_TOKEN` in `packages/release/addon-command.mjs`
+  (`publishR2Addon`), `packages/release/prune-r2.mjs` (`pruneReleaseObjects`), and `packages/release/upload-large.mjs`
+  (forwarded to Wrangler through `r2-verified-upload.mjs`). Provisioning per
+  `docs/rules/cloudflare-access.md`.
+- Apple App Store Connect API key auth: `APPLE_API_KEY`, `APPLE_API_KEY_PATH`,
+  `APPLE_API_ISSUER` in `packages/release/apple-profile-renew.mjs`
+  (`appleProfileAuth`). No protected loader exists in the package yet.
