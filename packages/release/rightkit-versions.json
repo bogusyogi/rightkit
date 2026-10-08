@@ -253,14 +253,14 @@
     "rightkit-db": "0.3.1",
     "rightkit-embed": "0.2.2",
     "rightkit-framed-sidecar": "0.1.0",
-    "rightkit-fs": "0.1.1",
+    "rightkit-fs": "0.2.0",
     "rightkit-http": "0.2.0",
     "rightkit-jobs": "0.2.4",
     "rightkit-license": "0.1.3",
     "rightkit-logs": "0.2.0",
     "rightkit-mcp": "0.4.0",
     "rightkit-media": "0.2.3",
-    "rightkit-models": "0.2.2",
+    "rightkit-models": "0.2.3",
     "rightkit-oauth": "0.3.0",
     "rightkit-ort": "0.2.1",
     "rightkit-pdf": "0.1.0",
@@ -362,7 +362,8 @@
       "0.2.2"
     ],
     "rightkit-models": [
-      "0.2.1"
+      "0.2.1",
+      "0.2.2"
     ],
     "rightkit-audio": [
       "0.1.0"

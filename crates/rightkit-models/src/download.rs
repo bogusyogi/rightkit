@@ -185,7 +185,21 @@ pub fn download_resumable(
     request: DownloadRequest<'_>,
     progress: impl FnMut(u64, u64),
 ) -> Result<DownloadResult, Error> {
-    download_inner(agent, request, progress).map_err(|message| {
+    download_resumable_with_identity(agent, request, None, progress)
+}
+
+/// As [`download_resumable`], with an immutable, hash-pinned resume identity
+/// independent of a rotating signed URL. Callers must bind it to object identity.
+pub(crate) fn download_resumable_with_identity(
+    agent: &ureq::Agent,
+    request: DownloadRequest<'_>,
+    identity: Option<&str>,
+    progress: impl FnMut(u64, u64),
+) -> Result<DownloadResult, Error> {
+    let resume_url = identity
+        .filter(|_| request.expected_sha256.is_some())
+        .unwrap_or(request.url);
+    download_inner(agent, request, resume_url, progress).map_err(|message| {
         let code = if message == CANCELLED {
             ErrorCode::Cancelled
         } else if message.contains("integrity check") {
@@ -200,6 +214,7 @@ pub fn download_resumable(
 fn download_inner(
     agent: &ureq::Agent,
     request: DownloadRequest<'_>,
+    resume_url: &str,
     mut progress: impl FnMut(u64, u64),
 ) -> Result<DownloadResult, String> {
     if let Some(parent) = request.part_path.parent() {
@@ -222,7 +237,7 @@ fn download_inner(
     // Fast path: a fully-downloaded, already-verified `.part` from a crashed
     // run can be committed without touching the network.
     if let Some(received) =
-        completed_partial_candidate(request.part_path, &metadata_path, request.url, &expected)?
+        completed_partial_candidate(request.part_path, &metadata_path, resume_url, &expected)?
     {
         let got = sha256_file(request.part_path)?;
         if expected
@@ -243,7 +258,7 @@ fn download_inner(
     let mut last_transient = None;
     for attempt in 0..MAX_ATTEMPTS {
         let (offset, stored_etag) =
-            resume_state(request.part_path, &metadata_path, request.url, &expected)?;
+            resume_state(request.part_path, &metadata_path, resume_url, &expected)?;
         // Byte ranges and the final file hash must describe the same wire
         // representation; disallow transparent content-encoding changes.
         let mut builder = agent.get(request.url).header("Accept-Encoding", "identity");
@@ -327,7 +342,7 @@ fn download_inner(
         write_metadata(
             &metadata_path,
             &ResumeMetadata {
-                url: request.url.to_string(),
+                url: resume_url.to_string(),
                 expected_sha256: expected.clone(),
                 etag: response_etag_value.clone(),
                 total,
@@ -515,7 +530,12 @@ fn backoff(attempt: usize) {
 
 /// Shared HTTP agent for model downloads.
 pub fn http_agent() -> ureq::Agent {
+    http_agent_with_redirects(10)
+}
+
+pub(crate) fn http_agent_with_redirects(max_redirects: u32) -> ureq::Agent {
     ureq::Agent::config_builder()
+        .max_redirects(max_redirects)
         .timeout_connect(Some(Duration::from_secs(30)))
         .timeout_recv_body(Some(Duration::from_secs(120)))
         .build()

@@ -18,7 +18,9 @@
 
 use crate::archive;
 use crate::disk;
-use crate::download::{download_resumable, http_agent, DownloadRequest};
+use crate::download::{
+    download_resumable_with_identity, http_agent_with_redirects, DownloadRequest,
+};
 use crate::error::{Error, ErrorCode, Result};
 use crate::hash::sha256_file;
 use crate::ids::ModelId;
@@ -111,6 +113,11 @@ pub struct InstallOptions {
     pub platform: Platform,
     /// `Authorization` header value for gated hosts.
     pub authorization: Option<String>,
+    /// Stable immutable identity for rotating signed download URLs. Only used
+    /// with SHA-256-pinned files; path & digest also bind resume metadata.
+    pub resume_identity: Option<String>,
+    /// Maximum download redirects. Zero keeps scoped capabilities on their origin.
+    pub max_download_redirects: u32,
     /// Set to `true` from another thread to cancel: the install stops with
     /// `Cancelled` and its staging (including `.part` files) is discarded.
     pub cancel: Arc<AtomicBool>,
@@ -153,6 +160,8 @@ impl Default for InstallOptions {
             quant: None,
             platform: Platform::current(),
             authorization: None,
+            resume_identity: None,
+            max_download_redirects: 10,
             cancel: Arc::new(AtomicBool::new(false)),
             pause: Arc::new(AtomicBool::new(false)),
             keep_revisions: 1,
@@ -451,7 +460,7 @@ impl Store {
                 }
             }
         }
-        let agent = http_agent();
+        let agent = http_agent_with_redirects(opts.max_download_redirects);
         let overall_total: u64 = files.iter().filter_map(|f| f.bytes).sum();
         let mut overall_base = 0u64;
         let mut records: Vec<FileRecord> = Vec::new();
@@ -959,7 +968,12 @@ impl Store {
                         progress: &mut dyn FnMut(u64, u64),
                         cache: &mut HashCache|
          -> Result<String> {
-            let res = download_resumable(
+            let identity = opts
+                .resume_identity
+                .as_ref()
+                .zip(f.sha256.as_ref())
+                .map(|(identity, sha)| format!("{identity}:{}:{sha}", f.path));
+            let res = download_resumable_with_identity(
                 agent,
                 DownloadRequest {
                     url: &url,
@@ -969,6 +983,7 @@ impl Store {
                     authorization: opts.authorization.as_deref(),
                     cancelled: stop,
                 },
+                identity.as_deref(),
                 &mut *progress,
             )?;
             cache.forget(dest_path);

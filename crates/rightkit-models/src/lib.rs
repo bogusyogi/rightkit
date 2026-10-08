@@ -12,6 +12,10 @@
 //! Brand-neutral: callers choose the store root and lock-holder name.
 
 mod alias;
+#[cfg(feature = "rightapps")]
+pub mod rightapps;
+#[cfg(feature = "rightapps")]
+pub use rightapps::RuntimeArtifactClient;
 pub mod archive;
 pub mod disk;
 pub mod download;

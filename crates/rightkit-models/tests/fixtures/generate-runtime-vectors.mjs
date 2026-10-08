@@ -1,0 +1,50 @@
+// Deterministic TEST-ONLY seed; never an operational signing authority.
+// Run from RightKit root: node crates/rightkit-models/tests/fixtures/generate-runtime-vectors.mjs
+import { createPrivateKey, createPublicKey, createHash } from 'node:crypto';
+import { writeFileSync } from 'node:fs';
+import { buildRuntimeArtifactManifest, canonicalRuntimeArtifactManifest, signRuntimeArtifactManifest } from '../../../../packages/release/runtime-artifact-manifest.mjs';
+import { RUNTIME_ARTIFACT_TRUSTED_KEY_ID } from '../../../../packages/release/model-promote.mjs';
+const seed = Buffer.from(Array.from({length:32}, (_, i) => i));
+const privateKey = createPrivateKey({key:Buffer.concat([Buffer.from('302e020100300506032b657004220420','hex'),seed]),format:'der',type:'pkcs8'});
+const publicKey = createPublicKey(privateKey);
+const body = Buffer.from(Array.from({length:2_000_000}, (_, i) => i % 251));
+const legacyManifest = buildRuntimeArtifactManifest({
+  artifactKind:'tts-model', entitlement:{appKey:'genright',tier:'pro'},
+  distribution:{delivery:'private-r2',bucket:'rightapps-updates'}, target:{os:'any',arch:'any'},
+  filename:'qwen.gguf', sha256:createHash('sha256').update(body).digest('hex'),sizeBytes:body.length,
+  versions:{runtime:'qts-1', model:'Qwen3-1.7B',tokenizer:'v1',preprocessing:'v1',license:'Apache-2.0',provenance:'测试-é-🎙'},
+  provenance:{source:'https://example.invalid/qwen',sourceRevision:'test',licenseId:'Apache-2.0',noticeSha256:'a'.repeat(64)},
+  promotion:{authorityAppKey:'genright',promotionId:'test-only',promotedAt:'2026-10-08T00:00:00.000Z',evidenceSha256:'b'.repeat(64)},
+});
+const envelope = signRuntimeArtifactManifest(legacyManifest,privateKey,RUNTIME_ARTIFACT_TRUSTED_KEY_ID);
+const artifactIds = ['qwen3-base','qwen3-chat','qwen3-code','qwen3-embed','qwen3-instruct','qwen3-vision'];
+const artifacts = Object.fromEntries(artifactIds.map((artifactId, index) => {
+  const manifest = buildRuntimeArtifactManifest({
+    ...legacyManifest,
+    artifactId,
+    filename: `qwen-${index + 1}.gguf`,
+    sha256: legacyManifest.object.sha256,
+    sizeBytes: legacyManifest.object.sizeBytes,
+    object: {
+      ...legacyManifest.object,
+      filename: `qwen-${index + 1}.gguf`,
+    },
+  });
+  return [artifactId, signRuntimeArtifactManifest(manifest,privateKey,RUNTIME_ARTIFACT_TRUSTED_KEY_ID)];
+}));
+const uuidArtifactId = '123e4567-e89b-12d3-a456-426614174000';
+const uuidArtifactManifest = buildRuntimeArtifactManifest({
+  ...legacyManifest,
+  artifactId: uuidArtifactId,
+  filename: 'qwen-uuid.gguf',
+  sha256: legacyManifest.object.sha256,
+  sizeBytes: legacyManifest.object.sizeBytes,
+});
+writeFileSync(new URL('./runtime-envelope.json', import.meta.url), JSON.stringify({
+  publicKey:Array.from(Buffer.from(publicKey.export({format:'jwk'}).x,'base64url')),
+  canonical:canonicalRuntimeArtifactManifest(legacyManifest), envelope, artifacts,
+  artifactId:artifacts[artifactIds[0]],
+  uuidArtifact:signRuntimeArtifactManifest(uuidArtifactManifest,privateKey,RUNTIME_ARTIFACT_TRUSTED_KEY_ID),
+  windows:signRuntimeArtifactManifest({...legacyManifest,target:{os:'windows',arch:'x86_64'},pointerKey:'genright/runtime-artifacts/tts-model/windows/x86_64/current/manifest.json'},privateKey,RUNTIME_ARTIFACT_TRUSTED_KEY_ID),
+  wrongSize:signRuntimeArtifactManifest({...legacyManifest,object:{...legacyManifest.object,sizeBytes:body.length+1}},privateKey,RUNTIME_ARTIFACT_TRUSTED_KEY_ID),
+},null,2)+'\n');
