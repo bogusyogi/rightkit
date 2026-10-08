@@ -52,8 +52,15 @@ impl Scenario {
 pub struct IdempotencyKey(String);
 
 impl IdempotencyKey {
-    pub(crate) fn new(run_id: &str, step: &StepRef) -> Self {
+    /// The key for one `(run, step, take)`. The machine derives its own keys;
+    /// this is public so a remote driver and its tests can name one.
+    pub fn new(run_id: &str, step: &StepRef) -> Self {
         Self(format!("{run_id}/{}/take-{}", step.step, step.take))
+    }
+
+    /// Rebuilds a key received from the controller over the worker wire.
+    pub(crate) fn from_wire(key: String) -> Self {
+        Self(key)
     }
 
     pub fn as_str(&self) -> &str {
