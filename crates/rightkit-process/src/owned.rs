@@ -406,7 +406,7 @@ impl OwnedChild {
             return Ok(());
         }
         let error = io::Error::last_os_error();
-        if error.raw_os_error() == Some(nix::libc::ESRCH) {
+        if error.raw_os_error() == Some(nix::libc::ESRCH) || self.group_eperm_after_exit(&error)? {
             Ok(())
         } else {
             Err(error)
@@ -426,11 +426,19 @@ impl OwnedChild {
             return Ok(true);
         }
         let error = io::Error::last_os_error();
-        if error.raw_os_error() == Some(nix::libc::ESRCH) {
+        if error.raw_os_error() == Some(nix::libc::ESRCH) || self.group_eperm_after_exit(&error)? {
             Ok(false)
         } else {
             Err(error)
         }
+    }
+    /// macOS answers `kill(-pgid, ..)` with EPERM (not ESRCH) when the group's
+    /// remaining members are zombies; once the leader has exited, treat that as gone.
+    #[cfg(unix)]
+    fn group_eperm_after_exit(&self, error: &io::Error) -> io::Result<bool> {
+        Ok(!self.detached
+            && error.raw_os_error() == Some(nix::libc::EPERM)
+            && self.handle.try_wait()?.is_some())
     }
     fn force_kill(&mut self, code: u32) -> io::Result<()> {
         if self.tree_terminated {
