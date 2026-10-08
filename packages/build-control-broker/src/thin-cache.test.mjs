@@ -4,7 +4,7 @@ import test from 'node:test';
 import { join } from 'node:path';
 import { defaultThinCacheTimeoutMs, ThinCache, ThinCacheUnavailableError, thinCacheStatsDelta } from './thin-cache.mjs';
 
-const paths = { cargoHome: '/managed/cargo-home', compilerCache: '/managed/compiler-cache', temporary: '/managed/tmp' };
+const paths = { cargoHome: '/managed/cargo-home', compilerCache: '/managed/compiler-cache', temporary: '/managed/tmp', logs: '/managed/logs' };
 const layout = { target: '/managed/workspace/g/001/target', temp: '/managed/workspace/g/001/tmp' };
 
 function fakeChild(pid = 41) {
@@ -77,6 +77,45 @@ test('release iteration leaves Cargo incremental policy to manifest while retain
   assert.equal(prepared.environment.SCCACHE_DIR, paths.compilerCache);
   assert.equal(prepared.environment.SCCACHE_START_SERVER, '0');
   await cache.close();
+});
+
+test('gateway, probes & compile clients replace inherited error logs with managed logs after recovery', async (t) => {
+  const previous = process.env.SCCACHE_ERROR_LOG;
+  process.env.SCCACHE_ERROR_LOG = '/unmanaged/sccache.log';
+  t.after(() => { if (previous === undefined) delete process.env.SCCACHE_ERROR_LOG; else process.env.SCCACHE_ERROR_LOG = previous; });
+  const environments = []; const children = []; const probes = [];
+  const { cache, events } = harness({
+    spawnGateway: async (_tool, environment) => { environments.push(environment); const child = fakeChild(); children.push(child); return child; },
+    run: async (_tool, _argv, options) => {
+      probes.push(options.env);
+      return { stdout: JSON.stringify({ version: '0.17.0', cache_location: 'Local disk: "/managed/compiler-cache"', max_cache_size: 20 * 1024 ** 3, stats: {} }) };
+    },
+  });
+  t.after(() => cache.close());
+  await cache.start();
+  const first = await cache.prepare({ layout });
+  children[0].exitCode = 1;
+  children[0].emit('close', 1, null);
+  const recovered = await cache.prepare({ layout });
+  assert.equal(environments.length, 2);
+  for (const environment of [...environments, ...probes, first.environment, recovered.environment]) {
+    assert.equal(environment.SCCACHE_ERROR_LOG, join(paths.logs, 'sccache.stderr.log'));
+  }
+  for (const environment of environments) {
+    assert.equal(environment.SCCACHE_CLIENT_SIDE, undefined);
+    assert.equal(environment.SCCACHE_LOG, process.env.SCCACHE_LOG ?? 'warn');
+  }
+  for (const event of events.filter((event) => ['CACHE_GATEWAY_READY', 'CACHE_GATEWAY_EXITED'].includes(event.type))) {
+    assert.equal(event.errorLog, join(paths.logs, 'sccache.stderr.log'));
+  }
+  assert.equal(recovered.environment.SCCACHE_START_SERVER, '0');
+});
+
+test('concurrent startup & admissions share one gateway spawn', async (t) => {
+  const { cache, children } = harness();
+  t.after(() => cache.close());
+  await Promise.all([cache.start(), cache.start(), cache.prepare({ layout }), cache.prepare({ layout })]);
+  assert.equal(children.length, 1);
 });
 
 test('thin cache rejects unapproved iteration profiles', async () => {

@@ -111,7 +111,7 @@ export class ThinCache {
   }
 
   #endpointEnvironment() { return this.#endpoint.kind === 'pipe' ? { SCCACHE_SERVER_UDS: this.#endpoint.path } : { SCCACHE_SERVER_PORT: String(this.#endpoint.port) }; }
-  #baseEnvironment() { return { SCCACHE_DIR: this.#paths.compilerCache, SCCACHE_CACHE_SIZE: String(this.#maxSize), SCCACHE_LOCAL_RW_MODE: 'READ_WRITE', ...this.#endpointEnvironment() }; }
+  #baseEnvironment() { return { SCCACHE_DIR: this.#paths.compilerCache, SCCACHE_CACHE_SIZE: String(this.#maxSize), SCCACHE_LOCAL_RW_MODE: 'READ_WRITE', SCCACHE_ERROR_LOG: join(this.#paths.logs ?? join(dirname(this.#paths.compilerCache), 'logs'), 'sccache.stderr.log'), ...this.#endpointEnvironment() }; }
   #clientEnvironment() { return { ...this.#baseEnvironment(), SCCACHE_START_SERVER: '0', SCCACHE_NO_DAEMON: '1', SCCACHE_IDLE_TIMEOUT: '0', SCCACHE_IGNORE_SERVER_IO_ERROR: '0', ...(this.#clientSide ? { SCCACHE_CLIENT_SIDE: '1' } : {}) }; }
 
   async start() {
@@ -276,8 +276,10 @@ export class ThinCache {
       this.#child = null; this.#health = null; this.#gatewayStderr = '';
       if (this.#endpoint.kind === 'pipe') await rm(this.#endpoint.path, { force: true }).catch(() => {});
       const inherited = { ...process.env };
-      delete inherited.SCCACHE_CLIENT_SIDE; delete inherited.SCCACHE_ERROR_LOG;
-      const environment = { ...inherited, ...this.#baseEnvironment(), SCCACHE_START_SERVER: '1', SCCACHE_NO_DAEMON: '1', SCCACHE_IDLE_TIMEOUT: '0' };
+      // The gateway is storage-only. Replace inherited log paths with the
+      // managed path below; ThinState.initialize owns its logs directory.
+      delete inherited.SCCACHE_CLIENT_SIDE;
+      const environment = { ...inherited, ...this.#baseEnvironment(), SCCACHE_LOG: inherited.SCCACHE_LOG ?? 'warn', SCCACHE_START_SERVER: '1', SCCACHE_NO_DAEMON: '1', SCCACHE_IDLE_TIMEOUT: '0' };
       try {
         const verifiedTool = await this.#verifyTool();
         if (verifiedTool?.path !== this.#tool) throw Object.assign(new Error('sccache registry verification returned a different executable'), { code: 'TOOL_CHANGED' });
@@ -289,7 +291,7 @@ export class ThinCache {
           if (this.#child === child) {
             this.#health = null;
             void Promise.resolve(this.#onUnavailable(Object.freeze({ reason: 'sccache-gateway-exited', epoch: this.#epoch, gatewayPid: child.gatewayPid ?? child.pid, ownerPid: child.pid, code, signal }))).catch(() => {});
-            void this.#event({ type: 'CACHE_GATEWAY_EXITED', epoch: this.#epoch, gatewayPid: child.gatewayPid ?? child.pid, ownerPid: child.pid, code, signal, stderr: this.#gatewayStderr });
+            void this.#event({ type: 'CACHE_GATEWAY_EXITED', epoch: this.#epoch, gatewayPid: child.gatewayPid ?? child.pid, ownerPid: child.pid, code, signal, stderr: this.#gatewayStderr, errorLog: environment.SCCACHE_ERROR_LOG });
           }
         });
         let lastError = null;
@@ -299,7 +301,7 @@ export class ThinCache {
             await this.#connect(this.#endpoint, Math.min(500, Math.max(1, deadline - this.#now())));
             const sample = await this.#probeStorage(Math.max(1, deadline - this.#now()));
             this.#markHealthy(sample.storage, sample.attribution?.sampledAt ?? null);
-            await this.#event({ type: 'CACHE_GATEWAY_READY', epoch: this.#epoch, gatewayPid: child.gatewayPid ?? child.pid, ownerPid: child.pid, endpoint: this.#endpoint.display, storage: sample.storage, strictNoFallback: true });
+            await this.#event({ type: 'CACHE_GATEWAY_READY', epoch: this.#epoch, gatewayPid: child.gatewayPid ?? child.pid, ownerPid: child.pid, endpoint: this.#endpoint.display, storage: sample.storage, strictNoFallback: true, errorLog: environment.SCCACHE_ERROR_LOG });
             return;
           } catch (error) {
             lastError = error;
@@ -311,7 +313,7 @@ export class ThinCache {
         const failed = this.#child; this.#child = null; this.#health = null;
         if (failed) await this.#terminate(failed, { platform: this.#platform, graceMs: 1_000 }).catch(() => {});
         if (error?.event?.type === 'TOOL_CHANGED') await this.#event(error.event);
-        await this.#event({ type: 'CACHE_RECOVERY_FAILED', code: error.code ?? null, reason: error.message, endpoint: this.#endpoint.display, stderr: this.#gatewayStderr });
+        await this.#event({ type: 'CACHE_RECOVERY_FAILED', code: error.code ?? null, reason: error.message, endpoint: this.#endpoint.display, stderr: this.#gatewayStderr, errorLog: environment.SCCACHE_ERROR_LOG });
         const diagnostic = this.#gatewayStderr.replace(/\s+/g, ' ').trim().slice(0, 1_024);
         // Preserve typed spawn failures in recovery receipts. Callers need the
         // stable code (for example ENOENT) to distinguish missing tool/runtime

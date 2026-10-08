@@ -177,6 +177,11 @@ test('launchd does not clamp user-requested compiler children to Background QoS'
   assert.doesNotMatch(xml, /<key>(?:LowPriorityIO|LowPriorityBackgroundIO)<\/key>\s*<true\s*\/>/);
 });
 
+test('launchd supplies an external managed sccache error log', () => {
+  const xml = renderPlist({ nodePath: '/node', brokerScript: '/broker', configPath: '/external & managed/config.json', home: '/home' });
+  assert.match(xml, /<key>SCCACHE_ERROR_LOG<\/key>\s*<string>\/external &amp; managed\/rightkit-build-control\/logs\/sccache\.stderr\.log<\/string>/);
+});
+
 test('resolveVolumeId & rustcVersionTriple degrade to a safe default instead of throwing', async () => {
   const volumeId = await resolveVolumeId('/definitely/not/a/real/volume/path/xyz');
   assert.ok(volumeId === null || typeof volumeId === 'string');
