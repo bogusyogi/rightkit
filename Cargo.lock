@@ -5044,10 +5044,7 @@ dependencies = [
 name = "rightkit-models"
 version = "0.2.2"
 dependencies = [
- "base64 0.22.1",
- "chrono",
  "dirs 7.0.0",
- "ed25519-dalek",
  "flate2",
  "getrandom 0.3.4",
  "rightkit-qa",
@@ -5057,7 +5054,6 @@ dependencies = [
  "tar",
  "tempfile",
  "ureq",
- "url",
  "zip",
 ]
 
@@ -5068,6 +5064,7 @@ dependencies = [
  "axum",
  "base64 0.22.1",
  "getrandom 0.3.4",
+ "libc",
  "rightkit-http",
  "rightkit-process",
  "rightkit-secrets",
