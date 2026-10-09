@@ -447,7 +447,8 @@ impl Index {
             std::fs::create_dir_all(sd)?;
             recover_swap(sd);
             if sd.join("index").exists() {
-                if let Some((st, info)) = Store::open_existing(&sd.join("index"), pkg.clone(), fp)? {
+                if let Some((st, info)) = Store::open_existing(&sd.join("index"), pkg.clone(), fp)?
+                {
                     if now_secs().saturating_sub(info.saved_at) <= cfg.snapshot_max_age.as_secs()
                         && info.event_id <= backend.current_event_id()
                     {
@@ -744,7 +745,12 @@ fn recover_swap(sd: &Path) {
     }
 }
 
-fn fresh_store(state_dir: Option<&Path>, sub: &str, pkg: Vec<Vec<u8>>, fp: u64) -> std::io::Result<Store> {
+fn fresh_store(
+    state_dir: Option<&Path>,
+    sub: &str,
+    pkg: Vec<Vec<u8>>,
+    fp: u64,
+) -> std::io::Result<Store> {
     match state_dir {
         Some(sd) => {
             let d = sd.join(sub);
@@ -757,14 +763,23 @@ fn fresh_store(state_dir: Option<&Path>, sub: &str, pkg: Vec<Vec<u8>>, fp: u64) 
 }
 
 /// Stream a crawl of `root` straight into the store under `parent`, never holding more than the in-flight listings.
-fn crawl_into(backend: &dyn Backend, root: &Path, excludes: &Excludes, threads: usize, store: &mut Store, parent: u32) -> std::io::Result<()> {
+fn crawl_into(
+    backend: &dyn Backend,
+    root: &Path,
+    excludes: &Excludes,
+    threads: usize,
+    store: &mut Store,
+    parent: u32,
+) -> std::io::Result<()> {
     let mut slots: HashMap<u32, u32> = HashMap::from([(0, parent)]);
     let mut err: Option<std::io::Error> = None;
     backend.crawl(root, excludes, threads, &mut |l| {
         if err.is_some() {
             return;
         }
-        let Some(slot) = slots.remove(&l.id) else { return };
+        let Some(slot) = slots.remove(&l.id) else {
+            return;
+        };
         if l.error.is_some() {
             store.set_flag(slot, FLAG_UNREADABLE);
         }
@@ -785,7 +800,13 @@ fn crawl_into(backend: &dyn Backend, root: &Path, excludes: &Excludes, threads: 
     err.map_or(Ok(()), Err)
 }
 
-fn crawl_root(backend: &dyn Backend, excludes: &Excludes, threads: usize, store: &mut Store, root: &Path) -> Result<()> {
+fn crawl_root(
+    backend: &dyn Backend,
+    excludes: &Excludes,
+    threads: usize,
+    store: &mut Store,
+    root: &Path,
+) -> Result<()> {
     let rb_c = pb(root);
     let rb: &[u8] = &rb_c;
     match backend.stat(root) {
@@ -802,7 +823,13 @@ fn crawl_root(backend: &dyn Backend, excludes: &Excludes, threads: usize, store:
             store.set_flag(slot, FLAG_UNREADABLE);
         }
         Err(_) => {
-            let slot = store.add_root(rb, EntryData { kind: KIND_DIR, ..EntryData::default() })?;
+            let slot = store.add_root(
+                rb,
+                EntryData {
+                    kind: KIND_DIR,
+                    ..EntryData::default()
+                },
+            )?;
             store.set_flag(slot, FLAG_UNREADABLE);
         }
     }
@@ -819,13 +846,22 @@ fn fill_synthetic(store: &mut Store, root: &Path, n: usize) -> Result<()> {
         x ^= x << 17;
         x
     };
-    let r = store.add_root(&pb(root), EntryData { kind: KIND_DIR, ..EntryData::default() })?;
+    let r = store.add_root(
+        &pb(root),
+        EntryData {
+            kind: KIND_DIR,
+            ..EntryData::default()
+        },
+    )?;
     let ndirs = (n / 12).max(1);
     let mut dirs = vec![r];
     for i in 1..ndirs {
         let parent = dirs[(i - 1) / 8];
         let name = format!("dir{:x}", rnd() % (ndirs as u64 / 4 + 1));
-        let d = EntryData { kind: KIND_DIR, ..EntryData::default() };
+        let d = EntryData {
+            kind: KIND_DIR,
+            ..EntryData::default()
+        };
         dirs.push(store.add_child(parent, name.as_bytes(), d)?);
     }
     const EXT: [&str; 6] = ["dat", "txt", "png", "swift", "json", "log"];
@@ -1004,7 +1040,10 @@ impl Worker {
             let st = rd(&self.shared);
             (st.slots(), st.free_slots())
         };
-        if slots > 50_000 && free * 4 > slots && self.last_compact.elapsed() > Duration::from_secs(600) {
+        if slots > 50_000
+            && free * 4 > slots
+            && self.last_compact.elapsed() > Duration::from_secs(600)
+        {
             self.last_compact = Instant::now();
             let _ = self.shared.compact();
         }
@@ -1372,9 +1411,20 @@ impl Shared {
     fn build_fresh(&self) -> Result<Store> {
         let pk = rd(self).package_exts_clone();
         let start = self.backend.current_event_id();
-        let mut fresh = fresh_store(self.cfg.state_dir.as_deref(), "index.new", pk, self.fingerprint)?;
+        let mut fresh = fresh_store(
+            self.cfg.state_dir.as_deref(),
+            "index.new",
+            pk,
+            self.fingerprint,
+        )?;
         for r in &self.roots {
-            let _ = crawl_root(&*self.backend, &self.excludes, self.cfg.crawl_threads, &mut fresh, r);
+            let _ = crawl_root(
+                &*self.backend,
+                &self.excludes,
+                self.cfg.crawl_threads,
+                &mut fresh,
+                r,
+            );
         }
         fresh.log_changes = rd(self).log_changes;
         fresh.take_logs();
@@ -1386,7 +1436,12 @@ impl Shared {
     /// Only the worker thread writes, so the copy under the read lock is consistent.
     fn compact(&self) -> Result<()> {
         let pk = rd(self).package_exts_clone();
-        let mut fresh = fresh_store(self.cfg.state_dir.as_deref(), "index.new", pk, self.fingerprint)?;
+        let mut fresh = fresh_store(
+            self.cfg.state_dir.as_deref(),
+            "index.new",
+            pk,
+            self.fingerprint,
+        )?;
         {
             let old = rd(self);
             for &r in &old.roots {
@@ -1412,7 +1467,12 @@ impl Shared {
 
     fn collect_listings(&self, path: &[u8]) -> Vec<Listing> {
         let mut v = Vec::new();
-        self.backend.crawl(&os(path), &self.excludes, self.cfg.crawl_threads, &mut |l| v.push(l));
+        self.backend.crawl(
+            &os(path),
+            &self.excludes,
+            self.cfg.crawl_threads,
+            &mut |l| v.push(l),
+        );
         v.sort_by_key(|l| l.id);
         v
     }

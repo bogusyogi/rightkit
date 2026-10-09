@@ -56,12 +56,23 @@ impl NameStore {
         })
     }
 
-    pub fn open(dir: &Path, count: usize, seg_used: Vec<u32>, buckets: usize) -> io::Result<NameStore> {
+    pub fn open(
+        dir: &Path,
+        count: usize,
+        seg_used: Vec<u32>,
+        buckets: usize,
+    ) -> io::Result<NameStore> {
         let mut segs = Vec::new();
         for i in 0..seg_used.len() {
-            let f = OpenOptions::new().read(true).write(true).open(dir.join(format!("names-{i}.seg")))?;
+            let f = OpenOptions::new()
+                .read(true)
+                .write(true)
+                .open(dir.join(format!("names-{i}.seg")))?;
             if f.metadata()?.len() < SEG as u64 {
-                return Err(io::Error::new(io::ErrorKind::InvalidData, "short name segment"));
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "short name segment",
+                ));
             }
             segs.push(unsafe { MmapMut::map_mut(&f)? });
         }
@@ -115,7 +126,12 @@ impl NameStore {
         }
         let m = match &self.dir {
             Some(d) => {
-                let f = OpenOptions::new().read(true).write(true).create(true).truncate(true).open(d.join(format!("names-{}.seg", self.segs.len())))?;
+                let f = OpenOptions::new()
+                    .read(true)
+                    .write(true)
+                    .create(true)
+                    .truncate(true)
+                    .open(d.join(format!("names-{}.seg", self.segs.len())))?;
                 f.set_len(SEG as u64)?;
                 unsafe { MmapMut::map_mut(&f)? }
             }
