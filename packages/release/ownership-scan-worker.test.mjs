@@ -8,7 +8,7 @@ import { catalogDigest, checkApp } from "./ownership.mjs";
 import { sha256 } from "./ownership-approval.mjs";
 import { ownershipVerdict } from "./ownership-verdict.mjs";
 import { ownershipScanInputsForTest, scanOwnershipForTest } from "./ownership-scan-worker.mjs";
-import { runScanWorker } from "../build-control-broker/src/ownership-admission.mjs";
+import { runScanWorker } from "./ownership-admission.mjs";
 
 const identity = "https://github.com/test/repo";
 const trust = { schema: 1, revokedKeyIds: [], verifiedTrackingEvidence: [], minimumScannerVersion: "2.0.0", minimumCatalogVersion: "1", repositories: [{ repositoryIdentity: identity, roots: ["."], visibility: "private" }] };

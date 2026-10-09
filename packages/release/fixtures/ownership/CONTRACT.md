@@ -59,7 +59,7 @@ Trees are inline in `input.json` rather than checked in as directories because t
 
 ### 2.1 Invocation (the "input message")
 
-`node ownership-scan-worker.mjs <appRoot> <installedCatalogPath> [--inputs]` (`ownership-scan-worker.mjs:92-100`; spawned by `build-control-broker/src/ownership-admission.mjs:29-52`).
+`node ownership-scan-worker.mjs <appRoot> <installedCatalogPath> [--inputs]` (`ownership-scan-worker.mjs:92-100`; spawned by `ownership-admission.mjs:29-52`).
 
 - `argv` rules (`:95`): `appRoot` and `catalogPath` required; `path.resolve(catalogPath)` must equal the sibling `rightkit-ownership.json` of the worker; the third argument may only be `--inputs`. Violations throw `TypeError` and are printed as an error line.
 - stdin is ignored. Exactly one JSON line is written to stdout; the process exits `0` even for error lines. A non-zero exit happens only on a crash outside the `try`.

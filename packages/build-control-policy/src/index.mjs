@@ -2,7 +2,7 @@ import { existsSync, readFileSync, statSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { dirname, join, parse, resolve } from 'node:path';
 import { desktopIntrusionViolation, DESKTOP_INTRUSION_REASON } from './desktop-intrusion-policy.mjs';
-import { localDevelopmentPolicy, localDevelopmentCargoAllowed } from '../../build-control-core/src/local-development.mjs';
+import { localDevelopmentPolicy, localDevelopmentCargoAllowed } from './local-development.mjs';
 
 const tools = new Set(['cargo', 'rustc', 'rustdoc']);
 const githubActionsOnly = 'github-actions-only';

@@ -10,7 +10,7 @@ Flags: `ok` means source, published and staged agree. `staged, not yet published
 
 Flagged mismatches: 6.
 
-The Rust build broker (`packages/build-control-*` and the `rightkit` CLI shims) is moving to RustRight, a separate product. Entries here are inventory only.
+The build broker is the Rust RustRight product (`bogusyogi/rustright`, binary `rustright`, alias `rightkit`); it is not part of this inventory. `packages/build-control-policy` keeps the agent permission hooks.
 
 ## Rust crates (55)
 
@@ -79,12 +79,7 @@ The Rust build broker (`packages/build-control-*` and the `rightkit` CLI shims) 
 | `@rightkit/agent-room-mcp` | private | 0.1.0 | none recorded |  | private |  | agent-room | Private MCP stdio server for the agent room: a typed coordination surface (join, post, raise, contest, rule, vote, tasks) that agents call to talk to a room service. This package is private and is not published to npm. |
 | `@rightkit/app-shell` | npm | 0.3.0 | 0.3.0 | 0.3.0 | ok |  | app-shell-ui | Brand-neutral React frame for Right Suite desktop apps: optional fused sidebar+titlebar layout with slots, command palette, shortcut registry/help, toasts, modals, context menus, ui kit, theme hooks. |
 | `@rightkit/ax` | npm | 0.2.4 | 0.2.4 | 0.2.4 | ok | right-ax | agent-experience-gates | Suite-wide agent-experience (AX) + agent-plugins.org conformance layer: plugin scaffolding/validation and AXA-1 static/conformance/behavioral gates over one product's MCP/CLI surface. |
-| `@rightkit/build-control-broker` | private | 0.1.0-phase1 | none recorded |  | private | rightkit-build-broker, rightkit-build-cutover-macos, rightkit-build-cutover-windows, rightkit-build-bootstrap-macos, rightkit-build-bootstrap-windows, rightkit-cache-proof, rightkit-build-control-migrate, rightkit-build-storage-migrate |  | Build-control broker layer; moving to RustRight. |
-| `@rightkit/build-control-clients` | private | 0.1.0-phase1 | none recorded |  | private | rightkit, rightkit-managed-agent, rightkit-install-agent-shims |  | Build-control broker layer; moving to RustRight. |
-| `@rightkit/build-control-core` | private | 0.1.0-phase1 | none recorded |  | private |  |  | Build-control broker layer; moving to RustRight. |
-| `@rightkit/build-control-phase0` | private | 0.0.0-phase0 | none recorded |  | private | rightkit-phase0 |  | Executable Phase-0 feasibility evidence for RightKit Build Control Plane V5. |
 | `@rightkit/build-control-policy` | private | 0.1.0-phase1 | none recorded |  | private |  |  | `ownership-write-hook-cli.mjs` adds secondary feedback for Claude `Write`/`Edit`/`MultiEdit` & Codex `apply_patch`. Both adapters deny writes targeting ownership exception or platform trust records. `ownership-session-hook-cli.mjs` adds the current RightKit ownership index at session start. Hook feedback is fail-open for ambiguous edits; build admission remains authoritative. |
-| `@rightkit/build-control-staging` | private | 0.1.0-phase1 | none recorded |  | private |  |  | Build-control broker layer; moving to RustRight. |
 | `@rightkit/doc-render` | npm | 0.1.4 | 0.1.4 | 0.1.4 | ok |  | document-rendering | Brand-neutral, read-only document renderer (Markdown, sanitized HTML, safe email frame) for Right Suite readers. |
 | `@rightkit/git` | npm | 0.2.26 | 0.2.26 | 0.2.26 | ok | right-git | github-workflows | Public-repo-only GitHub Actions workflow layer: templates, visibility gate, sync/drift/adopt/uninstall for right-git. |
 | `@rightkit/hooks` | npm | 0.1.2 | 0.1.2 | 0.1.2 | ok | rightkit-hooks | lifecycle-hooks | Neutral lifecycle runtime shared by independently installable agent systems. |

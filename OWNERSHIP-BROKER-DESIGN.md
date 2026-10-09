@@ -1,5 +1,7 @@
 # RightKit broker ownership admission design
 
+> Historical design. The Node broker it describes was removed on 2026-10-09; the Rust broker at `bogusyogi/rustright` replaced it. Module names below refer to the removed packages.
+
 ## Outcome
 
 A build may run only when broker-owned evidence covers the exact source bytes the build process reads. The current broker resolves a live Cargo workspace, and `spawnManagedProcess` uses `job.request.workspace`; scanning plus a pre-spawn rehash still leaves source mutable while Cargo and build scripts run.
@@ -15,7 +17,7 @@ A build may run only when broker-owned evidence covers the exact source bytes th
 
 ## Required platform and compatibility work
 
-`packages/build-control-staging` currently only returns `stages/<requestId>` and `targets/<requestId>` descriptors and a sync-back state; it does not copy, protect, hash, or clean source. `build-control-clients/src/remote-snapshot.mjs` uses a private Git index to capture tracked changes and non-ignored untracked files, but omits ignored files and rejects submodules; it cannot define the local admission snapshot.
+The removed Node staging package only returned `stages/<requestId>` and `targets/<requestId>` descriptors and a sync-back state; it does not copy, protect, hash, or clean source. The removed Node remote snapshot client used a private Git index to capture tracked changes and non-ignored untracked files, but omits ignored files and rejects submodules; it could not define the local admission snapshot.
 
 The snapshot provider must specify behavior for Git metadata used by `build.rs`/scripts, nested repositories, submodules, symlinks, Cargo path dependencies outside workspace/repository root, pnpm workspace links and node_modules, and scripts that write source files. Unsupported closure must fail closed. Only explicitly broker-owned output paths such as `CARGO_TARGET_DIR` and `OUT_DIR` may be writable during compilation. Cargo reads manifests and source from snapshot while all build output remains in current managed external roots.
 
@@ -39,9 +41,9 @@ No tests have been run for this design artifact; this matrix is acceptance work,
 
 ## Files in implementation scope
 
-- `tools/rightkit/packages/build-control-staging/src/index.mjs` and `index.test.mjs`: snapshot materialization, content identity, host-protection adapter contract, bounded cleanup/reap lifecycle.
-- `tools/rightkit/packages/build-control-broker/src/runtime.mjs`: stage scanner, approval verifier and catalog into immutable runtime content/provenance digest.
-- `tools/rightkit/packages/build-control-broker/src/thin-job-service.mjs`: typed scan admission, evidence/cache, staged execution cwd, failure receipt/event, and post-queue/pre-spawn identity check.
-- `tools/rightkit/packages/build-control-broker/src/thin-job-service.test.mjs`: real submission tests for duplicate block, clean admission, changed content/cache invalidation, downgrade, protection failure, timeout and race.
+- Removed Node staging module and its test: snapshot materialization, content identity, host-protection adapter contract, bounded cleanup/reap lifecycle.
+- Removed Node broker `runtime.mjs`: stage scanner, approval verifier and catalog into immutable runtime content/provenance digest.
+- Removed Node broker `thin-job-service.mjs`: typed scan admission, evidence/cache, staged execution cwd, failure receipt/event, and post-queue/pre-spawn identity check.
+- Removed Node broker `thin-job-service.test.mjs`: real submission tests for duplicate block, clean admission, changed content/cache invalidation, downgrade, protection failure, timeout and race.
 
 No runtime activation, bootstrap, service restart, job cancellation, `--force`, publication, HEAD/index mutation or commit is part of this design.

@@ -5,7 +5,7 @@ import path from 'node:path';
 import { pathToFileURL, fileURLToPath } from 'node:url';
 import test from 'node:test';
 import { ownershipWriteDecision, fingerprintDecision } from './ownership-write-hook.mjs';
-import { ownershipLookup } from '../../build-control-clients/src/ownership-lookup.mjs';
+import { renderSessionCatalog } from './ownership-session-hook.mjs';
 import { ownershipSessionDecision } from './ownership-session-hook.mjs';
 import { installPolicyAssets } from './install-policy-assets.mjs';
 
@@ -23,7 +23,7 @@ test('packaged fingerprint catalog matches canonical release catalog', () => {
 test('session start returns lookup compact index verbatim as additional context', () => {
   const result = ownershipSessionDecision();
   assert.equal(result.hookSpecificOutput.hookEventName, 'SessionStart');
-  assert.equal(result.hookSpecificOutput.additionalContext, ownershipLookup('--compact'));
+  assert.equal(result.hookSpecificOutput.additionalContext, renderSessionCatalog());
 });
 
 test('copied SessionStart hook runs from package assets without source-tree siblings', async () => {
@@ -37,7 +37,7 @@ test('copied SessionStart hook runs from package assets without source-tree sibl
     const imported = await import(`${pathToFileURL(path.join(copy, 'ownership-session-hook.mjs')).href}?isolated=1`);
     const result = imported.ownershipSessionDecision();
     assert.equal(result.hookSpecificOutput.hookEventName, 'SessionStart');
-    assert.equal(result.hookSpecificOutput.additionalContext, ownershipLookup('--compact'));
+    assert.equal(result.hookSpecificOutput.additionalContext, renderSessionCatalog());
     assert.ok(readFileSync(path.join(copy, 'ownership-session-versions.json')));
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
@@ -51,7 +51,7 @@ test('generated policy asset closure includes availability helper & runs standal
     const manifest = JSON.parse(readFileSync(path.join(installed.installRoot, 'manifest.json')));
     assert.ok(manifest.files.some((entry) => entry.name === 'ownership-availability.mjs'));
     const imported = await import(pathToFileURL(path.join(installed.installRoot, 'src/ownership-session-hook.mjs')).href);
-    assert.equal(imported.ownershipSessionDecision().hookSpecificOutput.additionalContext, ownershipLookup('--compact'));
+    assert.equal(imported.ownershipSessionDecision().hookSpecificOutput.additionalContext, renderSessionCatalog());
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
@@ -128,7 +128,7 @@ test('session start in a repository behind RightKit appends its drift and the ad
     await writeFile(path.join(repo, 'package.json'), JSON.stringify({ dependencies: { '@rightkit/release': '0.0.1' } }));
     execFileSync('git', ['-C', repo, 'init'], { stdio: 'ignore' }); execFileSync('git', ['-C', repo, 'add', '.'], { stdio: 'ignore' });
     const context = ownershipSessionDecision({ cwd: repo }).hookSpecificOutput.additionalContext;
-    assert.ok(context.startsWith(ownershipLookup('--compact')));
+    assert.ok(context.startsWith(renderSessionCatalog()));
     assert.match(context, /@rightkit\/release 0\.0\.1 -> \d+\.\d+\.\d+/);
     assert.match(context, /rightkit-drift\.mjs" --apply/);
     assert.equal(ownershipSessionDecision({ cwd: tmpdir() }).hookSpecificOutput.additionalContext.includes('RightKit updates'), false);

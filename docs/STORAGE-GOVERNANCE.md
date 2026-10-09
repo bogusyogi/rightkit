@@ -1,16 +1,18 @@
 # RightKit storage governance
 
+> Retired 2026-10-09: the Node build broker packages were removed; the Rust broker at `bogusyogi/rustright` (binary `rustright`, alias `rightkit`) owns this. Rows and commands below that name broker, client or core modules describe the removed implementation.
+
 Implemented source changes only. No commit, publication, live config edit, cutover, real-data deletion or Trash move occurred. Existing unrelated checkout edits remain intact.
 
 | Requested item | Changes |
 |---|---|
 | Managed QA roots | `packages/qa/src/storage.ts`, `workspace.ts`; `crates/rightkit-qa/src/storage.rs`, workspace, harness, suite, CLI & process registry sweep. Shared markers, PID/lease protection, serialized startup retention, managed captures/evidence/scratch, budget accounting & refusal when protected/unknown data prevents fitting budget. Orphan recovery precedes retention & skips live owners. |
 | Installer retention | `packages/release/artifact-storage.mjs`, build/seal/upload/update paths & `mirror-root-artifact.mjs`. Outputs resolve under managed app/version directories. Keep newest completed versions plus currently published platform versions. Fresh verified publication updates pointer; dry-run/replayed receipts cannot replace it. Doctor fails repository installer-copy findings; ownership report includes storage findings. |
-| Xcode | `packages/build-control-core/src/xcode-storage.mjs`. Managed DerivedData/xcresult argument helper, connected-device discovery, recent-use history, version retention & same-volume Trash moves. Discovery/history failures stop pruning. |
+| Xcode | Removed Node core module (`xcode-storage`); now RustRight. Managed DerivedData/xcresult argument helper, connected-device discovery, recent-use history, version retention & same-volume Trash moves. Discovery/history failures stop pruning. |
 | Broker | Volume discovery, host sizing, config migration, ThinState GC & live `STORAGE_GC` RPC. Budget triggers LRU above free floor; final transition rechecks generation, timestamps, activity & grace. Dry-run never queues applying maintenance. Compiler storage remains owned by native sccache LRU. |
-| Storage CLI | `packages/build-control-clients/src/storage-cli.mjs`, CLI dispatch & typed client RPC; core `storage.mjs` & `storage-ownership.mjs`. JSON report, per-app/category totals, top offenders, doctor, dry-run/apply, script wrapper & explicit one-off Trash selection. |
+| Storage CLI | Removed Node client CLI, dispatch & typed client RPC, and core storage modules; now `rustright storage`. JSON report, per-app/category totals, top offenders, doctor, dry-run/apply, script wrapper & explicit one-off Trash selection. |
 
-Defaults ([storage.mjs:5](../packages/build-control-core/src/storage.mjs#L5), [QA storage.ts:5](../packages/qa/src/storage.ts#L5), [Rust storage.rs:12](../crates/rightkit-qa/src/storage.rs#L12), [host-sizing.mjs:22](../packages/build-control-broker/src/host-sizing.mjs#L22)):
+Defaults ([QA storage.ts:5](../packages/qa/src/storage.ts#L5), [Rust storage.rs:12](../crates/rightkit-qa/src/storage.rs#L12); broker defaults live in RustRight):
 
 | Policy | Default |
 |---|---|
@@ -27,33 +29,7 @@ Defaults ([storage.mjs:5](../packages/build-control-core/src/storage.mjs#L5), [Q
 
 Managed run/artifact pruning requires valid ownership metadata. Unknown roots survive. One-off archives, research directories, workspace trash & installers move by rename into containing volume’s `.Trashes/<uid>`; no recursive deletion of those items. Legacy audit/cache/temp trees require app adoption or explicit reviewed relocation; new run retention does not claim ownership over existing unmarked data.
 
-Lead commands, from this checkout:
-
-```sh
-cd /Volumes/D/claude/tools/rightkit
-
-# Plan only; discovers migrated volume UUID even if old config says unknown.
-node packages/build-control-broker/src/storage-migration.mjs \
-  --config /Volumes/D/.rightkit-managed/config.json \
-  > /private/tmp/rightkit-storage-migration-plan.json
-cat /private/tmp/rightkit-storage-migration-plan.json
-
-# Bind apply to UUID from reviewed plan; backup + atomic targeted update.
-RIGHTKIT_STORAGE_VOLUME_ID=$(node --input-type=module -e \
-  'import fs from "node:fs"; console.log(JSON.parse(fs.readFileSync("/private/tmp/rightkit-storage-migration-plan.json","utf8")).volume.volumeId)')
-node packages/build-control-broker/src/storage-migration.mjs \
-  --config /Volumes/D/.rightkit-managed/config.json \
-  --expected-volume-id "$RIGHTKIT_STORAGE_VOLUME_ID" --apply --lead
-
-# Guarded cutover preserves existing config. No --force or --cargo-build-jobs.
-node packages/build-control-broker/src/bootstrap-macos-cli.mjs \
-  --external-root /Volumes/D/.rightkit-managed
-rightkit list
-```
-
-Existing runtime staging requires clean, committed build-control source with verified revision/tree digests. Current changes intentionally remain uncommitted, so cutover belongs to lead’s later delivery step; source implementation is not installed behavior.
-
-Before cutover, invoke source CLI with `node packages/build-control-clients/src/rightkit.mjs storage ...`. After cutover:
+Storage migration, bootstrap and cutover commands for the removed Node broker no longer exist; use the RustRight installer and CLI documented in `bogusyogi/rustright`.
 
 ```sh
 rightkit storage report --workspace /Volumes/D/claude \
@@ -107,9 +83,6 @@ Lead verification commands:
 
 ```sh
 TMPDIR=/private/tmp node --test --test-concurrency=1 --test-force-exit \
-  packages/build-control-core/src/*.test.mjs \
-  packages/build-control-clients/src/*.test.mjs \
-  packages/build-control-broker/src/*.test.mjs \
   packages/release/*.test.mjs packages/qa/public-storage.test.mjs
 pnpm --dir packages/qa test
 rightkit cargo test -p rightkit-qa

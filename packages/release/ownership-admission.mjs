@@ -8,9 +8,9 @@ export const OWNERSHIP_MODES = Object.freeze(['off', 'report', 'enforce']);
 const MAX_OUTPUT_BYTES = 32 * 1024 * 1024;
 const here = dirname(fileURLToPath(import.meta.url));
 
-/** Staged runtime layout first, then source checkout. */
+/** The scanner lives beside this module (reference implementation for the RustRight admission contract). */
 export function defaultScannerRoot() {
-  for (const candidate of [join(here, '..', '..', 'ownership-scanner'), join(here, '..', '..', 'release')]) {
+  for (const candidate of [here]) {
     if (existsSync(join(candidate, 'ownership-scan-worker.mjs')) && existsSync(join(candidate, 'rightkit-ownership.json'))) return candidate;
   }
   return null;

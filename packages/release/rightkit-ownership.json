@@ -2349,44 +2349,9 @@
   ],
   "internalOwners": [
     {
-      "package": "@rightkit/build-control-broker",
-      "path": "packages/build-control-broker/package.json",
-      "reason": "Private build-control infrastructure; not an application capability"
-    },
-    {
-      "package": "@rightkit/build-control-clients",
-      "path": "packages/build-control-clients/package.json",
-      "reason": "Private build-control infrastructure; not an application capability"
-    },
-    {
-      "package": "@rightkit/build-control-core",
-      "path": "packages/build-control-core/package.json",
-      "reason": "Private build-control infrastructure; not an application capability"
-    },
-    {
-      "package": "@rightkit/build-control-phase0",
-      "path": "packages/build-control-phase0/package.json",
-      "reason": "Private build-control infrastructure; not an application capability"
-    },
-    {
       "package": "@rightkit/build-control-policy",
       "path": "packages/build-control-policy/package.json",
       "reason": "Private build-control infrastructure; not an application capability"
-    },
-    {
-      "package": "@rightkit/build-control-staging",
-      "path": "packages/build-control-staging/package.json",
-      "reason": "Private build-control infrastructure; not an application capability"
-    },
-    {
-      "package": "@rightkit/build-control-phase0-macos",
-      "path": "packages/build-control-phase0/macos/package.json",
-      "reason": "Private native build-control feasibility fixture"
-    },
-    {
-      "package": "@rightkit/build-control-phase0-windows",
-      "path": "packages/build-control-phase0/windows/package.json",
-      "reason": "Private native build-control feasibility fixture"
     }
   ]
 }

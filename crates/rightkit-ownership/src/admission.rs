@@ -1,5 +1,5 @@
 //! Ownership admission. Port of `OwnershipAdmission` in
-//! `build-control-broker/src/ownership-admission.mjs`.
+//! `packages/release/ownership-admission.mjs`.
 //!
 //! Every admission re-authenticates inputs with an inventory worker, including cache
 //! hits. A verdict is reused only when the freshly computed six-binding cache key

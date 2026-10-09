@@ -178,12 +178,10 @@ export function recordPublished({ registry, name, version }, { file = VERSIONS_F
   } catch (error) { log(`[right-release] release feed not updated (${error.message}); run node rightkit-sync.mjs`); }
 }
 
-/** The broker client and the session hook carry byte copies of the catalog and versions; keep them exact. */
+/** The session hook carries byte copies of the catalog and versions; keep them exact. */
 export function syncConsumerCopies(root = rightkitRoot) {
   const release = path.join(root, "packages", "release");
   const targets = [
-    ["rightkit-ownership.json", path.join(root, "packages", "build-control-clients", "src", "ownership-catalog.json")],
-    ["rightkit-versions.json", path.join(root, "packages", "build-control-clients", "src", "rightkit-versions.json")],
     ["rightkit-ownership.json", path.join(root, "packages", "build-control-policy", "src", "ownership-session-catalog.json")],
     ["rightkit-ownership.json", path.join(root, "packages", "build-control-policy", "src", "ownership-fingerprints.json")],
     ["rightkit-versions.json", path.join(root, "packages", "build-control-policy", "src", "ownership-session-versions.json")],
@@ -191,7 +189,6 @@ export function syncConsumerCopies(root = rightkitRoot) {
     ["background-process.mjs", path.join(root, "packages", "build-control-policy", "src", "background-process.mjs")],
     ["ownership-source.mjs", path.join(root, "packages", "build-control-policy", "src", "ownership-source.mjs")],
     ["ownership-availability.mjs", path.join(root, "packages", "build-control-policy", "src", "ownership-availability.mjs")],
-    ["ownership-availability.mjs", path.join(root, "packages", "build-control-clients", "src", "ownership-availability.mjs")],
   ];
   const updated = [];
   for (const [source, target] of targets) {

@@ -228,7 +228,6 @@ function subdirs(dir) {
   return readdirSync(dir, { withFileTypes: true }).filter((e) => e.isDirectory()).map((e) => e.name).sort(cmp);
 }
 
-const BROKER_NOTE = "Build-control broker layer; moving to RustRight.";
 
 function loadInventory(root) {
   const rootWorkspace = existsSync(path.join(root, "Cargo.toml"))
@@ -258,7 +257,7 @@ function loadInventory(root) {
       ecosystem: "npm",
       name,
       version: pkg.version ?? "",
-      description: pkg.description || readmeLine(dir) || (name.startsWith("@rightkit/build-control-") ? BROKER_NOTE : ""),
+      description: pkg.description || readmeLine(dir) || "",
       isPrivate: pkg.private === true,
       bins: Object.keys(pkg.bin ?? {}).join(", "),
       dir: `packages/${dirName}`,
@@ -391,7 +390,7 @@ function renderIndex(inventory) {
     "",
     `Flagged mismatches: ${mismatches}.`,
     "",
-    "The Rust build broker (`packages/build-control-*` and the `rightkit` CLI shims) is moving to RustRight, a separate product. Entries here are inventory only.",
+    "The build broker is the Rust RustRight product (`bogusyogi/rustright`, binary `rustright`, alias `rightkit`); it is not part of this inventory. `packages/build-control-policy` keeps the agent permission hooks.",
     "",
     `## Rust crates (${crateRows.length})`,
     "",

@@ -64,7 +64,7 @@
         "violations": { "type": "array", "items": { "type": "object", "additionalProperties": false, "required": ["capability", "owner", "fingerprint", "file", "line"], "properties": { "capability": {}, "owner": {}, "fingerprint": {}, "file": {}, "line": {} } } },
         "scanRoot": { "type": ["string", "null"] }, "scanMs": { "type": "number" }, "cached": { "type": "boolean" }, "error": { "type": "string" }
       },
-      "description": "Result of OwnershipAdmission.evaluate (build-control-broker/src/ownership-admission.mjs:61-65,77-79,118). mode=off returns only {mode,outcome:'off'}. `code` on a failure is whatever code the worker reported (not sanitised on the probe/scan error paths, :89,:116)."
+      "description": "Result of OwnershipAdmission.evaluate (ownership-admission.mjs:61-65,77-79,118). mode=off returns only {mode,outcome:'off'}. `code` on a failure is whatever code the worker reported (not sanitised on the probe/scan error paths, :89,:116)."
     }
   }
 }

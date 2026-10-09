@@ -14,7 +14,7 @@ import { canonicalRepositoryIdentity } from "../../ownership-approval.mjs";
 import { contentInventory } from "../../ownership.mjs";
 import { ownershipScanInputsForTest, scanOwnershipForTest } from "../../ownership-scan-worker.mjs";
 import { ownershipCacheKey, ownershipVerdict } from "../../ownership-verdict.mjs";
-import { OwnershipAdmission, runScanWorker } from "../../../build-control-broker/src/ownership-admission.mjs";
+import { OwnershipAdmission, runScanWorker } from "../../ownership-admission.mjs";
 import { admissionCases, cacheKeyCases, identityCases, SCANNER_POLICY_DIGEST, scanCases, transportCases, verdictCases } from "./cases.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));

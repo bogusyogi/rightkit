@@ -11,7 +11,7 @@ States: **done**, **in progress**, **not started**, **waiting on Adrian**, **blo
 - The live Mac broker runs an older runtime than main. The newer runtime is not activated.
 - Class-1 (tamper-proof evidence builds) is not installed on either host. Adrian must run the elevated installers.
 - App chats stay stopped until Adrian resumes them.
-- The broker is leaving RightKit for RustRight. Only the RustRight chat edits broker code.
+- The broker is RustRight (`bogusyogi/rustright`), live on Mac and Windows; the Node broker packages were removed from RightKit on 2026-10-09. Only the RustRight chat edits broker code.
 
 ## (a) Review plan P0 to P4
 
@@ -32,7 +32,7 @@ Source: `tasks/reviews/2026-10-08-rightkit-converged-plan.md` (revision 4, both 
 | P2 | Full active-feature and production-reachability resolution | not started | (`3ceb71e7a` is stage 1 only) | Qualify before any enforce flip. |
 | P2 | Enforce (block tier, both hosts) | not started | none | Blocked on P1 rows, complete registered-root coverage, validated exceptions, protected policy install, native acceptance. |
 | P3 | Per-app burn-down | waiting on Adrian | see version pins below | App chats resume only when Adrian says so. |
-| P4 | Cleanup: D6 retirements, `runtime-*` GC, `@rightkit/release` split | not started | `6fd70c759` (generated `INDEX.md`, partial) | `build-control-phase0` and `build-control-staging` still in `packages/`. Retire only after consumers move. |
+| P4 | Cleanup: D6 retirements, `runtime-*` GC, `@rightkit/release` split | not started | `6fd70c759` (generated `INDEX.md`, partial) | The Node broker packages (including phase0 and staging) were removed on 2026-10-09; the broker is RustRight (`bogusyogi/rustright`). Remaining: `runtime-*` GC and the `@rightkit/release` split. |
 
 P3 version pins (source versions in `Cargo.toml`, not yet published unless noted):
 

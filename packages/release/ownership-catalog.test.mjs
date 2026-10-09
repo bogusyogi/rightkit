@@ -16,8 +16,8 @@ const digest = (bytes) => createHash("sha256").update(bytes).digest("hex");
 const canonical = (value) => JSON.stringify(value, (_key, item) => item && typeof item === "object" && !Array.isArray(item)
   ? Object.fromEntries(Object.keys(item).sort().map((key) => [key, item[key]])) : item);
 
-test("all four generated catalogs have equal byte & canonical policy digests", () => {
-  const files = ["release/rightkit-ownership.json", "build-control-clients/src/ownership-catalog.json", "build-control-policy/src/ownership-session-catalog.json", "build-control-policy/src/ownership-fingerprints.json"];
+test("all three generated catalogs have equal byte & canonical policy digests", () => {
+  const files = ["release/rightkit-ownership.json", "build-control-policy/src/ownership-session-catalog.json", "build-control-policy/src/ownership-fingerprints.json"];
   const bytes = files.map((file) => readFileSync(path.join(root, "packages", file)));
   assert.equal(new Set(bytes.map(digest)).size, 1);
   assert.equal(new Set(bytes.map((data) => digest(canonical(JSON.parse(data))))).size, 1);

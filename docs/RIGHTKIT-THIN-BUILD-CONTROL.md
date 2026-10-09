@@ -1,6 +1,6 @@
 # RightKit Thin Build Control — Canonical Architecture & Migration Plan
 
-**Status:** live on macOS and Windows; predecessor core removed.
+**Status:** live on macOS and Windows; predecessor core removed. The Node implementation described here was itself removed on 2026-10-09 and replaced by the Rust broker RustRight (`bogusyogi/rustright`, binary `rustright`, alias `rightkit`); read this document as the architecture reference, not as a map of current files.
 **Authority:** this document supersedes the previous build-control architecture and remediation plans for implementation decisions.  
 **Purpose:** preserve aggressive Rust/Cargo cache reuse while preventing autonomous agents from competing for the same workstation, spawning unmanaged build trees, or leaving unsafe orphaned writers behind.
 
@@ -1011,7 +1011,7 @@ admission and receipts.
 
 Receipts summarize telemetry; they do not contain the full time series.
 
-Run `node packages/build-control-broker/src/cache-proof-cli.mjs --iterations 3`
+Run the RustRight cache proof (`bogusyogi/rustright`; the Node `cache-proof-cli` was removed)
 on each native host for deterministic reuse acceptance. It primes
 `fixture-rust` with a tiny library build, clears only its marked live generation target, then requires at
 least one hit & zero misses on every identical recompilation.

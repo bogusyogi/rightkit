@@ -83,12 +83,7 @@ Status values compare each pin with the latest published version (registry-recor
 | `@rightkit/agent-room-mcp` | private | 0.1.0 | none recorded | 0 | none | - |
 | `@rightkit/app-shell` | npm | 0.3.0 | 0.3.0 | 5 | cockpit, cutright, genright, heardright, scraperight | 5 stale |
 | `@rightkit/ax` | npm | 0.2.4 | 0.2.4 | 2 | coderight, legion | - |
-| `@rightkit/build-control-broker` | private | 0.1.0-phase1 | none recorded | 0 | none | - |
-| `@rightkit/build-control-clients` | private | 0.1.0-phase1 | none recorded | 0 | none | - |
-| `@rightkit/build-control-core` | private | 0.1.0-phase1 | none recorded | 0 | none | - |
-| `@rightkit/build-control-phase0` | private | 0.0.0-phase0 | none recorded | 0 | none | - |
 | `@rightkit/build-control-policy` | private | 0.1.0-phase1 | none recorded | 0 | none | - |
-| `@rightkit/build-control-staging` | private | 0.1.0-phase1 | none recorded | 0 | none | - |
 | `@rightkit/doc-render` | npm | 0.1.4 | 0.1.4 | 1 | viewright | 1 stale |
 | `@rightkit/git` | npm | 0.2.26 | 0.2.26 | 2 | coderight, legion | 2 stale |
 | `@rightkit/hooks` | npm | 0.1.2 | 0.1.2 | 2 | coderight, legion | 2 stale |

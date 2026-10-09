@@ -59,14 +59,14 @@ test("publishables skip private crates and packages; registry lookups use both r
 
 test("consumer copies are byte-exact and only rewritten when they differ", async () => {
   const root = await realpath(await mkdtemp(path.join(tmpdir(), "rk-sync-copies-"))); try {
-    for (const dir of ["release", "build-control-clients/src", "build-control-policy/src"]) await mkdir(path.join(root, "packages", dir), { recursive: true });
+    for (const dir of ["release", "build-control-policy/src"]) await mkdir(path.join(root, "packages", dir), { recursive: true });
     await writeFile(path.join(root, "packages", "release", "rightkit-ownership.json"), '{"capabilities":[]}\n');
     await writeFile(path.join(root, "packages", "release", "rightkit-versions.json"), '{"schema":2}\n');
     await writeFile(path.join(root, "packages", "release", "rightkit-drift.mjs"), "export {};\n");
     await writeFile(path.join(root, "packages", "release", "background-process.mjs"), "export {};\n");
     await writeFile(path.join(root, "packages", "release", "ownership-source.mjs"), "export {};\n");
     await writeFile(path.join(root, "packages", "release", "ownership-availability.mjs"), "export {};\n");
-    assert.equal(syncConsumerCopies(root).length, 10);
+    assert.equal(syncConsumerCopies(root).length, 7);
     assert.equal(await readFile(path.join(root, "packages", "build-control-policy", "src", "ownership-session-versions.json"), "utf8"), '{"schema":2}\n');
     assert.deepEqual(syncConsumerCopies(root), []);
   } finally { await rm(root, { recursive: true, force: true }); }
@@ -75,8 +75,6 @@ test("consumer copies are byte-exact and only rewritten when they differ", async
 test("checked-in consumer copies match the canonical catalog and versions (run: node rightkit-sync.mjs)", async () => {
   const packages = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
   const pairs = [
-    ["release/rightkit-ownership.json", "build-control-clients/src/ownership-catalog.json"],
-    ["release/rightkit-versions.json", "build-control-clients/src/rightkit-versions.json"],
     ["release/rightkit-ownership.json", "build-control-policy/src/ownership-session-catalog.json"],
     ["release/rightkit-ownership.json", "build-control-policy/src/ownership-fingerprints.json"],
     ["release/rightkit-versions.json", "build-control-policy/src/ownership-session-versions.json"],
@@ -84,7 +82,6 @@ test("checked-in consumer copies match the canonical catalog and versions (run: 
     ["release/background-process.mjs", "build-control-policy/src/background-process.mjs"],
     ["release/ownership-source.mjs", "build-control-policy/src/ownership-source.mjs"],
     ["release/ownership-availability.mjs", "build-control-policy/src/ownership-availability.mjs"],
-    ["release/ownership-availability.mjs", "build-control-clients/src/ownership-availability.mjs"],
   ];
   for (const [source, copy] of pairs) assert.equal(await readFile(path.join(packages, copy), "utf8"), await readFile(path.join(packages, source), "utf8"), `${copy} is stale`);
 });
@@ -107,7 +104,7 @@ async function syncFixture(context, versions) {
   // Resolve /var -> /private/var on macOS before deriving any fixture paths.
   const root = await realpath(await mkdtemp(path.join(tmpdir(), "rk-stage-")));
   context.after(() => rm(root, { recursive: true, force: true }));
-  for (const dir of ["release", "build-control-clients/src", "build-control-policy/src"]) await mkdir(path.join(root, "packages", dir), { recursive: true });
+  for (const dir of ["release", "build-control-policy/src"]) await mkdir(path.join(root, "packages", dir), { recursive: true });
   await mkdir(path.join(root, "crates"));
   const release = path.join(root, "packages", "release");
   const file = path.join(release, "rightkit-versions.json");
@@ -120,7 +117,7 @@ async function syncFixture(context, versions) {
 
 async function assertVersionCopies({ root, file }) {
   const canonical = await readFile(file, "utf8");
-  for (const copy of ["build-control-clients/src/rightkit-versions.json", "build-control-policy/src/ownership-session-versions.json"]) {
+  for (const copy of ["build-control-policy/src/ownership-session-versions.json"]) {
     assert.equal(await readFile(path.join(root, "packages", copy), "utf8"), canonical, `${copy} is stale`);
   }
   return JSON.parse(canonical);
@@ -143,7 +140,7 @@ for (const [registry, name, stagedKey, legacyKey] of [
     assert.equal(next[registry][name], "0.1.0", "floor remains unchanged");
     assert.equal(next.registry[registry][name], "0.2.9", "staging does not claim publication");
     assert.equal(result.written, true);
-    assert.equal(result.copies.length, 2);
+    assert.equal(result.copies.length, 1);
     assert.deepEqual(result.changes, [{ registry, name, from: "0.2.9", to: "0.2.10" }]);
     const repeat = await stageVersion({ registry, name, version: "0.2.10" }, options);
     assert.equal(repeat.written, false);

@@ -137,7 +137,7 @@ test('missing digests, changed scan bindings & unavailable scanners refuse; fail
 });
 
 test('only block-tier or banned violations refuse; advise violations admit with an advisory verdict', async () => {
-  const { ownershipVerdict } = await import('../../release/ownership-verdict.mjs');
+  const { ownershipVerdict } = await import('./ownership-verdict.mjs');
   const advise = { ...violation, tier: 'advise' };
   const advisory = ownershipVerdict(report({ violations: [advise] }), trust);
   assert.equal(advisory.admit, true);

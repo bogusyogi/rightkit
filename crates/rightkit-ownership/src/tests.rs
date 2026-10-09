@@ -1,4 +1,4 @@
-//! Port of `build-control-broker/src/ownership-admission.test.mjs`. Each Node `test(...)`
+//! Port of `packages/release/ownership-admission.test.mjs`. Each Node `test(...)`
 //! is one `#[test]` with its name in snake_case. Rust-only additions are at the end.
 
 use std::fs;
