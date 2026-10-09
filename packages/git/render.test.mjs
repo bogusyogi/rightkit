@@ -905,6 +905,8 @@ test("ciIncremental unset or false renders the legacy cache settings; true opts 
   const on = renderRustCi({ ...INCREMENTAL_BASE, ciIncremental: true });
   assert.match(on, /cache-workspace-crates: true/);
   assert.match(on, /CARGO_INCREMENTAL: "1"/);
+  assert.match(on, /RUSTC_WRAPPER: ""\n/, "sccache refuses incremental builds");
+  assert.doesNotMatch(on, /RUSTC_WRAPPER: \$\{\{ steps\.rust-changes/);
   assert.match(on, /Cache Xcode DerivedData\n        if: \$\{\{ runner\.os == 'macOS' \}\}\n        uses: actions\/cache@[0-9a-f]{40} # v4\.2\.4/);
   assert.match(on, /hashFiles\('\*\*\/Cargo\.lock', '\*\*\/Package\.resolved'/);
 });
