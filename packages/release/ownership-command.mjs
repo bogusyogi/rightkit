@@ -64,6 +64,9 @@ export async function main(args, { evidenceFactory = createOwnershipEvidence, gi
     for (const p of result.problems) print(`  ${checked.enrollmentPending ? "DIAGNOSTIC" : "EXCEPTION"} ${p}`);
     print(checked.enrollmentPending ? `[right-release] ${checked.warning}` : checked.ok ? "[right-release] ownership passed" : `[right-release] ownership FAILED: ${[...result.problems, ...checked.floor.problems].join("; ") || "move these to RightKit or add a reviewed, dated exception"}`);
   }
+  // CI lanes may pass `--advisory-when-pending`: before approval keys are enrolled the scan asserts
+  // nothing, so findings print as diagnostics and the step exits 0. Release lanes never pass it.
+  if (checked.enrollmentPending && args.includes("--advisory-when-pending")) return 0;
   return checked.ok ? 0 : 1;
 }
 

@@ -44,6 +44,17 @@ test("ownership CLI refuses pending enrollment with a diagnostic while preservin
   assert.ok(human.at(-1).includes("WARNING:"));
 });
 
+test("ownership CLI --advisory-when-pending exits 0 only while enrollment is pending", async () => {
+  const result = { rows: [], violations: [{ fingerprint: "pending", file: "source.rs" }], covered: [], problems: [], coverage: [], metadata: {} };
+  const run = (checked) => main(["--app", repositoryRoot, "--advisory-when-pending"], {
+    gitRunner: () => ({ status: 0, stdout: `${repositoryRoot}\n` }),
+    evidenceFactory: () => ({ result, floor: { ok: false, problems: [] }, ...checked }),
+    print: () => {},
+  });
+  assert.equal(await run({ ok: false, enrollmentPending: true, warning: "WARNING: pending" }), 0);
+  assert.equal(await run({ ok: false }), 1);
+});
+
 test("published ownership command runs without development sibling packages & refuses pending trust with a warning", () => {
   const temp = mkdtempSync(path.join(os.tmpdir(), "right-release-ownership-pack-"));
   try {
