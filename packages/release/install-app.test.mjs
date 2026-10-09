@@ -3,7 +3,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { installApp, matchPids, mountPointsFromAttach, parseArgs, parseTeamId, parsePlist, trashName, main } from "./install-app.mjs";
+import { EventEmitter } from "node:events";
+import { recoverApp, recoverInstalls, journalPathFor, installApp, matchPids, mountPointsFromAttach, parseArgs, parseTeamId, parsePlist, trashName, main } from "./install-app.mjs";
 
 const PLIST = `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -77,7 +78,7 @@ function harness({ team = "TEAM1", installedTeam = "TEAM1", fail = {}, running =
   const calls = [];
   const kills = [];
   let alive = running;
-  const isNew = (p) => !p.startsWith(dest);
+  const isNew = (p) => !p.startsWith(dest) || path.basename(p).startsWith(".");
   const execFile = async (cmd, args) => {
     calls.push([cmd, ...args]);
     const key = path.basename(cmd) + ":" + (args[0] === "stapler" ? "stapler" : args[0]);
@@ -92,6 +93,7 @@ function harness({ team = "TEAM1", installedTeam = "TEAM1", fail = {}, running =
       if (args.includes("-vv")) { fx("spctl-notarized"); return { stdout: "", stderr: fail.notNotarized ? "accepted\nsource=Developer ID" : "accepted\nsource=Notarized Developer ID" }; }
       fx("spctl"); return { stdout: "", stderr: "" };
     }
+    if (cmd.endsWith("xcrun") && args[0] === "--find") { fx("nostapler"); return { stdout: "/usr/bin/stapler", stderr: "" }; }
     if (cmd.endsWith("xcrun")) { if (args[2].endsWith(".app")) fx("stapler-app"); else fx("stapler-dmg"); fx("stapler"); return { stdout: "", stderr: "" }; }
     if (cmd.endsWith("plutil")) return { stdout: JSON.stringify({ CFBundleIdentifier: bundleId }), stderr: "" };
     if (cmd.endsWith("ps")) return { stdout: alive ? `  555 ${dest}/Pulse.app/Contents/MacOS/Pulse\n` : "", stderr: "" };
@@ -171,10 +173,11 @@ test("bundle id mismatch with --bundle-id is refused", async () => {
   assert.equal(h.marker(), "old");
 });
 
-test("ditto failure restores the old bundle from Trash", async () => {
+test("ditto failure (during staging) leaves the old bundle untouched and no leftovers", async () => {
   const h = harness({ fail: { ditto: "disk full" } });
-  await assert.rejects(installApp(h.opts, h.deps), /previous app restored/);
+  await assert.rejects(installApp(h.opts, h.deps), /previous app untouched/);
   assert.equal(h.marker(), "old");
+  assert.deepEqual(fs.readdirSync(h.dest), ["Pulse.app"]);
 });
 
 test("fresh install into empty dest works without trash", async () => {
@@ -302,4 +305,184 @@ test("DMG-ticket fallback keeps team continuity check", async () => {
   const h = harness({ team: "TEAM2", fail: { "stapler-app": "x" } });
   await assert.rejects(installApp(h.opts, h.deps), /team/);
   assert.equal(h.marker(), "old");
+});
+
+// ---- crash-safe swap ----
+
+class Crash extends Error {}
+
+// Simulates kill -9: once the crash point fires, every fs call and runner call throws, so no cleanup can run.
+function crashing(h, { at }) {
+  let dead = false;
+  const renames = [];
+  const guard = (fn) => (...a) => { if (dead) throw new Crash("dead"); return fn(...a); };
+  const fsImpl = new Proxy(fs, { get(target, prop) {
+    const v = target[prop];
+    if (typeof v !== "function") return v;
+    if (prop === "renameSync") return (from, to) => {
+      if (dead) throw new Crash("dead");
+      renames.push(path.basename(to));
+      const hit = at(from, to, renames);
+      if (hit === "before") { dead = true; throw new Crash("kill before rename"); }
+      v.call(target, from, to);
+      if (hit === "after") { dead = true; throw new Crash("kill after rename"); }
+    };
+    return guard(v.bind(target));
+  } });
+  const execFile = (...a) => { if (dead) throw new Crash("dead"); return h.deps.execFile(...a); };
+  return { fsImpl, deps: { ...h.deps, fsImpl, execFile, signalTarget: new EventEmitter(), exit: () => {} } };
+}
+
+const bundles = (h) => fs.readdirSync(h.dest).filter((n) => n.endsWith(".app"));
+const recoverDeps = (h) => ({ dest: h.dest, appName: "Pulse.app", run: (c, a) => h.deps.execFile(c, a), fsImpl: fs, home: h.home, now: () => new Date("2026-10-09T00:00:00Z"), event: (n, d) => h.events.push({ event: n, ...d }), sleep: async () => {}, isAlive: () => false });
+
+for (const [name, at, expectMarker] of [
+  ["after backup rename, before staged rename", (from, to) => (to.includes(".rightkit-backup-") ? "after" : null), "old"],
+  ["after staged rename, before trash", (from, to) => (to.endsWith("/Pulse.app") && from.includes(".rightkit-install-") ? "after" : null), "new"],
+]) {
+  test(`kill ${name}: recovery leaves exactly one valid bundle, idempotently`, async () => {
+    const h = harness();
+    const c = crashing(h, { at });
+    await assert.rejects(installApp(h.opts, c.deps), /kill after rename/);
+    assert.ok(fs.existsSync(journalPathFor(h.dest, "Pulse.app")), "journal survives the kill");
+    const r1 = await recoverInstalls(recoverDeps(h));
+    assert.equal(r1.length, 1);
+    assert.deepEqual(bundles(h), ["Pulse.app"]);
+    assert.equal(h.marker(), expectMarker);
+    assert.deepEqual(fs.readdirSync(h.dest).filter((n) => n.startsWith(".")), [], "no journal, staging, or backup left");
+    assert.deepEqual(await recoverInstalls(recoverDeps(h)), [], "second recovery is a no-op");
+    assert.equal(h.marker(), expectMarker);
+    assert.ok(h.calls.some((x) => x[0].endsWith("hdiutil") && x[1] === "detach" && x[2] === h.mount), "stale DMG mount detached");
+  });
+}
+
+test("kill after staged rename with a bad new bundle rolls back to the backup", async () => {
+  const h = harness();
+  const c = crashing(h, { at: (from, to) => (to.endsWith("/Pulse.app") && from.includes(".rightkit-install-") ? "after" : null) });
+  await assert.rejects(installApp(h.opts, c.deps), /kill after rename/);
+  h.deps.execFile = ((orig) => async (cmd, args) => { if (cmd.endsWith("codesign") && args[0] === "--verify") throw new Error("broken"); return orig(cmd, args); })(h.deps.execFile);
+  const r = await recoverInstalls(recoverDeps(h));
+  assert.equal(r[0].action, "rolled-back");
+  assert.equal(h.marker(), "old");
+  assert.deepEqual(bundles(h), ["Pulse.app"]);
+});
+
+test("kill after backup rename with the destination absent restores the backup (the R7 finding)", async () => {
+  const h = harness();
+  const c = crashing(h, { at: (from, to) => (to.includes(".rightkit-backup-") ? "after" : null) });
+  await assert.rejects(installApp(h.opts, c.deps), /kill after rename/);
+  assert.ok(!fs.existsSync(path.join(h.dest, "Pulse.app")));
+  const code = await main(["--recover", "--dest", h.dest, "--app-name", "Pulse.app", "--json"], { stdout: () => {}, stderr: () => {}, deps: { ...h.deps, fsImpl: fs } });
+  assert.equal(code, 0);
+  assert.equal(h.marker(), "old");
+});
+
+test("running install recovers a prior interrupted install first, then installs", async () => {
+  const h = harness();
+  const c = crashing(h, { at: (from, to) => (to.includes(".rightkit-backup-") ? "after" : null) });
+  await assert.rejects(installApp(h.opts, c.deps), /kill after rename/);
+  const r = await installApp(h.opts, { ...h.deps, isAlive: () => false });
+  assert.equal(r.ok, true);
+  assert.equal(h.marker(), "new");
+  assert.ok(h.events.some((e) => e.event === "recovered" && e.action === "restored-backup"));
+  assert.deepEqual(fs.readdirSync(h.dest).filter((n) => n.startsWith(".")), []);
+});
+
+test("recovery skips a journal whose installer is still alive", async () => {
+  const h = harness();
+  const c = crashing(h, { at: (from, to) => (to.includes(".rightkit-backup-") ? "after" : null) });
+  await assert.rejects(installApp(h.opts, c.deps), /kill after rename/);
+  const j = JSON.parse(fs.readFileSync(journalPathFor(h.dest, "Pulse.app"), "utf8"));
+  const r = await recoverInstalls({ ...recoverDeps(h), isAlive: () => true, selfPid: j.pid + 1 });
+  assert.deepEqual(r, []);
+  assert.ok(fs.existsSync(journalPathFor(h.dest, "Pulse.app")));
+});
+
+test("reverify failure rolls back to the old bundle without trashing it; mount detached", async () => {
+  const h = harness({ fail: { reverify: "bad after swap" } });
+  await assert.rejects(installApp(h.opts, h.deps), /codesign-verify/);
+  assert.equal(h.marker(), "old");
+  assert.deepEqual(fs.readdirSync(h.dest).filter((n) => n.startsWith(".")), []);
+  assert.ok(!fs.existsSync(path.join(h.home, ".Trash")) || fs.readdirSync(path.join(h.home, ".Trash")).length === 0);
+  assert.ok(h.calls.some((x) => x[0].endsWith("hdiutil") && x[1] === "detach"));
+});
+
+test("SIGTERM mid-install rolls back, detaches, and exits 143", async () => {
+  const h = harness();
+  const sig = new EventEmitter();
+  let exitCode = null;
+  const exited = new Promise((resolve) => { h.deps.exit = (c) => { exitCode = c; resolve(); }; });
+  const inner = h.deps.execFile;
+  // Signal arrives right after the old bundle was swapped out (during quit's ps call).
+  h.deps.execFile = async (cmd, args) => {
+    if (cmd.endsWith("xattr") || (cmd.endsWith("codesign") && args[0] === "--verify" && args[3] === path.join(h.dest, "Pulse.app"))) { sig.emit("SIGTERM"); await exited; }
+    return inner(cmd, args);
+  };
+  h.deps.signalTarget = sig;
+  h.opts.dev = true; h.opts.dmg = null; h.opts.app = path.join(h.mount, "Pulse.app");
+  const p = installApp(h.opts, h.deps).catch(() => {});
+  await exited;
+  assert.equal(exitCode, 143);
+  assert.equal(h.marker(), "old");
+  assert.deepEqual(fs.readdirSync(h.dest).filter((n) => n.startsWith(".")), []);
+  await p;
+  assert.equal(sig.listenerCount("SIGTERM"), 0, "handlers removed");
+});
+
+test("SIGINT during DMG staging detaches the mount before exit", async () => {
+  const h = harness();
+  const sig = new EventEmitter();
+  let exitCode = null;
+  const exited = new Promise((resolve) => { h.deps.exit = (c) => { exitCode = c; resolve(); }; });
+  const inner = h.deps.execFile;
+  h.deps.execFile = async (cmd, args) => {
+    if (cmd.endsWith("ditto")) { sig.emit("SIGINT"); await exited; }
+    return inner(cmd, args);
+  };
+  h.deps.signalTarget = sig;
+  installApp(h.opts, h.deps).catch(() => {});
+  await exited;
+  assert.equal(exitCode, 130);
+  assert.ok(h.calls.some((x) => x[0].endsWith("hdiutil") && x[1] === "detach"));
+  assert.equal(h.marker(), "old");
+});
+
+test("normal path leaves no journal, staging, or backup, and trashes the old bundle last", async () => {
+  const h = harness();
+  const r = await installApp(h.opts, h.deps);
+  assert.deepEqual(fs.readdirSync(h.dest), ["Pulse.app"]);
+  assert.equal(fs.readFileSync(path.join(r.previous, "Contents", "marker"), "utf8"), "old");
+});
+
+test("parseArgs --recover", () => {
+  const o = parseArgs(["--recover", "--dest", "/x", "--app-name", "Pulse.app"]);
+  assert.equal(o.recover, true);
+  assert.throws(() => parseArgs(["--recover", "--dmg", "a.dmg"]), /--recover only/);
+  assert.throws(() => parseArgs(["--recover", "--app-name", "../x.app"]), /app-name/);
+});
+
+test("no xcrun stapler: spctl-only ticket from Notarized Developer ID (+ DMG primary-signature)", async () => {
+  const h = harness({ fail: { nostapler: "xcrun: error: unable to find utility" } });
+  await installApp(h.opts, h.deps);
+  assert.equal(h.marker(), "new");
+  assert.equal(h.events.find((e) => e.event === "verified").ticket, "spctl-only");
+  assert.ok(!h.calls.some((c) => c[0].endsWith("xcrun") && c[1] === "stapler"));
+  assert.ok(h.calls.some((c) => c[0].endsWith("spctl") && c.includes("context:primary-signature")));
+  assert.ok(h.calls.some((c) => c[0].endsWith("spctl") && c.includes("-vv")));
+});
+
+test("no xcrun stapler: refuses when the app is not Notarized Developer ID, or the DMG is rejected", async () => {
+  for (const extra of [{ notNotarized: true }, { "spctl-dmg": "rejected" }]) {
+    const h = harness({ fail: { nostapler: "x", ...extra } });
+    await assert.rejects(installApp(h.opts, h.deps), /spctl-/);
+    assert.equal(h.marker(), "old");
+  }
+});
+
+test("no xcrun stapler: --dev never probes xcrun", async () => {
+  const h = harness({ fail: { nostapler: "x" } });
+  h.opts = { ...h.opts, dmg: null, zip: path.join(h.root, "p.zip"), dev: true };
+  const r = await installApp(h.opts, h.deps);
+  assert.equal(r.ok, true);
+  assert.ok(!h.calls.some((c) => c[0].endsWith("xcrun")));
 });

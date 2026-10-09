@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- `install-app` probes `xcrun --find stapler` first. On clean macOS hosts without Xcode/CLT it no longer fails: the ticket is accepted when `spctl -a -t exec -vv` reports Notarized Developer ID (and, with `--dmg`, `spctl -a -t open --context context:primary-signature` accepts the DMG), and the `verified` event records `ticket: "spctl-only"`. With stapler present, and with `--dev`, checks are unchanged.
+
+- `install-app` bundle replacement is crash-safe. The new bundle is `ditto`-staged on the destination volume (`.<App>.rightkit-install-<pid>.app`) and verified (codesign --verify --deep --strict, Team ID, bundle id) before anything installed is touched. A JSON journal (`.<App>.rightkit-install.json`, atomic write + fsync) records installed, backup, staged and mount paths and phase. The swap is two `rename(2)` calls (old to `.<App>.rightkit-backup-<pid>.app`, staged to `<App>.app`); the old bundle goes to the Trash only after the new one is re-verified, and a failed re-verify now rolls back to the backup. A kill between the renames can no longer leave the app absent.
+- Recovery runs at the start of every `install-app` and as `install-app --recover [--dest <dir>] [--app-name X.app]`: missing app plus backup restores the backup; app plus backup rolls forward if the new bundle verifies, else back; leftover staging is removed and any stale DMG mount recorded in the journal is detached (retrying helper). Idempotent; a journal owned by a live installer is skipped.
+- SIGINT/SIGTERM during install roll back an unfinished swap, detach the DMG, and exit 130/143. A ditto failure now happens during staging, so the message reads "previous app untouched".
+
 ## 0.2.140
 
 - Ownership: Swift `//` and `/* */` comments in Package.swift no longer declare dependencies.
