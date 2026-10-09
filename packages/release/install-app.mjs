@@ -2,12 +2,12 @@
 // Sanctioned, non-intrusive local app install from a signed DMG (macOS); --dev also accepts a
 // Developer ID-signed, not-notarized zip or .app.
 // Never uses a shell, osascript, AppleEvents, or foreground activation.
-import { execFile as nodeExecFile } from "./background-process.mjs";
+import { execFile as nodeExecFile, execFileSync as nodeExecFileSync } from "./background-process.mjs";
 import { detachWithRetry } from "./hdiutil-detach.mjs";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const SIGTERM_WAIT_MS = 15_000;
 const POLL_MS = 250;
@@ -194,6 +194,59 @@ export function writeJournal(fsImpl, file, data) {
   } catch { /* directory fsync is best effort */ }
 }
 
+// --- atomic swap helper (rightkit-swap: renamex_np(RENAME_SWAP)) -------------
+
+// Errors that mean "no atomic swap here": fall back to the two-rename + journal path.
+const SWAP_FALLBACK_CODES = new Set(["ENOHELPER", "ENOTSUP", "EINVAL", "ENOSYS"]);
+const SWAP_HELPER_NAME = "rightkit-swap";
+
+// Resolve order: env RIGHTKIT_SWAP, then <package>/bin/darwin/rightkit-swap, then PATH.
+export function resolveSwapHelper({ env = process.env, fsImpl = fs, pkgDir = path.dirname(fileURLToPath(import.meta.url)) } = {}) {
+  const usable = (p) => { try { return fsImpl.statSync(p).isFile(); } catch { return false; } };
+  if (env.RIGHTKIT_SWAP && usable(env.RIGHTKIT_SWAP)) return env.RIGHTKIT_SWAP;
+  const shipped = path.join(pkgDir, "bin", "darwin", SWAP_HELPER_NAME);
+  if (usable(shipped)) return shipped;
+  for (const dir of String(env.PATH || "").split(path.delimiter)) {
+    if (dir && path.isAbsolute(dir) && usable(path.join(dir, SWAP_HELPER_NAME))) return path.join(dir, SWAP_HELPER_NAME);
+  }
+  return null;
+}
+
+function coded(code, message) {
+  const error = new Error(message);
+  error.code = code;
+  return error;
+}
+
+// Sync on purpose: signal-handler rollback must be able to swap back. Throws an error whose `code`
+// is in SWAP_FALLBACK_CODES when no atomic swap is possible here (no helper, or exit 3 / ENOTSUP / EINVAL).
+export function createSwapPaths({ env = process.env, resolve = resolveSwapHelper, execFileSync = nodeExecFileSync } = {}) {
+  return (a, b) => {
+    const helper = resolve({ env });
+    if (!helper) throw coded("ENOHELPER", `${SWAP_HELPER_NAME} helper not found`);
+    try { execFileSync(helper, [a, b], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }); }
+    catch (error) {
+      const text = `${error?.stderr || ""}`.trim();
+      if (error?.code === "ENOENT" || error?.code === "EACCES") throw coded("ENOHELPER", `${helper} cannot run: ${error.code}`);
+      if (error?.status === 3 || /SWAP_UNSUPPORTED/.test(text)) throw coded("ENOTSUP", text || "atomic swap unsupported on this volume");
+      throw coded("EIO", text || error?.message || "rightkit-swap failed");
+    }
+  };
+}
+
+// Exchange two paths, falling back to three renames only when no atomic swap exists (roll-back/recovery).
+function swapBack(swapPaths, fsImpl, a, b) {
+  try { swapPaths(a, b); return "atomic"; }
+  catch (error) {
+    if (!SWAP_FALLBACK_CODES.has(error?.code)) throw error;
+    const tmp = `${a}.swapback`;
+    fsImpl.renameSync(a, tmp);
+    fsImpl.renameSync(b, a);
+    fsImpl.renameSync(tmp, b);
+    return "two-rename";
+  }
+}
+
 const defaultIsAlive = (pid) => {
   try { process.kill(pid, 0); return true; } catch (e) { return e.code === "EPERM"; }
 };
@@ -207,7 +260,7 @@ async function trashBundle(run, fsImpl, home, now, bundle, appName) {
 }
 
 // Deterministic roll-forward/back of any interrupted install journal in `dest`. Idempotent.
-export async function recoverInstalls({ dest, appName = null, run, fsImpl, home, now, event, sleep, isAlive = defaultIsAlive, selfPid = process.pid }) {
+export async function recoverInstalls({ dest, appName = null, run, fsImpl, home, now, event, sleep, isAlive = defaultIsAlive, selfPid = process.pid, swapPaths = createSwapPaths() }) {
   let names = [];
   try { names = fsImpl.readdirSync(dest).filter((n) => JOURNAL_RE.test(n)); } catch { return []; }
   if (appName) names = names.filter((n) => n === path.basename(journalPathFor(dest, appName)));
@@ -225,8 +278,28 @@ export async function recoverInstalls({ dest, appName = null, run, fsImpl, home,
     const rm = (p) => { if (p) { try { fsImpl.rmSync(p, { recursive: true, force: true }); } catch { /* best effort */ } } };
     let action;
     let keepJournal = false;
+    let keepStaged = false;
     try {
-      if (!has(j.installed)) {
+      if (j.swap === "atomic") {
+        // Atomic mode: `installed` is never absent. After the exchange, `staged` holds the OLD bundle;
+        // before it, `staged` holds the new copy. The staged copy's inode (journaled) tells them apart.
+        const swapped = has(j.installed) && Number.isFinite(j.stagedIno) && fsImpl.statSync(j.installed).ino === j.stagedIno;
+        if (!has(j.installed)) {
+          if (has(j.staged)) { fsImpl.renameSync(j.staged, j.installed); action = "restored-backup"; }
+          else action = "cleared";
+        } else if (!swapped || !has(j.staged)) action = "cleared";
+        else {
+          let ok = j.phase === "verified";
+          if (!ok) { try { await verifyBundle(run, j.installed, { assess: !j.dev, staple: false }); ok = true; } catch { ok = false; } }
+          if (ok) {
+            try { await trashBundle(run, fsImpl, home, now, j.staged, path.basename(j.installed)); action = "rolled-forward"; }
+            catch { action = "rolled-forward-trash-pending"; keepJournal = true; keepStaged = true; }
+          } else {
+            swapBack(swapPaths, fsImpl, j.staged, j.installed); // staged now holds the bad new bundle
+            action = "rolled-back";
+          }
+        }
+      } else if (!has(j.installed)) {
         if (has(j.backup)) { fsImpl.renameSync(j.backup, j.installed); action = "restored-backup"; }
         else action = "cleared";
       } else if (has(j.backup)) {
@@ -245,7 +318,7 @@ export async function recoverInstalls({ dest, appName = null, run, fsImpl, home,
       event("recovery-failed", { journal: file, reason: errText(error) });
       continue; // leave the journal for the next run
     }
-    rm(j.staged);
+    if (!keepStaged) rm(j.staged);
     if (j.mount && has(j.mount)) {
       const out = await detachWithRetry({ mount: j.mount, log: (e) => event(e.event, e), sleep, detach: (args) => run("/usr/bin/hdiutil", args) });
       if (out.ok) rm(j.mountRoot);
@@ -258,9 +331,9 @@ export async function recoverInstalls({ dest, appName = null, run, fsImpl, home,
 }
 
 export async function recoverApp(opts, deps = {}) {
-  const { execFile = realExecFile, fsImpl = fs, home = os.homedir(), now = () => new Date(), sleep = (ms) => new Promise((r) => setTimeout(r, ms)), emit = () => {}, isAlive, platform = process.platform } = deps;
+  const { execFile = realExecFile, fsImpl = fs, home = os.homedir(), now = () => new Date(), sleep = (ms) => new Promise((r) => setTimeout(r, ms)), emit = () => {}, isAlive, platform = process.platform, env = process.env, swapPaths = createSwapPaths({ env }) } = deps;
   if (platform !== "darwin") throw new InstallAppError("unsupported", `install-app is not implemented on ${platform}`);
-  const results = await recoverInstalls({ dest: opts.dest, appName: opts.appName, run: (c, a) => execFile(c, a), fsImpl, home, now, event: (name, data = {}) => emit({ event: name, ...data }), sleep, isAlive });
+  const results = await recoverInstalls({ dest: opts.dest, appName: opts.appName, run: (c, a) => execFile(c, a), fsImpl, home, now, event: (name, data = {}) => emit({ event: name, ...data }), sleep, isAlive, swapPaths });
   emit({ event: "recover-done", dest: opts.dest, recovered: results.length });
   return { ok: true, recovered: results };
 }
@@ -280,6 +353,8 @@ export async function installApp(opts, deps = {}) {
     isAlive = defaultIsAlive,
     signalTarget = process,
     exit = (code) => process.exit(code),
+    env = process.env,
+    swapPaths = createSwapPaths({ env }),
   } = deps;
   const dev = opts.dev === true;
   const event = (name, data = {}) => emit({ event: name, ...(dev ? { dev: true } : {}), ...data });
@@ -298,7 +373,16 @@ export async function installApp(opts, deps = {}) {
     const s = swap;
     swap = null;
     try {
-      if (!s.final) {
+      if (s.mode === "atomic") {
+        // installed was never absent. Before the exchange only the staged copy needs removing; after it,
+        // exchange back (installed = old again, staged = the new copy) and drop the new copy. Once final,
+        // staged holds the verified-old bundle awaiting the Trash, so it must not be touched.
+        if (!s.final) {
+          if (s.swapped) swapBack(swapPaths, fsImpl, s.staged, s.installed);
+          removeQuiet(s.staged);
+          removeQuiet(s.journal);
+        }
+      } else if (!s.final) {
         if (s.stagedIn) removeQuiet(s.installed);
         if (s.backedUp && !fsImpl.existsSync(s.installed)) fsImpl.renameSync(s.backup, s.installed);
         removeQuiet(s.staged);
@@ -346,7 +430,7 @@ export async function installApp(opts, deps = {}) {
     if (!fsImpl.existsSync(inputPath)) throw new InstallAppError(`${inputKind}-missing`, `${inputKind.toUpperCase()} not found: ${inputPath}`);
     if (!fsImpl.existsSync(opts.dest)) throw new InstallAppError("dest-missing", `destination not found: ${opts.dest}`);
 
-    await recoverInstalls({ dest: opts.dest, appName: opts.appName, run, fsImpl, home, now, event, sleep, isAlive, selfPid: pid });
+    await recoverInstalls({ dest: opts.dest, appName: opts.appName, run, fsImpl, home, now, event, sleep, isAlive, selfPid: pid, swapPaths });
 
     let sourceApp = null;
     const pickApp = (dir, label) => {
@@ -408,7 +492,7 @@ export async function installApp(opts, deps = {}) {
     const journalData = { schema: 1, appName, pid, phase: "staging", dev, installed, backup, staged, mount: mountPoint, mountRoot };
     removeQuiet(staged);
     writeJournal(fsImpl, journal, journalData);
-    swap = { installed, backup, staged, journal, backedUp: false, stagedIn: false, final: false };
+    swap = { installed, backup, staged, journal, mode: null, swapped: false, backedUp: false, stagedIn: false, final: false };
     try { await run("/usr/bin/ditto", [sourceApp, staged]); }
     catch (error) {
       rollbackSwap();
@@ -426,12 +510,37 @@ export async function installApp(opts, deps = {}) {
     const quit = hadInstalled ? await quitApp(run, kill, sleep, installed) : { pids: [], killed: [] };
     event("quit", { wasRunning, pids: quit.pids, forced: quit.killed });
 
-    // Swap: old -> backup, staged -> installed. The old bundle is never trashed before the new one is verified.
+    // Swap. Preferred: one atomic exchange (renamex_np RENAME_SWAP), so `installed` is never absent even
+    // under SIGKILL; the old bundle then sits at the staged path. Fallback (no helper, or a volume without
+    // RENAME_SWAP): old -> backup, staged -> installed, journaled. The old bundle is never trashed before
+    // the new one is verified.
     failedStage = "replace";
-    writeJournal(fsImpl, journal, { ...journalData, phase: "swapping" });
-    if (hadInstalled) { fsImpl.renameSync(installed, backup); swap.backedUp = true; }
-    fsImpl.renameSync(staged, installed);
-    swap.stagedIn = true;
+    let jd = journalData;
+    let swapMode;
+    if (!hadInstalled) {
+      swapMode = "rename"; // nothing to exchange: a single rename onto an absent name is atomic
+      swap.mode = "two-rename";
+      writeJournal(fsImpl, journal, { ...jd, phase: "swapping", swap: swapMode });
+      fsImpl.renameSync(staged, installed);
+      swap.stagedIn = true;
+    } else {
+      jd = { ...journalData, swap: "atomic", backup: null, stagedIno: fsImpl.statSync(staged).ino };
+      writeJournal(fsImpl, journal, { ...jd, phase: "swapping" });
+      swap.mode = "atomic";
+      try { swapPaths(staged, installed); swap.swapped = true; swapMode = "atomic"; }
+      catch (error) {
+        if (!SWAP_FALLBACK_CODES.has(error?.code)) throw new InstallAppError("swap-failed", `atomic swap failed (${errText(error)}); previous app untouched`);
+        event("swap-fallback", { reason: error.code, detail: errText(error) });
+        swapMode = "two-rename";
+        swap.mode = "two-rename";
+        jd = { ...journalData, swap: "two-rename" };
+        writeJournal(fsImpl, journal, { ...jd, phase: "swapping" });
+        fsImpl.renameSync(installed, backup); swap.backedUp = true;
+        fsImpl.renameSync(staged, installed);
+        swap.stagedIn = true;
+      }
+      if (swapMode === "atomic") writeJournal(fsImpl, journal, { ...jd, phase: "swapped" });
+    }
     // Dev builds are not notarized: clear quarantine on the NEW bundle only so Gatekeeper does not block it.
     if (dev) {
       try { await run("/usr/bin/xattr", ["-dr", "com.apple.quarantine", installed]); }
@@ -443,18 +552,19 @@ export async function installApp(opts, deps = {}) {
     // Re-verify installed copy; on failure the catch below rolls back to the backup.
     failedStage = "reverify";
     await verifyBundle(run, installed, { assess: !dev, staple: false });
-    writeJournal(fsImpl, journal, { ...journalData, phase: "verified", mount: null, mountRoot: null });
+    writeJournal(fsImpl, journal, { ...jd, phase: "verified", mount: null, mountRoot: null });
     swap.final = true;
 
     // Only now does the old bundle go to the Trash.
     let trashed = null;
-    if (backup) {
-      try { trashed = await trashBundle(run, fsImpl, home, now, backup, appName); }
-      catch (error) { event("backup-trash-failed", { backup, reason: errText(error) }); trashed = backup; }
+    const oldBundle = swapMode === "atomic" ? staged : backup; // atomic: the exchange left the old bundle at the staged path
+    if (hadInstalled && oldBundle) {
+      try { trashed = await trashBundle(run, fsImpl, home, now, oldBundle, appName); }
+      catch (error) { event("backup-trash-failed", { backup: oldBundle, reason: errText(error) }); trashed = oldBundle; }
     }
-    if (!backup || trashed !== backup) removeQuiet(journal);
+    if (!oldBundle || trashed !== oldBundle) removeQuiet(journal);
     swap = null;
-    event("replaced", { installed, previous: trashed });
+    event("replaced", { installed, previous: trashed, swap: swapMode });
 
     // Relaunch hidden and in the background only.
     const relaunch = opts.relaunch === null ? wasRunning : opts.relaunch;
@@ -463,7 +573,7 @@ export async function installApp(opts, deps = {}) {
       await run("/usr/bin/open", ["-g", "-j", "-b", bundleId]);
       event("relaunched", { bundleId });
     }
-    const result = { ok: true, app: appName, installed, bundleId, teamId: newTeam, previous: trashed, relaunched: relaunch, ...(dev ? { dev: true } : {}) };
+    const result = { ok: true, app: appName, installed, bundleId, teamId: newTeam, previous: trashed, swap: swapMode, relaunched: relaunch, ...(dev ? { dev: true } : {}) };
     event("done", result);
     return result;
   } catch (error) {

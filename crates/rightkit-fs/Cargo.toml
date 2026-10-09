@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-fs"
-version = "0.3.2"
+version = "0.4.0"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Safe state directories, atomic writes, cross-process locks, owner-only files, and stable file identity for Right Suite apps."
@@ -16,6 +16,11 @@ name = "rightkit-clonefile"
 path = "src/bin/rightkit-clonefile.rs"
 required-features = ["json"]
 
+[[bin]]
+name = "rightkit-swap"
+path = "src/bin/rightkit-swap.rs"
+required-features = ["fs"]
+
 # The e2e suite exercises the identity ledger, which needs `json`.
 [[test]]
 name = "e2e"
@@ -25,6 +30,11 @@ required-features = ["json"]
 [[test]]
 name = "clone"
 path = "tests/clone.rs"
+required-features = ["fs"]
+
+[[test]]
+name = "swap"
+path = "tests/swap.rs"
 required-features = ["fs"]
 
 [[test]]

@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- `install-app` bundle swap can be truly atomic. When a `rightkit-swap` helper (rightkit-fs 0.4.0, `renamex_np(RENAME_SWAP)`) is found, the staged bundle is exchanged with the installed one in a single kernel step, so `<dest>/<App>.app` is never absent, even under SIGKILL. The old bundle then sits at the staged path and is moved to the Trash only after the new one re-verifies; on re-verify failure (or SIGINT/SIGTERM) the exchange is reversed. Helper lookup order: `RIGHTKIT_SWAP`, `<package>/bin/darwin/rightkit-swap`, then `PATH`. With no helper, or `ENOTSUP`/`EINVAL` (non-APFS volume), it falls back to the previous two-rename + journal path and emits a `swap-fallback` event. The `replaced` and `done` JSON events record `swap: "atomic"` or `swap: "two-rename"` (`"rename"` for a first install with nothing to exchange). The recovery journal records the mode (`swap`, plus the staged inode for atomic) and `--recover` handles both. The helper is not yet bundled in this package, so installs use the two-rename path unless `RIGHTKIT_SWAP` or `PATH` provides it.
+
 ## 0.2.142
 
 - SwiftPM/macOS DMG ordering: with `notarize.appBeforePackage: true` and no `targets.mac.package`, right-release builds the DMG itself (`dmg-build.mjs`) after the `.app` is notarized and stapled, refusing to pack an app that fails `stapler validate`, then Developer ID signs the DMG (receipt `macos-dmg-signing.json`) before the existing DMG notarization. Options via `targets.mac.dmg` (`dmg: false` or a `package` step keeps a custom flow). Preflight now fails when a prePackage hook builds a DMG while `appBeforePackage` is on (heuristic: `dmg`/`hdiutil` in its command or arguments).

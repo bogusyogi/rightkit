@@ -20,7 +20,7 @@ default = []
 rightapps = ["dep:ed25519-dalek", "dep:base64", "dep:url", "dep:chrono"]
 
 [dependencies]
-rightkit-fs = { version = "0.3", path = "../rightkit-fs", default-features = false, features = ["digest"] }
+rightkit-fs = { version = "0.4", path = "../rightkit-fs", default-features = false, features = ["digest"] }
 ed25519-dalek = { version = "2", optional = true }
 base64 = { version = "0.22", optional = true }
 url = { version = "2", optional = true }

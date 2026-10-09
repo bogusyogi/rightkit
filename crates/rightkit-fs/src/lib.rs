@@ -11,6 +11,7 @@
 //!   `*at` operations) that a swapped or symlinked path cannot redirect.
 //! - [`identity`] (feature `json`): stable file identity across renames and atomic replacement.
 //! - [`clone`]: macOS `clonefile(2)` with `CLONE_NOFOLLOW`; never falls back to a byte copy.
+//! - [`swap`]: macOS `renamex_np(RENAME_SWAP)`; atomically exchanges two paths ([`swap_paths`]).
 
 #[cfg(feature = "fs")]
 pub mod atomic;
@@ -30,6 +31,8 @@ pub mod netfs;
 pub mod private;
 #[cfg(feature = "fs")]
 pub mod state;
+#[cfg(feature = "fs")]
+pub mod swap;
 
 #[cfg(feature = "fs")]
 pub use atomic::{
@@ -53,6 +56,8 @@ pub use private::{
 };
 #[cfg(feature = "fs")]
 pub use state::{EntryKind, EntryStat, StateDir};
+#[cfg(feature = "fs")]
+pub use swap::{is_swap_unsupported, swap_paths};
 
 /// Whether process `pid` currently exists.
 #[cfg(feature = "fs")]

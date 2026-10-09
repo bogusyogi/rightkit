@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.4.0
+
+- **Atomic path swap.** New `swap` module: `swap_paths(a, b)` exchanges two existing paths with macOS `renamex_np(RENAME_SWAP)` in one kernel step, so neither name is ever absent, even under SIGKILL. `is_swap_unsupported` recognises `ENOTSUP`, `EINVAL`, `ENOSYS` and `ErrorKind::Unsupported` (non-APFS volume, other OS) so callers can fall back. Other platforms return `ErrorKind::Unsupported`.
+- **`rightkit-swap A B` binary** (feature `fs`). Exit 0 swapped, 1 I/O, 2 usage, 3 unsupported. Used by `right-release install-app`.
+
 ## 0.3.2
 
 - **Durable writes fall back like libuv on Apple.** `atomic_write*`, `StateDir` publishes and directory syncs now call the new `durable_sync`: `F_FULLFSYNC`, then `F_BARRIERFSYNC`, then `fsync`. Previously `File::sync_all` (bare `F_FULLFSYNC`) failed hard with `EIO` on some external volumes under parallel writes where Node's `fsync` succeeded. Other platforms still use `sync_all`.

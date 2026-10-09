@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { EventEmitter } from "node:events";
-import { recoverApp, recoverInstalls, journalPathFor, installApp, matchPids, mountPointsFromAttach, parseArgs, parseTeamId, parsePlist, trashName, main } from "./install-app.mjs";
+import { createSwapPaths, resolveSwapHelper, recoverApp, recoverInstalls, journalPathFor, installApp, matchPids, mountPointsFromAttach, parseArgs, parseTeamId, parsePlist, trashName, main } from "./install-app.mjs";
 
 const PLIST = `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -112,9 +112,13 @@ function harness({ team = "TEAM1", installedTeam = "TEAM1", fail = {}, running =
     throw new Error(`unexpected ${cmd}`);
   };
   const events = [];
-  const deps = { execFile, platform: "darwin", home, tmpdir: root, emit: (e) => events.push(e), sleep: async () => {}, kill: (pid, sig) => { kills.push([pid, sig]); if (sig === "SIGTERM" && !fail.stubborn) alive = false; if (sig === "SIGKILL") alive = false; } };
+  // Stand-in for rightkit-swap: exchanges two paths (renames preserve inodes, like RENAME_SWAP).
+  const fakeSwap = (a, b) => { const t = `${a}.x`; fs.renameSync(a, t); fs.renameSync(b, a); fs.renameSync(t, b); };
+  // Default: no swap helper, so the two-rename path runs. Atomic tests pass deps.swapPaths = fakeSwap.
+  const noHelper = () => { const e = new Error("rightkit-swap helper not found"); e.code = "ENOHELPER"; throw e; };
+  const deps = { execFile, swapPaths: noHelper, platform: "darwin", home, tmpdir: root, emit: (e) => events.push(e), sleep: async () => {}, kill: (pid, sig) => { kills.push([pid, sig]); if (sig === "SIGTERM" && !fail.stubborn) alive = false; if (sig === "SIGKILL") alive = false; } };
   const opts = { dmg: path.join(root, "p.dmg"), appName: null, bundleId: null, dest, relaunch: null, json: true };
-  return { root, mount, dest, home, deps, opts, calls, kills, events, marker: () => fs.readFileSync(path.join(dest, "Pulse.app", "Contents", "marker"), "utf8") };
+  return { root, mount, dest, home, deps, fakeSwap, opts, calls, kills, events, marker: () => fs.readFileSync(path.join(dest, "Pulse.app", "Contents", "marker"), "utf8") };
 }
 
 test("happy path replaces, trashes old, quits with SIGTERM, relaunches hidden because it was running", async () => {
@@ -124,7 +128,7 @@ test("happy path replaces, trashes old, quits with SIGTERM, relaunches hidden be
   assert.equal(h.marker(), "new");
   assert.deepEqual(h.kills, [[555, "SIGTERM"]]);
   assert.equal(fs.readFileSync(path.join(r.previous, "Contents", "marker"), "utf8"), "old");
-  assert.deepEqual(h.events.map((e) => e.event), ["start", "verified", "quit", "replaced", "relaunched", "done"]);
+  assert.deepEqual(h.events.map((e) => e.event), ["start", "verified", "quit", "swap-fallback", "replaced", "relaunched", "done"]);
   const open = h.calls.find((c) => c[0] === "/usr/bin/open");
   assert.deepEqual(open, ["/usr/bin/open", "-g", "-j", "-b", "dev.orthic.pulse"]);
   assert.ok(h.calls.some((c) => c[0].endsWith("hdiutil") && c[1] === "detach"));
@@ -312,7 +316,7 @@ test("DMG-ticket fallback keeps team continuity check", async () => {
 class Crash extends Error {}
 
 // Simulates kill -9: once the crash point fires, every fs call and runner call throws, so no cleanup can run.
-function crashing(h, { at }) {
+function crashing(h, { at = () => null, swapAt = null }) {
   let dead = false;
   const renames = [];
   const guard = (fn) => (...a) => { if (dead) throw new Crash("dead"); return fn(...a); };
@@ -330,7 +334,13 @@ function crashing(h, { at }) {
     return guard(v.bind(target));
   } });
   const execFile = (...a) => { if (dead) throw new Crash("dead"); return h.deps.execFile(...a); };
-  return { fsImpl, deps: { ...h.deps, fsImpl, execFile, signalTarget: new EventEmitter(), exit: () => {} } };
+  const swapPaths = (a, b) => {
+    if (dead) throw new Crash("dead");
+    if (swapAt === "before") { dead = true; throw new Crash("kill before swap"); }
+    h.deps.swapPaths(a, b);
+    if (swapAt === "after") { dead = true; throw new Crash("kill after swap"); }
+  };
+  return { fsImpl, deps: { ...h.deps, fsImpl, execFile, swapPaths, signalTarget: new EventEmitter(), exit: () => {} } };
 }
 
 const bundles = (h) => fs.readdirSync(h.dest).filter((n) => n.endsWith(".app"));
@@ -485,4 +495,195 @@ test("no xcrun stapler: --dev never probes xcrun", async () => {
   const r = await installApp(h.opts, h.deps);
   assert.equal(r.ok, true);
   assert.ok(!h.calls.some((c) => c[0].endsWith("xcrun")));
+});
+
+// ---- atomic swap (rightkit-swap / RENAME_SWAP) ----
+
+const dotfiles = (h) => fs.readdirSync(h.dest).filter((n) => n.startsWith("."));
+
+test("atomic swap: installed is never absent, old bundle trashed last, event records swap atomic", async () => {
+  const h = harness();
+  const swaps = [];
+  let seenAbsent = false;
+  h.deps.swapPaths = (a, b) => { swaps.push([path.basename(a), path.basename(b)]); h.fakeSwap(a, b); seenAbsent ||= !fs.existsSync(path.join(h.dest, "Pulse.app")); };
+  const renames = [];
+  h.deps.fsImpl = new Proxy(fs, { get(t, p) { const v = t[p]; if (p === "renameSync") return (f, to) => { renames.push(path.basename(to)); return v.call(t, f, to); }; return typeof v === "function" ? v.bind(t) : v; } });
+  const r = await installApp(h.opts, h.deps);
+  assert.equal(r.swap, "atomic");
+  assert.equal(swaps.length, 1);
+  assert.match(swaps[0][0], /^\.Pulse\.rightkit-install-\d+\.app$/);
+  assert.equal(swaps[0][1], "Pulse.app");
+  assert.ok(!renames.some((n) => n.includes("rightkit-backup")), "no backup rename in atomic mode");
+  assert.equal(h.marker(), "new");
+  assert.equal(fs.readFileSync(path.join(r.previous, "Contents", "marker"), "utf8"), "old");
+  assert.equal(h.events.find((e) => e.event === "replaced").swap, "atomic");
+  assert.deepEqual(fs.readdirSync(h.dest), ["Pulse.app"]);
+  assert.deepEqual(h.events.map((e) => e.event).filter((n) => n === "swap-fallback"), []);
+});
+
+for (const code of ["ENOTSUP", "EINVAL", "ENOHELPER"]) {
+  test(`${code} from the helper falls back to two-rename and records it`, async () => {
+    const h = harness();
+    h.deps.swapPaths = () => { const e = new Error("x"); e.code = code; throw e; };
+    const r = await installApp(h.opts, h.deps);
+    assert.equal(r.swap, "two-rename");
+    assert.equal(h.events.find((e) => e.event === "replaced").swap, "two-rename");
+    assert.equal(h.events.find((e) => e.event === "swap-fallback").reason, code);
+    assert.equal(h.marker(), "new");
+    assert.equal(fs.readFileSync(path.join(r.previous, "Contents", "marker"), "utf8"), "old");
+    assert.deepEqual(fs.readdirSync(h.dest), ["Pulse.app"]);
+  });
+}
+
+test("a real swap failure (not unsupported) aborts with the old bundle untouched and no leftovers", async () => {
+  const h = harness();
+  h.deps.swapPaths = () => { const e = new Error("EIO boom"); e.code = "EIO"; throw e; };
+  await assert.rejects(installApp(h.opts, h.deps), /atomic swap failed/);
+  assert.equal(h.marker(), "old");
+  assert.deepEqual(dotfiles(h), []);
+});
+
+test("fresh install with the helper present uses a plain rename and reports swap rename", async () => {
+  const h = harness();
+  fs.rmSync(path.join(h.dest, "Pulse.app"), { recursive: true });
+  h.deps.swapPaths = () => { throw new Error("must not swap when nothing is installed"); };
+  const r = await installApp(h.opts, h.deps);
+  assert.equal(r.swap, "rename");
+  assert.equal(r.previous, null);
+  assert.equal(h.marker(), "new");
+});
+
+test("atomic: re-verify failure swaps back, never trashes the old bundle", async () => {
+  const h = harness({ fail: { reverify: "bad after swap" } });
+  const swaps = [];
+  h.deps.swapPaths = (a, b) => { swaps.push(path.basename(a)); h.fakeSwap(a, b); };
+  await assert.rejects(installApp(h.opts, h.deps), /codesign-verify/);
+  assert.equal(swaps.length, 2, "swap, then swap back");
+  assert.equal(h.marker(), "old");
+  assert.deepEqual(dotfiles(h), []);
+  assert.ok(!fs.existsSync(path.join(h.home, ".Trash")) || fs.readdirSync(path.join(h.home, ".Trash")).length === 0);
+});
+
+test("atomic: swap-back falls back to renames if the helper vanishes mid-install", async () => {
+  const h = harness({ fail: { reverify: "bad after swap" } });
+  let calls = 0;
+  h.deps.swapPaths = (a, b) => { calls += 1; if (calls > 1) { const e = new Error("gone"); e.code = "ENOHELPER"; throw e; } h.fakeSwap(a, b); };
+  await assert.rejects(installApp(h.opts, h.deps), /codesign-verify/);
+  assert.equal(h.marker(), "old");
+  assert.deepEqual(dotfiles(h), []);
+});
+
+test("atomic: SIGTERM after the exchange swaps back and exits 143", async () => {
+  const h = harness();
+  const sig = new EventEmitter();
+  let exitCode = null;
+  const exited = new Promise((resolve) => { h.deps.exit = (c) => { exitCode = c; resolve(); }; });
+  h.deps.swapPaths = h.fakeSwap;
+  const inner = h.deps.execFile;
+  h.deps.execFile = async (cmd, args) => {
+    if (cmd.endsWith("xattr")) { sig.emit("SIGTERM"); await exited; }
+    return inner(cmd, args);
+  };
+  h.deps.signalTarget = sig;
+  h.opts.dev = true; h.opts.dmg = null; h.opts.app = path.join(h.mount, "Pulse.app");
+  const p = installApp(h.opts, h.deps).catch(() => {});
+  await exited;
+  assert.equal(exitCode, 143);
+  assert.equal(h.marker(), "old");
+  assert.deepEqual(dotfiles(h), []);
+  await p;
+});
+
+for (const [name, swapAt, expectMarker] of [
+  ["before the exchange", "before", "old"],
+  ["after the exchange, before trash", "after", "new"],
+]) {
+  test(`atomic: SIGKILL ${name}: installed never absent; recovery leaves one valid bundle (${expectMarker}), idempotently`, async () => {
+    const h = harness();
+    h.deps.swapPaths = h.fakeSwap;
+    const c = crashing(h, { swapAt });
+    await assert.rejects(installApp(h.opts, c.deps), /kill (before|after) swap/);
+    assert.ok(fs.existsSync(path.join(h.dest, "Pulse.app")), "destination present at the moment of the kill");
+    assert.ok(fs.existsSync(journalPathFor(h.dest, "Pulse.app")));
+    const rd = { ...recoverDeps(h), swapPaths: h.fakeSwap };
+    const r1 = await recoverInstalls(rd);
+    assert.equal(r1.length, 1);
+    assert.deepEqual(bundles(h), ["Pulse.app"]);
+    assert.equal(h.marker(), expectMarker);
+    assert.deepEqual(dotfiles(h), []);
+    assert.deepEqual(await recoverInstalls(rd), []);
+    if (swapAt === "after") assert.equal(r1[0].action, "rolled-forward");
+    else assert.equal(r1[0].action, "cleared");
+  });
+}
+
+test("atomic: kill after the exchange with a bad new bundle rolls back by swapping", async () => {
+  const h = harness();
+  h.deps.swapPaths = h.fakeSwap;
+  const c = crashing(h, { swapAt: "after" });
+  await assert.rejects(installApp(h.opts, c.deps), /kill after swap/);
+  h.deps.execFile = ((orig) => async (cmd, args) => { if (cmd.endsWith("codesign") && args[0] === "--verify") throw new Error("broken"); return orig(cmd, args); })(h.deps.execFile);
+  const r = await recoverInstalls({ ...recoverDeps(h), swapPaths: h.fakeSwap });
+  assert.equal(r[0].action, "rolled-back");
+  assert.equal(h.marker(), "old");
+  assert.deepEqual(bundles(h), ["Pulse.app"]);
+  assert.deepEqual(dotfiles(h), []);
+});
+
+test("atomic: verified journal with the Trash unavailable keeps the old bundle for the next recovery", async () => {
+  const h = harness();
+  h.deps.swapPaths = h.fakeSwap;
+  const c = crashing(h, { swapAt: "after" });
+  await assert.rejects(installApp(h.opts, c.deps), /kill after swap/);
+  const journal = journalPathFor(h.dest, "Pulse.app");
+  const j = JSON.parse(fs.readFileSync(journal, "utf8"));
+  fs.writeFileSync(journal, JSON.stringify({ ...j, phase: "verified" }));
+  fs.mkdirSync(h.home, { recursive: true });
+  fs.writeFileSync(path.join(h.home, ".Trash"), "a file, so mkdir -p fails");
+  const r1 = await recoverInstalls({ ...recoverDeps(h), swapPaths: h.fakeSwap });
+  assert.equal(r1[0].action, "rolled-forward-trash-pending");
+  assert.ok(fs.existsSync(j.staged), "old bundle preserved");
+  assert.ok(fs.existsSync(journal));
+  fs.rmSync(path.join(h.home, ".Trash"));
+  const r2 = await recoverInstalls({ ...recoverDeps(h), swapPaths: h.fakeSwap });
+  assert.equal(r2[0].action, "rolled-forward");
+  assert.deepEqual(dotfiles(h), []);
+});
+
+test("mixed-mode recovery: a two-rename journal still recovers when a helper is available", async () => {
+  const h = harness();
+  const c = crashing(h, { at: (from, to) => (to.includes(".rightkit-backup-") ? "after" : null) });
+  await assert.rejects(installApp(h.opts, c.deps), /kill after rename/);
+  const j = JSON.parse(fs.readFileSync(journalPathFor(h.dest, "Pulse.app"), "utf8"));
+  assert.equal(j.swap, "two-rename");
+  await recoverInstalls({ ...recoverDeps(h), swapPaths: h.fakeSwap });
+  assert.equal(h.marker(), "old");
+});
+
+test("resolveSwapHelper order: RIGHTKIT_SWAP, then shipped bin/darwin, then PATH", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "swap-resolve-"));
+  const mk = (p) => { fs.mkdirSync(path.dirname(p), { recursive: true }); fs.writeFileSync(p, "#!/bin/sh\n"); return p; };
+  const envHelper = mk(path.join(root, "env", "rightkit-swap"));
+  const shipped = mk(path.join(root, "pkg", "bin", "darwin", "rightkit-swap"));
+  const onPath = mk(path.join(root, "bin", "rightkit-swap"));
+  const base = { PATH: path.dirname(onPath) };
+  const pkgDir = path.join(root, "pkg");
+  assert.equal(resolveSwapHelper({ env: { ...base, RIGHTKIT_SWAP: envHelper }, pkgDir }), envHelper);
+  assert.equal(resolveSwapHelper({ env: base, pkgDir }), shipped);
+  assert.equal(resolveSwapHelper({ env: { ...base, RIGHTKIT_SWAP: path.join(root, "missing") }, pkgDir }), shipped);
+  assert.equal(resolveSwapHelper({ env: base, pkgDir: path.join(root, "none") }), onPath);
+  assert.equal(resolveSwapHelper({ env: { PATH: "" }, pkgDir: path.join(root, "none") }), null);
+});
+
+test("createSwapPaths maps helper exit codes: 0 ok, 3 ENOTSUP, missing helper ENOHELPER, other EIO", () => {
+  const calls = [];
+  const exec = (status) => (file, args) => { calls.push([file, ...args]); if (status === 0) return ""; const e = new Error("fail"); e.status = status; e.stderr = status === 3 ? "rightkit-swap: SWAP_UNSUPPORTED: x" : "rightkit-swap: SWAP_IO: y"; throw e; };
+  const resolve = () => "/opt/rightkit-swap";
+  createSwapPaths({ resolve, execFileSync: exec(0) })("/a", "/b");
+  assert.deepEqual(calls[0], ["/opt/rightkit-swap", "/a", "/b"]);
+  assert.throws(() => createSwapPaths({ resolve, execFileSync: exec(3) })("/a", "/b"), { code: "ENOTSUP" });
+  assert.throws(() => createSwapPaths({ resolve, execFileSync: exec(1) })("/a", "/b"), { code: "EIO" });
+  assert.throws(() => createSwapPaths({ resolve: () => null, execFileSync: exec(0) })("/a", "/b"), { code: "ENOHELPER" });
+  const enoent = () => { const e = new Error("spawn"); e.code = "ENOENT"; throw e; };
+  assert.throws(() => createSwapPaths({ resolve, execFileSync: enoent })("/a", "/b"), { code: "ENOHELPER" });
 });
