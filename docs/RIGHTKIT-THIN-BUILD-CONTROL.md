@@ -1015,10 +1015,9 @@ admission and receipts.
 
 Receipts summarize telemetry; they do not contain the full time series.
 
-Run the RustRight cache proof (`bogusyogi/rustright`; the Node `cache-proof-cli` was removed)
-on each native host for deterministic reuse acceptance. It primes
-`fixture-rust` with a tiny library build, clears only its marked live generation target, then requires at
-least one hit & zero misses on every identical recompilation.
+The Node `cache-proof-cli` was removed with the Node broker and RustRight has no equivalent command yet.
+Cache reuse acceptance currently comes from the RustRight parity suite (P2 warm no-op) and the sccache
+hit/miss telemetry in each receipt.
 
 ---
 

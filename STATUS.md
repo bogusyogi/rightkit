@@ -82,7 +82,7 @@ Scope: 50 crates, 29 npm packages, Swift package and helper, ownership-approval,
 2. Run the elevated class-1 installers: macOS `_rightkit` LaunchDaemon and Windows service. Both scripts exist. Neither is installed (`8b8cecbf4`).
 3. Grant the signed `rustright-broker` (Identifier `rustright-broker`, Team 6KLGD3LLKF) Removable Volumes access in System Settings > Privacy & Security > Files and Folders, so it can read the data drive. Class-1 evidence builds need this.
 4. Done (2026-10-09): activation approved and applied via `rustright-install cutover --apply` on Mac and XPS. No action needed.
-5. (Decided 2026-10-08) RustRight is a Rust rewrite of the broker; it passed parity and replaced the Node broker, which was deleted from RightKit (`bogusyogi/rustright` docs/decisions/0001-rust-broker.md, `1a6a910`). The Node agent policy hooks (`packages/build-control-policy`) stay Node and live. Nothing to decide here.
+5. (Decided 2026-10-08) RustRight is a Rust rewrite of the broker; it replaced the Node broker after the parity suite (Mac matrix; partial app coverage, no full XPS matrix, V1 volume-loss deferred — see `docs/porting-plan.md` there), which was deleted from RightKit (`bogusyogi/rustright` docs/decisions/0001-rust-broker.md, `1a6a910`). The Node agent policy hooks (`packages/build-control-policy`) stay Node and live. Nothing to decide here.
 6. Sign exception drafts for HeardRight, only after the P1 schema lands and drafts are regenerated.
 7. Approve the paid route spend for RK4 (ElevenLabs), with per-run cost recorded.
 8. Decide owner dispositions for zero-consumer crates and packages (merged inventory §6.4, for example `rightkit-computer` removal, `rightkit-pdf` adoption or stop publishing).
