@@ -20,10 +20,10 @@ export class InstallAppError extends Error {
 }
 
 const VALUE_FLAGS = new Set(["--dmg", "--zip", "--app", "--app-name", "--bundle-id", "--dest"]);
-const BOOL_FLAGS = new Set(["--relaunch", "--no-relaunch", "--json", "--dev"]);
+const BOOL_FLAGS = new Set(["--relaunch", "--no-relaunch", "--json", "--dev", "--recover"]);
 
 export function parseArgs(argv) {
-  const opts = { dmg: null, zip: null, app: null, dev: false, appName: null, bundleId: null, dest: "/Applications", relaunch: null, json: false };
+  const opts = { dmg: null, zip: null, app: null, dev: false, appName: null, bundleId: null, dest: "/Applications", relaunch: null, json: false, recover: false };
   for (let i = 0; i < argv.length; i += 1) {
     const flag = argv[i];
     if (VALUE_FLAGS.has(flag)) {
@@ -39,6 +39,7 @@ export function parseArgs(argv) {
     } else if (BOOL_FLAGS.has(flag)) {
       if (flag === "--json") opts.json = true;
       else if (flag === "--dev") opts.dev = true;
+      else if (flag === "--recover") opts.recover = true;
       else opts.relaunch = flag === "--relaunch";
     } else {
       throw new InstallAppError("usage", `unknown argument: ${flag}`);
@@ -46,6 +47,14 @@ export function parseArgs(argv) {
   }
   if (argv.includes("--relaunch") && argv.includes("--no-relaunch")) throw new InstallAppError("usage", "--relaunch and --no-relaunch are mutually exclusive");
   const inputs = [opts.dmg, opts.zip, opts.app].filter((v) => v !== null).length;
+  if (opts.recover) {
+    if (inputs > 0 || opts.dev || opts.relaunch !== null || opts.bundleId !== null) throw new InstallAppError("usage", "--recover only accepts --dest, --app-name, and --json");
+    if (opts.appName !== null && (!/^[^/\0]+\.app$/.test(opts.appName) || opts.appName === ".app" || opts.appName.includes(".."))) {
+      throw new InstallAppError("usage", "--app-name must be a bare bundle name ending in .app");
+    }
+    if (!path.isAbsolute(opts.dest)) opts.dest = path.resolve(opts.dest);
+    return opts;
+  }
   if (inputs === 0) throw new InstallAppError("usage", opts.dev ? "one of --dmg <path.dmg>, --zip <path.zip>, or --app <path.app> is required" : "--dmg <path.dmg> is required");
   if (inputs > 1) throw new InstallAppError("usage", "--dmg, --zip, and --app are mutually exclusive");
   if ((opts.zip !== null || opts.app !== null) && !opts.dev) throw new InstallAppError("usage", "--zip and --app require --dev (only DMGs are installable as release builds)");
@@ -164,6 +173,98 @@ function errText(error) {
   return `${error?.stderr || ""}${error?.stdout || ""}`.trim() || error?.message || String(error);
 }
 
+// --- crash-safe swap: journal + recovery -----------------------------------
+
+const JOURNAL_RE = /^\.(.+)\.rightkit-install\.json$/;
+
+export function journalPathFor(dest, appName) {
+  return path.join(dest, `.${appName.replace(/\.app$/, "")}.rightkit-install.json`);
+}
+
+// Atomic write: temp file, fsync, rename, then a best-effort fsync of the directory.
+export function writeJournal(fsImpl, file, data) {
+  const tmp = `${file}.tmp`;
+  const fd = fsImpl.openSync(tmp, "w");
+  try { fsImpl.writeSync(fd, `${JSON.stringify(data)}\n`); fsImpl.fsyncSync(fd); }
+  finally { fsImpl.closeSync(fd); }
+  fsImpl.renameSync(tmp, file);
+  try {
+    const dfd = fsImpl.openSync(path.dirname(file), "r");
+    try { fsImpl.fsyncSync(dfd); } finally { fsImpl.closeSync(dfd); }
+  } catch { /* directory fsync is best effort */ }
+}
+
+const defaultIsAlive = (pid) => {
+  try { process.kill(pid, 0); return true; } catch (e) { return e.code === "EPERM"; }
+};
+
+async function trashBundle(run, fsImpl, home, now, bundle, appName) {
+  const trashDir = path.join(home, ".Trash");
+  fsImpl.mkdirSync(trashDir, { recursive: true });
+  const trashed = path.join(trashDir, trashName(appName, now()));
+  await moveAside(run, fsImpl, bundle, trashed);
+  return trashed;
+}
+
+// Deterministic roll-forward/back of any interrupted install journal in `dest`. Idempotent.
+export async function recoverInstalls({ dest, appName = null, run, fsImpl, home, now, event, sleep, isAlive = defaultIsAlive, selfPid = process.pid }) {
+  let names = [];
+  try { names = fsImpl.readdirSync(dest).filter((n) => JOURNAL_RE.test(n)); } catch { return []; }
+  if (appName) names = names.filter((n) => n === path.basename(journalPathFor(dest, appName)));
+  const results = [];
+  for (const name of names.sort()) {
+    const file = path.join(dest, name);
+    let j;
+    try { j = JSON.parse(fsImpl.readFileSync(file, "utf8")); } catch {
+      event("recovery-journal-unreadable", { journal: file });
+      try { fsImpl.rmSync(file, { force: true }); } catch { /* best effort */ }
+      continue;
+    }
+    if (j.pid && j.pid !== selfPid && isAlive(j.pid)) { event("recovery-skipped", { journal: file, pid: j.pid, reason: "install still running" }); continue; }
+    const has = (p) => Boolean(p) && fsImpl.existsSync(p);
+    const rm = (p) => { if (p) { try { fsImpl.rmSync(p, { recursive: true, force: true }); } catch { /* best effort */ } } };
+    let action;
+    let keepJournal = false;
+    try {
+      if (!has(j.installed)) {
+        if (has(j.backup)) { fsImpl.renameSync(j.backup, j.installed); action = "restored-backup"; }
+        else action = "cleared";
+      } else if (has(j.backup)) {
+        let ok = j.phase === "verified";
+        if (!ok) { try { await verifyBundle(run, j.installed, { assess: !j.dev, staple: false }); ok = true; } catch { ok = false; } }
+        if (ok) {
+          try { await trashBundle(run, fsImpl, home, now, j.backup, path.basename(j.installed)); action = "rolled-forward"; }
+          catch { action = "rolled-forward-trash-pending"; keepJournal = true; }
+        } else {
+          rm(j.installed);
+          fsImpl.renameSync(j.backup, j.installed);
+          action = "rolled-back";
+        }
+      } else action = "cleared";
+    } catch (error) {
+      event("recovery-failed", { journal: file, reason: errText(error) });
+      continue; // leave the journal for the next run
+    }
+    rm(j.staged);
+    if (j.mount && has(j.mount)) {
+      const out = await detachWithRetry({ mount: j.mount, log: (e) => event(e.event, e), sleep, detach: (args) => run("/usr/bin/hdiutil", args) });
+      if (out.ok) rm(j.mountRoot);
+    } else rm(j.mountRoot);
+    if (!keepJournal) rm(file);
+    event("recovered", { journal: file, action, installed: j.installed });
+    results.push({ journal: file, action, installed: j.installed });
+  }
+  return results;
+}
+
+export async function recoverApp(opts, deps = {}) {
+  const { execFile = realExecFile, fsImpl = fs, home = os.homedir(), now = () => new Date(), sleep = (ms) => new Promise((r) => setTimeout(r, ms)), emit = () => {}, isAlive, platform = process.platform } = deps;
+  if (platform !== "darwin") throw new InstallAppError("unsupported", `install-app is not implemented on ${platform}`);
+  const results = await recoverInstalls({ dest: opts.dest, appName: opts.appName, run: (c, a) => execFile(c, a), fsImpl, home, now, event: (name, data = {}) => emit({ event: name, ...data }), sleep, isAlive });
+  emit({ event: "recover-done", dest: opts.dest, recovered: results.length });
+  return { ok: true, recovered: results };
+}
+
 export async function installApp(opts, deps = {}) {
   const {
     execFile = realExecFile,
@@ -175,6 +276,10 @@ export async function installApp(opts, deps = {}) {
     kill = (pid, sig) => process.kill(pid, sig),
     emit = () => {},
     tmpdir = os.tmpdir(),
+    pid = process.pid,
+    isAlive = defaultIsAlive,
+    signalTarget = process,
+    exit = (code) => process.exit(code),
   } = deps;
   const dev = opts.dev === true;
   const event = (name, data = {}) => emit({ event: name, ...(dev ? { dev: true } : {}), ...data });
@@ -184,6 +289,40 @@ export async function installApp(opts, deps = {}) {
   let mounted = false;
   let mountPoint = null;
   let failedStage = "start";
+  let swap = null; // set once the journal exists; tracks which renames happened
+
+  const removeQuiet = (p) => { if (p) { try { fsImpl.rmSync(p, { recursive: true, force: true }); } catch { /* best effort */ } } };
+  // Undo an unfinished swap using renames only. Sync on purpose so a signal handler can run it.
+  const rollbackSwap = () => {
+    if (!swap) return;
+    const s = swap;
+    swap = null;
+    try {
+      if (!s.final) {
+        if (s.stagedIn) removeQuiet(s.installed);
+        if (s.backedUp && !fsImpl.existsSync(s.installed)) fsImpl.renameSync(s.backup, s.installed);
+        removeQuiet(s.staged);
+        removeQuiet(s.journal);
+      } else {
+        removeQuiet(s.staged);
+      }
+    } catch { /* recovery on the next run finishes the job */ }
+  };
+  let signaled = false;
+  const onSignal = (sig) => {
+    if (signaled) return;
+    signaled = true;
+    (async () => {
+      try {
+        rollbackSwap();
+        event("interrupted", { signal: sig });
+        await detach();
+        cleanupExtract();
+      } catch { /* exiting anyway */ }
+      exit(128 + (os.constants.signals[sig] || 0));
+    })();
+  };
+  const handlers = { SIGINT: () => onSignal("SIGINT"), SIGTERM: () => onSignal("SIGTERM") };
 
   const detach = async () => {
     if (!mounted) return;
@@ -199,12 +338,15 @@ export async function installApp(opts, deps = {}) {
 
   try {
     if (platform !== "darwin") throw new InstallAppError("unsupported", `install-app is not implemented on ${platform}`);
+    for (const [sig, fn] of Object.entries(handlers)) signalTarget.on(sig, fn);
     const inputPath = opts.dmg ?? opts.zip ?? opts.app;
     const inputKind = opts.dmg ? "dmg" : opts.zip ? "zip" : "app";
     event("start", { [inputKind]: inputPath, dest: opts.dest });
     if (dev) event("dev-build", { note: "DEV BUILD (not notarized)" });
     if (!fsImpl.existsSync(inputPath)) throw new InstallAppError(`${inputKind}-missing`, `${inputKind.toUpperCase()} not found: ${inputPath}`);
     if (!fsImpl.existsSync(opts.dest)) throw new InstallAppError("dest-missing", `destination not found: ${opts.dest}`);
+
+    await recoverInstalls({ dest: opts.dest, appName: opts.appName, run, fsImpl, home, now, event, sleep, isAlive, selfPid: pid });
 
     let sourceApp = null;
     const pickApp = (dir, label) => {
@@ -257,30 +399,39 @@ export async function installApp(opts, deps = {}) {
     const bundleId = opts.bundleId || newBundleId;
     event("verified", { app: appName, bundleId, teamId: newTeam, replacing: hadInstalled, ...(ticket ? { ticket } : {}) });
 
+    // Stage a verified copy on the destination volume so the swap is rename(2) only.
+    failedStage = "stage";
+    const base = appName.replace(/\.app$/, "");
+    const staged = path.join(opts.dest, `.${base}.rightkit-install-${pid}.app`);
+    const backup = hadInstalled ? path.join(opts.dest, `.${base}.rightkit-backup-${pid}.app`) : null;
+    const journal = journalPathFor(opts.dest, appName);
+    const journalData = { schema: 1, appName, pid, phase: "staging", dev, installed, backup, staged, mount: mountPoint, mountRoot };
+    removeQuiet(staged);
+    writeJournal(fsImpl, journal, journalData);
+    swap = { installed, backup, staged, journal, backedUp: false, stagedIn: false, final: false };
+    try { await run("/usr/bin/ditto", [sourceApp, staged]); }
+    catch (error) {
+      rollbackSwap();
+      throw new InstallAppError("ditto-failed", `ditto failed (${errText(error)}); previous app untouched`);
+    }
+    {
+      const { team: stagedTeam } = await verifyBundle(run, staged, { assess: !dev, staple: false });
+      const stagedId = await readBundleId(run, staged);
+      if (stagedTeam !== newTeam || stagedId !== newBundleId) throw new InstallAppError("staged-mismatch", `staged copy ${staged} does not match the verified source (team ${stagedTeam}, bundle id ${stagedId})`);
+    }
+
     // Quit running instance without UI.
     failedStage = "quit";
     const wasRunning = hadInstalled ? (await findPids(run, installed)).length > 0 : false;
     const quit = hadInstalled ? await quitApp(run, kill, sleep, installed) : { pids: [], killed: [] };
     event("quit", { wasRunning, pids: quit.pids, forced: quit.killed });
 
-    // Replace.
+    // Swap: old -> backup, staged -> installed. The old bundle is never trashed before the new one is verified.
     failedStage = "replace";
-    let trashed = null;
-    if (hadInstalled) {
-      const trashDir = path.join(home, ".Trash");
-      fsImpl.mkdirSync(trashDir, { recursive: true });
-      trashed = path.join(trashDir, trashName(appName, now()));
-      await moveAside(run, fsImpl, installed, trashed);
-    }
-    try {
-      await run("/usr/bin/ditto", [sourceApp, installed]);
-    } catch (error) {
-      try { fsImpl.rmSync(installed, { recursive: true, force: true }); } catch { /* ignore */ }
-      let restored = false;
-      if (trashed) { try { await moveAside(run, fsImpl, trashed, installed); restored = true; } catch { /* reported below */ } }
-      throw new InstallAppError("ditto-failed", `ditto failed (${errText(error)}); ${trashed ? (restored ? "previous app restored" : `RESTORE FAILED, previous app is at ${trashed}`) : "no previous app to restore"}`);
-    }
-    event("replaced", { installed, previous: trashed });
+    writeJournal(fsImpl, journal, { ...journalData, phase: "swapping" });
+    if (hadInstalled) { fsImpl.renameSync(installed, backup); swap.backedUp = true; }
+    fsImpl.renameSync(staged, installed);
+    swap.stagedIn = true;
     // Dev builds are not notarized: clear quarantine on the NEW bundle only so Gatekeeper does not block it.
     if (dev) {
       try { await run("/usr/bin/xattr", ["-dr", "com.apple.quarantine", installed]); }
@@ -289,9 +440,21 @@ export async function installApp(opts, deps = {}) {
     await detach();
     cleanupExtract();
 
-    // Re-verify installed copy.
+    // Re-verify installed copy; on failure the catch below rolls back to the backup.
     failedStage = "reverify";
     await verifyBundle(run, installed, { assess: !dev, staple: false });
+    writeJournal(fsImpl, journal, { ...journalData, phase: "verified", mount: null, mountRoot: null });
+    swap.final = true;
+
+    // Only now does the old bundle go to the Trash.
+    let trashed = null;
+    if (backup) {
+      try { trashed = await trashBundle(run, fsImpl, home, now, backup, appName); }
+      catch (error) { event("backup-trash-failed", { backup, reason: errText(error) }); trashed = backup; }
+    }
+    if (!backup || trashed !== backup) removeQuiet(journal);
+    swap = null;
+    event("replaced", { installed, previous: trashed });
 
     // Relaunch hidden and in the background only.
     const relaunch = opts.relaunch === null ? wasRunning : opts.relaunch;
@@ -304,11 +467,14 @@ export async function installApp(opts, deps = {}) {
     event("done", result);
     return result;
   } catch (error) {
+    rollbackSwap();
     const reason = error instanceof InstallAppError ? error.message : errText(error);
     event("failed", { stage: failedStage, code: error.code || "error", reason });
     if (!(error instanceof InstallAppError)) throw new InstallAppError("error", reason);
     throw error;
   } finally {
+    for (const [sig, fn] of Object.entries(handlers)) signalTarget.off(sig, fn);
+    rollbackSwap();
     await detach();
     cleanupExtract();
   }
@@ -396,6 +562,7 @@ export async function main(argv = process.argv.slice(2), io = {}) {
   catch (error) {
     stderr(`right-release install-app: ${error.message}`);
     stderr("usage: right-release install-app (--dmg <path.dmg> | --dev (--zip <path.zip> | --app <path.app> | --dmg <path.dmg>)) [--app-name Pulse.app] [--bundle-id dev.orthic.pulse] [--dest /Applications] [--relaunch|--no-relaunch] [--json]");
+    stderr("       right-release install-app --recover [--dest /Applications] [--app-name Pulse.app] [--json]");
     stderr("  --dev installs a Developer ID-signed, NOT notarized build (skips spctl/stapler, clears quarantine on the new bundle).");
     return 2;
   }
@@ -407,7 +574,8 @@ export async function main(argv = process.argv.slice(2), io = {}) {
     else stdout(`install-app: ${event}${Object.keys(rest).length ? ` ${JSON.stringify(rest)}` : ""}`);
   };
   try {
-    await installApp(opts, { ...io.deps, emit });
+    if (opts.recover) await recoverApp(opts, { ...io.deps, emit });
+    else await installApp(opts, { ...io.deps, emit });
     return 0;
   } catch (error) {
     return error.code === "unsupported" ? 3 : 1;
