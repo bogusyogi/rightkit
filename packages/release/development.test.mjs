@@ -190,7 +190,7 @@ test("managed run lease is written under the managed root and removed on release
   const { acquireManagedRunLease } = await import("./managed-cargo.mjs");
   const managed = temp();
   try {
-    const client = path.join(managed, "runtime-current", "build-control-clients", "src", "rightkit.mjs");
+    const client = path.join(managed, "runtime-current", "rustright");
     mkdirSync(path.dirname(client), { recursive: true }); writeFileSync(client, "");
     const lease = acquireManagedRunLease({ command: "right-release dev --platform win", env: { RIGHTKIT_MANAGED_ROOT: managed }, platform: "linux", pid: 4242 });
     assert.equal(path.dirname(lease.path), path.join(managed, "rightkit-build-control", "global", "runs"));

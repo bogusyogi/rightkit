@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "./background-process.mjs";
@@ -11,16 +11,20 @@ import { resolveTargetRoot } from "./cargo-target.mjs";
 const here = path.dirname(fileURLToPath(import.meta.url));
 const cli = path.join(here, "cargo-target.mjs");
 
-// CLI tests use a Node-only managed runtime fixture, never a live Cargo toolchain.
+// CLI tests use a POSIX-shell rustright client fixture, never a live Cargo toolchain.
 function managedCliEnvironment(t) {
   const root = mkdtempSync(path.join(os.tmpdir(), "rightkit-target-client-"));
   t.after(() => rmSync(root, { recursive: true, force: true }));
-  const client = path.join(root, "runtime-current", "build-control-clients", "src", "rightkit.mjs");
+  const client = path.join(root, "runtime-current", "rustright");
   mkdirSync(path.dirname(client), { recursive: true });
-  writeFileSync(client, `import path from 'node:path';
-const manifest = process.argv.at(-1);
-if (manifest.includes('fail-manifest')) { process.stderr.write('fixture metadata failure'); process.exitCode = 1; }
-else process.stdout.write(JSON.stringify({target_directory:path.join(path.dirname(manifest),'target')}));`);
+  writeFileSync(client, `#!/bin/sh
+for last; do :; done
+case "$last" in
+  *fail-manifest*) printf 'fixture metadata failure' >&2; exit 1 ;;
+esac
+printf '{"target_directory":"%s/target"}' "$(dirname "$last")"
+`);
+  chmodSync(client, 0o755);
   const socket = path.join(root, "broker.sock"); writeFileSync(socket, "fixture");
   return { ...process.env, RIGHTKIT_CONTROL_ROOT: root, RIGHTKIT_BUILD_BROKER_SOCKET: socket };
 }
@@ -68,7 +72,7 @@ test("resolveTargetRoot throws when no manifest path is given", () => {
   assert.throws(() => resolveTargetRoot(""), /resolveTargetRoot requires a Cargo.toml manifest path/);
 });
 
-test("CLI mode writes only the resolved path to stdout on success", (t) => {
+test("CLI mode writes only the resolved path to stdout on success", { skip: process.platform === "win32" }, (t) => {
   const manifestDir = mkdtempSync(path.join(os.tmpdir(), "rightkit-cargo-target-fixture-"));
   const manifest = path.join(manifestDir, "Cargo.toml");
   mkdirSync(path.join(manifestDir, "src"));
@@ -79,7 +83,7 @@ test("CLI mode writes only the resolved path to stdout on success", (t) => {
   assert.equal(path.isAbsolute(result.stdout.trim()), true);
 });
 
-test("CLI mode writes a message to stderr and exits 1 on failure", (t) => {
+test("CLI mode writes a message to stderr and exits 1 on failure", { skip: process.platform === "win32" }, (t) => {
   const manifestDir = mkdtempSync(path.join(os.tmpdir(), "rightkit-cargo-target-fixture-"));
   const manifest = path.join(manifestDir, "fail-manifest-Cargo.toml");
   writeFileSync(manifest, "not valid toml");

@@ -27,21 +27,23 @@ test('socket discovery prefers internal, then legacy, with explicit endpoint aut
   assert.equal(discoverBrokerSocket({ RIGHTKIT_BUILD_BROKER_SOCKET: '/explicit' }, { ...options, exists: () => { throw new Error('must not inspect filesystem'); } }), '/explicit');
 });
 
-test('release client lookup prefers control runtime with legacy fallback', () => {
+test('release client lookup prefers control runtime, then managed root, and resolves only rustright', () => {
   const env = { RIGHTKIT_CONTROL_ROOT: '/internal', RIGHTKIT_MANAGED_ROOT: '/data' }; const seen = [];
-  assert.equal(managedRuntimeClient(env, 'darwin', (p) => { seen.push(p); return true; }), '/internal/runtime-current/build-control-clients/src/rightkit.mjs');
+  assert.equal(managedRuntimeClient(env, 'darwin', (p) => { seen.push(p); return true; }), '/internal/runtime-current/rustright');
   assert.equal(seen.length, 1);
-  assert.equal(managedRuntimeClient(env, 'darwin', (p) => p.startsWith('/data/')), '/data/runtime-current/build-control-clients/src/rightkit.mjs');
+  assert.equal(managedRuntimeClient(env, 'darwin', (p) => p.startsWith('/data/')), '/data/runtime-current/rustright');
+  assert.equal(managedRuntimeClient(env, 'win32', (p) => p.endsWith('rustright.exe')).endsWith('rustright.exe'), true);
+  assert.equal(managedRuntimeClient(env, 'darwin', (p) => p.endsWith('rightkit.mjs')), undefined);
 });
 
 test('Mac managed Cargo never falls through to cargo; missing client or socket is typed', () => {
   const spawn = () => { throw new Error('direct cargo must not run'); };
   assert.equal(runCargoSync(['metadata'], { env: {} }, { platform: 'darwin', exists: () => false, spawn }).error.code, 'RK_BROKER_UNAVAILABLE');
-  assert.equal(runCargoSync(['metadata'], { env: {} }, { platform: 'darwin', exists: (p) => p.endsWith('rightkit.mjs'), spawn }).error.code, 'RK_BROKER_UNAVAILABLE');
+  assert.equal(runCargoSync(['metadata'], { env: {} }, { platform: 'darwin', exists: (p) => p.endsWith('rustright'), spawn }).error.code, 'RK_BROKER_UNAVAILABLE');
   let call;
   const env = { RIGHTKIT_CONTROL_ROOT: '/internal', RIGHTKIT_BUILD_BROKER_SOCKET: '/explicit' };
   runCargoSync(['metadata'], { env }, { platform: 'darwin', exists: () => true, spawn: (...args) => { call = args; return { status: 0 }; } });
-  assert.equal(call[1][0], '/internal/runtime-current/build-control-clients/src/rightkit.mjs');
+  assert.equal(call[0], '/internal/runtime-current/rustright');
   assert.equal(call[2].env.RIGHTKIT_BUILD_BROKER_SOCKET, '/explicit');
   assert.equal(runCargoSync([], { env: {} }, { platform: 'win32', exists: () => false, spawn: (command) => ({ command }) }).command, 'cargo');
 });

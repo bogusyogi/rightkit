@@ -7,11 +7,7 @@ import { spawnSync } from "./background-process.mjs";
 export function managedRuntimeClient(env = process.env, platform = process.platform, exists = existsSync) {
   const roots = managedControlCandidates({ env, platform });
   const paths = platform === 'win32' ? path.win32 : path.posix;
-  for (const root of roots) {
-    const client = paths.join(root, "runtime-current", "build-control-clients", "src", "rightkit.mjs");
-    if (exists(client)) return client;
-  }
-  // RustRight cutover: runtime-current ships the native `rustright` client in place of the Node client.
+  // runtime-current ships the native `rustright` client.
   for (const root of roots) {
     const client = paths.join(root, "runtime-current", platform === 'win32' ? "rustright.exe" : "rustright");
     if (exists(client)) return client;
@@ -19,9 +15,9 @@ export function managedRuntimeClient(env = process.env, platform = process.platf
   return undefined;
 }
 
-/** Command line that runs the managed client: Node scripts run under node, the native rustright client runs directly. */
+/** Command line that runs the managed client: the native rustright client runs directly. */
 export function managedRuntimeCommand(client, args) {
-  return /\.m?js$/i.test(client) ? { command: process.execPath, args: [client, ...args] } : { command: client, args };
+  return { command: client, args };
 }
 
 /** Hold a client-run lease that blocks broker runtime cutover until release() (see
