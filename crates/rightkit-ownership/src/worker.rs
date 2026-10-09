@@ -112,6 +112,11 @@ impl Scanner {
         Self { ctx, catalog }
     }
 
+    /// A scanner over the catalog embedded in this crate ([`crate::catalog`]).
+    pub fn with_embedded_catalog(ctx: ScanContext) -> Self {
+        Self::new(ctx, crate::catalog_value().clone())
+    }
+
     fn probe(&self, app_root: &Path, counter: &std::sync::atomic::AtomicUsize) -> Res<Probe> {
         let root = paths::resolve(app_root);
         let state = (self.ctx.trust_loader)()?;
@@ -301,5 +306,9 @@ impl ScanRunner for NativeScanRunner {
         } else {
             self.0.scan(root)
         }
+    }
+    /// The in-process scanner is part of the binary: always staged.
+    fn staged(&self) -> bool {
+        true
     }
 }

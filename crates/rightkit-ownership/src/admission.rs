@@ -153,8 +153,9 @@ pub struct Target<'a> {
 pub struct AdmissionConfig {
     pub mode: Mode,
     pub timeout: Duration,
-    /// Staged scanner root. `None` means the scanner is not staged, and every
-    /// non-off admission is unscanned.
+    /// Node-worker scanner root, passed through to [`ScanRequest::scanner_root`].
+    /// Whether the scanner is staged is decided by [`ScanRunner::staged`], not by this
+    /// field; only the Node-compat [`ProcessScanRunner`] path needs it.
     pub scanner_root: Option<PathBuf>,
     pub clock: Arc<dyn Clock>,
     pub inputs_runner: Arc<dyn ScanRunner>,
@@ -166,7 +167,8 @@ impl AdmissionConfig {
     /// Production defaults: the Node worker run through `node`, the system clock and
     /// default worker limits.
     pub fn new(mode: Mode, scanner_root: Option<PathBuf>, node: impl Into<PathBuf>) -> Self {
-        let runner: Arc<dyn ScanRunner> = Arc::new(ProcessScanRunner::new(node));
+        let runner: Arc<dyn ScanRunner> =
+            Arc::new(ProcessScanRunner::new(node).with_scanner_root(scanner_root.clone()));
         Self {
             mode,
             timeout: DEFAULT_TIMEOUT,
@@ -342,13 +344,17 @@ impl OwnershipAdmission {
             Ok(root) => root,
             Err(message) => return self.failure(None, message, Some(codes::INVALID_REGISTRATION)),
         };
-        let Some(scanner) = self.scanner_root.as_deref() else {
+        if !(self.inputs_runner.staged() && self.scan_runner.staged()) {
             return self.failure(
                 Some(&root),
                 "ownership scanner is not staged in this runtime".into(),
                 None,
             );
-        };
+        }
+        let scanner = self
+            .scanner_root
+            .as_deref()
+            .unwrap_or_else(|| Path::new(""));
         self.admit(&root, scanner)
     }
 

@@ -15,7 +15,9 @@ use crate::admission::{
     classify_ownership_report, AdmissionConfig, Mode, OwnershipAdmission, Target, Violation,
 };
 use crate::limits::WorkerLimits;
-use crate::runner::{default_scanner_root, resolve_lexical, FnScanRunner, ScanRequest};
+use crate::runner::{
+    default_scanner_root, resolve_lexical, FnScanRunner, ProcessScanRunner, ScanRequest, ScanRunner,
+};
 use crate::verdict::{codes, ownership_verdict};
 
 const IDENTITY: &str = "https://github.com/test/repo";
@@ -580,17 +582,22 @@ fn missing_digests_changed_scan_bindings_and_unavailable_scanners_refuse_failure
     }
     assert_eq!(calls.load(Ordering::SeqCst), 2);
 
+    struct Unstaged;
+    impl ScanRunner for Unstaged {
+        fn run(&self, _: &ScanRequest<'_>) -> Value {
+            panic!("unstaged scanner must not run")
+        }
+        fn staged(&self) -> bool {
+            false
+        }
+    }
     let unstaged = OwnershipAdmission::new(AdmissionConfig {
         mode: Mode::Enforce,
         timeout: Duration::from_secs(30),
         scanner_root: None,
         clock: Arc::new(ManualClock::new(0)),
-        inputs_runner: Arc::new(FnScanRunner(|_: &ScanRequest<'_>| -> Value {
-            panic!("unstaged scanner must not run")
-        })),
-        scan_runner: Arc::new(FnScanRunner(|_: &ScanRequest<'_>| -> Value {
-            panic!("unstaged scanner must not run")
-        })),
+        inputs_runner: Arc::new(Unstaged),
+        scan_runner: Arc::new(Unstaged),
         limits: WorkerLimits::default(),
     });
     assert_eq!(
@@ -851,4 +858,40 @@ fn follower_probe_runs_during_leader_scan_and_shares_the_in_flight_scan() {
         "same-key admissions share one scan"
     );
     assert_eq!(probes.load(Ordering::SeqCst), 2);
+}
+
+#[test]
+fn embedded_catalog_matches_canonical_source() {
+    let canonical = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../packages/release/rightkit-ownership.json");
+    // Absent when built from the published crate; present in the repository, where drift
+    // between the embedded copy and the canonical catalog must fail.
+    if let Ok(bytes) = fs::read(&canonical) {
+        assert_eq!(
+            crate::catalog().as_bytes(),
+            bytes.as_slice(),
+            "catalog/ownership-catalog.json drifted from packages/release/rightkit-ownership.json; recopy it"
+        );
+    }
+    let parsed = crate::catalog_value();
+    assert!(parsed["capabilities"].is_array());
+}
+
+#[test]
+fn runner_staging_is_a_runner_property() {
+    assert!(!ProcessScanRunner::new("node").staged());
+    assert!(ProcessScanRunner::new("node")
+        .with_scanner_root(Some("/scanner".into()))
+        .staged());
+    assert!(FnScanRunner(|_: &ScanRequest<'_>| json!({})).staged());
+    let ctx = crate::ScanContext {
+        clock: Arc::new(ManualClock::new(0)),
+        host: "host/test".into(),
+        authority: crate::keyauth::AuthorityEnv::unavailable(),
+        trust_loader: Arc::new(|| Ok(json!({}))),
+        policy_digest: digest(1),
+        before_inventory: None,
+    };
+    let scanner = crate::Scanner::with_embedded_catalog(ctx);
+    assert!(crate::NativeScanRunner(Arc::new(scanner)).staged());
 }

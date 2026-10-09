@@ -275,6 +275,7 @@
     "rightkit-oauth": "0.3.0",
     "rightkit-ocr": "0.1.2",
     "rightkit-ort": "0.2.2",
+    "rightkit-ownership": "0.2.0",
     "rightkit-pdf": "0.2.0",
     "rightkit-playback": "0.1.1",
     "rightkit-process": "0.3.3",

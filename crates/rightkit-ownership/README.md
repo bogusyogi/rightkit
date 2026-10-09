@@ -2,7 +2,7 @@
 
 The single Rust implementation of RightKit's ownership scanner, verdict and admission. It replaces the Node scanner in `packages/release` (`ownership-scan-worker.mjs` and the modules it imports) and is linked as a library by the RustRight broker.
 
-Catalog capability: `ownership-scanner`. Version 0.1.0, not yet staged for publication (see [INDEX.md](../../INDEX.md)).
+Catalog capability: `ownership-scanner`. Version 0.2.0, not yet staged for publication (see [INDEX.md](../../INDEX.md)).
 
 ## What it owns
 

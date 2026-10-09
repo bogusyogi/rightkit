@@ -30,13 +30,32 @@ use rightkit_ownership::scan::ScanContext;
 use rightkit_ownership::worker::Scanner;
 use rightkit_ownership::{
     canonical_repository_identity, ownership_cache_key, ownership_verdict, AdmissionConfig,
-    FnScanRunner, ManualClock, Mode, OwnershipAdmission, ProcessScanRunner, ScanRequest,
-    ScanRunner, Target, Verdict, WorkerLimits, DEFAULT_TIMEOUT,
+    ManualClock, Mode, OwnershipAdmission, ProcessScanRunner, ScanRequest, ScanRunner, Target,
+    Verdict, WorkerLimits, DEFAULT_TIMEOUT,
 };
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 
 static NULL: Value = Value::Null;
+
+/// Fixture runner: staged exactly when the scenario names a `scannerRoot`.
+struct ScenarioRunner<F> {
+    run: F,
+    staged: bool,
+}
+
+impl<F> ScanRunner for ScenarioRunner<F>
+where
+    F: Fn(&ScanRequest<'_>) -> Value + Send + Sync,
+{
+    fn run(&self, request: &ScanRequest<'_>) -> Value {
+        (self.run)(request)
+    }
+
+    fn staged(&self) -> bool {
+        self.staged
+    }
+}
 
 fn cases_dir() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -412,18 +431,21 @@ fn run_admission(scenario: &Value, extra_scans: &[Value]) -> Value {
     let clock = ManualClock::new(0);
     let mode = Mode::parse(text(scenario, "mode")).expect("fixture mode");
     let scanner_root = at(scenario, "scannerRoot").as_str().map(PathBuf::from);
+    let staged = scanner_root.is_some();
     let (inputs_shared, scan_shared) = (Arc::clone(&shared), Arc::clone(&shared));
     let gate = Arc::new(OwnershipAdmission::new(AdmissionConfig {
         mode,
         timeout: DEFAULT_TIMEOUT,
         scanner_root,
         clock: Arc::new(clock.clone()),
-        inputs_runner: Arc::new(FnScanRunner(move |_: &ScanRequest<'_>| {
-            inputs_reply(&inputs_shared)
-        })),
-        scan_runner: Arc::new(FnScanRunner(move |_: &ScanRequest<'_>| {
-            scan_reply(&scan_shared, concurrent)
-        })),
+        inputs_runner: Arc::new(ScenarioRunner {
+            run: move |_: &ScanRequest<'_>| inputs_reply(&inputs_shared),
+            staged,
+        }),
+        scan_runner: Arc::new(ScenarioRunner {
+            run: move |_: &ScanRequest<'_>| scan_reply(&scan_shared, concurrent),
+            staged,
+        }),
         limits: WorkerLimits::default(),
     }));
     let set_cursor = |step: &Value| {

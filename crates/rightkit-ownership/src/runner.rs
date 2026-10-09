@@ -38,6 +38,13 @@ pub struct ScanRequest<'a> {
 /// failure, exactly as Node's `runScanWorker` resolves.
 pub trait ScanRunner: Send + Sync {
     fn run(&self, request: &ScanRequest<'_>) -> Value;
+
+    /// Whether this runner can scan in this runtime. The admission gate refuses every
+    /// non-off admission as unscanned when a runner is not staged. In-process runners
+    /// are always staged; the Node worker runner is staged only with a scanner root.
+    fn staged(&self) -> bool {
+        true
+    }
 }
 
 /// Adapts a closure into a [`ScanRunner`]. Used by tests and by callers that supply
@@ -58,6 +65,9 @@ where
 pub struct ProcessScanRunner {
     pub node: PathBuf,
     pub max_output_bytes: usize,
+    /// Staged scanner root. When set it overrides the request's root, and the runner
+    /// counts as staged.
+    pub scanner_root: Option<PathBuf>,
 }
 
 impl ProcessScanRunner {
@@ -65,17 +75,26 @@ impl ProcessScanRunner {
         Self {
             node: node.into(),
             max_output_bytes: MAX_OUTPUT_BYTES,
+            scanner_root: None,
         }
+    }
+
+    /// Stage the Node worker at `scanner_root`.
+    #[must_use]
+    pub fn with_scanner_root(mut self, scanner_root: Option<PathBuf>) -> Self {
+        self.scanner_root = scanner_root;
+        self
     }
 }
 
 impl ScanRunner for ProcessScanRunner {
     fn run(&self, request: &ScanRequest<'_>) -> Value {
+        let root = self.scanner_root.as_deref().unwrap_or(request.scanner_root);
         let mut command = Command::new(&self.node);
         command
-            .arg(request.scanner_root.join(WORKER_FILE))
+            .arg(root.join(WORKER_FILE))
             .arg(request.scan_root)
-            .arg(request.scanner_root.join(MANIFEST_FILE));
+            .arg(root.join(MANIFEST_FILE));
         if request.inputs_only {
             command.arg("--inputs");
         }
@@ -93,6 +112,10 @@ impl ScanRunner for ProcessScanRunner {
             Ok(child) => supervise(child, request.timeout, self.max_output_bytes),
             Err(error) => failure(format!("scanner failed to start: {error}"), None),
         }
+    }
+
+    fn staged(&self) -> bool {
+        self.scanner_root.is_some()
     }
 }
 
@@ -291,6 +314,7 @@ mod tests {
         let runner = ProcessScanRunner {
             node: PathBuf::from("/bin/sh"),
             max_output_bytes: limit,
+            scanner_root: None,
         };
         runner.run(&ScanRequest {
             scanner_root: &root,

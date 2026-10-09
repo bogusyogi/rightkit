@@ -43,6 +43,25 @@ pub mod types;
 pub mod verdict;
 pub mod worker;
 
+/// The ownership capability catalog the scanner enforces, embedded at build time. A
+/// byte-identical copy of `packages/release/rightkit-ownership.json` (a test fails on
+/// drift), so the crate works from crates.io without the source tree.
+const CATALOG: &str = include_str!("../catalog/ownership-catalog.json");
+
+/// The embedded scan catalog as JSON text.
+pub fn catalog() -> &'static str {
+    CATALOG
+}
+
+/// The embedded scan catalog, parsed once.
+///
+/// # Panics
+/// Never in practice: a test asserts the embedded text parses.
+pub fn catalog_value() -> &'static serde_json::Value {
+    static PARSED: std::sync::OnceLock<serde_json::Value> = std::sync::OnceLock::new();
+    PARSED.get_or_init(|| serde_json::from_str(CATALOG).expect("embedded ownership catalog parses"))
+}
+
 #[cfg(test)]
 mod tests;
 
