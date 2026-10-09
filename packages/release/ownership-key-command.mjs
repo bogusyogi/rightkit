@@ -7,7 +7,8 @@ import { spawnSync, spawnSyncInteractive, windowsPowerShellEnvironment } from ".
 import { createKeyEvent, keyFingerprint, verifyKeyLog, verifyKeyRequest } from "./ownership-key-log.mjs";
 import { canonicalRepositoryIdentity, DEFAULT_TRUST_PATH, loadTrustedExternal, resolveKeyLogTrust, __testOnly as approvalTestOnly } from "./ownership-approval.mjs";
 import { readCommittedKeyAuthority } from "./ownership-key-authority.mjs";
-import { buildMacInvocation, delegateToDesktop, hasTerminal, needsDesktopDelegation } from "./ownership-key-elevation.mjs";
+import { buildMacInvocation, confirmTrustChange, delegateToDesktop, hasTerminal, needsDesktopDelegation } from "./ownership-key-elevation.mjs";
+import { summarizeRequestFile } from "./ownership-trust-summary.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const LOG = ".rightkit/ownership-keys.json";
@@ -319,7 +320,7 @@ function buildWindowsElevationInvocation(nodeExe, trustScript, requestPath, dige
   const parentScript = `$ErrorActionPreference='Stop'; try { $env:NODE_OPTIONS=$null; $env:NODE_PATH=$null; $p=Start-Process -FilePath ${quote(powershell)} -ArgumentList ${quote(`-NoProfile -EncodedCommand ${childEncoded}`)} -Verb RunAs -WindowStyle Hidden -Wait -PassThru; exit $p.ExitCode } catch { exit 1 }`;
   return { parentExecutable: powershell, parentArgs: ["-NoProfile", "-EncodedCommand", Buffer.from(parentScript, "utf16le").toString("base64")], childScript };
 }
-export const __testOnly = Object.freeze({ elevate, buildWindowsElevationInvocation, assertSafeMetadataParents, detectMinimizeHook });
+export const __testOnly = Object.freeze({ elevate, buildWindowsElevationInvocation, assertSafeMetadataParents, detectMinimizeHook, trustSyncGate, installCheckpoint });
 function trustState() { return loadTrustedExternal(); }
 function currentLogTrust(root, log, trust = trustState(), authority, injected = false) {
   if (!trust.trust?.rootFingerprint) throw new Error("protected root trust is not enrolled on this host");
@@ -491,7 +492,7 @@ async function trustSync(_args, d) {
     if (result.status !== 0) throw new Error(`desktop-session trust-sync failed (exit ${result.status}); see output above`);
     return 0;
   }
-  d = { ...d, label: "RightKit ownership trust-sync" };
+  d = { ...d, label: "RightKit ownership trust-sync", gate: trustSyncGate(d) };
   const log = readLog(d.root);
   const pin = log.events[0]?.payload?.rootFingerprint;
   const state = verifyKeyLog(log, { rootFingerprint: pin });
@@ -500,14 +501,32 @@ async function trustSync(_args, d) {
   if (!trust?.trust?.rootFingerprint) throw new Error("protected root trust is not enrolled on this host; run ownership enroll");
   if (trust.trust.rootFingerprint !== pin) throw new Error("committed key log root does not match this host's protected trust");
   const baseline = d.baseline ?? parse(readFileSync(path.join(here, "ownership-default-policy.json"), "utf8"), "ownership default policy");
-  await installCheckpoint(log, pin, baseline, d);
+  const installed = await installCheckpoint(log, pin, baseline, d);
+  if (installed === false) { d.print("trust already current"); return 0; }
   postVerify(d.root, log, d);
   d.print(`Ownership trust synced to key-log sequence ${log.events.length - 1}; active keys: ${state.keys.length}`);
   return 0;
 }
+/**
+ * Informed-consent gate: summarize the exact request bytes (digest-checked) against the installed trust,
+ * skip when nothing changes, otherwise require explicit approval before any elevation prompt.
+ */
+function trustSyncGate(d) {
+  return (request) => {
+    const existing = (d.trustLoader ?? trustState)()?.trust ?? null;
+    const summary = (d.summarize ?? summarizeRequestFile)({ file: request.file, digest: request.digest, existing, ...(d.summaryInputs ?? {}) });
+    if (!summary.changed) return false;
+    (d.confirm ?? confirmTrustChange)({ lines: summary.lines, run: d.run, print: d.print, hostPlatform: d.hostPlatform, ...(d.confirmOptions ?? {}) });
+    return true;
+  };
+}
 async function installCheckpoint(log, rootFingerprint, baseline, d) {
   const request = makeTrustRequest(log, rootFingerprint, baseline, d.authority);
-  try { await (d.elevate ?? elevate)(d.run, request.file, request.digest, d.label ? { label: d.label } : undefined); }
+  try {
+    if (d.gate && (await d.gate(request)) === false) return false;
+    await (d.elevate ?? elevate)(d.run, request.file, request.digest, d.label ? { label: d.label } : undefined);
+    return true;
+  }
   finally { await import("node:fs").then(({ unlinkSync }) => unlinkSync(request.file)).catch(() => {}); }
 }
 

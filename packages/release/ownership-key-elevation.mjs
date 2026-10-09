@@ -1,6 +1,6 @@
 // Launch helpers for the protected ownership trust update. These only change HOW the
 // privileged step is authorized or started; the verified trust child itself is unchanged.
-import { mkdtempSync, readFileSync, rmSync, writeFileSync, existsSync } from "node:fs";
+import { mkdtempSync, readFileSync, readSync, rmSync, writeFileSync, existsSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { randomBytes } from "node:crypto";
@@ -121,4 +121,71 @@ export function delegateToDesktop({ run, command, tmp = os.tmpdir(), sleep = (ms
     if (created) { try { run(SCHTASKS, ["/Delete", "/TN", taskName, "/F"], { env, encoding: "utf8" }); } catch {} }
     try { rmSync(dir, { recursive: true, force: true }); } catch {}
   }
+}
+
+// ---- Informed consent: show WHAT is about to be installed before any password/UAC prompt ----
+export const CONFIRM_TITLE = "RightKit ownership trust-sync";
+
+/** Escape free text for an AppleScript string expression; newlines become `return` concatenations. */
+export function appleScriptText(value) {
+  const text = String(value).replaceAll("\0", "").replaceAll("\r\n", "\n").replaceAll("\r", "\n");
+  return text.split("\n").map((line) => `"${line.replaceAll("\\", "\\\\").replaceAll('"', '\\"')}"`).join(" & return & ");
+}
+
+/** Cap a summary for a dialog; the dropped tail is reported as "...and N more". */
+export function capSummary(lines, { maxLines = 16, maxChars = 1600 } = {}) {
+  const out = [];
+  let used = 0;
+  for (let i = 0; i < lines.length; i += 1) {
+    const line = lines[i].length > 300 ? `${lines[i].slice(0, 299)}\u2026` : lines[i];
+    if (out.length >= maxLines - 1 || used + line.length > maxChars) { out.push(`\u2026and ${lines.length - i} more`); return out.join("\n"); }
+    out.push(line); used += line.length + 1;
+  }
+  return out.join("\n");
+}
+
+export function buildMacConfirmScript(text) {
+  return `display dialog ${appleScriptText(text)} with title ${appleScriptText(CONFIRM_TITLE)} buttons {"Cancel","Approve\u2026"} default button "Approve\u2026" cancel button "Cancel" with icon caution`;
+}
+
+export function buildWindowsConfirmScript(text) {
+  const lines = String(text).replaceAll("\0", "").split(/\r?\n/).map(psq).join(", ");
+  return [
+    "Add-Type -AssemblyName System.Windows.Forms",
+    "$o=New-Object System.Windows.Forms.Form; $o.TopMost=$true",
+    `$r=[System.Windows.Forms.MessageBox]::Show($o, ([string]::Join([Environment]::NewLine, @(${lines}))), ${psq(CONFIRM_TITLE)}, 'OKCancel', 'Warning')`,
+    "if ($r -eq 'OK') { exit 0 } else { exit 1 }",
+  ].join("; ");
+}
+
+function readLineSync() {
+  const buf = Buffer.alloc(1); let line = "";
+  for (;;) { let n = 0; try { n = readSync(0, buf, 0, 1, null); } catch { return line; } if (n === 0 || buf[0] === 10) return line; line += String.fromCharCode(buf[0]); }
+}
+
+/**
+ * Ask the human to approve the summarized change. Prints the summary, then: TTY -> type `yes`;
+ * macOS GUI -> osascript dialog; Windows GUI -> MessageBox. Throws "cancelled by user" unless approved.
+ */
+export function confirmTrustChange({ lines, run, print = console.log, hostPlatform = process.platform, tty = hasTerminal(), readLine = readLineSync }) {
+  const text = capSummary(lines);
+  print(lines.join("\n"));
+  const cancelled = () => new Error("cancelled by user");
+  if (tty) {
+    print("Type 'yes' to approve this trust update (anything else cancels):");
+    if (String(readLine() ?? "").trim() !== "yes") throw cancelled();
+    return;
+  }
+  if (hostPlatform === "darwin") {
+    const r = run("/usr/bin/osascript", ["-e", buildMacConfirmScript(text)], { encoding: "utf8" });
+    if (r.status !== 0) throw cancelled();
+    return;
+  }
+  if (hostPlatform === "win32") {
+    const encoded = Buffer.from(buildWindowsConfirmScript(text), "utf16le").toString("base64");
+    const r = run(POWERSHELL, ["-NoProfile", "-Sta", "-EncodedCommand", encoded], { env: windowsPowerShellEnvironment(), encoding: "utf8" });
+    if (r.status !== 0) throw cancelled();
+    return;
+  }
+  throw new Error("no way to ask for approval on this platform; run from a terminal");
 }
