@@ -12,7 +12,7 @@ categories = ["asynchronous"]
 include = ["src/**", "tests/**", "README.md", "LICENSE-MIT", "LICENSE-APACHE"]
 
 [dependencies]
-rightkit-fs = { version = "0.4", path = "../rightkit-fs", default-features = false, features = ["digest"] }
+rightkit-fs = { version = "0.3", path = "../rightkit-fs", default-features = false, features = ["digest"] }
 rightkit-db = { version = "0.3.0", path = "../rightkit-db" }
 rightkit-framed-sidecar = { version = "0.1.0", path = "../rightkit-framed-sidecar" }
 rightkit-process = { version = "0.3.0", path = "../rightkit-process" }

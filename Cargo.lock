@@ -5419,7 +5419,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-fs"
-version = "0.4.0"
+version = "0.3.3"
 dependencies = [
  "libc",
  "serde",
