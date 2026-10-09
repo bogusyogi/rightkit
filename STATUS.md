@@ -8,7 +8,7 @@ States: **done**, **in progress**, **not started**, **waiting on Adrian**, **blo
 
 - The review plan (P0 to P4) is in progress. Code for P0 to P2 has landed on the Mac and Windows sides, but no P-row has its exit evidence recorded yet.
 - Enforcement is not on. `tools/rightkit/docs/OWNERSHIP-ENFORCEMENT.md:60` says installed enforcement is not active. No enforce commit exists.
-- The live Mac broker runs an older runtime than main. The newer runtime is not activated.
+- The Mac broker is the Developer-ID-signed RustRight `rustright-972495a`; the Windows XPS broker is `rustright-9115215`. The Node broker runtime is retired.
 - Class-1 (tamper-proof evidence builds) is not installed on either host. Adrian must run the elevated installers.
 - App chats stay stopped until Adrian resumes them.
 - The broker is RustRight (`bogusyogi/rustright`), live on Mac and Windows; the Node broker packages were removed from RightKit on 2026-10-09. Only the RustRight chat edits broker code.
@@ -19,8 +19,8 @@ Source: `tasks/reviews/2026-10-08-rightkit-converged-plan.md` (revision 4, both 
 
 | Phase | Row | State | Commits | Open before done |
 |---|---|---|---|---|
-| P0 | Restore the Mac broker: control plane off external volume, root resolver, `EXTERNAL_ROOT_UNREADABLE` self-check, no direct-cargo fallback | in progress | `09dcd9839`, `085fedd00`, `fb28cca88` | Live broker still runs the old runtime. Newer runtime not activated. Reboot and `LISTENING` evidence not recorded (`tasks/handoffs/2026-10-08-rustright-handoff.md`). |
-| P0 | Restore the Mac broker: watchdog restarts a wedged broker | in progress | `5e00f3a57` | Restart cooldown is not persisted (RustRight item 9). |
+| P0 | Restore the Mac broker: control plane off external volume, root resolver, `EXTERNAL_ROOT_UNREADABLE` self-check, no direct-cargo fallback | in progress | `09dcd9839`, `085fedd00`, `fb28cca88` | Superseded: the signed RustRight broker (`rustright-972495a`) was cut over on Mac on 2026-10-09. Reboot and `LISTENING` evidence not recorded (`tasks/handoffs/2026-10-08-rustright-handoff.md`). |
+| P0 | Restore the Mac broker: watchdog restarts a wedged broker | in progress | `5e00f3a57` | RustRight persists the watchdog restart cooldown. |
 | P0 | Commit the catalog: revalidated tiered catalog | in progress | `09dcd9839`, `ce69ac34c` (catalog 3.0.0 trust candidate) | Complete-scope report and digest equality on both hosts not recorded. `ownership-report.mjs:8` scopes were hardcoded in the plan. |
 | P0 | Commit the catalog: transitive lockfile skip (D3 stage 1) | in progress | `3ceb71e7a` | Stage 1 only. |
 | P1 | Broker admission correctness (Windows) | in progress | `2b3da9e31`, `1e13ec279`, `ebd295302`, `5e00f3a57` | Refusal tests per D1 rejection list not recorded. Path-based owner exemption removal not evidenced. |
@@ -80,9 +80,9 @@ Scope: 50 crates, 29 npm packages, Swift package and helper, ownership-approval,
 
 1. Resume app chats. They stay stopped until then (converged plan).
 2. Run the elevated class-1 installers: macOS `_rightkit` LaunchDaemon and Windows service. Both scripts exist. Neither is installed (`8b8cecbf4`).
-3. Grant Full Disk Access to the broker daemon's pinned node once P0 installs it. Access granted today covers the old nvm node only. Class-1 evidence builds need this.
-4. Approve activation of the newer broker runtime. The live runtime predates `fb28cca8`. Workspace rules require express approval for activation.
-5. (Decided 2026-10-08) RustRight is a Rust rewrite of the broker; the Node broker is its behavioural spec and stays live until the Rust broker passes parity and Adrian approves activation (`bogusyogi/rustright` docs/decisions/0001-rust-broker.md, `1a6a910`). Nothing to decide here.
+3. Grant the signed `rustright-broker` (Identifier `rustright-broker`, Team 6KLGD3LLKF) Removable Volumes access in System Settings > Privacy & Security > Files and Folders, so it can read the data drive. Class-1 evidence builds need this.
+4. Done (2026-10-09): activation approved and applied via `rustright-install cutover --apply` on Mac and XPS. No action needed.
+5. (Decided 2026-10-08) RustRight is a Rust rewrite of the broker; it passed parity and replaced the Node broker, which was deleted from RightKit (`bogusyogi/rustright` docs/decisions/0001-rust-broker.md, `1a6a910`). The Node agent policy hooks (`packages/build-control-policy`) stay Node and live. Nothing to decide here.
 6. Sign exception drafts for HeardRight, only after the P1 schema lands and drafts are regenerated.
 7. Approve the paid route spend for RK4 (ElevenLabs), with per-run cost recorded.
 8. Decide owner dispositions for zero-consumer crates and packages (merged inventory §6.4, for example `rightkit-computer` removal, `rightkit-pdf` adoption or stop publishing).
@@ -95,9 +95,9 @@ Already approved, no action needed: the Windows class-1 copy cost bound of 2 GiB
 |---|---|
 | RightKit Mac lead (this host) | Crate and npm publishing, ownership and enforcement system, inventory, content pipeline RK0, RK4, RK5, RK6, RK7, RK9, RK1, RK3, RK8, RK10 (the Mac parts), P0 Mac items, P1 publication binding, P2 Mac gate, P4 cleanup. |
 | RightKit Windows lead (XPS, "Rightkit" session) | Windows class-1 pieces, P1 broker admission and approval contracts, `rightkit-secrets` `windows.rs`, Windows hooks, RK2 B (done), RK3 Windows helper. |
-| RustRight (broker) | Owns `tools/rightkit/packages/build-control-{core,broker,clients,policy}`, the `rightkit` CLI and shims, `packages/release/managed-cargo.mjs`, `packages/release/managed-roots.mjs`. Only the RustRight chat edits these. Open broker list: `tasks/handoffs/2026-10-08-rustright-handoff.md` items 1 to 12. |
+| RustRight (broker) | Owns the RustRight broker, `rustright` CLI (alias `rightkit`) and shims, installer `rustright-install` (the Node `build-control-{core,broker,clients,staging}` packages were deleted; `packages/build-control-policy` remains Node), `packages/release/managed-cargo.mjs`, `packages/release/managed-roots.mjs`. Only the RustRight chat edits these. Open broker list: `tasks/handoffs/2026-10-08-rustright-handoff.md` items 1 to 12. |
 
-Rules for all three: one integration owner per repository. Only the owner changes HEAD, index, receipts or remote. Rust commands go through `rightkit cargo` (and `rustright cargo` once renamed). Never re-bootstrap the live broker with `--force`, because the live config is hand-edited.
+Rules for all three: one integration owner per repository. Only the owner changes HEAD, index, receipts or remote. Rust commands go through `rightkit cargo` (and `rustright cargo` once renamed). Change the live broker only through `rustright-install stage`, `approve`, `cutover --apply`; never hand-edit live config.
 
 ## How to update this file
 

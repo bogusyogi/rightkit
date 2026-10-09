@@ -62,7 +62,9 @@ Implemented and live:
   propagation;
 - one global `CARGO_HOME`, one global sccache directory, client-side sccache,
   one shallow managed temp directory, and per-workspace target generations;
-- source bootstrap and immutable runtime cutover; a `--force` re-bootstrap
+- (historical, Node broker, removed 2026-10-09; RustRight now stages immutable runtimes with
+  `rustright-install stage` / `approve` / `cutover --apply`, which drain, health-probe, activate
+  atomically and roll back on failure) source bootstrap and immutable runtime cutover; a `--force` re-bootstrap
   preserves operator-tuned `sccache.maxSizeBytes` & `bounds` from the existing
   config (validated, with fallback to defaults) instead of silently resetting
   them; the Windows cutover PID probe resolves both the expected and observed
@@ -482,8 +484,9 @@ Tool provisioning that compiles Rust may have a different **priority**, but it s
 Mac compiler workers are sized separately from root admission: bootstrap uses
 `max(1, min(8, floor(logical CPUs * 2 / 3), floor(memory GiB / 2)))`.
 This retains four workers on the 8 GiB Air & selects eight on the 12-core,
-24 GiB Mac Mini. `bootstrap-macos-cli.mjs --cargo-build-jobs <count>` applies
-a measured operator override through managed configuration & runtime cutover.
+24 GiB Mac Mini. A measured operator override is a RustRight broker configuration change
+applied through `rustright-install stage`, `approve`, and `cutover --apply`
+(the removed Node `bootstrap-macos-cli.mjs --cargo-build-jobs` no longer exists).
 A build-class root still consumes the entire host compile budget; raising its
 worker count does not admit competing heavy roots. Resource receipts report
 both `host.cargoBuildJobs` & `host.compileBudgetUnits` alongside hardware facts.
@@ -512,9 +515,10 @@ then build through `rightkit cargo ... --target <target>`. Physical iPhone
 builds use `aarch64-apple-ios`; Apple Silicon Simulator builds use
 `aarch64-apple-ios-sim`.
 
-A genuinely new target requires one source-level allowlist change in host
-bootstrap, an exact generated-config test, an admission test, & guarded broker
-cutover. Never edit live `config.json`; next bootstrap overwrites it.
+A genuinely new target requires one allowlist change in RustRight's broker
+configuration source (`bogusyogi/rustright`), a config test, an admission test, &
+a guarded `rustright-install cutover --apply`. Never hand-edit the live broker config;
+change the source and cut over.
 
 Unknown commands fail closed.
 
