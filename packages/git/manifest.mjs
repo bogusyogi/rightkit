@@ -1032,8 +1032,9 @@ export function ownershipStep(manifest, lane = "ci") {
   const command = name === "pnpm" ? "pnpm exec right-release ownership --app ."
     : name === "npm" ? "npm exec -- right-release ownership --app ."
       : "yarn exec right-release ownership --app .";
-  // CI stays advisory until ownership approval keys are enrolled; release-candidate stays strict.
-  const ownershipCommand = lane === "ci" ? `${command} --advisory-when-pending` : command;
+  // Every lane stays advisory until ownership approval keys are enrolled (Adrian, 2026-10-09);
+  // once enrolled, the flag is inert and findings block again.
+  const ownershipCommand = `${command} --advisory-when-pending`;
   // Only release-candidate dispatches declare source_revision. Referencing
   // inputs.source_revision from other lanes makes actionlint reject their
   // generated workflows, even when guarded by an event-name expression.
