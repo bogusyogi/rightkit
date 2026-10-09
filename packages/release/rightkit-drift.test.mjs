@@ -10,7 +10,7 @@ const versions = { npm: { "@rightkit/logs": "0.1.3" }, stagedNpm: { "@rightkit/l
 
 async function app() {
   const root = await mkdtemp(path.join(tmpdir(), "rk-drift-"));
-  await mkdir(path.join(root, "src-tauri"), { recursive: true }); await mkdir(path.join(root, "tools", "rightkit"), { recursive: true });
+  await mkdir(path.join(root, "src-tauri"), { recursive: true }); await mkdir(path.join(root, "rightkit"), { recursive: true });
   await writeFile(path.join(root, "package.json"), JSON.stringify({ name: "app", dependencies: { "@rightkit/logs": "0.1.3", "@rightkit/theme": "workspace:*", react: "19.0.0" }, devDependencies: { "@rightkit/theme": "^0.1.0" } }, null, 2) + "\n");
   await writeFile(path.join(root, "src-tauri", "Cargo.toml"), [
     "[dependencies]",
@@ -20,7 +20,7 @@ async function app() {
     'rightkit-local = { version = "=0.1.0", path = "../local" }',
     'serde = "1"', "",
   ].join("\n"));
-  await writeFile(path.join(root, "tools", "rightkit", "Cargo.toml"), '[dependencies]\nrightkit-db = "=0.1.0"\n');
+  await writeFile(path.join(root, "rightkit", "Cargo.toml"), '[dependencies]\nrightkit-db = "=0.1.0"\n');
   const git = (...args) => execFileSync("git", ["-C", root, ...args], { stdio: "ignore" });
   git("init"); git("add", ".");
   return root;

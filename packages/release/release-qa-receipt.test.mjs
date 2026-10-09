@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
-import { spawnSync } from "node:child_process";
+import { spawnSync } from "./background-process.mjs";
 import { computePolicyBundle, diffPolicyBundles, POLICY_BUNDLE_ENTRYPOINTS, QA_FLOOR_FILE, validatePolicyBundle } from "./ownership-policy-bundle.mjs";
 import { ProtectedSecretMissingError } from "./protected-credentials.mjs";
 import {
