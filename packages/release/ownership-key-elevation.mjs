@@ -168,7 +168,8 @@ export function capSummary(lines, { maxLines = 16, maxChars = 1600 } = {}) {
 }
 
 export function buildMacConfirmScript(text) {
-  return `display dialog ${appleScriptText(text)} with title ${appleScriptText(CONFIRM_TITLE)} buttons {"Cancel","Approve\u2026"} default button "Approve\u2026" cancel button "Cancel" with icon caution`;
+  // The text field takes keyboard focus, so stray typing never presses a button; approval needs "yes" typed.
+  return `display dialog ${appleScriptText(`${text}\n\nType yes below, then click Approve.`)} default answer "" with title ${appleScriptText(CONFIRM_TITLE)} buttons {"Cancel","Approve\u2026"} default button "Approve\u2026" cancel button "Cancel" with icon caution`;
 }
 
 export const WINDOWS_APPROVE_PREFIX = "RK_CONFIRM_APPROVED:";
@@ -207,10 +208,14 @@ export function confirmTrustChange({ lines, run, interactiveRun, print = console
   if (hostPlatform === "darwin") {
     const r = run("/usr/bin/osascript", ["-e", buildMacConfirmScript(text)], { encoding: "utf8", timeout: CONFIRM_TIMEOUT_MS, killSignal: "SIGKILL" });
     // Affirmative result only: exit 0 AND the Approve button reported. Anything else (cancel, kill, timeout, error) cancels.
-    if (r?.status === 0 && String(r.stdout ?? "").includes(`button returned:${MAC_APPROVE_BUTTON}`)) return;
+    const out = String(r?.stdout ?? "");
+    if (r?.status === 0 && out.includes(`button returned:${MAC_APPROVE_BUTTON}`)) {
+      if (/text returned:\s*yes\s*$/i.test(out.trim())) return;
+      throw new Error("not approved: type yes in the dialog's field before clicking Approve");
+    }
     const stderr = String(r?.stderr ?? "").trim();
-    // osascript reports a real Cancel click as error -128; everything else is a failure to ask, not a refusal.
-    if (/\(-128\)/.test(stderr)) throw cancelled();
+    // osascript reports Cancel (button or Escape) as error -128; everything else is a failure to ask, not a refusal.
+    if (/\(-128\)/.test(stderr)) throw new Error("cancelled by user (Cancel clicked or Escape pressed)");
     throw new Error(`approval dialog could not be shown or read (exit ${r?.status ?? "none"}${r?.signal ? `, ${r.signal}` : ""}${r?.error ? `, ${r.error.message}` : ""}): ${stderr || String(r?.stdout ?? "").trim() || "no output"}`);
   }
   if (hostPlatform === "win32") {

@@ -88,7 +88,7 @@ test("AppleScript text escaping handles quotes, backslashes and newlines", () =>
   assert.equal(appleScriptText('a"b\\c'), '"a\\"b\\\\c"');
   assert.equal(appleScriptText("l1\nl2\r\nl3"), '"l1" & return & "l2" & return & "l3"');
   const script = buildMacConfirmScript('x "q" \\ \n y');
-  assert.match(script, /^display dialog "x \\"q\\" \\\\ " & return & " y" with title "RightKit ownership trust-sync" buttons \{"Cancel","Approve…"\} default button "Approve…" cancel button "Cancel" with icon caution$/);
+  assert.match(script, /^display dialog "x \\"q\\" \\\\ " & return & " y" & return & "" & return & "Type yes below, then click Approve." default answer "" with title "RightKit ownership trust-sync" buttons \{"Cancel","Approve…"\} default button "Approve…" cancel button "Cancel" with icon caution$/);
 });
 
 test("capSummary truncates with an 'and N more' tail", () => {
@@ -116,7 +116,9 @@ test("confirm: macOS dialog cancel throws, approve returns; TTY requires yes", (
   assert.throws(() => confirmTrustChange({ lines: ["x"], run: () => ({ status: 1, stderr: "execution error: No user interaction allowed. (-1713)" }), print, hostPlatform: "darwin", tty: false }), /could not be shown or read.*-1713/);
   assert.equal(calls[0][0], "/usr/bin/osascript");
   assert.throws(() => confirmTrustChange({ lines: ["x"], run: () => ({ status: 0, stdout: "" }), print, hostPlatform: "darwin", tty: false }), /could not be shown or read/);
-  confirmTrustChange({ lines: ["x"], run: () => ({ status: 0, stdout: "button returned:Approve…, gave up:false\n" }), print, hostPlatform: "darwin", tty: false });
+  confirmTrustChange({ lines: ["x"], run: () => ({ status: 0, stdout: "button returned:Approve…, text returned:yes\n" }), print, hostPlatform: "darwin", tty: false });
+  assert.throws(() => confirmTrustChange({ lines: ["x"], run: () => ({ status: 0, stdout: "button returned:Approve…, text returned:\n" }), print, hostPlatform: "darwin", tty: false }), /type yes/);
+  assert.throws(() => confirmTrustChange({ lines: ["x"], run: () => ({ status: 0, stdout: "button returned:Approve…, text returned:yesterday\n" }), print, hostPlatform: "darwin", tty: false }), /type yes/);
   assert.throws(() => confirmTrustChange({ lines: ["x"], run: () => assert.fail("no dialog on tty"), print, tty: true, readLine: () => "y" }), /cancelled by user/);
   confirmTrustChange({ lines: ["x"], run: () => assert.fail("no dialog on tty"), print, tty: true, readLine: () => "yes\n" });
   assert.throws(() => confirmTrustChange({ lines: ["x"], run: () => ({ status: 1 }), print, hostPlatform: "win32", tty: false }), /cancelled by user/);
