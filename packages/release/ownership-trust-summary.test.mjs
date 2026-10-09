@@ -7,6 +7,7 @@ import { createHash } from "node:crypto";
 import test from "node:test";
 import { createKeyEvent, keyFingerprint } from "./ownership-key-log.mjs";
 import { prepareTrustUpdate } from "./ownership-key-trust.mjs";
+import { computePolicyBundle } from "./ownership-policy-bundle.mjs";
 import { summarizeRequestFile, summarizeTrustChange } from "./ownership-trust-summary.mjs";
 import { appleScriptText, buildMacConfirmScript, buildWindowsConfirmScript, capSummary, confirmTrustChange } from "./ownership-key-elevation.mjs";
 import { __testOnly } from "./ownership-key-command.mjs";
@@ -175,4 +176,43 @@ test("installCheckpoint: cancel never elevates; approve elevates once with the s
   assert.equal(approved.calls.length, 1); assert.equal(approved.result, true); assert.match(approved.calls[0].digest, /^[a-f0-9]{64}$/);
   const noop = await run(installedAt(second));
   assert.equal(noop.calls.length, 0); assert.equal(noop.result, false);
+});
+
+const allow = (extra = []) => ({ schema: 1, global: ["npm:typescript"], repositories: [{ repositoryIdentity: "https://github.com/bogusyogi/coderight", dependencies: ["cargo:serde", ...extra] }] });
+const policyFor = (allowlist, files, scannerVersion = "2.0.0") => ({ allowlist, registry: inputs.registry, bundle: computePolicyBundle({ manifest, registry: inputs.registry, allowlist, scannerVersion, files }) });
+const sourceFiles = (...pairs) => pairs.map(([name, digit]) => ({ path: name, sha256: digit.repeat(64) }));
+
+test("summary announces the first policy-bundle pin and allowlist activation", () => {
+  const existing = prepareTrustUpdate(null, { log: first, rootFingerprint: pin, baseline });
+  const s = summarizeTrustChange({ existing, requestBytes: bytesFor(first), ...inputs, policy: policyFor(allow(), sourceFiles(["ownership.mjs", "1"], ["ownership-verdict.mjs", "2"])) });
+  const text = s.lines.join("\n");
+  assert.match(text, /Policy bundle: unpinned -> [a-f0-9]{12} \(pins 2 scanner source files, scanner 2\.0\.0, catalog, repository registry and dependency allowlist/);
+  assert.match(text, /dependency allowlist: 1 global \+ 1 per-repository entries across 1 repositories \(first activation/);
+  assert.deepEqual(s.next.dependencyAllowlist, allow());
+  assert.equal(s.next.policyBundle.files.length, 2);
+});
+
+test("summary shows a semantic diff of bundle changes: scanner files, allowlist entries, registry and catalog", () => {
+  const before = policyFor(allow(), sourceFiles(["ownership.mjs", "1"], ["ownership-verdict.mjs", "2"], ["old.mjs", "3"]));
+  const existing = summarizeTrustChange({ existing: null, requestBytes: bytesFor(first), ...inputs, policy: before }).next;
+  const after = policyFor(allow(["npm:newdep"]), sourceFiles(["ownership.mjs", "9"], ["ownership-verdict.mjs", "2"], ["fresh.mjs", "4"]), "2.1.0");
+  const s = summarizeTrustChange({ existing, requestBytes: bytesFor(first), ...inputs, scannerVersion: "2.1.0", policy: after });
+  const text = s.lines.join("\n");
+  assert.equal(s.changed, true);
+  assert.match(text, /Policy bundle: [a-f0-9]{12} -> [a-f0-9]{12}/);
+  assert.match(text, /scanner version: 2\.0\.0 -> 2\.1\.0/);
+  assert.match(text, /scanner\/verifier files changed \(1\): ownership\.mjs/);
+  assert.match(text, /scanner\/verifier files added \(1\): fresh\.mjs/);
+  assert.match(text, /scanner\/verifier files removed \(1\): old\.mjs/);
+  assert.match(text, /allowlist bogusyogi\/coderight added \(1\): npm:newdep/);
+  const registryChange = policyFor(allow(), sourceFiles(["ownership.mjs", "1"], ["ownership-verdict.mjs", "2"], ["old.mjs", "3"]));
+  registryChange.bundle = computePolicyBundle({ manifest, registry: { schema: 1, repositories: [repo("other")] }, allowlist: allow(), scannerVersion: "2.0.0", files: before.bundle.files });
+  assert.match(summarizeTrustChange({ existing, requestBytes: bytesFor(first), ...inputs, policy: registryChange }).lines.join("\n"), /repository registry file changed/);
+});
+
+test("summary is a no-op when the same bundle and allowlist are already pinned", () => {
+  const policy = policyFor(allow(), sourceFiles(["ownership.mjs", "1"]));
+  const existing = summarizeTrustChange({ existing: null, requestBytes: bytesFor(first), ...inputs, policy }).next;
+  const again = summarizeTrustChange({ existing, requestBytes: bytesFor(first), ...inputs, policy });
+  assert.equal(again.changed, false);
 });

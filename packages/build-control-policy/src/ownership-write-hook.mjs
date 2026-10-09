@@ -3,6 +3,7 @@ import { existsSync, readFileSync, realpathSync } from 'node:fs';
 import { dirname, extname, isAbsolute, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { sourceNonCode } from './ownership-source.mjs';
+import { evaluateDependency, validateAllowlist } from './ownership-dependency-allowlist.mjs';
 
 // Packaged snapshot keeps installed adapters self-contained. Focused test
 // asserts this snapshot matches release catalog before any catalog changes ship.
@@ -45,6 +46,29 @@ export function canonicalRepositoryIdentity(value) {
   return `https://${hostname}${url.port ? `:${url.port}` : ''}/${repoPath}`;
 }
 
+// Default-deny dependency allowlist, loaded the same way as the registry. After trust-sync the protected trust
+// carries the activated copy (and its repository registry): new dependencies outside it are denied. Before
+// trust-sync the shipped byte copy is used in advisory mode only.
+const allowlistUrl = fileURLToPath(new URL('./ownership-dependency-allowlist.json', import.meta.url));
+let shippedAllowlist = null;
+try { const parsed = JSON.parse(readFileSync(allowlistUrl, 'utf8')); if (validateAllowlist(parsed).ok) shippedAllowlist = parsed; } catch { shippedAllowlist = null; }
+const protectedTrustPath = () => process.platform === 'win32' ? 'C:\\ProgramData\\Orthic Labs\\RightKit\\ownership\\trust.json'
+  : process.platform === 'darwin' ? '/Library/Application Support/Orthic Labs/RightKit/ownership/trust.json' : null;
+const defaultReadTrust = () => { const file = protectedTrustPath(); return file && existsSync(file) ? JSON.parse(readFileSync(file, 'utf8')) : null; };
+let allowlistSources = { readTrust: defaultReadTrust, shipped: shippedAllowlist };
+/** Test seam: inject the protected trust reader and the shipped allowlist. */
+export function setAllowlistSources(sources = {}) { allowlistSources = { readTrust: sources.readTrust ?? defaultReadTrust, shipped: sources.shipped === undefined ? shippedAllowlist : sources.shipped }; }
+function activeAllowlist() {
+  try {
+    const trust = allowlistSources.readTrust();
+    if (trust?.dependencyAllowlist && validateAllowlist(trust.dependencyAllowlist).ok && Array.isArray(trust.repositories)) {
+      return { allowlist: trust.dependencyAllowlist, trusted: true, guarded: (identity) => trust.repositories.some((entry) => entry.repositoryIdentity === identity) };
+    }
+  } catch { /* unreadable or malformed trust: fall back to the advisory shipped copy */ }
+  const shipped = allowlistSources.shipped;
+  return shipped ? { allowlist: shipped, trusted: false, guarded: (identity) => shipped.repositories.some((entry) => entry.repositoryIdentity === identity) } : null;
+}
+
 function defaultGit(args) {
   const result = spawnSync('git', args, { encoding: 'utf8', windowsHide: true, timeout: 5_000 });
   return result.status === 0 ? String(result.stdout ?? '').trim() : null;
@@ -54,11 +78,25 @@ const defaultRoots = () => process.env.RIGHTKIT_WORKSPACE_ROOTS ? process.env.RI
   : process.platform === 'win32' ? ['D:\\Claude'] : ['/Volumes/D/claude'];
 const defaultRealpath = (value) => { try { return realpathSync(value); } catch { return value; } };
 let scopeDeps = { git: defaultGit, exists: existsSync, roots: defaultRoots, realpath: defaultRealpath, caseInsensitive: process.platform === 'win32' };
-const dirScope = new Map(); const topScope = new Map();
+const dirScope = new Map(); const topScope = new Map(); const topIdentity = new Map();
 /** Test seam: inject the git runner (args => stdout|null) and existence probe; clears caches. */
 export function setScopeDependencies(deps = {}) {
   scopeDeps = { git: deps.git ?? defaultGit, exists: deps.exists ?? existsSync, roots: deps.roots ?? defaultRoots, realpath: deps.realpath ?? defaultRealpath, caseInsensitive: deps.caseInsensitive ?? process.platform === 'win32' };
-  dirScope.clear(); topScope.clear();
+  dirScope.clear(); topScope.clear(); topIdentity.clear();
+}
+
+/** Canonical origin identity of the repository containing `dir`, or null. */
+function repositoryIdentityOf(dir) {
+  try {
+    const top = scopeDeps.git(['-C', dir, 'rev-parse', '--show-toplevel']);
+    if (!top) return null;
+    if (!topIdentity.has(top)) {
+      const origin = scopeDeps.git(['-C', top, 'remote', 'get-url', 'origin']);
+      let identity = null; try { identity = origin ? canonicalRepositoryIdentity(origin) : null; } catch { identity = null; }
+      topIdentity.set(top, identity);
+    }
+    return topIdentity.get(top);
+  } catch { return null; }
 }
 
 function repositoryInScope(dir) {
@@ -68,8 +106,7 @@ function repositoryInScope(dir) {
     const top = scopeDeps.git(['-C', dir, 'rev-parse', '--show-toplevel']);
     if (top) {
       if (!topScope.has(top)) {
-        const origin = scopeDeps.git(['-C', top, 'remote', 'get-url', 'origin']);
-        let identity = null; try { identity = origin ? canonicalRepositoryIdentity(origin) : null; } catch { identity = null; }
+        const identity = repositoryIdentityOf(dir);
         topScope.set(top, identity !== null && registry.has(identity));
       }
       result = topScope.get(top);
@@ -283,8 +320,8 @@ function occurrenceCount(text, entry, filePath) {
   return matches.filter((match) => !nonCode[match.index]).length;
 }
 
-function denial(reason) {
-  return { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: `[HOOK:rightkit-ownership:block]\nWhy: ${reason}\nRequired: use the published RightKit capability; exception records require separate owner approval.` } };
+function denial(reason, required = 'use the published RightKit capability; exception records require separate owner approval.') {
+  return { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: `[HOOK:rightkit-ownership:block]\nWhy: ${reason}\nRequired: ${required}` } };
 }
 
 export function fingerprintDecision(entry, reason) {
@@ -384,7 +421,9 @@ function cargoManifest(text) {
     }
     space(); if (at < text.length && text[at++] !== '\n') fail();
   }
-  const dependencies = new Map(); const metadata = {};
+  const dependencies = new Map(); const kinds = new Map(); const metadata = {};
+  const rank = { registry: 0, any: 1, git: 2, path: 3 };
+  const upgrade = (id, kind) => { if (rank[kind] > rank[kinds.get(id) ?? 'registry']) kinds.set(id, kind); };
   for (const entry of records) {
     const parts = entry.path;
     if (parts.length === 2 && parts[0] === 'package' && ['name', 'description'].includes(parts[1]) && typeof entry.value === 'string') metadata[parts[1]] = entry.value;
@@ -396,12 +435,14 @@ function cargoManifest(text) {
       if (typeof entry.value !== 'string' && !object(entry.value)) fail();
       const name = object(entry.value) ? entry.value.package ?? alias : alias; if (typeof name !== 'string') fail();
       dependencies.set(id, name);
+      if (object(entry.value)) upgrade(id, entry.value.path !== undefined ? 'path' : entry.value.git !== undefined ? 'git' : entry.value.workspace === true ? 'any' : 'registry');
     } else if (parts.length === group + 3) {
       if (!dependencies.has(id)) dependencies.set(id, alias);
+      if (parts.at(-1) === 'path') upgrade(id, 'path'); else if (parts.at(-1) === 'git') upgrade(id, 'git'); else if (parts.at(-1) === 'workspace' && entry.value === true) upgrade(id, 'any');
       if (parts.at(-1) === 'package') { if (typeof entry.value !== 'string') fail(); dependencies.set(id, entry.value); }
     } else fail();
   }
-  return { ecosystem: 'cargo', names: new Set(dependencies.values()), ...metadata };
+  return { ecosystem: 'cargo', names: new Set(dependencies.values()), entries: [...dependencies].map(([id, name]) => ({ name, kind: kinds.get(id) ?? 'registry' })), ...metadata };
 }
 
 function npmName(value) {
@@ -412,7 +453,7 @@ function npmName(value) {
 function parseManifest(path, text) {
   const base = manifestName(path);
   if (base === 'Cargo.toml') return cargoManifest(text);
-  const names = new Set();
+  const names = new Set(); const entries = [];
   if (base === 'package.json') {
     const pkg = JSON.parse(text); if (!object(pkg)) throw new Error('invalid package.json');
     for (const section of ['dependencies', 'devDependencies', 'optionalDependencies', 'peerDependencies']) {
@@ -422,9 +463,10 @@ function parseManifest(path, text) {
         if (typeof spec !== 'string') throw new Error('invalid dependency declaration');
         const actual = spec.startsWith('npm:') ? npmName(spec) : name; if (!actual) throw new Error('invalid npm alias');
         names.add(actual);
+        entries.push({ name: actual, kind: /^(?:file:|link:|workspace:)/.test(spec) ? 'path' : /^(?:git\+|github:|https?:.*\.git)/i.test(spec) ? 'git' : 'registry' });
       }
     }
-    return { ecosystem: 'npm', names, name: pkg.name, description: pkg.description };
+    return { ecosystem: 'npm', names, entries, name: pkg.name, description: pkg.description };
   }
   const code = stripComments(text, '.swift');
   for (const match of code.matchAll(/\.package\s*\(/g)) {
@@ -441,8 +483,9 @@ function parseManifest(path, text) {
     const name = field('name') ?? field('id') ?? source?.replace(/\.git$/i, '').split(/[\\/]/).at(-1)?.toLowerCase();
     if (!name) throw new Error('unsupported Swift package identity');
     names.add(name);
+    entries.push({ name, kind: field('path') ? 'path' : field('id') && !field('url') ? 'registry' : 'git' });
   }
-  return { ecosystem: 'swiftpm', names };
+  return { ecosystem: 'swiftpm', names, entries };
 }
 
 function dependencyFeedback(dependencies) {
@@ -453,6 +496,30 @@ function dependencyFeedback(dependencies) {
   const block = matches.some((entry) => entry.tier === 'block' || entry.policy === 'banned');
   const reason = matches.map((entry) => `Dependency ${entry.name} matches capability ${entry.capability}; RightKit owner: ${entry.package}. Use ${entry.package} instead or request a signed exception.`).join('\n');
   return block ? denial(reason) : advice(reason);
+}
+
+const dirOfFile = (file, cwd) => driveAbsolute(file) ? parentOf(file) : dirname(isAbsolute(file) ? file : resolve(cwd, file));
+/** Default-deny allowlist screening of NEW direct dependencies in a guarded (registered) repository. */
+function allowlistFeedback(dependencies, dir) {
+  if (!dependencies.length || typeof dir !== 'string') return null;
+  const active = activeAllowlist(); if (!active) return null;
+  const identity = repositoryIdentityOf(nearestExisting(dir) ?? dir);
+  if (!identity || !active.guarded(identity)) return null;
+  const owners = catalog.capabilities.map((capability) => capability.package);
+  const unlisted = dependencies.filter((dependency) => !evaluateDependency(active.allowlist, identity, dependency, { owners }).allowed);
+  if (!unlisted.length) return null;
+  const reason = `New dependency ${unlisted.map((dependency) => `${dependency.ecosystem}:${dependency.name}`).join(', ')} is not in the ownership dependency allowlist for ${identity}.`;
+  const required = 'propose it in ownership-dependency-allowlist.json; Adrian activates it via trust-sync.';
+  return active.trusted ? denial(reason, required) : advice(`${reason} Propose it in ownership-dependency-allowlist.json; Adrian activates it via trust-sync (advisory until then).`);
+}
+/** Catalog capability screening first (block-tier always wins), then the allowlist. */
+function dependencyDecision(dependencies, dir) {
+  const catalogFeedback = dependencyFeedback(dependencies);
+  if (catalogFeedback?.hookSpecificOutput.permissionDecision === 'deny') return catalogFeedback;
+  const listed = allowlistFeedback(dependencies, dir);
+  if (listed?.hookSpecificOutput.permissionDecision === 'deny') return listed;
+  if (catalogFeedback && listed) return advice(`${catalogFeedback.hookSpecificOutput.additionalContext}\n${listed.hookSpecificOutput.additionalContext}`);
+  return catalogFeedback ?? listed;
 }
 
 // Fixed discovery synonyms are bound to owners, rather than every capability.
@@ -475,7 +542,7 @@ function manifestFeedback(path, before, after, created, cwd) {
     if (after === null) return manifestFailure(path);
     const post = parseManifest(path, after);
     const previous = created ? new Set() : parseManifest(path, before).names;
-    const feedback = dependencyFeedback([...post.names].filter((name) => !previous.has(name)).map((name) => ({ ecosystem: post.ecosystem, name })));
+    const feedback = dependencyDecision((post.entries ?? [...post.names].map((name) => ({ name, kind: 'registry' }))).filter((entry) => !previous.has(entry.name)).map((entry) => ({ ecosystem: post.ecosystem, name: entry.name, kind: entry.kind })), dirOfFile(path, cwd));
     if (feedback) return feedback;
     if (!created || manifestName(path) === 'Package.swift' || /(?:^|\/)tools\/rightkit(?:\/|$)/i.test(normalizedPath(path, cwd))) return null;
     const tokens = [post.name, post.description].filter((value) => typeof value === 'string').join(' ').toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
@@ -512,11 +579,14 @@ function commandDependencies(command) {
     if (!['cargo', 'pnpm', 'npm', 'yarn'].includes(program)) continue;
     const verbs = program === 'cargo' || program === 'yarn' ? ['add'] : program === 'pnpm' ? ['add', 'install'] : ['i', 'install', 'add'];
     if (!verbs.includes(words[1])) continue;
+    let kind = 'registry'; const found = [];
     for (let index = 2; index < words.length; index += 1) {
       const word = words[index];
+      if (word === '--path') kind = 'path'; else if (word === '--git' && kind !== 'path') kind = 'git';
       if (word.startsWith('-')) { if (valueFlags.has(word) && !(program === 'pnpm' && ['-w', '--workspace'].includes(word))) index += 1; continue; }
-      const name = npmName(word); if (name) dependencies.push({ ecosystem: program === 'cargo' ? 'cargo' : 'npm', name });
+      const name = npmName(word); if (name) found.push({ ecosystem: program === 'cargo' ? 'cargo' : 'npm', name });
     }
+    dependencies.push(...found.map((dependency) => ({ ...dependency, kind })));
   }
   return dependencies;
 }
@@ -538,7 +608,7 @@ function writeDecision(input, { readFile = readFileSync, cwd = input?.cwd ?? pro
   const command = tool === 'exec_command' ? data.cmd ?? input?.cmd : data.command ?? data.cmd ?? data.code ?? data.input ?? input?.command ?? input?.cmd ?? input?.code;
   if (writeTargetException(command, cwd)) return denial('Agent changes to ownership exception or protected trust records are blocked.');
   if (['Bash', 'bash', 'shell', 'Shell', 'exec_command', 'shell_command'].includes(tool)) {
-    const feedback = inScopeDirectory(cwd) ? dependencyFeedback(commandDependencies(command)) : null; if (feedback) return feedback;
+    const feedback = inScopeDirectory(cwd) ? dependencyDecision(commandDependencies(command), cwd) : null; if (feedback) return feedback;
   }
   const path = data.file_path ?? data.filePath ?? data.path ?? data.file;
   const patch = data.patch ?? data.input ?? input?.patch ?? (tool === 'apply_patch' ? data.code : undefined);

@@ -4,6 +4,7 @@
 //
 //   right-release ownership [--app <dir>] [--json]
 //   right-release ownership [--app <dir>] --audit-json   (Legion governance.capability-ownership provider)
+//   right-release ownership trust-compare [--json]   (print this host's protected-trust digest)
 //   right-release ownership --write-manifest [--rightkit <tools/rightkit>] [--approve-new-capabilities]
 // --approve-new-capabilities permits new ids during local generation only.
 // Existing owner changes are always refused; installation needs protected authorization.
@@ -15,6 +16,8 @@ import { writeOwnershipCatalog } from "./ownership-catalog.mjs";
 import { createOwnershipEvidence } from "./ownership-evidence.mjs";
 import { spawnSync } from "./background-process.mjs";
 import { main as stagedMain } from "./ownership-staged.mjs";
+import { loadTrustedExternal } from "./ownership-approval.mjs";
+import { trustComparison } from "./ownership-policy-bundle.mjs";
 
 const packageRoot = path.dirname(fileURLToPath(import.meta.url));
 
@@ -23,11 +26,23 @@ function flag(args, name) {
   return i >= 0 ? args[i + 1] : undefined;
 }
 
-export async function main(args, { evidenceFactory = createOwnershipEvidence, gitRunner = spawnSync, print = (value) => console.log(value) } = {}) {
+/** Print this host's protected-trust digest. The Mac's digest is the reference; see docs/OWNERSHIP-ENFORCEMENT.md. */
+export function trustCompare(args, { print, trustLoader = loadTrustedExternal } = {}) {
+  let state;
+  try { state = trustLoader(); } catch (error) { print(`[right-release] trust-compare: protected trust unreadable (${error.message})`); return 1; }
+  if (!state?.trust) { print("[right-release] trust-compare: no protected trust on this host (not enrolled)"); return 1; }
+  const { digest, components } = trustComparison(state.trust);
+  if (args.includes("--json")) print(JSON.stringify({ platform: process.platform, digest, components }, null, 2));
+  else { print(`trust digest (${process.platform}): ${digest}`); for (const [name, value] of Object.entries(components)) print(`  ${name}: ${typeof value === "object" && value !== null ? JSON.stringify(value) : value ?? "none"}`); }
+  return 0;
+}
+
+export async function main(args, { evidenceFactory = createOwnershipEvidence, gitRunner = spawnSync, print = (value) => console.log(value), trustLoader = loadTrustedExternal } = {}) {
   if (args.includes("--help")) {
     print("right-release ownership [--app <dir>] [--json]\nright-release ownership --staged [--app <dir>] [--json]  (pre-commit gate: scans the index, not the working tree)\nright-release ownership --write-manifest [--rightkit <dir>] [--approve-new-capabilities]\n--approve-new-capabilities permits new capability ids during local generation only. Existing owner conflicts are always refused. Protected installation authorization remains separate.");
     return 0;
   }
+  if (args[0] === "trust-compare") return trustCompare(args, { print, trustLoader });
   if (args.includes("--staged")) return stagedMain(args, { print });
   if (["enroll", "approve-key", "revoke-key", "trust-sync"].includes(args[0])) {
     const { main: keyMain } = await import("./ownership-key-command.mjs");

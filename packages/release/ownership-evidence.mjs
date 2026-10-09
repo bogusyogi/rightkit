@@ -6,6 +6,7 @@ import { spawnSync } from "./background-process.mjs";
 import { catalogDigest as scanCatalogDigest, checkApp, checkAppForTest, checkCommittedApp, checkCommittedAppForTest, MANIFEST_FILE, SCANNER_VERSION } from "./ownership.mjs";
 import { acquireCommittedSource, assertCommittedCheckoutClean, committedSourceDataForInternalUse } from "./committed-source.mjs";
 import { readCommittedKeyAuthority } from "./ownership-key-authority.mjs";
+import { runningPolicyBundle } from "./ownership-policy-bundle.mjs";
 import { canonicalRepositoryIdentity, loadTrustedExternal, resolveKeyLogTrust, sha256, validateOwnershipFloor, verifyRepositoryRegistration } from "./ownership-approval.mjs";
 
 const digestFile = (file) => createHash("sha256").update(readFileSync(file)).digest("hex");
@@ -29,6 +30,7 @@ function createEvidence(repoRoot, {
   committed = false,
   requireCleanCheckout = false,
   allowPendingAdvisory = false,
+  policyBundleProvider = runningPolicyBundle,
 } = {}, readAuthority = readCommittedKeyAuthority, scanCommitted = checkCommittedApp) {
   const root = path.resolve(repoRoot);
   const manifestBytes = readFileSync(manifestPath);
@@ -75,9 +77,18 @@ function createEvidence(repoRoot, {
   const catalogDigest = scanCatalogDigest(manifest);
   // When a protected registry exists, key enrollment controls signing
   // authority; scanner and catalog floors still apply during pending enrollment.
+  // Step 2: the protected trust pins the policy bundle (catalog + registry + dependency allowlist + scanner version +
+  // scanner source digests). Trust without a pinned bundle (written before it existed) is unpinned until trust-sync.
+  let policyBundleDigest;
+  let bundleProblem = null;
+  if (trustState.trust?.policyBundle?.digest) {
+    try { policyBundleDigest = policyBundleProvider({ scannerVersion, manifest }).digest; }
+    catch (error) { policyBundleDigest = null; bundleProblem = `ownership policy bundle could not be computed: ${error.message}`; }
+  }
   const floor = trustState.trust
-    ? validateOwnershipFloor(trustState.trust, { scannerVersion, catalogVersion, catalogDigest })
+    ? validateOwnershipFloor(trustState.trust, { scannerVersion, catalogVersion, catalogDigest, ...(policyBundleDigest !== undefined ? { policyBundleDigest } : {}) })
     : { ok: false, problems: ["protected ownership floor is unavailable until trust registry enrollment"] };
+  if (bundleProblem) { floor.ok = false; floor.problems = [bundleProblem, ...floor.problems.filter((problem) => !problem.startsWith("ownership policy bundle"))]; }
   // Real paths on both sides: Git's root is resolved (macOS /private/var), callers may pass /var or /tmp.
   const real = (p) => { try { return realpathSync(p); } catch { return path.resolve(p); } };
   const requestedRoot = path.relative(real(root), real(scanRoot)).replaceAll("\\", "/") || ".";
@@ -141,7 +152,7 @@ function createEvidence(repoRoot, {
     ok: scans.every(({ scanned }) => scanned.ok),
     findings: scans.flatMap(({ scanned, prefix }) => (scanned.findings ?? []).map((entry) => rebase(entry, prefix))),
     violations: scans.flatMap(({ scanned, prefix }) => (scanned.violations ?? []).map((entry) => rebase(entry, prefix))),
-    problems: [...scans.flatMap(({ scanned }) => scanned.problems ?? []), ...evidenceDiagnostics, ...(enrollmentPending ? floor.problems : [])],
+    problems: [...scans.flatMap(({ scanned }) => scanned.problems ?? []), ...evidenceDiagnostics, ...(enrollmentPending ? floor.problems : floor.problems.filter((problem) => problem.startsWith("ownership policy bundle")))],
     rows: scans.flatMap(({ scanned, root: registered }) => (scanned.rows ?? []).map((row) => ({ ...row, root: registered }))),
     covered: scans.flatMap(({ scanned, prefix }) => (scanned.covered ?? []).map((entry) => rebase(entry, prefix))),
     coverage: contentCoverage,

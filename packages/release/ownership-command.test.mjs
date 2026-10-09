@@ -166,3 +166,18 @@ test("ownership --audit-json fails only when the scan itself fails or a path lea
     console.error = originalError;
   }
 });
+
+test("trust-compare prints this host's trust digest, ignoring the per-host checkout path", async () => {
+  const trust = { schema: 1, minimumScannerVersion: "2.6.0", minimumCatalogVersion: "1", repositories: [], keyAuthority: { repositoryIdentity: "https://github.com/o/r", checkoutPath: "/Volumes/D/claude" } };
+  const run = async (state, args = ["trust-compare"]) => { const out = []; const status = await main(args, { print: (line) => out.push(line), trustLoader: () => state }); return { status, out }; };
+  const mac = await run({ trust });
+  const dell = await run({ trust: { ...trust, keyAuthority: { ...trust.keyAuthority, checkoutPath: "D:\\Claude" } } });
+  assert.equal(mac.status, 0);
+  assert.match(mac.out[0], /^trust digest \([a-z0-9]+\): [a-f0-9]{64}$/);
+  assert.equal(mac.out[0].split(": ")[1], dell.out[0].split(": ")[1]);
+  const tampered = await run({ trust: { ...trust, minimumScannerVersion: "0.0.1" } });
+  assert.notEqual(tampered.out[0].split(": ")[1], mac.out[0].split(": ")[1]);
+  const json = JSON.parse((await run({ trust }, ["trust-compare", "--json"])).out[0]);
+  assert.equal(json.digest, mac.out[0].split(": ")[1]);
+  assert.equal((await run({ trust: null })).status, 1);
+});

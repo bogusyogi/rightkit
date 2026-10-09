@@ -15,6 +15,8 @@ const files = [
   'ownership-session-hook.mjs',
   'ownership-fingerprints.json',
   'ownership-repositories.json',
+  'ownership-dependency-allowlist.mjs',
+  'ownership-dependency-allowlist.json',
   'ownership-session-catalog.json',
   'ownership-session-versions.json',
   'rightkit-drift.mjs',

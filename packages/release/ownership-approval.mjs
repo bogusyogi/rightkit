@@ -4,6 +4,7 @@ import { existsSync, lstatSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import { spawnSync, windowsPowerShellEnvironment } from "./background-process.mjs";
 import { verifyKeyLog, verifyOwnershipSignature } from "./ownership-key-log.mjs";
+import { validateAllowlist } from "./ownership-dependency-allowlist.mjs";
 
 export const APPROVAL_SCHEMA = 2;
 export const REQUIRED_HOSTS = Object.freeze(["windows", "macos"]);
@@ -171,6 +172,16 @@ export function validateTrustRegistry(trust) {
   if (!Array.isArray(trust?.revokedKeyIds) || !Array.isArray(trust?.verifiedTrackingEvidence) || trust.verifiedTrackingEvidence.some((x) => !HEX.test(x))) problems.push("trust revocation or tracking evidence lists are malformed");
   if (!/^\d+(?:\.\d+)*$/.test(trust?.minimumScannerVersion ?? "") || !/^\d+(?:\.\d+)*$/.test(trust?.minimumCatalogVersion ?? "")) problems.push("scanner/catalog floors are missing or malformed");
   if (trust?.minimumCatalogDigest !== undefined && !HEX.test(trust.minimumCatalogDigest)) problems.push("minimum catalog digest is malformed");
+  // Policy bundle + allowlist are optional so trust written before they existed stays valid (treated as unpinned).
+  if (trust?.policyBundle !== undefined) {
+    const bundle = trust.policyBundle;
+    if (!bundle || typeof bundle !== "object" || Array.isArray(bundle) || bundle.schema !== 1 || !HEX.test(bundle.digest ?? "") || !HEX.test(bundle.catalogDigest ?? "")
+      || !/^\d+(?:\.\d+)*$/.test(bundle.scannerVersion ?? "") || !Array.isArray(bundle.files) || bundle.files.some((file) => typeof file?.path !== "string" || !HEX.test(file.sha256 ?? ""))) problems.push("protected policy bundle is malformed");
+  }
+  if (trust?.dependencyAllowlist !== undefined) {
+    const allowlist = validateAllowlist(trust.dependencyAllowlist);
+    if (!allowlist.ok) problems.push(`protected dependency allowlist is malformed: ${allowlist.problems[0]}`);
+  }
   if (trust?.rootFingerprint !== undefined || trust?.keyCheckpoint !== undefined) {
     if (!HEX.test(trust.rootFingerprint ?? "") || !trust.keyCheckpoint || !Number.isSafeInteger(trust.keyCheckpoint.sequence) || trust.keyCheckpoint.sequence < 0 || !HEX.test(trust.keyCheckpoint.head ?? "")) problems.push("protected key-log root pin or checkpoint is malformed");
   }
@@ -274,12 +285,14 @@ function versionAtLeast(actual, minimum) {
   }
   return true;
 }
-export function validateOwnershipFloor(trust, { scannerVersion, catalogVersion, catalogDigest } = {}) {
+export function validateOwnershipFloor(trust, { scannerVersion, catalogVersion, catalogDigest, policyBundleDigest } = {}) {
   const problems = [];
   if (!trust) return { ok: false, problems: ["external ownership trust unavailable"] };
   if (!versionAtLeast(scannerVersion, trust.minimumScannerVersion)) problems.push("scanner version missing, malformed, or below protected minimum");
   if (!versionAtLeast(catalogVersion, trust.minimumCatalogVersion)) problems.push("catalog version missing, malformed, or below protected minimum");
   if (trust.minimumCatalogDigest && trust.minimumCatalogDigest !== catalogDigest) problems.push("catalog digest below protected pinned digest");
+  // Trust written before the bundle existed has no policyBundle and stays unpinned until the next trust-sync.
+  if (trust.policyBundle?.digest && policyBundleDigest !== undefined && trust.policyBundle.digest !== policyBundleDigest) problems.push("ownership policy bundle (scanner source, catalog, registry or dependency allowlist) differs from the protected pinned bundle; run trust-sync");
   return { ok: problems.length === 0, problems };
 }
 function protectedLocation(file, platform, { runner = spawnSync, inspect = lstatSync, stat = statSync, requireNonElevated = true } = {}) {

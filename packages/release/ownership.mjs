@@ -6,6 +6,8 @@ import installedManifest from "./rightkit-ownership.json" with { type: "json" };
 import { parse as parseToml } from "smol-toml";
 import { sourceNonCode } from "./ownership-source.mjs";
 import { OWNERSHIP_LOCKFILES, transitiveDependencies } from "./ownership-lockfiles.mjs";
+import { ALLOWLIST_FILE, ALLOWLIST_FINDING_ID, evaluateDependency, sourceKind, validateAllowlist } from "./ownership-dependency-allowlist.mjs";
+import { fileURLToPath } from "node:url";
 import { existsSync, lstatSync, readdirSync, readFileSync, realpathSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { acquireCommittedSource, committedSourceDataForInternalUse } from "./committed-source.mjs";
@@ -537,7 +539,7 @@ function trustedProvenance(appRoot, inventory, trust, repositoryIdentity, covera
   return { excluded, classifications };
 }
 
-function scanInternal(appRoot, manifest, { inventory = fileInventory(appRoot), trust, repositoryIdentity, repositoryRoot = appRoot, pathPrefix = "" } = {}) {
+function scanInternal(appRoot, manifest, { inventory = fileInventory(appRoot), trust, repositoryIdentity, repositoryRoot = appRoot, pathPrefix = "", allowlistPolicy = null } = {}) {
   const findings = [], coverage = [...inventory.coverage], deps = dependenciesFromInventory(appRoot, inventory), contentDigests = [...(deps.contentDigests ?? [])];
   const catalogOwners = new Set(manifest.capabilities.map((entry) => entry.package));
   coverage.push(...(deps.coverage ?? []));
@@ -548,6 +550,19 @@ function scanInternal(appRoot, manifest, { inventory = fileInventory(appRoot), t
   for (const c of manifest.capabilities) for (const f of c.fingerprints.filter((x) => x.type === "dependency")) for (const d of deps) {
     if (d.ecosystem === f.ecosystem && (d.name === f.name || d.alias === f.name) && !catalogOwners.has(d.name)) {
       pushDependency(c, f, d);
+    }
+  }
+  if (allowlistPolicy && repositoryIdentity) {
+    // Default-deny: a direct dependency that is not a RightKit package, not a first-party path dependency, and
+    // not in the repository baseline or global list is a finding. Block-tier catalog dependencies are reported by
+    // their own (always blocking) fingerprints above, so allowlisting can never relax them.
+    const owners = [...catalogOwners, ...(manifest.internalOwners ?? []).map((owner) => typeof owner === "string" ? owner : owner.package)];
+    const blocked = new Set(manifest.capabilities.flatMap((c) => c.fingerprints.filter((f) => f.type === "dependency" && findingPolicy(c, f).tier === "block").map((f) => `${f.ecosystem}:${f.name}`)));
+    for (const d of deps) {
+      if (blocked.has(`${d.ecosystem}:${d.name}`) || evaluateDependency(allowlistPolicy.allowlist, repositoryIdentity, { ecosystem: d.ecosystem, name: d.name, kind: sourceKind(d.source) }, { owners }).allowed) continue;
+      findings.push({ fingerprint: ALLOWLIST_FINDING_ID, capability: "dependency-allowlist", package: "RightKit dependency allowlist", tier: allowlistPolicy.tier, file: d.file, line: 0, kind: "dependency", ecosystem: d.ecosystem, name: d.name,
+        alias: d.alias, section: d.section, requirement: d.requirement, features: d.features, defaultFeatures: d.defaultFeatures, local: d.local, source: d.source, resolvedVersion: d.resolvedVersion,
+        text: `${d.ecosystem} dependency ${d.name} is not in ${ALLOWLIST_FILE}; propose it there and Adrian activates it via trust-sync`, provenance: d.source });
     }
   }
   const blockRules = manifest.capabilities.flatMap((c) => c.fingerprints.filter((f) => f.type === "dependency" && findingPolicy(c, f).tier === "block").map((f) => ({ c, f })));
@@ -576,6 +591,24 @@ function scanInternal(appRoot, manifest, { inventory = fileInventory(appRoot), t
   for (const f of findings) f.occurrenceHash = occurrenceHash(f);
   contentDigests.sort((a, b) => a.path.localeCompare(b.path));
   return { findings, coverage, deps, contentDigests, provenance: provenance.classifications };
+}
+
+const shippedAllowlistFile = path.join(path.dirname(fileURLToPath(import.meta.url)), ALLOWLIST_FILE);
+function shippedAllowlist() {
+  try { const parsed = JSON.parse(readFileSync(shippedAllowlistFile, "utf8")); return validateAllowlist(parsed).ok ? parsed : null; } catch { return null; }
+}
+/**
+ * Which allowlist applies and how hard. The protected trust copy (activated by trust-sync) governs every repository
+ * registered in trust and blocks. Before trust-sync, or while approval enrollment is pending, the shipped proposal
+ * is advisory and only for repositories it has a baseline for.
+ */
+export function dependencyAllowlistPolicy(trust, repositoryIdentity, { pending = false, shipped } = {}) {
+  if (!repositoryIdentity) return null;
+  const trusted = trust?.dependencyAllowlist && validateAllowlist(trust.dependencyAllowlist).ok ? trust.dependencyAllowlist : null;
+  if (trusted && trust.repositories?.some((entry) => entry.repositoryIdentity === repositoryIdentity)) return { allowlist: trusted, tier: pending ? "advise" : "block", source: "protected-trust" };
+  const proposal = shipped === undefined ? shippedAllowlist() : shipped;
+  if (proposal?.repositories?.some((entry) => entry.repositoryIdentity === repositoryIdentity)) return { allowlist: proposal, tier: "advise", source: "shipped-proposal" };
+  return null;
 }
 
 function trustForScan(options = {}) {
@@ -610,7 +643,7 @@ function scanAppInternal(appRoot, manifest, options, readAuthority) {
   const repositoryIdentity = repositoryIdentityFor(appRoot);
   const authority = initialTrust?.keyAuthority ? resolveSharedAuthority(initialTrust, readAuthority) : resolveRepositoryKeyLog(initialTrust, location.root, repositoryIdentity, readAuthority);
   const trust = authority.trust;
-  const result = scanInternal(appRoot, manifest, { inventory: fileInventory(appRoot, trust, location.prefix, location.root), trust, repositoryIdentity, repositoryRoot: location.root, pathPrefix: location.prefix });
+  const result = scanInternal(appRoot, manifest, { inventory: fileInventory(appRoot, trust, location.prefix, location.root), trust, repositoryIdentity, repositoryRoot: location.root, pathPrefix: location.prefix, allowlistPolicy: dependencyAllowlistPolicy(trust, repositoryIdentity, { pending: enrollmentPending(trust, options.trust), shipped: options.shippedAllowlist }) });
   Object.defineProperty(result.findings, "coverage", { value: result.coverage, enumerable: false });
   Object.defineProperty(result.findings, "metadata", { value: { ...scanMetadata(appRoot, manifest, result.coverage, result.contentDigests, repositoryIdentity, location.commit), pathBase: location.pathBase, pathPrefix: location.prefix, provenance: result.provenance, ...Object.fromEntries(Object.entries(authority).filter(([key]) => key !== "trust")) }, enumerable: false });
   return result.findings;
@@ -702,12 +735,12 @@ function checkAppInternal(appRoot, manifest, options, readAuthority) {
   const resolved = initialTrust?.keyAuthority ? resolveSharedAuthority(initialTrust, readAuthority) : resolveRepositoryKeyLog(initialTrust, repositoryLocation.root, repositoryIdentity, readAuthority);
   const trust = resolved.trust;
   const location = repositoryLocation;
-  const scanned = scanInternal(appRoot, manifest, { inventory: fileInventory(appRoot, trust, location.prefix, location.root), trust, repositoryIdentity, repositoryRoot: location.root, pathPrefix: location.prefix });
-  const metadata = { ...scanMetadata(appRoot, manifest, scanned.coverage, scanned.contentDigests, repositoryIdentity, location.commit), pathBase: location.pathBase, pathPrefix: location.prefix, provenance: scanned.provenance, ...Object.fromEntries(Object.entries(resolved).filter(([key]) => key !== "trust")) };
-  if (trust?.rootFingerprint && Array.isArray(trust.ownershipKeys) && !trust.ownershipKeys.length) throw new Error("protected ownership key log has no active approval keys");
   const enrollment = trust?.rootFingerprint
     ? { enrolled: trust.enrollmentComplete === true, pending: trust.enrollmentComplete !== true }
     : trustState?.pending !== undefined || trustState?.enrolled !== undefined ? trustState : undefined;
+  const scanned = scanInternal(appRoot, manifest, { inventory: fileInventory(appRoot, trust, location.prefix, location.root), trust, repositoryIdentity, repositoryRoot: location.root, pathPrefix: location.prefix, allowlistPolicy: dependencyAllowlistPolicy(trust, repositoryIdentity, { pending: enrollmentPending(trust, enrollment), shipped: options.shippedAllowlist }) });
+  const metadata = { ...scanMetadata(appRoot, manifest, scanned.coverage, scanned.contentDigests, repositoryIdentity, location.commit), pathBase: location.pathBase, pathPrefix: location.prefix, provenance: scanned.provenance, ...Object.fromEntries(Object.entries(resolved).filter(([key]) => key !== "trust")) };
+  if (trust?.rootFingerprint && Array.isArray(trust.ownershipKeys) && !trust.ownershipKeys.length) throw new Error("protected ownership key log has no active approval keys");
   const result = evaluate(scanned.findings, loadExceptions(appRoot), { ...options, manifest, trust, trustEnrollment: enrollment, metadata });
   const coverage = [...new Map(metadata.coverage.map((x) => [`${x.path}\0${x.reason}`, x])).values()];
   const rows = capabilityTable(manifest, scanned.deps, { ...result, coverage });
@@ -754,7 +787,10 @@ function checkCommitted(appRoot, manifest, options, acquire, readAuthority = rea
   if (location.prefix && !committed.entries.some((entry) => entry.rel.startsWith(location.prefix))) {
     inventory.coverage.push({ path: ".", status: "unscanned", reason: "registered-root-missing-from-committed-tree" });
   }
-  const scanned = scanInternal(appRoot, manifest, { inventory, trust, repositoryIdentity, repositoryRoot: location.root, pathPrefix: location.prefix });
+  const committedEnrollment = trust?.rootFingerprint
+    ? { enrolled: trust.enrollmentComplete === true, pending: trust.enrollmentComplete !== true }
+    : trustState?.pending !== undefined || trustState?.enrolled !== undefined ? trustState : undefined;
+  const scanned = scanInternal(appRoot, manifest, { inventory, trust, repositoryIdentity, repositoryRoot: location.root, pathPrefix: location.prefix, allowlistPolicy: dependencyAllowlistPolicy(trust, repositoryIdentity, { pending: enrollmentPending(trust, committedEnrollment), shipped: options.shippedAllowlist }) });
   const exceptionPath = [location.prefix.replace(/\/$/, ""), EXCEPTIONS_FILE.split(path.sep).join("/")].filter(Boolean).join("/");
   const exceptionObject = committed.entries.find((entry) => entry.rel === exceptionPath);
   const exceptionEntry = exceptionObject?.bytes;

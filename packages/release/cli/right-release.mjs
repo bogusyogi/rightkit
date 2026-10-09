@@ -212,6 +212,7 @@ Commands:
   ownership approve-key <fingerprint|request.json>    Approve one pending device key from an active host
   ownership revoke-key <fingerprint>                  Revoke one active device key
   ownership trust-sync                               Advance this host's protected trust to the committed key log
+  ownership trust-compare [--json]                   Print this host's protected-trust digest (Mac is the reference)
   ownership-approval --draft <input.json> [--out <draft.json>]
                                                       Draft an exception for native owner approval
   ownership-approval --verify <signed.json> --context <scan.json>

@@ -81,3 +81,58 @@ implementation/cutover coordination and must let running jobs finish first.
 No broker bootstrap, activation, cancellation or forced restart belongs to this
 source change. Crate and `@rightkit/release` publication requires two-host gate
 evidence at the exact publication commit.
+
+## Protected policy bundle
+
+Protected trust pins more than the catalog digest. `trust-sync` writes a `policyBundle` into protected trust:
+one digest over the ownership catalog, the repository registry file, the dependency allowlist, the scanner
+version, and the SHA-256 of every scanner/verifier source file in the import closure of the enforcement entry
+points (`ownership-policy-bundle.mjs`: scan worker, evidence, verdict, admission, staged/hook gates, trust
+updater, plus pinned third-party parsers such as `smol-toml`). CRLF is normalized, so a checkout's line-ending
+policy does not change the digest.
+
+`ownership-evidence.mjs` computes the running bundle and compares it with the pinned digest through the floor
+check. A mismatch sets `floorOk: false`, adds an `ownership policy bundle ... differs` problem, and refuses
+release/admission and sealed-evidence verification, so editing scanner code or the allowlist while keeping the
+catalog no longer passes. Trust written before the bundle existed has no `policyBundle` and is treated as
+unpinned until the next `trust-sync`. While approval enrollment is pending the mismatch is a diagnostic only,
+as for every other floor problem. Any change to a pinned file (a normal RightKit release that touches the
+scanner) therefore needs a `trust-sync` before protected release gates pass again; that is intentional.
+
+The `trust-sync` approval summary shows a semantic diff: bundle digest change, scanner version, scanner files
+changed/added/removed, catalog and registry changes, and allowlist entries added/removed per repository.
+
+## Default-deny dependency allowlist
+
+`packages/release/ownership-dependency-allowlist.json` lists approved direct dependencies as
+`<ecosystem>:<name>[#git|#path]` (registry is the default kind), per canonical repository identity, plus a small
+`global` list. Seeded from each registered repository's current direct dependencies (all manifest sections of
+`Cargo.toml`, `package.json`, `Package.swift`) with
+`node packages/release/ownership-dependency-allowlist-seed.mjs --workspace <dir> [--write]`; the seed only adds
+approvals and never records block-tier catalog dependencies or RightKit packages.
+
+In a guarded repository a new direct dependency is allowed only if it is a RightKit package, a first-party local
+`path`/`workspace` dependency, in that repository's baseline, or in the global list. Known block-tier capability
+dependencies override any allowlisting.
+
+- **Write hook** (`ownership-write-hook.mjs`): denies a new dependency (manifest edit or `cargo/npm/pnpm add`)
+  that is not allowlisted: "propose it in ownership-dependency-allowlist.json; Adrian activates it via
+  trust-sync". It reads the activated copy from protected trust (`dependencyAllowlist`, guarded repositories from
+  trust `repositories`); when trust has no allowlist yet it uses the shipped byte copy in advisory mode. The
+  shipped files travel with the other consumer copies (`rightkit-sync` and `install-policy-assets`).
+- **Release/committed scan** (`ownership.mjs`): reports `dependency-not-allowlisted` as a blocking finding when
+  the protected copy governs the repository; advisory while approval enrollment is pending, and advisory from the
+  shipped proposal before `trust-sync`.
+
+Agents can propose edits to the file; it takes effect only when Adrian runs `trust-sync`, which copies it into
+protected trust (an invalid proposal leaves trust untouched).
+
+## Cross-host trust comparison
+
+`right-release ownership trust-compare [--json]` prints this host's trust digest (canonical JSON of protected
+trust excluding only the per-host key-authority checkout path) and its component digests (policy bundle,
+allowlist, registry, floors, key checkpoint, root). There is no signature on the trust file and no automation.
+Treat the Mac's digest as the reference: agents on the Mac have no root, so its trust cannot be rewritten by an
+agent. After both hosts have synced the same release, a Dell digest that differs from the Mac's means the Dell
+trust file was tampered with (or is stale: re-run `trust-sync` there and compare again). Compare the component
+lines to see which part differs.

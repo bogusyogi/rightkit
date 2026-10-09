@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, mkdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -11,9 +11,10 @@ import { createCommittedOwnershipEvidenceForTest, createOwnershipEvidenceForTest
 import { canonicalJson, createDraft, keyIdForPublicKey, policyEntryDigest, sha256 } from "./ownership-approval.mjs";
 import { __testOnly as authorityTestOnly } from "./ownership-key-authority.mjs";
 import { createKeyEvent, eventHash, keyFingerprint } from "./ownership-key-log.mjs";
+import { computePolicyBundle, runningPolicyBundle } from "./ownership-policy-bundle.mjs";
 
 const releaseRoot = path.dirname(fileURLToPath(import.meta.url));
-function trusted(root, { enrolled = true, protection = { ok: true }, roots = ["."], oneKey = false, minimumScannerVersion = "0.0.0" } = {}) {
+function trusted(root, { enrolled = true, protection = { ok: true }, roots = ["."], oneKey = false, minimumScannerVersion = "0.0.0", extraTrust = {} } = {}) {
   return () => ({
     enrolled,
     pending: !enrolled,
@@ -27,6 +28,7 @@ function trusted(root, { enrolled = true, protection = { ok: true }, roots = [".
       minimumCatalogVersion: "0.0.0",
       provenance: [],
       repositories: [{ repositoryIdentity: "https://github.com/test/repo", roots, visibility: "private" }],
+      ...extraTrust,
     },
   });
 }
@@ -570,4 +572,62 @@ test("shared workspace authority approves nested product exceptions without copy
     rmSync(product, { recursive: true, force: true });
     rmSync(authority.root, { recursive: true, force: true });
   }
+});
+
+function bundleRepo() {
+  const root = realpathSync(mkdtempSync(path.join(tmpdir(), "rightkit-ownership-bundle-")));
+  git(root, "init", "-q");
+  git(root, "config", "user.email", "test@example.invalid");
+  git(root, "config", "user.name", "test");
+  git(root, "remote", "add", "origin", "https://github.com/test/repo.git");
+  writeFileSync(path.join(root, "source.rs"), "fn main() {}\n");
+  git(root, "add", ".");
+  git(root, "commit", "-qm", "baseline");
+  return root;
+}
+
+test("pinned policy bundle: matching running bundle passes, any digest mismatch refuses, unpinned trust stays valid", () => {
+  const root = bundleRepo();
+  try {
+    const manifestPath = path.join(releaseRoot, "rightkit-ownership.json");
+    const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+    const running = runningPolicyBundle({ scannerVersion: SCANNER_VERSION, manifest });
+    const build = (extraTrust, extra = {}) => createOwnershipEvidenceForTest(root, { manifestPath, scanRoot: root, trustLoader: trusted(root, { extraTrust }), ...extra });
+
+    assert.equal(build({ policyBundle: running }).ok, true, "pinned bundle equal to the running one passes");
+    assert.equal(build({}).ok, true, "trust with no policyBundle is unpinned until the next trust-sync");
+
+    const wrong = build({ policyBundle: { ...running, digest: "0".repeat(64) } });
+    assert.equal(wrong.ok, false);
+    assert.equal(wrong.evidence.floorOk, false);
+    assert.match(wrong.result.problems.join("\n"), /ownership policy bundle .* differs from the protected pinned bundle/);
+
+    // Scanner source edited while the catalog is kept: the running bundle digest no longer matches the pin.
+    const edited = build({ policyBundle: running }, { policyBundleProvider: ({ scannerVersion, manifest: m }) => computePolicyBundle({ scannerVersion, manifest: m, files: running.files.map((f, i) => i ? f : { ...f, sha256: "1".repeat(64) }) }) });
+    assert.equal(edited.ok, false);
+    assert.match(edited.result.problems.join("\n"), /policy bundle/);
+    // Changed allowlist or registry content moves the digest too.
+    const allowlisted = build({ policyBundle: running }, { policyBundleProvider: ({ scannerVersion, manifest: m }) => computePolicyBundle({ scannerVersion, manifest: m, allowlist: { schema: 1, global: ["npm:evil"], repositories: [] } }) });
+    assert.equal(allowlisted.ok, false);
+    const failing = build({ policyBundle: running }, { policyBundleProvider: () => { throw new Error("boom"); } });
+    assert.equal(failing.ok, false);
+    assert.match(failing.result.problems.join("\n"), /could not be computed: boom/);
+
+    // The mismatch also invalidates previously sealed evidence.
+    const sealed = build({ policyBundle: running });
+    const verified = verifyOwnershipEvidenceForTest(sealed.evidence, root, { manifestPath, scanRoot: root, trustLoader: trusted(root, { extraTrust: { policyBundle: { ...running, digest: "2".repeat(64) } } }) });
+    assert.equal(verified.ok, false);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("pinned policy bundle mismatch stays advisory while approval enrollment is pending", () => {
+  const root = bundleRepo();
+  try {
+    const manifestPath = path.join(releaseRoot, "rightkit-ownership.json");
+    const running = runningPolicyBundle({ scannerVersion: SCANNER_VERSION, manifest: JSON.parse(readFileSync(manifestPath, "utf8")) });
+    const result = createOwnershipEvidenceForTest(root, { manifestPath, scanRoot: root, trustLoader: trusted(root, { enrolled: false, extraTrust: { policyBundle: { ...running, digest: "3".repeat(64) } } }) });
+    assert.equal(result.ok, false);
+    assert.equal(result.enrollmentPending, true);
+    assert.match(result.result.problems.join("\n"), /policy bundle/);
+  } finally { rmSync(root, { recursive: true, force: true }); }
 });

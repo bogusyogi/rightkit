@@ -7,6 +7,8 @@ import { canonicalJson, canonicalRepositoryIdentity, __testOnly as approvalTestO
 import { verifyKeyLog } from "./ownership-key-log.mjs";
 import { SCANNER_VERSION } from "./ownership.mjs";
 import { presenceSummary, requireWindowsPresence } from "./ownership-windows-presence.mjs";
+import { ALLOWLIST_FILE, validateAllowlist } from "./ownership-dependency-allowlist.mjs";
+import { computePolicyBundle } from "./ownership-policy-bundle.mjs";
 
 const HEX = /^[a-f0-9]{64}$/;
 const MAX_REQUEST_BYTES = 2 * 1024 * 1024;
@@ -296,13 +298,28 @@ function versionAtLeast(value, floor) {
  * its own catalog digest/version and scanner version. Floors only ever rise; an older installed
  * release leaves the existing floors untouched. The request never supplies floors.
  */
-export function raiseFloorsToInstalledRelease(trust, { manifest = installedCatalog(), scannerVersion = SCANNER_VERSION } = {}) {
+export function raiseFloorsToInstalledRelease(trust, { manifest = installedCatalog(), scannerVersion = SCANNER_VERSION, policy } = {}) {
   const catalogVersion = String(manifest?.version ?? "");
   if (!/^\d+(?:\.\d+)*$/.test(catalogVersion) || !/^\d+(?:\.\d+)*$/.test(scannerVersion)) return trust;
   if (!versionAtLeast(catalogVersion, trust.minimumCatalogVersion ?? "0") || !versionAtLeast(scannerVersion, trust.minimumScannerVersion ?? "0")) return trust;
   const raised = { ...trust, minimumCatalogVersion: catalogVersion, minimumScannerVersion: scannerVersion, minimumCatalogDigest: createHash("sha256").update(canonicalJson(manifest)).digest("hex") };
-  if (!validateTrustRegistry(raised).ok) return trust;
-  return raised;
+  // Step 2/3: pin the policy bundle (catalog + registry + dependency allowlist + scanner version + scanner source
+  // digests) and copy the proposed allowlist into protected trust. A malformed allowlist leaves trust untouched.
+  let pinned;
+  try { pinned = pinInstalledPolicy(raised, { manifest, scannerVersion, policy }); } catch { return trust; }
+  if (!pinned || !validateTrustRegistry(pinned).ok) return trust;
+  return pinned;
+}
+/** Allowlist and registry bytes of the installed release; the request never supplies them. */
+export function installedPolicyInputs() {
+  const dir = path.dirname(fileURLToPath(import.meta.url));
+  return { allowlist: JSON.parse(readFileSync(path.join(dir, ALLOWLIST_FILE), "utf8")), registry: installedRepositoryRegistry() };
+}
+function pinInstalledPolicy(trust, { manifest, scannerVersion, policy }) {
+  const inputs = policy ?? installedPolicyInputs();
+  if (!validateAllowlist(inputs.allowlist).ok) return null;
+  const bundle = inputs.bundle ?? computePolicyBundle({ manifest, registry: inputs.registry, allowlist: inputs.allowlist, scannerVersion });
+  return { ...trust, policyBundle: bundle, dependencyAllowlist: copyJson(inputs.allowlist) };
 }
 function installedCatalog() { return JSON.parse(readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "rightkit-ownership.json"), "utf8")); }
 

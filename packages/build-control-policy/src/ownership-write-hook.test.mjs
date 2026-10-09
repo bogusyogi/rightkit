@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { pathToFileURL, fileURLToPath } from 'node:url';
 import test from 'node:test';
-import { ownershipWriteDecision, fingerprintDecision, setScopeDependencies, canonicalRepositoryIdentity } from './ownership-write-hook.mjs';
+import { ownershipWriteDecision, fingerprintDecision, setScopeDependencies, setAllowlistSources, canonicalRepositoryIdentity } from './ownership-write-hook.mjs';
 import { renderSessionCatalog } from './ownership-session-hook.mjs';
 import { ownershipSessionDecision } from './ownership-session-hook.mjs';
 import { installPolicyAssets } from './install-policy-assets.mjs';
@@ -15,6 +15,8 @@ const sessionCatalog = new URL('./ownership-session-catalog.json', import.meta.u
 // Existing suites run in temp dirs; treat every path as inside a registered product repository.
 const registeredGit = (args) => args.includes('--show-toplevel') ? '/work/app' : 'git@github.com:BogusYogi/MailRight.git';
 setScopeDependencies({ git: registeredGit, exists: () => true, roots: [] });
+// Legacy suites exercise catalog screening only; the allowlist has its own tests at the end of this file.
+setAllowlistSources({ readTrust: () => null, shipped: null });
 const github = 'client.post("https://api.anthropic.com/v1/messages");';
 const clean = 'export function signIn() { return provider.login(); }';
 
@@ -296,7 +298,7 @@ test('standalone hook honors banned policy independently of tier, Swift dependen
   const root = mkdtempSync(path.join(tmpdir(), 'rk-ownership-hook-'));
   try {
     const source = path.dirname(fileURLToPath(import.meta.url));
-    for (const file of ['ownership-write-hook.mjs', 'ownership-source.mjs', 'ownership-repositories.json']) cpSync(path.join(source, file), path.join(root, file));
+    for (const file of ['ownership-write-hook.mjs', 'ownership-source.mjs', 'ownership-repositories.json', 'ownership-dependency-allowlist.mjs']) cpSync(path.join(source, file), path.join(root, file));
     const installed = JSON.parse(readFileSync(snapshot));
     const browser = installed.capabilities.find((entry) => entry.package === 'rightkit-browser');
     browser.fingerprints.find((entry) => entry.name === 'puppeteer').tier = 'advise';
@@ -385,4 +387,82 @@ test('scope: workspace root is in scope by path; registry covers registered repo
   assert.deepEqual(ownershipWriteDecision(blockedWrite('/wsx/a.ts')), { decision: 'allow' }); // prefix is not containment
   setScopeDependencies({ git, exists: () => true, roots, caseInsensitive: true });
   assert.ok(ownershipWriteDecision(blockedWrite('d:\\claude\\app\\a.ts')).hookSpecificOutput);
+});
+
+// ---- default-deny dependency allowlist -------------------------------------------------------------
+const MAIL = 'https://github.com/bogusyogi/mailright';
+const allowlist = { schema: 1, global: ['npm:typescript'], repositories: [{ repositoryIdentity: MAIL, dependencies: ['npm:lodash', 'npm:puppeteer', 'cargo:serde', 'cargo:gitdep#git'] }] };
+const trustWith = (extra = {}) => ({ schema: 1, repositories: [{ repositoryIdentity: MAIL, roots: ['.'], visibility: 'private' }], dependencyAllowlist: allowlist, ...extra });
+const useAllowlist = ({ trust = null, shipped = null } = {}) => {
+  setScopeDependencies({ git: registeredGit, exists: () => true, roots: [] });
+  setAllowlistSources({ readTrust: () => trust, shipped });
+};
+const writePackage = (dependencies, cwd = '/work/app') => ownershipWriteDecision({ tool_name: 'Write', cwd, tool_input: { file_path: 'package.json', content: JSON.stringify({ name: 'app', dependencies }) } }, { readFile: () => '{"name":"app"}' });
+const addCommand = (command) => ownershipWriteDecision({ tool_name: 'Bash', cwd: '/work/app', tool_input: { command } });
+const deny = (decision) => decision.hookSpecificOutput?.permissionDecision === 'deny';
+
+test('allowlist: baseline, global, RightKit and first-party path dependencies are allowed; a new dependency is denied from trusted copy', () => {
+  useAllowlist({ trust: trustWith() });
+  for (const dependencies of [{ lodash: '4' }, { typescript: '5' }, { '@rightkit/updates': '1' }, { 'rightkit-thing': '1' }, { local: 'file:../local' }, { shared: 'workspace:*' }]) {
+    assert.deepEqual(writePackage(dependencies), { decision: 'allow' }, JSON.stringify(dependencies));
+  }
+  const denied = writePackage({ lodash: '4', leftpad: '1' });
+  assert.ok(deny(denied));
+  assert.match(denied.hookSpecificOutput.permissionDecisionReason, /leftpad/);
+  assert.match(denied.hookSpecificOutput.permissionDecisionReason, /ownership-dependency-allowlist\.json; Adrian activates it via trust-sync/);
+});
+
+test('allowlist: source kind matters (git needs an explicit #git entry) and existing dependencies are never re-flagged', () => {
+  useAllowlist({ trust: trustWith() });
+  assert.ok(deny(writePackage({ lodash: 'git+https://example.com/lodash.git' })));
+  const cargo = (text, before = '[package]\nname = "a"\n') => ownershipWriteDecision({ tool_name: 'Write', cwd: '/work/app', tool_input: { file_path: 'Cargo.toml', content: text } }, { readFile: () => before });
+  assert.deepEqual(cargo('[dependencies]\ngitdep = { git = "https://example.com/g" }\nserde = "1"\n'), { decision: 'allow' });
+  assert.ok(deny(cargo('[dependencies]\nserde = { git = "https://example.com/s" }\n')));
+  assert.ok(deny(cargo('[dependencies]\nnewcrate = "1"\n')));
+  assert.deepEqual(cargo('[dependencies]\nnewcrate = "2"\n', '[dependencies]\nnewcrate = "1"\n'), { decision: 'allow' });
+  assert.deepEqual(cargo('[dependencies]\nsib = { path = "../sib" }\n'), { decision: 'allow' });
+});
+
+test('allowlist: dependency add commands are screened and the repository must be guarded', () => {
+  useAllowlist({ trust: trustWith() });
+  assert.ok(deny(addCommand('cargo add newcrate')));
+  assert.ok(deny(addCommand('pnpm add leftpad')));
+  assert.deepEqual(addCommand('cargo add serde'), { decision: 'allow' });
+  assert.deepEqual(addCommand('cargo add newcrate --path ../newcrate'), { decision: 'allow' });
+  setScopeDependencies({ git: gitFor({ '/r/vendor': 'https://github.com/someone/else.git' }), exists: () => true, roots: ['/r'] });
+  assert.deepEqual(ownershipWriteDecision({ tool_name: 'Bash', cwd: '/r/vendor', tool_input: { command: 'cargo add newcrate' } }), { decision: 'allow' });
+});
+
+test('allowlist: block-tier capability dependencies override allowlisting', () => {
+  useAllowlist({ trust: trustWith() });
+  const decision = writePackage({ puppeteer: '24' });
+  assert.ok(deny(decision));
+  assert.match(decision.hookSpecificOutput.permissionDecisionReason, /rightkit-browser/);
+  assert.doesNotMatch(decision.hookSpecificOutput.permissionDecisionReason, /allowlist/);
+});
+
+test('allowlist: shipped copy is advisory only; trust without an allowlist (unsynced) falls back to it', () => {
+  for (const trust of [null, { schema: 1, repositories: [] }]) {
+    useAllowlist({ trust, shipped: allowlist });
+    const advised = writePackage({ leftpad: '1' });
+    assert.ok(!deny(advised));
+    assert.match(advised.hookSpecificOutput.additionalContext, /leftpad.*advisory until then/s);
+    assert.deepEqual(writePackage({ lodash: '4' }), { decision: 'allow' });
+  }
+  useAllowlist({ trust: { schema: 1, repositories: [], dependencyAllowlist: { schema: 9 } }, shipped: allowlist });
+  assert.ok(!deny(writePackage({ leftpad: '1' })), 'malformed trusted copy is ignored, never enforced');
+});
+
+test('allowlist: a trusted allowlist only guards repositories registered in trust', () => {
+  useAllowlist({ trust: trustWith({ repositories: [{ repositoryIdentity: 'https://github.com/bogusyogi/other', roots: ['.'], visibility: 'private' }] }) });
+  assert.deepEqual(writePackage({ leftpad: '1' }), { decision: 'allow' });
+});
+
+test('allowlist: packaged copies match the release files and cover every registered repository', () => {
+  const release = (name) => readFileSync(new URL(`../../release/${name}`, import.meta.url), 'utf8');
+  assert.equal(readFileSync(new URL('./ownership-dependency-allowlist.json', import.meta.url), 'utf8'), release('ownership-dependency-allowlist.json'));
+  assert.equal(readFileSync(new URL('./ownership-dependency-allowlist.mjs', import.meta.url), 'utf8'), release('ownership-dependency-allowlist.mjs'));
+  const shipped = JSON.parse(release('ownership-dependency-allowlist.json'));
+  for (const { repositoryIdentity } of JSON.parse(release('ownership-repositories.json')).repositories) assert.ok(shipped.repositories.some((entry) => entry.repositoryIdentity === repositoryIdentity), repositoryIdentity);
+  setAllowlistSources({ readTrust: () => null, shipped: null });
 });
