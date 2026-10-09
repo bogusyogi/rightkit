@@ -4,12 +4,49 @@
 //!
 //! * macOS: `/usr/bin/sample <pid>` of the crashing process (HeardRight donor),
 //!   with the text output scrubbed of home directories.
-//! * Windows: out-of-process minidump through `rightkit-dump-helper.exe` placed
-//!   next to the app executable, so DbgHelp never runs inside the crashing
-//!   process (HeardRight donor).
+//! * Windows: out-of-process minidump through the dump helper (default
+//!   `rightkit-dump-helper.exe` next to the app executable; see [`set_dump_helper`]),
+//!   so DbgHelp never runs inside the crashing process (HeardRight donor).
 //! * elsewhere: no native capture.
 
 use std::path::{Path, PathBuf};
+use std::sync::RwLock;
+
+/// The Windows helper looked up next to the app executable unless [`set_dump_helper`] says otherwise.
+pub const DEFAULT_DUMP_HELPER: &str = "rightkit-dump-helper.exe";
+
+static DUMP_HELPER: RwLock<Option<PathBuf>> = RwLock::new(None);
+
+/// Selects the Windows dump helper. A bare file name (for example `heardright-dump-helper.exe`)
+/// is resolved next to the app executable; an absolute path is used as given. Ignored elsewhere.
+pub fn set_dump_helper(helper: impl Into<PathBuf>) {
+    if let Ok(mut slot) = DUMP_HELPER.write() {
+        *slot = Some(helper.into());
+    }
+}
+
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+fn dump_helper_path() -> Option<PathBuf> {
+    let configured = DUMP_HELPER.read().ok().and_then(|slot| slot.clone());
+    let helper = configured.unwrap_or_else(|| PathBuf::from(DEFAULT_DUMP_HELPER));
+    if helper.is_absolute() {
+        return Some(helper);
+    }
+    Some(std::env::current_exe().ok()?.parent()?.join(helper))
+}
+
+/// Captures a native sample (macOS) or minidump (Windows) of this process into `dir` now, for
+/// hang, UI-stall or sidecar-crash paths that are not panics. Returns the artifact path, or
+/// `None` when the platform has no capture, the helper is missing, or a capture is in flight.
+/// The artifact is local-only, like the panic hook's.
+pub fn capture_native(dir: &Path, kind: &str) -> Option<PathBuf> {
+    std::fs::create_dir_all(dir).ok()?;
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    capture(dir, &crate::report::sanitize_kind(kind), stamp)
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum NativeCapture {
@@ -115,10 +152,7 @@ mod platform {
             return None;
         }
         let _guard = Guard;
-        let helper = std::env::current_exe()
-            .ok()?
-            .parent()?
-            .join("rightkit-dump-helper.exe");
+        let helper = super::dump_helper_path()?;
         if !helper.is_file() {
             return None;
         }

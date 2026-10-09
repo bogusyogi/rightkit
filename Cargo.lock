@@ -5361,7 +5361,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-crash"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "rightkit-logs",
  "serde",

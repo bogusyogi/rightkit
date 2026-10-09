@@ -40,8 +40,33 @@ fn main() {
 ## Platform support
 
 - macOS: `sample`-based native capture.
-- Windows: the adjacent dump helper (`rightkit-dump-helper`). Compiling the helper, finding it, and producing real minidump output need verification on a Windows host.
+- Windows: an out-of-process minidump through the dump helper, verified on Windows 11 (build 26300) by `capture_native_writes_a_minidump_through_an_app_named_helper`.
 - Other platforms: structured reports only.
+
+`capture_native(dir, kind)` takes the same native capture on demand, for hang, UI-stall or
+sidecar-crash paths that are not panics, and returns the artifact path.
+
+### Bundling the Windows dump helper
+
+The helper is this crate's `rightkit-dump-helper` binary. An app builds it and ships it next to
+its executable:
+
+```text
+rightkit cargo build --release -p rightkit-crash --bin rightkit-dump-helper
+```
+
+With rightkit-crash from crates.io, `rightkit cargo install rightkit-crash --bin rightkit-dump-helper --root <dir>` builds the same binary.
+
+The helper can ship under the app's own name, for example as a Tauri `externalBin` or a
+renamed copy. Tell the crate which name to use before the first capture:
+
+```rust
+rightkit_crash::set_dump_helper("heardright-dump-helper.exe"); // next to the app executable
+```
+
+A bare name resolves next to the current executable, and an absolute path is used as given.
+The default is `DEFAULT_DUMP_HELPER` (`rightkit-dump-helper.exe`). When the helper is missing,
+the capture returns `None` and the structured report is still written.
 
 ## Tests
 

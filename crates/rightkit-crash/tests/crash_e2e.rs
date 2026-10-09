@@ -285,3 +285,35 @@ fn support_bundle_is_a_redacted_zip_and_native_dumps_need_explicit_opt_in() {
         assert_eq!(with_native.native_artifacts, 1);
     }
 }
+
+/// Windows: an app-named copy of the dump helper writes a real minidump of this process on
+/// demand (the hang / UI-stall / sidecar-crash path), through `capture_native`.
+#[cfg(target_os = "windows")]
+#[test]
+fn capture_native_writes_a_minidump_through_an_app_named_helper() {
+    let dir = std::env::temp_dir().join(format!("rk-crash-native-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let helper = dir.join("myapp-dump-helper.exe");
+    std::fs::copy(env!("CARGO_BIN_EXE_rightkit-dump-helper"), &helper).unwrap();
+    rightkit_crash::set_dump_helper(&helper);
+
+    let dumps = dir.join("dumps");
+    let dump = rightkit_crash::capture_native(&dumps, "ui stall!").expect("minidump written");
+    let name = dump.file_name().unwrap().to_string_lossy().into_owned();
+    assert!(
+        name.starts_with("dump_uistall_") && name.ends_with(".dmp"),
+        "{name}"
+    );
+    let bytes = std::fs::read(&dump).unwrap();
+    assert_eq!(&bytes[..4], b"MDMP", "not a minidump");
+    assert!(std::fs::read_dir(&dumps).unwrap().all(|e| !e
+        .unwrap()
+        .file_name()
+        .to_string_lossy()
+        .ends_with(".partial")));
+
+    rightkit_crash::set_dump_helper(dir.join("missing-helper.exe"));
+    assert!(rightkit_crash::capture_native(&dumps, "hang").is_none());
+    let _ = std::fs::remove_dir_all(&dir);
+}
