@@ -103,3 +103,66 @@ test("published ownership command runs without development sibling packages & re
     rmSync(temp, { recursive: true, force: true });
   }
 });
+
+test("ownership --audit-json maps block and advise violations to Legion findings and exits 0", async () => {
+  const printed = [];
+  const errors = [];
+  const originalError = console.error;
+  console.error = (line) => errors.push(line);
+  try {
+    const result = { rows: [], covered: [], problems: [], coverage: [], metadata: {}, violations: [
+      { fingerprint: "rk.source.hash", capability: "hashing", package: "rightkit-hash", tier: "block", file: "src/lib.rs", line: 12, text: "fn sha() {}" },
+      { fingerprint: "rk.dep.zip", capability: "archive", package: "rightkit-zip", tier: "advise", file: "packages/app/package.json", line: 0, ecosystem: "npm", name: "zip-lib" },
+    ] };
+    const status = await main(["--app", repositoryRoot, "--audit-json"], {
+      gitRunner: () => ({ status: 0, stdout: `${repositoryRoot}\n` }),
+      evidenceFactory: () => ({ ok: false, floor: { ok: false, problems: ["floor"] }, result }),
+      print: (line) => printed.push(line),
+    });
+    assert.equal(status, 0);
+    assert.equal(printed.length, 1);
+    assert.deepEqual(JSON.parse(printed[0]), { schemaVersion: 1, findings: [
+      { rule: "rk.source.hash", path: "src/lib.rs", line: 12, message: "hashing duplicates RightKit owner rightkit-hash (block): fn sha() {}" },
+      { rule: "rk.dep.zip", path: "packages/app/package.json", message: "advise: archive duplicates RightKit owner rightkit-zip (advise): npm zip-lib" },
+    ] });
+    assert.deepEqual(errors, []);
+  } finally {
+    console.error = originalError;
+  }
+});
+
+test("ownership --audit-json prints an empty findings document and exits 0 on a clean scan", async () => {
+  const printed = [];
+  const status = await main(["--app", repositoryRoot, "--audit-json"], {
+    gitRunner: () => ({ status: 0, stdout: `${repositoryRoot}\n` }),
+    evidenceFactory: () => ({ ok: true, floor: { ok: true, problems: [] }, result: { rows: [], covered: [], problems: [], coverage: [], metadata: {}, violations: [] } }),
+    print: (line) => printed.push(line),
+  });
+  assert.equal(status, 0);
+  assert.equal(printed[0], JSON.stringify({ schemaVersion: 1, findings: [] }));
+});
+
+test("ownership --audit-json fails only when the scan itself fails or a path leaves the audited root", async () => {
+  const printed = [];
+  const originalError = console.error;
+  console.error = () => {};
+  try {
+    const failed = await main(["--app", repositoryRoot, "--audit-json"], {
+      gitRunner: () => ({ status: 0, stdout: `${repositoryRoot}\n` }),
+      evidenceFactory: () => { throw new Error("trust missing"); },
+      print: (line) => printed.push(line),
+    });
+    assert.equal(failed, 1);
+    assert.deepEqual(printed, []);
+
+    const escaping = await main(["--app", repositoryRoot, "--audit-json"], {
+      gitRunner: () => ({ status: 0, stdout: `${repositoryRoot}\n` }),
+      evidenceFactory: () => ({ ok: false, floor: { ok: false, problems: [] }, result: { rows: [], covered: [], problems: [], coverage: [], metadata: {}, violations: [{ fingerprint: "x", capability: "c", package: "p", tier: "block", file: "../outside.rs", line: 1, text: "t" }] } }),
+      print: (line) => printed.push(line),
+    });
+    assert.equal(escaping, 1);
+    assert.deepEqual(printed, []);
+  } finally {
+    console.error = originalError;
+  }
+});

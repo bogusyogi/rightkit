@@ -3,6 +3,7 @@
 // the shipped manifest from each package's declaration.
 //
 //   right-release ownership [--app <dir>] [--json]
+//   right-release ownership [--app <dir>] --audit-json   (Legion governance.capability-ownership provider)
 //   right-release ownership --write-manifest [--rightkit <tools/rightkit>] [--approve-new-capabilities]
 // --approve-new-capabilities permits new ids during local generation only.
 // Existing owner changes are always refused; installation needs protected authorization.
@@ -48,6 +49,7 @@ export async function main(args, { evidenceFactory = createOwnershipEvidence, gi
   try { checked = evidenceFactory(repoRoot, app); }
   catch (error) { return failClosed(args, "protected-evidence", error.message, print); }
   const result = checked.result;
+  if (args.includes("--audit-json")) return printAuditJson(result, print);
   if (args.includes("--json")) {
     const error = checked.enrollmentPending ? undefined : !checked.floor.ok
       ? { type: "ownership-floor", message: checked.floor.problems.join("; ") }
@@ -70,7 +72,36 @@ export async function main(args, { evidenceFactory = createOwnershipEvidence, gi
   return checked.ok ? 0 : 1;
 }
 
+// Audit provider output: every scan violation (block and advise tiers) as a repo-relative finding.
+// Exit 0 whenever the scan completes; findings never change the exit code.
+export function auditFindings(result) {
+  return {
+    schemaVersion: 1,
+    findings: result.violations.map((v) => {
+      const tier = v.tier ?? "block";
+      const file = String(v.file ?? "").replaceAll("\\", "/");
+      if (!file || file.startsWith("/") || /^[A-Za-z]:/.test(file) || file === ".." || file.startsWith("../") || file.split("/").includes("..")) throw new Error(`audit finding path is outside the audited root: ${v.file}`);
+      const body = v.text ?? `${v.ecosystem ?? "dependency"} ${v.name ?? ""}`.trim();
+      const finding = { rule: String(v.fingerprint), path: file };
+      if (Number.isSafeInteger(v.line) && v.line > 0) finding.line = v.line;
+      finding.message = `${tier === "advise" ? "advise: " : ""}${v.capability} duplicates RightKit owner ${v.package} (${tier}): ${body}`;
+      return finding;
+    }),
+  };
+}
+
+function printAuditJson(result, print) {
+  try {
+    print(JSON.stringify(auditFindings(result)));
+    return 0;
+  } catch (error) {
+    console.error(`[right-release] ownership audit failed: ${error.message}`);
+    return 1;
+  }
+}
+
 function failClosed(args, type, message, print = (value) => console.log(value)) {
+  if (args.includes("--audit-json")) { console.error(`[right-release] ownership audit failed: ${message}`); return 1; }
   if (args.includes("--json")) print(JSON.stringify({ ok: false, error: { type, message }, rows: [], violations: [], covered: [], problems: [message], coverage: [], metadata: null }, null, 2));
   else print(`[right-release] ownership FAILED: ${message}`);
   return 1;
