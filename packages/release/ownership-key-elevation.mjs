@@ -207,8 +207,11 @@ export function confirmTrustChange({ lines, run, interactiveRun, print = console
   if (hostPlatform === "darwin") {
     const r = run("/usr/bin/osascript", ["-e", buildMacConfirmScript(text)], { encoding: "utf8", timeout: CONFIRM_TIMEOUT_MS, killSignal: "SIGKILL" });
     // Affirmative result only: exit 0 AND the Approve button reported. Anything else (cancel, kill, timeout, error) cancels.
-    if (r?.status !== 0 || !String(r.stdout ?? "").includes(`button returned:${MAC_APPROVE_BUTTON}`)) throw cancelled();
-    return;
+    if (r?.status === 0 && String(r.stdout ?? "").includes(`button returned:${MAC_APPROVE_BUTTON}`)) return;
+    const stderr = String(r?.stderr ?? "").trim();
+    // osascript reports a real Cancel click as error -128; everything else is a failure to ask, not a refusal.
+    if (/\(-128\)/.test(stderr)) throw cancelled();
+    throw new Error(`approval dialog could not be shown or read (exit ${r?.status ?? "none"}${r?.signal ? `, ${r.signal}` : ""}${r?.error ? `, ${r.error.message}` : ""}): ${stderr || String(r?.stdout ?? "").trim() || "no output"}`);
   }
   if (hostPlatform === "win32") {
     const encoded = Buffer.from(buildWindowsConfirmScript(text, nonce), "utf16le").toString("base64");

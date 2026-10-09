@@ -112,9 +112,10 @@ test("Windows MessageBox script is OKCancel Warning with the pinned title", () =
 test("confirm: macOS dialog cancel throws, approve returns; TTY requires yes", () => {
   const calls = [];
   const print = () => {};
-  assert.throws(() => confirmTrustChange({ lines: ["x"], run: (c, a) => { calls.push([c, a]); return { status: 1 }; }, print, hostPlatform: "darwin", tty: false }), /cancelled by user/);
+  assert.throws(() => confirmTrustChange({ lines: ["x"], run: (c, a) => { calls.push([c, a]); return { status: 1, stderr: "execution error: User canceled. (-128)" }; }, print, hostPlatform: "darwin", tty: false }), /cancelled by user/);
+  assert.throws(() => confirmTrustChange({ lines: ["x"], run: () => ({ status: 1, stderr: "execution error: No user interaction allowed. (-1713)" }), print, hostPlatform: "darwin", tty: false }), /could not be shown or read.*-1713/);
   assert.equal(calls[0][0], "/usr/bin/osascript");
-  assert.throws(() => confirmTrustChange({ lines: ["x"], run: () => ({ status: 0, stdout: "" }), print, hostPlatform: "darwin", tty: false }), /cancelled by user/);
+  assert.throws(() => confirmTrustChange({ lines: ["x"], run: () => ({ status: 0, stdout: "" }), print, hostPlatform: "darwin", tty: false }), /could not be shown or read/);
   confirmTrustChange({ lines: ["x"], run: () => ({ status: 0, stdout: "button returned:Approve…, gave up:false\n" }), print, hostPlatform: "darwin", tty: false });
   assert.throws(() => confirmTrustChange({ lines: ["x"], run: () => assert.fail("no dialog on tty"), print, tty: true, readLine: () => "y" }), /cancelled by user/);
   confirmTrustChange({ lines: ["x"], run: () => assert.fail("no dialog on tty"), print, tty: true, readLine: () => "yes\n" });
