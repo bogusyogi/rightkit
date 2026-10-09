@@ -105,6 +105,9 @@ impl Drop for HttpChild {
 fn start_http(secret: &str) -> HttpChild {
     let mut child = Command::new(example_bin())
         .arg("http")
+        // The example refuses env tokens on managed build hosts (unit-tested there); this
+        // test supplies its own throwaway token, so run the child as an unmanaged host.
+        .env_remove("RIGHTKIT_BUILD_BROKER_SOCKET")
         .env("EXAMPLE_TOKEN", secret)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
