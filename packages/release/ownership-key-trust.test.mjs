@@ -278,13 +278,15 @@ test("seeded ownership-repositories.json validates; the default policy carries n
   const policy = JSON.parse(readFileSync(new URL("./ownership-default-policy.json", import.meta.url), "utf8"));
   assert.equal(validateTrustRegistry({ ...policy, repositories: seeded.repositories }).ok, true);
   assert.deepEqual(policy.repositories, []);
-  assert.equal(seeded.repositories.length, 14);
+  assert.equal(seeded.repositories.length, 16);
   assert.deepEqual(seeded.repositories.slice(9).map((x) => [x.repositoryIdentity, x.visibility]), [
     ["https://github.com/bogusyogi/postright", "private"],
     ["https://github.com/orthic-labs/cockpit", "public"],
     ["https://github.com/orthic-labs/legion", "public"],
     ["https://github.com/bogusyogi/workright", "private"],
     ["https://github.com/orthic-labs/sellright", "public"],
+    ["https://github.com/orthic-labs/pulse", "public"],
+    ["https://github.com/bogusyogi/swiftright", "private"],
   ]);
   assert.equal(seeded.repositories.some((x) => /rightsuite/.test(x.repositoryIdentity)), false);
   // First install from the default policy yields exactly the committed registry entries.
