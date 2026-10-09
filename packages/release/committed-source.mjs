@@ -1,3 +1,4 @@
+import { stripOwnLockRecords } from "./source-gate.mjs";
 import { createHash } from "node:crypto";
 import os from "node:os";
 import path from "node:path";
@@ -193,7 +194,7 @@ export function assertCommittedCheckoutClean(root, { expectedCommit, expectedTre
   const output = runGit(path.resolve(root), ["status", "--porcelain=v1", "-z", "--untracked-files=all"], {
     encoding: "buffer", maxBuffer: MAX_TREE_BYTES, timeout: COMMAND_TIMEOUT_MS, runner, env: gitEnv(),
   });
-  if (output.length) throw new CommittedSourceIncompleteError("committed ownership: protected release checkout has tracked or untracked changes");
+  if (stripOwnLockRecords(Buffer.from(output).toString("utf8")).length) throw new CommittedSourceIncompleteError("committed ownership: protected release checkout has tracked or untracked changes");
   return true;
 }
 

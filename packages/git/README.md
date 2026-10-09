@@ -51,6 +51,35 @@ Set `"ciAllOs": true` to run the rust-hybrid `ci` gate on every `matrix.os` runn
 
 Omit the key, or set it to `false`, and the rendered `ci.yml` keeps one runner, preferring the first `windows-*` entry. `ciAllOs: true` is rejected for other profiles.
 
+## Incremental CI and dev artifacts (rust-hybrid)
+
+Both keys are opt-in; unset, the rendered `ci.yml` is byte-identical.
+
+`"ciIncremental": true` switches Rust caching to `cache-workspace-crates: true`, sets `CARGO_INCREMENTAL=1` for the ci gate, and caches `~/Library/Developer/Xcode/DerivedData` on macOS legs (key: runner + `Cargo.lock` + `Package.resolved` + `project.pbxproj` hash).
+
+`devArtifact` publishes fast development builds as workflow artifacts, separate from the release-candidate lane. It runs on push to the default branch only, never on pull requests.
+
+```json
+{
+  "profile": "rust-hybrid",
+  "matrix": { "os": ["xcode-27", "windows-2025"], "node": ["26.8.1"] },
+  "ciAllOs": true,
+  "ciIncremental": true,
+  "devArtifact": {
+    "mac": "sign",
+    "windows": "unsigned",
+    "retentionDays": 7,
+    "macAppPath": "target/release/bundle/macos/Pulse.app",
+    "windowsGlob": "target/release/*.exe"
+  }
+}
+```
+
+- `mac: "sign"` needs `macAppPath` (the built `.app`, repository-relative) and a macOS runner in the ci gate (`ciAllOs`). The unsigned app is zipped with `ditto` and handed to a separate `dev-mac-sign` job that installs the Developer ID identity from the `release` environment secrets, runs `codesign --force --deep --strict --options runtime`, verifies, zips and uploads `dev-mac-<sha>`. No notarization, admission or ownership gate. Optional `macEntitlements` passes `--entitlements`.
+- `windows: "unsigned"` needs `windowsGlob` and a `windows-*` runner in the ci gate; matched files upload as `dev-windows-<sha>`.
+- The `dev-mac-sign` job uses the `release` environment, so that environment's protection rules (required reviewers, branch policy) apply. The job only exists for pushes to the default branch.
+- Install a mac dev build with `right-release install-app --dev --zip <file>` (Developer ID-signed, not notarized).
+
 ## Entry points
 
 No importable API. The package has no `main` and no `exports` map. The supported surface is the `right-git` bin.

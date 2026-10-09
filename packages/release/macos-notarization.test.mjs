@@ -4,7 +4,7 @@ import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSyn
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { notarizeMacosArtifact, stapleMacosArtifact, validateNotarizationReceipt } from "./macos-notarization.mjs";
+import { notarizeAppBundle, notarizeMacosArtifact, stapleMacosArtifact, validateNotarizationReceipt } from "./macos-notarization.mjs";
 
 function fixture(t, extension = ".dmg") {
   const root = mkdtempSync(path.join(os.tmpdir(), "right-notary-"));
@@ -89,4 +89,33 @@ test("pre-seal validation rejects missing staple, altered archive & invalid fina
   writeFileSync(files.receiptPath, JSON.stringify(receipt));
   appendFileSync(files.archive, "different");
   assert.throws(() => validateNotarizationReceipt({ ...files, run: mock.run }), /invalid macOS notarization receipt/);
+});
+
+test("app is notarized and stapled as its own ticket before DMG packaging; DMG still gets its own", (t) => {
+  const root = mkdtempSync(path.join(os.tmpdir(), "right-notary-app-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const app = path.join(root, "Slice.app");
+  mkdirSync(path.join(app, "Contents"), { recursive: true });
+  const dmg = path.join(root, "Slice.dmg"); writeFileSync(dmg, "dmg");
+  const mock = mockXcrun();
+  const order = [];
+  const run = (cmd, args, options) => {
+    if (cmd === "/usr/bin/ditto") { order.push("ditto"); writeFileSync(args.at(-1), "zip"); return { status: 0 }; }
+    return mock.run(cmd, args, options);
+  };
+  const appReceipt = notarizeAppBundle({ app, receiptPath: path.join(root, "app.json"), authArgs: [], run });
+  assert.equal(appReceipt.archive.file, `${app}.zip`);
+  assert.deepEqual(appReceipt.stapling.map((item) => item.file), [app]);
+  assert.ok(appReceipt.stapling.every((item) => item.validated));
+  assert.deepEqual(mock.calls.map((call) => call.slice(1, 3)), [["notarytool", "submit"], ["stapler", "validate"], ["stapler", "staple"], ["stapler", "validate"]]);
+  assert.doesNotThrow(() => validateNotarizationReceipt({ receiptPath: path.join(root, "app.json"), archive: `${app}.zip`, run }));
+  // The DMG is then notarized without --app (the packaged app already carries its ticket).
+  const dmgReceipt = notarizeMacosArtifact({ archive: dmg, receiptPath: path.join(root, "dmg.json"), authArgs: [], run });
+  assert.deepEqual(dmgReceipt.stapling.map((item) => item.file), [dmg]);
+  assert.equal(order[0], "ditto");
+});
+
+test("app notarization refuses a non-.app path and surfaces ditto failure", () => {
+  assert.throws(() => notarizeAppBundle({ app: "/tmp/Slice.dmg", receiptPath: "/tmp/x.json", run: () => ({ status: 0 }) }), /must name an app bundle/);
+  assert.throws(() => notarizeAppBundle({ app: "/tmp/Slice.app", receiptPath: "/tmp/x.json", run: () => ({ status: 1, stderr: "boom" }) }), /ditto failed: boom/);
 });

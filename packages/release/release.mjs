@@ -27,7 +27,7 @@ import { verifyNsisEmbeddedBinary } from "./nsis-payload.mjs";
 import { terminateProcessTree } from "./heavy-command.mjs";
 import { materializeHardeningEvidence } from "./hardening-evidence.mjs";
 import { signingReceiptPath } from "./signing-receipts.mjs";
-import { validateNotarizationReceipt } from "./macos-notarization.mjs";
+import { notarizeAppBundle, validateNotarizationReceipt } from "./macos-notarization.mjs";
 import { MACOS_PORTABLE_SIGNING_CONTRACT } from "./macos-signing-contract.mjs";
 import { runConfiguredChecks } from "./release-checks.mjs";
 import { resolveMacosDeveloperIdIdentity } from "./macos-signing-identity.mjs";
@@ -156,6 +156,7 @@ if (opts.platform === "mac") {
   if (!target.prePackage?.cmd) fail(`${config.app ?? "app"} mac must declare prePackage to materialize Developer ID signing files`);
   if (!target.sign?.prePackageFiles?.length) fail(`${config.app ?? "app"} mac must declare at least one sign.prePackageFiles`);
   if (!target.notarize?.file) fail(`${config.app ?? "app"} mac must declare notarize.file`);
+  if (target.notarize.appBeforePackage && !target.notarize.app) fail(`${config.app ?? "app"} mac notarize.appBeforePackage requires notarize.app`);
 }
 if (opts.upload && target.publishBlocked) fail(`${config.app ?? "app"} ${opts.platform} publish blocked: ${target.publishBlocked}`);
 /**
@@ -310,7 +311,11 @@ if (opts.platform === "win" && target.signingContract === MSIX_SIGNING_CONTRACT)
   // Resolve after prePackage: with storage governance the artifact may live only in RIGHT_RELEASE_ARTIFACT_DIR.
   const signingFiles = target.sign.prePackageFiles.map((p) => resolveReleaseArtifactPath(root, p));
   for (const file of signingFiles) await mustExist(file, `missing macOS Developer ID signing artifact: ${file}`);
-  if (runMacPhase("sign")) await signMacos(signingFiles, root);
+  if (runMacPhase("sign")) {
+    await signMacos(signingFiles, root);
+    // Opt-in (notarize.appBeforePackage): staple the .app itself before the package step copies it into the DMG.
+    if (target.notarize.appBeforePackage) await notarizeAppBeforePackage(root);
+  }
 } else if (nativeAssembly) {
   if (nativeAssembly.packageHook) await runCommand(nativeAssembly.packageHook, root);
   if (nativeFinalizer) {
@@ -397,7 +402,7 @@ releaseLock.release();
 
 function usage(code, message) {
   if (message) console.error(`right-release: ${message}\n`);
-  console.error("usage: node release.mjs --tier patch|update [--config right-release.config.mjs] [--platform mac|win] [--upload|--no-upload] [--install] [--dry-run] [--doctor]");
+  console.error("usage: right-release build --platform mac|win [--config right-release.config.mjs]   (build is tier-neutral; tier applies only to: right-release upload --release <id> --platform mac|win --tier patch|update)");
   process.exit(code);
 }
 
@@ -870,12 +875,28 @@ async function notarizeMacos(archive, root) {
   if (opts.dryRun) args.push("--dry-run");
   args.push("--receipt", receipt);
   if (target.notarize.profile) args.push("--profile", target.notarize.profile);
-  if (target.notarize.app) args.push("--app", resolveReleaseArtifactPath(root, target.notarize.app));
+  // With appBeforePackage the app already carries its own stapled ticket inside the packaged DMG.
+  if (target.notarize.app && !target.notarize.appBeforePackage) args.push("--app", resolveReleaseArtifactPath(root, target.notarize.app));
   args.push(archive);
   if (!opts.dryRun && existsSync(receipt)) unlinkSync(receipt);
   console.log("right-release: notarizing macOS archive");
   await run("node", args, root);
   if (!opts.dryRun) verifyMacosNotarizationReceipt(receipt, archive);
+}
+
+async function notarizeAppBeforePackage(root) {
+  const app = resolveReleaseArtifactPath(root, target.notarize.app);
+  const receipt = macosReceiptPath(root, "app-notarization");
+  const zip = `${app}.zip`;
+  console.log("right-release: notarizing and stapling macOS app before packaging");
+  if (opts.dryRun) { console.log(`dry-run: notarize app ${app} (zip ${zip}) receipt ${receipt}`); return; }
+  await mustExist(app, `missing macOS app bundle for notarize.app: ${app}`);
+  if (existsSync(receipt)) unlinkSync(receipt);
+  try {
+    notarizeAppBundle({ app, zip, receiptPath: receipt, profile: target.notarize.profile });
+    validateNotarizationReceipt({ receiptPath: receipt, archive: zip });
+  } catch (error) { fail(`app notarization failed: ${error.message}`); }
+  finally { rmSync(zip, { force: true }); }
 }
 
 function macosReceiptPath(root, phase) {

@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.2.140
+
+- Ownership: Swift `//` and `/* */` comments in Package.swift no longer declare dependencies.
+- `install-app --dev` installs a Developer ID-signed, NOT notarized build from `--dmg`, `--zip` (`ditto -x -k`), or `--app`. It still requires `codesign --verify --deep --strict`, a Team ID (and no team change versus the installed copy), and a bundle-id match; it skips only `spctl` and `stapler`, runs `xattr -dr com.apple.quarantine` on the newly installed bundle only, prints `DEV BUILD (not notarized)`, and adds `dev: true` to every JSON event. Quit-by-signal, Trash move, `ditto`, and `open -g -j` relaunch are unchanged. Without `--dev`, only `--dmg` is accepted.
+- SwiftPM/macOS: new opt-in `targets.mac.notarize.appBeforePackage: true` notarizes and staples the `.app` (receipt `macos-app-notarization.json`) right after signing and before the package step builds the DMG, so a copied-out app passes offline `stapler validate`; the DMG is then notarized and stapled as before. `notarize.file` is unchanged (no breaking config change); new helper `notarizeAppBundle` in `macos-notarization.mjs`.
+- Every `hdiutil detach` (DMG build, install-app) retries "Resource busy" 5 times with 0.5s to 4s backoff, logging each retry, and uses `-force` only as the last resort (`hdiutil-detach.mjs`).
+- Clean-tree gates (`assertCleanSource`, committed-checkout ownership check) ignore right-release's own untracked files in the `.right-release/locks/` directory (every platform), so repos that do not ignore `.right-release/` no longer fail preflight. Nothing else in the vault is exempt.
+- `install-app --dmg`: when the app has no stapled ticket (standard Tauri flow staples only the DMG), accept it if `stapler validate` passes on the DMG, `spctl -a -t open --context context:primary-signature` accepts the DMG, and `spctl -a -t exec -vv` reports the mounted app as Notarized Developer ID (may go online). codesign --deep --strict, Team ID continuity and bundle-id checks are unchanged. The JSON `verified` event records `ticket: "app-ticket" | "dmg-ticket"`.
+- Docs: SwiftPM builds use `right-release build --platform mac|win`; `release --tier patch --no-upload` is rejected because build is tier-neutral (tier is chosen only at `upload`). README and the `release.mjs` usage text corrected.
+
 ## 0.2.139
 
 - GitHub Actions runners without a RightKit runtime use the toolchain's cargo for Cargo metadata on macOS; agent hosts still never fall back. Fixes macOS release-candidate signing ("installed RightKit runtime client is unavailable") since 0.2.136.

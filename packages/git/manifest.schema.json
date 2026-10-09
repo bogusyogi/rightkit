@@ -133,6 +133,24 @@
       "default": false,
       "description": "rust-hybrid only. When true, the ci job runs the gate on every matrix.os runner in declared order (fail-fast: false). When false or unset, the ci job uses one runner (preferring the first windows-* entry, else the first matrix.os entry)."
     },
+    "ciIncremental": {
+      "type": "boolean",
+      "default": false,
+      "description": "rust-hybrid only. When true, the ci job uses Swatinem/rust-cache with cache-workspace-crates, CARGO_INCREMENTAL=1, and caches Xcode DerivedData on macOS legs."
+    },
+    "devArtifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "rust-hybrid only. Dev builds on push to the default branch (never PRs). mac 'sign' Developer ID-signs (no notarization) in a separate job using the release environment; windows 'unsigned' uploads built files as-is.",
+      "properties": {
+        "mac": { "enum": ["sign", "none"] },
+        "windows": { "enum": ["unsigned", "none"] },
+        "retentionDays": { "type": "integer", "minimum": 1, "maximum": 90, "default": 7 },
+        "macAppPath": { "type": "string", "pattern": "^(?!.*\\.\\.)[A-Za-z0-9][A-Za-z0-9._/ -]*\\.app$", "description": "Repository-relative path of the built .app (required when mac is 'sign')." },
+        "macEntitlements": { "type": "string", "pattern": "^(?!.*\\.\\.)(?!.*\\s)[A-Za-z0-9][A-Za-z0-9._/-]*$", "description": "Optional repository-relative entitlements plist for codesign." },
+        "windowsGlob": { "type": "string", "pattern": "^(?!.*\\.\\.)[A-Za-z0-9][A-Za-z0-9._/*?-]*$", "description": "Repository-relative glob of built files to upload (required when windows is 'unsigned')." }
+      }
+    },
     "candidate": {
       "type": "object",
       "required": ["buildScript", "checkScript", "admissionScript", "stageSummaryScript", "artifactRoot", "os"],

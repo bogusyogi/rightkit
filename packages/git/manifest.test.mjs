@@ -418,3 +418,42 @@ test("ciAllOs is an optional boolean, rust-hybrid only", () => {
   assert.equal(validateManifest({ ...VALID_MINIMAL, ciAllOs: true }).valid, false, "node profile rejects ciAllOs true");
   assert.equal(validateManifest({ ...VALID_MINIMAL, ciAllOs: false }).valid, true, "false is accepted for any profile");
 });
+
+test("ciIncremental is an optional boolean, rust-hybrid only", () => {
+  const valid = { ...VALID_MINIMAL, profile: "rust-hybrid", lanes: ["ci"], gate: { path: "scripts/gate.sh" } };
+  assert.equal(validateManifest({ ...valid, ciIncremental: true }).valid, true);
+  assert.equal(validateManifest({ ...valid, ciIncremental: false }).valid, true);
+  assert.equal(validateManifest({ ...valid, ciIncremental: "yes" }).valid, false);
+  assert.equal(validateManifest({ ...VALID_MINIMAL, ciIncremental: true }).valid, false);
+});
+
+test("devArtifact validates keys, paths, and runner coverage", () => {
+  const base = {
+    ...VALID_MINIMAL,
+    profile: "rust-hybrid",
+    lanes: ["ci"],
+    gate: { path: "scripts/gate.sh" },
+    matrix: { os: ["xcode-27", "windows-2025"], node: ["26.8.1"] },
+    ciAllOs: true,
+  };
+  const full = { mac: "sign", windows: "unsigned", macAppPath: "target/release/bundle/macos/Pulse.app", windowsGlob: "target/release/*.exe", retentionDays: 7 };
+  assert.equal(validateManifest({ ...base, devArtifact: full }).valid, true);
+  assert.equal(validateManifest({ ...base, devArtifact: { windows: "unsigned", windowsGlob: "dist/*.exe" } }).valid, true);
+
+  const bad = (devArtifact, manifest = base) => validateManifest({ ...manifest, devArtifact }).valid;
+  assert.equal(bad({ mac: "none", windows: "none" }), false, "needs at least one active target");
+  assert.equal(bad({ ...full, macAppPath: undefined }), false, "mac sign needs macAppPath");
+  assert.equal(bad({ ...full, windowsGlob: undefined }), false, "windows needs windowsGlob");
+  assert.equal(bad({ ...full, macAppPath: "../Pulse.app" }), false);
+  assert.equal(bad({ ...full, macAppPath: "target/Pulse" }), false, "must end in .app");
+  assert.equal(bad({ ...full, macAppPath: "a;b.app" }), false);
+  assert.equal(bad({ ...full, windowsGlob: "${{ x }}" }), false);
+  assert.equal(bad({ ...full, retentionDays: 0 }), false);
+  assert.equal(bad({ ...full, retentionDays: 91 }), false);
+  assert.equal(bad({ ...full, mac: "notarize" }), false);
+  assert.equal(bad({ ...full, extra: 1 }), false);
+  assert.equal(bad({ windows: "unsigned", windowsGlob: "a/*.exe", macAppPath: "x.app" }), false, "macAppPath requires mac sign");
+  assert.equal(bad(full, { ...base, ciAllOs: false }), false, "single windows runner cannot build the mac app");
+  assert.equal(bad(full, { ...VALID_MINIMAL, devArtifact: full }), false);
+  assert.equal(validateManifest({ ...VALID_MINIMAL, devArtifact: full }).valid, false, "node profile rejects devArtifact");
+});

@@ -62,6 +62,8 @@ const TOP_LEVEL_KEYS = new Set([
   "qaEvidencePath",
   "qaEvidenceRetentionDays",
   "ciAllOs",
+  "ciIncremental",
+  "devArtifact",
   "candidate",
   "ownership",
 ]);
@@ -196,6 +198,17 @@ export function validateManifest(manifest) {
       errors.push("ciAllOs is only valid for profile 'rust-hybrid'");
     }
   }
+
+  // ciIncremental (rust-hybrid ci only): opt-in incremental Rust + DerivedData caching.
+  if (manifest.ciIncremental !== undefined) {
+    if (typeof manifest.ciIncremental !== "boolean") {
+      errors.push("ciIncremental must be a boolean");
+    } else if (manifest.ciIncremental === true && profile !== "rust-hybrid") {
+      errors.push("ciIncremental is only valid for profile 'rust-hybrid'");
+    }
+  }
+
+  validateDevArtifact(manifest, profile, errors);
 
   const rustCache = manifest.rustCache;
   if (rustCache !== undefined) {
@@ -534,6 +547,208 @@ const WINDOWS_SDK_BUILD_TOOLS_SHA256 = "180DEB372659029864C10A0C04787833234D64AA
 function releaseEnvironment(manifest, role) {
 	const configured = manifest?.candidate?.releaseChain?.environments?.[role];
 	return typeof configured === "string" && configured.length > 0 ? configured : "release";
+}
+
+// Dev artifacts (rust-hybrid ci only): fast, non-release builds on push to the default branch.
+const DEV_ARTIFACT_DEFAULT_RETENTION_DAYS = 7;
+const DEV_ARTIFACT_MAX_RETENTION_DAYS = 90;
+const DEV_MAC_PATH_RE = /^(?!.*\.\.)[A-Za-z0-9][A-Za-z0-9._/ -]*$/;
+const DEV_WINDOWS_GLOB_RE = /^(?!.*\.\.)[A-Za-z0-9][A-Za-z0-9._/*?-]*$/;
+const CACHE_ACTION_PIN = "actions/cache@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4";
+
+function effectiveCiRunners(manifest) {
+  const os = manifest.matrix?.os;
+  if (!Array.isArray(os) || os.length === 0) return [];
+  if (manifest.ciAllOs === true) return os;
+  return [os.find((runner) => typeof runner === "string" && runner.startsWith("windows-")) ?? os[0]];
+}
+
+function validateDevArtifact(manifest, profile, errors) {
+  const dev = manifest.devArtifact;
+  if (dev === undefined) return;
+  if (profile !== "rust-hybrid") {
+    errors.push("devArtifact is only valid for profile 'rust-hybrid'");
+    return;
+  }
+  if (dev === null || typeof dev !== "object" || Array.isArray(dev)) {
+    errors.push("devArtifact must be an object");
+    return;
+  }
+  for (const key of Object.keys(dev)) {
+    if (!["mac", "windows", "retentionDays", "macAppPath", "macEntitlements", "windowsGlob"].includes(key)) errors.push(`unknown devArtifact field: ${key}`);
+  }
+  if (dev.mac !== undefined && dev.mac !== "sign" && dev.mac !== "none") errors.push("devArtifact.mac must be 'sign' or 'none'");
+  if (dev.windows !== undefined && dev.windows !== "unsigned" && dev.windows !== "none") errors.push("devArtifact.windows must be 'unsigned' or 'none'");
+  if (dev.mac !== "sign" && dev.windows !== "unsigned") errors.push("devArtifact requires mac 'sign' and/or windows 'unsigned'");
+  if (dev.retentionDays !== undefined && (!Number.isInteger(dev.retentionDays) || dev.retentionDays < 1 || dev.retentionDays > DEV_ARTIFACT_MAX_RETENTION_DAYS)) {
+    errors.push(`devArtifact.retentionDays must be an integer from 1 to ${DEV_ARTIFACT_MAX_RETENTION_DAYS}`);
+  }
+  const runners = effectiveCiRunners(manifest).filter((runner) => typeof runner === "string");
+  if (dev.mac === "sign") {
+    if (typeof dev.macAppPath !== "string" || !DEV_MAC_PATH_RE.test(dev.macAppPath) || !dev.macAppPath.endsWith(".app")) {
+      errors.push("devArtifact.macAppPath must be a safe repository-relative path ending in .app when mac is 'sign'");
+    }
+    if (dev.macEntitlements !== undefined && (typeof dev.macEntitlements !== "string" || !GATE_PATH_RE.test(dev.macEntitlements))) {
+      errors.push("devArtifact.macEntitlements must be a safe repository-relative path");
+    }
+    if (!runners.some((runner) => MACOS_RUNNER_RE.test(runner))) {
+      errors.push("devArtifact.mac 'sign' needs the ci gate to run on a macOS runner (set ciAllOs and include a macos-* or xcode-* runner in matrix.os)");
+    }
+  } else if (dev.macAppPath !== undefined || dev.macEntitlements !== undefined) {
+    errors.push("devArtifact.macAppPath and macEntitlements require mac 'sign'");
+  }
+  if (dev.windows === "unsigned") {
+    if (typeof dev.windowsGlob !== "string" || !DEV_WINDOWS_GLOB_RE.test(dev.windowsGlob)) {
+      errors.push("devArtifact.windowsGlob must be a safe repository-relative glob when windows is 'unsigned'");
+    }
+    if (!runners.some((runner) => /^windows-/i.test(runner))) {
+      errors.push("devArtifact.windows 'unsigned' needs the ci gate to run on a windows-* runner");
+    }
+  } else if (dev.windowsGlob !== undefined) {
+    errors.push("devArtifact.windowsGlob requires windows 'unsigned'");
+  }
+}
+
+const DEV_PUSH_CONDITION = "github.event_name == 'push' && github.ref_name == github.event.repository.default_branch";
+
+/** ciIncremental: Xcode DerivedData cache step (leading newline; "" when unset). */
+function derivedDataStep(manifest) {
+  if (manifest.ciIncremental !== true) return "";
+  return [
+    "",
+    "      - name: Cache Xcode DerivedData",
+    "        if: ${{ runner.os == 'macOS' }}",
+    `        uses: ${CACHE_ACTION_PIN}`,
+    "        with:",
+    "          path: ~/Library/Developer/Xcode/DerivedData",
+    "          key: ${{ runner.os }}-${{ matrix.os }}-deriveddata-${{ hashFiles('**/Cargo.lock', '**/Package.resolved', '**/*.xcodeproj/project.pbxproj') }}",
+    "          restore-keys: |",
+    "            ${{ runner.os }}-${{ matrix.os }}-deriveddata-",
+  ].join("\n");
+}
+
+/**
+ * Dev artifact steps appended to the ci job (unsigned, no secrets) plus the
+ * separate signing job. Returns "" when devArtifact is unset.
+ */
+export function devArtifactCi(manifest) {
+  const dev = manifest.devArtifact;
+  if (dev === undefined) return "";
+  const retention = dev.retentionDays ?? DEV_ARTIFACT_DEFAULT_RETENTION_DAYS;
+  const parts = [];
+  if (dev.windows === "unsigned") {
+    parts.push([
+      "      - name: Upload unsigned dev build (Windows)",
+      `        if: \${{ ${DEV_PUSH_CONDITION} && runner.os == 'Windows' }}`,
+      `        uses: ${UPLOAD_ARTIFACT_PIN}`,
+      "        with:",
+      "          name: dev-windows-${{ github.sha }}",
+      `          path: ${dev.windowsGlob}`,
+      `          retention-days: ${retention}`,
+      "          if-no-files-found: error",
+      "",
+    ].join("\n"));
+  }
+  if (dev.mac === "sign") {
+    parts.push([
+      "      - name: Package unsigned dev app (macOS)",
+      `        if: \${{ ${DEV_PUSH_CONDITION} && runner.os == 'macOS' }}`,
+      "        shell: bash",
+      "        env:",
+      `          DEV_APP_PATH: ${JSON.stringify(dev.macAppPath)}`,
+      "        run: |",
+      "          set -euo pipefail",
+      "          test -d \"$DEV_APP_PATH\"",
+      "          mkdir -p \"$RUNNER_TEMP/dev-unsigned\"",
+      "          ditto -c -k --keepParent \"$DEV_APP_PATH\" \"$RUNNER_TEMP/dev-unsigned/app.zip\"",
+      "      - name: Upload unsigned dev app for signing (macOS)",
+      `        if: \${{ ${DEV_PUSH_CONDITION} && runner.os == 'macOS' }}`,
+      `        uses: ${UPLOAD_ARTIFACT_PIN}`,
+      "        with:",
+      "          name: dev-unsigned-mac-${{ github.sha }}",
+      "          path: ${{ runner.temp }}/dev-unsigned/app.zip",
+      "          retention-days: 1",
+      "          if-no-files-found: error",
+      "",
+    ].join("\n"));
+  }
+  let text = parts.join("");
+  if (dev.mac === "sign") text += devMacSigningJob(manifest, dev, retention);
+  return text;
+}
+
+function devMacSigningJob(manifest, dev, retention) {
+  const runner = effectiveCiRunners(manifest).find((os) => MACOS_RUNNER_RE.test(os));
+  const entitlements = dev.macEntitlements ? ` --entitlements "$GITHUB_WORKSPACE/${dev.macEntitlements}"` : "";
+  const checkout = dev.macEntitlements
+    ? `      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: \${{ github.sha }}
+          persist-credentials: false
+`
+    : "";
+  return `
+  dev-mac-sign:
+    # Push to the default branch only. The release environment's protection
+    # rules (required reviewers, branch policy) apply to this job.
+    needs: [ci]
+    if: \${{ ${DEV_PUSH_CONDITION} }}
+    environment: ${releaseEnvironment(manifest, "signing")}
+    runs-on: ${runner}
+    permissions:
+      contents: read
+    steps:
+${checkout}      - name: Download unsigned dev app
+        uses: actions/download-artifact@${DOWNLOAD_ARTIFACT_SHA} # v4.3.0
+        with:
+          name: dev-unsigned-mac-\${{ github.sha }}
+          path: \${{ runner.temp }}/dev-unsigned
+      - name: Install Apple signing identity in temporary keychain
+        shell: bash
+        env:
+          APPLE_CERTIFICATE_BASE64: \${{ secrets.APPLE_CERTIFICATE_BASE64 }}
+          APPLE_CERTIFICATE_PASSWORD: \${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_KEYCHAIN_PASSWORD: \${{ secrets.APPLE_KEYCHAIN_PASSWORD }}
+        run: |
+          set -euo pipefail
+          certificate_path="$RUNNER_TEMP/apple-signing.p12"
+          keychain_path="$RUNNER_TEMP/apple-signing.keychain-db"
+          printf '%s' "$APPLE_CERTIFICATE_BASE64" | base64 --decode > "$certificate_path"
+          security create-keychain -p "$APPLE_KEYCHAIN_PASSWORD" "$keychain_path"
+          security set-keychain-settings -lut 21600 "$keychain_path"
+          security unlock-keychain -p "$APPLE_KEYCHAIN_PASSWORD" "$keychain_path"
+          security import "$certificate_path" -P "$APPLE_CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k "$keychain_path"
+          security set-key-partition-list -S apple-tool:,apple: -k "$APPLE_KEYCHAIN_PASSWORD" "$keychain_path"
+          security list-keychain -d user -s "$keychain_path"
+      - name: Developer ID sign dev app (no notarization)
+        shell: bash
+        env:
+          APPLE_DEVELOPER_ID: \${{ vars.APPLE_DEVELOPER_ID }}
+        run: |
+          set -euo pipefail
+          work="$RUNNER_TEMP/dev-sign"
+          rm -rf "$work" && mkdir -p "$work"
+          ditto -x -k "$RUNNER_TEMP/dev-unsigned/app.zip" "$work"
+          app="$(find "$work" -maxdepth 1 -name '*.app' -print -quit)"
+          test -n "$app"
+          codesign --force --deep --strict --options runtime --timestamp${entitlements} --sign "$APPLE_DEVELOPER_ID" "$app"
+          codesign --verify --deep --strict "$app"
+          mkdir -p "$RUNNER_TEMP/dev-signed"
+          ditto -c -k --keepParent "$app" "$RUNNER_TEMP/dev-signed/$(basename "$app").zip"
+      - name: Upload signed (not notarized) dev app
+        uses: ${UPLOAD_ARTIFACT_PIN}
+        with:
+          name: dev-mac-\${{ github.sha }}
+          path: \${{ runner.temp }}/dev-signed/*.zip
+          retention-days: ${retention}
+          if-no-files-found: error
+      - name: Remove Apple signing material
+        if: \${{ always() }}
+        shell: bash
+        run: |
+          security delete-keychain "$RUNNER_TEMP/apple-signing.keychain-db" 2>/dev/null || true
+          rm -f "$RUNNER_TEMP/apple-signing.p12"
+`;
 }
 
 function windowsSigningJob(manifest, pm, artifactPrefix) {
@@ -1102,7 +1317,10 @@ export function buildRenderContext(manifest, repoPath, lane = "ci") {
     MACOS_SIGNING_JOB: macosSigningJob(manifest, pm, artifactPrefix),
     RELEASE_CHAIN_JOBS: releaseChainJobs(manifest, pm, artifactPrefix),
     OWNERSHIP_STEP: ownershipStep(manifest, lane),
-    QA_EVIDENCE_STEP: qaEvidenceStep(manifest),
+    QA_EVIDENCE_STEP: qaEvidenceStep(manifest) + devArtifactCi(manifest),
+    CI_CACHE_WORKSPACE_CRATES: manifest.ciIncremental === true ? "true" : "false",
+    CI_CARGO_INCREMENTAL: manifest.ciIncremental === true ? "1" : "0",
+    CI_DERIVED_DATA_STEP: derivedDataStep(manifest),
   };
 
   // Every key below is populated ONLY when its source manifest section is
