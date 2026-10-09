@@ -1,4 +1,4 @@
-import { spawn as nodeSpawn } from 'node:child_process';
+import { spawn as nodeSpawn } from './background-process.mjs';
 import { existsSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
