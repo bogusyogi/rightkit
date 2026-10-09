@@ -274,6 +274,35 @@ test("macOS portable contract signs exact pre-package files then notarizes decla
   assert.match(result.stdout, /notarize-macos\.mjs/);
 });
 
+function swiftMacFixture(targetExtra) {
+  const config = fixture({ platform: "mac", macSigning: true });
+  const dir = path.dirname(config);
+  writeFileSync(path.join(dir, "Package.swift"), "// swift-tools-version:5.9\n");
+  const body = readFileSync(config, "utf8");
+  const parsed = JSON.parse(body.slice("export default ".length, body.lastIndexOf(";")));
+  const mac = parsed.targets.mac;
+  parsed.targets.mac = { ...mac, projectType: "swiftpm", package: undefined, notarize: { app: "dist/App.app", file: "dist/App.dmg", appBeforePackage: true }, ...targetExtra };
+  writeFileSync(config, `export default ${JSON.stringify(parsed)};\n`);
+  git(dir, "add", ".");
+  git(dir, "commit", "-m", "swift");
+  return config;
+}
+
+test("swiftpm mac with appBeforePackage dry-run builds the DMG after app notarization and before DMG notarization", () => {
+  const result = run(swiftMacFixture({}), "--platform", "mac", "--dry-run");
+  assert.equal(result.status, 0, result.stderr + result.stdout);
+  const appAt = result.stdout.indexOf("notarize app");
+  const dmgAt = result.stdout.indexOf("build DMG");
+  const archiveAt = result.stdout.indexOf("notarizing macOS archive");
+  assert.ok(appAt >= 0 && dmgAt > appAt && archiveAt > dmgAt, result.stdout);
+});
+
+test("swiftpm mac preflight rejects a prePackage that builds the DMG with appBeforePackage on", () => {
+  const result = run(swiftMacFixture({ prePackage: { cmd: "node", args: ["make-dmg.mjs"] } }), "--platform", "mac", "--dry-run");
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /prePackage builds a DMG/);
+});
+
 test("macOS portable contract rejects missing signing or notarization declarations", () => {
   const result = run(fixture({ platform: "mac" }), "--platform", "mac", "--tier=patch", "--dry-run");
   assert.notEqual(result.status, 0);
