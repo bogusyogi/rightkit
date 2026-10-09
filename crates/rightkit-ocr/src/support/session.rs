@@ -47,7 +47,9 @@ pub(crate) fn build_session(path: &Path) -> Result<(Session, Vec<ProviderDiagnos
 fn build_directml_session(path: &Path) -> Result<Session, String> {
     Session::builder()
         .map_err(|e| e.to_string())?
-        .with_execution_providers([ort::ep::DirectML::default().build().error_on_failure()])
+        .with_execution_providers([rightkit_ort::ort::ep::DirectML::default()
+            .build()
+            .error_on_failure()])
         .map_err(|e| e.to_string())?
         .with_parallel_execution(false)
         .map_err(|e| e.to_string())?
