@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.4
+
+- Internal: rename a private helper to satisfy clippy `wrong_self_convention` (no API change).
+
 ## 0.2.3
 
 - Add `AsyncClient::stream_any`: streaming request returning any final status

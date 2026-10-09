@@ -123,7 +123,7 @@ impl AsyncClient {
             .unwrap_or_default();
             return Err(status_error(raw.status, &raw.headers, body, raw.attempts));
         }
-        Ok(self.into_stream_response(raw))
+        Ok(self.stream_response_from(raw))
     }
 
     /// Streaming request returning any final status with its streaming body
@@ -133,10 +133,10 @@ impl AsyncClient {
     /// Dropping the returned stream or this future cancels the request.
     pub async fn stream_any(&self, req: &Request) -> Result<AsyncStreamResponse, HttpError> {
         let raw = self.execute(req, self.config.stream_timeout).await?;
-        Ok(self.into_stream_response(raw))
+        Ok(self.stream_response_from(raw))
     }
 
-    fn into_stream_response(&self, raw: Raw) -> AsyncStreamResponse {
+    fn stream_response_from(&self, raw: Raw) -> AsyncStreamResponse {
         let deadline = self.body_deadline(raw.deadline);
         AsyncStreamResponse {
             status: raw.status,
