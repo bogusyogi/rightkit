@@ -119,7 +119,10 @@ fn start_http(secret: &str) -> HttpChild {
         if let Some(url) = line.trim().strip_prefix("LISTENING ") {
             break url.to_string();
         }
-        assert!(n > 0 && seen.len() < 20, "no announce line; example printed: {seen:?}");
+        assert!(
+            n > 0 && seen.len() < 20,
+            "no announce line; example printed: {seen:?}"
+        );
         seen.push(line);
     };
     HttpChild(child, url)
