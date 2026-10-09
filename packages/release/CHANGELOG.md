@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Add project-type-aware preflight (`project-type.mjs`): SwiftPM targets need `swift`, not cargo/rustc; `makeappx`/`signtool` are required only for msix targets. Add the `windows-msix-signed-v1` contract and `targets.win.msix` schema (`msix-config.mjs`, `msix-target.mjs`, `msix-plan.mjs`): explicit virtualization settings, runtime-DLL inventory verification, signer/Publisher match, msix seal record, and `updater.kind: "appinstaller"` (`msix-appinstaller.mjs`) with sealing and `publish-update` support. Tauri updater remains the default.
+
 ## 0.2.138
 
 - Hosts without a protected ownership trust location (Linux CI admission runners) load trust as pending and absent instead of failing, so `ownership --advisory-when-pending` reports diagnostics and exits 0 there.

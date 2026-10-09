@@ -144,7 +144,7 @@ test("sealing resolves installer and updater artifacts against the broker target
   assert.match(source, /addSource\(resolveArtifactPath\(artifact\.file\), "updater"\)/);
   assert.match(source, /addSource\(resolveArtifactPath\(artifact\.signature\), "updater-signature"\)/);
   assert.match(source, /const source = resolveArtifactPath\(artifact\.file\);/);
-  assert.match(source, /const signatureSource = resolveArtifactPath\(artifact\.signature\);/);
+  assert.match(source, /const signatureSource = target\.updater\?\.kind === \"appinstaller\" \? null : resolveArtifactPath\(artifact\.signature\);/);
 });
 
 test("production builds never create or use an internal Git worktree", () => {
@@ -241,7 +241,7 @@ test("CPU sampling degrades to the old behaviour rather than inventing a verdict
 });
 
 test("package liveness owner timeout floors outer watchdog through shared release limits", () => {
-  assert.match(source, /livenessOwnerTimeoutMs: target\.package\.livenessOwnerTimeoutMs \?\? null/);
+  assert.match(source, /livenessOwnerTimeoutMs: target\.package\?\.livenessOwnerTimeoutMs \?\? null/);
   assert.match(source, /releaseProgressLimits\(env, \{ livenessOwnerTimeoutMs \}\)/);
 });
 
@@ -258,7 +258,7 @@ test("managed-host gate fires from the managed shim on PATH when no broker socke
   // so there is exactly one definition of "is this a broker-managed host" in the codebase.
   assert.match(
     source,
-    /const managedCargoTarget = brokerManagedHost\(process\.env\) \? resolveTargetRoot\(cargoToml\) : null;/,
+    /const managedCargoTarget = swiftPlan \? swiftPlan\.managedCargoTarget : brokerManagedHost\(process\.env\) \? resolveTargetRoot\(cargoToml\) : null;/,
   );
   assert.match(source, /import \{ brokerManagedHost \} from "\.\/cargo-contract\.mjs";/);
   assert.match(source, /import \{ resolveTargetRoot \} from "\.\/cargo-target\.mjs";/);

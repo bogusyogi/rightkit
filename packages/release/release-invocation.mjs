@@ -1,4 +1,5 @@
 import { spawnSync } from "./background-process.mjs";
+import { resolveProjectType } from "./project-type.mjs";
 import { existsSync, readFileSync, realpathSync } from "node:fs";
 import path from "node:path";
 import { resolveNativeCargoLayout } from "./native-cargo-layout.mjs";
@@ -128,18 +129,19 @@ export function resolveConfiguredBuildInputs(config, target, label = "release co
 }
 
 export function resolveReleaseBuildInputs({ repoRoot, appRoot, configPath, config, target, env = process.env }) {
+  const swift = resolveProjectType({ appRoot, config, target }) === "swiftpm";
   const nativeLayout = resolveNativeCargoLayout({
     appRoot,
     config,
-    requireManifest: true,
-    requireLock: true,
+    requireManifest: !swift,
+    requireLock: !swift,
   });
   const requiredInputs = [
     configPath,
-    path.join(appRoot, "package.json"),
-    path.join(appRoot, "pnpm-lock.yaml"),
-    nativeLayout.manifestPath,
-    nativeLayout.lockPath,
+    ...(swift
+      // SwiftPM: Package.swift is required; Package.resolved and the Node manifests only when they exist.
+      ? [path.join(appRoot, "Package.swift"), ...["Package.resolved", "package.json", "pnpm-lock.yaml"].map((f) => path.join(appRoot, f)).filter((f) => existsSync(f))]
+      : [path.join(appRoot, "package.json"), path.join(appRoot, "pnpm-lock.yaml"), nativeLayout.manifestPath, nativeLayout.lockPath]),
     ...(target?.preflight?.files ?? []).map((file) => path.resolve(appRoot, expandEnv(file, env))),
   ].filter((file, index, files) => files.indexOf(file) === index);
   for (const file of requiredInputs) {

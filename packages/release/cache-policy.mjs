@@ -518,3 +518,17 @@ function isAbsoluteForPlatform(value) { return isWindowsAbsolute(value) || path.
 function resolveForPlatform(value) { return isWindowsAbsolute(value) ? path.win32.resolve(value) : path.posix.resolve(value); }
 function readRustcVerbose() { const result = spawnSync("rustc", ["-vV"], { encoding: "utf8", windowsHide: true }); if (result.status !== 0) throw new Error(`rustc -vV failed: ${(result.stderr || result.error?.message || `exit ${result.status}`).trim()}`); return result.stdout.trim(); }
 function cargoNativeFeatures(cargoTomlPath) { if (!cargoTomlPath || !existsSync(cargoTomlPath)) return []; return [...readFileSync(cargoTomlPath, "utf8").matchAll(/features\s*=\s*\[([^\]]+)\]/g)].flatMap((match) => match[1].match(/"([^"]+)"/g) ?? []).map((value) => value.slice(1, -1)).filter((value) => /sqlcipher|openssl/i.test(value)); }
+
+/**
+ * SwiftPM counterpart of resolveSharedCacheIdentity: identity is the Swift toolchain, Package.resolved
+ * (dependency pins; absent for dependency-free packages), target architecture and profile. No Rust inputs.
+ */
+export function resolveSwiftCacheIdentity({ swiftVersion, packageResolvedPath, architecture, profile = "release" } = {}) {
+  if (!swiftVersion || !String(swiftVersion).trim()) throw new Error("swift --version did not report a toolchain");
+  if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(architecture ?? "")) throw new Error("invalid Swift target architecture");
+  const resolved = packageResolvedPath && existsSync(packageResolvedPath) ? readFileSync(packageResolvedPath, "utf8").replace(/\r\n?/g, "\n") : null;
+  const packageResolvedSha256 = resolved === null ? "none" : sha256(resolved);
+  const swift = String(swiftVersion).trim();
+  return { projectType: "swiftpm", packageResolvedSha256, swift, target: architecture, architecture, profile, features: [],
+    fingerprint: sha256(JSON.stringify({ projectType: "swiftpm", packageResolvedSha256, swift, architecture, profile })).slice(0, 16) };
+}

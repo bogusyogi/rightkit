@@ -136,13 +136,13 @@ test("buildMsix signs PE files, packs, signs the package, then verifies — in t
   const logs = [];
   assert.throws(() => buildMsix({ stageDir: path.join(root, "stage"), out, manifest: identity, assets }, { platform: "darwin", log: () => {} }), { code: "MSIX_NATIVE_HOST_REQUIRED" });
   const result = buildMsix({ stageDir: path.join(root, "stage"), out, manifest: identity, assets },
-    { platform: "win32", run, findTool: () => ({ toolPath: "C:\\sdk\\makeappx.exe" }), env: {}, log: (e) => logs.push(e) });
+    { platform: "win32", run, findTool: () => ({ toolPath: "C:\\sdk\\makeappx.exe" }), env: {}, log: (e) => logs.push(e), readSubject: () => identity.publisher });
   assert.equal(result.signed, true);
   const kinds = calls.map((c) => (c[0] === "makeappx.exe" ? "pack" : c.includes("--verify-only") ? "verify" : c[1] === "sign-windows.mjs" && c.includes("App.msix") ? "sign-msix" : "sign-pe"));
   assert.deepEqual(kinds, ["sign-pe", "pack", "sign-msix", "verify"]);
   assert.ok(calls[1].includes("pack") && calls[1].includes("/o"));
   const dry = buildMsix({ stageDir: "x", out, manifest: identity, assets, dryRun: true }, { log: () => {} });
-  assert.deepEqual(dry.steps, ["assemble", "sign-pe", "pack", "sign-msix", "verify-msix"]);
+  assert.deepEqual(dry.steps, ["assemble", "verify-inventory", "sign-pe", "pack", "sign-msix", "verify-msix", "verify-publisher", "seal"]);
   rmSync(root, { recursive: true });
 });
 

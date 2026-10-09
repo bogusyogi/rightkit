@@ -23,6 +23,7 @@ import path from "node:path";
 import { spawnSync } from "./background-process.mjs";
 import { brokerManagedHost } from "./cargo-contract.mjs";
 import { createOwnershipEvidence } from "./ownership-evidence.mjs";
+import { isSwiftProject } from "./project-type.mjs";
 
 export const PREFLIGHT_OK = "ok";
 export const PREFLIGHT_WARN = "warn";
@@ -179,11 +180,24 @@ export function collectPreflight({
   isBrokerManagedHost = brokerManagedHost,
   ownership = true,
   ownershipEvidenceFactory = createOwnershipEvidence,
+  projectType,
+  msix = false,
+  findSdkTool = findWindowsSdkTool,
 } = {}) {
   const checks = [];
   const windows = platform === "win" || platform === "win32";
+  const swift = isSwiftProject(projectType);
 
-  if (appRoot) {
+  if (swift) {
+    const swiftVersion = versionProbe("swift");
+    checks.push(
+      swiftVersion
+        ? ok("swift", swiftVersion)
+        : fail("swift", "swift was not found on PATH; SwiftPM apps build with the Swift toolchain", "install the pinned Swift toolchain (swift.org / Swift on Windows) and verify: swift --version"),
+    );
+  }
+
+  if (appRoot && !swift) {
     const target = targetLink ?? nativeLayout?.targetLink ?? path.join(appRoot, "src-tauri", "target");
     const targetLabel = nativeLayout?.targetPrefix || "src-tauri/target/";
     let entry = null;
@@ -225,29 +239,27 @@ export function collectPreflight({
   }
 
   if (windows) {
-    const makeappx = findWindowsSdkTool("makeappx.exe");
-    checks.push(
-      makeappx
-        ? ok("windows-sdk", `makeappx.exe from SDK ${makeappx.version}`)
-        : fail(
-            "windows-sdk",
-            "no makeappx.exe found under any installed Windows 10/11 SDK",
-            "install the Windows SDK, or set MAKEAPPX_PATH to an explicit makeappx.exe",
-          ),
-    );
+    // makeappx/signtool are MSIX requirements; NSIS/portable targets sign through sign-windows.
+    if (msix) {
+      const makeappx = process.env.MAKEAPPX_PATH ? { version: "MAKEAPPX_PATH" } : findSdkTool("makeappx.exe");
+      checks.push(
+        makeappx
+          ? ok("windows-sdk", `makeappx.exe from SDK ${makeappx.version}`)
+          : fail(
+              "windows-sdk",
+              "msix target configured but no makeappx.exe found under any installed Windows 10/11 SDK",
+              "install the Windows SDK, or set MAKEAPPX_PATH to an explicit makeappx.exe",
+            ),
+      );
+    }
 
-    const signtool = findWindowsSdkTool("signtool.exe");
-    checks.push(
-      signtool
-        ? ok("signtool", `signtool.exe from SDK ${signtool.version}`)
-        : warn(
-            "signtool",
-            "no signtool.exe found under any installed Windows SDK",
-            "install the Windows SDK Build Tools, or set AZURE_SIGNTOOL_PATH",
-          ),
-    );
+    const signtool = findSdkTool("signtool.exe");
+    const signtoolMissing = "install the Windows SDK Build Tools, or set AZURE_SIGNTOOL_PATH";
+    if (signtool) checks.push(ok("signtool", `signtool.exe from SDK ${signtool.version}`));
+    else if (msix) checks.push(fail("signtool", "msix target configured but no signtool.exe found under any installed Windows SDK", signtoolMissing));
+    else checks.push(warn("signtool", "no signtool.exe found under any installed Windows SDK", signtoolMissing));
 
-    const vendorsOpenssl = cargoLockPaths.some((lockPath) => graphVendorsOpenssl(lockPath));
+    const vendorsOpenssl = !swift && cargoLockPaths.some((lockPath) => graphVendorsOpenssl(lockPath));
     if (vendorsOpenssl) {
       const perl = resolveWindowsPerl({ env });
       checks.push(
@@ -262,7 +274,9 @@ export function collectPreflight({
     }
   }
 
-  if (isBrokerManagedHost(env)) {
+  if (swift) {
+    // No Rust compiler cache applies to SwiftPM targets.
+  } else if (isBrokerManagedHost(env)) {
     checks.push(ok("compiler-cache", "broker-managed; compiler-cache selection and status are recorded in build receipts"));
   } else {
     const sccache = versionProbe("sccache");

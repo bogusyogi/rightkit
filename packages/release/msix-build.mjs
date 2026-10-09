@@ -9,6 +9,9 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "./background-process.mjs";
 import { findWindowsSdkTool } from "./preflight.mjs";
+import { generateAppInstaller } from "./msix-appinstaller.mjs";
+import { assertPublisherMatchesSigner, planMsixSigning, verifyPayloadInventory } from "./msix-plan.mjs";
+import { createHash } from "node:crypto";
 
 const fail = (code, message) => Object.assign(new Error(message), { code });
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -33,17 +36,25 @@ export function generateAppxManifest(o) {
   validateMsixIdentity(o);
   const deps = (o.dependencies ?? []).filter((d) => d.minVersion).map((d) =>
     `    <PackageDependency Name="${xml(d.name)}" MinVersion="${xml(d.minVersion)}" Publisher="${xml(d.publisher ?? "CN=Microsoft Corporation, O=Microsoft Corporation, L=Redmond, S=Washington, C=US")}" />`);
-  const a = o.assets ?? {};
+  const v = o.virtualization;
+  for (const key of ["fileSystemWrite", "registryWrite"]) {
+    if (v?.[key] !== undefined && !["enabled", "disabled"].includes(v[key])) throw fail("MSIX_INVALID_IDENTITY", `virtualization.${key} must be "enabled" or "disabled"`);
+  }
+  const virt = v ? [["fileSystemWrite", "FileSystemWriteVirtualization"], ["registryWrite", "RegistryWriteVirtualization"]]
+    .filter(([k]) => v[k]).map(([k, el]) => `\n    <desktop6:${el}>${v[k]}</desktop6:${el}>`).join("") : "";
+  // Opting out of virtualization is a restricted capability.
+  const unvirtualized = v && (v.fileSystemWrite === "disabled" || v.registryWrite === "disabled") ? '\n    <rescap:Capability Name="unvirtualizedResources" />' : "";
   return `<?xml version="1.0" encoding="utf-8"?>
 <Package xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
          xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
          xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
+         xmlns:desktop6="http://schemas.microsoft.com/appx/manifest/desktop/windows10/6"
          IgnorableNamespaces="uap rescap">
   <Identity Name="${xml(o.name)}" Publisher="${xml(o.publisher)}" Version="${xml(o.version)}" ProcessorArchitecture="${o.architecture}" />
   <Properties>
     <DisplayName>${xml(o.displayName)}</DisplayName>
     <PublisherDisplayName>${xml(o.publisherDisplayName)}</PublisherDisplayName>
-    <Logo>Assets\\StoreLogo.png</Logo>
+    <Logo>Assets\\StoreLogo.png</Logo>${virt}
   </Properties>
   <Dependencies>
     <TargetDeviceFamily Name="Windows.Desktop" MinVersion="${xml(o.minWindowsVersion ?? "10.0.19041.0")}" MaxVersionTested="${xml(o.maxWindowsVersionTested ?? "10.0.26100.0")}" />
@@ -56,7 +67,7 @@ ${deps.join("\n")}${deps.length ? "\n" : ""}  </Dependencies>
     </Application>
   </Applications>
   <Capabilities>
-    <rescap:Capability Name="runFullTrust" />${(o.capabilities ?? []).map((c) => `\n    <Capability Name="${xml(c)}" />`).join("")}
+    <rescap:Capability Name="runFullTrust" />${unvirtualized}${(o.capabilities ?? []).map((c) => `\n    <Capability Name="${xml(c)}" />`).join("")}
   </Capabilities>
 </Package>
 `;
@@ -89,19 +100,30 @@ export function peFilesIn(root) {
   return readdirSync(root).filter((name) => /\.(exe|dll)$/i.test(name)).sort().map((name) => path.join(root, name));
 }
 
+const sha256 = (file) => createHash("sha256").update(readFileSync(file)).digest("hex");
+
+function readSignerSubject(file, run) {
+  const r = run("powershell", ["-NoProfile", "-Command", `(Get-AuthenticodeSignature -LiteralPath '${file.replace(/'/g, "''")}').SignerCertificate.Subject`], { encoding: "utf8", windowsHide: true });
+  return r.status === 0 ? String(r.stdout ?? "").trim() : "";
+}
+
 /**
- * Pack + sign. `run` is injectable for tests. Steps:
- *  1 sign every PE file in the root (raw bytes), 2 makeappx pack, 3 sign the .msix, 4 verify.
- * Windows-only unless dryRun.
+ * Pack + sign. `run` is injectable for tests. Ordered per planMsixSigning():
+ *  assemble, verify-inventory, sign-pe (DLLs then EXEs, raw bytes), pack, sign-msix, verify-msix,
+ *  verify-publisher, appinstaller, seal. Windows-only unless dryRun.
+ * options.runtime = { dlls, systemDlls, dependencies } (declared inventory, verified fail-closed);
+ * options.appInstaller = { uri, msixUri, out, ... } generates the update route after the package is signed.
  */
-export function buildMsix({ stageDir, out, workDir, manifest, assets, sign = true, dryRun = false, receiptDir },
-  { platform = process.platform, run = spawnSync, findTool = findWindowsSdkTool, env = process.env, log = (e) => console.error(JSON.stringify(e)) } = {}) {
+export function buildMsix({ stageDir, out, workDir, manifest, assets, runtime, appInstaller, sign = true, dryRun = false, receiptDir, peReceipt, msixReceipt },
+  { platform = process.platform, run = spawnSync, findTool = findWindowsSdkTool, env = process.env, log = (e) => console.error(JSON.stringify(e)), readSubject = (file) => readSignerSubject(file, run) } = {}) {
   out = path.resolve(out);
   if (!out.endsWith(".msix")) throw fail("MSIX_INVALID_OPTIONS", "out must end with .msix");
   validateMsixIdentity(manifest);
   workDir = path.resolve(workDir ?? `${out}.root`);
   const receipts = path.resolve(receiptDir ?? path.dirname(out));
-  const steps = ["assemble", ...(sign ? ["sign-pe"] : []), "pack", ...(sign ? ["sign-msix", "verify-msix"] : [])];
+  const planFor = (files) => planMsixSigning({ files, sign, appInstaller: Boolean(appInstaller) });
+  const staged = existsSync(path.resolve(stageDir)) ? readdirSync(path.resolve(stageDir)) : [];
+  const steps = planFor(staged.filter((n) => /\.(exe|dll)$/i.test(n))).map((p) => p.step);
   if (dryRun) { log({ event: "msix-dry-run", out, steps }); return { out, steps, dryRun: true }; }
   if (platform !== "win32") throw fail("MSIX_NATIVE_HOST_REQUIRED", "MSIX packing and signing must run on Windows");
   const makeappx = env.MAKEAPPX_PATH || findTool("makeappx.exe")?.toolPath;
@@ -113,16 +135,30 @@ export function buildMsix({ stageDir, out, workDir, manifest, assets, sign = tru
   };
   const signer = (files, receipt) => checked(process.execPath, [path.join(here, "sign-windows.mjs"), "--receipt", receipt, ...files]);
   const root = assembleMsixRoot({ stageDir, root: workDir, manifest, assets });
+  const inventory = runtime ? verifyPayloadInventory({ root, inventory: runtime, architecture: manifest.architecture }) : null;
   mkdirSync(receipts, { recursive: true });
-  if (sign) signer(peFilesIn(root), path.join(receipts, "msix-pe-sign.receipt.json"));
+  const ordered = planFor(readdirSync(root).filter((n) => /\.(exe|dll)$/i.test(n))).find((p) => p.step === "sign-pe")?.files ?? [];
+  if (sign) signer(ordered.map((f) => path.join(root, path.basename(f))), peReceipt ?? path.join(receipts, "msix-pe-sign.receipt.json"));
   mkdirSync(path.dirname(out), { recursive: true });
   rmSync(out, { force: true });
   checked(makeappx, ["pack", "/d", root, "/p", out, "/o"]);
   if (!existsSync(out) || statSync(out).size === 0) throw fail("MSIX_PACK_EMPTY", `makeappx produced no package: ${out}`);
   if (sign) {
-    signer([out], path.join(receipts, "msix-sign.receipt.json"));
+    signer([out], msixReceipt ?? path.join(receipts, "msix-sign.receipt.json"));
     checked(process.execPath, [path.join(here, "sign-windows.mjs"), "--verify-only", out]);
+    assertPublisherMatchesSigner(manifest.publisher, readSubject(out));
   }
+  let appInstallerFile = null;
+  if (appInstaller) {
+    appInstallerFile = path.resolve(appInstaller.out);
+    mkdirSync(path.dirname(appInstallerFile), { recursive: true });
+    writeFileSync(appInstallerFile, generateAppInstaller({ ...appInstaller, name: manifest.name, publisher: manifest.publisher, version: manifest.version, architecture: manifest.architecture }));
+  }
+  const seal = { schema: 1, msix: { file: out, sha256: sha256(out), sizeBytes: statSync(out).size }, signed: sign, identity: { name: manifest.name, version: manifest.version, publisher: manifest.publisher, architecture: manifest.architecture },
+    payload: readdirSync(root, { recursive: true }).map((n) => String(n).split(path.sep).join("/")).filter((n) => statSync(path.join(root, n)).isFile()).sort().map((n) => ({ name: n, sha256: sha256(path.join(root, n)) })), inventory,
+    appInstaller: appInstallerFile && { file: appInstallerFile, sha256: sha256(appInstallerFile) } };
+  const sealFile = path.join(receipts, "msix-seal.json");
+  writeFileSync(sealFile, `${JSON.stringify(seal, null, 2)}\n`);
   log({ event: "msix-built", out, signed: sign });
-  return { out, steps, root, signed: sign };
+  return { out, steps, root, signed: sign, seal: sealFile, appInstaller: appInstallerFile };
 }

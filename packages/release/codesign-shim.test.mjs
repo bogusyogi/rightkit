@@ -165,7 +165,7 @@ test("build runner injects shim into environment inherited by release worker", (
   const f = fixture(t), source = fs.readFileSync(new URL("./build-release.mjs", import.meta.url), "utf8");
   const start = source.indexOf("  const pathPrefix = buildPathPrefix"), end = source.indexOf("  if (managedCargoTarget)", start);
   const context = { process: { env: { PATH: "/cargo-shims:/usr/bin", SSH_CONNECTION: "fixture", RIGHTKIT_MANAGED_ROOT: f.managed } },
-    buildPathPrefix: () => "", platform: "mac", macosCodesignEnvironment, heavyCommandEnvironment: (env) => env,
+    swiftPlan: null, buildPathPrefix: () => "", platform: "mac", macosCodesignEnvironment, heavyCommandEnvironment: (env) => env,
     releaseEnvironment: () => ({}), vaultRoot: f.home, sharedCacheRoot: f.home, cacheIdentity: { architecture: "arm64" },
     config: { app: "fixture", version: "1" }, cacheKey: "fixture", appRoot: f.cwd, cacheMode: "legacy", layout: { repoRoot: f.cwd, appRoot: f.cwd },
     resolveManagedRoot: () => f.managed, resolveArtifactDir: () => f.managed, path };

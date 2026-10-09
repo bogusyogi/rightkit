@@ -75,6 +75,12 @@ const artifactFile = (declared) => {
   return artifact.file;
 };
 const verifiedArtifact = (file) => sealed.artifacts.get(path.basename(file));
+// MSIX updates (updater.kind appinstaller) trust the package Authenticode signature (publisher-pinned in
+// the manifest), so no minisign .sig exists; the route records the sealed package digest instead.
+const appInstallerKind = target?.updater?.kind === "appinstaller";
+const signatureFor = (artifact) => appInstallerKind
+  ? `msix-authenticode-sha256:${assertArtifactUnchanged(verifiedArtifact(artifact.file)) && verifiedArtifact(artifact.file).sha256}`
+  : signatureText(artifactFile(artifact.signature));
 const signatureText = (file) => {
   const signature = assertArtifactUnchanged(verifiedArtifact(file)).toString("utf8").trim();
   if (!signature) throw new PublicationError("PUBLICATION_SIGNATURE_MISSING", `sealed updater signature is empty: ${file}`);
@@ -89,7 +95,7 @@ function git(args) {
 if (tier === "patch" && !installers.length) fail(`${config?.app ?? "app"} ${platform} patch has no installer.artifacts`);
 if (tier === "update" && !artifacts.length) fail(`${config?.app ?? "app"} ${platform} update has no updater.artifacts`);
 
-if (sealed) for (const artifact of artifacts) signatureText(artifactFile(artifact.signature));
+if (sealed) for (const artifact of artifacts) signatureFor(artifact);
 let releaseToken = null;
 if (!dryRun && (tier === "update" || artifacts.length > 0)) {
   try {
@@ -114,13 +120,13 @@ if (tier === "patch") {
     const installerKey = patchInstallerKey(artifact);
     assertCurrentKey(installerKey, "installer");
     const file = artifactFile(artifact.file);
-    const signatureFile = artifactFile(artifact.signature);
+    if (!appInstallerKind) artifactFile(artifact.signature);
     if (!uploadedKeys.has(installerKey)) {
       console.log(`${dryRun ? "[dry-run] " : ""}UPLOAD public/${installerKey}`);
       if (!dryRun) uploadVerifiedR2Artifact(verifiedArtifact(file), installerKey, "public", { cwd: root });
       uploadedKeys.add(installerKey);
     }
-    const signature = dryRun ? `<signature:${artifact.signature}>` : signatureText(signatureFile);
+    const signature = dryRun ? `<signature:${artifact.signature ?? "msix-authenticode"}>` : signatureFor(artifact);
     const artifactKey = artifact.artifactKey || installerKey.replaceAll("/", "__");
     const metadata = dryRun ? { sha256: null, sizeBytes: null } : await fileMetadata(file);
     platforms[artifact.platform] = {
@@ -210,13 +216,13 @@ const uploadedKeys = new Set();
 for (const artifact of artifacts) {
   assertCurrentKey(artifact.key, "updater");
   const file = artifactFile(artifact.file);
-  const signatureFile = artifactFile(artifact.signature);
+  if (!appInstallerKind) artifactFile(artifact.signature);
   if (!uploadedKeys.has(artifact.key)) {
     console.log(`${dryRun ? "[dry-run] " : ""}UPLOAD private/${artifact.key}`);
     if (!dryRun) uploadVerifiedR2Artifact(verifiedArtifact(file), artifact.key, "private", { cwd: root });
     uploadedKeys.add(artifact.key);
   }
-  const signature = dryRun ? `<signature:${artifact.signature}>` : signatureText(signatureFile);
+  const signature = dryRun ? `<signature:${artifact.signature ?? "msix-authenticode"}>` : signatureFor(artifact);
   const artifactKey = artifact.artifactKey || artifact.key.replaceAll("/", "__");
   const metadata = dryRun ? { sha256: null, sizeBytes: null } : await fileMetadata(file);
   platforms[artifact.platform] = {

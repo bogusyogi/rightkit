@@ -33,6 +33,8 @@ import { brokerManagedHost } from "./cargo-contract.mjs";
 import { resolveReleaseCacheMode } from "./release-cache-mode.mjs";
 import { resolveTargetRoot } from "./cargo-target.mjs";
 import { assertNsisInPlaceUpgradeContract } from "./nsis-upgrade-contract.mjs";
+import { collectSwiftToolVersions, planSwiftBuild } from "./swift-build-context.mjs";
+import { packageCommandOptional, requiredBuildExecutables, resolveProjectType, targetUsesMsix } from "./project-type.mjs";
 import { buildPathPrefix, collectPreflight, formatPreflight, preflightFailures } from "./preflight.mjs";
 import { assertCleanSource } from "./source-gate.mjs";
 import { acquireHeavyWorkSlot, heavyCommandEnvironment, summarizePreBrokerWaits, terminateProcessTree } from "./heavy-command.mjs";
@@ -46,14 +48,14 @@ import { macosCodesignEnvironment } from "./codesign-environment.mjs";
 // and test-only edits and would force a cold Rust rebuild of every app each time.
 // Cached target directories must not outlive changes to these signing helpers.
 
-const PIPELINE_FINGERPRINT_SOURCES = ["release.mjs", "sign-windows.mjs", "sign-macos.mjs", "macos-signing-session.mjs", "codesign-environment.mjs", "codesign-shim.mjs", "codesign-argv.mjs", "osascript-guard.mjs", "dmg-build.mjs", "dmg-layout.mjs", "rightkit-signing-agent.mjs", "notarize-macos.mjs", "macos-notarization.mjs", "signing-receipts.mjs", "tauri-bundle-marker.mjs", "nsis-payload.mjs"];
+const PIPELINE_FINGERPRINT_SOURCES = ["release.mjs", "sign-windows.mjs", "sign-macos.mjs", "macos-signing-session.mjs", "codesign-environment.mjs", "codesign-shim.mjs", "codesign-argv.mjs", "osascript-guard.mjs", "dmg-build.mjs", "dmg-layout.mjs", "rightkit-signing-agent.mjs", "notarize-macos.mjs", "macos-notarization.mjs", "signing-receipts.mjs", "tauri-bundle-marker.mjs", "nsis-payload.mjs", "msix-build.mjs", "msix-plan.mjs"];
 const PIPELINE_FINGERPRINT = createHash("sha256")
   .update(PIPELINE_FINGERPRINT_SOURCES.map((file) => `${file}:${createHash("sha256").update(readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), file))).digest("hex")}`).join("\n"))
   .digest("hex")
   .slice(0, 16);
 
 /** Assemble preflight inputs from the app's own files (mirrors release.mjs). */
-function buildPreflight({ config, configPath, appRoot, repoRoot, platform, nativeLayout }) {
+function buildPreflight({ config, configPath, appRoot, repoRoot, platform, nativeLayout, target }) {
   let version;
   try {
     version = JSON.parse(readFileSync(path.join(appRoot, "package.json"), "utf8")).version;
@@ -71,6 +73,8 @@ function buildPreflight({ config, configPath, appRoot, repoRoot, platform, nativ
     // reject a legitimate resume of an in-flight build.
     version: undefined,
     cargoLockPaths: nativeLayout?.lockCandidates ?? [],
+    projectType: resolveProjectType({ appRoot, config, target }),
+    msix: targetUsesMsix(target),
   });
 }
 
@@ -124,7 +128,7 @@ if (dryRun) {
   const config = (await import(`${pathToFileURL(configPath).href}?dry-run=${commit}`)).default;
   if (!config?.app || !config?.version) fail("release config must expose app and version");
   const target = config.targets?.[platform];
-  if (!target?.package) fail(`${config.app} has no ${platform} package command`);
+  if (!target?.package && !packageCommandOptional(target, resolveProjectType({ appRoot, config, target }))) fail(`${config.app} has no ${platform} package command`);
   console.log(`right-release build dry-run: ${config.app} ${config.version} ${platform}`);
   console.log(`config: ${configPath}`);
   console.log(`commit: ${commit}`);
@@ -163,7 +167,8 @@ try {
     fail("app and version must be safe release-id components");
   }
   const target = config.targets?.[platform];
-  if (!target?.package) fail(`${config.app} has no ${platform} package command`);
+  if (!target?.package && !packageCommandOptional(target, resolveProjectType({ appRoot, config, target }))) fail(`${config.app} has no ${platform} package command`);
+  const isSwiftBuild = resolveProjectType({ appRoot, config, target }) === "swiftpm";
   const nativeLayout = resolveNativeCargoLayout({ appRoot, config });
   if (platform === "win" && target.signingContract === "windows-raw-exe-authenticode-before-nsis-v1") {
     assertNsisInPlaceUpgradeContract(appRoot, target.nsisUpgradeContract);
@@ -171,7 +176,7 @@ try {
   const { requiredInputs, buildInputs } = resolveReleaseBuildInputs({ repoRoot, appRoot, configPath, config, target });
   const dirtyInputs = dirtyBuildInputs(repoRoot, buildInputs, commit);
   if (dirtyInputs.length > 0) fail(`dirty files can change the packaged app; resolve them before release:\n${dirtyInputs.map((file) => `- ${file}`).join("\n")}`);
-  const toolVersions = collectToolVersions(config.packageManager ?? "pnpm");
+  const toolVersions = isSwiftBuild ? collectSwiftToolVersions({ packageManager: config.packageManager, exec: commandOutput }) : collectToolVersions(config.packageManager ?? "pnpm");
   const inputHashes = hashInputs(requiredInputs);
   const releaseId = `${config.app}-${config.version}-${shortCommit}`;
   const platformDir = platform === "win" ? "windows" : "mac";
@@ -208,10 +213,12 @@ try {
   // shells take the Cache V2 branch, bridge resolved native target into release cache,
   // and then lose CARGO_TARGET_DIR to the broker's unconditional override — so the
   // app bundle landed in the broker workspace and packaging failed on an empty cache.
-  const managedCargoTarget = brokerManagedHost(process.env) ? resolveTargetRoot(cargoToml) : null;
-  const cacheIdentity = resolveSharedCacheIdentity({ cargoLockPath: cargoLock, cargoTomlPath: cargoToml, rustcVerbose: toolVersions.rustc, targetTriple: target.cargoTarget ?? target.targetTriple ?? target.rustTarget ?? toolVersions.rustHost, profile: target.profile ?? "release" });
+  const swiftPlan = isSwiftBuild ? planSwiftBuild({ appRoot, vaultRoot, platform, target, toolVersions }) : null;
+  // SwiftPM targets have no Cargo manifest: no broker cargo target, no Rust cache identity.
+  const managedCargoTarget = swiftPlan ? swiftPlan.managedCargoTarget : brokerManagedHost(process.env) ? resolveTargetRoot(cargoToml) : null;
+  const cacheIdentity = swiftPlan ? swiftPlan.identity : resolveSharedCacheIdentity({ cargoLockPath: cargoLock, cargoTomlPath: cargoToml, rustcVerbose: toolVersions.rustc, targetTriple: target.cargoTarget ?? target.targetTriple ?? target.rustTarget ?? toolVersions.rustHost, profile: target.profile ?? "release" });
   const cacheKey = hashFileText(JSON.stringify({ cache: cacheIdentity.fingerprint, signingIdentity })).slice(0, 16);
-  const cacheModeRequested = resolveReleaseCacheMode({ requested: process.env.RIGHT_RELEASE_CACHE_MODE, platform, env: process.env });
+  const cacheModeRequested = swiftPlan ? swiftPlan.cacheMode : resolveReleaseCacheMode({ requested: process.env.RIGHT_RELEASE_CACHE_MODE, platform, env: process.env });
   // On a broker-managed host, Cache V2's lease/slot/prune/floor/mark chain is not
   // running against the directory that will actually hold build output — the
   // broker owns CARGO_TARGET_DIR unconditionally (see managedCargoTarget above).
@@ -233,7 +240,7 @@ try {
   // Preflight BEFORE any compile. These preconditions used to be discovered one
   // per build cycle, minutes deep, with errors that named a symptom instead of a
   // cause. Blocking problems stop here, in seconds, naming the fix.
-  const preflight = buildPreflight({ config, configPath, appRoot, repoRoot: layout.repoRoot, platform, nativeLayout });
+  const preflight = buildPreflight({ config, configPath, appRoot, repoRoot: layout.repoRoot, platform, nativeLayout, target });
   const preflightBlockers = preflightFailures(preflight);
   if (preflightBlockers.length > 0) {
     fail(`preflight found ${preflightBlockers.length} blocking problem(s):\n${formatPreflight(preflightBlockers)}`);
@@ -252,7 +259,7 @@ try {
   // resolves to MSYS Perl, which cannot configure OpenSSL. Put the real Windows
   // Perl first so the build behaves the same from any shell.
   const pathPrefix = buildPathPrefix({ platform });
-  const env = macosCodesignEnvironment({
+  const baseEnv = macosCodesignEnvironment({
     ...heavyCommandEnvironment(process.env),
     ...releaseEnvironment({ root: vaultRoot, cacheRoot: sharedCacheRoot, platform, architecture: cacheIdentity.architecture, app: config.app, cacheKey, kind: "release", appRoot, mode: cacheMode }),
     ...(pathPrefix ? { PATH: `${pathPrefix}${path.delimiter}${process.env.PATH ?? ""}` } : {}),
@@ -261,6 +268,7 @@ try {
     RIGHTKIT_MANAGED_ROOT: resolveManagedRoot({ env: process.env }),
     RIGHT_RELEASE_ARTIFACT_DIR: resolveArtifactDir({ app: config.app, version: config.version, managedRoot: resolveManagedRoot({ env: process.env }) }),
   });
+  const env = swiftPlan ? swiftPlan.sanitizeEnv(baseEnv) : baseEnv;
   if (managedCargoTarget) {
     for (const name of ["CARGO_HOME", "CARGO_TARGET_DIR", "RUSTC_WRAPPER", "SCCACHE_DIR", "SCCACHE_BASEDIRS", "SCCACHE_CACHE_SIZE", "RUSTFLAGS"]) {
       delete env[name];
@@ -302,7 +310,7 @@ try {
   // ownedRoot is the per-app cache parent holding every fingerprint dir, so a
   // link left by an earlier fingerprint is recognised as ours and repointed
   // instead of hard-stopping the build.
-  const targetBridge = createTargetBridge({
+  const targetBridge = swiftPlan ? swiftPlan.targetBridge : createTargetBridge({
     link: targetLink,
     target: managedCargoTarget ?? env.CARGO_TARGET_DIR,
     ownedRoot: path.dirname(managedCargoTarget ?? env.CARGO_TARGET_DIR),
@@ -329,7 +337,7 @@ try {
           const volumes = inspectWriteVolumes({ repoRoot, vaultRoot, cacheRoot: sharedCacheRoot });
           assertWriteVolumeFloors({ volumes, policy, configuredRepoMinimumBytes: Math.max(Number(target.preflight?.minFreeGb ?? 25), 25) * 1024 ** 3 });
         } else assertDiskSpace(repoRoot, target.preflight?.minFreeGb ?? 20);
-        assertExecutables(["git", config.packageManager ?? "pnpm", "cargo", "rustc", ...(target.preflight?.executables ?? [])]);
+        assertExecutables([...requiredBuildExecutables({ projectType: resolveProjectType({ appRoot, config, target }), packageManager: config.packageManager ?? "pnpm", usesPackageManager: Boolean(config.packageManager) || existsSync(path.join(appRoot, "package.json")) }), ...(target.preflight?.executables ?? [])]);
         for (const name of target.preflight?.env ?? []) if (!process.env[name]) fail(`missing required environment variable: ${name}`);
         for (const command of target.preflight?.commands ?? []) runChecked(command.cmd, command.args ?? [], path.resolve(appRoot, command.cwd ?? "."), env);
         if (buildRoot) mkdirSync(buildRoot, { recursive: true });
@@ -341,7 +349,7 @@ try {
       },
       prepare: async () => {
         throwIfInterrupted();
-        const cacheTarget = managedCargoTarget ?? env.CARGO_TARGET_DIR;
+        const cacheTarget = swiftPlan ? swiftPlan.buildDir : managedCargoTarget ?? env.CARGO_TARGET_DIR;
         mkdirSync(cacheTarget, { recursive: true });
         // Broker-managed hosts route through the same target bridge as shared
         // mode even though cacheMode is forced to "broker" above: the naive
@@ -349,12 +357,13 @@ try {
         // directory, which is exactly the "corruption" misreading that nearly
         // cost ~5.9 GB of warm broker intermediates. The bridge's brokerManaged
         // flag already knows to leave a real directory untouched instead.
-        if (cacheMode === "shared" || managedCargoTarget) targetBridge.ensure();
+        if (swiftPlan) { /* SwiftPM: no Rust target link */ }
+        else if (cacheMode === "shared" || managedCargoTarget) targetBridge.ensure();
         else if (!existsSync(targetLink)) symlinkSync(cacheTarget, targetLink, process.platform === "win32" ? "junction" : "dir");
         else if (realpathSync(targetLink) !== realpathSync(cacheTarget)) {
           fail(`primary checkout target exists and is not the release cache link: ${targetLink}`);
         }
-        await runProgress(config.packageManager ?? "pnpm", ["install", "--frozen-lockfile"], appRoot, env, cacheTarget, path.join(stateRoot, "stall-install.log"));
+        if (resolveProjectType({ appRoot, config, target }) !== "swiftpm" || config.packageManager) await runProgress(config.packageManager ?? "pnpm", ["install", "--frozen-lockfile"], appRoot, env, cacheTarget, path.join(stateRoot, "stall-install.log"));
       },
       build: async () => {
         throwIfInterrupted();
@@ -363,9 +372,9 @@ try {
           [WORKER, "--config", configPath, "--platform", platform, "--no-upload", "--resume", ...(resumeFrom ? ["--resume-from", resumeFrom] : []), ...(skipChecks ? ["--skip-checks"] : [])],
           appRoot,
           env,
-          [managedCargoTarget ?? env.CARGO_TARGET_DIR, path.join(appRoot, ".cache")],
+          swiftPlan ? swiftPlan.watchDirs : [managedCargoTarget ?? env.CARGO_TARGET_DIR, path.join(appRoot, ".cache")],
           path.join(stateRoot, "stall-build.log"),
-          { livenessOwnerTimeoutMs: target.package.livenessOwnerTimeoutMs ?? null },
+          { livenessOwnerTimeoutMs: target.package?.livenessOwnerTimeoutMs ?? null },
         );
         checkpoint(stateRoot, "build_complete");
         checkpoint(stateRoot, "signed");
@@ -461,7 +470,7 @@ function sealRelease({ configRoot, managedCargoTarget, nativeLayout, sealedDir, 
   for (const artifact of target.installer?.artifacts ?? []) addSource(resolveArtifactPath(artifact.file), "installer");
   for (const artifact of target.updater?.artifacts ?? []) {
     addSource(resolveArtifactPath(artifact.file), "updater");
-    addSource(resolveArtifactPath(artifact.signature), "updater-signature");
+    if (target.updater?.kind !== "appinstaller") addSource(resolveArtifactPath(artifact.signature), "updater-signature");
   }
   for (const file of sources.keys()) if (!existsSync(file)) fail(`cannot seal missing artifact: ${file}`);
   const temp = `${sealedDir}.tmp-${process.pid}`;
@@ -485,10 +494,10 @@ function sealRelease({ configRoot, managedCargoTarget, nativeLayout, sealedDir, 
   }
   for (const artifact of target.updater?.artifacts ?? []) {
     const source = resolveArtifactPath(artifact.file);
-    const signatureSource = resolveArtifactPath(artifact.signature);
+    const signatureSource = target.updater?.kind === "appinstaller" ? null : resolveArtifactPath(artifact.signature);
     const patchKey = artifact.patchKey ?? artifact.key.replace("/updates/", "/installers/");
-    routes.patch.push({ role: "updater", name: sourceNames.get(source), signature: sourceNames.get(signatureSource), bucket: "public", key: patchKey, platform: artifact.platform });
-    routes.update.push({ role: "updater", name: sourceNames.get(source), signature: sourceNames.get(signatureSource), bucket: "private", key: artifact.key, platform: artifact.platform });
+    routes.patch.push({ role: "updater", name: sourceNames.get(source), signature: signatureSource ? sourceNames.get(signatureSource) : undefined, bucket: "public", key: patchKey, platform: artifact.platform });
+    routes.update.push({ role: "updater", name: sourceNames.get(source), signature: signatureSource ? sourceNames.get(signatureSource) : undefined, bucket: "private", key: artifact.key, platform: artifact.platform });
   }
   writeJson(path.join(temp, "hardening.json"), { schema: 1, passed: true, checkedAt: new Date().toISOString(), files: files.map((file) => file.sha256) });
   const manifest = {

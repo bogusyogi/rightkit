@@ -17,6 +17,10 @@ import {
   resolveNativeFinalizerConfig,
   validateNativeFinalizationOutput,
 } from "./native-release-finalization.mjs";
+import { packageCommandOptional, resolveProjectType, targetUsesMsix } from "./project-type.mjs";
+import { MSIX_SIGNING_CONTRACT, assertValidMsixTarget } from "./msix-config.mjs";
+import { buildMsix } from "./msix-build.mjs";
+import { msixBuildOptions } from "./msix-target.mjs";
 import { collectPreflight, formatPreflight, preflightFailures } from "./preflight.mjs";
 import { patchTauriBundleType } from "./tauri-bundle-marker.mjs";
 import { verifyNsisEmbeddedBinary } from "./nsis-payload.mjs";
@@ -118,7 +122,10 @@ const workdir = path.resolve(root, config.workdir ?? ".");
 const nativeLayout = resolveNativeCargoLayout({ appRoot: root, config });
 const nativeAssembly = config.nativeAssembly;
 const nativeFinalizer = resolveNativeFinalizerConfig(nativeAssembly);
-await validateRightKitPackageContract(root, config.app, config.hostedWorkflows);
+// A SwiftPM app without a package.json has no Node package contract to validate.
+if (!(resolveProjectType({ appRoot: root, config, target: config.targets?.[opts.platform] }) === "swiftpm" && !existsSync(path.join(root, "package.json")))) {
+  await validateRightKitPackageContract(root, config.app, config.hostedWorkflows);
+}
 validateRightKitCargoContract(root, RIGHTKIT_CARGO_ALLOWED, config.app ?? path.basename(root));
 const target = config.targets?.[opts.platform];
 if (!target) fail(`${config.app ?? "app"} has no ${opts.platform} release target`);
@@ -131,13 +138,18 @@ if (target.signed !== true) {
 if (opts.platform === "win") {
   const isNsis = target.signingContract === WINDOWS_NSIS_SIGNING_CONTRACT;
   const isPortable = target.signingContract === WINDOWS_PORTABLE_SIGNING_CONTRACT;
-  if (!isNsis && !isPortable) fail(`${config.app ?? "app"} win must declare signingContract: ${WINDOWS_NSIS_SIGNING_CONTRACT} or ${WINDOWS_PORTABLE_SIGNING_CONTRACT}`);
+  const isMsix = target.signingContract === MSIX_SIGNING_CONTRACT;
+  if (!isNsis && !isPortable && !isMsix) fail(`${config.app ?? "app"} win must declare signingContract: ${WINDOWS_NSIS_SIGNING_CONTRACT}, ${WINDOWS_PORTABLE_SIGNING_CONTRACT} or ${MSIX_SIGNING_CONTRACT}`);
+  if (isMsix) {
+    try { assertValidMsixTarget(target, config.app ?? "app"); } catch (error) { fail(error.message); }
+  } else {
   if (!target.prePackage?.cmd) fail(`${config.app ?? "app"} win must declare prePackage for the raw EXE build`);
   if (!target.sign?.prePackageFiles?.length) fail(`${config.app ?? "app"} win must declare at least one sign.prePackageFiles raw EXE`);
   if (isNsis && target.sign.prePackageFiles.length !== 1) fail(`${config.app ?? "app"} win NSIS must declare exactly one sign.prePackageFiles raw EXE`);
   if (isNsis && !target.sign?.files?.length) fail(`${config.app ?? "app"} win NSIS must declare sign.files for installer signing`);
   if (isNsis && target.sign.prePackageFiles.some((file) => target.sign.files.includes(file))) fail(`${config.app ?? "app"} win raw EXE and installer signing files must be distinct`);
   if (isPortable && target.sign?.files?.length) fail(`${config.app ?? "app"} win portable release must sign every executable through sign.prePackageFiles and omit sign.files`);
+  }
 }
 if (opts.platform === "mac") {
   if (target.signingContract !== MACOS_PORTABLE_SIGNING_CONTRACT) fail(`${config.app ?? "app"} mac must declare signingContract: ${MACOS_PORTABLE_SIGNING_CONTRACT}`);
@@ -150,7 +162,7 @@ if (opts.upload && target.publishBlocked) fail(`${config.app ?? "app"} ${opts.pl
  * Assemble preflight inputs from the app's own files. Kept here (not in
  * preflight.mjs) so the check module stays free of release.mjs's config shape.
  */
-function releasePreflight({ config, configPath, root, repoRoot, platform, nativeLayout: suppliedNativeLayout = nativeLayout }) {
+function releasePreflight({ config, configPath, root, repoRoot, platform, nativeLayout: suppliedNativeLayout = nativeLayout, projectTarget = config.targets?.[platform] }) {
   let version;
   try {
     version = JSON.parse(readFileSync(path.join(root, "package.json"), "utf8")).version;
@@ -173,6 +185,8 @@ function releasePreflight({ config, configPath, root, repoRoot, platform, native
     cargoLockPaths,
     nativeLayout: suppliedNativeLayout,
     targetLink: suppliedNativeLayout?.targetLink,
+    projectType: resolveProjectType({ appRoot: root, config, target: projectTarget }),
+    msix: targetUsesMsix(projectTarget),
   });
 }
 
@@ -234,7 +248,7 @@ if (opts.doctor) {
 const releaseLock = acquireReleaseLock(root, config.app ?? path.basename(root), opts.platform, opts.tier);
 const mode = "package";
 const command = target.package;
-if (!command) fail(`${config.app ?? "app"} has no ${opts.platform} ${mode} command`);
+if (!command && !packageCommandOptional(target, resolveProjectType({ appRoot: root, config, target }))) fail(`${config.app ?? "app"} has no ${opts.platform} ${mode} command`);
 if (opts.upload && !target.publish && !target.upload) {
   fail(`${config.app ?? "app"} has no ${opts.platform} upload config`);
 }
@@ -255,7 +269,17 @@ await runConfiguredChecks({
 
 let nativeFinalization = null;
 let bundleMarkerReceipts = [];
-if (opts.platform === "win") {
+if (opts.platform === "win" && target.signingContract === MSIX_SIGNING_CONTRACT) {
+  // MSIX order: prePackage builds + stages the payload; buildMsix signs inner PE files (DLLs, EXEs),
+  // packs the exact signed bytes, signs the package through sign-windows, verifies signer == Publisher,
+  // writes the App Installer route and the seal record. Never a second signer.
+  await runCommand(target.prePackage, root);
+  const options = msixBuildOptions({ root, target, app: config.app, dryRun: opts.dryRun, receipts: {
+    pe: windowsReceiptPath(root, "raw-exe"), msix: windowsReceiptPath(root, "installer"),
+    dir: path.dirname(windowsReceiptPath(root, "raw-exe")) } });
+  const built = buildMsix(options, { log: (event) => console.log(`right-release: ${JSON.stringify(event)}`) });
+  console.log(`right-release: msix ${built.dryRun ? "dry-run" : "built"} ${options.out}`);
+} else if (opts.platform === "win") {
   const rawFiles = target.sign.prePackageFiles.map((p) => path.resolve(root, p));
   await runCommand(target.prePackage, root);
   for (const file of rawFiles) await mustExist(file, `missing raw EXE signing artifact: ${file}`);
@@ -300,7 +324,7 @@ if (opts.platform === "win") {
   }
 }
 
-if (opts.platform !== "mac" || runMacPhase("package")) await runCommand(command, root);
+if (command && (opts.platform !== "mac" || runMacPhase("package"))) await runCommand(command, root);
 
 for (const rel of target.artifacts ?? []) {
   await mustExist(resolveReleaseArtifactPath(root, rel), `missing release artifact: ${rel}`);
