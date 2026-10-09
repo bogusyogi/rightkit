@@ -75,10 +75,11 @@ fn main() {
             #[cfg(target_os = "macos")]
             if std::env::var("RK_FIXTURE_SHOW").as_deref() == Ok("1") {
                 use tauri::Manager;
-                app.set_activation_policy(tauri::ActivationPolicy::Accessory);
+                // Pulse order: show the window, then drop to Accessory.
                 if let Some(window) = app.get_webview_window("main") {
                     let _ = window.show();
                 }
+                app.set_activation_policy(tauri::ActivationPolicy::Accessory);
             }
             let _ = app;
             Ok(())

@@ -276,9 +276,10 @@ mod hidden_press {
             }
         };
 
-        // `#target` and `#ttarget` go blue -> green on :hover and -> red on :active; `#ttarget` does
+        // `#target`, `#ttarget` and `.tt` rows t1..t5 (Pulse-like: several transitioned controls in sequence)
+        // go blue -> green on :hover and -> red on :active; `#ttarget` does
         // it through a 120 ms transition.
-        for id in ["target", "ttarget"] {
+        for id in ["target", "ttarget", "t1", "t2", "t3", "t4", "t5"] {
             let xy = eval(
                 &c,
                 &format!("const r=document.getElementById('{id}').getBoundingClientRect();return [r.x+r.width/2,r.y+r.height/2];"),
