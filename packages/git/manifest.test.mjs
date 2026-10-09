@@ -207,6 +207,9 @@ test("candidate targets permit native multi-architecture matrices independent of
   assert.equal(validateManifest({ ...multiArchitecture, candidate: { ...multiArchitecture.candidate, targets: [{ os: "windows-2025", platform: "windows", architecture: "riscv64" }] } }).valid, false);
   assert.equal(validateManifest({ ...multiArchitecture, candidate: { ...multiArchitecture.candidate, targets: [{ os: "windows-11-arm", platform: "windows", architecture: "x86_64" }] } }).valid, false);
   assert.equal(validateManifest({ ...multiArchitecture, candidate: { ...multiArchitecture.candidate, targets: [{ os: "ubuntu-24.04", platform: "windows", architecture: "x86_64" }] } }).valid, false);
+  const xcodeRunner = { ...multiArchitecture, candidate: { ...multiArchitecture.candidate, os: ["xcode-27"], targets: [{ os: "xcode-27", platform: "macos", architecture: "arm64" }], signWindows: false } };
+  assert.equal(validateManifest(xcodeRunner).valid, true, JSON.stringify(validateManifest(xcodeRunner).errors));
+  assert.equal(validateManifest({ ...multiArchitecture, candidate: { ...multiArchitecture.candidate, os: ["ubuntu-24.04"], targets: [{ os: "ubuntu-24.04", platform: "macos", architecture: "arm64" }] } }).valid, false);
   assert.equal(validateManifest({ ...multiArchitecture, candidate: { ...multiArchitecture.candidate, targets: [{ os: "${{ secrets.X }}", platform: "windows", architecture: "x86_64" }] } }).valid, false);
   assert.equal(validateManifest({ ...multiArchitecture, candidate: { ...multiArchitecture.candidate, releaseChain: { windowsFinalizeScript: "release:finalize:win", macosFinalizeScript: "release:finalize:mac", installedQualificationScript: "release:qualify", publishScript: "release:publish", qualificationRunnerVariable: "QUALIFICATION_RUNNER_LABEL" } } }).valid, false);
 });
