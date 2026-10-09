@@ -84,8 +84,19 @@ fn activate(tmp: &Path, dest: &Path) -> Result<()> {
 
 /// Unpack a tar (gzip or plain) whose members all live under one wrapper
 /// directory into `dest_dir` with the wrapper stripped (`--strip-components=1`).
+/// Any single wrapper name is accepted; use [`unpack_wrapped_expecting`] to pin it.
 pub fn unpack_wrapped(archive: &Path, dest_dir: &Path) -> Result<()> {
-    archive_core::unpack_wrapped(archive, Compression::Sniff, dest_dir).map_err(ex)
+    archive_core::unpack_wrapped(archive, Compression::Sniff, dest_dir, None).map_err(ex)
+}
+
+/// Like [`unpack_wrapped`], but the archive's single top-level directory must be
+/// exactly `wrapper`. A different name, or a second top-level entry, fails with
+/// an error naming both. Extraction is streamed, so members before the mismatch
+/// may already be written to `dest` when the error returns: extract into a
+/// staging directory and move it into place only on success. The same
+/// path-escape, Apple-metadata, and member-type checks apply.
+pub fn unpack_wrapped_expecting(archive: &Path, dest: &Path, wrapper: &str) -> Result<()> {
+    archive_core::unpack_wrapped(archive, Compression::Sniff, dest, Some(wrapper)).map_err(ex)
 }
 
 #[cfg(test)]
@@ -145,6 +156,116 @@ mod tests {
         assert!(activate(&missing_tmp, &dest).is_err());
 
         assert_eq!(fs::read(&dest).unwrap(), b"old-weights");
+    }
+
+    /// Build a plain tar from `(name, Some(data) | None)` entries (None = directory).
+    /// Names go into the raw header, so hostile names such as `wrapper/../x` reach
+    /// the extractor (`Header::set_path` would refuse them).
+    fn raw_tar(dir: &Path, entries: &[(&str, Option<&[u8]>)]) -> PathBuf {
+        let path = dir.join("wrapped.tar");
+        let mut builder = tar::Builder::new(Vec::new());
+        for (name, data) in entries {
+            let body: &[u8] = data.unwrap_or(&[]);
+            let mut header = tar::Header::new_gnu();
+            header.as_old_mut().name[..name.len()].copy_from_slice(name.as_bytes());
+            header.set_entry_type(if data.is_some() {
+                tar::EntryType::Regular
+            } else {
+                tar::EntryType::Directory
+            });
+            header.set_size(body.len() as u64);
+            header.set_mode(0o644);
+            header.set_cksum();
+            builder.append(&header, body).unwrap();
+        }
+        fs::write(&path, builder.into_inner().unwrap()).unwrap();
+        path
+    }
+
+    #[test]
+    fn expecting_correct_wrapper_strips_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let archive = raw_tar(
+            dir.path(),
+            &[
+                ("wrapper/", None),
+                ("wrapper/a.bin", Some(b"alpha")),
+                ("wrapper/sub/", None),
+                ("wrapper/sub/b.bin", Some(b"beta")),
+            ],
+        );
+        let dest = dir.path().join("out");
+
+        unpack_wrapped_expecting(&archive, &dest, "wrapper").unwrap();
+
+        assert_eq!(fs::read(dest.join("a.bin")).unwrap(), b"alpha");
+        assert_eq!(fs::read(dest.join("sub/b.bin")).unwrap(), b"beta");
+        assert!(!dest.join("wrapper").exists());
+    }
+
+    #[test]
+    fn expecting_wrong_wrapper_fails_with_clear_error() {
+        let dir = tempfile::tempdir().unwrap();
+        let archive = raw_tar(dir.path(), &[("other/", None), ("other/a.bin", Some(b"x"))]);
+        let dest = dir.path().join("out");
+
+        let err = unpack_wrapped_expecting(&archive, &dest, "wrapper")
+            .unwrap_err()
+            .to_string();
+
+        assert!(
+            err.contains("`other`"),
+            "error names the found wrapper: {err}"
+        );
+        assert!(
+            err.contains("expected wrapper `wrapper`"),
+            "error names the expected wrapper: {err}"
+        );
+        assert!(!dest.join("a.bin").exists());
+    }
+
+    #[test]
+    fn expecting_multiple_top_level_entries_fails() {
+        let dir = tempfile::tempdir().unwrap();
+        let archive = raw_tar(
+            dir.path(),
+            &[
+                ("wrapper/", None),
+                ("wrapper/a.bin", Some(b"alpha")),
+                ("extra/b.bin", Some(b"beta")),
+            ],
+        );
+        let dest = dir.path().join("out");
+
+        let err = unpack_wrapped_expecting(&archive, &dest, "wrapper")
+            .unwrap_err()
+            .to_string();
+
+        assert!(
+            err.contains("`extra`"),
+            "error names the stray entry: {err}"
+        );
+    }
+
+    #[test]
+    fn expecting_rejects_path_traversal() {
+        let dir = tempfile::tempdir().unwrap();
+        let archive = raw_tar(
+            dir.path(),
+            &[
+                ("wrapper/", None),
+                ("wrapper/../escaped.bin", Some(b"evil")),
+            ],
+        );
+        let dest = dir.path().join("out");
+
+        let err = unpack_wrapped_expecting(&archive, &dest, "wrapper")
+            .unwrap_err()
+            .to_string();
+
+        assert!(err.contains("escapes"), "traversal is rejected: {err}");
+        assert!(!dir.path().join("escaped.bin").exists());
+        assert!(!dest.join("escaped.bin").exists());
     }
 
     #[test]
