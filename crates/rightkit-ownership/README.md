@@ -2,7 +2,7 @@
 
 The single Rust implementation of RightKit's ownership scanner, verdict and admission. It replaces the Node scanner in `packages/release` (`ownership-scan-worker.mjs` and the modules it imports) and is linked as a library by the RustRight broker.
 
-Catalog capability: `ownership-scanner`. Version 0.2.0, not yet staged for publication (see [INDEX.md](../../INDEX.md)).
+Catalog capability: `ownership-scanner`. Version 0.2.1, not yet staged for publication (see [INDEX.md](../../INDEX.md)).
 
 ## What it owns
 
@@ -36,3 +36,7 @@ Approval signatures are verified with RustCrypto: P-256 ECDSA/SHA-256 (`p256`) a
 ## Windows
 
 The Windows ACL audit, `CREATE_NO_WINDOW` spawning and Git for Windows path handling are written but have only been exercised on macOS.
+
+## Changelog
+
+- 0.2.1: refresh the embedded catalog from packages/release/rightkit-ownership.json (adds rightkit-fsindex and rightkit-ownership rows).

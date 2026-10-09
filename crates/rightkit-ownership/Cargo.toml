@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-ownership"
-version = "0.2.0"
+version = "0.2.1"
 edition = "2021"
 rust-version = "1.98.0"
 description = "RightKit ownership scanner, verdict and admission: the single Rust implementation the RustRight broker links."
