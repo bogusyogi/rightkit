@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "./background-process.mjs";
@@ -16,7 +16,7 @@ test("Automation guard names caller with typed error without running AppleScript
 });
 
 test("legacy bundle_dmg.sh is denied before absolute osascript; Tauri skip flag & other bash pass", { skip: process.platform === "win32" }, (t) => {
-  const managed = mkdtempSync(path.join(os.tmpdir(), "rk-bash-guard-"));
+  const managed = mkdtempSync(path.join(realpathSync(os.tmpdir()), "rk-bash-guard-"));
   t.after(() => rmSync(managed, { recursive: true, force: true }));
   const script = path.join(managed, "bundle_dmg.sh"), marker = path.join(managed, "executed");
   writeFileSync(script, '#!/usr/bin/env bash\nprintf "%s" "$1" > "$2"\n', { mode: 0o700 });
@@ -32,7 +32,7 @@ test("legacy bundle_dmg.sh is denied before absolute osascript; Tauri skip flag 
 });
 
 test("PATH osascript fails fast for SSH & GUI with structured denial", { skip: process.platform === "win32" }, (t) => {
-  const managed = mkdtempSync(path.join(os.tmpdir(), "rk-automation-"));
+  const managed = mkdtempSync(path.join(realpathSync(os.tmpdir()), "rk-automation-"));
   t.after(() => rmSync(managed, { recursive: true, force: true }));
   for (const ssh of ["", "fixture"]) {
     const env = macosCodesignEnvironment({ ...process.env, RIGHTKIT_MANAGED_ROOT: managed, SSH_CONNECTION: ssh }, {
