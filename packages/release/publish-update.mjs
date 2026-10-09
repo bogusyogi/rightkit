@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { readFile } from "node:fs/promises";
+import { readFileSync } from "node:fs";
 import { spawnSync } from "./background-process.mjs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -9,9 +10,10 @@ import { registerRightAppsRelease } from "./rightapps-register.mjs";
 import { recordPublishedVersion } from "./artifact-storage.mjs";
 import { assertPrimaryReleaseCheckout } from "./release-invocation.mjs";
 import { assertCleanSource } from "./source-gate.mjs";
-import { verifyPublicationRelease, PublicationError, assertArtifactUnchanged } from "./publication-artifacts.mjs";
+import { verifyPublicationRelease, PublicationError, assertArtifactUnchanged, digestBytes } from "./publication-artifacts.mjs";
 import { uploadVerifiedR2Artifact } from "./r2-verified-upload.mjs";
 import { verifyPlatformTrust } from "./github-release.mjs";
+import { assertInstalledQaAdmission } from "./release-qa-receipt.mjs";
 
 const TOOL_ROOT = path.dirname(fileURLToPath(import.meta.url));
 const API_BASE = process.env.RIGHTAPPS_API_URL || "https://api.spoares.com";
@@ -67,6 +69,11 @@ if (!dryRun || releaseId) {
   if (!installer) throw new PublicationError("PUBLICATION_SIGNATURE_MISSING", "sealed installer required for platform trust verification");
   verifyPlatformTrust({ sealed, installer: path.join(sealed.sealedDir, installer.name) });
   for (const artifact of sealed.artifacts.values()) assertArtifactUnchanged(artifact);
+  // Hardening step 4: installed QA on these exact artifact hashes and commit must have passed (R2 patch + update tiers).
+  if (!dryRun) {
+    try { assertInstalledQaAdmission({ repoRoot, manifest: sealed.manifest, platform, configName: path.relative(process.cwd(), configPath) || configName, releaseConfigSha256: digestBytes(readFileSync(configPath)) }); }
+    catch (error) { if (error?.code !== "QA_ADMISSION_REFUSED") throw error; fail(error.message); }
+  }
 }
 const artifactFile = (declared) => {
   if (!sealed) return path.resolve(root, declared);

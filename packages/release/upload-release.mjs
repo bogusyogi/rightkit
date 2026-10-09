@@ -1,5 +1,6 @@
 #!/usr/bin/env node
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { spawnSync } from "./background-process.mjs";
 import { pathToFileURL } from "node:url";
@@ -9,6 +10,7 @@ import { verifySealedRelease } from "./release-state.mjs";
 import { assertCleanSource } from "./source-gate.mjs";
 import { verifyOwnershipEvidence } from "./ownership-evidence.mjs";
 import { recordPublishedVersion } from "./artifact-storage.mjs";
+import { assertInstalledQaAdmission } from "./release-qa-receipt.mjs";
 
 const args = process.argv.slice(2);
 let platform = process.platform === "win32" ? "win" : process.platform === "darwin" ? "mac" : process.platform;
@@ -58,6 +60,11 @@ if (!configuredRepo) fail("release config distribution.repository is required fo
 if (repo && repo !== configuredRepo) fail(`--repo must match configured distribution.repository (${configuredRepo})`);
 repo = configuredRepo;
 
+// Hardening step 4: installed QA on these exact artifact hashes and commit must have passed before any upload.
+if (!dryRun) {
+  try { assertInstalledQaAdmission({ repoRoot, manifest: sealed.manifest, platform, configName: path.relative(process.cwd(), configPath) || configName, releaseConfigSha256: createHash("sha256").update(readFileSync(configPath)).digest("hex") }); }
+  catch (error) { if (error?.code !== "QA_ADMISSION_REFUSED") throw error; fail(error.message); }
+}
 const stateRoot = path.join(repoRoot, ".right-release", "state", releaseId, platformDir);
 const verifiedMarker = path.join(stateRoot, `verified-${tier}-github-releases.json`);
 if (existsSync(verifiedMarker)) {

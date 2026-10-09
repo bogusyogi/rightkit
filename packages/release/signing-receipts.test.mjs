@@ -58,7 +58,7 @@ test("MailRight config seals current build receipts despite stale legacy & other
     resolveArtifactDir: () => root, materializeArtifacts: () => {}, completeArtifactLease: () => {}, retainArtifacts: () => ({ removed: [] }),
     validateNotarizationReceipt: (args) => validateNotarizationReceipt({ ...args, run: (cmd, args) => { validations.push([cmd, ...args]); return run(cmd, args); } }),
   });
-  const options = { configRoot: root, sealedDir: path.join(vaultRoot, "sealed", releaseId, "mac"), releaseId, config, target, platform: "mac", commit: "12345678".repeat(5), inputHashes: {}, toolVersions: {}, cacheKey: "test", signingIdentity };
+  const options = { configRoot: root, sealedDir: path.join(vaultRoot, "sealed", releaseId, "mac"), releaseId, config, target, platform: "mac", commit: "12345678".repeat(5), inputHashes: {}, toolVersions: {}, cacheKey: "test", signingIdentity, qaAdmission: { digest: "a".repeat(64), floorDigest: "b".repeat(64) } };
   seal(options);
   const manifest = JSON.parse(fs.readFileSync(path.join(options.sealedDir, "release-manifest.json"), "utf8"));
   assert.deepEqual(manifest.signing.receipts.map((item) => item.file), Array.from(signingIdentity.receiptInputs));

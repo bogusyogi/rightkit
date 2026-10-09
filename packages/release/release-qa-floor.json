@@ -1,0 +1,9 @@
+{
+  "schema": 1,
+  "version": 1,
+  "runner": "rightkit-qa",
+  "stages": {
+    "source": { "required": ["smoke.launch", "journey"] },
+    "installed": { "required": ["smoke.launch", "journey"] }
+  }
+}

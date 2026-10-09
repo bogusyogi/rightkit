@@ -24,6 +24,7 @@ import { spawn, spawnSync } from "./background-process.mjs";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { assertPrimaryReleaseCheckout, dirtyBuildInputs, resolveReleaseBuildInputs } from "./release-invocation.mjs";
 import { resolveNativeCargoLayout } from "./native-cargo-layout.mjs";
+import { assertSourceQaAdmission } from "./release-qa-receipt.mjs";
 import { commandOutputPortable, releaseEnvironment, resolveReleaseLayout, runBuildStateMachine, verifySealedRelease, watchProgress } from "./release-state.mjs";
 import { acquireCacheLease, acquireSuiteBuildSlot, applyCachePrune, assertWriteVolumeFloors, inspectCache, inspectWriteVolumes, markCacheEntrySuccessful, planCachePrune, readCachePolicy, resolveCacheLayout, resolveSharedCacheIdentity, resolveSharedCacheRoot } from "./cache-policy.mjs";
 import { createTargetBridge } from "./target-bridge.mjs";
@@ -253,6 +254,15 @@ try {
   for (const check of preflight) {
     if (check.status !== "ok") console.error(`[right-release] preflight ${check.name}: ${check.detail}`);
   }
+  // Hardening step 4: source QA admits the candidate build/sign. The receipt digest is sealed into the manifest so
+  // upload/publication can require installed QA chained to it. Dev lanes (install-app --dev) never reach this file.
+  let qaAdmission;
+  try {
+    qaAdmission = assertSourceQaAdmission({ repoRoot: layout.repoRoot, releaseId, platform, configName: path.relative(process.cwd(), configPath) || path.basename(configPath), releaseConfigSha256: hashFile(configPath) });
+  } catch (error) {
+    if (error?.code !== "QA_ADMISSION_REFUSED") throw error;
+    fail(error.message);
+  }
 
   // A tool being INSTALLED is not the same as it being the one PATH picks. The
   // vendored-OpenSSL build shells out to `perl`, and under Git Bash/MSYS that
@@ -396,7 +406,7 @@ try {
         });
       },
       seal: async ({ sealedDir }) => {
-        sealRelease({ configRoot: appRoot, managedCargoTarget, nativeLayout, sealedDir, releaseId, config, target, platform, commit, inputHashes, toolVersions, cacheKey, signingIdentity, ownershipEvidence, managedRoot });
+        sealRelease({ configRoot: appRoot, managedCargoTarget, nativeLayout, sealedDir, releaseId, config, target, platform, commit, inputHashes, toolVersions, cacheKey, signingIdentity, ownershipEvidence, qaAdmission, managedRoot });
         verifySealedRelease(sealedDir);
         if (cacheMode === "shared") markCacheEntrySuccessful({ layout: sharedLayout });
         checkpoint(stateRoot, "sealed");
@@ -436,7 +446,7 @@ function sqlCipherFeatures(text) {
     .filter((value) => /sqlcipher|openssl/i.test(value));
 }
 
-function sealRelease({ configRoot, managedCargoTarget, nativeLayout, sealedDir, releaseId, config, target, platform, commit, inputHashes, toolVersions, cacheKey, signingIdentity, ownershipEvidence, managedRoot }) {
+function sealRelease({ configRoot, managedCargoTarget, nativeLayout, sealedDir, releaseId, config, target, platform, commit, inputHashes, toolVersions, cacheKey, signingIdentity, ownershipEvidence, qaAdmission, managedRoot }) {
   // Every app's right-release.config.mjs names installer/updater artifacts
   // relative to its resolved native target. On a broker-managed host that
   // directory is never populated (the broker owns CARGO_TARGET_DIR and
@@ -507,6 +517,7 @@ function sealRelease({ configRoot, managedCargoTarget, nativeLayout, sealedDir, 
     version: config.version,
     commit,
     ownershipEvidence,
+    qa: { sourceReceiptDigest: qaAdmission.digest, floorDigest: qaAdmission.floorDigest },
     platform,
     cacheKey,
     // Portable contracts sign only raw executables — installer/embedding

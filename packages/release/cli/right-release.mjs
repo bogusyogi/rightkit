@@ -23,6 +23,7 @@ const commands = new Map([
   ["mirror-root-artifact", "mirror-root-artifact.mjs"],
   ["github", "github-release.mjs"],
   ["cargo-target", "cargo-target.mjs"],
+  ["qa", "release-qa-command.mjs"],
   ["ownership", "ownership-command.mjs"],
   ["ownership-approval", "ownership-approval-command.mjs"],
   ["ownership-report", "ownership-report-command.mjs"],
@@ -183,6 +184,7 @@ Commands:
                                                       Stage SwiftPM app; build+sign MSIX (Windows) or assemble+sign+notarize .app (macOS); never uploads
   upload --release <id> --platform mac|win --tier patch|update
                                                       Upload one sealed release; never builds
+  qa --stage source|installed --platform mac|win [--release <id>]   Run rightkit-qa and write the sealed QA receipt (required to build/upload)
   publish-update --release <id> --platform mac|win --tier patch|update
                                                       Upload sealed bytes to R2 & register RightApps
   release                                             Compatibility alias for build

@@ -15,13 +15,15 @@ const HEX = /^[a-f0-9]{64}$/;
 export const POLICY_BUNDLE_SCHEMA = 1;
 const CATALOG_FILE = "rightkit-ownership.json";
 const REGISTRY_FILE = "ownership-repositories.json";
+// Step 4: the release QA requirement floor is protected like the catalog. Dropping a required check changes the digest.
+export const QA_FLOOR_FILE = "release-qa-floor.json";
 // Modules that make or carry enforcement decisions. Their import closure is pinned.
 export const POLICY_BUNDLE_ENTRYPOINTS = Object.freeze([
   "ownership-scan-worker.mjs", "ownership-evidence.mjs", "ownership-verdict.mjs", "ownership-admission.mjs",
-  "ownership-staged.mjs", "ownership-hooks.mjs", "ownership-key-trust.mjs",
+  "ownership-staged.mjs", "ownership-hooks.mjs", "ownership-key-trust.mjs", "release-qa-receipt.mjs",
 ]);
 // Data files are pinned through their own digests, not as source files.
-const DATA_FILES = new Set([CATALOG_FILE, REGISTRY_FILE, ALLOWLIST_FILE]);
+const DATA_FILES = new Set([CATALOG_FILE, REGISTRY_FILE, ALLOWLIST_FILE, QA_FLOOR_FILE]);
 
 const sha256Hex = (bytes) => createHash("sha256").update(bytes).digest("hex");
 const canonicalDigest = (value) => sha256Hex(canonicalJson(value));
@@ -66,21 +68,23 @@ function readJsonOrNull(file) {
 }
 
 /**
- * @param {{ dir?: string, manifest?: object, registry?: object|null, allowlist?: object|null, scannerVersion: string, files?: Array<{path:string,sha256:string}> }} input
+ * @param {{ dir?: string, manifest?: object, registry?: object|null, allowlist?: object|null, qaFloor?: object|null, scannerVersion: string, files?: Array<{path:string,sha256:string}> }} input
  * Missing registry/allowlist digest as null; the digest still binds that absence.
  */
-export function computePolicyBundle({ dir = here, manifest, registry, allowlist, scannerVersion, files } = {}) {
+export function computePolicyBundle({ dir = here, manifest, registry, allowlist, qaFloor, scannerVersion, files } = {}) {
   if (!/^\d+(?:\.\d+)*$/.test(String(scannerVersion ?? ""))) throw new Error("policy bundle requires a scanner version");
   const catalog = manifest ?? readJsonOrNull(path.join(dir, CATALOG_FILE));
   if (!catalog) throw new Error("policy bundle requires the ownership catalog");
   const registryValue = registry === undefined ? readJsonOrNull(path.join(dir, REGISTRY_FILE)) : registry;
   const allowlistValue = allowlist === undefined ? readJsonOrNull(path.join(dir, ALLOWLIST_FILE)) : allowlist;
+  const qaFloorValue = qaFloor === undefined ? readJsonOrNull(path.join(dir, QA_FLOOR_FILE)) : qaFloor;
   const parts = {
     schema: POLICY_BUNDLE_SCHEMA,
     scannerVersion: String(scannerVersion),
     catalogDigest: canonicalDigest(catalog),
     registryDigest: registryValue === null ? null : canonicalDigest(registryValue),
     allowlistDigest: allowlistValue === null ? null : canonicalDigest(allowlistValue),
+    qaFloorDigest: qaFloorValue === null ? null : canonicalDigest(qaFloorValue),
     files: files ?? scannerSourceFiles({ dir }),
   };
   return { ...parts, digest: canonicalDigest(parts) };
@@ -99,6 +103,8 @@ export function validatePolicyBundle(bundle) {
   if (!/^\d+(?:\.\d+)*$/.test(bundle.scannerVersion ?? "")) problems.push("policy bundle scanner version is malformed");
   for (const key of ["catalogDigest"]) if (!HEX.test(bundle[key] ?? "")) problems.push(`policy bundle ${key} is malformed`);
   for (const key of ["registryDigest", "allowlistDigest"]) if (bundle[key] !== null && !HEX.test(bundle[key] ?? "")) problems.push(`policy bundle ${key} is malformed`);
+  // Bundles pinned before step 4 carry no qaFloorDigest; they stay well-formed but can never match a running bundle.
+  if (bundle.qaFloorDigest !== undefined && bundle.qaFloorDigest !== null && !HEX.test(bundle.qaFloorDigest)) problems.push("policy bundle qaFloorDigest is malformed");
   if (!Array.isArray(bundle.files) || bundle.files.some((file) => !file || typeof file.path !== "string" || !HEX.test(file.sha256 ?? ""))) problems.push("policy bundle file list is malformed");
   else {
     const { digest, ...parts } = bundle;
@@ -119,6 +125,7 @@ export function diffPolicyBundles(before, after) {
     catalogChanged: before?.catalogDigest !== after?.catalogDigest,
     registryChanged: before?.registryDigest !== after?.registryDigest,
     allowlistChanged: before?.allowlistDigest !== after?.allowlistDigest,
+    qaFloorChanged: (before?.qaFloorDigest ?? null) !== (after?.qaFloorDigest ?? null),
   };
 }
 
