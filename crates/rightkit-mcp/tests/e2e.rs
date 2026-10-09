@@ -110,15 +110,18 @@ fn start_http(secret: &str) -> HttpChild {
         .stdout(Stdio::piped())
         .spawn()
         .unwrap();
-    let mut line = String::new();
-    BufReader::new(child.stdout.as_mut().unwrap())
-        .read_line(&mut line)
-        .unwrap();
-    let url = line
-        .trim()
-        .strip_prefix("LISTENING ")
-        .expect("announce line")
-        .to_string();
+    // Skip any output before the announcement; report it if none arrives.
+    let mut reader = BufReader::new(child.stdout.as_mut().unwrap());
+    let mut seen = Vec::new();
+    let url = loop {
+        let mut line = String::new();
+        let n = reader.read_line(&mut line).unwrap();
+        if let Some(url) = line.trim().strip_prefix("LISTENING ") {
+            break url.to_string();
+        }
+        assert!(n > 0 && seen.len() < 20, "no announce line; example printed: {seen:?}");
+        seen.push(line);
+    };
     HttpChild(child, url)
 }
 
