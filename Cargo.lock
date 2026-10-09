@@ -5614,6 +5614,7 @@ dependencies = [
  "ndarray",
  "ort",
  "rightkit-media",
+ "sha2 0.10.9",
  "windows-sys 0.61.2",
 ]
 
