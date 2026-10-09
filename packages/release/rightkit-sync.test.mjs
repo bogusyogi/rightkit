@@ -62,11 +62,12 @@ test("consumer copies are byte-exact and only rewritten when they differ", async
     for (const dir of ["release", "build-control-policy/src"]) await mkdir(path.join(root, "packages", dir), { recursive: true });
     await writeFile(path.join(root, "packages", "release", "rightkit-ownership.json"), '{"capabilities":[]}\n');
     await writeFile(path.join(root, "packages", "release", "rightkit-versions.json"), '{"schema":2}\n');
+    await writeFile(path.join(root, "packages", "release", "ownership-repositories.json"), '{"repositories":[]}\n');
     await writeFile(path.join(root, "packages", "release", "rightkit-drift.mjs"), "export {};\n");
     await writeFile(path.join(root, "packages", "release", "background-process.mjs"), "export {};\n");
     await writeFile(path.join(root, "packages", "release", "ownership-source.mjs"), "export {};\n");
     await writeFile(path.join(root, "packages", "release", "ownership-availability.mjs"), "export {};\n");
-    assert.equal(syncConsumerCopies(root).length, 7);
+    assert.equal(syncConsumerCopies(root).length, 8);
     assert.equal(await readFile(path.join(root, "packages", "build-control-policy", "src", "ownership-session-versions.json"), "utf8"), '{"schema":2}\n');
     assert.deepEqual(syncConsumerCopies(root), []);
   } finally { await rm(root, { recursive: true, force: true }); }
@@ -111,6 +112,7 @@ async function syncFixture(context, versions) {
   await writeFile(file, `${JSON.stringify(versions, null, 2)}\n`);
   await writeFile(path.join(release, "rightkit-ownership.json"), '{"capabilities":[]}\n');
   for (const name of ["rightkit-drift.mjs", "background-process.mjs", "ownership-source.mjs", "ownership-availability.mjs"]) await writeFile(path.join(release, name), "export {};\n");
+  await writeFile(path.join(release, "ownership-repositories.json"), '{"repositories":[]}\n');
   syncConsumerCopies(root);
   return { root, file, log: () => {}, fetchImpl: noFetch };
 }

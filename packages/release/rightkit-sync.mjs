@@ -185,6 +185,7 @@ export function syncConsumerCopies(root = rightkitRoot) {
     ["rightkit-ownership.json", path.join(root, "packages", "build-control-policy", "src", "ownership-session-catalog.json")],
     ["rightkit-ownership.json", path.join(root, "packages", "build-control-policy", "src", "ownership-fingerprints.json")],
     ["rightkit-versions.json", path.join(root, "packages", "build-control-policy", "src", "ownership-session-versions.json")],
+    ["ownership-repositories.json", path.join(root, "packages", "build-control-policy", "src", "ownership-repositories.json")],
     ["rightkit-drift.mjs", path.join(root, "packages", "build-control-policy", "src", "rightkit-drift.mjs")],
     ["background-process.mjs", path.join(root, "packages", "build-control-policy", "src", "background-process.mjs")],
     ["ownership-source.mjs", path.join(root, "packages", "build-control-policy", "src", "ownership-source.mjs")],

@@ -1,5 +1,6 @@
-import { readFileSync } from 'node:fs';
-import { extname, isAbsolute, resolve } from 'node:path';
+import { spawnSync } from 'node:child_process';
+import { existsSync, readFileSync, realpathSync } from 'node:fs';
+import { dirname, extname, isAbsolute, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { sourceNonCode } from './ownership-source.mjs';
 
@@ -19,6 +20,98 @@ function normalizedPath(value, cwd = process.cwd()) {
   const slash = value.replace(/\\/g, '/').replace(/^file:\/\//i, '');
   const absolute = resolve(cwd, slash);
   return absolute.toLowerCase().replace(/\\/g, '/');
+}
+
+// Product-repository scope: screening applies only to repositories registered in the ownership
+// repository registry (ownership-repositories.json, byte copy of release/ownership-repositories.json).
+// Everything else is allowed untouched; protected-record denials stay global.
+const registryUrl = fileURLToPath(new URL('./ownership-repositories.json', import.meta.url));
+let registry; let registryError;
+try { registry = new Set(JSON.parse(readFileSync(registryUrl, 'utf8')).repositories.map((entry) => entry.repositoryIdentity)); } catch (error) { registryError = error; registry = new Set(); }
+
+// Mirrors canonicalRepositoryIdentity in packages/release/ownership-approval.mjs exactly.
+export function canonicalRepositoryIdentity(value) {
+  if (typeof value !== 'string' || !value.trim()) throw new Error('repository identity is required');
+  let raw = value.trim();
+  const scp = raw.match(/^([^@/:]+)@([^:]+):(.+)$/);
+  if (scp) raw = `ssh://${scp[2]}/${scp[3]}`;
+  let url;
+  try { url = new URL(raw); } catch { throw new Error('repository identity must be an absolute HTTPS/SSH URL or SSH scp remote'); }
+  if (!['https:', 'ssh:'].includes(url.protocol) || !url.hostname || (url.protocol === 'https:' && (url.username || url.password)) || url.password || url.search || url.hash) throw new Error('unsupported repository identity URL');
+  const hostname = url.hostname.toLowerCase();
+  let repoPath = url.pathname.replace(/^\/+/, '').replace(/\/+$/, '').replace(/\.git$/i, '');
+  if (hostname === 'github.com') repoPath = repoPath.toLowerCase();
+  if (!repoPath || repoPath.split('/').some((x) => !x || x === '.' || x === '..')) throw new Error('invalid repository identity path');
+  return `https://${hostname}${url.port ? `:${url.port}` : ''}/${repoPath}`;
+}
+
+function defaultGit(args) {
+  const result = spawnSync('git', args, { encoding: 'utf8', windowsHide: true, timeout: 5_000 });
+  return result.status === 0 ? String(result.stdout ?? '').trim() : null;
+}
+// Workspace roots are always in scope by path. Override with RIGHTKIT_WORKSPACE_ROOTS (path-delimited).
+const defaultRoots = () => process.env.RIGHTKIT_WORKSPACE_ROOTS ? process.env.RIGHTKIT_WORKSPACE_ROOTS.split(process.platform === 'win32' ? ';' : ':').filter(Boolean)
+  : process.platform === 'win32' ? ['D:\\Claude'] : ['/Volumes/D/claude'];
+const defaultRealpath = (value) => { try { return realpathSync(value); } catch { return value; } };
+let scopeDeps = { git: defaultGit, exists: existsSync, roots: defaultRoots, realpath: defaultRealpath, caseInsensitive: process.platform === 'win32' };
+const dirScope = new Map(); const topScope = new Map();
+/** Test seam: inject the git runner (args => stdout|null) and existence probe; clears caches. */
+export function setScopeDependencies(deps = {}) {
+  scopeDeps = { git: deps.git ?? defaultGit, exists: deps.exists ?? existsSync, roots: deps.roots ?? defaultRoots, realpath: deps.realpath ?? defaultRealpath, caseInsensitive: deps.caseInsensitive ?? process.platform === 'win32' };
+  dirScope.clear(); topScope.clear();
+}
+
+function repositoryInScope(dir) {
+  if (dirScope.has(dir)) return dirScope.get(dir);
+  let result = false;
+  try {
+    const top = scopeDeps.git(['-C', dir, 'rev-parse', '--show-toplevel']);
+    if (top) {
+      if (!topScope.has(top)) {
+        const origin = scopeDeps.git(['-C', top, 'remote', 'get-url', 'origin']);
+        let identity = null; try { identity = origin ? canonicalRepositoryIdentity(origin) : null; } catch { identity = null; }
+        topScope.set(top, identity !== null && registry.has(identity));
+      }
+      result = topScope.get(top);
+    }
+  } catch { result = false; }
+  dirScope.set(dir, result);
+  return result;
+}
+
+const driveAbsolute = (value) => /^[A-Za-z]:[\\/]/.test(value) || /^\\\\/.test(value);
+function parentOf(value) {
+  if (!driveAbsolute(value)) return dirname(value);
+  const trimmed = value.replace(/[\\/]+$/, ''); const cut = Math.max(trimmed.lastIndexOf('/'), trimmed.lastIndexOf('\\'));
+  return cut <= 2 && /^[A-Za-z]:/.test(trimmed) ? `${trimmed.slice(0, 2)}/` : cut > 0 ? trimmed.slice(0, cut) : trimmed;
+}
+function nearestExisting(start) {
+  let current = start;
+  for (let depth = 0; depth < 64; depth += 1) {
+    if (scopeDeps.exists(current)) return current;
+    const parent = parentOf(current); if (parent === current) return null;
+    current = parent;
+  }
+  return null;
+}
+
+function underWorkspace(existing) {
+  const fold = (value) => { const slashed = String(value).replaceAll('\\', '/').replace(/\/+$/, ''); return scopeDeps.caseInsensitive ? slashed.toLowerCase() : slashed; };
+  const target = fold(scopeDeps.realpath(existing)); const rawTarget = fold(existing);
+  const roots = typeof scopeDeps.roots === 'function' ? scopeDeps.roots() : scopeDeps.roots;
+  return roots.some((root) => [fold(root), fold(scopeDeps.realpath(root))].some((base) => base && [target, rawTarget].some((candidate) => candidate === base || candidate.startsWith(`${base}/`))));
+}
+function inScopeDirectory(dir) {
+  if (typeof dir !== 'string' || !dir) return false;
+  const existing = nearestExisting(dir); if (!existing) return false;
+  try { if (underWorkspace(existing)) return true; } catch { /* fall through to registry */ }
+  return registryError ? false : repositoryInScope(existing);
+}
+function inScopeFile(file, cwd) {
+  if (typeof file !== 'string') return false;
+  if (driveAbsolute(file)) return inScopeDirectory(parentOf(file));
+  if (!isAbsolute(file) && typeof cwd !== 'string') return false;
+  return inScopeDirectory(dirname(isAbsolute(file) ? file : resolve(cwd, file)));
 }
 
 function isExceptionPath(value, cwd) {
@@ -445,17 +538,21 @@ function writeDecision(input, { readFile = readFileSync, cwd = input?.cwd ?? pro
   const command = tool === 'exec_command' ? data.cmd ?? input?.cmd : data.command ?? data.cmd ?? data.code ?? data.input ?? input?.command ?? input?.cmd ?? input?.code;
   if (writeTargetException(command, cwd)) return denial('Agent changes to ownership exception or protected trust records are blocked.');
   if (['Bash', 'bash', 'shell', 'Shell', 'exec_command', 'shell_command'].includes(tool)) {
-    const feedback = dependencyFeedback(commandDependencies(command)); if (feedback) return feedback;
+    const feedback = inScopeDirectory(cwd) ? dependencyFeedback(commandDependencies(command)) : null; if (feedback) return feedback;
   }
   const path = data.file_path ?? data.filePath ?? data.path ?? data.file;
   const patch = data.patch ?? data.input ?? input?.patch ?? (tool === 'apply_patch' ? data.code : undefined);
   if (tool === 'apply_patch') {
     const files = patchFiles(patch);
+    if (!files && typeof patch === 'string') {
+      const paths = [...patch.matchAll(/^\*\*\* (?:Update|Add|Delete) File: (.+)$/gm)].map((match) => match[1]);
+      if (!paths.some((file) => inScopeFile(file, cwd))) return paths.some((file) => isProtectedPath(file, cwd)) ? denial('Agent changes to ownership exception or protected trust records are blocked.') : { decision: 'allow' };
+    }
     if (!files) return fallbackPatchDecision(patch, cwd) ?? (typeof patch === 'string' && [...patch.matchAll(/^\*\*\* (?:Update|Add|Delete) File: (.+)$/gm)].some((match) => isManifest(match[1])) ? manifestFailure('apply_patch') : { decision: 'allow' });
     let feedback = null; const manifests = new Set();
     for (const file of files) {
       const [oldPath, newPath] = file.path.split('\n'); const target = newPath ?? oldPath;
-      if (!isManifest(target) || file.kind === 'Delete') continue;
+      if (!isManifest(target) || file.kind === 'Delete' || !inScopeFile(target, cwd)) continue;
       manifests.add(file);
       let current = ''; let created = false; let post = null;
       try { current = readFile(resolve(cwd, oldPath), 'utf8'); post = reconstructPatch(current, file); }
@@ -467,7 +564,7 @@ function writeDecision(input, { readFile = readFileSync, cwd = input?.cwd ?? pro
     for (const file of files) {
       const [oldPath, newPath] = file.path.split('\n');
       if (isProtectedPath(oldPath, cwd) || (newPath && isProtectedPath(newPath, cwd))) return denial('Agent changes to ownership exception or protected trust records are blocked.');
-      if (manifests.has(file)) continue;
+      if (manifests.has(file) || !inScopeFile(newPath ?? oldPath, cwd)) continue;
       const absolute = resolve(cwd, oldPath); let current = '';
       try { current = readFile(absolute, 'utf8'); } catch (error) { if (error?.code !== 'ENOENT') return { decision: 'allow' }; }
       const post = reconstructPatch(current, file);
@@ -488,6 +585,7 @@ function writeDecision(input, { readFile = readFileSync, cwd = input?.cwd ?? pro
   if (!['Write', 'Edit', 'MultiEdit'].includes(tool) || typeof path !== 'string') return { decision: 'allow' };
   if (isProtectedPath(path, cwd)) return denial('Agent changes to ownership exception or protected trust records are blocked.');
   const absolute = isAbsolute(path) ? path : resolve(cwd, path);
+  if (!inScopeFile(path, cwd)) return { decision: 'allow' };
   let current = ''; let created = false;
   try { current = readFile(absolute, 'utf8'); } catch (error) {
     if (error?.code !== 'ENOENT') return isManifest(path) ? manifestFailure(path) : { decision: 'allow' };

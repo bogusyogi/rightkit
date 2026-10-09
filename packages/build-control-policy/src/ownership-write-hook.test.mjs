@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { pathToFileURL, fileURLToPath } from 'node:url';
 import test from 'node:test';
-import { ownershipWriteDecision, fingerprintDecision } from './ownership-write-hook.mjs';
+import { ownershipWriteDecision, fingerprintDecision, setScopeDependencies, canonicalRepositoryIdentity } from './ownership-write-hook.mjs';
 import { renderSessionCatalog } from './ownership-session-hook.mjs';
 import { ownershipSessionDecision } from './ownership-session-hook.mjs';
 import { installPolicyAssets } from './install-policy-assets.mjs';
@@ -12,6 +12,9 @@ import { installPolicyAssets } from './install-policy-assets.mjs';
 const canonical = new URL('../../release/rightkit-ownership.json', import.meta.url);
 const snapshot = new URL('./ownership-fingerprints.json', import.meta.url);
 const sessionCatalog = new URL('./ownership-session-catalog.json', import.meta.url);
+// Existing suites run in temp dirs; treat every path as inside a registered product repository.
+const registeredGit = (args) => args.includes('--show-toplevel') ? '/work/app' : 'git@github.com:BogusYogi/MailRight.git';
+setScopeDependencies({ git: registeredGit, exists: () => true, roots: [] });
 const github = 'client.post("https://api.anthropic.com/v1/messages");';
 const clean = 'export function signIn() { return provider.login(); }';
 
@@ -293,13 +296,14 @@ test('standalone hook honors banned policy independently of tier, Swift dependen
   const root = mkdtempSync(path.join(tmpdir(), 'rk-ownership-hook-'));
   try {
     const source = path.dirname(fileURLToPath(import.meta.url));
-    for (const file of ['ownership-write-hook.mjs', 'ownership-source.mjs']) cpSync(path.join(source, file), path.join(root, file));
+    for (const file of ['ownership-write-hook.mjs', 'ownership-source.mjs', 'ownership-repositories.json']) cpSync(path.join(source, file), path.join(root, file));
     const installed = JSON.parse(readFileSync(snapshot));
     const browser = installed.capabilities.find((entry) => entry.package === 'rightkit-browser');
     browser.fingerprints.find((entry) => entry.name === 'puppeteer').tier = 'advise';
     browser.fingerprints.push({ type: 'dependency', ecosystem: 'swiftpm', name: 'chromiumoxide', tier: 'block' });
     writeFileSync(path.join(root, 'ownership-fingerprints.json'), JSON.stringify(installed));
     const hook = await import(`${pathToFileURL(path.join(root, 'ownership-write-hook.mjs')).href}?valid=1`);
+    hook.setScopeDependencies({ git: registeredGit, exists: () => true, roots: [] });
     assert.equal(hook.ownershipWriteDecision({ tool_name: 'Bash', tool_input: { command: 'npm i puppeteer' } }).hookSpecificOutput.permissionDecision, 'deny');
     const swift = '.package(url: "https://example.com/chromiumoxide.git", .upToNextMajor(from: "1.0"))';
     const input = { tool_name: 'Write', tool_input: { file_path: 'Package.swift', content: swift } };
@@ -307,6 +311,7 @@ test('standalone hook honors banned policy independently of tier, Swift dependen
     assert.deepEqual(hook.ownershipWriteDecision(input, { readFile: () => swift }), { decision: 'allow' });
     writeFileSync(path.join(root, 'ownership-fingerprints.json'), '{invalid');
     const broken = await import(`${pathToFileURL(path.join(root, 'ownership-write-hook.mjs')).href}?broken=1`);
+    broken.setScopeDependencies({ git: registeredGit, exists: () => true, roots: [] });
     assertAdvice(broken.ownershipWriteDecision(input), /Could not load ownership catalog/);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
@@ -314,4 +319,70 @@ test('standalone hook honors banned policy independently of tier, Swift dependen
 test('RightKit owner tree is never screened as a duplicate of itself', () => {
   const decision = ownershipWriteDecision({ tool_name: 'Write', cwd: 'D:/Claude', tool_input: { file_path: 'D:/Claude/tools/rightkit/crates/rightkit-sandbox/src/bin/exec.rs', content: 'sandbox_init(profile); SetFileSecurityW(); SendInput(); chromiumoxide::Browser;' } }, { readFile: () => { const error = new Error('missing'); error.code = 'ENOENT'; throw error; } });
   assert.equal(decision.hookSpecificOutput, undefined);
+});
+
+const gitFor = (map) => (args) => {
+  const dir = args[1];
+  if (args.includes('--show-toplevel')) return Object.keys(map).find((top) => dir === top || dir.startsWith(`${top}/`)) ?? null;
+  return map[dir] ?? null;
+};
+const blockedWrite = (file) => ({ tool_name: 'Write', tool_input: { file_path: file, content: github }, cwd: '/' });
+const isDeny = (r) => r.hookSpecificOutput?.permissionDecision === 'deny';
+const exceptionFile = ['.right', 'kit/ownership-exceptions.json'].join('');
+
+test('scope: registered repo is screened, unregistered and non-git paths are allowed untouched', () => {
+  const git = gitFor({ '/r/mail': 'https://github.com/bogusyogi/mailright.git', '/r/vendor': 'https://github.com/someone/else.git' });
+  setScopeDependencies({ git, exists: (p) => !p.includes('/new'), roots: [] });
+  const manifest = (file) => ({ tool_name: 'Write', tool_input: { file_path: file, content: '{"name":"x","dependencies":{"puppeteer":"24"}}' }, cwd: '/' });
+  assert.ok(ownershipWriteDecision(blockedWrite('/r/mail/src/a.ts')).hookSpecificOutput);
+  assert.deepEqual(ownershipWriteDecision(blockedWrite('/r/vendor/src/a.ts')), { decision: 'allow' });
+  assert.deepEqual(ownershipWriteDecision(blockedWrite('/tmp/scratch/a.ts')), { decision: 'allow' });
+  assert.ok(ownershipWriteDecision(blockedWrite('/r/mail/src/new/deep/a.ts')).hookSpecificOutput);
+  assert.deepEqual(ownershipWriteDecision(blockedWrite('/r/vendor/src/new/a.ts')), { decision: 'allow' });
+  assert.ok(ownershipWriteDecision(manifest('/r/mail/package.json')).hookSpecificOutput);
+  assert.deepEqual(ownershipWriteDecision(manifest('/r/vendor/package.json')), { decision: 'allow' });
+});
+
+test('scope: cargo add depends on the event cwd repository; git failure fails open', () => {
+  setScopeDependencies({ git: gitFor({ '/r/mail': 'ssh://git@github.com/bogusyogi/mailright' }), exists: () => true, roots: [] });
+  const bash = (cwd) => ({ tool_name: 'Bash', tool_input: { command: 'cargo add reqwest' }, cwd });
+  assert.ok(ownershipWriteDecision(bash('/r/mail')).hookSpecificOutput);
+  assert.deepEqual(ownershipWriteDecision(bash('/r/other')), { decision: 'allow' });
+  setScopeDependencies({ git: () => { throw new Error('boom'); }, exists: () => true, roots: [] });
+  assert.deepEqual(ownershipWriteDecision(bash('/r/mail')), { decision: 'allow' });
+});
+
+test('scope: protected records stay denied everywhere, including apply_patch', () => {
+  setScopeDependencies({ git: () => null, exists: () => true, roots: [] });
+  assert.equal(isDeny(ownershipWriteDecision({ tool_name: 'Write', tool_input: { file_path: `/tmp/x/${exceptionFile}`, content: '{}' }, cwd: '/' })), true);
+  const patch = `*** Begin Patch\n*** Add File: /tmp/x/${exceptionFile}\n+{}\n*** End Patch`;
+  assert.equal(isDeny(ownershipWriteDecision({ tool_name: 'apply_patch', tool_input: { patch }, cwd: '/' })), true);
+  assert.equal(isDeny(ownershipWriteDecision({ tool_name: 'Bash', tool_input: { command: `echo {} > ${exceptionFile}` }, cwd: '/tmp/x' })), true);
+});
+
+test('scope: Windows path forms resolve through git toplevel and canonical identity', () => {
+  setScopeDependencies({ git: gitFor({ 'D:/repos/mail': 'git@github.com:BogusYogi/MailRight.git' }), exists: () => true, roots: [] });
+  assert.ok(ownershipWriteDecision(blockedWrite('D:/repos/mail/src/a.ts')).hookSpecificOutput);
+  assert.deepEqual(ownershipWriteDecision(blockedWrite('D:/repos/other/src/a.ts')), { decision: 'allow' });
+  assert.equal(canonicalRepositoryIdentity('git@github.com:BogusYogi/MailRight.git'), 'https://github.com/bogusyogi/mailright');
+  assert.equal(canonicalRepositoryIdentity('https://github.com/BogusYogi/MailRight/'), 'https://github.com/bogusyogi/mailright');
+});
+
+test('packaged repository registry matches release registry', () => {
+  assert.deepEqual(JSON.parse(readFileSync(new URL('./ownership-repositories.json', import.meta.url))), JSON.parse(readFileSync(new URL('../../release/ownership-repositories.json', import.meta.url))));
+  setScopeDependencies({ git: registeredGit, exists: () => true, roots: [] });
+});
+
+test('scope: workspace root is in scope by path; registry covers registered repos cloned elsewhere', () => {
+  const roots = ['/ws', 'D:\\Claude'];
+  const git = gitFor({ '/elsewhere/mail': 'https://github.com/bogusyogi/mailright', '/ws/vendor/lib': 'https://github.com/someone/else' });
+  setScopeDependencies({ git, exists: () => true, roots, realpath: (p) => p.startsWith('/link/ws') ? p.replace('/link/ws', '/ws') : p });
+  assert.ok(ownershipWriteDecision(blockedWrite('/ws/notes/a.ts')).hookSpecificOutput);       // non-git folder under workspace
+  assert.ok(ownershipWriteDecision(blockedWrite('/ws/vendor/lib/a.ts')).hookSpecificOutput);  // third-party clone under workspace
+  assert.ok(ownershipWriteDecision(blockedWrite('/link/ws/x/a.ts')).hookSpecificOutput);      // symlink resolves into workspace
+  assert.ok(ownershipWriteDecision(blockedWrite('/elsewhere/mail/a.ts')).hookSpecificOutput); // registered repo outside workspace
+  assert.deepEqual(ownershipWriteDecision(blockedWrite('/elsewhere/other/a.ts')), { decision: 'allow' });
+  assert.deepEqual(ownershipWriteDecision(blockedWrite('/wsx/a.ts')), { decision: 'allow' }); // prefix is not containment
+  setScopeDependencies({ git, exists: () => true, roots, caseInsensitive: true });
+  assert.ok(ownershipWriteDecision(blockedWrite('d:\\claude\\app\\a.ts')).hookSpecificOutput);
 });
