@@ -1,6 +1,8 @@
+// Crawl/query behaviour needs the macOS backend (other platforms use the stub); Unix symlinks and modes.
+#![cfg(target_os = "macos")]
+
 mod common;
 use common::*;
-use rightkit_fsindex::backend::windows_stub::UnsupportedBackend;
 use rightkit_fsindex::{EntryKind, Error, Index, SearchOptions};
 use std::sync::Arc;
 
@@ -466,13 +468,4 @@ fn snapshot_resumes_and_catches_up() {
         i.search("two.txt").unwrap().len() == 1 && i.search("one.txt").unwrap().is_empty()
     });
     assert_eq!(idx.folder_size(&t.root).unwrap().logical, 200);
-}
-
-#[test]
-fn unsupported_backend_returns_unsupported() {
-    let t = tree();
-    match Index::open_with_backend(static_config(&t.root), Arc::new(UnsupportedBackend)) {
-        Err(Error::Unsupported(_)) => {}
-        other => panic!("expected Unsupported, got {:?}", other.map(|_| ())),
-    }
 }

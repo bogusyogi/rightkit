@@ -1,3 +1,6 @@
+// Needs the macOS backend; other platforms use the Unsupported stub.
+#![cfg(target_os = "macos")]
+
 mod common;
 use common::*;
 use rightkit_fsindex::Index;
