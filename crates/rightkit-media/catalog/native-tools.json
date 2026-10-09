@@ -12,14 +12,14 @@
       "status": "approved",
       "sha256": "be345ce931c2e03e96e282076e92ef2eebf65eb7e9e782902762d09215a653eb",
       "size": 829040,
-      "url": "https://github.com/Orthic-Labs/rightkit-native-tools/releases/download/smartmontools-7.5-1/smartctl-7.5-macos-arm64",
+      "url": "https://pub-6c73208d46c245a9b4881d5e02f6b618.r2.dev/native-tools/smartmontools-7.5-1/smartctl-7.5-macos-arm64",
       "unsignedSha256": "69984bbc722adc8a56eae80552378fc835cfa80872cba3c90b44dd9d9313625b",
       "signing": "Developer ID Application: Adrian D'souza (6KLGD3LLKF), hardened runtime",
       "sourceSha256": "690b83ca331378da9ea0d9d61008c4b22dde391387b9bbad7f29387f2595f76e",
       "attribution": {
         "licenseSpdx": "GPL-2.0-or-later",
         "sourceUrl": "https://github.com/smartmontools/smartmontools/releases/download/RELEASE_7_5/smartmontools-7.5.tar.gz",
-        "sourceOffer": "https://github.com/Orthic-Labs/rightkit-native-tools/releases/tag/smartmontools-7.5-1",
+        "sourceOffer": "https://pub-6c73208d46c245a9b4881d5e02f6b618.r2.dev/native-tools/smartmontools-7.5-1/",
         "buildProvenance": "third-party/BUILD-NOTES-smartctl-macos-arm64.txt",
         "buildRecipe": "native-artifacts/smartmontools/build-macos.sh",
         "noticeFiles": [
@@ -27,8 +27,8 @@
           "third-party/NOTICE-smartmontools.txt",
           "third-party/BUILD-NOTES-smartctl-macos-arm64.txt"
         ],
-        "sourceArchiveUrl": "https://github.com/Orthic-Labs/rightkit-native-tools/releases/download/smartmontools-7.5-1/smartmontools-7.5.tar.gz",
-        "sourceSignatureUrl": "https://github.com/Orthic-Labs/rightkit-native-tools/releases/download/smartmontools-7.5-1/smartmontools-7.5.tar.gz.asc"
+        "sourceArchiveUrl": "https://pub-6c73208d46c245a9b4881d5e02f6b618.r2.dev/native-tools/smartmontools-7.5-1/smartmontools-7.5.tar.gz",
+        "sourceSignatureUrl": "https://pub-6c73208d46c245a9b4881d5e02f6b618.r2.dev/native-tools/smartmontools-7.5-1/smartmontools-7.5.tar.gz.asc"
       },
       "distribution": "separate-executable",
       "deploymentTarget": "14.0",
