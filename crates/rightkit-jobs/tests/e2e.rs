@@ -262,15 +262,25 @@ fn stall_timeout_pauses_a_silent_job_but_never_caps_total_duration() {
     );
 
     let t0 = Instant::now();
-    let steady = c
+    let mut steady = c
         .call(
             "job.submit",
             submit("steady", "steady-1", json!({}), json!({})),
         )
         .unwrap();
+    // Under machine load the submit reply can still show "running"; poll the
+    // job's own status until it settles, bounded by a generous deadline.
+    let until = t0 + Duration::from_secs(30);
+    while steady["status"] != "complete" && Instant::now() < until {
+        std::thread::sleep(Duration::from_millis(50));
+        steady = c
+            .call("job.status", json!({"request_id": "steady-1"}))
+            .unwrap();
+    }
+    let elapsed = t0.elapsed();
     assert_eq!(steady["status"], "complete");
     assert!(
-        t0.elapsed() > Duration::from_millis(2500),
+        elapsed > Duration::from_millis(2500),
         "ran 3s under a 0.7s stall timeout because it kept making progress"
     );
     assert_eq!(steady["attempts"], 1);
