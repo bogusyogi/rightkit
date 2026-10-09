@@ -127,7 +127,10 @@ mod coreml {
         Some(
             Whisper::load(
                 WhisperModel::CoreMlDir { dir },
-                WhisperOptions { language, ..Default::default() },
+                // CpuAndGpu: the default (CPU+ANE) triggers a cold ANECompilerService
+                // compile of the whisper stages that can run for 10+ minutes on a loaded
+                // machine, hanging load(). These tests verify decoding/timing, not ANE.
+                WhisperOptions { language, compute_units: rightkit_asr::ComputeUnits::CpuAndGpu, ..Default::default() },
             )
             .expect("load CoreML whisper"),
         )

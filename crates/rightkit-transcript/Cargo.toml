@@ -1,13 +1,18 @@
 [package]
 name = "rightkit-transcript"
-version = "0.0.0"
+version = "0.1.0"
 edition = "2021"
 rust-version = "1.98.0"
-publish = false
+publish = true
 license = "MIT"
 description = "Product-neutral word-timed transcript contract, cue segmentation, and SRT/VTT/JSON import and export for Right Suite applications"
-repository = "https://github.com/adrdsouza/claude"
-include = ["src/**", "tests/**", "Cargo.toml"]
+readme = "README.md"
+repository = "https://github.com/bogusyogi/claude"
+homepage = "https://github.com/bogusyogi/claude/tree/main/tools/rightkit/crates/rightkit-transcript"
+documentation = "https://docs.rs/rightkit-transcript"
+keywords = ["transcript", "captions", "subtitles", "srt", "webvtt"]
+categories = ["multimedia", "text-processing"]
+include = ["src/**", "tests/**", "Cargo.toml", "README.md", "CHANGELOG.md", "LICENSE"]
 
 [lib]
 name = "rightkit_transcript"
@@ -22,7 +27,7 @@ asr-roundtrip = ["dep:rightkit-asr"]
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.150"
 thiserror = "2"
-rightkit-asr = { path = "../rightkit-asr", optional = true }
+rightkit-asr = { version = "0.0.2", path = "../rightkit-asr", optional = true }
 
 [dev-dependencies]
 hound = "3.5"

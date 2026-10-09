@@ -93,10 +93,22 @@ pub enum TranscriptError {
 
 impl Transcript {
     /// Build from timed words; `duration_ms` is the last word end unless given.
-    pub fn from_words(words: &[TimedWord], language: &str, duration_ms: Option<u64>, model: ModelRef, end_source: EndSource) -> Self {
+    pub fn from_words(
+        words: &[TimedWord],
+        language: &str,
+        duration_ms: Option<u64>,
+        model: ModelRef,
+        end_source: EndSource,
+    ) -> Self {
         let words: Vec<Word> = crate::segment::normalize_words(words)
             .into_iter()
-            .map(|w| Word { text: w.text, start_ms: w.start_ms, end_ms: w.end_ms, confidence: None, end_source })
+            .map(|w| Word {
+                text: w.text,
+                start_ms: w.start_ms,
+                end_ms: w.end_ms,
+                confidence: None,
+                end_source,
+            })
             .collect();
         let end = words.last().map(|w| w.end_ms).unwrap_or(0);
         Transcript {
@@ -111,12 +123,19 @@ impl Transcript {
     }
 
     pub fn timed_words(&self) -> Vec<TimedWord> {
-        self.words.iter().map(|w| TimedWord::new(w.text.clone(), w.start_ms, w.end_ms)).collect()
+        self.words
+            .iter()
+            .map(|w| TimedWord::new(w.text.clone(), w.start_ms, w.end_ms))
+            .collect()
     }
 
     /// Plain transcript text (words joined by one space).
     pub fn text(&self) -> String {
-        self.words.iter().map(|w| w.text.as_str()).collect::<Vec<_>>().join(" ")
+        self.words
+            .iter()
+            .map(|w| w.text.as_str())
+            .collect::<Vec<_>>()
+            .join(" ")
     }
 
     pub fn validate(&self) -> Result<(), TranscriptError> {
@@ -132,7 +151,10 @@ impl Transcript {
                 return Err(TranscriptError::Unsorted { index });
             }
             if w.end_ms > self.duration_ms {
-                return Err(TranscriptError::PastEnd { kind: "word", index });
+                return Err(TranscriptError::PastEnd {
+                    kind: "word",
+                    index,
+                });
             }
             prev_end = w.end_ms;
         }
@@ -142,7 +164,10 @@ impl Transcript {
                 return Err(TranscriptError::BadVad { index });
             }
             if s.end_ms > self.duration_ms {
-                return Err(TranscriptError::PastEnd { kind: "vad span", index });
+                return Err(TranscriptError::PastEnd {
+                    kind: "vad span",
+                    index,
+                });
             }
             prev_end = s.end_ms;
         }
@@ -155,7 +180,8 @@ impl Transcript {
 
     /// Parse and validate. Accepts the legacy CutRight schema id.
     pub fn from_json(s: &str) -> Result<Self, TranscriptError> {
-        let t: Transcript = serde_json::from_str(s).map_err(|e| TranscriptError::Json(e.to_string()))?;
+        let t: Transcript =
+            serde_json::from_str(s).map_err(|e| TranscriptError::Json(e.to_string()))?;
         t.validate()?;
         Ok(t)
     }

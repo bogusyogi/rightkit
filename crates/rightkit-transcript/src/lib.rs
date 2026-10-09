@@ -21,7 +21,9 @@ pub mod segment;
 pub mod words;
 
 pub use align::{check_alignment, AlignmentIssue, ALIGNMENT_TOLERANCE_MS};
-pub use contract::{EndSource, ModelRef, Span, Transcript, TranscriptError, Word, LEGACY_SCHEMA, SCHEMA};
+pub use contract::{
+    EndSource, ModelRef, Span, Transcript, TranscriptError, Word, LEGACY_SCHEMA, SCHEMA,
+};
 pub use export::{to_plain_text, to_srt, to_timing_json, to_vtt, Newline};
 pub use parse::{parse_srt, parse_timing_json, parse_vtt, words_from_cues, ParseError, ParsedCue};
 pub use segment::{build_cues, normalize_words, CaptionConfig, Cue, Profile};
