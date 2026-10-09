@@ -543,3 +543,14 @@ test("installed Legion review, receipt, and real pre-commit verification accept 
     assert.equal(f.runner("git", ["-C", f.repo, "status", "--porcelain", "--", ".rightkit"]).stdout.trim(), "");
   } finally { f.cleanup(); }
 });
+
+test("trust-sync delegates to the desktop session before taking the command lock", async () => {
+  const lockPath = path.join(mkdtempSync(path.join(os.tmpdir(), "rk-lock-")), "held.lock");
+  writeFileSync(lockPath, "held by the delegated child");
+  const lines = [];
+  const code = await main(["trust-sync"], { runner: () => ({ status: 0, stdout: "" }), print: (t) => lines.push(t), root: "/nonexistent", helper: "h", lockPath, hostPlatform: "win32", env: { SSH_CONNECTION: "1" }, desktopCommand: ["node", "x"], desktopOptions: { sleep() {}, tmp: os.tmpdir() } }).catch((e) => e);
+  // The held lock must not be hit: failure may only come from the (fake) desktop task, never the lock.
+  assert.ok(!lines.some((l) => /another ownership key command is active/.test(l)));
+  rmSync(path.dirname(lockPath), { recursive: true, force: true });
+  void code;
+});

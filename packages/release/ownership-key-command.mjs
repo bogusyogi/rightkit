@@ -354,6 +354,8 @@ export async function main(args, deps = {}) {
   const root = deps.root ?? repoRoot(app, run);
   try {
     if (!platform) throw new Error(`ownership key management unsupported platform: ${process.platform}`);
+    // Delegate BEFORE taking the command lock: the desktop-session child needs that same lock.
+    if (args[0] === "trust-sync" && needsDesktopDelegation({ hostPlatform: deps.hostPlatform, env: deps.env, run, elevatedCheck: deps.elevatedCheck })) return delegateTrustSync(deps, run, print);
     const helper = deps.helper ?? helperFor(run);
     const lockPath = deps.lockPath ?? path.join(os.tmpdir(), "rightkit-key-command.lock");
     let lockFd;
@@ -484,14 +486,14 @@ async function resumeRootEnrollment(log, d) {
   print(`Ownership root enrollment recovery completed: ${pin}; active keys: ${state.keys.length}`);
   return 0;
 }
+function delegateTrustSync(deps, run, print) {
+  const result = delegateToDesktop({ run, command: deps.desktopCommand ?? [process.execPath, ...(process.argv[1] ? [path.resolve(process.argv[1])] : []), ...process.argv.slice(2)], ...(deps.desktopOptions ?? {}) });
+  if (result.output) print(result.output.trimEnd());
+  if (result.status !== 0) throw new Error(`desktop-session trust-sync failed (exit ${result.status}); see output above`);
+  return 0;
+}
 /** Advance this host's protected checkpoint to the committed key log (after another host approved or revoked a key). */
 async function trustSync(_args, d) {
-  if (needsDesktopDelegation({ hostPlatform: d.hostPlatform, env: d.env, run: d.run, elevatedCheck: d.elevatedCheck })) {
-    const result = delegateToDesktop({ run: d.run, command: d.desktopCommand ?? [process.execPath, ...(process.argv[1] ? [path.resolve(process.argv[1])] : []), ...process.argv.slice(2)], ...(d.desktopOptions ?? {}) });
-    if (result.output) d.print(result.output.trimEnd());
-    if (result.status !== 0) throw new Error(`desktop-session trust-sync failed (exit ${result.status}); see output above`);
-    return 0;
-  }
   d = { ...d, label: "RightKit ownership trust-sync", gate: trustSyncGate(d) };
   const log = readLog(d.root);
   const pin = log.events[0]?.payload?.rootFingerprint;
