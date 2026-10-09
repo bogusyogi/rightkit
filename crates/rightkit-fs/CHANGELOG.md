@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.1
+
+- **`lock` no longer depends on `nix`.** Unix record locks call `libc::fcntl(F_SETLK)` directly (same whole-file POSIX record lock, non-blocking, shared or exclusive), retrying on `EINTR`. Lock semantics are unchanged. `lock` now costs only `fs`.
+
 ## 0.3.0
 
 - **Cargo features.** `digest` (sha2), `fs` (libc, thiserror: atomic, private, state, netfs, clone, error), `lock` (nix, on top of `fs`), and `json` (serde, on top of `lock`: identity ledger, owner records, clonefile binary). All are on by default. `rightkit-db` uses `features = ["fs"]`. Digest-only callers use `features = ["digest"]`; fs adds neither libc nor nix to their trees.

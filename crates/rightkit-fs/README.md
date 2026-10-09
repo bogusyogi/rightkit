@@ -24,7 +24,7 @@ All features are on by default. Opt out with `default-features = false` and name
 
 - `digest`: `digest` module (`sha256_bytes`, `sha256_reader`, `sha256_file`, `sha256_file_with_len`, `hex`). Depends only on `sha2`.
 - `fs`: atomic writes, owner-only files, `StateDir`, netfs checks, clonefile, and the error type. Depends on `libc` (unix) and `thiserror`.
-- `lock`: cross-process locks (`FileLock`, `with_lock`). Depends on `fs` and `nix` (unix).
+- `lock`: cross-process locks (`FileLock`, `with_lock`). Depends on `fs` and `libc` (unix).
 - `json`: identity ledger (`IdentityStore`), lock owner records, and the `rightkit-clonefile` binary. Depends on `lock`, `serde`, and `serde_json`.
 
 Without `json`, locks write no owner file, so `recovered_stale` and `current_owner` return `None`. The lock itself behaves the same. `rightkit-db` uses `features = ["fs"]`. Digest-only callers use `features = ["digest"]`.

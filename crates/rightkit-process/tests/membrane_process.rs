@@ -114,7 +114,7 @@ fn term_then_kill_escalates_at_configured_grace() {
     {
         use std::os::unix::process::ExitStatusExt;
         assert!(started.elapsed() >= grace);
-        assert_eq!(status.signal(), Some(nix::libc::SIGKILL));
+        assert_eq!(status.signal(), Some(libc::SIGKILL));
     }
     #[cfg(windows)]
     assert_eq!(status.code(), Some(1));
@@ -171,11 +171,11 @@ fn session_mode_creates_session_and_group_led_by_child() {
     let mut child = command.spawn().unwrap();
     let _stdout = read_ready(&mut child);
     assert_eq!(
-        unsafe { nix::libc::getsid(child.id() as i32) },
+        unsafe { libc::getsid(child.id() as i32) },
         child.id() as i32
     );
     assert_eq!(
-        unsafe { nix::libc::getpgid(child.id() as i32) },
+        unsafe { libc::getpgid(child.id() as i32) },
         child.id() as i32
     );
 }

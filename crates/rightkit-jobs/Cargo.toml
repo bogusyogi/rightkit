@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-jobs"
-version = "0.2.5"
+version = "0.2.6"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Persistent job store, runner, and stdio/CLI command contract for Right Suite engines."
@@ -23,7 +23,7 @@ time = { version = "0.3", features = ["formatting", "macros"] }
 uuid = { version = "1", features = ["v4"] }
 
 [target.'cfg(unix)'.dependencies]
-nix = { version = "=0.30.1", default-features = false, features = ["fs"] }
+libc = "0.2"
 
 [dev-dependencies]
 # Independent SHA-256 reference for tests (the crate itself hashes via rightkit-fs).

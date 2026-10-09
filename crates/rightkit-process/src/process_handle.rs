@@ -127,16 +127,16 @@ impl ProcessHandle {
                     return Ok(status);
                 }
                 loop {
-                    let mut info = std::mem::MaybeUninit::<nix::libc::siginfo_t>::uninit();
+                    let mut info = std::mem::MaybeUninit::<libc::siginfo_t>::uninit();
                     // Block without reaping or holding the std-child lock. std's
                     // waitpid below remains the sole reap/cache owner. This lets
                     // concurrent timeouts & detached-drop stdio cleanup proceed.
                     if unsafe {
-                        nix::libc::waitid(
-                            nix::libc::P_PID,
-                            self.pid as nix::libc::id_t,
+                        libc::waitid(
+                            libc::P_PID,
+                            self.pid as libc::id_t,
                             info.as_mut_ptr(),
-                            nix::libc::WEXITED | nix::libc::WNOWAIT,
+                            libc::WEXITED | libc::WNOWAIT,
                         )
                     } == 0
                     {
@@ -145,7 +145,7 @@ impl ProcessHandle {
                         });
                     }
                     let error = io::Error::last_os_error();
-                    if error.raw_os_error() == Some(nix::libc::EINTR) {
+                    if error.raw_os_error() == Some(libc::EINTR) {
                         continue;
                     }
                     // Another reader may have reaped & cached status while waitid
@@ -277,7 +277,6 @@ fn windows_creation_time(handle: &std::os::windows::io::OwnedHandle) -> Option<u
 
 #[cfg(target_os = "macos")]
 fn macos_creation_time(pid: u32) -> Option<SystemTime> {
-    use nix::libc;
     let mut info = std::mem::MaybeUninit::<libc::proc_bsdinfo>::zeroed();
     let size = std::mem::size_of::<libc::proc_bsdinfo>();
     // libproc writes exactly proc_bsdinfo for this flavor; check size before reading it.

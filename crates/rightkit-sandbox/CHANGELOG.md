@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.3
+
+- Requires `rightkit-process` 0.3.3. No source change.
+
 ## 0.3.0 — staged, unpublished
 
 - **Breaking:** `SandboxOutput` gains `truncated: bool`. Struct literals of `SandboxOutput`

@@ -250,9 +250,9 @@ impl OwnedCommand {
             unsafe {
                 self.command.pre_exec(move || {
                     let result = if session {
-                        nix::libc::setsid()
+                        libc::setsid()
                     } else {
-                        nix::libc::setpgid(0, 0)
+                        libc::setpgid(0, 0)
                     };
                     if result < 0 {
                         return Err(io::Error::last_os_error());
@@ -436,7 +436,7 @@ impl OwnedChild {
     pub fn wait_or_kill(&mut self, grace: Duration) -> io::Result<WaitOutcome> {
         #[cfg(unix)]
         if !self.tree_terminated {
-            self.signal(nix::libc::SIGTERM)?;
+            self.signal(libc::SIGTERM)?;
         }
         if let Some(status) = self.wait_timeout(grace)? {
             return Ok(WaitOutcome::Exited(status));
@@ -480,7 +480,7 @@ impl OwnedChild {
     fn start_termination(&mut self, options: TerminationOptions) -> io::Result<()> {
         #[cfg(unix)]
         if !self.tree_terminated {
-            self.signal(nix::libc::SIGTERM)?;
+            self.signal(libc::SIGTERM)?;
             let started = Instant::now();
             while started.elapsed() < options.grace {
                 // Reap an exited leader promptly; descendants still keep the
@@ -508,11 +508,11 @@ impl OwnedChild {
         } else {
             -(self.pid as i32)
         };
-        if unsafe { nix::libc::kill(target, signal) } == 0 {
+        if unsafe { libc::kill(target, signal) } == 0 {
             return Ok(());
         }
         let error = io::Error::last_os_error();
-        if error.raw_os_error() == Some(nix::libc::ESRCH) || self.group_eperm_after_exit(&error)? {
+        if error.raw_os_error() == Some(libc::ESRCH) || self.group_eperm_after_exit(&error)? {
             Ok(())
         } else {
             Err(error)
@@ -528,11 +528,11 @@ impl OwnedChild {
         } else {
             -(self.pid as i32)
         };
-        if unsafe { nix::libc::kill(target, 0) } == 0 {
+        if unsafe { libc::kill(target, 0) } == 0 {
             return Ok(true);
         }
         let error = io::Error::last_os_error();
-        if error.raw_os_error() == Some(nix::libc::ESRCH) || self.group_eperm_after_exit(&error)? {
+        if error.raw_os_error() == Some(libc::ESRCH) || self.group_eperm_after_exit(&error)? {
             Ok(false)
         } else {
             Err(error)
@@ -543,7 +543,7 @@ impl OwnedChild {
     #[cfg(unix)]
     fn group_eperm_after_exit(&self, error: &io::Error) -> io::Result<bool> {
         Ok(!self.detached
-            && error.raw_os_error() == Some(nix::libc::EPERM)
+            && error.raw_os_error() == Some(libc::EPERM)
             && self.handle.try_wait()?.is_some())
     }
     fn force_kill(&mut self, code: u32) -> io::Result<()> {
@@ -553,7 +553,7 @@ impl OwnedChild {
         #[cfg(unix)]
         {
             let _ = code;
-            self.signal(nix::libc::SIGKILL)?;
+            self.signal(libc::SIGKILL)?;
         }
         #[cfg(windows)]
         crate::process_windows::terminate(&self.handle, self.job.as_ref(), code)?;
@@ -689,15 +689,19 @@ fn process_is_running(pid: NonZeroU32) -> io::Result<bool> {
 
 #[cfg(unix)]
 fn process_is_running(pid: NonZeroU32) -> io::Result<bool> {
-    use nix::{errno::Errno, sys::signal::kill, unistd::Pid};
-
-    let pid = i32::try_from(pid.get())
-        .map(Pid::from_raw)
-        .map_err(io::Error::other)?;
-    match kill(pid, None) {
-        Ok(()) | Err(Errno::EPERM) => Ok(true),
-        Err(Errno::ESRCH) => Ok(false),
-        Err(error) => Err(io::Error::from(error)),
+    let pid = i32::try_from(pid.get()).map_err(io::Error::other)?;
+    loop {
+        // SAFETY: signal 0 performs only existence and permission checks; nothing is sent.
+        if unsafe { libc::kill(pid, 0) } == 0 {
+            return Ok(true);
+        }
+        let error = io::Error::last_os_error();
+        match error.raw_os_error() {
+            Some(libc::EINTR) => continue,
+            Some(libc::EPERM) => return Ok(true),
+            Some(libc::ESRCH) => return Ok(false),
+            _ => return Err(error),
+        }
     }
 }
 

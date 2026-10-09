@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.6
+
+- **`nix` removed.** The job lock calls `libc::fcntl(F_SETLK)` directly (same POSIX record lock), retrying on `EINTR`. Behaviour is unchanged.
+
 ## 0.2.4 — unpublished
 
 - **Job locks no longer look busy after a fork.** `JobLocks::try_lock` used `flock`, which
