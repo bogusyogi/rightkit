@@ -6,7 +6,7 @@
 //! keep their own error type and their own install policy (single-file
 //! activation in the root stack, staged directory swap in the suite store).
 
-use std::ffi::OsString;
+use std::ffi::{OsStr, OsString};
 use std::fs;
 use std::io::Read;
 use std::path::{Component, Path, PathBuf};
@@ -55,16 +55,20 @@ pub(crate) fn open_tar(
 /// Every member must sit under the same wrapper, no member may escape
 /// `dest_dir`, Apple metadata is skipped, and only regular files and
 /// directories are accepted. Creates `dest_dir` if needed.
+///
+/// When `expected_wrapper` is `Some`, the wrapper must be exactly that name;
+/// any other top-level name (including a second top-level entry) fails.
 pub(crate) fn unpack_wrapped(
     archive: &Path,
     compression: Compression,
     dest_dir: &Path,
+    expected_wrapper: Option<&str>,
 ) -> Result<(), String> {
     fs::create_dir_all(dest_dir).map_err(|err| format!("create {}: {err}", dest_dir.display()))?;
     let mut tar = open_tar(archive, compression)?;
 
     let mut saw_member = false;
-    let mut wrapper: Option<OsString> = None;
+    let mut wrapper: Option<OsString> = expected_wrapper.map(OsString::from);
     let entries = tar
         .entries()
         .map_err(|err| format!("read archive: {err}"))?;
@@ -76,6 +80,16 @@ pub(crate) fn unpack_wrapped(
             .into_owned();
         if is_ignorable_apple_metadata(&member) {
             continue;
+        }
+        if let (Some(expected), Some(Component::Normal(found))) =
+            (expected_wrapper, member.components().next())
+        {
+            if found != OsStr::new(expected) {
+                return Err(format!(
+                    "archive top-level entry `{}` does not match expected wrapper `{expected}`",
+                    found.to_string_lossy()
+                ));
+            }
         }
         let Some(rel) = checked_member_path(&member, &mut wrapper)? else {
             // The wrapper dir entry itself (`<wrapper>/`): nothing to unpack.

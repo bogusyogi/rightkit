@@ -36,7 +36,7 @@ pub fn install_tar_gz(
     fs::create_dir_all(&staging).map_err(|err| format!("create {}: {err}", staging.display()))?;
 
     let result =
-        archive_core::unpack_wrapped(archive, Compression::Gzip, &staging).and_then(|()| {
+        archive_core::unpack_wrapped(archive, Compression::Gzip, &staging, None).and_then(|()| {
             let dest = dest_root.join(installed_name);
             // Never delete `dest` before the replacement is in place: a crash or a
             // failed rename between the two would leave no model at all. Move the
