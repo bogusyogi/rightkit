@@ -83,8 +83,11 @@ const NATIVE_RUNNER_TARGETS = new Map([
   ["macos-15-intel", ["macos", "x86_64"]],
 ]);
 
+// Hosted `macos-*` runners plus the self-hosted Xcode runner labels (`xcode-27`).
+const MACOS_RUNNER_RE = /^(macos|xcode)-/i;
+
 function inferredTarget(os) {
-  const platform = /^windows-/i.test(os) ? "windows" : /^macos-/i.test(os) ? "macos" : "linux";
+  const platform = /^windows-/i.test(os) ? "windows" : MACOS_RUNNER_RE.test(os) ? "macos" : "linux";
   return { os, platform, architecture: platform === "macos" ? "arm64" : "x86_64" };
 }
 
@@ -253,7 +256,7 @@ export function validateManifest(manifest) {
             if (nativeTarget && (target.platform !== nativeTarget[0] || target.architecture !== nativeTarget[1])) {
               errors.push(`candidate.targets[] must declare ${target.os} as ${nativeTarget[0]}/${nativeTarget[1]}`);
             }
-            if ((target.platform === "windows" && !/^windows-/i.test(target.os)) || (target.platform === "macos" && !/^macos-/i.test(target.os))) {
+            if ((target.platform === "windows" && !/^windows-/i.test(target.os)) || (target.platform === "macos" && !MACOS_RUNNER_RE.test(target.os))) {
               errors.push("candidate.targets[].os must match its Windows or macOS platform");
             }
             const targetKey = `${target.os}|${target.platform}|${target.architecture}`;
