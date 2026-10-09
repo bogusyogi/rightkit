@@ -3,6 +3,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "./background-process.mjs";
 import { backgroundAlias, dmgDSStore } from "./dmg-layout.mjs";
+import { detachWithRetrySync } from "./hdiutil-detach.mjs";
 import { assertReleaseExecutionAllowed } from "./execution-policy.mjs";
 
 const fail = (code, message) => Object.assign(new Error(message), { code });
@@ -17,7 +18,7 @@ const pair = (value, label, positive = false) => {
 export function buildDmg({ app, out, volname, background, iconSize = 128, appPosition = [158, 231],
   applicationsPosition = [492, 231], window = [660, 400], volumeIcon } = {},
 { platform = process.platform, run = spawnSync, makeAlias = backgroundAlias,
-  log = (event) => console.error(JSON.stringify(event)) } = {}) {
+  log = (event) => console.error(JSON.stringify(event)), sleep } = {}) {
   if (platform !== "darwin") throw fail("DMG_NATIVE_HOST_REQUIRED", "DMG creation requires macOS");
   if (!app || !out || !volname) throw fail("DMG_INVALID_OPTIONS", "--app, --out & --volname are required");
   app = path.resolve(app); out = path.resolve(out);
@@ -55,6 +56,12 @@ export function buildDmg({ app, out, volname, background, iconSize = 128, appPos
     if (result.error || result.status !== 0) throw fail("DMG_COMMAND_FAILED", `${tool} ${args[0]} failed: ${result.error?.message ?? result.stderr ?? result.status}`);
     return result;
   };
+  // Detach flakes with "Resource busy": bounded retry with backoff, then -force as the last resort.
+  const detach = () => {
+    const outcome = detachWithRetrySync({ mount, log, ...(sleep ? { sleep } : {}),
+      detach: (args) => run("/usr/bin/hdiutil", args, { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], shell: false, timeout: 300000 }) });
+    if (!outcome.ok) throw fail("DMG_COMMAND_FAILED", `hdiutil detach failed after ${outcome.attempts} tries and -force: ${outcome.result?.error?.message ?? outcome.result?.stderr ?? outcome.result?.status}`);
+  };
   log({ event: "dmg-build-started", app, out, volname });
   try {
     mkdirSync(stage); mkdirSync(mount);
@@ -78,7 +85,7 @@ export function buildDmg({ app, out, volname, background, iconSize = 128, appPos
     const alias = relative ? makeAlias({ mount, volname, relative }) : undefined;
     writeFileSync(path.join(mount, ".DS_Store"), dmgDSStore({ appName: path.basename(app), iconSize,
       appPosition, applicationsPosition, window, alias }));
-    command("/usr/bin/hdiutil", ["detach", mount]); attached = false;
+    detach(); attached = false;
     command("/usr/bin/hdiutil", ["convert", rw, "-format", "UDZO", "-imagekey", "zlib-level=9", "-o", compressed]);
     command("/usr/bin/hdiutil", ["verify", compressed]);
     renameSync(compressed, out);
@@ -89,7 +96,7 @@ export function buildDmg({ app, out, volname, background, iconSize = 128, appPos
     throw error;
   } finally {
     if (attached || attaching) {
-      try { command("/usr/bin/hdiutil", ["detach", "-force", mount]); attached = false; attaching = false; }
+      try { detach(); attached = false; attaching = false; }
       catch (error) { log({ event: "dmg-cleanup-failed", mount, work, message: error.message }); }
     }
     // Never recurse through a mount that failed to detach.

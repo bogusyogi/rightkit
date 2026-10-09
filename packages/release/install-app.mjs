@@ -1,7 +1,9 @@
 #!/usr/bin/env node
-// Sanctioned, non-intrusive local app install from a signed DMG (macOS).
+// Sanctioned, non-intrusive local app install from a signed DMG (macOS); --dev also accepts a
+// Developer ID-signed, not-notarized zip or .app.
 // Never uses a shell, osascript, AppleEvents, or foreground activation.
 import { execFile as nodeExecFile } from "./background-process.mjs";
+import { detachWithRetry } from "./hdiutil-detach.mjs";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -17,11 +19,11 @@ export class InstallAppError extends Error {
   }
 }
 
-const VALUE_FLAGS = new Set(["--dmg", "--app-name", "--bundle-id", "--dest"]);
-const BOOL_FLAGS = new Set(["--relaunch", "--no-relaunch", "--json"]);
+const VALUE_FLAGS = new Set(["--dmg", "--zip", "--app", "--app-name", "--bundle-id", "--dest"]);
+const BOOL_FLAGS = new Set(["--relaunch", "--no-relaunch", "--json", "--dev"]);
 
 export function parseArgs(argv) {
-  const opts = { dmg: null, appName: null, bundleId: null, dest: "/Applications", relaunch: null, json: false };
+  const opts = { dmg: null, zip: null, app: null, dev: false, appName: null, bundleId: null, dest: "/Applications", relaunch: null, json: false };
   for (let i = 0; i < argv.length; i += 1) {
     const flag = argv[i];
     if (VALUE_FLAGS.has(flag)) {
@@ -29,25 +31,35 @@ export function parseArgs(argv) {
       if (value === undefined || value.startsWith("--")) throw new InstallAppError("usage", `${flag} requires a value`);
       i += 1;
       if (flag === "--dmg") opts.dmg = value;
+      else if (flag === "--zip") opts.zip = value;
+      else if (flag === "--app") opts.app = value;
       else if (flag === "--app-name") opts.appName = value;
       else if (flag === "--bundle-id") opts.bundleId = value;
       else opts.dest = value;
     } else if (BOOL_FLAGS.has(flag)) {
       if (flag === "--json") opts.json = true;
+      else if (flag === "--dev") opts.dev = true;
       else opts.relaunch = flag === "--relaunch";
     } else {
       throw new InstallAppError("usage", `unknown argument: ${flag}`);
     }
   }
   if (argv.includes("--relaunch") && argv.includes("--no-relaunch")) throw new InstallAppError("usage", "--relaunch and --no-relaunch are mutually exclusive");
-  if (!opts.dmg) throw new InstallAppError("usage", "--dmg <path.dmg> is required");
-  if (!opts.dmg.toLowerCase().endsWith(".dmg")) throw new InstallAppError("usage", "--dmg must name a .dmg file");
+  const inputs = [opts.dmg, opts.zip, opts.app].filter((v) => v !== null).length;
+  if (inputs === 0) throw new InstallAppError("usage", opts.dev ? "one of --dmg <path.dmg>, --zip <path.zip>, or --app <path.app> is required" : "--dmg <path.dmg> is required");
+  if (inputs > 1) throw new InstallAppError("usage", "--dmg, --zip, and --app are mutually exclusive");
+  if ((opts.zip !== null || opts.app !== null) && !opts.dev) throw new InstallAppError("usage", "--zip and --app require --dev (only DMGs are installable as release builds)");
+  if (opts.dmg !== null && !opts.dmg.toLowerCase().endsWith(".dmg")) throw new InstallAppError("usage", "--dmg must name a .dmg file");
+  if (opts.zip !== null && !opts.zip.toLowerCase().endsWith(".zip")) throw new InstallAppError("usage", "--zip must name a .zip file");
+  if (opts.app !== null && !opts.app.replace(/\/+$/, "").toLowerCase().endsWith(".app")) throw new InstallAppError("usage", "--app must name a .app bundle");
   if (opts.appName !== null && (!/^[^/\0]+\.app$/.test(opts.appName) || opts.appName === ".app" || opts.appName.includes(".."))) {
     throw new InstallAppError("usage", "--app-name must be a bare bundle name ending in .app");
   }
   if (opts.bundleId !== null && !/^[A-Za-z0-9][A-Za-z0-9.-]*$/.test(opts.bundleId)) throw new InstallAppError("usage", "--bundle-id is not a valid bundle identifier");
   if (!path.isAbsolute(opts.dest)) opts.dest = path.resolve(opts.dest);
-  opts.dmg = path.resolve(opts.dmg);
+  if (opts.dmg !== null) opts.dmg = path.resolve(opts.dmg);
+  if (opts.zip !== null) opts.zip = path.resolve(opts.zip);
+  if (opts.app !== null) opts.app = path.resolve(opts.app);
   return opts;
 }
 
@@ -164,9 +176,11 @@ export async function installApp(opts, deps = {}) {
     emit = () => {},
     tmpdir = os.tmpdir(),
   } = deps;
-  const event = (name, data = {}) => emit({ event: name, ...data });
+  const dev = opts.dev === true;
+  const event = (name, data = {}) => emit({ event: name, ...(dev ? { dev: true } : {}), ...data });
   const run = (cmd, args) => execFile(cmd, args);
   let mountRoot = null;
+  let extractRoot = null;
   let mounted = false;
   let mountPoint = null;
   let failedStage = "start";
@@ -174,51 +188,74 @@ export async function installApp(opts, deps = {}) {
   const detach = async () => {
     if (!mounted) return;
     mounted = false;
-    try { await run("/usr/bin/hdiutil", ["detach", mountPoint]); }
-    catch { try { await run("/usr/bin/hdiutil", ["detach", "-force", mountPoint]); } catch { /* best effort */ } }
+    await detachWithRetry({ mount: mountPoint, log: (e) => event(e.event, e), sleep, detach: (args) => run("/usr/bin/hdiutil", args) });
     try { fsImpl.rmSync(mountRoot, { recursive: true, force: true }); } catch { /* best effort */ }
+  };
+  const cleanupExtract = () => {
+    if (!extractRoot) return;
+    try { fsImpl.rmSync(extractRoot, { recursive: true, force: true }); } catch { /* best effort */ }
+    extractRoot = null;
   };
 
   try {
     if (platform !== "darwin") throw new InstallAppError("unsupported", `install-app is not implemented on ${platform}`);
-    event("start", { dmg: opts.dmg, dest: opts.dest });
-    if (!fsImpl.existsSync(opts.dmg)) throw new InstallAppError("dmg-missing", `DMG not found: ${opts.dmg}`);
+    const inputPath = opts.dmg ?? opts.zip ?? opts.app;
+    const inputKind = opts.dmg ? "dmg" : opts.zip ? "zip" : "app";
+    event("start", { [inputKind]: inputPath, dest: opts.dest });
+    if (dev) event("dev-build", { note: "DEV BUILD (not notarized)" });
+    if (!fsImpl.existsSync(inputPath)) throw new InstallAppError(`${inputKind}-missing`, `${inputKind.toUpperCase()} not found: ${inputPath}`);
     if (!fsImpl.existsSync(opts.dest)) throw new InstallAppError("dest-missing", `destination not found: ${opts.dest}`);
 
-    failedStage = "attach";
-    mountRoot = fsImpl.mkdtempSync(path.join(tmpdir, "right-install-app-"));
-    const attached = await run("/usr/bin/hdiutil", ["attach", "-nobrowse", "-readonly", "-noautoopen", "-mountrandom", mountRoot, "-plist", opts.dmg]);
-    const mounts = mountPointsFromAttach(attached.stdout);
-    if (mounts.length === 0) throw new InstallAppError("attach", "DMG attached but exposed no mount point");
-    mountPoint = mounts[0];
-    mounted = true;
-
     let sourceApp = null;
-    for (const mp of mounts) {
-      const apps = fsImpl.readdirSync(mp).filter((n) => n.endsWith(".app"));
-      if (opts.appName) { if (apps.includes(opts.appName)) { sourceApp = path.join(mp, opts.appName); break; } }
-      else if (apps.length === 1) { sourceApp = path.join(mp, apps[0]); break; }
-      else if (apps.length > 1) throw new InstallAppError("ambiguous-app", `DMG contains multiple apps (${apps.join(", ")}); pass --app-name`);
+    const pickApp = (dir, label) => {
+      const apps = fsImpl.readdirSync(dir).filter((n) => n.endsWith(".app"));
+      if (opts.appName) return apps.includes(opts.appName) ? path.join(dir, opts.appName) : null;
+      if (apps.length === 1) return path.join(dir, apps[0]);
+      if (apps.length > 1) throw new InstallAppError("ambiguous-app", `${label} contains multiple apps (${apps.join(", ")}); pass --app-name`);
+      return null;
+    };
+    if (opts.dmg) {
+      failedStage = "attach";
+      mountRoot = fsImpl.mkdtempSync(path.join(tmpdir, "right-install-app-"));
+      const attached = await run("/usr/bin/hdiutil", ["attach", "-nobrowse", "-readonly", "-noautoopen", "-mountrandom", mountRoot, "-plist", opts.dmg]);
+      const mounts = mountPointsFromAttach(attached.stdout);
+      if (mounts.length === 0) throw new InstallAppError("attach", "DMG attached but exposed no mount point");
+      mountPoint = mounts[0];
+      mounted = true;
+      for (const mp of mounts) {
+        sourceApp = pickApp(mp, "DMG");
+        if (sourceApp) break;
+      }
+      if (!sourceApp) throw new InstallAppError("app-not-found", opts.appName ? `${opts.appName} not found in DMG` : "no .app found in DMG");
+    } else if (opts.zip) {
+      failedStage = "extract";
+      extractRoot = fsImpl.mkdtempSync(path.join(tmpdir, "right-install-app-zip-"));
+      try { await run("/usr/bin/ditto", ["-x", "-k", opts.zip, extractRoot]); }
+      catch (error) { throw new InstallAppError("zip-extract", `ditto -x -k failed for ${opts.zip}: ${errText(error)}`); }
+      sourceApp = pickApp(extractRoot, "zip");
+      if (!sourceApp) throw new InstallAppError("app-not-found", opts.appName ? `${opts.appName} not found in zip` : "no .app found in zip");
+    } else {
+      sourceApp = opts.app.replace(/\/+$/, "");
+      if (opts.appName && path.basename(sourceApp) !== opts.appName) throw new InstallAppError("app-not-found", `--app is ${path.basename(sourceApp)}, not ${opts.appName}`);
     }
-    if (!sourceApp) throw new InstallAppError("app-not-found", opts.appName ? `${opts.appName} not found in DMG` : "no .app found in DMG");
     const appName = path.basename(sourceApp);
     const installed = path.join(opts.dest, appName);
     const hadInstalled = fsImpl.existsSync(installed);
 
     // Verify the mounted app before touching anything installed.
     failedStage = "verify";
-    const newTeam = await verifyBundle(run, sourceApp, { assess: true, staple: true });
+    const { team: newTeam, ticket } = await verifyBundle(run, sourceApp, { assess: !dev, staple: !dev, dmg: opts.dmg });
     const newBundleId = await readBundleId(run, sourceApp);
-    if (opts.bundleId && newBundleId !== opts.bundleId) throw new InstallAppError("bundle-id-mismatch", `DMG app bundle id ${newBundleId} != --bundle-id ${opts.bundleId}`);
+    if (opts.bundleId && newBundleId !== opts.bundleId) throw new InstallAppError("bundle-id-mismatch", `${inputKind.toUpperCase()} app bundle id ${newBundleId} != --bundle-id ${opts.bundleId}`);
     let installedTeam = null;
     if (hadInstalled) {
       const installedBundleId = await readBundleId(run, installed);
-      if (installedBundleId !== newBundleId) throw new InstallAppError("bundle-id-mismatch", `DMG app bundle id ${newBundleId} != installed bundle id ${installedBundleId}`);
+      if (installedBundleId !== newBundleId) throw new InstallAppError("bundle-id-mismatch", `${inputKind.toUpperCase()} app bundle id ${newBundleId} != installed bundle id ${installedBundleId}`);
       try { installedTeam = await teamIdOf(run, installed); } catch { installedTeam = null; }
-      if (installedTeam && installedTeam !== newTeam) throw new InstallAppError("team-id-changed", `refusing team change: installed ${installedTeam}, DMG ${newTeam}`);
+      if (installedTeam && installedTeam !== newTeam) throw new InstallAppError("team-id-changed", `refusing team change: installed ${installedTeam}, ${inputKind.toUpperCase()} ${newTeam}`);
     }
     const bundleId = opts.bundleId || newBundleId;
-    event("verified", { app: appName, bundleId, teamId: newTeam, replacing: hadInstalled });
+    event("verified", { app: appName, bundleId, teamId: newTeam, replacing: hadInstalled, ...(ticket ? { ticket } : {}) });
 
     // Quit running instance without UI.
     failedStage = "quit";
@@ -244,11 +281,17 @@ export async function installApp(opts, deps = {}) {
       throw new InstallAppError("ditto-failed", `ditto failed (${errText(error)}); ${trashed ? (restored ? "previous app restored" : `RESTORE FAILED, previous app is at ${trashed}`) : "no previous app to restore"}`);
     }
     event("replaced", { installed, previous: trashed });
+    // Dev builds are not notarized: clear quarantine on the NEW bundle only so Gatekeeper does not block it.
+    if (dev) {
+      try { await run("/usr/bin/xattr", ["-dr", "com.apple.quarantine", installed]); }
+      catch (error) { event("quarantine-clear-failed", { installed, reason: errText(error) }); }
+    }
     await detach();
+    cleanupExtract();
 
     // Re-verify installed copy.
     failedStage = "reverify";
-    await verifyBundle(run, installed, { assess: true, staple: false });
+    await verifyBundle(run, installed, { assess: !dev, staple: false });
 
     // Relaunch hidden and in the background only.
     const relaunch = opts.relaunch === null ? wasRunning : opts.relaunch;
@@ -257,7 +300,7 @@ export async function installApp(opts, deps = {}) {
       await run("/usr/bin/open", ["-g", "-j", "-b", bundleId]);
       event("relaunched", { bundleId });
     }
-    const result = { ok: true, app: appName, installed, bundleId, teamId: newTeam, previous: trashed, relaunched: relaunch };
+    const result = { ok: true, app: appName, installed, bundleId, teamId: newTeam, previous: trashed, relaunched: relaunch, ...(dev ? { dev: true } : {}) };
     event("done", result);
     return result;
   } catch (error) {
@@ -267,10 +310,11 @@ export async function installApp(opts, deps = {}) {
     throw error;
   } finally {
     await detach();
+    cleanupExtract();
   }
 }
 
-async function verifyBundle(run, app, { assess, staple }) {
+async function verifyBundle(run, app, { assess, staple, dmg = null }) {
   const step = async (code, cmd, args) => {
     try { return await run(cmd, args); }
     catch (error) { throw new InstallAppError(code, `${code} failed for ${app}: ${errText(error)}`); }
@@ -280,8 +324,23 @@ async function verifyBundle(run, app, { assess, staple }) {
   if (!team) throw new InstallAppError("team-id-missing", `${app} has no Team ID (ad-hoc or unsigned)`);
   await step("codesign-requirement", "/usr/bin/codesign", ["-dr", "-", app]);
   if (assess) await step("spctl-assess", "/usr/sbin/spctl", ["--assess", "--type", "execute", app]);
-  if (staple) await step("stapler-validate", "/usr/bin/xcrun", ["stapler", "validate", app]);
-  return team;
+  let ticket = null;
+  if (staple) {
+    try { await run("/usr/bin/xcrun", ["stapler", "validate", app]); ticket = "app-ticket"; }
+    catch (error) {
+      if (!dmg) throw new InstallAppError("stapler-validate", `stapler-validate failed for ${app}: ${errText(error)}`);
+      // Standard Tauri flow: the DMG carries the notarization ticket, not the app. Accept only when the
+      // stapled DMG validates, its primary signature is accepted, and Gatekeeper reports the app Notarized Developer ID.
+      await step("stapler-validate", "/usr/bin/xcrun", ["stapler", "validate", dmg]);
+      await step("spctl-dmg", "/usr/sbin/spctl", ["-a", "-t", "open", "--context", "context:primary-signature", dmg]);
+      const assessed = await step("spctl-notarized", "/usr/sbin/spctl", ["-a", "-t", "exec", "-vv", app]);
+      if (!/Notarized Developer ID/.test(`${assessed?.stderr || ""}\n${assessed?.stdout || ""}`)) {
+        throw new InstallAppError("spctl-notarized", `spctl-notarized failed for ${app}: not accepted as Notarized Developer ID`);
+      }
+      ticket = "dmg-ticket";
+    }
+  }
+  return { team, ticket };
 }
 
 async function teamIdOf(run, app) {
@@ -336,13 +395,15 @@ export async function main(argv = process.argv.slice(2), io = {}) {
   try { opts = parseArgs(argv); }
   catch (error) {
     stderr(`right-release install-app: ${error.message}`);
-    stderr("usage: right-release install-app --dmg <path.dmg> [--app-name Pulse.app] [--bundle-id dev.orthic.pulse] [--dest /Applications] [--relaunch|--no-relaunch] [--json]");
+    stderr("usage: right-release install-app (--dmg <path.dmg> | --dev (--zip <path.zip> | --app <path.app> | --dmg <path.dmg>)) [--app-name Pulse.app] [--bundle-id dev.orthic.pulse] [--dest /Applications] [--relaunch|--no-relaunch] [--json]");
+    stderr("  --dev installs a Developer ID-signed, NOT notarized build (skips spctl/stapler, clears quarantine on the new bundle).");
     return 2;
   }
   const emit = (e) => {
     if (opts.json) { stdout(JSON.stringify({ schema: 1, ts: new Date().toISOString(), ...e })); return; }
     const { event, ...rest } = e;
     if (event === "failed") stderr(`install-app: failed at ${rest.stage}: ${rest.reason}`);
+    else if (event === "dev-build") stdout(`install-app: ${rest.note}`);
     else stdout(`install-app: ${event}${Object.keys(rest).length ? ` ${JSON.stringify(rest)}` : ""}`);
   };
   try {

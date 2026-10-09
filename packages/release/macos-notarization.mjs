@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { mkdirSync, readFileSync, realpathSync, statSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { spawnSync } from "./background-process.mjs";
 import { MACOS_PORTABLE_SIGNING_CONTRACT } from "./macos-signing-contract.mjs";
@@ -68,6 +68,26 @@ export function notarizeMacosArtifact({ archive, receiptPath, authArgs, profile,
   mkdirSync(path.dirname(path.resolve(receiptPath)), { recursive: true });
   writeFileSync(receiptPath, `${JSON.stringify(receipt, null, 2)}\n`);
   return receipt;
+}
+
+/**
+ * Notarize and staple a signed .app BEFORE it is packaged into a DMG, so a copy dragged out of the
+ * DMG passes `stapler validate` offline. The app is zipped with ditto (notarytool cannot take a bare
+ * bundle), submitted, and its own ticket stapled; the DMG is then notarized and stapled as usual.
+ * The caller removes the zip after validating the receipt, which hashes it. The receipt records the submitted zip; its stapling evidence names the app bundle.
+ */
+export function notarizeAppBundle({ app, receiptPath, profile, authArgs, zip, run = spawnSync, env = process.env, ...agentOptions }) {
+  app = path.resolve(app);
+  if (!/\.app$/i.test(app)) throw new Error(`notarize.app must name an app bundle: ${app}`);
+  zip = path.resolve(zip ?? `${app}.zip`);
+  rmSync(zip, { force: true });
+  checkedDitto(["-c", "-k", "--keepParent", app, zip], run);
+  return notarizeMacosArtifact({ archive: zip, receiptPath, profile, authArgs, app, run, env, ...agentOptions });
+}
+
+function checkedDitto(args, run) {
+  const result = run("/usr/bin/ditto", args, { encoding: "utf8" });
+  if (result.error || result.status !== 0) throw new Error(`ditto failed: ${result.error?.message ?? result.stderr ?? result.stdout ?? result.status}`);
 }
 
 export function validateNotarizationReceipt({ receiptPath, archive, run = spawnSync }) {

@@ -10,8 +10,29 @@
 // real risk is shipping stale, dirty, or untested source. Distribution trust still
 // comes from OS code signing, notarization, and the Tauri updater key — untouched.
 
+// right-release's own per-platform run lock (`.right-release/locks/*`, every platform) is
+// written before the later clean-tree preflights run. Only untracked files directly in that lock directory are
+// exempt, so repos that do not ignore `.right-release/` still pass, and nothing else in
+// the vault (sealed output, receipts, state) or elsewhere is ever excused.
+const OWN_LOCK_RECORD = /^\?\? (?:[^\0]*\/)?\.right-release\/locks\/[^\0/]+$/;
+
+/** Remove right-release's own untracked lock-file records from NUL-separated porcelain v1 output. */
+export function stripOwnLockRecords(status) {
+  const records = status.split("\0");
+  const kept = [];
+  for (let index = 0; index < records.length; index += 1) {
+    const record = records[index];
+    if (!record) continue;
+    if (OWN_LOCK_RECORD.test(record)) continue;
+    kept.push(record);
+    if (/^[RC]/.test(record) || /^.[RC]/.test(record)) kept.push(records[++index] ?? "");
+  }
+  return kept.length ? `${kept.join("\0")}\0` : "";
+}
+
 export function assertCleanSource({ status, commandId = "release" }) {
   if (typeof status !== "string") throw new Error("release source status is required");
+  status = stripOwnLockRecords(status);
   if (status.length !== 0) {
     const files = status.split("\0").filter(Boolean).map((entry) => entry.slice(3)).slice(0, 10);
     throw new Error(`${commandId} requires a clean working tree; commit or stash first:\n${files.map((file) => `- ${file}`).join("\n")}`);

@@ -95,7 +95,7 @@ function mockCommands(f, calls, failPhase) {
       cpSync(path.join(work, "stage"), mount, { recursive: true, verbatimSymlinks: true });
       assert.equal(readlinkSync(path.join(mount, "Applications")), "/Applications");
     }
-    if (args[0] === "detach" && args[1] !== "-force") {
+    if (args[0] === "detach" && args[1] !== "-force" && existsSync(path.join(args[1], ".DS_Store"))) {
       const ds = readStore(readFileSync(path.join(args[1], ".DS_Store")));
       assert.equal(ds["./icvl"], "icnv");
     }
@@ -128,9 +128,10 @@ test("mocked branded DMG stages background & writes alias to mounted layout", (t
 
 for (const phase of ["attach", "detach", "convert", "verify"]) test(`DMG ${phase} failure preserves old output & detaches before cleanup`, (t) => {
   const f = fixture(t), calls = [], events = []; writeFileSync(f.out, "previous");
-  assert.throws(() => buildDmg({ ...f, background: undefined }, { platform: "darwin", run: mockCommands(f, calls, phase), log: (e) => events.push(e) }), { code: "DMG_COMMAND_FAILED" });
+  assert.throws(() => buildDmg({ ...f, background: undefined }, { platform: "darwin", run: mockCommands(f, calls, phase), log: (e) => events.push(e), sleep() {} }), { code: "DMG_COMMAND_FAILED" });
   assert.equal(readFileSync(f.out, "utf8"), "previous"); assert.equal(events.some((e) => e.event === "dmg-build-failed"), true);
-  if (["attach", "detach"].includes(phase)) assert.ok(calls.some((c) => c[1] === "detach" && c.includes("-force")));
+  if (phase === "detach") assert.ok(calls.some((c) => c[1] === "detach" && c.includes("-force")));
+  if (phase === "attach") assert.ok(calls.some((c) => c[1] === "detach"));
   if (phase !== "detach") assert.ok(!readdirSync(f.root).some((n) => n.startsWith(".rightkit-dmg-")));
 });
 
@@ -165,4 +166,28 @@ test("real native headless DMG roundtrip", { skip: process.platform !== "darwin"
     const records = readStore(readFileSync(path.join(mount, ".DS_Store")));
     assert.equal(readPlist(records["./icvp"]).backgroundType, 2);
   } finally { assert.equal(spawnSync("/usr/bin/hdiutil", ["detach", mount]).status, 0); }
+});
+
+test("DMG detach retries 'Resource busy' with backoff, logs each retry, then succeeds without -force", (t) => {
+  const f = fixture(t), calls = [], events = [], sleeps = []; let busy = 3;
+  const base = mockCommands(f, calls);
+  const run = (tool, args, options) => (args[0] === "detach" && !args.includes("-force") && busy-- > 0
+    ? (calls.push([tool, ...args]), { status: 16, stderr: "Resource busy" }) : base(tool, args, options));
+  const result = buildDmg({ ...f, background: undefined }, { platform: "darwin", run, log: (e) => events.push(e), sleep: (ms) => sleeps.push(ms) });
+  assert.equal(result.format, "UDZO");
+  assert.equal(calls.filter((c) => c[1] === "detach").length, 4); assert.ok(!calls.some((c) => c.includes("-force")));
+  assert.deepEqual(sleeps, [500, 1000, 2000]);
+  assert.equal(events.filter((e) => e.event === "hdiutil-detach-retry").length, 3);
+});
+
+test("DMG detach exhausts 5 tries then uses -force as last resort", (t) => {
+  const f = fixture(t), calls = [], events = [], sleeps = [];
+  const base = mockCommands(f, calls);
+  const run = (tool, args, options) => (args[0] === "detach" && !args.includes("-force")
+    ? (calls.push([tool, ...args]), { status: 16, stderr: "Resource busy" }) : base(tool, args, options));
+  buildDmg({ ...f, background: undefined }, { platform: "darwin", run, log: (e) => events.push(e), sleep: (ms) => sleeps.push(ms) });
+  const detaches = calls.filter((c) => c[1] === "detach");
+  assert.equal(detaches.length, 6); assert.ok(detaches.at(-1).includes("-force"));
+  assert.deepEqual(sleeps, [500, 1000, 2000, 4000]);
+  assert.ok(events.some((e) => e.event === "hdiutil-detach-force"));
 });

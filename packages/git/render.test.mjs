@@ -1,7 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
+import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { renderTemplate, MANAGED_MARKER } from "./render.mjs";
 import { buildRenderContext, LANE_FILENAMES, KNOWN_LANES, validateManifest } from "./manifest.mjs";
@@ -878,4 +880,91 @@ test("rust-hybrid ci uploads QA evidence after the gate only when qaEvidencePath
 
   const custom = renderTemplate(template, buildRenderContext({ ...structuredClone(base), qaEvidencePath: "pulse-hub-qa", qaEvidenceRetentionDays: 30 }, "/repos/widgets"));
   assert.match(custom, /retention-days: 30\n/);
+});
+
+const INCREMENTAL_BASE = {
+  ...FULL_MANIFEST,
+  lanes: ["ci"],
+  profile: "rust-hybrid",
+  gate: { path: "scripts/gate.sh" },
+  matrix: { os: ["xcode-27", "windows-2025"], node: ["26.8.1"] },
+  ciAllOs: true,
+};
+const renderRustCi = (manifest) => renderTemplate(
+  fs.readFileSync(path.join(templatesDir, "profiles/rust-hybrid/ci.yml"), "utf8"),
+  buildRenderContext(structuredClone(manifest), "/repos/pulse"),
+);
+
+test("ciIncremental unset or false renders the legacy cache settings; true opts in", () => {
+  const unset = renderRustCi(INCREMENTAL_BASE);
+  assert.match(unset, /cache-workspace-crates: false/);
+  assert.match(unset, /CARGO_INCREMENTAL: "0"/);
+  assert.doesNotMatch(unset, /DerivedData|actions\/cache@|dev-mac|dev-windows/);
+  assert.equal(renderRustCi({ ...INCREMENTAL_BASE, ciIncremental: false }), unset);
+
+  const on = renderRustCi({ ...INCREMENTAL_BASE, ciIncremental: true });
+  assert.match(on, /cache-workspace-crates: true/);
+  assert.match(on, /CARGO_INCREMENTAL: "1"/);
+  assert.match(on, /Cache Xcode DerivedData\n        if: \$\{\{ runner\.os == 'macOS' \}\}\n        uses: actions\/cache@[0-9a-f]{40} # v4\.2\.4/);
+  assert.match(on, /hashFiles\('\*\*\/Cargo\.lock', '\*\*\/Package\.resolved'/);
+});
+
+const DEV_MANIFEST = {
+  ...INCREMENTAL_BASE,
+  devArtifact: {
+    mac: "sign",
+    windows: "unsigned",
+    retentionDays: 5,
+    macAppPath: "target/release/bundle/macos/Pulse.app",
+    windowsGlob: "target/release/*.exe",
+  },
+};
+
+test("devArtifact renders push-to-default-branch dev steps and a signing job; unset adds nothing", () => {
+  const out = renderRustCi(DEV_MANIFEST);
+  assert.match(out, /name: dev-windows-\$\{\{ github\.sha \}\}\n          path: target\/release\/\*\.exe\n          retention-days: 5/);
+  assert.match(out, /DEV_APP_PATH: "target\/release\/bundle\/macos\/Pulse\.app"/);
+  assert.match(out, /dev-mac-sign:\n[\s\S]*needs: \[ci\]\n    if: \$\{\{ github\.event_name == 'push' && github\.ref_name == github\.event\.repository\.default_branch \}\}\n    environment: release\n    runs-on: xcode-27/);
+  assert.match(out, /codesign --force --deep --strict --options runtime --timestamp --sign "\$APPLE_DEVELOPER_ID"/);
+  assert.match(out, /name: dev-mac-\$\{\{ github\.sha \}\}/);
+  assert.doesNotMatch(out, /notarytool|APPLE_API_KEY|stapler/);
+  // Signing material never reaches the PR-reachable ci job.
+  assert.doesNotMatch(out.split("  dev-mac-sign:")[0], /secrets\./);
+  // mac/windows only render the legs they declare.
+  const winOnly = renderRustCi({ ...DEV_MANIFEST, devArtifact: { windows: "unsigned", windowsGlob: "dist/*.exe" } });
+  assert.doesNotMatch(winOnly, /dev-mac-sign|dev-unsigned-mac/);
+  assert.match(winOnly, /retention-days: 7/);
+  assert.equal(renderRustCi({ ...INCREMENTAL_BASE, devArtifact: undefined }), renderRustCi(INCREMENTAL_BASE));
+});
+
+test("devArtifact entitlements add a checkout and --entitlements", () => {
+  const out = renderRustCi({ ...DEV_MANIFEST, devArtifact: { ...DEV_MANIFEST.devArtifact, macEntitlements: "build/pulse.entitlements" } });
+  assert.match(out, /--entitlements "\$GITHUB_WORKSPACE\/build\/pulse\.entitlements"/);
+  assert.match(out.split("  dev-mac-sign:")[1], /actions\/checkout@/);
+});
+
+test("rendered ciIncremental + devArtifact workflows pass actionlint", (t) => {
+  const bin = spawnSync("actionlint", ["-version"], { encoding: "utf8" });
+  if (bin.error) return t.skip("actionlint not installed");
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "right-git-actionlint-"));
+  try {
+    fs.mkdirSync(path.join(dir, ".github", "workflows"), { recursive: true });
+    fs.writeFileSync(path.join(dir, ".github", "actionlint.yaml"), "self-hosted-runner:\n  labels:\n    - xcode-*\n");
+    const samples = {
+      "ci-default.yml": INCREMENTAL_BASE,
+      "ci-incremental.yml": { ...INCREMENTAL_BASE, ciIncremental: true },
+      "ci-dev.yml": { ...DEV_MANIFEST, ciIncremental: true },
+      "ci-dev-entitlements.yml": { ...DEV_MANIFEST, devArtifact: { ...DEV_MANIFEST.devArtifact, macEntitlements: "build/pulse.entitlements" } },
+    };
+    const files = [];
+    for (const [name, manifest] of Object.entries(samples)) {
+      const file = path.join(dir, ".github", "workflows", name);
+      fs.writeFileSync(file, renderRustCi(manifest));
+      files.push(file);
+    }
+    const result = spawnSync("actionlint", ["-shellcheck=", "-pyflakes=", "-config-file", path.join(dir, ".github", "actionlint.yaml"), ...files], { encoding: "utf8" });
+    assert.equal(result.status, 0, result.stdout + result.stderr);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
 });
