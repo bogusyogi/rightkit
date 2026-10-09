@@ -34,4 +34,3 @@ tempfile = "3"
 
 [[example]]
 name = "example_server"
-test = true
