@@ -173,7 +173,7 @@ impl AtomicWriter {
         let file = self.file.take().expect("writer is open until commit");
         let result = (|| -> Result<()> {
             if self.options.durable {
-                file.sync_all().map_err(|e| FsError::io(&self.temp, e))?;
+                durable_sync(&file).map_err(|e| FsError::io(&self.temp, e))?;
             }
             drop(file);
             fs::rename(&self.temp, &self.target).map_err(|e| FsError::io(&self.target, e))?;
@@ -224,10 +224,33 @@ fn temp_name(name: &str, attempt: u32) -> String {
 pub fn sync_dir(dir: &Path) {
     #[cfg(unix)]
     if let Ok(d) = File::open(dir) {
-        let _ = d.sync_all();
+        let _ = durable_sync(&d);
     }
     #[cfg(not(unix))]
     let _ = dir;
+}
+
+/// Flush a file to stable storage. On Apple targets this matches libuv's `uv__fs_fsync`:
+/// `F_FULLFSYNC`, then `F_BARRIERFSYNC`, then plain `fsync`, because `F_FULLFSYNC` fails with
+/// `EIO`/`ENOTSUP` on some external and network volumes where the weaker syncs succeed.
+/// Elsewhere it is `File::sync_all`.
+pub fn durable_sync(file: &File) -> std::io::Result<()> {
+    #[cfg(target_vendor = "apple")]
+    {
+        use std::os::fd::AsRawFd;
+        const F_BARRIERFSYNC: libc::c_int = 85;
+        let fd = file.as_raw_fd();
+        // SAFETY: `fd` is a valid open descriptor borrowed from `file` for these calls.
+        if unsafe { libc::fcntl(fd, libc::F_FULLFSYNC) } == 0
+            || unsafe { libc::fcntl(fd, F_BARRIERFSYNC) } == 0
+            || unsafe { libc::fsync(fd) } == 0
+        {
+            return Ok(());
+        }
+        Err(std::io::Error::last_os_error())
+    }
+    #[cfg(not(target_vendor = "apple"))]
+    file.sync_all()
 }
 
 /// Remove orphaned temp files in `dir` left by crashed writers. A temp file is reclaimed when

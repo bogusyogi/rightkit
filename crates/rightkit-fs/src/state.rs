@@ -177,7 +177,7 @@ impl StateDir {
         let result = (|| -> Result<()> {
             file.write_all(bytes)
                 .map_err(|e| FsError::io(&final_path, e))?;
-            file.sync_all().map_err(|e| FsError::io(&final_path, e))?;
+            crate::atomic::durable_sync(&file).map_err(|e| FsError::io(&final_path, e))?;
             drop(file);
             if replace {
                 // Never replace a symlinked or non-file destination through the rename.
@@ -568,7 +568,7 @@ mod sys {
         }
 
         pub fn sync(&self) {
-            let _ = self.0.sync_all();
+            let _ = crate::atomic::durable_sync(&self.0);
         }
 
         pub fn names(&self, limit: usize) -> Result<Vec<String>> {
