@@ -119,6 +119,35 @@ test("rust-hybrid ci preserves a declared macOS-only lane", () => {
   assert.doesNotMatch(content, /windows-2025/);
 });
 
+test("rust-hybrid ci runs every matrix.os runner when ciAllOs is true, in declared order", () => {
+  const base = {
+    ...FULL_MANIFEST,
+    lanes: ["ci"],
+    profile: "rust-hybrid",
+    gate: { path: "scripts/gate.sh" },
+    qaEvidencePath: "pulse-hub-qa",
+    matrix: { os: ["xcode-27", "windows-2025"], node: ["26.8.1"] },
+  };
+  const render = (manifest) => renderTemplate(
+    fs.readFileSync(path.join(templatesDir, "profiles/rust-hybrid/ci.yml"), "utf8"),
+    buildRenderContext(manifest, "/repos/pulse"),
+  );
+  const all = render({ ...base, ciAllOs: true });
+  assert.match(all, /^ {8}os: \["xcode-27", "windows-2025"\]$/m);
+  assert.match(all, /runs-on: \$\{\{ matrix\.os \}\}/);
+  assert.match(all, /fail-fast: false/);
+  assert.match(all, /name: qa-evidence-\$\{\{ matrix\.os \|\| runner\.os \}\}-\$\{\{ github\.run_attempt \}\}/);
+  assert.doesNotMatch(all, /Full validation stays/);
+  // ciAllOs false and unset render the same single-runner matrix as before.
+  for (const manifest of [base, { ...base, ciAllOs: false }]) {
+    const single = render(manifest);
+    assert.match(single, /# Full validation stays on one declared runner; prefer configured\n {8}# Windows when available, otherwise preserve first configured OS\.\n {8}os: \["windows-2025"\]\n/);
+    assert.doesNotMatch(single, /xcode-27/);
+  }
+  // Unset and false produce byte-identical output.
+  assert.equal(render({ ...base, ciAllOs: false }), render(base));
+});
+
 test("rust-hybrid release candidate renders product scripts, artifact handoff, and no signing secret", () => {
   const manifest = {
     ...FULL_MANIFEST,

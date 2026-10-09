@@ -61,6 +61,7 @@ const TOP_LEVEL_KEYS = new Set([
   "rustCache",
   "qaEvidencePath",
   "qaEvidenceRetentionDays",
+  "ciAllOs",
   "candidate",
   "ownership",
 ]);
@@ -183,6 +184,16 @@ export function validateManifest(manifest) {
       errors.push("qaEvidenceRetentionDays requires qaEvidencePath");
     } else if (!Number.isInteger(manifest.qaEvidenceRetentionDays) || manifest.qaEvidenceRetentionDays < 1 || manifest.qaEvidenceRetentionDays > QA_EVIDENCE_MAX_RETENTION_DAYS) {
       errors.push(`qaEvidenceRetentionDays must be an integer from 1 to ${QA_EVIDENCE_MAX_RETENTION_DAYS}`);
+    }
+  }
+
+  // ciAllOs (rust-hybrid ci only): run the gate on every matrix.os runner
+  // instead of one declared runner. Omitted or false keeps the single-runner ci job.
+  if (manifest.ciAllOs !== undefined) {
+    if (typeof manifest.ciAllOs !== "boolean") {
+      errors.push("ciAllOs must be a boolean");
+    } else if (manifest.ciAllOs === true && profile !== "rust-hybrid") {
+      errors.push("ciAllOs is only valid for profile 'rust-hybrid'");
     }
   }
 
@@ -1058,10 +1069,20 @@ export function buildRenderContext(manifest, repoPath, lane = "ci") {
   const rustWorkspaces = manifest.rustCache?.workspaces ?? ["engine"];
   const configuredWindowsRunner = manifest.matrix.os.find((runner) => runner.startsWith("windows-"));
   const ciOs = configuredWindowsRunner ?? manifest.matrix.os[0];
+  const ciMatrixOs = manifest.ciAllOs === true
+    ? [
+      "        # ciAllOs: the gate runs on every matrix.os runner, in declared order.",
+      `        os: ${yamlFlowStringList(manifest.matrix.os)}`,
+    ]
+    : [
+      "        # Full validation stays on one declared runner; prefer configured",
+      "        # Windows when available, otherwise preserve first configured OS.",
+      `        os: ${yamlFlowStringList([ciOs])}`,
+    ];
 
   const context = {
     OS_MATRIX: yamlFlowStringList(manifest.matrix.os),
-    CI_OS_MATRIX: yamlFlowStringList([ciOs]),
+    CI_MATRIX_OS: ciMatrixOs.join("\n"),
     NODE_MATRIX: yamlFlowStringList(manifest.matrix.node),
     NODE_PUBLISH_VERSION: JSON.stringify(String(manifest.matrix.node[0])),
     PM_NAME: pm.name,

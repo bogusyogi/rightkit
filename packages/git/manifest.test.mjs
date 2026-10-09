@@ -406,3 +406,15 @@ test("qaEvidencePath and qaEvidenceRetentionDays are optional, rust-hybrid only,
   assert.equal(validateManifest({ ...valid, qaEvidenceRetentionDays: 7 }).valid, false, "retention requires a path");
   assert.equal(validateManifest({ ...VALID_MINIMAL, qaEvidencePath: "pulse-hub-qa" }).valid, false, "node profile rejects qaEvidencePath");
 });
+
+test("ciAllOs is an optional boolean, rust-hybrid only", () => {
+  const valid = { ...VALID_MINIMAL, profile: "rust-hybrid", gate: { path: "scripts/gate.sh" } };
+  assert.equal(validateManifest(valid).valid, true);
+  assert.equal(validateManifest({ ...valid, ciAllOs: true }).valid, true);
+  assert.equal(validateManifest({ ...valid, ciAllOs: false }).valid, true);
+  for (const ciAllOs of ["true", 1, null]) {
+    assert.equal(validateManifest({ ...valid, ciAllOs }).valid, false, String(ciAllOs));
+  }
+  assert.equal(validateManifest({ ...VALID_MINIMAL, ciAllOs: true }).valid, false, "node profile rejects ciAllOs true");
+  assert.equal(validateManifest({ ...VALID_MINIMAL, ciAllOs: false }).valid, true, "false is accepted for any profile");
+});
