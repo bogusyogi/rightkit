@@ -72,7 +72,9 @@ const H_SEGS: usize = H_ROOTS + MAX_ROOTS * 4;
 const HDR_LEN: usize = H_SEGS + MAX_SEGS * 4;
 
 pub fn now_secs() -> u64 {
-    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs())
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs())
 }
 
 fn clamp_mtime(m: i64) -> u32 {
@@ -137,10 +139,19 @@ fn rd_u32(h: &MmapMut, at: usize) -> u32 {
 
 impl Store {
     /// Fresh store. `dir` must exist for a file-backed store; `None` is anonymous (no persistence).
-    pub fn create(dir: Option<&Path>, package_exts: Vec<Vec<u8>>, fingerprint: u64) -> io::Result<Store> {
+    pub fn create(
+        dir: Option<&Path>,
+        package_exts: Vec<Vec<u8>>,
+        fingerprint: u64,
+    ) -> io::Result<Store> {
         let hdr = match dir {
             Some(d) => {
-                let f = OpenOptions::new().read(true).write(true).create(true).truncate(true).open(d.join("header.bin"))?;
+                let f = OpenOptions::new()
+                    .read(true)
+                    .write(true)
+                    .create(true)
+                    .truncate(true)
+                    .open(d.join("header.bin"))?;
                 f.set_len(HDR_LEN.max(4096) as u64)?;
                 Some(unsafe { MmapMut::map_mut(&f)? })
             }
@@ -168,7 +179,14 @@ impl Store {
             Col::<u32>::create(dir, "d-owner.col", 256)?,
             Col::<Rollup>::create(dir, "d-roll.col", 256)?,
         );
-        let mut s = Store::assemble(dir, hdr, names, (a, b, c, d, e, f, g, h, i, j, k, l, m, n2, o, p, q, r), package_exts, fingerprint);
+        let mut s = Store::assemble(
+            dir,
+            hdr,
+            names,
+            (a, b, c, d, e, f, g, h, i, j, k, l, m, n2, o, p, q, r),
+            package_exts,
+            fingerprint,
+        );
         s.mark_dirty()?;
         Ok(s)
     }
@@ -242,8 +260,18 @@ impl Store {
     }
 
     /// Reopen a committed store. `Ok(None)` when absent, dirty (torn), or for a different configuration.
-    pub fn open_existing(dir: &Path, package_exts: Vec<Vec<u8>>, fingerprint: u64) -> io::Result<Option<(Store, OpenInfo)>> {
-        let Ok(f) = OpenOptions::new().read(true).write(true).open(dir.join("header.bin")) else { return Ok(None) };
+    pub fn open_existing(
+        dir: &Path,
+        package_exts: Vec<Vec<u8>>,
+        fingerprint: u64,
+    ) -> io::Result<Option<(Store, OpenInfo)>> {
+        let Ok(f) = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(dir.join("header.bin"))
+        else {
+            return Ok(None);
+        };
         if f.metadata()?.len() < HDR_LEN as u64 {
             return Ok(None);
         }
@@ -251,8 +279,14 @@ impl Store {
         if &hdr[0..8] != MAGIC || rd_u32(&hdr, H_DIRTY) != 0 || rd_u64(&hdr, H_FP) != fingerprint {
             return Ok(None);
         }
-        let (nslots, ndirs) = (rd_u64(&hdr, H_NSLOTS) as usize, rd_u64(&hdr, H_NDIRS) as usize);
-        let (ncount, buckets) = (rd_u64(&hdr, H_NAMES) as usize, rd_u64(&hdr, H_BUCKETS) as usize);
+        let (nslots, ndirs) = (
+            rd_u64(&hdr, H_NSLOTS) as usize,
+            rd_u64(&hdr, H_NDIRS) as usize,
+        );
+        let (ncount, buckets) = (
+            rd_u64(&hdr, H_NAMES) as usize,
+            rd_u64(&hdr, H_BUCKETS) as usize,
+        );
         let nsegs = (rd_u32(&hdr, H_NSEGS) as usize).min(MAX_SEGS);
         let nroots = (rd_u32(&hdr, H_NROOTS) as usize).min(MAX_ROOTS);
         let seg_used: Vec<u32> = (0..nsegs).map(|i| rd_u32(&hdr, H_SEGS + i * 4)).collect();
@@ -305,7 +339,11 @@ impl Store {
                 self.free.push(s as u32);
             }
         }
-        self.dir_free = (0..self.ndirs).rev().filter(|&i| self.d_owner.get(i) == NONE).map(|i| i as u32).collect();
+        self.dir_free = (0..self.ndirs)
+            .rev()
+            .filter(|&i| self.d_owner.get(i) == NONE)
+            .map(|i| i as u32)
+            .collect();
         let mut by_link: HashMap<(u32, u64), Vec<u32>> = HashMap::new();
         let mut shared: Vec<u32> = Vec::new();
         for s in 0..self.nslots {
@@ -392,7 +430,13 @@ impl Store {
             r?;
         }
         self.generation += 1;
-        let (gen, ns, nd, nn, nb) = (self.generation, self.nslots as u64, self.ndirs as u64, self.names.count as u64, self.names.buckets() as u64);
+        let (gen, ns, nd, nn, nb) = (
+            self.generation,
+            self.nslots as u64,
+            self.ndirs as u64,
+            self.names.count as u64,
+            self.names.buckets() as u64,
+        );
         let roots = self.roots.clone();
         let segs = self.names.seg_used.clone();
         let h = self.hdr.as_mut().unwrap();
@@ -424,14 +468,29 @@ impl Store {
     /// Drop clean mapped pages from this process's resident set (they refault on demand).
     pub fn trim(&self) {
         self.names.trim();
-        for c in [&self.c_name, &self.c_parent, &self.c_first, &self.c_next, &self.c_prev, &self.c_dir, &self.c_mtime, &self.c_dev] {
+        for c in [
+            &self.c_name,
+            &self.c_parent,
+            &self.c_first,
+            &self.c_next,
+            &self.c_prev,
+            &self.c_dir,
+            &self.c_mtime,
+            &self.c_dev,
+        ] {
             c.trim();
         }
         for c in [&self.c_meta, &self.c_flags] {
             c.trim();
         }
         self.c_nlink.trim();
-        for c in [&self.c_fileid, &self.c_logical, &self.c_alloc, &self.c_private, &self.c_clone] {
+        for c in [
+            &self.c_fileid,
+            &self.c_logical,
+            &self.c_alloc,
+            &self.c_private,
+            &self.c_clone,
+        ] {
             c.trim();
         }
         self.d_owner.trim();
@@ -488,7 +547,8 @@ impl Store {
     fn put_data(&mut self, s: u32, d: &EntryData) {
         let i = s as usize;
         let special = d.kind != KIND_DIR && ((d.nlink > 1 && d.fileid != 0) || d.alloc > d.private);
-        self.c_meta.set(i, LIVE | (d.kind & 3) | if special { SPECIAL } else { 0 });
+        self.c_meta
+            .set(i, LIVE | (d.kind & 3) | if special { SPECIAL } else { 0 });
         self.c_flags.set(i, d.flags);
         self.c_nlink.set(i, d.nlink.min(u16::MAX as u32) as u16);
         self.c_mtime.set(i, clamp_mtime(d.mtime));
@@ -501,7 +561,10 @@ impl Store {
     }
 
     pub fn kind_flags(&self, s: u32) -> (u8, u8) {
-        (self.c_meta.get(s as usize) & 3, self.c_flags.get(s as usize))
+        (
+            self.c_meta.get(s as usize) & 3,
+            self.c_flags.get(s as usize),
+        )
     }
 
     pub fn name_of(&self, s: u32) -> &[u8] {
@@ -518,7 +581,8 @@ impl Store {
     }
 
     pub fn rollup(&self, s: u32) -> Rollup {
-        self.dir_of(s).map_or(Rollup::default(), |d| self.d_roll.get(d))
+        self.dir_of(s)
+            .map_or(Rollup::default(), |d| self.d_roll.get(d))
     }
 
     pub fn children(&self, s: u32) -> Vec<u32> {
@@ -535,7 +599,10 @@ impl Store {
         match name.iter().rposition(|&b| b == b'.') {
             Some(p) if p + 1 < name.len() => {
                 let ext = &name[p + 1..];
-                self.package_exts.iter().any(|e| e.len() == ext.len() && e.iter().zip(ext).all(|(a, b)| *a == b.to_ascii_lowercase()))
+                self.package_exts.iter().any(|e| {
+                    e.len() == ext.len()
+                        && e.iter().zip(ext).all(|(a, b)| *a == b.to_ascii_lowercase())
+                })
             }
             _ => false,
         }
@@ -649,7 +716,11 @@ impl Store {
     }
 
     fn unlink_from_parent(&mut self, s: u32) {
-        let (p, n, pr) = (self.parent_of(s), self.c_next.get(s as usize), self.c_prev.get(s as usize));
+        let (p, n, pr) = (
+            self.parent_of(s),
+            self.c_next.get(s as usize),
+            self.c_prev.get(s as usize),
+        );
         if pr != NONE {
             self.c_next.set(pr as usize, n);
         } else if p != NONE {
@@ -716,7 +787,11 @@ impl Store {
     /// Apply (sign = +1) or remove (-1) this entry's own contribution.
     fn contribute(&mut self, s: u32, sign: i64) {
         let d = self.entry(s).d;
-        let (lg, al, pr) = (d.logical as i64 * sign, d.alloc as i64 * sign, d.private as i64 * sign);
+        let (lg, al, pr) = (
+            d.logical as i64 * sign,
+            d.alloc as i64 * sign,
+            d.private as i64 * sign,
+        );
         self.ancestors_apply(s, |r| {
             apply(&mut r.logical, lg);
             apply(&mut r.alloc, al);
@@ -786,7 +861,9 @@ impl Store {
             ancestors.push(p);
             p = self.parent_of(p);
         }
-        let Some(g) = self.clones.get_mut(&key) else { return };
+        let Some(g) = self.clones.get_mut(&key) else {
+            return;
+        };
         let mut deltas: Vec<(u32, i64)> = Vec::new();
         for a in ancestors {
             if let Some(c) = g.per_dir.get_mut(&a) {
@@ -900,7 +977,11 @@ impl Store {
 
     /// Drop children not in `keep`; returns the removed slots.
     pub fn prune_children(&mut self, dir: u32, keep: &HashSet<u32>) -> Vec<u32> {
-        let gone: Vec<u32> = self.children(dir).into_iter().filter(|c| !keep.contains(c)).collect();
+        let gone: Vec<u32> = self
+            .children(dir)
+            .into_iter()
+            .filter(|c| !keep.contains(c))
+            .collect();
         for &g in &gone {
             self.unlink_from_parent(g);
             self.remove_detached_subtree(g);
@@ -949,13 +1030,21 @@ impl Store {
 
     /// Resolve an absolute path to a slot.
     pub fn lookup(&self, path: &[u8]) -> Option<u32> {
-        let path = if path.len() > 1 { path.strip_suffix(b"/").unwrap_or(path) } else { path };
+        let path = if path.len() > 1 {
+            path.strip_suffix(b"/").unwrap_or(path)
+        } else {
+            path
+        };
         for &r in &self.roots {
             let rp = self.name_of(r);
             if path == rp {
                 return Some(r);
             }
-            let rest = if rp == b"/" { path.strip_prefix(b"/") } else { path.strip_prefix(rp).and_then(|x| x.strip_prefix(b"/")) };
+            let rest = if rp == b"/" {
+                path.strip_prefix(b"/")
+            } else {
+                path.strip_prefix(rp).and_then(|x| x.strip_prefix(b"/"))
+            };
             if let Some(rest) = rest {
                 let mut cur = r;
                 for comp in rest.split(|&b| b == b'/').filter(|c| !c.is_empty()) {
@@ -975,7 +1064,9 @@ impl Store {
     }
 
     pub fn live_slots(&self) -> impl Iterator<Item = u32> + '_ {
-        (0..self.nslots).filter(|&i| self.c_meta.get(i) & LIVE != 0).map(|i| i as u32)
+        (0..self.nslots)
+            .filter(|&i| self.c_meta.get(i) & LIVE != 0)
+            .map(|i| i as u32)
     }
 
     /// Name id of a slot (for per-name score caches).
@@ -984,6 +1075,9 @@ impl Store {
     }
 
     pub fn take_logs(&mut self) -> (Vec<u32>, Vec<u32>) {
-        (std::mem::take(&mut self.removed_log), std::mem::take(&mut self.touched_log))
+        (
+            std::mem::take(&mut self.removed_log),
+            std::mem::take(&mut self.touched_log),
+        )
     }
 }

@@ -125,7 +125,13 @@ pub trait Backend: Send + Sync {
     fn stat(&self, path: &Path) -> std::io::Result<EntryData>;
     /// Recursive crawl streamed to `sink`; listing id 0 is `root` itself. A directory's listing
     /// is always delivered before the listings of its subdirectories.
-    fn crawl(&self, root: &Path, excludes: &Excludes, threads: usize, sink: &mut dyn FnMut(Listing));
+    fn crawl(
+        &self,
+        root: &Path,
+        excludes: &Excludes,
+        threads: usize,
+        sink: &mut dyn FnMut(Listing),
+    );
     /// One directory, no recursion; subdirectories have `child == NONE`.
     fn list_dir(&self, dir: &Path, excludes: &Excludes) -> std::io::Result<Listing>;
     /// Start the change feed. `since`: resume from this event id (None: from now).

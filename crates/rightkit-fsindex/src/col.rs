@@ -22,24 +22,50 @@ impl<T: Copy> Col<T> {
         let cap = cap.max(16);
         match dir {
             Some(d) => {
-                let f = OpenOptions::new().read(true).write(true).create(true).truncate(true).open(d.join(name))?;
+                let f = OpenOptions::new()
+                    .read(true)
+                    .write(true)
+                    .create(true)
+                    .truncate(true)
+                    .open(d.join(name))?;
                 f.set_len((cap * Self::SZ) as u64)?;
                 let map = unsafe { MmapMut::map_mut(&f)? };
-                Ok(Col { file: Some(f), map, cap, _t: PhantomData })
+                Ok(Col {
+                    file: Some(f),
+                    map,
+                    cap,
+                    _t: PhantomData,
+                })
             }
-            None => Ok(Col { file: None, map: MmapMut::map_anon(cap * Self::SZ)?, cap, _t: PhantomData }),
+            None => Ok(Col {
+                file: None,
+                map: MmapMut::map_anon(cap * Self::SZ)?,
+                cap,
+                _t: PhantomData,
+            }),
         }
     }
 
     /// Open an existing column file; it must hold at least `min_len` elements.
     pub fn open(dir: &Path, name: &str, min_len: usize) -> io::Result<Col<T>> {
-        let f = OpenOptions::new().read(true).write(true).open(dir.join(name))?;
+        let f = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(dir.join(name))?;
         let len = f.metadata()?.len() as usize;
         if len < min_len * Self::SZ || len < 16 * Self::SZ {
-            return Err(io::Error::new(io::ErrorKind::InvalidData, "column shorter than header says"));
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "column shorter than header says",
+            ));
         }
         let map = unsafe { MmapMut::map_mut(&f)? };
-        Ok(Col { file: Some(f), map, cap: len / Self::SZ, _t: PhantomData })
+        Ok(Col {
+            file: Some(f),
+            map,
+            cap: len / Self::SZ,
+            _t: PhantomData,
+        })
     }
 
     pub fn cap(&self) -> usize {
@@ -83,7 +109,10 @@ impl<T: Copy> Col<T> {
     pub fn trim(&self) {
         if self.file.is_some() {
             // Safe for MAP_SHARED file mappings: dirty pages are written back, nothing is discarded.
-            let _ = unsafe { self.map.unchecked_advise(memmap2::UncheckedAdvice::DontNeed) };
+            let _ = unsafe {
+                self.map
+                    .unchecked_advise(memmap2::UncheckedAdvice::DontNeed)
+            };
         }
     }
 

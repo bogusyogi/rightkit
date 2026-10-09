@@ -276,10 +276,25 @@ impl Backend for MacBackend {
         })
     }
 
-    fn crawl(&self, root: &Path, excludes: &Excludes, threads: usize, sink: &mut dyn FnMut(Listing)) {
+    fn crawl(
+        &self,
+        root: &Path,
+        excludes: &Excludes,
+        threads: usize,
+        sink: &mut dyn FnMut(Listing),
+    ) {
         raise_fd_limit();
         let threads = threads.max(1);
-        let q = (Mutex::new(Queue { stack: vec![Job { id: 0, path: root.as_os_str().as_bytes().to_vec() }], active: 0 }), Condvar::new());
+        let q = (
+            Mutex::new(Queue {
+                stack: vec![Job {
+                    id: 0,
+                    path: root.as_os_str().as_bytes().to_vec(),
+                }],
+                active: 0,
+            }),
+            Condvar::new(),
+        );
         let next_id = AtomicU32::new(1);
         // Bounded: workers block when the consumer falls behind, so a whole-disk crawl never
         // holds more than a few hundred directory listings in memory.
@@ -304,16 +319,24 @@ impl Backend for MacBackend {
                         }
                     };
                     let Some(job) = job else { return };
-                    let mut l = Listing { id: job.id, ..Listing::default() };
+                    let mut l = Listing {
+                        id: job.id,
+                        ..Listing::default()
+                    };
                     l.error = list_path(&job.path, &mut l);
                     mark_excluded(&mut l, &job.path, excludes);
                     let mut kids = Vec::new();
                     for i in 0..l.ents.len() {
                         let e = l.ents[i];
-                        if e.data.kind == KIND_DIR && e.data.flags & (FLAG_MOUNT | FLAG_EXCLUDED) == 0 {
+                        if e.data.kind == KIND_DIR
+                            && e.data.flags & (FLAG_MOUNT | FLAG_EXCLUDED) == 0
+                        {
                             let id = next_id.fetch_add(1, Ordering::Relaxed);
                             l.ents[i].child = id;
-                            kids.push(Job { id, path: join(&job.path, l.name(&e)) });
+                            kids.push(Job {
+                                id,
+                                path: join(&job.path, l.name(&e)),
+                            });
                         }
                     }
                     // A parent's listing is sent before any child job exists, so the
