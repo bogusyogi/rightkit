@@ -13,6 +13,7 @@
 //! Third-party code: see THIRD-PARTY-NOTICES (fsearch, MIT).
 
 pub mod backend;
+mod col;
 mod config;
 #[cfg(feature = "content")]
 mod content;
@@ -20,7 +21,6 @@ mod error;
 mod index;
 mod names;
 mod query;
-mod snapshot;
 mod store;
 
 pub use config::*;

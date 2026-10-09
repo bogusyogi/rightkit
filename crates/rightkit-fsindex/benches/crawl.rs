@@ -2,6 +2,8 @@
 //! plain `read_dir` + `metadata` walk. Run: `rightkit cargo bench -p rightkit-fsindex`.
 //! Set FSINDEX_BENCH_DIRS / FSINDEX_BENCH_FILES_PER_DIR to resize (default 2000 x 25).
 
+#[cfg(target_os = "macos")]
+mod mac {
 use rightkit_fsindex::{Config, Index};
 use std::path::Path;
 use std::time::Instant;
@@ -31,7 +33,7 @@ fn walk_std(p: &Path) -> (u64, u64) {
     (files, bytes)
 }
 
-fn main() {
+pub fn main() {
     let dirs = env("FSINDEX_BENCH_DIRS", 2000);
     let per = env("FSINDEX_BENCH_FILES_PER_DIR", 25);
     let tmp = tempfile::tempdir().unwrap();
@@ -61,8 +63,8 @@ fn main() {
     for threads in [1usize, 4] {
         let be = rightkit_fsindex::backend::default_backend();
         let t = Instant::now();
-        let ls = be.crawl(&root, &Default::default(), threads);
-        let n: usize = ls.iter().map(|l| l.ents.len()).sum();
+        let mut n = 0usize;
+        be.crawl(&root, &Default::default(), threads, &mut |l| n += l.ents.len());
         println!(
             "raw backend crawl, {threads} thread(s): {:>9.1?}  ({n} entries, no index build)",
             t.elapsed()
@@ -85,4 +87,15 @@ fn main() {
             idx.status().entries
         );
     }
+}
+}
+
+#[cfg(target_os = "macos")]
+fn main() {
+    mac::main();
+}
+
+#[cfg(not(target_os = "macos"))]
+fn main() {
+    eprintln!("macOS only");
 }
