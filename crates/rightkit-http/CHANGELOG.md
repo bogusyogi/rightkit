@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.2.2
+
+- Add optional `async` feature: `AsyncClient` (reqwest + tokio, rustls only) with
+  the same policy layer as `Client` (shared `ClientConfig`, `Request`, `Response`,
+  `HttpError`): per-phase timeouts, retry/backoff with `Retry-After`, retry-safety
+  for non-idempotent methods, redirect limit/credential rules, user agent,
+  environment proxies, bounded bodies, URL-free error messages.
+- Add `AsyncStreamResponse`/`BodyStream` (typed-error chunk stream with stream
+  and body deadlines) and `SseStream` (`sse()`, `sse_with_limits()`).
+- Add `SseDecoder::with_limits(max_line, max_event)`; `SseDecoder::new` is
+  unchanged (events unbounded). Default features and the blocking API are unchanged.
+
 ## 0.2.0
 
 - Breaking: `ClientConfig::connect_timeout` & `response_timeout` now use

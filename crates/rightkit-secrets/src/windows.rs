@@ -4,6 +4,7 @@
 
 use crate::backend::{Backend, Interaction};
 use crate::error::{Error, Result};
+use crate::keyring_compat;
 use crate::namespace::Namespace;
 use crate::secret::Secret;
 use std::sync::Mutex;
@@ -117,13 +118,18 @@ impl CredentialManagerBackend {
             }
             let out = if want_blob {
                 let c = &*p;
-                let bytes = if c.CredentialBlob.is_null() || c.CredentialBlobSize == 0 {
+                let raw = if c.CredentialBlob.is_null() || c.CredentialBlobSize == 0 {
                     Vec::new()
                 } else {
                     std::slice::from_raw_parts(c.CredentialBlob, c.CredentialBlobSize as usize)
                         .to_vec()
                 };
-                Secret::from_bytes(bytes)
+                let raw = zeroize::Zeroizing::new(raw);
+                if ns.is_keyring_compat() {
+                    Secret::from_bytes(keyring_compat::decode(&raw))
+                } else {
+                    Secret::from_bytes(raw.to_vec())
+                }
             } else {
                 Secret::from_bytes(Vec::new())
             };
@@ -146,7 +152,11 @@ impl Backend for CredentialManagerBackend {
     fn set(&self, ns: &Namespace, account: &str, secret: &Secret, _: Interaction) -> Result<()> {
         let name = wide(&ns.windows_target_name(account));
         let user = wide(account);
-        let blob = secret.expose_bytes();
+        let blob = zeroize::Zeroizing::new(if ns.is_keyring_compat() {
+            keyring_compat::encode(secret.expose_bytes())
+        } else {
+            secret.expose_bytes().to_vec()
+        });
         unsafe {
             let mut cred: CREDENTIALW = std::mem::zeroed();
             cred.Type = CRED_TYPE_GENERIC;

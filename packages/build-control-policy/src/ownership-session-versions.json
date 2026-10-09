@@ -262,10 +262,10 @@
     "rightkit-control": "0.1.9",
     "rightkit-crash": "0.1.0",
     "rightkit-db": "0.3.2",
-    "rightkit-embed": "0.3.0",
+    "rightkit-embed": "0.3.1",
     "rightkit-framed-sidecar": "0.1.0",
     "rightkit-fs": "0.3.0",
-    "rightkit-http": "0.2.1",
+    "rightkit-http": "0.2.2",
     "rightkit-jobs": "0.2.5",
     "rightkit-license": "0.1.3",
     "rightkit-logs": "0.2.0",
@@ -273,23 +273,25 @@
     "rightkit-media": "0.2.4",
     "rightkit-models": "0.2.6",
     "rightkit-oauth": "0.3.0",
-    "rightkit-ort": "0.2.1",
+    "rightkit-ocr": "0.1.2",
+    "rightkit-ort": "0.2.2",
     "rightkit-pdf": "0.2.0",
     "rightkit-playback": "0.1.1",
     "rightkit-process": "0.3.2",
     "rightkit-qa": "0.2.14",
-    "rightkit-qts": "0.2.3",
+    "rightkit-qts": "0.2.4",
     "rightkit-qts-ggml": "0.1.1",
-    "rightkit-qts-ggml-sys": "0.1.0",
+    "rightkit-qts-ggml-sys": "0.1.1",
     "rightkit-sandbox": "0.3.2",
     "rightkit-search": "0.2.0",
-    "rightkit-secrets": "0.1.1",
+    "rightkit-secrets": "0.1.2",
     "rightkit-service": "0.1.3",
     "rightkit-settings": "0.1.0",
     "rightkit-shell": "0.1.4",
     "rightkit-speech-client": "0.3.2",
     "rightkit-sync": "0.1.0",
     "rightkit-tauri": "0.1.2",
+    "rightkit-tts": "0.1.0",
     "rightkit-watch": "0.3.1"
   },
   "swift": {
@@ -390,7 +392,8 @@
     ],
     "rightkit-embed": [
       "0.2.1",
-      "0.2.2"
+      "0.2.2",
+      "0.3.0"
     ],
     "rightkit-jobs": [
       "0.2.1",
@@ -416,7 +419,8 @@
     ],
     "rightkit-ort": [
       "0.1.4",
-      "0.2.0"
+      "0.2.0",
+      "0.2.1"
     ],
     "rightkit-playback": [
       "0.1.0"
@@ -458,7 +462,8 @@
     "rightkit-qts": [
       "0.2.0",
       "0.2.1",
-      "0.2.2"
+      "0.2.2",
+      "0.2.3"
     ],
     "rightkit-control": [
       "0.1.6",
@@ -466,11 +471,13 @@
       "0.1.8"
     ],
     "rightkit-secrets": [
-      "0.1.0"
+      "0.1.0",
+      "0.1.1"
     ],
     "rightkit-http": [
       "0.1.0",
-      "0.2.0"
+      "0.2.0",
+      "0.2.1"
     ],
     "rightkit-fs": [
       "0.1.0",
@@ -496,6 +503,9 @@
     "rightkit-speech-client": [
       "0.3.0",
       "0.3.1"
+    ],
+    "rightkit-qts-ggml-sys": [
+      "0.1.0"
     ]
   }
 }

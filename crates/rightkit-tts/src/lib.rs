@@ -24,7 +24,10 @@ pub mod system;
 #[cfg(feature = "client")]
 pub use client::{QtsClient, QtsError, SynthOptions, SynthResult};
 #[cfg(feature = "system")]
-pub use system::{chunk_sentences, SentenceChunk, SystemTts, SystemTtsError, SystemTtsManifest, SystemTtsOptions, SystemTtsResult, SystemTtsSegment};
+pub use system::{
+    chunk_sentences, SentenceChunk, SystemTts, SystemTtsError, SystemTtsManifest, SystemTtsOptions,
+    SystemTtsResult, SystemTtsSegment,
+};
 
 #[cfg(feature = "engine")]
 pub mod worker;

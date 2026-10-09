@@ -92,7 +92,8 @@ test("generation validates owner metadata, code scope & qualified block tier", (
 
 test("availability distinguishes registry, staging & Swift owner alias", () => {
   const availability = ownershipAvailability({ package: "rightkit-qa" }, versions);
-  assert.deepEqual(availability.map(({ version, state }) => [version, state]), [["0.2.12", "registry-recorded"], ["0.2.14", "staged-unverified"]]);
+  // 0.2.14 is published on crates.io and recorded by the release feed (7dd4610df), so no staged-unverified row remains.
+  assert.deepEqual(availability.map(({ version, state }) => [version, state]), [["0.2.14", "registry-recorded"]]);
   assert.deepEqual(ownershipAvailability({ package: "RightKitSwift" }, versions).map(({ version, state }) => [version, state]), [["0.1.1", "registry-pinned"], ["0.3.1", "staged-unverified"]]);
   assert.deepEqual(ownershipAvailability({ package: "rightkit-asr" }, versions), []);
 });

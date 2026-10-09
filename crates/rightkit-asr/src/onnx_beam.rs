@@ -16,6 +16,7 @@
 //! `onnx_transducer_decodes_the_fixtures_when_the_export_is_present`; no ONNX
 //! Parakeet TDT export exists on the macOS dev machine, so the model-backed
 //! gate has not run here (see `final.md` for the exact files it needs).
+use rightkit_ort::ort;
 use crate::error::{Error, Result};
 use crate::model_transducer::TransducerModel;
 use crate::parakeet_core::policy::{DecodePolicy, PruningMode};

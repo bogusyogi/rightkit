@@ -23,7 +23,10 @@ pub fn encode_pcm16(samples: &[i16], rate: u32) -> Vec<u8> {
 }
 
 pub fn f32_to_i16(samples: &[f32]) -> Vec<i16> {
-    samples.iter().map(|s| (s.clamp(-1.0, 1.0) * i16::MAX as f32) as i16).collect()
+    samples
+        .iter()
+        .map(|s| (s.clamp(-1.0, 1.0) * i16::MAX as f32) as i16)
+        .collect()
 }
 
 pub fn silence(ms: u32) -> Vec<i16> {

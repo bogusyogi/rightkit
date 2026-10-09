@@ -63,6 +63,10 @@ impl Namespace {
     pub fn service(&self) -> &str {
         &self.service
     }
+    #[cfg_attr(not(windows), allow(dead_code))]
+    pub(crate) fn is_keyring_compat(&self) -> bool {
+        matches!(self.windows, WindowsTarget::KeyringCompat)
+    }
     /// Windows Credential Manager target for an account.
     pub fn windows_target_name(&self, account: &str) -> String {
         match &self.windows {

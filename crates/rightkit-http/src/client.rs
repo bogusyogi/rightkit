@@ -249,7 +249,7 @@ impl StreamResponse {
     }
 }
 
-fn header_of<'a>(headers: &'a [(String, String)], name: &str) -> Option<&'a str> {
+pub(crate) fn header_of<'a>(headers: &'a [(String, String)], name: &str) -> Option<&'a str> {
     headers
         .iter()
         .find(|(k, _)| k.eq_ignore_ascii_case(name))
@@ -429,7 +429,7 @@ impl Client {
     }
 }
 
-fn status_error(
+pub(crate) fn status_error(
     status: u16,
     headers: &[(String, String)],
     body: Vec<u8>,

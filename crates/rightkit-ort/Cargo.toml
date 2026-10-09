@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-ort"
-version = "0.2.1"
+version = "0.2.2"
 edition = "2021"
 rust-version = "1.98.0"
 license = "MIT OR Apache-2.0"
@@ -25,6 +25,30 @@ half = ["session", "ort/half", "dep:half"]
 # ndarray tensors (Tensor::from_array, try_extract_array): forwards ort/ndarray and re-exports
 # `ndarray`, so apps use rightkit_ort::ndarray and never declare ort or ndarray directly.
 ndarray = ["session", "ort/ndarray", "dep:ndarray"]
+
+# Pass-through ort features for consumers that name one (asr/qts), so no crate declares ort.
+tracing = ["session", "ort/tracing"]
+download-binaries = ["session", "ort/download-binaries"]
+tls-native = ["session", "ort/tls-native"]
+copy-dylibs = ["session", "ort/copy-dylibs"]
+preload-dylibs = ["session", "ort/preload-dylibs"]
+acl = ["session", "ort/acl"]
+armnn = ["session", "ort/armnn"]
+azure = ["session", "ort/azure"]
+cann = ["session", "ort/cann"]
+cuda = ["session", "ort/cuda"]
+migraphx = ["session", "ort/migraphx"]
+nnapi = ["session", "ort/nnapi"]
+nvrtx = ["session", "ort/nvrtx"]
+onednn = ["session", "ort/onednn"]
+openvino = ["session", "ort/openvino"]
+qnn = ["session", "ort/qnn"]
+rknpu = ["session", "ort/rknpu"]
+tensorrt = ["session", "ort/tensorrt"]
+tvm = ["session", "ort/tvm"]
+vitis = ["session", "ort/vitis"]
+webgpu = ["session", "ort/webgpu"]
+xnnpack = ["session", "ort/xnnpack"]
 
 [dependencies]
 half = { version = "2", optional = true }

@@ -14,24 +14,23 @@ name = "rightkit_vad"
 path = "src/lib.rs"
 
 [dependencies]
-ort = { version = "=2.0.0-rc.13", default-features = false, features = ["std", "api-24"] }
+rightkit-ort = { path = "../rightkit-ort", version = "0.2.2" }
 
 [dev-dependencies]
 hound = "3.5"
 rightkit-media = { path = "../rightkit-media", version = "0.2.3" }
-rightkit-ort = { path = "../rightkit-ort", version = "0.2.0" }
 
 [features]
 # Default: ONNX Runtime tracing only. The crate fetches and copies no runtime.
 # Consumers supply ONNX Runtime through rightkit-ort (load-dynamic) or opt in
 # to the build-time fetch below. The API level is fixed in [dependencies]:
 # rc.13's own `default` raises it to ORT 1.27, which the suite's 1.24.4 cannot serve.
-default = ["ort/tracing"]
+default = ["rightkit-ort/tracing"]
 # Opt-in: fetch prebuilt ONNX Runtime during the build (needs tls-native to download).
-download-binaries = ["ort/download-binaries"]
+download-binaries = ["rightkit-ort/download-binaries"]
 # Opt-in: TLS backend used by download-binaries.
-tls-native = ["ort/tls-native"]
+tls-native = ["rightkit-ort/tls-native"]
 # Opt-in: copy the ONNX Runtime dylibs next to the build output.
-copy-dylibs = ["ort/copy-dylibs"]
+copy-dylibs = ["rightkit-ort/copy-dylibs"]
 # Load ONNX Runtime at run time from a library path (use with default-features = false).
-load-dynamic = ["ort/load-dynamic"]
+load-dynamic = []

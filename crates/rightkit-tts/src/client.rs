@@ -31,18 +31,26 @@ pub struct QtsClient {
 }
 
 impl Default for QtsClient {
-    fn default() -> Self { Self::new(600) }
+    fn default() -> Self {
+        Self::new(600)
+    }
 }
 
 impl QtsClient {
     pub fn new(idle_secs: u64) -> Self {
-        if std::env::var_os("RIGHTKIT_TTS_IDLE_SECS").is_none() && std::env::var_os("GENRIGHT_QTS_IDLE_SECS").is_none() {
+        if std::env::var_os("RIGHTKIT_TTS_IDLE_SECS").is_none()
+            && std::env::var_os("GENRIGHT_QTS_IDLE_SECS").is_none()
+        {
             std::env::set_var("RIGHTKIT_TTS_IDLE_SECS", idle_secs.max(1).to_string());
         }
-        Self { idle_secs: idle_secs.max(1) }
+        Self {
+            idle_secs: idle_secs.max(1),
+        }
     }
 
-    pub fn idle_secs(&self) -> u64 { self.idle_secs }
+    pub fn idle_secs(&self) -> u64 {
+        self.idle_secs
+    }
 
     pub fn synthesize(&self, text: &str, options: &SynthOptions) -> Result<SynthResult, QtsError> {
         synthesize(text, options)
@@ -52,18 +60,27 @@ impl QtsClient {
         clone_from_wav(wav_path, out)
     }
 
-    pub fn worker_pid(&self) -> Option<u32> { worker_pid() }
+    pub fn worker_pid(&self) -> Option<u32> {
+        worker_pid()
+    }
 
-    pub fn shutdown(&self) { shutdown(); }
+    pub fn shutdown(&self) {
+        shutdown();
+    }
 }
 
 impl Drop for QtsClient {
-    fn drop(&mut self) { shutdown(); }
+    fn drop(&mut self) {
+        shutdown();
+    }
 }
 
 impl QtsError {
     fn new(code: &'static str, message: impl Into<String>) -> Self {
-        Self { code, message: message.into() }
+        Self {
+            code,
+            message: message.into(),
+        }
     }
 }
 
@@ -100,7 +117,10 @@ fn slot() -> &'static Mutex<Option<Worker>> {
 
 /// PID of the warm worker, if one is running (for diagnostics and benchmarks).
 pub fn worker_pid() -> Option<u32> {
-    slot().lock().ok().and_then(|g| g.as_ref().map(|w| w.child.id()))
+    slot()
+        .lock()
+        .ok()
+        .and_then(|g| g.as_ref().map(|w| w.child.id()))
 }
 
 /// Stop the warm worker (frees its GPU/RAM). Safe to call any time.
@@ -115,14 +135,31 @@ pub fn shutdown() {
 
 pub fn worker_exe() -> Result<PathBuf, QtsError> {
     // The shipped binary is `rightkit-tts-worker`; the pre-rename name stays a fallback for old bundles.
-    let names: [&str; 2] = if cfg!(windows) { ["rightkit-tts-worker.exe", "genright-qts-worker.exe"] } else { ["rightkit-tts-worker", "genright-qts-worker"] };
+    let names: [&str; 2] = if cfg!(windows) {
+        ["rightkit-tts-worker.exe", "genright-qts-worker.exe"]
+    } else {
+        ["rightkit-tts-worker", "genright-qts-worker"]
+    };
     let name = names[0];
-    if let Some(p) = std::env::var_os("RIGHTKIT_TTS_WORKER").filter(|v| !v.is_empty()).or_else(|| std::env::var_os("GENRIGHT_QTS_WORKER").filter(|v| !v.is_empty())) {
+    if let Some(p) = std::env::var_os("RIGHTKIT_TTS_WORKER")
+        .filter(|v| !v.is_empty())
+        .or_else(|| std::env::var_os("GENRIGHT_QTS_WORKER").filter(|v| !v.is_empty()))
+    {
         let p = PathBuf::from(p);
-        return if p.is_file() { Ok(p) } else { Err(QtsError::new("worker_missing", format!("worker override {} not found", p.display()))) };
+        return if p.is_file() {
+            Ok(p)
+        } else {
+            Err(QtsError::new(
+                "worker_missing",
+                format!("worker override {} not found", p.display()),
+            ))
+        };
     }
     let mut dirs = Vec::new();
-    if let Some(d) = std::env::current_exe().ok().and_then(|e| e.parent().map(Path::to_path_buf)) {
+    if let Some(d) = std::env::current_exe()
+        .ok()
+        .and_then(|e| e.parent().map(Path::to_path_buf))
+    {
         dirs.push(d.clone());
         // `cargo test` binaries live in target/<profile>/deps.
         if let Some(p) = d.parent() {
@@ -133,7 +170,12 @@ pub fn worker_exe() -> Result<PathBuf, QtsError> {
     dirs.into_iter()
         .flat_map(|d| names.iter().map(move |n| d.join(n)))
         .find(|p| p.is_file())
-        .ok_or_else(|| QtsError::new("worker_missing", format!("{name} not found next to the app or in <data>/runtime/qts")))
+        .ok_or_else(|| {
+            QtsError::new(
+                "worker_missing",
+                format!("{name} not found next to the app or in <data>/runtime/qts"),
+            )
+        })
 }
 
 fn send(w: &mut Worker, req: &Request) -> std::io::Result<()> {
@@ -146,16 +188,27 @@ fn send(w: &mut Worker, req: &Request) -> std::io::Result<()> {
 fn spawn(model_dir: &Path, backend: &str) -> Result<Worker, QtsError> {
     let exe = worker_exe()?;
     let mut cmd = Command::new(exe);
-    cmd.arg("--model-dir").arg(model_dir).arg("--backend").arg(backend);
+    cmd.arg("--model-dir")
+        .arg(model_dir)
+        .arg("--backend")
+        .arg(backend);
     if let Some(ort) = models::find_onnxruntime() {
         cmd.env("ORT_DYLIB_PATH", ort);
     }
-    cmd.stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::inherit());
+    cmd.stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::inherit());
     let mut owned = OwnedCommand::from_command(cmd);
     owned.windows_hide(); // CREATE_NO_WINDOW on Windows
-    let mut child = owned.spawn().map_err(|e| QtsError::new("worker_spawn", format!("cannot start the QTS worker: {e}")))?;
-    let stdin = child.take_stdin().ok_or_else(|| QtsError::new("worker_spawn", "no worker stdin"))?;
-    let stdout = child.take_stdout().ok_or_else(|| QtsError::new("worker_spawn", "no worker stdout"))?;
+    let mut child = owned
+        .spawn()
+        .map_err(|e| QtsError::new("worker_spawn", format!("cannot start the QTS worker: {e}")))?;
+    let stdin = child
+        .take_stdin()
+        .ok_or_else(|| QtsError::new("worker_spawn", "no worker stdin"))?;
+    let stdout = child
+        .take_stdout()
+        .ok_or_else(|| QtsError::new("worker_spawn", "no worker stdout"))?;
     let (tx, rx) = mpsc::channel();
     std::thread::spawn(move || {
         for line in BufReader::new(stdout).lines().map_while(Result::ok) {
@@ -168,7 +221,12 @@ fn spawn(model_dir: &Path, backend: &str) -> Result<Worker, QtsError> {
             }
         }
     });
-    Ok(Worker { child, stdin, rx, ready: None })
+    Ok(Worker {
+        child,
+        stdin,
+        rx,
+        ready: None,
+    })
 }
 
 /// Wait for the next reply, polling the cancel flag and worker liveness.
@@ -181,11 +239,17 @@ fn wait_reply(w: &mut Worker, limit: Duration) -> Result<Reply, QtsError> {
         match w.rx.recv_timeout(Duration::from_millis(50)) {
             Ok(r) => return Ok(r),
             Err(RecvTimeoutError::Disconnected) => {
-                return Err(QtsError::new("worker_died", "the QTS worker exited unexpectedly (see its stderr)"))
+                return Err(QtsError::new(
+                    "worker_died",
+                    "the QTS worker exited unexpectedly (see its stderr)",
+                ))
             }
             Err(RecvTimeoutError::Timeout) => {
                 if start.elapsed() > limit {
-                    return Err(QtsError::new("timeout", format!("QTS worker did not reply within {}s", limit.as_secs())));
+                    return Err(QtsError::new(
+                        "timeout",
+                        format!("QTS worker did not reply within {}s", limit.as_secs()),
+                    ));
                 }
             }
         }
@@ -200,7 +264,10 @@ fn with_worker<T>(
 ) -> Result<T, QtsError> {
     let dir = models::model_dir();
     if !models::files_present(&dir) {
-        return Err(QtsError::new("models_missing", format!("QTS model files not found in {}", dir.display())));
+        return Err(QtsError::new(
+            "models_missing",
+            format!("QTS model files not found in {}", dir.display()),
+        ));
     }
     models::verify(&dir, false).map_err(|m| QtsError::new("models_invalid", m))?;
     let mut guard = slot().lock().unwrap_or_else(|p| p.into_inner());
@@ -214,7 +281,12 @@ fn with_worker<T>(
         match wait_reply(&mut w, Duration::from_secs(180))? {
             r @ Reply::Ready { .. } => w.ready = Some(r),
             Reply::Error { message, .. } => return Err(QtsError::new("engine_load", message)),
-            other => return Err(QtsError::new("protocol", format!("unexpected first reply {other:?}"))),
+            other => {
+                return Err(QtsError::new(
+                    "protocol",
+                    format!("unexpected first reply {other:?}"),
+                ))
+            }
         }
         *guard = Some(w);
     }
@@ -227,9 +299,13 @@ fn with_worker<T>(
 
 /// Backend/vocoder labels reported by the live worker (loads it if needed).
 pub fn engine_info(backend: Option<&str>) -> Result<(String, String), QtsError> {
-    with_worker(backend.unwrap_or(models::default_backend()), |w| match &w.ready {
-        Some(Reply::Ready { backend, vocoder, .. }) => Ok((backend.clone(), vocoder.clone())),
-        _ => Err(QtsError::new("protocol", "worker not ready")),
+    with_worker(backend.unwrap_or(models::default_backend()), |w| {
+        match &w.ready {
+            Some(Reply::Ready {
+                backend, vocoder, ..
+            }) => Ok((backend.clone(), vocoder.clone())),
+            _ => Err(QtsError::new("protocol", "worker not ready")),
+        }
     })
 }
 
@@ -305,21 +381,36 @@ pub fn synthesize(text: &str, opts: &SynthOptions) -> Result<SynthResult, QtsErr
     }
     let chunks: Vec<Chunk> = chunk::split_text(text, opts.max_chunk_chars);
     if chunks.is_empty() {
-        return Err(QtsError::new("invalid_request", "text has no speakable content"));
+        return Err(QtsError::new(
+            "invalid_request",
+            "text has no speakable content",
+        ));
     }
     if let Some(vp) = &opts.voice_prompt {
         if !vp.is_file() {
-            return Err(QtsError::new("voice_missing", format!("voice prompt {} not found", vp.display())));
+            return Err(QtsError::new(
+                "voice_missing",
+                format!("voice prompt {} not found", vp.display()),
+            ));
         }
     }
     CANCEL.store(false, Ordering::SeqCst);
     let started = Instant::now();
-    let tmp = std::env::temp_dir().join(format!("genright-qts-{}-{}", std::process::id(), REQ_ID.fetch_add(1, Ordering::SeqCst)));
+    let tmp = std::env::temp_dir().join(format!(
+        "genright-qts-{}-{}",
+        std::process::id(),
+        REQ_ID.fetch_add(1, Ordering::SeqCst)
+    ));
     std::fs::create_dir_all(&tmp).map_err(|e| QtsError::new("io", e.to_string()))?;
-    let backend = opts.backend.clone().unwrap_or_else(|| models::default_backend().to_string());
+    let backend = opts
+        .backend
+        .clone()
+        .unwrap_or_else(|| models::default_backend().to_string());
     let out = with_worker(&backend, |w| {
         let (be, voc) = match &w.ready {
-            Some(Reply::Ready { backend, vocoder, .. }) => (backend.clone(), vocoder.clone()),
+            Some(Reply::Ready {
+                backend, vocoder, ..
+            }) => (backend.clone(), vocoder.clone()),
             _ => (String::new(), String::new()),
         };
         let mut pcm: Vec<i16> = Vec::new();
@@ -344,22 +435,40 @@ pub fn synthesize(text: &str, opts: &SynthOptions) -> Result<SynthResult, QtsErr
                     out_pcm: out_pcm.display().to_string(),
                 },
             )
-            .map_err(|e| QtsError::new("worker_died", format!("cannot reach the QTS worker: {e}")))?;
+            .map_err(|e| {
+                QtsError::new("worker_died", format!("cannot reach the QTS worker: {e}"))
+            })?;
             match wait_reply(w, Duration::from_secs(600))? {
-                Reply::Done { id: rid, samples, gen_ms: g, .. } if rid == id => {
+                Reply::Done {
+                    id: rid,
+                    samples,
+                    gen_ms: g,
+                    ..
+                } if rid == id => {
                     gen_ms += g;
-                    let raw = std::fs::read(&out_pcm).map_err(|e| QtsError::new("io", e.to_string()))?;
+                    let raw =
+                        std::fs::read(&out_pcm).map_err(|e| QtsError::new("io", e.to_string()))?;
                     let _ = std::fs::remove_file(&out_pcm);
                     if raw.len() != samples * 2 {
                         return Err(QtsError::new("protocol", "chunk size mismatch"));
                     }
-                    let mut cp: Vec<i16> = raw.as_chunks::<2>().0.iter().map(|b| i16::from_le_bytes([b[0], b[1]])).collect();
+                    let mut cp: Vec<i16> = raw
+                        .as_chunks::<2>()
+                        .0
+                        .iter()
+                        .map(|b| i16::from_le_bytes([b[0], b[1]]))
+                        .collect();
                     trim_edge_silence(&mut cp);
                     pcm.extend_from_slice(&cp);
                     pcm.extend(wav::silence(c.pause_ms));
                 }
                 Reply::Error { message, .. } => return Err(QtsError::new("synthesis", message)),
-                other => return Err(QtsError::new("protocol", format!("unexpected reply {other:?}"))),
+                other => {
+                    return Err(QtsError::new(
+                        "protocol",
+                        format!("unexpected reply {other:?}"),
+                    ))
+                }
             }
         }
         Ok((pcm, gen_ms, be, voc))
@@ -384,8 +493,15 @@ pub fn synthesize(text: &str, opts: &SynthOptions) -> Result<SynthResult, QtsErr
 fn trim_edge_silence(pcm: &mut Vec<i16>) {
     const FLOOR: i16 = 327; // ~1% of full scale at PCM16
     let pad = (crate::SAMPLE_RATE_HZ as usize) * 10 / 1000; // 10 ms kept edge pad
-    let first = pcm.iter().position(|s| s.abs() > FLOOR).unwrap_or(pcm.len());
-    let last = pcm.iter().rposition(|s| s.abs() > FLOOR).map(|i| i + 1).unwrap_or(0);
+    let first = pcm
+        .iter()
+        .position(|s| s.abs() > FLOOR)
+        .unwrap_or(pcm.len());
+    let last = pcm
+        .iter()
+        .rposition(|s| s.abs() > FLOOR)
+        .map(|i| i + 1)
+        .unwrap_or(0);
     if first >= last {
         pcm.clear();
         return;
@@ -408,7 +524,10 @@ fn trim_edge_silence(pcm: &mut Vec<i16>) {
 /// speech works best) into a voice-clone prompt file at `out`. Returns `out`.
 pub fn clone_from_wav(wav_path: &Path, out: &Path) -> Result<PathBuf, QtsError> {
     if !wav_path.is_file() {
-        return Err(QtsError::new("invalid_request", format!("reference audio {} not found", wav_path.display())));
+        return Err(QtsError::new(
+            "invalid_request",
+            format!("reference audio {} not found", wav_path.display()),
+        ));
     }
     if let Some(parent) = out.parent() {
         std::fs::create_dir_all(parent).map_err(|e| QtsError::new("io", e.to_string()))?;
@@ -416,12 +535,22 @@ pub fn clone_from_wav(wav_path: &Path, out: &Path) -> Result<PathBuf, QtsError> 
     CANCEL.store(false, Ordering::SeqCst);
     let id = REQ_ID.fetch_add(1, Ordering::SeqCst);
     with_worker(models::default_backend(), |w| {
-        send(w, &Request::Clone { id, wav: wav_path.display().to_string(), out: out.display().to_string() })
-            .map_err(|e| QtsError::new("worker_died", e.to_string()))?;
+        send(
+            w,
+            &Request::Clone {
+                id,
+                wav: wav_path.display().to_string(),
+                out: out.display().to_string(),
+            },
+        )
+        .map_err(|e| QtsError::new("worker_died", e.to_string()))?;
         match wait_reply(w, Duration::from_secs(120))? {
             Reply::Done { .. } => Ok(()),
             Reply::Error { message, .. } => Err(QtsError::new("clone", message)),
-            other => Err(QtsError::new("protocol", format!("unexpected reply {other:?}"))),
+            other => Err(QtsError::new(
+                "protocol",
+                format!("unexpected reply {other:?}"),
+            )),
         }
     })?;
     Ok(out.to_path_buf())
@@ -429,10 +558,20 @@ pub fn clone_from_wav(wav_path: &Path, out: &Path) -> Result<PathBuf, QtsError> 
 
 /// Clone into the voice library folder: writes `<data>/voices/local/<id>.xvector.pb`.
 pub fn clone_into_library(wav_path: &Path, voice_id: &str) -> Result<PathBuf, QtsError> {
-    if voice_id.is_empty() || !voice_id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_') {
-        return Err(QtsError::new("invalid_request", "voice id must be [A-Za-z0-9_-]+"));
+    if voice_id.is_empty()
+        || !voice_id
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+    {
+        return Err(QtsError::new(
+            "invalid_request",
+            "voice id must be [A-Za-z0-9_-]+",
+        ));
     }
-    clone_from_wav(wav_path, &models::voices_dir().join(format!("{voice_id}.xvector.pb")))
+    clone_from_wav(
+        wav_path,
+        &models::voices_dir().join(format!("{voice_id}.xvector.pb")),
+    )
 }
 
 /// A voice record path is acceptable only inside the voices folder (the
@@ -442,14 +581,22 @@ pub fn resolve_voice_record(path: &str) -> Result<PathBuf, QtsError> {
 }
 
 pub fn resolve_voice_record_in(root: &Path, path: &str) -> Result<PathBuf, QtsError> {
-    let root = root
-        .canonicalize()
-        .map_err(|_| QtsError::new("voice_missing", format!("voices folder {} does not exist", root.display())))?;
+    let root = root.canonicalize().map_err(|_| {
+        QtsError::new(
+            "voice_missing",
+            format!("voices folder {} does not exist", root.display()),
+        )
+    })?;
     let p = PathBuf::from(path);
     let p = if p.is_absolute() { p } else { root.join(p) };
-    let p = p.canonicalize().map_err(|_| QtsError::new("voice_missing", format!("voice record {path} not found")))?;
+    let p = p
+        .canonicalize()
+        .map_err(|_| QtsError::new("voice_missing", format!("voice record {path} not found")))?;
     if !p.starts_with(&root) {
-        return Err(QtsError::new("invalid_request", "voice_prompt must be inside <data>/voices/local/"));
+        return Err(QtsError::new(
+            "invalid_request",
+            "voice_prompt must be inside <data>/voices/local/",
+        ));
     }
     Ok(p)
 }
@@ -467,9 +614,24 @@ mod tests {
         std::fs::write(&outside, b"x").unwrap();
         std::fs::write(voices.join("a.xvector.pb"), b"x").unwrap();
         assert!(resolve_voice_record_in(&voices, "a.xvector.pb").is_ok());
-        assert_eq!(resolve_voice_record_in(&voices, outside.to_str().unwrap()).unwrap_err().code, "invalid_request");
-        assert_eq!(resolve_voice_record_in(&voices, "../../outside.pb").unwrap_err().code, "invalid_request");
-        assert_eq!(resolve_voice_record_in(&voices, "missing.pb").unwrap_err().code, "voice_missing");
+        assert_eq!(
+            resolve_voice_record_in(&voices, outside.to_str().unwrap())
+                .unwrap_err()
+                .code,
+            "invalid_request"
+        );
+        assert_eq!(
+            resolve_voice_record_in(&voices, "../../outside.pb")
+                .unwrap_err()
+                .code,
+            "invalid_request"
+        );
+        assert_eq!(
+            resolve_voice_record_in(&voices, "missing.pb")
+                .unwrap_err()
+                .code,
+            "voice_missing"
+        );
     }
 
     #[test]

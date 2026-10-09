@@ -10,6 +10,8 @@
 
 mod backend;
 mod error;
+#[cfg_attr(not(windows), allow(dead_code))]
+mod keyring_compat;
 mod migrate;
 mod namespace;
 mod secret;

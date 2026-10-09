@@ -247,7 +247,7 @@ function git(root, args, runner = spawnSync) {
   return Buffer.isBuffer(result.stdout) ? result.stdout : Buffer.from(result.stdout ?? "");
 }
 
-function expectedSource(root, runner, catalogPath) {
+function expectedSource(root, runner, catalogPath, loadTrust = () => loadTrustedExternal().trust) {
   const commit = git(root, ["rev-parse", "HEAD"], runner).toString("utf8").trim();
   const tree = git(root, ["rev-parse", `${commit}^{tree}`], runner).toString("utf8").trim();
   const origin = git(root, ["remote", "get-url", "origin"], runner).toString("utf8").trim();
@@ -255,7 +255,7 @@ function expectedSource(root, runner, catalogPath) {
   const status = git(root, ["status", "--porcelain=v1", "--untracked-files=all"], runner).toString("utf8");
   if (status.trim()) throw new Error("working tree must be clean before protected ownership verification");
   const catalog = JSON.parse(readFileSync(catalogPath, "utf8"));
-  const protectedTrust = loadTrustedExternal().trust;
+  const protectedTrust = loadTrust();
   const hasKeyLog = git(root, ["ls-tree", "-r", "--name-only", commit, "--", ".rightkit/ownership-keys.json"], runner).toString("utf8").trim() !== "";
   let keyLog = null;
   if (protectedTrust?.keyAuthority) {
@@ -281,13 +281,13 @@ function canonicalIdentity(value) {
   return `https://${url.hostname.toLowerCase()}${url.port ? `:${url.port}` : ""}/${repo}`;
 }
 
-function runPrivateLocal(repoRoot, { platform = process.platform, runner = spawnSync, verifierPath = VERIFIER_PATHS[platform], runtimePath = RUNTIME_PATHS[platform], audit = auditProtectedInstall, catalogPath = path.join(INSTALL_ROOTS[platform] ?? "", "packages", "release", "rightkit-ownership.json") } = {}) {
+function runPrivateLocal(repoRoot, { platform = process.platform, runner = spawnSync, verifierPath = VERIFIER_PATHS[platform], runtimePath = RUNTIME_PATHS[platform], audit = auditProtectedInstall, catalogPath = path.join(INSTALL_ROOTS[platform] ?? "", "packages", "release", "rightkit-ownership.json"), loadTrust = undefined } = {}) {
   const root = path.resolve(repoRoot);
   if (!verifierPath || !runtimePath) return { ok: false, error: { type: "unsupported-platform", message: `protected verifier is unavailable on ${platform}` } };
   const install = audit({ platform });
   if (install?.ok !== true) return { ok: false, error: { type: "protected-install-invalid", message: (install?.problems ?? ["protected install audit failed"]).join("; ") } };
   let expected;
-  try { expected = expectedSource(root, runner, catalogPath); }
+  try { expected = expectedSource(root, runner, catalogPath, loadTrust); }
   catch (error) { return { ok: false, error: { type: "source-identity-invalid", message: error.message } }; }
   let result;
   try {
