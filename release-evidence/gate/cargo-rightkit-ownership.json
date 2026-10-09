@@ -1,0 +1,28 @@
+{
+  "schema": 1,
+  "kind": "cargo",
+  "name": "rightkit-ownership",
+  "version": "0.2.0",
+  "commit": "87cc9edd9af101016025f6ccbaf317a3e5d6a9da",
+  "artifactSha256": "787af75ddf6adbf55134138cf7156581238385f236d831b50af3d7bb3e5c44ad",
+  "artifactBasis": "cargo package rightkit-ownership-0.2.0.crate",
+  "hostPolicy": "darwin-only",
+  "hostPolicyReason": "Adrian 2026-10-07: publish crates from the Mac (crates.io auth here); Windows qualification follows",
+  "runs": [
+    {
+      "host": {
+        "os": "darwin",
+        "arch": "arm64"
+      },
+      "commit": "87cc9edd9af101016025f6ccbaf317a3e5d6a9da",
+      "command": "right-release publish cargo --crate rightkit-ownership --dry-run (secret scan, fmt, tests, clippy, package, registry dry-run)",
+      "features": [
+        "default"
+      ],
+      "operator": "claude-opus-5.5 (RightKit lead) for adrdsouza",
+      "timestamp": "2026-10-09T02:28:16Z",
+      "passed": 64,
+      "failed": 0
+    }
+  ]
+}
