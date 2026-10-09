@@ -74,9 +74,15 @@ fn identity_cross_check_survives_after_end() {
     assert!(mac::windows(pid).is_empty(), "no window left after end");
 }
 
-/// Hidden in-app control (`mac_view`): after `pointer down` the page must report `:active` and a
-/// screenshot must show it, even when the control has a CSS transition. A never-shown window runs no
-/// rendering updates, which used to pin the transition at its start value (pressed == hover pixels).
+/// Hidden in-app control (`mac_view`): hover and press must both register on a control with a CSS
+/// transition, in the two ways a QA-hidden app can look to WebKit:
+///  - never shown (`visible:false`): the page is `hidden`, WebKit suspends CSS animations, so the
+///    transition stays pinned at its start value. `screenshot()` finishes animations in that case, so
+///    hover and pressed PIXELS still show the styles (computed style cannot move without a clock).
+///  - shown but unfocused, like Pulse (`window.show()` under `open -g -j`): the page is `visible`, the
+///    animation clock runs, and Pulse's measure (move away, 80 ms, sample; move on, 120 ms, sample)
+///    must see the computed style change. `set_viewport` must not shrink the window to nothing: a
+///    0x0 frame is fully occluded, which silently turns this case into the first one.
 ///
 /// Builds the Tauri control fixture (own workspace) itself unless `RK_CONTROL_TEST_APP` names a binary:
 ///   rightkit cargo test -p rightkit-control --features offscreen-private-spi,tauri-plugin \
@@ -157,7 +163,21 @@ mod hidden_press {
 
     #[test]
     #[ignore = "launches the Tauri control fixture hidden; builds it first"]
-    fn mouse_down_shows_active_styles_including_transitions() {
+    fn never_shown_window_shows_hover_and_pressed_pixels() {
+        hover_and_press(false);
+    }
+
+    #[test]
+    #[ignore = "launches the Tauri control fixture hidden; builds it first"]
+    fn shown_unfocused_window_registers_hover_style_and_pressed_pixels() {
+        hover_and_press(true);
+    }
+
+    fn sleep(ms: u64) {
+        std::thread::sleep(Duration::from_millis(ms));
+    }
+
+    fn hover_and_press(shown: bool) {
         let app_bin = control_test_app();
         let dir = std::env::temp_dir().join(format!("rkct-press-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
@@ -175,6 +195,7 @@ mod hidden_press {
 
         let status = Command::new("open")
             .args(["-g", "-j", "-n"])
+            .args(["--env", &format!("RK_FIXTURE_SHOW={}", u8::from(shown))])
             .args(["--env", "RIGHTKIT_QA_HIDDEN=1"])
             .args(["--env", "RIGHTKIT_QA_BACKGROUND=1"])
             .args(["--env", "RIGHTKIT_CONTROL_SERVICE=control-ct"])
@@ -203,7 +224,13 @@ mod hidden_press {
                 Err(_) => std::thread::sleep(Duration::from_millis(250)),
             }
         };
-        while eval(&c, "return document.readyState;") != json!("complete") {
+        // The service can answer before Tauri has created the webview window (retryable).
+        let ready = || {
+            c.call("eval", json!({"js": "return document.readyState;"}))
+                .map(|v| v["value"] == json!("complete"))
+                .unwrap_or(false)
+        };
+        while !ready() {
             assert!(
                 start.elapsed() < Duration::from_secs(30),
                 "page never loaded"
@@ -211,7 +238,46 @@ mod hidden_press {
             std::thread::sleep(Duration::from_millis(100));
         }
 
-        // `#target` flips blue -> red on :active; `#ttarget` does the same through a 120 ms transition.
+        // Pulse's QA journey sizes the viewport before crawling.
+        c.call("set_viewport", json!({"width": 1440, "height": 900}))
+            .expect("set_viewport");
+        let state = |c: &Client| {
+            c.call("command", json!({"name": "window_state"})).unwrap()["result"].clone()
+        };
+        let window = state(&c);
+        assert!(
+            window["frame"][2].as_f64().unwrap() > 0.0
+                && window["frame"][3].as_f64().unwrap() > 0.0,
+            "set_viewport must not collapse the window frame: {window}"
+        );
+        assert_eq!(window["key"], json!(false));
+        assert_eq!(window["visible"], json!(shown), "{window}");
+        // NSWindowOcclusionStateVisible = 2: a collapsed or offscreen window drops it.
+        assert_eq!(
+            window["occlusion"].as_u64().unwrap() & 2 != 0,
+            shown,
+            "{window}"
+        );
+
+        // Clock readout: rAF only fires, and the timeline only moves, for a visible page.
+        eval(
+            &c,
+            "window.__raf=0;(function f(){window.__raf++;requestAnimationFrame(f)})();return 1;",
+        );
+        sleep(400);
+        let raf = eval(&c, "return window.__raf;").as_u64().unwrap();
+        let visibility = eval(&c, "return document.visibilityState;");
+        assert_eq!(visibility, json!(if shown { "visible" } else { "hidden" }));
+        assert_eq!(raf > 2, shown, "rAF count {raf} (visibility {visibility})");
+        // Transitions settle on the page clock when shown; a frozen page has nothing to wait for.
+        let settle = |ms: u64| {
+            if shown {
+                sleep(ms)
+            }
+        };
+
+        // `#target` and `#ttarget` go blue -> green on :hover and -> red on :active; `#ttarget` does
+        // it through a 120 ms transition.
         for id in ["target", "ttarget"] {
             let xy = eval(
                 &c,
@@ -219,9 +285,25 @@ mod hidden_press {
             );
             let (x, y) = (xy[0].as_f64().unwrap(), xy[1].as_f64().unwrap());
             let q = format!("document.getElementById('{id}')");
+            let sig = format!("const c=getComputedStyle({q});return [c.backgroundColor,c.color,c.boxShadow,c.transform,c.opacity,c.filter,c.borderColor].join('|');");
 
+            // Pulse's hover measure (rightkit-qa `move_to`, ui.rs crawl).
+            point(&c, "move", 2.0, 2.0);
+            sleep(80);
+            let rest_sig = eval(&c, &sig);
+            let rest = shot(&c);
             point(&c, "move", x, y);
+            sleep(120);
+            let hover_sig = eval(&c, &sig);
+            if shown {
+                assert_ne!(
+                    rest_sig, hover_sig,
+                    "{id}: computed style must reach :hover within 120 ms"
+                );
+            }
+            settle(300);
             let hover = shot(&c);
+            assert_ne!(rest, hover, "{id}: hover screenshot must differ from rest");
             assert_eq!(
                 eval(&c, &format!("return {q}.matches(':active');")),
                 json!(false)
@@ -239,6 +321,7 @@ mod hidden_press {
                     .unwrap()
                     >= 1
             );
+            settle(300);
             let pressed = shot(&c);
             assert_ne!(
                 hover, pressed,
@@ -250,15 +333,18 @@ mod hidden_press {
                 eval(&c, &format!("return {q}.matches(':active');")),
                 json!(false)
             );
+            settle(300);
             let released = shot(&c);
             assert_eq!(
                 hover, released,
                 "{id}: release returns to the hover rendering"
             );
+            point(&c, "move", 2.0, 2.0);
         }
 
-        let state = c.call("command", json!({"name": "window_state"})).unwrap();
-        assert_eq!(state["result"], json!({"key": false, "visible": false}));
+        let window = state(&c);
+        assert_eq!(window["key"], json!(false), "{window}");
+        assert_eq!(window["visible"], json!(shown), "{window}");
         assert_eq!(mac::frontmost_pid(), front_before, "focus untouched");
     }
 }

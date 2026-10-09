@@ -13,7 +13,7 @@ use std::cell::Cell;
 use std::ffi::{c_char, c_void, CStr, CString};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc::{channel, Sender};
-use std::sync::OnceLock;
+use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 use tauri::{Runtime, WebviewWindow};
 
@@ -37,11 +37,14 @@ extern "C" {
     fn method_getImplementation(method: Id) -> *const c_void;
     fn method_setImplementation(method: Id, imp: *const c_void) -> *const c_void;
     fn object_getClass(obj: Id) -> Id;
-    fn object_setClass(obj: Id, class: Id) -> Id;
+    fn class_getSuperclass(class: Id) -> Id;
+    #[cfg(test)]
     fn objc_allocateClassPair(base: Id, name: *const c_char, extra: usize) -> Id;
+    #[cfg(test)]
     fn objc_registerClassPair(class: Id);
-    fn objc_disposeClassPair(class: Id);
+    #[cfg(test)]
     fn class_addMethod(class: Id, name: Sel, imp: *const c_void, types: *const c_char) -> bool;
+    #[cfg(test)]
     fn method_getTypeEncoding(method: Id) -> *const c_char;
     #[cfg(target_arch = "x86_64")]
     fn objc_msgSend_stret();
@@ -292,48 +295,75 @@ fn wait_css_viewport<R: Runtime>(
     )
 }
 
-extern "C" fn unconstrained_frame(_: Id, _: Sel, rect: NSRect, _: Id) -> NSRect {
-    rect
+thread_local! {
+    // The one window whose frame constraint is lifted on this thread, during setFrame only.
+    static UNCONSTRAINED: Cell<Id> = const { Cell::new(std::ptr::null_mut()) };
+}
+/// (Method, original IMP) for every `constrainFrameRect:toScreen:` implementation swizzled so far.
+static CONSTRAIN_ORIGINALS: Mutex<Vec<(usize, usize)>> = Mutex::new(Vec::new());
+
+extern "C" fn constrain_frame(obj: Id, selector: Sel, rect: NSRect, screen: Id) -> NSRect {
+    if UNCONSTRAINED.try_with(Cell::get).ok() == Some(obj) {
+        return rect;
+    }
+    unsafe {
+        // Walk up from the object's class to the first swizzled Method: a subclass override
+        // that calls `super` reaches this IMP with its own (unswizzled) Method first.
+        let imp = CONSTRAIN_ORIGINALS.lock().ok().and_then(|v| {
+            let mut cls = object_getClass(obj);
+            while !cls.is_null() {
+                let method = class_getInstanceMethod(cls, selector) as usize;
+                if let Some((_, i)) = v.iter().find(|(m, _)| *m == method) {
+                    return Some(*i);
+                }
+                cls = class_getSuperclass(cls);
+            }
+            None
+        });
+        match imp {
+            Some(imp) => {
+                let original: unsafe extern "C" fn(Id, Sel, NSRect, Id) -> NSRect =
+                    std::mem::transmute(imp);
+                original(obj, selector, rect, screen)
+            }
+            None => rect,
+        }
+    }
 }
 
-/// An ivar-free subclass affects only this window during setFrame. Restore its
-/// original class on every Rust exit; no process-wide swizzle or focus change.
-struct UnconstrainedWindow(Id, Id);
+/// Lifts AppKit's visible-screen clamp for ONE window while it is being resized. The
+/// replacement `constrainFrameRect:toScreen:` returns the requested rect only when `self` is
+/// this scope's window on this thread and otherwise calls the original. Nothing about the
+/// window changes: no isa swap (swapping a live Tao window's class zeroed its frame, which
+/// then counts as fully occluded and suspends the page's animations), no focus, no ordering.
+struct UnconstrainedWindow(Id);
 impl UnconstrainedWindow {
     unsafe fn enter(window: Id) -> Result<Self, String> {
-        let base = object_getClass(window);
-        let name = CString::new(format!("RightKitUnconstrained_{:x}", base as usize)).unwrap();
-        let mut subclass = objc_getClass(name.as_ptr());
-        if subclass.is_null() {
-            let selector = sel("constrainFrameRect:toScreen:");
-            let method = class_getInstanceMethod(base, selector);
-            if method.is_null() {
-                return Err("NSWindow frame constraint method unavailable".into());
-            }
-            subclass = objc_allocateClassPair(base, name.as_ptr(), 0);
-            if subclass.is_null() {
-                return Err("NSWindow resize subclass allocation failed".into());
-            }
-            if !class_addMethod(
-                subclass,
-                selector,
-                unconstrained_frame as *const c_void,
-                method_getTypeEncoding(method),
-            ) {
-                objc_disposeClassPair(subclass);
-                return Err("NSWindow resize override installation failed".into());
-            }
-            objc_registerClassPair(subclass);
+        let selector = sel("constrainFrameRect:toScreen:");
+        let method = class_getInstanceMethod(object_getClass(window), selector);
+        if method.is_null() {
+            return Err("NSWindow frame constraint method unavailable".into());
         }
-        object_setClass(window, subclass);
-        Ok(Self(window, base))
+        {
+            let mut originals = CONSTRAIN_ORIGINALS
+                .lock()
+                .map_err(|_| "NSWindow resize override state poisoned".to_string())?;
+            if !originals.iter().any(|(m, _)| *m == method as usize) {
+                let imp = method_getImplementation(method);
+                if imp.is_null() {
+                    return Err("NSWindow frame constraint has no implementation".into());
+                }
+                // Record the original before exposing the replacement.
+                originals.push((method as usize, imp as usize));
+                method_setImplementation(method, constrain_frame as *const c_void);
+            }
+        }
+        Ok(Self(UNCONSTRAINED.with(|state| state.replace(window))))
     }
 }
 impl Drop for UnconstrainedWindow {
     fn drop(&mut self) {
-        unsafe {
-            object_setClass(self.0, self.1);
-        }
+        UNCONSTRAINED.with(|state| state.set(self.0));
     }
 }
 
@@ -759,7 +789,7 @@ mod tests {
     }
 
     #[test]
-    fn resize_override_is_scoped_to_one_instance_and_restores_class() {
+    fn resize_override_is_scoped_to_one_instance_and_thread_and_keeps_class() {
         // NSObject stand-ins exercise Objective-C dispatch/ABI without WindowServer.
         extern "C" fn constrained(_: Id, _: Sel, mut rect: NSRect, _: Id) -> NSRect {
             rect.size.height = 789.0;
@@ -787,7 +817,7 @@ mod tests {
                     height: 1000.0,
                 },
             };
-            let read = |obj| msg!(NSRect; obj, "constrainFrameRect:toScreen:", NSRect = rect, Id = std::ptr::null_mut());
+            let read = move |obj| msg!(NSRect; obj, "constrainFrameRect:toScreen:", NSRect = rect, Id = std::ptr::null_mut());
             assert_eq!(read(first).size.height, 789.0);
             {
                 let _scope = UnconstrainedWindow::enter(first).unwrap();
@@ -796,10 +826,19 @@ mod tests {
                 assert_eq!(actual.size.width, 1440.0);
                 assert_eq!((actual.origin.x, actual.origin.y), (13.0, 17.0));
                 assert_eq!(read(second).size.height, 789.0);
-                assert_eq!(object_getClass(second), base);
+                assert_eq!(object_getClass(first), base, "no isa swap");
+                let (first_addr, second_addr) = (first as usize, second as usize);
+                std::thread::spawn(move || {
+                    let (first, second) = (first_addr as Id, second_addr as Id);
+                    assert_eq!(read(first).size.height, 789.0, "scope is thread-local");
+                    assert_eq!(read(second).size.height, 789.0);
+                })
+                .join()
+                .unwrap();
             }
             assert_eq!(object_getClass(first), base);
             assert_eq!(read(first).size.height, 789.0);
+            assert!(UNCONSTRAINED.with(Cell::get).is_null());
             msg!((); first, "release");
             msg!((); second, "release");
         }

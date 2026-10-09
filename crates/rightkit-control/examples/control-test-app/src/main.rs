@@ -26,10 +26,19 @@ fn window_state(app: &tauri::AppHandle) -> Result<String, String> {
             let _ = tx.send(Err("webview has no window".to_string()));
             return;
         }
+        let occlusion: unsafe extern "C" fn(*mut c_void, *const c_void) -> u64 =
+            std::mem::transmute(objc_msgSend as *const c_void);
+        #[repr(C)]
+        struct Rect(f64, f64, f64, f64);
+        let frame: unsafe extern "C" fn(*mut c_void, *const c_void) -> Rect =
+            std::mem::transmute(objc_msgSend as *const c_void);
+        let f = frame(window, sel_registerName(c"frame".as_ptr()));
         let _ = tx.send(Ok(format!(
-            "{{\"key\":{},\"visible\":{}}}",
+            "{{\"frame\":[{},{},{},{}],\"key\":{},\"visible\":{},\"occlusion\":{}}}",
+            f.0, f.1, f.2, f.3,
             get_bool(window, sel_registerName(c"isKeyWindow".as_ptr())),
-            get_bool(window, sel_registerName(c"isVisible".as_ptr()))
+            get_bool(window, sel_registerName(c"isVisible".as_ptr())),
+            occlusion(window, sel_registerName(c"occlusionState".as_ptr()))
         )));
     })
     .map_err(|e| e.to_string())?;
@@ -60,6 +69,20 @@ fn main() {
         builder = builder.plugin(plugin);
     }
     builder
+        .setup(|app| {
+            // Mimics apps (Pulse) that `window.show()` a `visible:false` window at startup in hidden
+            // QA runs: the window is ordered in while the app stays accessory and unfocused.
+            #[cfg(target_os = "macos")]
+            if std::env::var("RK_FIXTURE_SHOW").as_deref() == Ok("1") {
+                use tauri::Manager;
+                app.set_activation_policy(tauri::ActivationPolicy::Accessory);
+                if let Some(window) = app.get_webview_window("main") {
+                    let _ = window.show();
+                }
+            }
+            let _ = app;
+            Ok(())
+        })
         .run(tauri::generate_context!())
         .expect("run control-test-app");
 }

@@ -48,7 +48,7 @@ assert_eval() {
 }
 assert_hidden_window() {
   state=$(call command '{"name":"window_state"}')
-  printf '%s' "$state" | python3 -c 'import json,sys; s=json.load(sys.stdin)["result"]; assert s == {"key":False,"visible":False},s'
+  printf '%s' "$state" | python3 -c 'import json,sys; s=json.load(sys.stdin)["result"]; assert (s["key"],s["visible"]) == (False,False),s'
 }
 i=0; until "$CALL" "$T/suite" control-ct right-qa eval '{"js":"return document.readyState;"}' 2>/dev/null | grep -q complete || [ $i -ge 20 ]; do sleep 0.5; i=$((i+1)); done
 echo "health:  $("$CALL" "$T/suite" control-ct right-qa health)"
