@@ -18,6 +18,7 @@ Signing and publication rules are in the workspace file `docs/rules/release-sign
 | Group | Subcommands |
 |---|---|
 | Build | `release`, `build`, `package` |
+| Build (SwiftPM apps) | `swift-package` (`windows-stage`, `msix`, `mac-app`) (config schema 1: `windows.{exe,out,searchDirs,include,dependencies,publisher,assets}`, `mac.{executable,bundleId,out,frameworks,resources,entitlements}`) |
 | Install | `install-app` |
 | Publish | `publish`, `upload`, `publish-update`, `github`, `mirror-root-artifact` |
 | Signing | `sign-windows`, `sign-updater`, `signing-agent`, `create-mac-updater` |

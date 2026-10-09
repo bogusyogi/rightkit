@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Add `right-release swift-package <windows-stage|msix|mac-app> --config <swift-package.json>` for SwiftPM apps. Windows: stage exe plus app-local DLLs with a PE-import transitive closure check (fails closed on anything not staged, system, or provided by a declared package dependency), generate `AppxManifest.xml`, sign PE files, `makeappx pack`, sign and verify the `.msix` through `sign-windows`. macOS: assemble a `.app` (Info.plist, Frameworks rpath, resources), sign nested code inside-out through `sign-macos` (entitlements on the bundle only), and optionally notarize and staple through `notarize-macos`. Build-only; never uploads. Needs native Windows/Mac runs to qualify.
+
 ## 0.2.137
 
 - `right-release ownership --advisory-when-pending` exits 0 only while approval-key enrollment is pending (findings still print as diagnostics; JSON keeps `ok: false`, `enrollmentPending: true`). Used by right-git's `ci` lane; release lanes never pass it.

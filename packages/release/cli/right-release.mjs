@@ -26,6 +26,7 @@ const commands = new Map([
   ["ownership", "ownership-command.mjs"],
   ["ownership-approval", "ownership-approval-command.mjs"],
   ["ownership-report", "ownership-report-command.mjs"],
+  ["swift-package", "swift-package-command.mjs"],
 ]);
 
 const args = process.argv.slice(2);
@@ -36,7 +37,7 @@ if (first === "dev") {
     process.exitCode = 1;
   });
 } else {
-const githubBuildCommands = new Set(["release", "build", "package", "sign-windows", "sign-updater", "create-mac-updater", "cargo-target"]);
+const githubBuildCommands = new Set(["release", "build", "package", "swift-package", "sign-windows", "sign-updater", "create-mac-updater", "cargo-target"]);
 
 try {
   if (githubBuildCommands.has(first)
@@ -178,6 +179,8 @@ Commands:
                                                       Resume macOS at prepackage, sign, package, post-sign, or harden
   dev --platform win|mac [--config <path>] [--dry-run] [--build-only]
                                                       Incremental unsigned build & optional local install
+  swift-package <windows-stage|msix|mac-app> --config <swift-package.json> [--dry-run] [--no-sign] [--sign] [--notarize] [--profile <name>]
+                                                      Stage SwiftPM app; build+sign MSIX (Windows) or assemble+sign+notarize .app (macOS); never uploads
   upload --release <id> --platform mac|win --tier patch|update
                                                       Upload one sealed release; never builds
   publish-update --release <id> --platform mac|win --tier patch|update
