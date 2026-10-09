@@ -1,6 +1,11 @@
 # Changelog
 
-## Unreleased
+## 0.2.138
+
+- Hosts without a protected ownership trust location (Linux CI admission runners) load trust as pending and absent instead of failing, so `ownership --advisory-when-pending` reports diagnostics and exits 0 there.
+- Ships the `swift-package` command below as dormant code; it is not yet qualified on native hosts.
+
+## Unreleased (swift-package qualification)
 
 - Add `right-release swift-package <windows-stage|msix|mac-app> --config <swift-package.json>` for SwiftPM apps. Windows: stage exe plus app-local DLLs with a PE-import transitive closure check (fails closed on anything not staged, system, or provided by a declared package dependency), generate `AppxManifest.xml`, sign PE files, `makeappx pack`, sign and verify the `.msix` through `sign-windows`. macOS: assemble a `.app` (Info.plist, Frameworks rpath, resources), sign nested code inside-out through `sign-macos` (entitlements on the bundle only), and optionally notarize and staple through `notarize-macos`. Build-only; never uploads. Needs native Windows/Mac runs to qualify.
 

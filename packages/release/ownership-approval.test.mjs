@@ -142,3 +142,18 @@ test("protected trust audit includes trust file itself and rejects a user-owned 
     assert.ok(result.problems.some((problem) => problem.includes(file)) || result.problems.some((problem) => /owner/.test(problem)));
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
+
+test("hosts without a protected trust location load as pending and trust-absent", async () => {
+  const { loadTrustedExternal } = await import("./ownership-approval.mjs");
+  const original = Object.getOwnPropertyDescriptor(process, "platform");
+  Object.defineProperty(process, "platform", { value: "linux" });
+  try {
+    const state = loadTrustedExternal();
+    assert.equal(state.pending, true);
+    assert.equal(state.enrolled, false);
+    assert.equal(state.trust, null);
+    assert.equal(state.protection.reason, "external trust file is absent");
+  } finally {
+    Object.defineProperty(process, "platform", original);
+  }
+});

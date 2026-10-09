@@ -327,6 +327,9 @@ function protectedLocation(file, platform, { runner = spawnSync, inspect = lstat
 }
 export function loadTrustedExternal() {
   const platform = process.platform;
+  // Hosts without a protected trust location (Linux CI admission runners) can never hold
+  // enrolled trust: report the same pending, trust-absent state as an unenrolled host.
+  if (!DEFAULT_TRUST_PATH[platform]) return { enrolled: false, pending: true, protection: { ok: false, reason: "external trust file is absent" }, trust: null, path: null };
   const file = trustedPath();
   if (!existsSync(file)) return { enrolled: false, pending: true, protection: { ok: false, reason: "external trust file is absent" }, trust: null, path: file };
   if (lstatSync(file).isSymbolicLink()) throw new Error("ownership trust file may not be a symlink");
