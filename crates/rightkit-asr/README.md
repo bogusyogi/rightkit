@@ -1,6 +1,6 @@
 # rightkit-asr
 
-Internal, unpublished Parakeet ONNX and Whisper decoding runtime for Right Suite applications. It reconciles the generic Parakeet ONNX runtime used by Right Suite products into one crate. It is a path-dependency characterization target: applications have not migrated to it, and it must not be published yet (`publish = false`).
+Parakeet ONNX and Whisper decoding runtime for Right Suite applications. It reconciles the generic Parakeet ONNX runtime used by Right Suite products into one crate. It is published to crates.io; applications that adopt it depend on the published version.
 
 Catalog capability: `speech-recognition`.
 
@@ -14,7 +14,7 @@ Product environment-variable compatibility, model choice, model and artifact ide
 
 - Use it as the shared Parakeet or Whisper decoder when a Right Suite app needs ONNX speech recognition with typed execution settings.
 
-Do not use it from a published product yet, and do not put product policy (model selection, downloads, environment variables) inside it.
+Do not put product policy (model selection, downloads, environment variables) inside it.
 
 ## Cargo features
 
@@ -84,4 +84,4 @@ The `load-dynamic` lane avoids linking the downloaded ONNX Runtime static librar
 
 ## Version and changes
 
-Not published. See [INDEX.md](../../INDEX.md). No CHANGELOG.md in this crate.
+Release notes: see [CHANGELOG.md](CHANGELOG.md).

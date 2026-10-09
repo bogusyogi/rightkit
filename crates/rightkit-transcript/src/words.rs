@@ -17,16 +17,31 @@ pub struct TimedWord {
 
 impl TimedWord {
     pub fn new(text: impl Into<String>, start_ms: u64, end_ms: u64) -> Self {
-        Self { text: text.into(), start_ms, end_ms }
+        Self {
+            text: text.into(),
+            start_ms,
+            end_ms,
+        }
     }
 }
 
 /// Engine adapter: `(text, start_seconds, end_seconds)` -> milliseconds.
 /// Negative or non-finite times are clamped to 0; rounding is to nearest ms.
 /// This is the shape of `rightkit_asr::TimedWord`/`TimedToken`.
-pub fn words_from_seconds<'a>(items: impl IntoIterator<Item = (&'a str, f32, f32)>) -> Vec<TimedWord> {
-    let ms = |s: f32| if s.is_finite() && s > 0.0 { (s as f64 * 1000.0).round() as u64 } else { 0 };
-    items.into_iter().map(|(t, s, e)| TimedWord::new(t, ms(s), ms(e))).collect()
+pub fn words_from_seconds<'a>(
+    items: impl IntoIterator<Item = (&'a str, f32, f32)>,
+) -> Vec<TimedWord> {
+    let ms = |s: f32| {
+        if s.is_finite() && s > 0.0 {
+            (s as f64 * 1000.0).round() as u64
+        } else {
+            0
+        }
+    };
+    items
+        .into_iter()
+        .map(|(t, s, e)| TimedWord::new(t, ms(s), ms(e)))
+        .collect()
 }
 
 /// Maps a source [`Transcript`] onto an output timeline (cut/edit).
@@ -46,8 +61,12 @@ where
         if text.is_empty() || w.end_ms <= w.start_ms {
             continue;
         }
-        let Some(start) = map(w.start_ms) else { continue };
-        let Some(end) = map(w.end_ms).or_else(|| map(w.end_ms - 1).map(|e| e + 1)) else { continue };
+        let Some(start) = map(w.start_ms) else {
+            continue;
+        };
+        let Some(end) = map(w.end_ms).or_else(|| map(w.end_ms - 1).map(|e| e + 1)) else {
+            continue;
+        };
         if end <= start {
             continue;
         }

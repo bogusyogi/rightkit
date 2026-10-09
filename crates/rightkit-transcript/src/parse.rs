@@ -59,24 +59,44 @@ fn clean_line(l: &str) -> String {
             _ => {}
         }
     }
-    out.replace("&lt;", "<").replace("&gt;", ">").replace("&nbsp;", " ").replace("&amp;", "&")
+    out.replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&nbsp;", " ")
+        .replace("&amp;", "&")
 }
 
 fn parse_blocks(text: &str, vtt: bool) -> Result<Vec<ParsedCue>, ParseError> {
-    let text = text.trim_start_matches('\u{feff}').replace("\r\n", "\n").replace('\r', "\n");
+    let text = text
+        .trim_start_matches('\u{feff}')
+        .replace("\r\n", "\n")
+        .replace('\r', "\n");
     let mut cues = Vec::new();
     for block in text.split("\n\n") {
         let lines: Vec<&str> = block.lines().collect();
-        let Some(ti) = lines.iter().position(|l| l.contains("-->")) else { continue };
-        if vtt && lines.first().is_some_and(|l| l.starts_with("NOTE") || l.starts_with("STYLE") || l.starts_with("REGION")) {
+        let Some(ti) = lines.iter().position(|l| l.contains("-->")) else {
+            continue;
+        };
+        if vtt
+            && lines.first().is_some_and(|l| {
+                l.starts_with("NOTE") || l.starts_with("STYLE") || l.starts_with("REGION")
+            })
+        {
             continue;
         }
         let (start_ms, end_ms) = timing_line(lines[ti]).expect("line contains -->")?;
-        let body: Vec<String> = lines[ti + 1..].iter().map(|l| clean_line(l)).filter(|l| !l.trim().is_empty()).collect();
+        let body: Vec<String> = lines[ti + 1..]
+            .iter()
+            .map(|l| clean_line(l))
+            .filter(|l| !l.trim().is_empty())
+            .collect();
         if body.is_empty() {
             continue;
         }
-        cues.push(ParsedCue { start_ms, end_ms, lines: body });
+        cues.push(ParsedCue {
+            start_ms,
+            end_ms,
+            lines: body,
+        });
     }
     Ok(cues)
 }
@@ -118,12 +138,20 @@ pub fn words_from_cues(cues: &[ParsedCue]) -> Vec<TimedWord> {
 /// Parse the shared timing JSON (`{"segments":[..],"words":[..]}`, seconds).
 /// Returns the word timings.
 pub fn parse_timing_json(s: &str) -> Result<Vec<TimedWord>, ParseError> {
-    let v: serde_json::Value = serde_json::from_str(s).map_err(|e| ParseError::Json(e.to_string()))?;
-    let arr = v.get("words").and_then(|w| w.as_array()).ok_or_else(|| ParseError::Json("missing words array".into()))?;
+    let v: serde_json::Value =
+        serde_json::from_str(s).map_err(|e| ParseError::Json(e.to_string()))?;
+    let arr = v
+        .get("words")
+        .and_then(|w| w.as_array())
+        .ok_or_else(|| ParseError::Json("missing words array".into()))?;
     let ms = |x: &serde_json::Value| x.as_f64().map(|f| (f.max(0.0) * 1000.0).round() as u64);
     let mut out = Vec::with_capacity(arr.len());
     for w in arr {
-        let (Some(t), Some(s), Some(e)) = (w.get("text").and_then(|t| t.as_str()), w.get("start").and_then(ms), w.get("end").and_then(ms)) else {
+        let (Some(t), Some(s), Some(e)) = (
+            w.get("text").and_then(|t| t.as_str()),
+            w.get("start").and_then(ms),
+            w.get("end").and_then(ms),
+        ) else {
             return Err(ParseError::Json("word needs text/start/end".into()));
         };
         out.push(TimedWord::new(t, s, e));

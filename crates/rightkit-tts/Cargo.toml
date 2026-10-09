@@ -36,7 +36,7 @@ sha2 = { version = "0.10", optional = true }
 thiserror = "2"
 rightkit-ort = { version = "0.2.2", path = "../rightkit-ort", default-features = false, optional = true }
 rightkit-process = { version = "0.3.0", path = "../rightkit-process", optional = true }
-rightkit-transcript = { version = "0.0.0", path = "../rightkit-transcript", optional = true }
+rightkit-transcript = { version = "0.1.0", path = "../rightkit-transcript", optional = true }
 qts = { package = "rightkit-qts", version = "0.2.0", path = "../rightkit-qts", optional = true }
 
 [target.'cfg(unix)'.dependencies]

@@ -35,7 +35,7 @@ The `ort` dependency is pinned to `=2.0.0-rc.13` in `Cargo.toml`, with `std` and
 
 The crate has no `cfg(target_os)` gates in `src/`. ONNX Runtime support follows the `ort` features above. The Silero model file and the ONNX Runtime library are supplied by the app.
 
-Published version: see `INDEX.md` at the repository root. The crate sets `publish = false`, so it has no `CHANGELOG.md`; this README records feature changes.
+Release notes: see `CHANGELOG.md` in this crate. The crate is published to crates.io.
 
 ## Example
 

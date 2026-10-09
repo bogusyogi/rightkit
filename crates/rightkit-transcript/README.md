@@ -23,7 +23,7 @@ One test-only feature, `asr-roundtrip`, which enables the engine-backed end-to-e
 
 The crate has no platform-specific code. It is pure Rust.
 
-Published version: see `INDEX.md` at the repository root. This crate has no `CHANGELOG.md`. The crate's manifest sets `publish = false`, and its version is `0.0.0`.
+Release notes: see `CHANGELOG.md` in this crate. The crate is published to crates.io.
 
 ## Example
 

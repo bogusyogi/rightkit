@@ -39,9 +39,30 @@ pub struct CaptionConfig {
 impl CaptionConfig {
     pub fn for_profile(profile: Profile) -> Self {
         match profile {
-            Profile::Standard => Self { max_chars_per_line: 42, max_lines: 2, max_chars_per_second: 21.0, min_cue_ms: 600, max_cue_ms: 7000, max_gap_ms: 700 },
-            Profile::Vertical => Self { max_chars_per_line: 20, max_lines: 2, max_chars_per_second: 18.0, min_cue_ms: 600, max_cue_ms: 4500, max_gap_ms: 700 },
-            Profile::Compact => Self { max_chars_per_line: 24, max_lines: 2, max_chars_per_second: 18.0, min_cue_ms: 600, max_cue_ms: 4500, max_gap_ms: 700 },
+            Profile::Standard => Self {
+                max_chars_per_line: 42,
+                max_lines: 2,
+                max_chars_per_second: 21.0,
+                min_cue_ms: 600,
+                max_cue_ms: 7000,
+                max_gap_ms: 700,
+            },
+            Profile::Vertical => Self {
+                max_chars_per_line: 20,
+                max_lines: 2,
+                max_chars_per_second: 18.0,
+                min_cue_ms: 600,
+                max_cue_ms: 4500,
+                max_gap_ms: 700,
+            },
+            Profile::Compact => Self {
+                max_chars_per_line: 24,
+                max_lines: 2,
+                max_chars_per_second: 18.0,
+                min_cue_ms: 600,
+                max_cue_ms: 4500,
+                max_gap_ms: 700,
+            },
         }
     }
 }

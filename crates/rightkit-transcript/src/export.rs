@@ -94,7 +94,10 @@ pub fn to_vtt(cues: &[Cue], nl: Newline) -> String {
 
 /// Plain text: one line per cue.
 pub fn to_plain_text(cues: &[Cue]) -> String {
-    cues.iter().map(|c| c.lines.join(" ")).collect::<Vec<_>>().join("\n")
+    cues.iter()
+        .map(|c| c.lines.join(" "))
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 /// Timing JSON shared by every consumer (same shape `rightkit-asr` emits):
@@ -109,5 +112,6 @@ pub fn to_timing_json(cues: &[Cue], words: &[crate::words::TimedWord]) -> String
         .iter()
         .map(|w| serde_json::json!({ "text": w.text, "start": secs(w.start_ms), "end": secs(w.end_ms) }))
         .collect();
-    serde_json::to_string(&serde_json::json!({ "segments": seg, "words": w })).expect("json serialises")
+    serde_json::to_string(&serde_json::json!({ "segments": seg, "words": w }))
+        .expect("json serialises")
 }
