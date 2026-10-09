@@ -90,7 +90,7 @@ The fixture paints at 60 Hz in every run. Arrivals match the paint rate with and
 
 ## windows-rs
 
-- **Probe location:** `tools/rightkit/spikes/rk2-windows/rs-probe/` with its own `Cargo.toml` (`[workspace]` empty table), `src/main.rs`.
+- **Probe location:** `rightkit/spikes/rk2-windows/rs-probe/` with its own `Cargo.toml` (`[workspace]` empty table), `src/main.rs`.
 - **Crate and features:** `windows = "0.61"` (resolved to **0.61.3** in `rs-probe/Cargo.lock`) with features `Foundation`, `Foundation_Metadata`, `Security_Authorization_AppCapabilityAccess` (added for `GraphicsCaptureAccess::RequestAccessAsync`), `Graphics_Capture`, `Graphics_DirectX`, `Graphics_DirectX_Direct3D11`, `Win32_Foundation`, `Win32_Graphics_Direct3D`, `Win32_Graphics_Direct3D11`, `Win32_Graphics_Dxgi`, `Win32_Graphics_Dxgi_Common`, `Win32_System_WinRT`, `Win32_System_WinRT_Direct3D11`, `Win32_System_WinRT_Graphics_Capture`, `Win32_UI_WindowsAndMessaging`.
 - **Intended behaviour (not executed):** `factory::<GraphicsCaptureItem, IGraphicsCaptureItemInterop>` then `CreateForWindow`; `D3D11CreateDevice`; `CreateDirect3D11DeviceFromDXGIDevice`; `Direct3D11CaptureFramePool::CreateFreeThreaded`; `IsBorderRequired = false`; `IsCursorCaptureEnabled = false`; poll `TryGetNextFrame` for 10 frames and keep the last; `IDirect3DDxgiInterfaceAccess::GetInterface` for the texture; staging copy, `Map`, row-by-row copy; write a 32-bit top-down BMP and `probe.log`. It also checks `ApiInformation` for `GraphicsCaptureSession.MinUpdateInterval` at runtime.
 - **Build attempt 1 (first run, `--manifest-path` from `D:\Claude`):** refused by the managed broker with `rightkit: RightKit broker endpoint is not configured`. Logged in `scratchpad\rk2\rs-build.log.err`.
@@ -140,12 +140,12 @@ Question from the macOS side: does WKWebView's rAF rate fall from 60 Hz to about
 
 ## Files
 
-- Spike source: `D:\Claude\tools\rightkit\spikes\rk2-windows\` (`rk2.csproj`, `Program.cs`, `Native.cs`, `TargetApp.cs`, `Capturer.cs`, `Shot.cs`, `OcrRunner.cs`, `WindowOps.cs`).
+- Spike source: `D:\Claude\rightkit\spikes\rk2-windows\` (`rk2.csproj`, `Program.cs`, `Native.cs`, `TargetApp.cs`, `Capturer.cs`, `Shot.cs`, `OcrRunner.cs`, `WindowOps.cs`).
 - Scripts: `run-spike.ps1` and `analyze-spike.ps1` (first run); `run-fps.ps1` and `analyze-fps.ps1` (follow-up).
-- Results: `D:\Claude\tools\rightkit\spikes\rk2-windows\results.json` (spike rows, host, frame rate, placement, windows-rs status) and `fps-results.json` (follow-up per-run table).
-- Samples: `D:\Claude\tools\rightkit\spikes\rk2-windows\samples\` (first-run frames only; no desktop images).
-- windows-rs probe: `D:\Claude\tools\rightkit\spikes\rk2-windows\rs-probe\` (not built).
-- This document: `D:\Claude\tools\rightkit\docs\plans\2026-10-08-rk2-spike-b-results.md`.
+- Results: `D:\Claude\rightkit\spikes\rk2-windows\results.json` (spike rows, host, frame rate, placement, windows-rs status) and `fps-results.json` (follow-up per-run table).
+- Samples: `D:\Claude\rightkit\spikes\rk2-windows\samples\` (first-run frames only; no desktop images).
+- windows-rs probe: `D:\Claude\rightkit\spikes\rk2-windows\rs-probe\` (not built).
+- This document: `D:\Claude\rightkit\docs\plans\2026-10-08-rk2-spike-b-results.md`.
 
 
 ## windows-rs build status (lead, 2026-10-08)

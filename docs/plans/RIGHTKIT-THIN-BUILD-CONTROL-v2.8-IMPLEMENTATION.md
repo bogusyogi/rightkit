@@ -351,7 +351,7 @@ Do this first.
 Update:
 
 ```text
-tools/rightkit/docs/RIGHTKIT-THIN-BUILD-CONTROL.md
+rightkit/docs/RIGHTKIT-THIN-BUILD-CONTROL.md
 ```
 
 The document currently starts from a live post-cutover state but still contains historical instructions to:
@@ -1142,7 +1142,7 @@ Platform-specific overrides may exist only when backed by host evidence.
 
 ## 13.3 Correct stale comments
 
-Update `tools/rightkit/Cargo.toml` commentary so it no longer claims the broker admits two concurrent builds when the shipped/default configuration admits one.
+Update `rightkit/Cargo.toml` commentary so it no longer claims the broker admits two concurrent builds when the shipped/default configuration admits one.
 
 Comments that agents may treat as architecture must match runtime truth.
 
@@ -1546,7 +1546,7 @@ implementation work remains on either host.
 Internal implementation/evidence reviewed for v2.8:
 
 ```text
-tools/rightkit/docs/RIGHTKIT-THIN-BUILD-CONTROL.md
+rightkit/docs/RIGHTKIT-THIN-BUILD-CONTROL.md
 rightkit-thin-build-control-v2.7-measurement-remediation-protocol.md
 packages/build-control-broker/src/thin-cache.mjs
 packages/build-control-broker/src/thin-state.mjs
@@ -1556,7 +1556,7 @@ packages/build-control-broker/src/thin-command-policy.mjs
 packages/build-control-broker/src/config.mjs
 packages/build-control-broker/src/bootstrap-macos-cli.mjs
 packages/build-control-broker/src/bootstrap-windows-cli.mjs
-tools/rightkit/Cargo.toml
+rightkit/Cargo.toml
 v2.7 native acceptance evidence
 live sccache measurement supplied during v2.8 review
 ```

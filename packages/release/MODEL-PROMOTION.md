@@ -139,10 +139,10 @@ These commands are instructions only.
 
 ```sh
 # Dry-run first, from Mac via Windows SSH bridge (PowerShell default shell).
-ssh win 'Set-Location D:\Claude\genright; $env:RIGHTAPPS_STORE_SLUG = "rightsites"; node D:\Claude\tools\rightkit\packages\release\cli\right-release.mjs model promote --authority genright --config model-promotions/customvoice-talker.json --dry-run'
+ssh win 'Set-Location D:\Claude\genright; $env:RIGHTAPPS_STORE_SLUG = "rightsites"; node D:\Claude\rightkit\packages\release\cli\right-release.mjs model promote --authority genright --config model-promotions/customvoice-talker.json --dry-run'
 
 # Live, after dry-run succeeds & exact promotion is authorized.
-ssh win 'Set-Location D:\Claude\genright; $env:RIGHTAPPS_STORE_SLUG = "rightsites"; node D:\Claude\tools\rightkit\packages\release\cli\right-release.mjs model promote --authority genright --config model-promotions/customvoice-talker.json'
+ssh win 'Set-Location D:\Claude\genright; $env:RIGHTAPPS_STORE_SLUG = "rightsites"; node D:\Claude\rightkit\packages\release\cli\right-release.mjs model promote --authority genright --config model-promotions/customvoice-talker.json'
 ```
 
 ## RightApps registration & six-file catalog

@@ -5,7 +5,7 @@
 Install the seven runtime assets & append the hook records to both host configs:
 
 ```sh
-node tools/rightkit/packages/build-control-policy/src/install-agent-policy.mjs
+node rightkit/packages/build-control-policy/src/install-agent-policy.mjs
 ```
 
 The installer writes verified assets into a content-addressed `content-<sha256>` directory under `D:\.rightkit-managed\agent-policy` on Windows or `/Volumes/D/.rightkit-managed/agent-policy` on Mac. Hook commands use that exact path, so each registration identifies the installed byte set. It preserves existing config fields/groups & skips duplicate records. Never register source checkout paths.

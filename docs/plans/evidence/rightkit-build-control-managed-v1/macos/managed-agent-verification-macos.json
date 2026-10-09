@@ -34,7 +34,7 @@
   ],
   "verification": {
     "command": "cargo test --lib --locked",
-    "workspace": "/Volumes/D/claude/tools/rightkit/crates/rightkit-process",
+    "workspace": "/Volumes/D/claude/rightkit/crates/rightkit-process",
     "resolvedShim": "/Volumes/D/.rightkit-managed/agent-bin/cargo",
     "exitCode": 0,
     "localTargetExistsBefore": false,

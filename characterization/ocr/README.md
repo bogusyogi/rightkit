@@ -7,7 +7,7 @@ this does not publish or migrate either app.
 ## Reproduce
 
 ```powershell
-cd D:\Claude\tools\rightkit\characterization\ocr
+cd D:\Claude\rightkit\characterization\ocr
 node --test characterize.test.mjs
 node characterize.mjs
 ```

@@ -1,6 +1,6 @@
 # Auto-jury input — design
 
-Artifact: tools/rightkit/packages/legal-ui/.preview/heardright-light.png
+Artifact: rightkit/packages/legal-ui/.preview/heardright-light.png
 
 ## Council vision input
 Vision-capable jurors (NIM Nemotron Omni + Gemini 2.5 Flash)

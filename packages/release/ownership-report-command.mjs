@@ -7,7 +7,7 @@ import { OWNERSHIP_APPS, formatOwnershipJson, buildOwnershipReport, renderOwners
 import { MANIFEST_FILE } from "./ownership.mjs";
 
 const packageRoot = path.dirname(fileURLToPath(import.meta.url));
-const defaultWorkspace = path.resolve(packageRoot, "../../../..");
+const defaultWorkspace = path.resolve(packageRoot, "../../..");
 const MAX_SCAN_OUTPUT_BYTES = 32 * 1024 * 1024;
 const flag = (args, name) => { const i = args.indexOf(name); return i < 0 ? undefined : args[i + 1]; };
 

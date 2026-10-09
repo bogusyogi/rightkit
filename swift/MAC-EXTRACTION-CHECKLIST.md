@@ -7,12 +7,12 @@ This is the Phase 7 execution gate. Do not publish or adopt the package until ev
 - Record `git status --short` in both `claude` and `heardright`; stage only named Phase 7 paths.
 - Confirm `swift --version`, `xcodebuild -version`, and `xcodegen --version` are available.
 - From `heardright/ios-native`, run `scripts/local-smoke.sh`. Preserve its final `All local iOS smoke checks passed.` line.
-- From `tools/rightkit`, run `pnpm test:swift-contracts`. Preserve two passing Node tests.
+- From `rightkit`, run `pnpm test:swift-contracts`. Preserve two passing Node tests.
 - Do not modify or delete app-local source until the package replacement is compiled and HeardRight is green.
 
 ## 1. Create the package skeleton
 
-- Create `tools/rightkit/swift/RightKitSwift/Package.swift` with iOS 17 and macOS test support, library products matching the four targets in `README.md`, test targets, bundled `contracts/license-v2.json`, and `MIT OR Apache-2.0` licensing.
+- Create `rightkit/swift/RightKitSwift/Package.swift` with iOS 17 and macOS test support, library products matching the four targets in `README.md`, test targets, bundled `contracts/license-v2.json`, and `MIT OR Apache-2.0` licensing.
 - Use Foundation, CryptoKit, Security, and native URLSession/FileManager APIs. Add no third-party dependency. If gzip/tar support needs a system-library target, keep it private to `RightKitArtifacts` and verify registry archive portability.
 - Add a package test that loads the bundled vector, verifies its Ed25519 signature, and asserts app/device/tier/features/iat/exp.
 - Gate: `swift package dump-package`, `swift test`, and `swift package archive-source` succeed from the package directory.

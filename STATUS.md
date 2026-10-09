@@ -1,13 +1,13 @@
 # RightKit status
 
-Dated 2026-10-08. Basis: `git log` on `bogusyogi/claude` main through `948c9ee91`, the plan texts named below, and the files they cite. Commit SHAs are short forms. This file is the one place for "where is RightKit". Plans stay where they are; see `tools/rightkit/docs/plans/README.md` for the index.
+Dated 2026-10-08. Basis: `git log` on `bogusyogi/claude` main through `948c9ee91`, the plan texts named below, and the files they cite. Commit SHAs are short forms. This file is the one place for "where is RightKit". Plans stay where they are; see `rightkit/docs/plans/README.md` for the index.
 
 States: **done**, **in progress**, **not started**, **waiting on Adrian**, **blocked** (waits on another row).
 
 ## Headline
 
 - The review plan (P0 to P4) is in progress. Code for P0 to P2 has landed on the Mac and Windows sides, but no P-row has its exit evidence recorded yet.
-- Enforcement is not on. `tools/rightkit/docs/OWNERSHIP-ENFORCEMENT.md:60` says installed enforcement is not active. No enforce commit exists.
+- Enforcement is not on. `rightkit/docs/OWNERSHIP-ENFORCEMENT.md:60` says installed enforcement is not active. No enforce commit exists.
 - The Mac broker is the Developer-ID-signed RustRight `rustright-972495a`; the Windows XPS broker is `rustright-9115215`. The Node broker runtime is retired.
 - Class-1 (tamper-proof evidence builds) is not installed on either host. Adrian must run the elevated installers.
 - App chats stay stopped until Adrian resumes them.
@@ -46,11 +46,11 @@ P3 version pins (source versions in `Cargo.toml`, not yet published unless noted
 
 ## (b) Content pipeline RK0 to RK10
 
-Source: `tools/rightkit/docs/plans/2026-10-08-content-pipeline-execution-plan.md` (status table). Requirements: `docs/plans/2026-10-08-demo-recording-requirements.md`.
+Source: `rightkit/docs/plans/2026-10-08-content-pipeline-execution-plan.md` (status table). Requirements: `docs/plans/2026-10-08-demo-recording-requirements.md`.
 
 | Id | Package | State | Evidence |
 |---|---|---|---|
-| RK0 | Contracts (`tools/rightkit/contracts/`, `rightkit-contracts`) | in progress | Built, commit `c5119392` (= `c51193924` in the log). Hetzner run waits on RK7. Publish waits on vendoring schemas. |
+| RK0 | Contracts (`rightkit/contracts/`, `rightkit-contracts`) | in progress | Built, commit `c5119392` (= `c51193924` in the log). Hetzner run waits on RK7. Publish waits on vendoring schemas. |
 | RK1 | rightkit-oauth server mode, Linux secrets backend, Meta token exchange | blocked | Waits on RK7 and RK10. |
 | RK2 A | Mac off-screen capture spike | in progress | Mac lead. |
 | RK2 B | Windows WebView2 capture spike | done | Decision `3451a1f9`. Windows.Graphics.Capture on off-screen-visible window; hidden and minimized unsupported. Live run is RK3's first step. |
@@ -67,7 +67,7 @@ Plan rules that apply to every row: Rust at runtime (signed Swift capture helper
 
 ## (c) Inventory
 
-Scope: 50 crates, 29 npm packages, Swift package and helper, ownership-approval, contracts, scripts. Files in `tools/rightkit/docs/audits/`.
+Scope: 50 crates, 29 npm packages, Swift package and helper, ownership-approval, contracts, scripts. Files in `rightkit/docs/audits/`.
 
 | Step | State | Files |
 |---|---|---|
@@ -104,8 +104,8 @@ Rules for all three: one integration owner per repository. Only the owner change
 1. Date the header. Replace the "Dated" line with the new date and the new `git log` basis commit.
 2. For (a), change a row's state only when its exit evidence is recorded. Cite the commit SHA. Do not mark a P-row done on code landing alone.
 3. For (b), copy the state table from the content-pipeline execution plan. Do not invent states there. Update the plan first, then this file.
-4. For (c), update the merge and review rows from the file list in `tools/rightkit/docs/audits/`.
+4. For (c), update the merge and review rows from the file list in `rightkit/docs/audits/`.
 5. For (d), remove items when Adrian decides them. Add new blocking decisions with the plan cite.
 6. For (e), change ownership only when a plan or handoff changes it, and cite that document.
 7. Keep the file under about 150 lines. Keep plans in their own files; link them instead of copying text.
-8. Update `tools/rightkit/docs/plans/README.md` when a plan is added, superseded or closed.
+8. Update `rightkit/docs/plans/README.md` when a plan is added, superseded or closed.

@@ -12,7 +12,7 @@ REPOSITORY = Path('/Volumes/D/claude')
 RECEIPT_STORE = Path('/Volumes/D/.rightkit-managed/rightkit-build-control/receipts')
 CONFIG_PATH = Path('/Volumes/D/.rightkit-managed/config.json')
 RUNTIME_PATH = Path('/Volumes/D/.rightkit-managed/runtime-current/runtime-manifest.json')
-OUTPUT = REPOSITORY / 'tools/rightkit/docs/plans/evidence/rightkit-thin-build-control-v2.7.0-receipt-corpus-analysis.json'
+OUTPUT = REPOSITORY / 'rightkit/docs/plans/evidence/rightkit-thin-build-control-v2.7.0-receipt-corpus-analysis.json'
 
 
 def read_json(path):

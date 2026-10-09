@@ -12,10 +12,10 @@
   "objective": "Implement RIGHTKIT-RECOVERY-SUMMARY.md as a durable, observable, crash-safe managed Rust coordinator without hot-path scans, socket-owned jobs, unknown-command guessing, dirty deployment, or concurrent heavy-build stress.",
   "authority": [
     "AGENTS.md",
-    "tools/rightkit/AGENTS.md",
+    "rightkit/AGENTS.md",
     "docs/rules/rightkit.md",
-    "tools/rightkit/docs/RIGHTKIT-RECOVERY-SUMMARY.md",
-    "tools/rightkit/docs/BUILD-CONTROL-REMEDIATION.md"
+    "rightkit/docs/RIGHTKIT-RECOVERY-SUMMARY.md",
+    "rightkit/docs/BUILD-CONTROL-REMEDIATION.md"
   ],
   "integrationOwner": "current orchestrator /root; sole owner of build-control-broker/src/index.mjs, broker.mjs, package manifests, runtime cutover, live state, Git index, commits, and parent pins",
   "workers": [
@@ -23,26 +23,26 @@
       "id": "classification-scheduler",
       "executor": "alchemist",
       "own": [
-        "tools/rightkit/packages/build-control-broker/src/scheduler.mjs",
-        "tools/rightkit/packages/build-control-broker/src/scheduler.test.mjs",
-        "tools/rightkit/packages/build-control-broker/src/command-capabilities.mjs",
-        "tools/rightkit/packages/build-control-broker/src/command-capabilities.test.mjs"
+        "rightkit/packages/build-control-broker/src/scheduler.mjs",
+        "rightkit/packages/build-control-broker/src/scheduler.test.mjs",
+        "rightkit/packages/build-control-broker/src/command-capabilities.mjs",
+        "rightkit/packages/build-control-broker/src/command-capabilities.test.mjs"
       ],
       "read": [
-        "tools/rightkit/packages/build-control-broker/src/index.mjs",
-        "tools/rightkit/docs/RIGHTKIT-RECOVERY-SUMMARY.md"
+        "rightkit/packages/build-control-broker/src/index.mjs",
+        "rightkit/docs/RIGHTKIT-RECOVERY-SUMMARY.md"
       ],
       "forbidden": [
         ".git",
         "/Volumes/D/.rightkit-managed",
-        "tools/rightkit/packages/build-control-clients/**",
+        "rightkit/packages/build-control-clients/**",
         "heardright/**",
         "orthic/**",
         "membrane/**",
         "coderight/**"
       ],
       "checks": [
-        "node --test tools/rightkit/packages/build-control-broker/src/scheduler.test.mjs tools/rightkit/packages/build-control-broker/src/command-capabilities.test.mjs",
+        "node --test rightkit/packages/build-control-broker/src/scheduler.test.mjs rightkit/packages/build-control-broker/src/command-capabilities.test.mjs",
         "unknown commands reject; registered CONTROL never acquires BUILD permit; installer priority ages fairly"
       ],
       "dependencies": []
@@ -51,20 +51,20 @@
       "id": "durable-state",
       "executor": "alchemist",
       "own": [
-        "tools/rightkit/packages/build-control-broker/src/state-store.mjs",
-        "tools/rightkit/packages/build-control-broker/src/state-store.test.mjs"
+        "rightkit/packages/build-control-broker/src/state-store.mjs",
+        "rightkit/packages/build-control-broker/src/state-store.test.mjs"
       ],
       "read": [
-        "tools/rightkit/packages/build-control-broker/src/index.mjs",
-        "tools/rightkit/docs/RIGHTKIT-RECOVERY-SUMMARY.md"
+        "rightkit/packages/build-control-broker/src/index.mjs",
+        "rightkit/docs/RIGHTKIT-RECOVERY-SUMMARY.md"
       ],
       "forbidden": [
         ".git",
         "/Volumes/D/.rightkit-managed",
-        "tools/rightkit/packages/build-control-clients/**"
+        "rightkit/packages/build-control-clients/**"
       ],
       "checks": [
-        "node --test tools/rightkit/packages/build-control-broker/src/state-store.test.mjs",
+        "node --test rightkit/packages/build-control-broker/src/state-store.test.mjs",
         "SQLite WAL transaction atomically records state transition and one idempotent terminal receipt; restart recovery fixtures pass"
       ],
       "dependencies": []
@@ -73,21 +73,21 @@
       "id": "maintenance-storage",
       "executor": "alchemist",
       "own": [
-        "tools/rightkit/packages/build-control-broker/src/maintenance-worker.mjs",
-        "tools/rightkit/packages/build-control-broker/src/maintenance-worker.test.mjs"
+        "rightkit/packages/build-control-broker/src/maintenance-worker.mjs",
+        "rightkit/packages/build-control-broker/src/maintenance-worker.test.mjs"
       ],
       "read": [
-        "tools/rightkit/packages/build-control-broker/src/index.mjs",
-        "tools/rightkit/packages/build-control-core/src/index.mjs",
-        "tools/rightkit/docs/BUILD-CONTROL-REMEDIATION.md"
+        "rightkit/packages/build-control-broker/src/index.mjs",
+        "rightkit/packages/build-control-core/src/index.mjs",
+        "rightkit/docs/BUILD-CONTROL-REMEDIATION.md"
       ],
       "forbidden": [
         ".git",
         "/Volumes/D/.rightkit-managed",
-        "tools/rightkit/packages/build-control-clients/**"
+        "rightkit/packages/build-control-clients/**"
       ],
       "checks": [
-        "node --test tools/rightkit/packages/build-control-broker/src/maintenance-worker.test.mjs",
+        "node --test rightkit/packages/build-control-broker/src/maintenance-worker.test.mjs",
         "bounded async batches, namespace generation revalidation, trash rename, orphan dry-run, and zero admission dependencies are covered"
       ],
       "dependencies": ["durable-state"]
@@ -96,24 +96,24 @@
       "id": "process-cache",
       "executor": "alchemist",
       "own": [
-        "tools/rightkit/packages/build-control-broker/src/managed-launcher.mjs",
-        "tools/rightkit/packages/build-control-broker/src/process-tree.mjs",
-        "tools/rightkit/packages/build-control-broker/src/process-tree.test.mjs",
-        "tools/rightkit/packages/build-control-broker/src/sccache-supervisor.mjs",
-        "tools/rightkit/packages/build-control-broker/src/sccache-supervisor.test.mjs"
+        "rightkit/packages/build-control-broker/src/managed-launcher.mjs",
+        "rightkit/packages/build-control-broker/src/process-tree.mjs",
+        "rightkit/packages/build-control-broker/src/process-tree.test.mjs",
+        "rightkit/packages/build-control-broker/src/sccache-supervisor.mjs",
+        "rightkit/packages/build-control-broker/src/sccache-supervisor.test.mjs"
       ],
       "read": [
-        "tools/rightkit/packages/build-control-broker/src/index.mjs",
-        "tools/rightkit/docs/RIGHTKIT-RECOVERY-SUMMARY.md",
-        "tools/rightkit/docs/BUILD-CONTROL-REMEDIATION.md"
+        "rightkit/packages/build-control-broker/src/index.mjs",
+        "rightkit/docs/RIGHTKIT-RECOVERY-SUMMARY.md",
+        "rightkit/docs/BUILD-CONTROL-REMEDIATION.md"
       ],
       "forbidden": [
         ".git",
         "/Volumes/D/.rightkit-managed",
-        "tools/rightkit/packages/build-control-clients/**"
+        "rightkit/packages/build-control-clients/**"
       ],
       "checks": [
-        "node --test tools/rightkit/packages/build-control-broker/src/process-tree.test.mjs tools/rightkit/packages/build-control-broker/src/sccache-supervisor.test.mjs",
+        "node --test rightkit/packages/build-control-broker/src/process-tree.test.mjs rightkit/packages/build-control-broker/src/sccache-supervisor.test.mjs",
         "ownership-before-exec, TERM-KILL-reap, PID identity, bounded cache health, typed fallback, and REAP_PENDING behavior are covered without touching live daemon"
       ],
       "dependencies": []
@@ -122,26 +122,26 @@
       "id": "runtime-observability",
       "executor": "alchemist",
       "own": [
-        "tools/rightkit/packages/build-control-broker/src/runtime.mjs",
-        "tools/rightkit/packages/build-control-broker/src/runtime.test.mjs",
-        "tools/rightkit/packages/build-control-broker/src/event-log.mjs",
-        "tools/rightkit/packages/build-control-broker/src/event-log.test.mjs",
-        "tools/rightkit/packages/build-control-broker/src/config.mjs",
-        "tools/rightkit/packages/build-control-broker/src/config.test.mjs"
+        "rightkit/packages/build-control-broker/src/runtime.mjs",
+        "rightkit/packages/build-control-broker/src/runtime.test.mjs",
+        "rightkit/packages/build-control-broker/src/event-log.mjs",
+        "rightkit/packages/build-control-broker/src/event-log.test.mjs",
+        "rightkit/packages/build-control-broker/src/config.mjs",
+        "rightkit/packages/build-control-broker/src/config.test.mjs"
       ],
       "read": [
-        "tools/rightkit/packages/build-control-broker/src/broker.mjs",
-        "tools/rightkit/packages/build-control-core/src/index.mjs",
-        "tools/rightkit/docs/RIGHTKIT-RECOVERY-SUMMARY.md"
+        "rightkit/packages/build-control-broker/src/broker.mjs",
+        "rightkit/packages/build-control-core/src/index.mjs",
+        "rightkit/docs/RIGHTKIT-RECOVERY-SUMMARY.md"
       ],
       "forbidden": [
         ".git",
         "/Volumes/D/.rightkit-managed",
-        "tools/rightkit/packages/build-control-broker/src/index.mjs",
-        "tools/rightkit/packages/build-control-clients/**"
+        "rightkit/packages/build-control-broker/src/index.mjs",
+        "rightkit/packages/build-control-clients/**"
       ],
       "checks": [
-        "node --test tools/rightkit/packages/build-control-broker/src/runtime.test.mjs tools/rightkit/packages/build-control-broker/src/event-log.test.mjs tools/rightkit/packages/build-control-broker/src/config.test.mjs",
+        "node --test rightkit/packages/build-control-broker/src/runtime.test.mjs rightkit/packages/build-control-broker/src/event-log.test.mjs rightkit/packages/build-control-broker/src/config.test.mjs",
         "unknown config rejection, bounded append log, immutable bundle hashing, isolated activation, staging cleanup, and atomic rollback pass"
       ],
       "dependencies": []
@@ -150,23 +150,23 @@
       "id": "client-job-api",
       "executor": "alchemist",
       "own": [
-        "tools/rightkit/packages/build-control-clients/src/index.mjs",
-        "tools/rightkit/packages/build-control-clients/src/index.test.mjs",
-        "tools/rightkit/packages/build-control-clients/src/rightkit.mjs",
-        "tools/rightkit/packages/build-control-clients/src/managed-agent.mjs"
+        "rightkit/packages/build-control-clients/src/index.mjs",
+        "rightkit/packages/build-control-clients/src/index.test.mjs",
+        "rightkit/packages/build-control-clients/src/rightkit.mjs",
+        "rightkit/packages/build-control-clients/src/managed-agent.mjs"
       ],
       "read": [
-        "tools/rightkit/packages/build-control-core/src/index.mjs",
-        "tools/rightkit/packages/build-control-broker/src/index.mjs",
-        "tools/rightkit/docs/RIGHTKIT-RECOVERY-SUMMARY.md"
+        "rightkit/packages/build-control-core/src/index.mjs",
+        "rightkit/packages/build-control-broker/src/index.mjs",
+        "rightkit/docs/RIGHTKIT-RECOVERY-SUMMARY.md"
       ],
       "forbidden": [
         ".git",
         "/Volumes/D/.rightkit-managed",
-        "tools/rightkit/packages/build-control-broker/src/broker.mjs"
+        "rightkit/packages/build-control-broker/src/broker.mjs"
       ],
       "checks": [
-        "node --test tools/rightkit/packages/build-control-clients/src/index.test.mjs",
+        "node --test rightkit/packages/build-control-clients/src/index.test.mjs",
         "submit/watch/status/cancel protocol, detached socket behavior, nested execution context, and typed TOOL_CHANGED handling are covered"
       ],
       "dependencies": []

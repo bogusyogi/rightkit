@@ -249,7 +249,7 @@ No host app, test plan or scheme-level StoreKit configuration is needed. What wa
 ## Source of truth
 
 This repo is the **consumption mirror**. The canonical source is
-`tools/rightkit/swift/RightKitSwift` in the workspace repo; a release copies that
+`rightkit/swift/RightKitSwift` in the workspace repo; a release copies that
 tree here and tags it, exactly as the npm/crates packages publish from the same
 workspace. Do not edit here directly — change the workspace source, then cut a
 new tag.
@@ -258,5 +258,5 @@ new tag.
 
 From the workspace: bump `RightKitSwift/VERSION`, re-run `swift test`, then mirror
 the tracked tree into this repo and tag `X.Y.Z`. Record the new version in
-`tools/rightkit/packages/release/rightkit-versions.json` (`swift` section) so apps
+`rightkit/packages/release/rightkit-versions.json` (`swift` section) so apps
 can bump their pin.

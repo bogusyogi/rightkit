@@ -11,7 +11,7 @@
         "os": "win32"
       },
       "commit": "89cf0b68667c375a78badf78b40137639a8986c1",
-      "command": "rightkit cargo test -p rightkit-settings --no-fail-fast -- --test-threads=1 (tools/rightkit, win native)",
+      "command": "rightkit cargo test -p rightkit-settings --no-fail-fast -- --test-threads=1 (rightkit, win native)",
       "operator": "claude-opus-5.5 (RightKit Windows qualification) for adrdsouza",
       "timestamp": "2026-10-07T08:40:16.321718Z",
       "passed": 8,
@@ -22,7 +22,7 @@
         "os": "darwin"
       },
       "commit": "89cf0b68667c375a78badf78b40137639a8986c1",
-      "command": "rightkit cargo test -p rightkit-settings --no-fail-fast -- --test-threads=1 (tools/rightkit, mac native)",
+      "command": "rightkit cargo test -p rightkit-settings --no-fail-fast -- --test-threads=1 (rightkit, mac native)",
       "operator": "claude-opus-5.5 (RightKit Windows qualification) for adrdsouza",
       "timestamp": "2026-10-07T08:43:52.014276Z",
       "passed": 8,

@@ -711,7 +711,7 @@ async function validateRightKitPackageContract(root, appName, hostedWorkflows) {
   if (pkg.packageManager !== RIGHTKIT_VERSIONS.packageManager) {
     fail(`${appName ?? pkg.name ?? "app"} packageManager must be ${RIGHTKIT_VERSIONS.packageManager}, got ${pkg.packageManager ?? "<missing>"}`);
   }
-  if (JSON.stringify(scripts).includes("../tools/right-release") || JSON.stringify(scripts).includes("../tools/rightkit/packages/release")) {
+  if (JSON.stringify(scripts).includes("../tools/right-release") || JSON.stringify(scripts).includes("../rightkit/packages/release")) {
     fail(`${appName ?? pkg.name ?? "app"} package.json must call the right-release bin, not parent-workspace release source`);
   }
   const rightKitDeps = { ...(pkg.dependencies ?? {}), ...(pkg.devDependencies ?? {}) };

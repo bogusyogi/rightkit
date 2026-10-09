@@ -1,11 +1,11 @@
 {
   "schema_version": 1,
-  "artifact": "tools/rightkit/packages/legal-ui/.preview/heardright-light.png",
+  "artifact": "rightkit/packages/legal-ui/.preview/heardright-light.png",
   "rounds": [
     {
       "round": 1,
       "ts": "2026-07-17T08:06:36.336897+00:00",
-      "verdict_path": "tools\\rightkit\\packages\\legal-ui\\.preview\\jury\\heardright-light.png.verdict.json",
+      "verdict_path": "rightkit\\packages\\legal-ui\\.preview\\jury\\heardright-light.png.verdict.json",
       "blockers": [
         {
           "id": "b1",

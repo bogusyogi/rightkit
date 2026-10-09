@@ -210,8 +210,8 @@
   "auto_jury_meta": {
     "kind": "design",
     "skill": "jury-design",
-    "artifact": "tools/rightkit/packages/legal-ui/.preview/heardright-light.png",
-    "input": "tools\\rightkit\\packages\\legal-ui\\.preview\\jury\\heardright-light.png.input.md",
+    "artifact": "rightkit/packages/legal-ui/.preview/heardright-light.png",
+    "input": "rightkit\\packages\\legal-ui\\.preview\\jury\\heardright-light.png.input.md",
     "timestamp": "2026-07-17T08:06:36.202Z",
     "vision_active": true,
     "failHard": true

@@ -9,7 +9,7 @@ Channel memory for the content pipeline: the `channel-memory.v1` schema with ser
 
 Catalog capability: `channel-memory`. The catalog entry is declaration-only (`rightkit-ownership.json`). The revisioned daemon storage and conflict handling belong to the daemon (RK10). This crate validates records only.
 
-The schema is still pending. It lives in `tools/rightkit/contracts-pending/channel-memory/` until RK6 is accepted into `contracts/`.
+The schema is still pending. It lives in `rightkit/contracts-pending/channel-memory/` until RK6 is accepted into `contracts/`.
 
 ## When to use it
 

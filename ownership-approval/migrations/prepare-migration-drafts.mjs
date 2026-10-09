@@ -11,7 +11,7 @@ import { scanApp, SCANNER_VERSION } from "../../packages/release/ownership.mjs";
 import manifest from "../../packages/release/rightkit-ownership.json" with { type: "json" };
 
 const MODULE_DIR = path.dirname(fileURLToPath(import.meta.url));
-const WORKSPACE = path.resolve(MODULE_DIR, "../../../..");
+const WORKSPACE = path.resolve(MODULE_DIR, "../../..");
 const LEGACY = path.join(WORKSPACE, "tasks/handoffs/2026-10-07/ownership");
 const OUT = MODULE_DIR;
 const CODE_EXT = new Set([".rs", ".ts", ".tsx", ".js", ".mjs", ".cjs", ".jsx", ".swift", ".m", ".mm", ".c", ".cc", ".cpp", ".h", ".py", ".go", ".kt", ".java", ".cs"]);
@@ -245,8 +245,8 @@ export function prepareMigrationDrafts({ outputDir = OUT, apps = APPS, now = new
     signingImportVerifySequence: [
       "Review each listed source root, source commit, input digests, exact paths, occurrence hashes, reason, and owner; resolve each pending field.",
       "Save each completed schema-2 record with signature:null, then Adrian launches the native Windows or macOS ownership-approval helper and uses Review approval draft > Sign reviewed draft; native prompt is required per record.",
-      "For each signed record, the import utility can preserve it as a separate file: node tools/rightkit/packages/release/ownership-approval-command.mjs --import <signed.json> --out <imported-record.json>; its --import command does not merge application exception files.",
-      "After both host keys are enrolled in protected trust, run: node tools/rightkit/packages/release/ownership-approval-command.mjs --verify <signed-record.json> --context <fresh-scanner-context.json> per record; only a successful verifier result proves signature and baseline coverage.",
+      "For each signed record, the import utility can preserve it as a separate file: node rightkit/packages/release/ownership-approval-command.mjs --import <signed.json> --out <imported-record.json>; its --import command does not merge application exception files.",
+      "After both host keys are enrolled in protected trust, run: node rightkit/packages/release/ownership-approval-command.mjs --verify <signed-record.json> --context <fresh-scanner-context.json> per record; only a successful verifier result proves signature and baseline coverage.",
       "Only after successful verification, Adrian integrates the verified records into each repository's existing .rightkit/ownership-exceptions.json exceptions array, preserving existing entries.",
     ],
     validation: {

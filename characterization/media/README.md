@@ -8,8 +8,8 @@ shared crate can publish.
 Run:
 
 ```text
-node --test tools/rightkit/characterization/media/characterize.test.mjs
-node tools/rightkit/characterization/media/characterize.mjs
+node --test rightkit/characterization/media/characterize.test.mjs
+node rightkit/characterization/media/characterize.mjs
 ```
 
 ## Observed state

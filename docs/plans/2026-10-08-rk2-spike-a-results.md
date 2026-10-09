@@ -1,6 +1,6 @@
 # RK2 Spike A results: macOS off-screen window capture (2026-10-08)
 
-Host: Apple M6, macOS 27.0.1, one 1600x900 non-retina display (backing scale 1). Spike code: `tools/rightkit/spikes/rk2-macos/`. Evidence: `tools/rightkit/spikes/rk2-macos/evidence/<run>/` (14 MB, untracked, nothing committed or published).
+Host: Apple M6, macOS 27.0.1, one 1600x900 non-retina display (backing scale 1). Spike code: `rightkit/spikes/rk2-macos/`. Evidence: `rightkit/spikes/rk2-macos/evidence/<run>/` (14 MB, untracked, nothing committed or published).
 
 ## Verdict
 
@@ -85,13 +85,13 @@ Also noted: copies of the fixture launched as an `.app` through `open -g -n` sto
 ## Reproduce
 
 ```
-cd tools/rightkit
+cd rightkit
 rightkit cargo build --manifest-path spikes/rk2-macos/fixture-app/Cargo.toml
 rightkit cargo build --manifest-path spikes/rk2-macos/svc-call/Cargo.toml
 cd spikes/rk2-macos/helper && swiftc -O main.swift -o rk2-capture && codesign -s - --force rk2-capture
 cd .. && ./run-all.sh        # python3 run.py <offscreen|occluded|apphidden|minimized> <fps> <seconds> [stream|file]; analyze.py per run
 ```
-(`tools/rightkit` workspace `cargo` is currently broken by the empty `crates/rightkit-align` directory, unrelated to this spike; both spike crates are standalone workspaces.)
+(`rightkit` workspace `cargo` is currently broken by the empty `crates/rightkit-align` directory, unrelated to this spike; both spike crates are standalone workspaces.)
 Fixture: `spikes/rk2-macos/fixture-app` (Tauri 2 + rightkit-control `tauri-plugin`, step id, 24-bit frame-counter strip, 7 s animated and 3 s static per 10 s, page input log). Helper: `spikes/rk2-macos/helper/main.swift` (`list`, `zorder`, `record`, `analyze`).
 
 ## rAF investigation (2026-10-09): root cause found, fixed with a public API

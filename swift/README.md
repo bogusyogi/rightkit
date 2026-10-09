@@ -42,6 +42,6 @@ This table is the original three-target contract. It once planned a `RightKitQA`
 
 ## Canonical contract
 
-`contracts/license-v2.json` is byte-identical to the Rust and TypeScript public vector. Run `pnpm test:swift-contracts` from `tools/rightkit` to prove byte parity, Ed25519 validity, and payload semantics on Windows or macOS. Swift tests must load this file rather than embedding another token.
+`contracts/license-v2.json` is byte-identical to the Rust and TypeScript public vector. Run `pnpm test:swift-contracts` from `rightkit` to prove byte parity, Ed25519 validity, and payload semantics on Windows or macOS. Swift tests must load this file rather than embedding another token.
 
 The Mac extraction and publication gates are in [MAC-EXTRACTION-CHECKLIST.md](./MAC-EXTRACTION-CHECKLIST.md).

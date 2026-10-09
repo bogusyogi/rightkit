@@ -52,7 +52,7 @@ Legend: C = confirmed as written; O = overstated or partly wrong; D = already do
 | 27 | N09 | platform-ui QA helpers "dead" refuted | C | `genright/src/lib/platform.ts:2,15` |
 | 28 | N16 | root `test` script covers 8 packages | C | `package.json:11` |
 | 29 | F42 | license-v2.json 4 identical copies | C | md5 `0852…` x4 source copies (5 more under `.build/`, not tracked) |
-| 30 | F54 | stray tracked `registration.patch`, `license/Cargo.lock` | C, plus | `git ls-files` confirms; add untracked `tools/rightkit/:memory:.ses` |
+| 30 | F54 | stray tracked `registration.patch`, `license/Cargo.lock` | C, plus | `git ls-files` confirms; add untracked `rightkit/:memory:.ses` |
 | 31 | F56a | automation + agent-room-core `publish = false` yet staged | C | `Cargo.toml:7-8`; `rightkit-versions.json:246,248` |
 | 32 | F20 | sha2 0.11 in cache/models/pdf, 0.10 elsewhere | C | 14 manifests; `cache:13`, `models:29`, `pdf:35` |
 | 33 | F49 | embed vector store uses rusqlite directly, no bundled passthrough | C | `embed/src/vector.rs:1`; `embed/Cargo.toml:15` |
@@ -114,7 +114,7 @@ Why this matters more than any dependency trim: every RightKit crate above with 
 | I5 | **service vs speech-client overlap.** `rightkit-service` ("the one discovery and authentication convention", `service/lib.rs:1-6`) and `rightkit-speech-client` both implement host discovery, takeover and `service.json` reads (`service/discovery.rs:35-192`; `speech-client/lib.rs:103-198`) | headers and fn lists | fold speech-client's host-plan/takeover into rightkit-service; speech-client keeps only the EngineFrame client |
 | I6 | **File-digest and hex helpers** are copied 11 times in RightKit (L01 above) and dozens of times in apps. Owner should be `rightkit-fs` (a `digest` module), not a new crate and not "keep local" | L01 row | do with action #6 below |
 | I7 | **HeardRight consumes a sibling app repo by git** (`heardright-model-store/Cargo.toml:11`) | manifest | violates "apps consume published RightKit, never Git"; fix via M1 |
-| I8 | Stray `tools/rightkit/:memory:.ses` (SQLite in-memory misuse artifact), untracked | `git status` | delete with F54 |
+| I8 | Stray `rightkit/:memory:.ses` (SQLite in-memory misuse artifact), untracked | `git status` | delete with F54 |
 | I9 | New crates `rightkit-review`, `rightkit-scenario`, `rightkit-channel-memory` have no plan row; channel-memory and contracts both pin `jsonschema 0.58.6` with defaults off (54 crates, shared) | manifests; plan grep | owner to add RK ids; no dependency action |
 | I10 | Out of RightKit scope, one line: `coderight/engine/bins/coderight/D:/work/.coderight/worktrees/...` is a Windows path literal materialised as a directory tree on the Mac checkout, containing copies of `windows_job.rs` and `kill_tree.rs` | `find … CreateJobObject` | CodeRight owner to delete |
 
@@ -170,7 +170,7 @@ The stated rule is security and correctness first, then biggest dependency and m
 | qts-ggml-sys pregenerated bindings | GenRight worker (metal/vulkan) | binding drift vs ggml pin | build the worker with `metal` (Mac) and `vulkan` (Windows) and run its e2e |
 | mcp reqwest removal (F28) | CodeRight | streaming semantics | MCP streamable-HTTP integration suite; defer until rightkit-http streams |
 | npm: updates peer, react-image-crop optional, peer ranges | MailRight, ViewRight, ScrapeRight, HeardRight, CodeRight, CutRight | install-time peer warnings; duplicate removal changes lockfiles | `pnpm install` lockfile diff per app + typecheck; republish is semver-minor |
-| release split / managed-* move (I1, I2) | every app release | `right-release` import failure | `pnpm --dir tools/rightkit test:release`, `doctor:release`, `right-suite-contract.test.mjs` |
+| release split / managed-* move (I1, I2) | every app release | `right-release` import failure | `pnpm --dir rightkit test:release`, `doctor:release`, `right-suite-contract.test.mjs` |
 
 Windows-only items (F02 windows-implement, F09 ocr features, F38–F40, M5) cannot be verified from this host and are labelled accordingly.
 

@@ -1,6 +1,6 @@
 **Verdict: useful inventory, but I would not sign off on its ranked action list unchanged.** It understates app-local duplication, treats several design proposals as verified optimizations, overstates dependency savings & puts risky rewrites ahead of straightforward removals.
 
-Review was read-only: source inspection, manifest/lock parsing & byte comparisons; no builds, tests, publication or edits. Dependency-tree savings, registry state & installed-app behavior remain **unverified independently**. Paths below are relative to `/Volumes/D/claude/tools/rightkit`; `apps/` denotes `/Volumes/D/claude/`.
+Review was read-only: source inspection, manifest/lock parsing & byte comparisons; no builds, tests, publication or edits. Dependency-tree savings, registry state & installed-app behavior remain **unverified independently**. Paths below are relative to `/Volumes/D/claude/rightkit`; `apps/` denotes `/Volumes/D/claude/`.
 
 Checkout changed during review: MCP now declares `0.5.0`, its RNG fix is present, Swift README was corrected & new `rightkit-review` exists. These are snapshot changes, not evidence original reviewers fabricated findings.
 
@@ -57,13 +57,13 @@ Checkout changed during review: MCP now declares `0.5.0`, its RNG fix is present
 
 `Query::parse_lenient(")", ...)` encounters parser error, becomes `Query::default()`, then compiles to `1=1`. Its documentation promises malformed input “matches nothing.”
 
-Evidence: [`ast.rs:122`](/Volumes/D/claude/tools/rightkit/crates/rightkit-search/src/ast.rs:122), [`terms.rs:37`](/Volumes/D/claude/tools/rightkit/crates/rightkit-search/src/terms.rs:37), [`sql.rs:177`](/Volumes/D/claude/tools/rightkit/crates/rightkit-search/src/sql.rs:177). Existing test explicitly confirms empty query matches everything at `tests/sqlite_e2e.rs:261`.
+Evidence: [`ast.rs:122`](/Volumes/D/claude/rightkit/crates/rightkit-search/src/ast.rs:122), [`terms.rs:37`](/Volumes/D/claude/rightkit/crates/rightkit-search/src/terms.rs:37), [`sql.rs:177`](/Volumes/D/claude/rightkit/crates/rightkit-search/src/sql.rs:177). Existing test explicitly confirms empty query matches everything at `tests/sqlite_e2e.rs:261`.
 
 This is **confirmed source-level correctness defect**, not demonstrated shipping data exposure. Preserve errors or represent invalid/no-match separately from legitimate empty query. Verify malformed input returns zero results/error while intentional empty input retains documented behavior.
 
 **B. right-ctl installer does not bind installed binary to completed build**
 
-[`scripts/install-right-ctl.sh:10`](/Volumes/D/claude/tools/rightkit/scripts/install-right-ctl.sh:10) builds, then searches **every managed workspace** for `release/right-ctl`, sorts by modification time & signs newest match.
+[`scripts/install-right-ctl.sh:10`](/Volumes/D/claude/rightkit/scripts/install-right-ctl.sh:10) builds, then searches **every managed workspace** for `release/right-ctl`, sorts by modification time & signs newest match.
 
 Concurrent/stale output can therefore select binary unrelated to completed request. “Root override supported” misses more important identity problem. Installer remains RightKit-owned; RustRight should provide exact build-output identity/receipt consumed by installer. Verify using two candidate outputs with misleading timestamps.
 

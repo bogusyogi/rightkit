@@ -49,7 +49,7 @@
       "action": {
         "execute": "C:\\Windows\\System32\\cmd.exe",
         "arguments": "/d /c call D:\\RightKitManagedAgent\\broker-launch.cmd",
-        "workingDirectory": "D:\\Claude\\tools\\rightkit"
+        "workingDirectory": "D:\\Claude\\rightkit"
       },
       "observedBrokerProcesses": 1
     }
@@ -98,7 +98,7 @@
       "guarantee": "Shims submit MANAGED_AGENT requests only; they never spawn a real toolchain.",
       "marker": "rightkit.build-control.agent-shims.install.v1",
       "platform": "win32",
-      "launcher": "D:\\Claude\\tools\\rightkit\\packages\\build-control-clients\\src\\managed-agent.mjs",
+      "launcher": "D:\\Claude\\rightkit\\packages\\build-control-clients\\src\\managed-agent.mjs",
       "nodePath": "C:\\nvm4w\\nodejs\\node.exe"
     },
     "resolvedCargo": "D:\\RightKitManagedAgent\\agent-bin\\cargo.cmd",

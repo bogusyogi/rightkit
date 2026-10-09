@@ -6,7 +6,7 @@
   "entrypoint": {
     "path": "D:\\RightKitManagedAgent\\agent-bin\\rightkit.cmd",
     "node": "C:\\nvm4w\\nodejs\\node.exe",
-    "launcher": "D:\\Claude\\tools\\rightkit\\packages\\build-control-clients\\src\\rightkit.mjs",
+    "launcher": "D:\\Claude\\rightkit\\packages\\build-control-clients\\src\\rightkit.mjs",
     "status": "PASS"
   },
   "codex": {

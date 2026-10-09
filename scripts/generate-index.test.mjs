@@ -1,4 +1,4 @@
-// node --test tools/rightkit/scripts/generate-index.test.mjs
+// node --test rightkit/scripts/generate-index.test.mjs
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";

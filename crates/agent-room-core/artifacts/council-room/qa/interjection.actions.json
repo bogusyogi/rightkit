@@ -8,5 +8,5 @@
   { "type": "click", "selector": "#send" },
   { "type": "waitForText", "text": "UI QA: surface the strongest unresolved objection." },
   { "type": "assertText", "selector": "#say-status", "text": "Sent to every seat" },
-  { "type": "screenshot", "out": "D:/Claude/tools/rightkit/crates/agent-room-core/artifacts/council-room/qa/live-interjection.png" }
+  { "type": "screenshot", "out": "D:/Claude/rightkit/crates/agent-room-core/artifacts/council-room/qa/live-interjection.png" }
 ]

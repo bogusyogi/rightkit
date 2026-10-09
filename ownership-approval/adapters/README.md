@@ -11,7 +11,7 @@ Enforcement hosts launch fixed runtime & entry paths with `NODE_*`, `GIT_*`, `LD
 | Windows | `C:\Program Files\Orthic Labs\RightKit` | `runtime\node.exe` | `ownership\adapters\private-local.mjs` |
 | macOS | `/Library/Application Support/Orthic Labs/RightKit` | `runtime/bin/node` | `ownership/adapters/private-local.mjs` |
 
-The installer-owned tree includes Node, adapter files, imported `tools/rightkit/packages/release` source/catalog, & runtime dependencies. Its content inventory excludes exactly `ownership/trust.json`, `ownership/public-check.json`, `ownership/public-check-app.pem`, `ownership/checkpoints/`, & `ownership/installer/`; these policy/runtime-state/installer paths remain subject to full owner/ACL/link audits & their separate validators. Enrollment can update trust without changing scanner code inventory. Build a staging tree, then create its content-hash inventory with the packaged Node runtime:
+The installer-owned tree includes Node, adapter files, imported `rightkit/packages/release` source/catalog, & runtime dependencies. Its content inventory excludes exactly `ownership/trust.json`, `ownership/public-check.json`, `ownership/public-check-app.pem`, `ownership/checkpoints/`, & `ownership/installer/`; these policy/runtime-state/installer paths remain subject to full owner/ACL/link audits & their separate validators. Enrollment can update trust without changing scanner code inventory. Build a staging tree, then create its content-hash inventory with the packaged Node runtime:
 
 ```powershell
 & 'D:\staging\RightKit\runtime\node.exe' 'D:\staging\RightKit\ownership\adapters\package-manifest.mjs' --root 'D:\staging\RightKit' --out 'D:\staging\RightKit\ownership\adapters\adapter-files.json'

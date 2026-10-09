@@ -6,24 +6,24 @@
   "taskId": "T-1",
   "state": "SEALED",
   "ownedPaths": [
-    "tools/rightkit/packages/build-control-core/**",
-    "tools/rightkit/packages/build-control-staging/**",
-    "tools/rightkit/packages/build-control-clients/**"
+    "rightkit/packages/build-control-core/**",
+    "rightkit/packages/build-control-staging/**",
+    "rightkit/packages/build-control-clients/**"
   ],
   "readPaths": [
-    "tools/rightkit/packages/release/**",
-    "tools/rightkit/docs/plans/2026-08-12-rightkit-build-control-plane-v5.md",
-    "tools/rightkit/docs/plans/evidence/rightkit-build-control-plane-v5/**"
+    "rightkit/packages/release/**",
+    "rightkit/docs/plans/2026-08-12-rightkit-build-control-plane-v5.md",
+    "rightkit/docs/plans/evidence/rightkit-build-control-plane-v5/**"
   ],
   "forbiddenPaths": [
     "apps/**",
-    "tools/rightkit/packages/release/cargo-guard.mjs",
+    "rightkit/packages/release/cargo-guard.mjs",
     "tools/rhook/**",
     "qualification/**"
   ],
   "commands": [
-    "pnpm --dir tools/rightkit/packages/build-control-phase0 test",
-    "pnpm --dir tools/rightkit/packages/build-control-phase0 run run -- --output tools/rightkit/docs/plans/evidence/rightkit-build-control-plane-v5/shared/phase0-report.json"
+    "pnpm --dir rightkit/packages/build-control-phase0 test",
+    "pnpm --dir rightkit/packages/build-control-phase0 run run -- --output rightkit/docs/plans/evidence/rightkit-build-control-plane-v5/shared/phase0-report.json"
   ],
   "checks": [
     "frontend fixture clean/incremental/test/generatedExecutable parity",
@@ -31,7 +31,7 @@
     "no internal payload write evidence before Phase-1 promotion"
   ],
   "evidenceProducers": [
-    { "id": "shared-phase0-harness", "path": "tools/rightkit/packages/build-control-phase0/src/cli.mjs", "produces": "phase0-report.json" },
+    { "id": "shared-phase0-harness", "path": "rightkit/packages/build-control-phase0/src/cli.mjs", "produces": "phase0-report.json" },
     { "id": "platform-policy-spikes", "path": "platform-owned", "produces": "typed platform reports" }
   ],
   "openQuestions": [],

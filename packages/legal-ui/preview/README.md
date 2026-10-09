@@ -14,7 +14,7 @@ license files).
 ## Verification
 
 ```bash
-pnpm --dir tools/rightkit/packages/legal-ui preview:verify
+pnpm --dir rightkit/packages/legal-ui preview:verify
 ```
 
 This runs each light variant in default, pending, and rejected acceptance
@@ -26,9 +26,9 @@ and requires zero WCAG 2.0/2.1/2.2 A/AA violations. It writes 15 PNGs,
 ## Build + serve
 
 ```bash
-pnpm --dir tools/rightkit/packages/legal-ui build      # tsc: src -> dist
-node tools/rightkit/packages/legal-ui/preview/build.mjs # esbuild: preview/entry.tsx -> preview/dist/entry.js
-node tools/rightkit/packages/legal-ui/preview/serve.mjs # static server on 127.0.0.1:4310
+pnpm --dir rightkit/packages/legal-ui build      # tsc: src -> dist
+node rightkit/packages/legal-ui/preview/build.mjs # esbuild: preview/entry.tsx -> preview/dist/entry.js
+node rightkit/packages/legal-ui/preview/serve.mjs # static server on 127.0.0.1:4310
 ```
 
 Or via `.claude/launch.json` config `legal-ui-preview` (Browser pane
@@ -41,7 +41,7 @@ the five valid ids.
 ## Screenshot + contact sheet
 
 ```bash
-node tools/rightkit/packages/legal-ui/preview/shoot.mjs
+node rightkit/packages/legal-ui/preview/shoot.mjs
 ```
 
 Shoots all five variants via the shared QA headless-Chrome/CDP engine

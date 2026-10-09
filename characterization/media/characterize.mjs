@@ -5,7 +5,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const workspaceRoot = path.resolve(here, "../../../..");
+const workspaceRoot = path.resolve(here, "../../..");
 const contractPath = path.join(here, "contract.json");
 
 const sources = {

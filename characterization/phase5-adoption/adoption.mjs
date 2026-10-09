@@ -8,7 +8,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
-const WORKSPACE = path.resolve(HERE, "../../../..");
+const WORKSPACE = path.resolve(HERE, "../../..");
 const PHASE5_CRATES = ["rightkit-ort", "rightkit-ocr", "rightkit-media"];
 const execFileAsync = promisify(execFile);
 
@@ -58,7 +58,7 @@ async function prematureDependencies() {
 async function crateStates() {
   const states = {};
   for (const name of PHASE5_CRATES) {
-    const cargo = path.join(WORKSPACE, "tools/rightkit/crates", name, "Cargo.toml");
+    const cargo = path.join(WORKSPACE, "rightkit/crates", name, "Cargo.toml");
     const text = await readFile(cargo, "utf8");
     states[name] = { publish: !/^publish\s*=\s*false\s*$/m.test(text) };
   }
@@ -67,7 +67,7 @@ async function crateStates() {
 
 async function inspectMedia() {
   const contract = JSON.parse(
-    await readFile(path.join(WORKSPACE, "tools/rightkit/characterization/media/contract.json"), "utf8"),
+    await readFile(path.join(WORKSPACE, "rightkit/characterization/media/contract.json"), "utf8"),
   );
   const windows = contract.artifacts.find((artifact) => artifact.id === "ffmpeg-7.1.5-windows-x64");
   if (!windows) throw new Error("approved Windows FFmpeg characterization is missing");

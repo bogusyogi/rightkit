@@ -35,7 +35,7 @@ Each shared version moves through four states: implemented, staged, published, a
 ### Lifecycle: implemented, staged, published, adopted
 
 Every shared RightKit version moves through four states, in this order. Paths below
-are relative to `tools/rightkit`. The record for the last three states is
+are relative to `rightkit`. The record for the last three states is
 `packages/release/rightkit-versions.json`.
 
 | State | Meaning | Recorded in | Changed by |

@@ -5,7 +5,7 @@
     "codexRules": "/Users/adrdsouza/.codex/rules/default.rules",
     "codexHook": "/Users/adrdsouza/.codex/hooks.json",
     "claudeSettings": "/Users/adrdsouza/.claude/settings.json",
-    "parser": "tools/rightkit/packages/build-control-policy/src/index.mjs",
+    "parser": "rightkit/packages/build-control-policy/src/index.mjs",
     "tests": "PASS: 16 focused parser tests"
   },
   "checks": {

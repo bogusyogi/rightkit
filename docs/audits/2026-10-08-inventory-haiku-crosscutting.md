@@ -5,8 +5,8 @@ The report is below. I did not write it to `docs/audits/2026-10-08-inventory-hai
 ## 0. Scope, method, caveats
 
 - Read-only. No edits, builds, cargo commands, commits, or pushes. Rust was not built or tested. Rust facts come from manifests and `grep`.
-- Snapshot caveat: the tree changed during the audit. `crates/` now has 50 directories, and `rightkit-contracts` plus `contracts/` appeared as untracked (`git status` in `/Volumes/D/claude` shows `?? tools/rightkit/contracts/` and `?? tools/rightkit/crates/rightkit-contracts/`).
-- Consumer evidence: every `Cargo.toml` and `package.json` under the 14 app repos and `tools/rightkit` was parsed for `rightkit-*` and `@rightkit/*` dependencies (`scratchpad/inv/consumers.py`). A text-level `grep` pass over app source was started but did not finish, so "zero consumers" below means zero manifest-level consumers.
+- Snapshot caveat: the tree changed during the audit. `crates/` now has 50 directories, and `rightkit-contracts` plus `contracts/` appeared as untracked (`git status` in `/Volumes/D/claude` shows `?? rightkit/contracts/` and `?? rightkit/crates/rightkit-contracts/`).
+- Consumer evidence: every `Cargo.toml` and `package.json` under the 14 app repos and `rightkit` was parsed for `rightkit-*` and `@rightkit/*` dependencies (`scratchpad/inv/consumers.py`). A text-level `grep` pass over app source was started but did not finish, so "zero consumers" below means zero manifest-level consumers.
 - Private npm packages are `private: true`: `agent-room-mcp` and six `build-control-*` packages. Public npm packages are covered by other batches except where G-K need them.
 - Transitive counts are from `pnpm-lock.yaml` where stated. Rust transitive counts are not measured here (batch 4 owns Cargo.lock).
 

@@ -69,7 +69,7 @@ Results go to stdout as JSON. Errors go to stderr as `{"error":{code,message,ret
 
 ## Installation and permissions
 
-`tools/rightkit/scripts/install-right-ctl.sh` builds and installs `right-ctl` into the managed agent-bin. macOS Accessibility and Screen Recording are attributed to the responsible process, the agent app or terminal running `right-ctl`. `desktop.status` reports both. If either is false, grant it in System Settings, Privacy & Security, for that app.
+`rightkit/scripts/install-right-ctl.sh` builds and installs `right-ctl` into the managed agent-bin. macOS Accessibility and Screen Recording are attributed to the responsible process, the agent app or terminal running `right-ctl`. `desktop.status` reports both. If either is false, grant it in System Settings, Privacy & Security, for that app.
 
 ## Platform support
 

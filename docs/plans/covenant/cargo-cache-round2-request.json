@@ -36,10 +36,10 @@
     "Guaranteeing policy against a malicious administrator intentionally invoking arbitrary binaries with scrubbed environment."
   ],
   "evidenceRefs": [
-    "/Volumes/D/claude/tools/rightkit/docs/plans/2026-08-12-machine-wide-cargo-cache-v3.md",
-    "/Volumes/D/claude/tools/rightkit/packages/release/cache-policy.mjs:200",
-    "/Volumes/D/claude/tools/rightkit/packages/release/cache-policy.mjs:258",
-    "/Volumes/D/claude/tools/rightkit/packages/release/cargo-guard.mjs:154",
+    "/Volumes/D/claude/rightkit/docs/plans/2026-08-12-machine-wide-cargo-cache-v3.md",
+    "/Volumes/D/claude/rightkit/packages/release/cache-policy.mjs:200",
+    "/Volumes/D/claude/rightkit/packages/release/cache-policy.mjs:258",
+    "/Volumes/D/claude/rightkit/packages/release/cargo-guard.mjs:154",
     "/Volumes/D/claude/tools/setup-workspace.py:236",
     "https://doc.rust-lang.org/stable/cargo/reference/build-cache.html",
     "https://doc.rust-lang.org/cargo/reference/config.html#cache"

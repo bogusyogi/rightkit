@@ -5,7 +5,7 @@
 //   right-release ownership [--app <dir>] [--json]
 //   right-release ownership [--app <dir>] --audit-json   (Legion governance.capability-ownership provider)
 //   right-release ownership trust-compare [--json]   (print this host's protected-trust digest)
-//   right-release ownership --write-manifest [--rightkit <tools/rightkit>] [--approve-new-capabilities]
+//   right-release ownership --write-manifest [--rightkit <rightkit>] [--approve-new-capabilities]
 // --approve-new-capabilities permits new ids during local generation only.
 // Existing owner changes are always refused; installation needs protected authorization.
 import { realpathSync } from "node:fs";

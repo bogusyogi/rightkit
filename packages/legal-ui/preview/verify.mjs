@@ -9,7 +9,7 @@ import axe from "axe-core";
 const previewDir = fileURLToPath(new URL(".", import.meta.url));
 const packageDir = resolve(previewDir, "..");
 const outputDir = join(packageDir, ".preview", "verification");
-const qaScript = resolve(packageDir, "..", "..", "..", "lib", "qa-engine", "qa.mjs");
+const qaScript = resolve(packageDir, "..", "..", "..", "tools", "lib", "qa-engine", "qa.mjs");
 const variants = ["heardright-light", "viewright-light", "coderight-light", "mailright-light", "scraperight-light"];
 const states = ["default", "pending", "rejected"];
 

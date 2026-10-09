@@ -17,13 +17,13 @@ Owners: **Mac lead** = RightKit Mac session; **Win lead** = RightKit Windows ses
 | rightkit-jobs `serve` is stdio | `crates/rightkit-jobs/src/contract.rs` `serve(reader, writer)` | confirmed |
 | rightkit-tts interpolates word times | `crates/rightkit-tts/src/system.rs` | confirmed |
 | rightkit-service is same-user sockets and pipes | `crates/rightkit-service` | confirmed |
-| contracts directory `tools/rightkit/contracts/` | tree | **absent**; RK0 creates it |
+| contracts directory `rightkit/contracts/` | tree | **absent**; RK0 creates it |
 
 ## Packages
 
 | Id | Package | Owner | Machine(s) | Closing scenario | Depends on |
 |---|---|---|---|---|---|
-| RK0 | Contracts: content brief (revisions, stage ids, `product_demo` + `scenario`), delivery envelope (video, stills, carousel, text), `record-session.v1`, `record-event.v1` (redaction policy), `demo-plan.v1`, daemon API v1. JSON Schema in `tools/rightkit/contracts/` plus a Rust crate `rightkit-contracts` (serde types, validation, version negotiation) | Mac lead | Mac, XPS, Hetzner | the same fixture set validates in three installed engines (one per machine); an incompatible major version is rejected before any work starts | none |
+| RK0 | Contracts: content brief (revisions, stage ids, `product_demo` + `scenario`), delivery envelope (video, stills, carousel, text), `record-session.v1`, `record-event.v1` (redaction policy), `demo-plan.v1`, daemon API v1. JSON Schema in `rightkit/contracts/` plus a Rust crate `rightkit-contracts` (serde types, validation, version negotiation) | Mac lead | Mac, XPS, Hetzner | the same fixture set validates in three installed engines (one per machine); an incompatible major version is rejected before any work starts | none |
 | RK1 | rightkit-oauth server mode with a Linux secrets backend (rightkit-secrets `linux` backend: Secret Service where present, else an encrypted file store bound to a host key with 0600 perms and the existing redaction rules); Meta long-lived token exchange as a daemon job | Mac lead | Hetzner | clock-advance, restart-during-callback and revocation scenarios on Hetzner | RK7 (native build there), RK10 |
 | RK2 | Spike A (Mac): off-screen-visible CutRight window to MP4 plus events through the ScreenRight helper under rightkit-control; app-hidden as stretch. Spike B (XPS): true `GraphicsCaptureItem` for the HWND of an off-screen-visible WebView2 window; app-owned render surface as the only fallback | A: Mac lead. B: Win lead | A: Mac. B: XPS | visibility decision table per state (occluded, off-screen, app-hidden, minimized) as supported or unsupported; OCR step id and frame-counter proof (R1); overlap leak test (R12); XPS build recorded | none |
 | RK3 | `rightkit-record`: macOS Swift helper (owned through rightkit-process, signed like `rightkit-cloudkit-helper`), Windows Rust helper on the windows crate, dispatch telemetry, pre-encode masking, typed audio tracks, bundle writer and reader with dependencies, `bundle.verify`, rightkit-qa `record: true` | Mac lead (core, macOS); Win lead (Windows helper) | Mac, XPS | R1, R2, R3, R4, R12, R13, R14 green on installed recorder runs on both machines | RK0, RK2 |

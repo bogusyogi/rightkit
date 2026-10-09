@@ -11,7 +11,7 @@
     "atomicInstall": {
       "preSwitchHealth": "runtime install copies all required packages, health-checks & atomically selects it",
       "postSwitchRollback": "runtime activation failure restores prior selected runtime & refuses version overwrite",
-      "testCommand": "pnpm --dir tools/rightkit/packages/build-control-broker test",
+      "testCommand": "pnpm --dir rightkit/packages/build-control-broker test",
       "result": "PASS (17 tests); functional cargo health is required during runtime install"
     }
   },
@@ -54,7 +54,7 @@
     "quotaAndFreeFloorResult": "PASS"
   },
   "verification": {
-    "focusedTestCommand": "pnpm --dir tools/rightkit/packages/build-control-broker test",
+    "focusedTestCommand": "pnpm --dir rightkit/packages/build-control-broker test",
     "focusedTestResult": "PASS: 17 passed, 0 failed",
     "noSecretsEmbedded": true
   }

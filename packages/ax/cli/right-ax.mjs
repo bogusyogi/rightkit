@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Dispatcher for right-ax, mirroring right-release's CLI shape
-// (tools/rightkit/packages/release/cli/right-release.mjs): a thin argv
+// (rightkit/packages/release/cli/right-release.mjs): a thin argv
 // router into the package's library modules, in-process (no child spawn per
 // command — the modules already spawn the target's own MCP server when a
 // gate needs a live process).

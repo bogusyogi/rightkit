@@ -75,9 +75,9 @@ installed MailRight bundle; second exercises native fixture image & mounted
 layout readback. Both run under plain ssh, without GUI routing.
 
 ```sh
-win "ssh mac 'node /Volumes/D/claude/tools/rightkit/packages/release/cli/right-release.mjs dmg build --app /Applications/MailRight.app --out /private/tmp/MailRight-headless-proof.dmg --volname MailRight --background /Volumes/D/claude/mailright/src-tauri/dmg/background.tiff --icon-size 128 --app-position 158,231 --applications-position 492,231 --window 660,400'"
+win "ssh mac 'node /Volumes/D/claude/rightkit/packages/release/cli/right-release.mjs dmg build --app /Applications/MailRight.app --out /private/tmp/MailRight-headless-proof.dmg --volname MailRight --background /Volumes/D/claude/mailright/src-tauri/dmg/background.tiff --icon-size 128 --app-position 158,231 --applications-position 492,231 --window 660,400'"
 
-win "ssh mac 'cd /Volumes/D/claude/tools/rightkit/packages/release && TMPDIR=/private/tmp RIGHTKIT_TEST_REAL_DMG=1 node --test --test-name-pattern=real.native dmg-build.test.mjs'"
+win "ssh mac 'cd /Volumes/D/claude/rightkit/packages/release && TMPDIR=/private/tmp RIGHTKIT_TEST_REAL_DMG=1 node --test --test-name-pattern=real.native dmg-build.test.mjs'"
 ```
 
 After app migration & lead's normal release-input acceptance, reseal MailRight
@@ -85,7 +85,7 @@ end to end from primary checkout (starts at prepackage, then existing signing,
 notarization, updater, hardening, & seal; no upload):
 
 ```sh
-win "ssh mac 'cd /Volumes/D/claude/mailright && node /Volumes/D/claude/tools/rightkit/packages/release/cli/right-release.mjs build --config right-release.config.mjs --platform mac --resume-from prepackage'"
+win "ssh mac 'cd /Volumes/D/claude/mailright && node /Volumes/D/claude/rightkit/packages/release/cli/right-release.mjs build --config right-release.config.mjs --platform mac --resume-from prepackage'"
 ```
 
 Package hooks must resolve migrated `right-release dmg build` implementation.
@@ -109,7 +109,7 @@ macOS uses UTC/C-locale `ps lstart`; Windows uses process StartTime UTC ticks.
 ## Tests
 
 ```sh
-cd /Volumes/D/claude/tools/rightkit/packages/release
+cd /Volumes/D/claude/rightkit/packages/release
 TMPDIR=/private/tmp node --test --test-concurrency=1 --test-force-exit *.test.mjs
 TMPDIR=/private/tmp RIGHTKIT_TEST_REAL_DMG=1 node --test --test-name-pattern=real.native dmg-build.test.mjs
 ```

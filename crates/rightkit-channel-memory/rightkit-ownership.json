@@ -3,7 +3,7 @@
   "capabilities": [
     {
       "capability": "channel-memory",
-      "summary": "Channel memory schema (channel-memory.v1, pending in tools/rightkit/contracts-pending) with serde types, schema and semantic validation, version gate, authoritative proof citation, and scope checks shared by PostRight P3 and GenRight G7.",
+      "summary": "Channel memory schema (channel-memory.v1, pending in rightkit/contracts-pending) with serde types, schema and semantic validation, version gate, authoritative proof citation, and scope checks shared by PostRight P3 and GenRight G7.",
       "fingerprints": [],
       "detection": "declaration-only",
       "policyNotes": [

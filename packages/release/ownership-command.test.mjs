@@ -8,7 +8,7 @@ import { fileURLToPath } from "node:url";
 import { main } from "./ownership-command.mjs";
 
 const releaseRoot = path.dirname(fileURLToPath(import.meta.url));
-const repositoryRoot = path.resolve(releaseRoot, "..", "..", "..", "..");
+const repositoryRoot = path.resolve(releaseRoot, "..", "..", "..");
 
 test("ownership help documents explicit local new-capability approval & conflict refusal", async () => {
   const printed = [];

@@ -287,7 +287,7 @@ let explicitCwd;
 function isRightKitTree(target, cwd) {
   if (typeof target !== 'string' || (!isAbsolute(target) && typeof cwd !== 'string')) return false;
   const normalized = (isAbsolute(target) ? target : resolve(cwd, target)).replaceAll('\\', '/').toLowerCase();
-  return normalized.includes('/tools/rightkit/');
+  return normalized.includes('/claude/rightkit/');
 }
 function hasFingerprintIncrease(beforePath, before, after, cwd) {
   if (isRightKitTree(beforePath, explicitCwd)) return undefined;
@@ -544,7 +544,7 @@ function manifestFeedback(path, before, after, created, cwd) {
     const previous = created ? new Set() : parseManifest(path, before).names;
     const feedback = dependencyDecision((post.entries ?? [...post.names].map((name) => ({ name, kind: 'registry' }))).filter((entry) => !previous.has(entry.name)).map((entry) => ({ ecosystem: post.ecosystem, name: entry.name, kind: entry.kind })), dirOfFile(path, cwd));
     if (feedback) return feedback;
-    if (!created || manifestName(path) === 'Package.swift' || /(?:^|\/)tools\/rightkit(?:\/|$)/i.test(normalizedPath(path, cwd))) return null;
+    if (!created || manifestName(path) === 'Package.swift' || /(?:^|\/)rightkit(?:\/|$)/i.test(normalizedPath(path, cwd))) return null;
     const tokens = [post.name, post.description].filter((value) => typeof value === 'string').join(' ').toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
     const hasKeyword = (keyword) => {
       const parts = keyword.toLowerCase().split('-');

@@ -13,7 +13,7 @@ transcripts. The emitted JSON includes every model-component and fixture SHA-256
 Run the unit contract:
 
 ```powershell
-node --test tools/rightkit/characterization/asr/characterize.test.mjs
+node --test rightkit/characterization/asr/characterize.test.mjs
 ```
 
 The runtime probe requires `ORT_DYLIB_PATH` and `PATH` to include the signed

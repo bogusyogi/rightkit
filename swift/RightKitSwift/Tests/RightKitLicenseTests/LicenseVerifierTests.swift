@@ -5,7 +5,7 @@ import Testing
 @testable import RightKitLicense
 
 /// The bundled vector is byte-identical to the one the Rust and TypeScript verifiers consume
-/// (`tools/rightkit/swift/contracts/license-v2.json`, asserted by the suite contract). Verifying it
+/// (`rightkit/swift/contracts/license-v2.json`, asserted by the suite contract). Verifying it
 /// here is what proves a token accepted on one platform is not rejected on another.
 private struct Vector: Decodable {
     let publicKeyBase64url: String

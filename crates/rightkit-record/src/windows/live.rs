@@ -31,7 +31,7 @@ use crate::recorder::Recorder;
 use crate::verify::VerifyOptions;
 
 const DEFAULT_TARGET: &str =
-    r"D:\Claude\tools\rightkit\spikes\rk2-windows\bin\Release\net10.0-windows10.0.22621.0\rk2.exe";
+    r"D:\Claude\rightkit\spikes\rk2-windows\bin\Release\net10.0-windows10.0.22621.0\rk2.exe";
 
 fn env_path(var: &str) -> Option<PathBuf> {
     std::env::var_os(var).map(PathBuf::from)

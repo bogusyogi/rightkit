@@ -1,7 +1,7 @@
 //! rightkit-channel-memory: the channel-memory.v1 schema as Rust types, with
 //! validation for PostRight P3 and GenRight G7.
 //!
-//! The schema lives in `tools/rightkit/contracts-pending/channel-memory/`
+//! The schema lives in `rightkit/contracts-pending/channel-memory/`
 //! until RK6 is accepted into `contracts/`. It is embedded at compile time.
 //!
 //! Field sources (line numbers in the plan files as of 2026-10-08):

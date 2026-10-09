@@ -77,7 +77,7 @@ const realOrSelf = (file) => { try { return realpathSync(file); } catch { return
 if (process.argv[1] && realOrSelf(process.argv[1]) === realOrSelf(fileURLToPath(import.meta.url))) {
   const args = process.argv.slice(2);
   const flag = (name) => { const i = args.indexOf(name); return i < 0 ? undefined : args[i + 1]; };
-  const workspace = path.resolve(flag("--workspace") ?? path.resolve(here, "../../../.."));
+  const workspace = path.resolve(flag("--workspace") ?? path.resolve(here, "../../.."));
   const file = path.join(here, ALLOWLIST_FILE);
   const existing = existsSync(file) ? JSON.parse(readFileSync(file, "utf8")) : null;
   const { allowlist, stats } = buildSeed({ workspace, existing });

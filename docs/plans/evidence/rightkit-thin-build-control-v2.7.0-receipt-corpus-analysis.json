@@ -5,7 +5,7 @@
   "receiptStorePath": "/Volumes/D/.rightkit-managed/rightkit-build-control/receipts",
   "receiptSnapshotFileCount": 46571,
   "parsedReceiptCount": 46571,
-  "aggregationScript": "tools/rightkit/docs/plans/evidence/aggregate-receipts.py",
+  "aggregationScript": "rightkit/docs/plans/evidence/aggregate-receipts.py",
   "aggregationScriptSha256": "f8cb725a4022c71549a9a09cb47d07e5374c8855cf92868e0227c29d300b76dc",
   "runtimeIdentity": {
     "schema": "rightkit.build-control.runtime.v2",

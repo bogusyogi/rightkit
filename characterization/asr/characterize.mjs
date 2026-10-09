@@ -7,7 +7,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-const CACHE = resolve(HERE, "../../../../.cache/rightkit-asr-characterization");
+const CACHE = resolve(HERE, "../../../.cache/rightkit-asr-characterization");
 export const MODEL_FILES = [
   "config.json",
   "encoder-model.onnx",

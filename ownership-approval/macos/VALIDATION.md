@@ -1,6 +1,6 @@
 # Mac ownership helper validation
 
-Schema-v2 source update: exact payload keys, fingerprint ID regex, policy digest, dotted-numeric scanner/catalog floors, 1–256 distinct path/hash occurrences, issued/expiry window capped at 90 days, & verified HTTPS tracking without userinfo. Exception signing emits schema 2; key-log schema stays 1. Run `node --test tools/rightkit/ownership-approval/conformance/native-source-conformance.test.mjs` from workspace root on macOS or Windows. This consumes shared `conformance/v2-vectors.json`, pins native refusal guards & checks source-projected rules. This update has source checks only; native evidence below describes prior build.
+Schema-v2 source update: exact payload keys, fingerprint ID regex, policy digest, dotted-numeric scanner/catalog floors, 1–256 distinct path/hash occurrences, issued/expiry window capped at 90 days, & verified HTTPS tracking without userinfo. Exception signing emits schema 2; key-log schema stays 1. Run `node --test rightkit/ownership-approval/conformance/native-source-conformance.test.mjs` from workspace root on macOS or Windows. This consumes shared `conformance/v2-vectors.json`, pins native refusal guards & checks source-projected rules. This update has source checks only; native evidence below describes prior build.
 
 Checked 2026-10-08 on macOS 27.0.1, native arm64.
 

@@ -33,7 +33,7 @@ const latestFor = (versions, ecosystem, name) => versions.registry
 export function dependencyManifests(appRoot) {
   const listed = spawnSync("git", ["-C", appRoot, "ls-files", "-z", "--", "package.json", "*/package.json", "Cargo.toml", "*/Cargo.toml"], { encoding: "utf8", windowsHide: true, maxBuffer: 16 * 1024 * 1024 });
   const files = listed.status === 0 ? listed.stdout.split("\0").filter(Boolean) : ["package.json", "Cargo.toml"].filter((file) => existsSync(path.join(appRoot, file)));
-  return files.filter((file) => !/(^|\/)(node_modules|vendor|target|dist)\//.test(file) && !file.startsWith("tools/rightkit/"));
+  return files.filter((file) => !/(^|\/)(node_modules|vendor|target|dist)\//.test(file) && !file.startsWith("rightkit/"));
 }
 
 /** Pins behind the latest published RightKit version. Workspace, path, git and range-less specs are skipped. */

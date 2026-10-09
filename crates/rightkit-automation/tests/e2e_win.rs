@@ -7,7 +7,7 @@
 //! The file compiles on every OS (it only uses the portable API) so it is
 //! type-checked on macOS; on a non-Windows host the test returns immediately.
 //! STATUS: not run on Windows by the author. Windows host:
-//!   cd D:\Claude\tools\rightkit
+//!   cd D:\Claude\rightkit
 //!   rightkit cargo test -p rightkit-automation --test e2e_win -- --nocapture
 
 #![allow(dead_code)]

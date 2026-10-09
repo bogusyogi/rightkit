@@ -62,8 +62,8 @@ protocol & roots, then build/seal with this checkout's CLI. These commands
 publish nothing:
 
 ```sh
-win "ssh mac 'cd /Volumes/D/claude/mailright && node /Volumes/D/claude/tools/rightkit/packages/release/cli/right-release.mjs signing-agent install'"
-win "ssh mac 'cd /Volumes/D/claude/mailright && node /Volumes/D/claude/tools/rightkit/packages/release/cli/right-release.mjs build --platform mac'"
+win "ssh mac 'cd /Volumes/D/claude/mailright && node /Volumes/D/claude/rightkit/packages/release/cli/right-release.mjs signing-agent install'"
+win "ssh mac 'cd /Volumes/D/claude/mailright && node /Volumes/D/claude/rightkit/packages/release/cli/right-release.mjs build --platform mac'"
 win "ssh mac 'tail -n 100 ~/Library/Application\ Support/Orthic\ Labs/shared/signing-agent/requests.jsonl'"
 ```
 

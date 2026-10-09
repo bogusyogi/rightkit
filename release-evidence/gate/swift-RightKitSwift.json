@@ -12,7 +12,7 @@
         "arch": "arm64"
       },
       "commit": "b0566e951e0a72880c1b6fff124abb2b2ba1a38b",
-      "command": "swift test --no-parallel --package-path tools/rightkit/swift/RightKitSwift",
+      "command": "swift test --no-parallel --package-path rightkit/swift/RightKitSwift",
       "features": [
         "default"
       ],

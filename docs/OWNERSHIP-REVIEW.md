@@ -5,7 +5,7 @@
 Preparation has no provider effects:
 
 ```powershell
-node tools/rightkit/packages/ax/cli/right-ax.mjs ownership-review prepare D:\Claude --base <base-commit> --head <head-commit> --out .rightkit-ownership-review.packet.json
+node rightkit/packages/ax/cli/right-ax.mjs ownership-review prepare D:\Claude --base <base-commit> --head <head-commit> --out .rightkit-ownership-review.packet.json
 ```
 
 The review packet is bounded to 100 changed files, 180 KiB diff, 96 KiB ownership catalog, 48 KiB package API documents, 24 KiB reviewer output, and USD 1.50 maximum provider cost. Oversized diff ranges fail with a split hint; they are never silently truncated. Credential-shaped text is redacted before hashing and emission. Review packet content is still private repository content, so the caller selects the supervised external-review request explicitly.
@@ -36,7 +36,7 @@ Until an authorized supervised host returns its native monitor receipt with all 
 Validate the normalized receipt:
 
 ```powershell
-node tools/rightkit/packages/ax/cli/right-ax.mjs ownership-review verify --packet .rightkit-ownership-review.packet.json --receipt .rightkit-ownership-review.receipt.json
+node rightkit/packages/ax/cli/right-ax.mjs ownership-review verify --packet .rightkit-ownership-review.packet.json --receipt .rightkit-ownership-review.receipt.json
 ```
 
 Only a receipt that proves session identity, transcript, control write, reconnect, completion, and metered cost within the declared budget receives `state: completed`. Missing proof is `receipt_incomplete`; no semantic findings is not approval. Findings are always advisory and never approve exceptions or block changes. The host must retain the original provider monitor receipt alongside the normalized receipt so the evidence can be checked against the provider's native record.

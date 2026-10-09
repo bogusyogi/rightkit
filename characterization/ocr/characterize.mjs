@@ -14,7 +14,7 @@ import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
-const DEFAULT_WORKSPACE = path.resolve(HERE, "../../../..");
+const DEFAULT_WORKSPACE = path.resolve(HERE, "../../..");
 const MODEL_FILES = ["det.onnx", "rec.onnx", "en_dict.txt"];
 
 export function extractOcrOutput(stdout) {

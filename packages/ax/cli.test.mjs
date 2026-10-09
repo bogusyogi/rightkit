@@ -31,7 +31,7 @@ test("ownership-review prepare emits bounded packet without starting a provider"
   git("init", "-q");
   git("config", "user.email", "test@example.invalid");
   git("config", "user.name", "AX test");
-  const catalog = path.join(repo, "tools/rightkit/packages/release/rightkit-ownership.json");
+  const catalog = path.join(repo, "rightkit/packages/release/rightkit-ownership.json");
   mkdirSync(path.dirname(catalog), { recursive: true });
   writeFileSync(catalog, JSON.stringify({ schema: 1, capabilities: [] }));
   const source = path.join(repo, "src/example.mjs");

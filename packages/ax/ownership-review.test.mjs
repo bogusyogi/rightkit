@@ -17,13 +17,13 @@ function repoFixture() {
   command(root, ["init", "-q"]);
   command(root, ["config", "user.email", "test@example.invalid"]);
   command(root, ["config", "user.name", "AX test"]);
-  const catalogPath = path.join(root, "tools/rightkit/packages/release/rightkit-ownership.json");
+  const catalogPath = path.join(root, "rightkit/packages/release/rightkit-ownership.json");
   mkdirSync(path.dirname(catalogPath), { recursive: true });
   writeFileSync(catalogPath, JSON.stringify({ schema: 1, capabilities: [{ package: "rightkit-oauth", capability: "oauth-sign-in", summary: "OAuth flow", fingerprints: [{ id: "oauth.source.flow", type: "source", pattern: "device_flow" }] }] }));
-  const apiPath = path.join(root, "tools/rightkit/packages/oauth/README.md");
+  const apiPath = path.join(root, "rightkit/packages/oauth/README.md");
   mkdirSync(path.dirname(apiPath), { recursive: true });
   writeFileSync(apiPath, "# OAuth API\nUse shared device-flow helper.\n");
-  const changed = path.join(root, "tools/rightkit/packages/oauth/src/signin.mjs");
+  const changed = path.join(root, "rightkit/packages/oauth/src/signin.mjs");
   mkdirSync(path.dirname(changed), { recursive: true });
   writeFileSync(changed, "fn login() { shared_oauth(); }\n");
   command(root, ["add", "."]);
@@ -44,13 +44,13 @@ test("prepares exact bounded range packet and dedupes against catalog/API conten
   assert.equal(packet.authority.mayApproveExceptions, false);
   assert.equal(packet.authority.mayBlockChanges, false);
   assert.deepEqual(packet.range, { base: fixture.base, head: fixture.head });
-  assert.deepEqual(packet.changedFiles, ["tools/rightkit/packages/oauth/src/signin.mjs"]);
+  assert.deepEqual(packet.changedFiles, ["rightkit/packages/oauth/src/signin.mjs"]);
   assert.match(packet.source.diff.content, /local_device_flow/);
-  assert.equal(packet.source.apiSources[0].path, "tools/rightkit/packages/oauth/README.md");
+  assert.equal(packet.source.apiSources[0].path, "rightkit/packages/oauth/README.md");
   assert.match(packet.requestId, /^[a-f0-9]{64}$/);
   assert.equal(packet.providerState.status, "not_started");
   assert.equal(packet.limits.maxCostUsd, 1.5);
-  assert.equal(readFileSync(path.join(fixture.root, "tools/rightkit/packages/oauth/src/signin.mjs"), "utf8").includes("local_device_flow"), true);
+  assert.equal(readFileSync(path.join(fixture.root, "rightkit/packages/oauth/src/signin.mjs"), "utf8").includes("local_device_flow"), true);
 });
 
 test("rejects oversized ranges before a review packet can be emitted", () => {
@@ -73,7 +73,7 @@ test("receipt validator requires supervised evidence and keeps findings advisory
       reconnect: { verified: true },
       completion: { verified: true, status: "completed" },
     },
-    review: { findings: [{ file: "tools/rightkit/packages/oauth/src/signin.mjs", line: 1, catalogRefs: ["oauth.source.flow"], rationale: "Local flow appears to overlap shared capability.", confidence: 0.78 }] },
+    review: { findings: [{ file: "rightkit/packages/oauth/src/signin.mjs", line: 1, catalogRefs: ["oauth.source.flow"], rationale: "Local flow appears to overlap shared capability.", confidence: 0.78 }] },
   };
   const result = validateOwnershipReviewReceipt(packet, receipt);
   assert.equal(result.valid, true);

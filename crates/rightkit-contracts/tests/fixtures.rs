@@ -1,4 +1,4 @@
-//! Runs every fixture under `tools/rightkit/contracts/fixtures/` through the
+//! Runs every fixture under `rightkit/contracts/fixtures/` through the
 //! library and through the `rightkit-contracts` binary.
 
 use std::path::PathBuf;

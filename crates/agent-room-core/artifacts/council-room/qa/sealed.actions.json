@@ -2,5 +2,5 @@
   { "type": "waitForText", "text": "Review complete · room sealed" },
   { "type": "eval", "expression": "(() => ({ ok: document.querySelector('#say').disabled && document.querySelector('#send').disabled }))()" },
   { "type": "assertVisible", "selector": "#events" },
-  { "type": "screenshot", "out": "D:/Claude/tools/rightkit/crates/agent-room-core/artifacts/council-room/qa/sealed.png" }
+  { "type": "screenshot", "out": "D:/Claude/rightkit/crates/agent-room-core/artifacts/council-room/qa/sealed.png" }
 ]

@@ -45,7 +45,7 @@ function readAt(repoPath, head, relPath) {
 function changedPackageDirs(paths) {
   const found = new Set();
   for (const file of paths) {
-    const match = file.match(/^tools\/rightkit\/(packages|crates)\/([^/]+)\//);
+    const match = file.match(/^(?:rightkit\/)?(packages|crates)\/([^/]+)\//);
     if (match) found.add(`${match[1]}/${match[2]}`);
   }
   return [...found].sort();
@@ -56,7 +56,7 @@ function apiSources(repoPath, head, paths, maxApiBytes) {
   let bytes = 0;
   for (const dir of changedPackageDirs(paths)) {
     for (const name of ["README.md", "API.md", "api.md", "ARCHITECTURE.md"]) {
-      const relPath = `tools/rightkit/${dir}/${name}`;
+      const relPath = `rightkit/${dir}/${name}`;
       const text = readAt(repoPath, head, relPath);
       if (text === null) continue;
       const redacted = redactText(text);
@@ -90,7 +90,7 @@ export function buildOwnershipReviewPacket({ repoPath, base, head, limits = {} }
   if (rawDiff.byteLength > bounded.maxDiffBytes) throw new Error(`diff is ${rawDiff.byteLength} bytes; split review at ${bounded.maxDiffBytes}`);
   const diff = redactText(rawDiff.toString("utf8"));
 
-  const catalogPath = "tools/rightkit/packages/release/rightkit-ownership.json";
+  const catalogPath = "rightkit/packages/release/rightkit-ownership.json";
   const catalogText = readAt(repoPath, headCommit, catalogPath);
   if (catalogText === null) throw new Error(`ownership catalog missing at head: ${catalogPath}`);
   if (utf8Bytes(catalogText) > bounded.maxCatalogBytes) throw new Error(`ownership catalog exceeds ${bounded.maxCatalogBytes} bytes`);

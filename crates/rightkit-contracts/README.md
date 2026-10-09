@@ -6,7 +6,7 @@ Catalog capability: `content-contracts`. Not published (`publish = false`).
 
 ## What it owns
 
-| Contract | Schema file (in `tools/rightkit/contracts/`) | Supported version |
+| Contract | Schema file (in `rightkit/contracts/`) | Supported version |
 |---|---|---|
 | `content-brief` | `content-brief.v1.schema.json` | 1.0.0 |
 | `delivery-envelope` | `delivery-envelope.v1.schema.json` | 1.0.0 |

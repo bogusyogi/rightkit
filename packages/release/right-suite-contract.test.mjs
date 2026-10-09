@@ -21,7 +21,7 @@ import { compareVersions } from "./rightkit-sync.mjs";
 
 const workspace = path.resolve(
   process.env.RIGHT_SUITE_CONTRACT_WORKSPACE
-    ?? new URL("../../../..", import.meta.url).pathname.replace(/^\/(\w:)/, "$1"),
+    ?? new URL("../../..", import.meta.url).pathname.replace(/^\/(\w:)/, "$1"),
 );
 // The Right Suite web layer's repo + filesystem path is `rightsites` post the 2026-07-15 naming lock;
 // a not-yet-renamed checkout may still have `rightapps`. Resolve whichever exists so the contract
@@ -493,7 +493,7 @@ test("RightKit exposes one current version manifest", () => {
   for (const [name, version] of Object.entries(versions.stagedNpm)) {
     const packageName = name.slice("@rightkit/".length);
     const manifest = JSON.parse(readFileSync(
-      path.join(workspace, "tools/rightkit/packages", packageName, "package.json"),
+      path.join(workspace, "rightkit/packages", packageName, "package.json"),
       "utf8",
     ));
     assert.equal(manifest.name, name);
@@ -583,11 +583,11 @@ test("Cargo metadata respects PATH precedence when unmanaged Cargo resolves firs
 
 test("license v2 public vector is identical at every portable consumer boundary", () => {
   const canonical = readFileSync(
-    path.join(workspace, "tools/rightkit/crates/rightkit-license/test-vectors/license-v2.json"),
+    path.join(workspace, "rightkit/crates/rightkit-license/test-vectors/license-v2.json"),
     "utf8",
   );
   for (const relativePath of [
-    "tools/rightkit/packages/license/test-vectors/license-v2.json",
+    "rightkit/packages/license/test-vectors/license-v2.json",
     `${siteRepoDir}/packages/api/src/licensing/test-vectors/license-v2.json`,
     "scraperight/tests/fixtures/license-v2.json",
   ]) {
@@ -638,7 +638,7 @@ for (const app of apps) {
       `${app.key} must consume the exact published shared updater runtime`,
     );
     assert(!JSON.stringify(pkg).includes("github:adrdsouza/claude#main&path:/tools/right-release"));
-    assert(!JSON.stringify(pkg).includes("github:adrdsouza/claude#main&path:/tools/rightkit/packages/release"));
+    assert(!JSON.stringify(pkg).includes("github:adrdsouza/claude#main&path:/rightkit/packages/release"));
     assert(!JSON.stringify(pkg).includes("git+https://github.com/adrdsouza/rightkit.git"));
     assert.equal(pkg.scripts["release:doctor"], "right-release doctor");
     assert.equal(pkg.scripts["release:mac"], undefined, "tierless release entry points are forbidden");
@@ -648,7 +648,7 @@ for (const app of apps) {
     assert.equal(pkg.scripts["deps:update"], "right-release deps --update");
     assert.ok(!Object.entries(pkg.scripts).some(([name, command]) => /^(?:release|publish):/i.test(name) && /unsigned|--no-sign/i.test(command)), `${app.key} release/publish commands must not expose an unsigned macOS DMG mode`);
     assert.ok(!JSON.stringify(pkg.scripts).includes("../tools/right-release"), `${app.key} scripts must not depend on the parent Claude workspace`);
-    assert.ok(!JSON.stringify(pkg.scripts).includes("../tools/rightkit/packages/release"), `${app.key} scripts must not depend on the parent Claude workspace`);
+    assert.ok(!JSON.stringify(pkg.scripts).includes("../rightkit/packages/release"), `${app.key} scripts must not depend on the parent Claude workspace`);
 
     const config = (await import(`${pathToFileURL(path.join(root, "right-release.config.mjs"))}?contract=${Date.now()}`)).default;
     assert.equal(config.app, app.key);
@@ -799,7 +799,7 @@ function findFiles(root, filename) {
 }
 
 function readCanonicalCrateVersions() {
-  const crateRoot = path.join(workspace, "tools/rightkit/crates");
+  const crateRoot = path.join(workspace, "rightkit/crates");
   return new Map(
     readdirSync(crateRoot, { withFileTypes: true })
       .filter((entry) => entry.isDirectory() && existsSync(path.join(crateRoot, entry.name, "Cargo.toml")))
@@ -1004,7 +1004,7 @@ test("product scripts never override or destroy RightKit-owned Cargo cache state
 });
 
 test("Right Suite has no hosted workflow files", () => {
-  for (const root of ["viewright", "scraperight", "heardright", "mailright", "coderight", "genright", "voiceright", "tools/rightkit"]) {
+  for (const root of ["viewright", "scraperight", "heardright", "mailright", "coderight", "genright", "voiceright", "rightkit"]) {
     const workflowDir = path.join(workspace, root, ".github", "workflows");
     const workflows = existsSync(workflowDir) ? readdirSync(workflowDir) : [];
     assert.deepEqual(workflows, [], `${root} must not contain hosted workflow files`);

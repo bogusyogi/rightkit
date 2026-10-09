@@ -7,13 +7,13 @@ Run these commands from primary clones of this repository. Helpers export public
 Windows first:
 
 ```powershell
-pnpm --dir tools/rightkit exec node packages/release/cli/right-release.mjs ownership enroll --root --name Windows
+pnpm --dir rightkit exec node packages/release/cli/right-release.mjs ownership enroll --root --name Windows
 ```
 
 Or Mac first:
 
 ```sh
-pnpm --dir tools/rightkit exec node packages/release/cli/right-release.mjs ownership enroll --root --name Mac
+pnpm --dir rightkit exec node packages/release/cli/right-release.mjs ownership enroll --root --name Mac
 ```
 
 One native authentication creates this machine's non-exportable key; one UAC/sudo installs its public fingerprint & genesis checkpoint. Command prints root fingerprint & active-key count. Windows uses Windows Hello RSA-2048; Mac uses Secure Enclave P-256 with Touch ID/password. Windows root genesis is authorized by protected root pin/checkpoint; Mac root genesis also carries its self-signature. Every later add/revoke needs an active key's signature.
@@ -23,13 +23,13 @@ One native authentication creates this machine's non-exportable key; one UAC/sud
 On Mac, when Windows enrolled first:
 
 ```sh
-pnpm --dir tools/rightkit exec node packages/release/cli/right-release.mjs ownership enroll --name Mac --root-fingerprint <root-fingerprint-printed-by-first-machine>
+pnpm --dir rightkit exec node packages/release/cli/right-release.mjs ownership enroll --name Mac --root-fingerprint <root-fingerprint-printed-by-first-machine>
 ```
 
 On Windows, when Mac enrolled first:
 
 ```powershell
-pnpm --dir tools/rightkit exec node packages/release/cli/right-release.mjs ownership enroll --name Windows --root-fingerprint <root-fingerprint-printed-by-first-machine>
+pnpm --dir rightkit exec node packages/release/cli/right-release.mjs ownership enroll --name Windows --root-fingerprint <root-fingerprint-printed-by-first-machine>
 ```
 
 One native authentication creates this device's key & public request; at most one elevation pins known root & current checkpoint. An unsigned request grants no authority. Enrollment refuses duplicate keys & root replacement. Re-running after cancelled elevation resumes only matching committed metadata & existing public key, without creating or authenticating another key.
@@ -37,7 +37,7 @@ One native authentication creates this device's key & public request; at most on
 On any enrolled machine, approve printed device fingerprint:
 
 ```sh
-pnpm --dir tools/rightkit exec node packages/release/cli/right-release.mjs ownership approve-key <new-device-fingerprint>
+pnpm --dir rightkit exec node packages/release/cli/right-release.mjs ownership approve-key <new-device-fingerprint>
 ```
 
 Review full event in native helper & authorize once. At most one elevation advances protected checkpoint as part of this command. Entire ceremony: one command on new device, one approve-key on enrolled device.
@@ -47,7 +47,7 @@ Review full event in native helper & authorize once. At most one elevation advan
 On any remaining enrolled machine:
 
 ```sh
-pnpm --dir tools/rightkit exec node packages/release/cli/right-release.mjs ownership revoke-key <lost-device-fingerprint>
+pnpm --dir rightkit exec node packages/release/cli/right-release.mjs ownership revoke-key <lost-device-fingerprint>
 ```
 
 One native authentication signs revocation; at most one elevation advances checkpoint. Revoked keys cannot issue new events or approve exceptions. Their valid historical additions remain valid. Root may be revoked as active signer while its public fingerprint remains historical trust anchor.

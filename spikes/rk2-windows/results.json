@@ -932,9 +932,9 @@
     "offscreenEvidence": "fixture rect -10000,-10000 800x520, visible true, not on any monitor, 185 and 199 frames with step ID on every frame"
   },
   "windowsRsProbe": {
-    "path": "tools/rightkit/spikes/rk2-windows/rs-probe",
+    "path": "rightkit/spikes/rk2-windows/rs-probe",
     "status": "not built: managed broker refused",
-    "command": "D:\\.rightkit-managed\\agent-bin\\rightkit.cmd cargo build --manifest-path tools/rightkit/spikes/rk2-windows/rs-probe/Cargo.toml (run from D:\\Claude)",
+    "command": "D:\\.rightkit-managed\\agent-bin\\rightkit.cmd cargo build --manifest-path rightkit/spikes/rk2-windows/rs-probe/Cargo.toml (run from D:\\Claude)",
     "refusal": "rightkit: RightKit broker endpoint is not configured",
     "crate": "windows 0.61 (features: Foundation, Foundation_Metadata, Graphics_Capture, Graphics_DirectX, Graphics_DirectX_Direct3D11, Win32_Foundation, Win32_Graphics_Direct3D, Win32_Graphics_Direct3D11, Win32_Graphics_Dxgi, Win32_Graphics_Dxgi_Common, Win32_System_WinRT, Win32_System_WinRT_Direct3D11, Win32_System_WinRT_Graphics_Capture, Win32_UI_WindowsAndMessaging)",
     "unverifiedApi": "source not compiled: factory<GraphicsCaptureItem,IGraphicsCaptureItemInterop>, CreateForWindow, CreateDirect3D11DeviceFromDXGIDevice, IDirect3DDxgiInterfaceAccess::GetInterface, CreateFreeThreaded, IsBorderRequired, IsCursorCaptureEnabled, D3D11CreateDevice",

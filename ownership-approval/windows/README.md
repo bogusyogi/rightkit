@@ -22,7 +22,7 @@ Build on native Windows with workspace-provisioned .NET 10 SDK:
 ```powershell
 $artifacts = Join-Path $env:TEMP 'rightkit-ownership-approval-artifacts'
 $output = Join-Path $env:TEMP 'rightkit-ownership-approval-win-x64'
-& 'C:\Users\adrds\.dotnet\dotnet.exe' publish tools/rightkit/ownership-approval/windows/OwnershipApproval.csproj -c Release -r win-x64 --artifacts-path $artifacts -o $output
+& 'C:\Users\adrds\.dotnet\dotnet.exe' publish rightkit/ownership-approval/windows/OwnershipApproval.csproj -c Release -r win-x64 --artifacts-path $artifacts -o $output
 ```
 
-Run source conformance with `node --test tools/rightkit/ownership-approval/conformance/native-source-conformance.test.mjs`. From workspace root, this checks both native sources on Windows or macOS. It pins native refusal guards, extracts payload keys/regexes & checks every shared `conformance/v2-vectors.json` draft through source-projected rules without compilation or authentication. Native build & ephemeral software-RSA interoperability do not enroll or authenticate a real key.
+Run source conformance with `node --test rightkit/ownership-approval/conformance/native-source-conformance.test.mjs`. From workspace root, this checks both native sources on Windows or macOS. It pins native refusal guards, extracts payload keys/regexes & checks every shared `conformance/v2-vectors.json` draft through source-projected rules without compilation or authentication. Native build & ephemeral software-RSA interoperability do not enroll or authenticate a real key.

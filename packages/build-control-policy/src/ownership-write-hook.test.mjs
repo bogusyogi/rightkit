@@ -252,7 +252,7 @@ test('new-manifest keyword advice respects description, whole tokens, owner syno
   assertAdvice(manifestWrite('package.json', '{"name":"acme-keychain"}', '', options), /rightkit-secrets/);
   assert.deepEqual(manifestWrite('package.json', '{"name":"acme-oauthish"}', '', options), { decision: 'allow' });
   assert.deepEqual(manifestWrite('package.json', '{"name":"acme-oauth-client"}', '', { readFile: () => '{}' }), { decision: 'allow' });
-  assert.deepEqual(manifestWrite('package.json', '{"name":"acme-oauth-client"}', '', { ...options, cwd: 'D:/Claude/tools/rightkit/packages/new' }), { decision: 'allow' });
+  assert.deepEqual(manifestWrite('package.json', '{"name":"acme-oauth-client"}', '', { ...options, cwd: 'D:/Claude/rightkit/packages/new' }), { decision: 'allow' });
 });
 
 test('apply_patch Add File performs new-manifest keyword advice & owner suppression', () => {
@@ -319,7 +319,7 @@ test('standalone hook honors banned policy independently of tier, Swift dependen
 });
 
 test('RightKit owner tree is never screened as a duplicate of itself', () => {
-  const decision = ownershipWriteDecision({ tool_name: 'Write', cwd: 'D:/Claude', tool_input: { file_path: 'D:/Claude/tools/rightkit/crates/rightkit-sandbox/src/bin/exec.rs', content: 'sandbox_init(profile); SetFileSecurityW(); SendInput(); chromiumoxide::Browser;' } }, { readFile: () => { const error = new Error('missing'); error.code = 'ENOENT'; throw error; } });
+  const decision = ownershipWriteDecision({ tool_name: 'Write', cwd: 'D:/Claude', tool_input: { file_path: 'D:/Claude/rightkit/crates/rightkit-sandbox/src/bin/exec.rs', content: 'sandbox_init(profile); SetFileSecurityW(); SendInput(); chromiumoxide::Browser;' } }, { readFile: () => { const error = new Error('missing'); error.code = 'ENOENT'; throw error; } });
   assert.equal(decision.hookSpecificOutput, undefined);
 });
 

@@ -3,5 +3,5 @@
   { "type": "eval", "expression": "(() => { source.close(); setConnection('error'); return { ok: true }; })()" },
   { "type": "waitForText", "text": "Live updates are disconnected" },
   { "type": "assertVisible", "selector": "#retry" },
-  { "type": "screenshot", "out": "D:/Claude/tools/rightkit/crates/agent-room-core/artifacts/council-room/qa/disconnected.png" }
+  { "type": "screenshot", "out": "D:/Claude/rightkit/crates/agent-room-core/artifacts/council-room/qa/disconnected.png" }
 ]

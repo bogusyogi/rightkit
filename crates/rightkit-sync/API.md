@@ -1,6 +1,6 @@
 # rightkit-sync API and shared record/conflict contract
 
-Internal crate (`publish = false`). Deps: `serde`, `serde_json` only. Lives at `tools/rightkit/crates/rightkit-sync`.
+Internal crate (`publish = false`). Deps: `serde`, `serde_json` only. Lives at `rightkit/crates/rightkit-sync`.
 
 ## 1. Shared wire contract (desktop and iOS must both obey)
 
@@ -63,7 +63,7 @@ Ledger JSON is a new document (`Ledger`); the ScrapeRight `icloud-sync-ledger.js
 |---|---|---|
 | `MemoryBackend` | this crate | reference zone, in-process tests |
 | `helper::HelperBackend` + `HelperAuth` (via `CloudKitHelper`) | this crate | any zone behind a helper process speaking `rightkit-sync-helper/1`; the macOS CloudKit backend |
-| `rightkit-cloudkit-helper` | `tools/rightkit/swift/RightKitCloudKitHelper` | production helper: Swift CLI over `RightKitCloudSync.CloudKitSyncTransport` |
+| `rightkit-cloudkit-helper` | `rightkit/swift/RightKitCloudKitHelper` | production helper: Swift CLI over `RightKitCloudSync.CloudKitSyncTransport` |
 | `rightkit-sync-fake-helper` | this crate (`src/bin`) | protocol fake with fault injection (E2E fixture) |
 
 ```rust

@@ -1,7 +1,7 @@
 //! rightkit-contracts: the versioned contracts shared by the content pipeline
 //! (CutRight, GenRight, PostRight), the recorder, and the daemon.
 //!
-//! The JSON Schema files live in `tools/rightkit/contracts/` and are embedded
+//! The JSON Schema files live in `rightkit/contracts/` and are embedded
 //! here at compile time, so every installed engine validates against the same
 //! bytes. The pipeline is:
 //!
@@ -33,7 +33,7 @@ use serde_json::Value;
 pub use error::ContractError;
 pub use version::{negotiate, Version};
 
-/// The six contracts defined in `tools/rightkit/contracts/`.
+/// The six contracts defined in `rightkit/contracts/`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Contract {
     ContentBrief,

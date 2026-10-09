@@ -1,6 +1,6 @@
 # Content-pipeline requests to RightKit (2026-10-08)
 
-Status: started 2026-10-08 on Adrian's word. Execution plan: `tools/rightkit/docs/plans/2026-10-08-content-pipeline-execution-plan.md`.
+Status: started 2026-10-08 on Adrian's word. Execution plan: `rightkit/docs/plans/2026-10-08-content-pipeline-execution-plan.md`.
 
 The three content apps (GenRight, CutRight, PostRight) and the demo-recording capability gate on RightKit packages RK0 to RK10. The authoritative list, with each package's acceptance, is §7 of `/Volumes/D/claude/docs/plans/2026-10-08-demo-recording-requirements.md`. The first gate everywhere is a RightKit execution plan that gives each RK package a scenario and a machine; it does not exist yet.
 

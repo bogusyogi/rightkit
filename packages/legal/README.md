@@ -9,7 +9,7 @@ Legal manifest, acceptance receipt and reacceptance primitives for proprietary R
 | Version | see INDEX.md |
 | License | MIT OR Apache-2.0 |
 
-Canonical master documents live in `tools/rightkit/legal/`. Each app ships a hash-bound snapshot. `@rightkit/release` verifies those snapshots before packaging.
+Canonical master documents live in `rightkit/legal/`. Each app ships a hash-bound snapshot. `@rightkit/release` verifies those snapshots before packaging.
 
 This package is infrastructure, not legal advice.
 

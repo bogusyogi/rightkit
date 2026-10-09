@@ -1,6 +1,6 @@
 # RightKit merged inventory (Haiku set + Luna set), verified
 
-Date: 2026-10-08. Scope: `/Volumes/D/claude/tools/rightkit` (50 crates, 29 npm packages, Swift package + helper, ownership-approval, contracts, scripts, templates). Read-only: the only file written by this merge is this one. No commits.
+Date: 2026-10-08. Scope: `/Volumes/D/claude/rightkit` (50 crates, 29 npm packages, Swift package + helper, ownership-approval, contracts, scripts, templates). Read-only: the only file written by this merge is this one. No commits.
 
 Inputs merged: Haiku set = `2026-10-08-deps-batch1..4.md` (47 crates, A-F with measured dependency trees), `-deps-npm.md` (22 public npm packages), `-inventory-haiku-crosscutting.md` (7 private packages, Swift, ownership-approval, contracts, scripts, cross-cutting G-K). Luna set = `-inventory-luna-crates.md` (50 crates, manifest-level, no counts) and `-inventory-luna-npm-swift-crosscutting.md` (28 npm packages, 14 Swift targets, self-declared incomplete). Spec: `scratchpad/inventory-spec.md`.
 
@@ -1261,7 +1261,7 @@ Dependency-table legend. `kind`: normal / build / dev, `/cfg(...)` target gate, 
 
 ## 2B. Merged per-package table: npm (`packages/*`, 29 directories)
 
-Identity facts: source versions are from each `package.json`; "registry" is the live npm registry `dist-tags.latest` fetched 2026-10-08 for the six packages I spot-checked (doc-render 0.1.3, i18n 0.1.0, qa 0.4.0, updates 0.2.5, app-shell 0.2.1, release 0.2.135) plus Haiku's `pnpm view` of all 22 public packages (every `latest` equals the source version). Closure numbers come from Haiku's lockfile walk; I reproduced doc-render (236 total, mermaid 109 exclusive, katex 2 exclusive, shiki 27, remark-gfm 17) exactly. Consumers come from my manifest scan of the 14 app repos plus `tools/rightkit` (app copies under `.cache`/worktrees excluded). Tags: AG agreed, HO Haiku-only, LO Luna-only, CF conflict; V verified, R refuted, U unverifiable.
+Identity facts: source versions are from each `package.json`; "registry" is the live npm registry `dist-tags.latest` fetched 2026-10-08 for the six packages I spot-checked (doc-render 0.1.3, i18n 0.1.0, qa 0.4.0, updates 0.2.5, app-shell 0.2.1, release 0.2.135) plus Haiku's `pnpm view` of all 22 public packages (every `latest` equals the source version). Closure numbers come from Haiku's lockfile walk; I reproduced doc-render (236 total, mermaid 109 exclusive, katex 2 exclusive, shiki 27, remark-gfm 17) exactly. Consumers come from my manifest scan of the 14 app repos plus `rightkit` (app copies under `.cache`/worktrees excluded). Tags: AG agreed, HO Haiku-only, LO Luna-only, CF conflict; V verified, R refuted, U unverifiable.
 
 | Package | Src / state | Responsibility (exports in brief) | Consumers (pins) | Direct deps and peers: verdict (closure) | Problems / findings |
 |---|---|---|---|---|---|
@@ -1648,7 +1648,7 @@ npm consumer pins are in the 2.B table. Stale-pin highlights: `rightkit-process`
 
 ### 6.4 Zero-consumer crates: disposition table (F64)
 
-"Consumers" = Cargo manifests in the 14 app repos and `tools/rightkit` (excluding examples/spikes/templates). Haiku proposed removing or folding many of these; Luna proposed only `rightkit-computer`.
+"Consumers" = Cargo manifests in the 14 app repos and `rightkit` (excluding examples/spikes/templates). Haiku proposed removing or folding many of these; Luna proposed only `rightkit-computer`.
 
 | Crate | Zero consumers | crates.io | Context | Recommendation |
 |---|---|---|---|---|

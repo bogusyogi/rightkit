@@ -28,7 +28,7 @@ export function packageVersion() {
 export function buildArchive(treeish = "HEAD") {
   return execFileSync(
     "git",
-    ["-C", REPO, "archive", "--format=zip", `--prefix=RightKitSwift/`, `${treeish}:tools/rightkit/${PACKAGE_PREFIX}`],
+    ["-C", REPO, "archive", "--format=zip", `--prefix=RightKitSwift/`, `${treeish}:rightkit/${PACKAGE_PREFIX}`],
     { maxBuffer: 256 * 1024 * 1024 },
   );
 }

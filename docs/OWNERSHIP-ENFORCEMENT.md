@@ -24,8 +24,8 @@ nested `apps/coderight-tauri` manifest coverage:
 
 ```powershell
 right-release ownership-report --workspace D:\Claude `
-  --markdown tools/rightkit/docs/OWNERSHIP-REPORT.md `
-  --json-out tools/rightkit/docs/OWNERSHIP-REPORT.json `
+  --markdown rightkit/docs/OWNERSHIP-REPORT.md `
+  --json-out rightkit/docs/OWNERSHIP-REPORT.json `
   --timeout-ms 60000
 ```
 
