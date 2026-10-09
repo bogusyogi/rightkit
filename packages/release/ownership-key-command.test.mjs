@@ -283,7 +283,7 @@ test("explicit elevation accepts checkout sources and launches once with a pinne
       assert.match(target, /ownership(?:[\\/]trust\.json)?$/);
       return { ok: true, problems: [] };
     };
-    __testOnly.elevate((...args) => { calls.push(args); return { status: 0, stdout: "", stderr: "" }; }, request, digest, { modulePath: source, nodeExe: process.execPath, audit });
+    __testOnly.elevate((...args) => { calls.push(args); return { status: 0, stdout: "", stderr: "" }; }, request, digest, { modulePath: source, nodeExe: process.execPath, audit, tty: true });
     const elevationCalls = calls.filter(([command, args]) => command !== "/usr/bin/sudo" || !args.includes("-K"));
     assert.equal(elevationCalls.length, 1);
     if (process.platform === "darwin") {
@@ -347,7 +347,7 @@ test("macOS elevation uses one sudo prompt, hardened environment, and credential
     const digest = createHash("sha256").update(readFileSync(request)).digest("hex");
     const calls = [];
     __testOnly.elevate((...args) => { calls.push(args); return { status: 0, stdout: "", stderr: "" }; }, request, digest, {
-      modulePath: source, nodeExe: process.execPath, hostPlatform: "darwin", audit: () => ({ ok: true }),
+      modulePath: source, nodeExe: process.execPath, hostPlatform: "darwin", audit: () => ({ ok: true }), tty: true,
     });
     assert.equal(calls.filter(([command, args]) => command === "/usr/bin/sudo" && args[0] === "-k").length, 1);
     assert.equal(calls.filter(([command, args]) => command === "/usr/bin/sudo" && args[0] === "-K").length, 1);

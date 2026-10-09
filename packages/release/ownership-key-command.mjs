@@ -7,6 +7,7 @@ import { spawnSync, spawnSyncInteractive, windowsPowerShellEnvironment } from ".
 import { createKeyEvent, keyFingerprint, verifyKeyLog, verifyKeyRequest } from "./ownership-key-log.mjs";
 import { canonicalRepositoryIdentity, DEFAULT_TRUST_PATH, loadTrustedExternal, resolveKeyLogTrust, __testOnly as approvalTestOnly } from "./ownership-approval.mjs";
 import { readCommittedKeyAuthority } from "./ownership-key-authority.mjs";
+import { buildMacInvocation, delegateToDesktop, hasTerminal, needsDesktopDelegation } from "./ownership-key-elevation.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const LOG = ".rightkit/ownership-keys.json";
@@ -258,7 +259,7 @@ function validateNative(out, expectedHost = platform) {
   if (out.keyId !== `${expectedHost === "windows" ? "win" : "mac"}-${fingerprint}`) throw new Error("native helper key id does not match its public key");
   return { keyId: fingerprint, publicKeyPem: out.publicKeyPem, platform: expectedHost };
 }
-function elevate(run, requestPath, digest, { modulePath = fileURLToPath(import.meta.url), nodeExe = process.execPath, hostPlatform = process.platform, audit = (target) => approvalTestOnly.protectedLocation(target, hostPlatform) } = {}) {
+function elevate(run, requestPath, digest, { modulePath = fileURLToPath(import.meta.url), nodeExe = process.execPath, hostPlatform = process.platform, audit = (target) => approvalTestOnly.protectedLocation(target, hostPlatform), label, tty = hasTerminal() } = {}) {
   let child, wrapper, registry, currentNode;
   const refuse = (message) => { throw Object.assign(new Error(`RK_OWNERSHIP_ELEVATION_UNPROTECTED: ${message}`), { code: "RK_OWNERSHIP_ELEVATION_UNPROTECTED", type: "RK_OWNERSHIP_ELEVATION_UNPROTECTED" }); };
   try {
@@ -302,9 +303,10 @@ function elevate(run, requestPath, digest, { modulePath = fileURLToPath(import.m
     const r = run(invocation.parentExecutable, invocation.parentArgs, { env: windowsPowerShellEnvironment() });
     if (r.status !== 0) throw new Error("elevated trust update failed or was cancelled");
   } else {
+    const i = buildMacInvocation({ tty, nodeExe: currentNode, args, label });
     let r;
-    try { r = run("/usr/bin/sudo", ["-k", currentNode, ...args], { stdio: "inherit", env: { ...process.env, NODE_OPTIONS: "", NODE_PATH: "" } }); }
-    finally { try { run("/usr/bin/sudo", ["-K"], { stdio: "inherit" }); } catch {} }
+    try { r = run(i.command, i.args, i.options); }
+    finally { if (tty) { try { run("/usr/bin/sudo", ["-K"], { stdio: "inherit" }); } catch {} } }
     if (r.status !== 0) throw new Error("elevated trust update failed or was cancelled");
   }
 }
@@ -483,6 +485,13 @@ async function resumeRootEnrollment(log, d) {
 }
 /** Advance this host's protected checkpoint to the committed key log (after another host approved or revoked a key). */
 async function trustSync(_args, d) {
+  if (needsDesktopDelegation({ hostPlatform: d.hostPlatform, env: d.env, run: d.run, elevatedCheck: d.elevatedCheck })) {
+    const result = delegateToDesktop({ run: d.run, command: d.desktopCommand ?? [process.execPath, ...process.argv.slice(1)], ...(d.desktopOptions ?? {}) });
+    if (result.output) d.print(result.output.trimEnd());
+    if (result.status !== 0) throw new Error(`desktop-session trust-sync failed (exit ${result.status}); see output above`);
+    return 0;
+  }
+  d = { ...d, label: "RightKit ownership trust-sync" };
   const log = readLog(d.root);
   const pin = log.events[0]?.payload?.rootFingerprint;
   const state = verifyKeyLog(log, { rootFingerprint: pin });
@@ -498,7 +507,7 @@ async function trustSync(_args, d) {
 }
 async function installCheckpoint(log, rootFingerprint, baseline, d) {
   const request = makeTrustRequest(log, rootFingerprint, baseline, d.authority);
-  try { await (d.elevate ?? elevate)(d.run, request.file, request.digest); }
+  try { await (d.elevate ?? elevate)(d.run, request.file, request.digest, d.label ? { label: d.label } : undefined); }
   finally { await import("node:fs").then(({ unlinkSync }) => unlinkSync(request.file)).catch(() => {}); }
 }
 
