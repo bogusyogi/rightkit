@@ -73,6 +73,8 @@ if (first === "--version" || first === "-v") {
   );
 } else if (first === "cache") {
   run("cache-command.mjs", args.slice(1));
+} else if (first === "install-app") {
+  run("install-app.mjs", args.slice(1));
 } else if (first === "dmg") {
   run("dmg-build.mjs", args.slice(1));
 } else if (first === "apple") {
@@ -169,6 +171,9 @@ Commands:
   dmg build --app <.app> --out <dmg> --volname <name> [--background <png>]
             [--icon-size N] [--app-position x,y] [--applications-position x,y] [--window w,h]
                                                       Build branded UDZO image without Finder
+  install-app --dmg <path.dmg> [--app-name Pulse.app] [--bundle-id <id>] [--dest /Applications]
+              [--relaunch|--no-relaunch] [--json]
+                                                      Verify a signed DMG, quit, replace & relaunch hidden; no UI, no osascript (macOS)
   build [--platform mac|win] [--skip-checks] [--resume-from <phase>]
                                                       Resume macOS at prepackage, sign, package, post-sign, or harden
   dev --platform win|mac [--config <path>] [--dry-run] [--build-only]

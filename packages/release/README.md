@@ -18,10 +18,21 @@ Signing and publication rules are in the workspace file `docs/rules/release-sign
 | Group | Subcommands |
 |---|---|
 | Build | `release`, `build`, `package` |
+| Install | `install-app` |
 | Publish | `publish`, `upload`, `publish-update`, `github`, `mirror-root-artifact` |
 | Signing | `sign-windows`, `sign-updater`, `signing-agent`, `create-mac-updater` |
 | Checks | `deps`, `hardening`, `harden`, `hardeningscan`, `cargo-target` |
 | Ownership | `ownership`, `ownership-approval`, `ownership-report` |
+
+## Local app install (macOS)
+
+Agents must not run `osascript`, `open`, `screencapture`, or `notifyutil -p` directly. Install a signed build through:
+
+```sh
+right-release install-app --dmg <path.dmg> [--app-name Pulse.app] [--bundle-id dev.orthic.pulse] [--dest /Applications] [--relaunch|--no-relaunch] [--json]
+```
+
+It mounts the image read-only and hidden (`-nobrowse`), verifies the app (`codesign --verify --deep --strict`, `spctl --assess`, `stapler validate`, bundle id, and Team ID against the installed copy; a Team ID change is refused) before touching the installed copy, quits the running instance with SIGTERM (15 s, then SIGKILL), moves the old bundle to `~/.Trash/<App> <timestamp>.app`, copies the new one with `ditto` (restoring the old bundle on failure), re-verifies, and relaunches only if it was running or `--relaunch` is given, using `open -g -j -b` (background, hidden, never activated). `--json` emits one lifecycle event per line (`start`, `verified`, `quit`, `replaced`, `relaunched`, `done`/`failed`). Win32 exits with "not implemented on win32". Exit codes: 0 ok, 1 failed, 2 usage, 3 unsupported platform.
 
 ## Entry points
 
