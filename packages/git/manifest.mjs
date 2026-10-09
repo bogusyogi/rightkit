@@ -1032,13 +1032,15 @@ export function ownershipStep(manifest, lane = "ci") {
   const command = name === "pnpm" ? "pnpm exec right-release ownership --app ."
     : name === "npm" ? "npm exec -- right-release ownership --app ."
       : "yarn exec right-release ownership --app .";
+  // CI stays advisory until ownership approval keys are enrolled; release-candidate stays strict.
+  const ownershipCommand = lane === "ci" ? `${command} --advisory-when-pending` : command;
   // Only release-candidate dispatches declare source_revision. Referencing
   // inputs.source_revision from other lanes makes actionlint reject their
   // generated workflows, even when guarded by an event-name expression.
   const sourceRevision = lane === "release-candidate"
     ? "\${{ inputs.source_revision }}"
     : "\${{ github.sha }}";
-  return `\n      - name: RightKit ownership (protected registry roots)\n        shell: bash\n        run: test "$(git rev-parse HEAD)" = "${sourceRevision}" && ${command}`;
+  return `\n      - name: RightKit ownership (protected registry roots)\n        shell: bash\n        run: test "$(git rev-parse HEAD)" = "${sourceRevision}" && ${ownershipCommand}`;
 }
 
 /**
