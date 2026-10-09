@@ -9,10 +9,16 @@ button{padding:10px 18px;font-size:15px}
 #scroll div{height:1000px}
 #scrub{width:400px;height:48px;margin:12px 0;background:#def;position:relative;touch-action:none;user-select:none}
 #playhead{position:absolute;top:0;bottom:0;left:0;width:3px;background:#c23;pointer-events:none}
+#target{width:160px;height:60px;margin:12px 0;background:#00f;color:#fff;display:flex;align-items:center;justify-content:center;user-select:none}
+#target:active{background:#f00}
+#ttarget{width:160px;height:60px;margin:12px 0;background:#00f;color:#fff;display:flex;align-items:center;justify-content:center;user-select:none;transition:background-color .12s}
+#ttarget:active{background:#f00}
 pre{background:#f4f4f4;padding:8px}
 </style>
 <button id="btn">Click me</button> <input id="inp" placeholder="type here" autocomplete="off"> <input id="pw" type="password" value="hunter2-not-a-real-secret">
 <div id="hov">hover me</div>
+<div id="target">press me</div>
+<div id="ttarget">press me (transition)</div>
 <div id="box">drag</div>
 <div id="scroll"><div>tall</div></div>
 <div id="scrub" role="slider" aria-label="Timeline scrub" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><span id="playhead"></span>Pointer scrub</div>

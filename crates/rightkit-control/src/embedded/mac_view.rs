@@ -625,8 +625,19 @@ fn eval_with_timeout<R: Runtime>(
         .map_err(|_| "eval timed out".to_string())?
 }
 
+/// A never-shown window's page is not visible to WebKit, so it runs no rendering updates:
+/// `requestAnimationFrame` never fires and `document.timeline` never advances. Style changes
+/// from `:hover`/`:active` still apply immediately (matches() is true, snapshots show them),
+/// but a CSS transition on the changed property stays pinned at its start value, so a
+/// press looks identical to a hover. Finishing animations is the deterministic equivalent
+/// of letting the frozen clock run out; infinite animations throw from `finish()` and are
+/// left alone. Visible pages animate normally and are never touched.
+const SETTLE_HIDDEN_ANIMATIONS: &str = "(()=>{if(document.visibilityState!=='hidden')return '0';let n=0;for(const a of document.getAnimations()){try{a.finish();n++}catch(e){}}return String(n)})()";
+
 /// PNG of the webview contents via `takeSnapshotWithConfiguration:`.
 pub fn screenshot<R: Runtime>(win: &WebviewWindow<R>) -> Result<Vec<u8>, String> {
+    // Best effort: a page that cannot run the script is still captured as-is.
+    let _ = eval_with_timeout(win, SETTLE_HIDDEN_ANIMATIONS, Duration::from_secs(2));
     let (tx, rx) = channel::<Result<Vec<u8>, String>>();
     on_view(win, move |wk| unsafe {
         let config = msg!(Id; class("WKSnapshotConfiguration"), "new");
