@@ -265,7 +265,7 @@
     "rightkit-db": "0.3.2",
     "rightkit-embed": "0.3.1",
     "rightkit-framed-sidecar": "0.1.0",
-    "rightkit-fs": "0.3.1",
+    "rightkit-fs": "0.3.2",
     "rightkit-fsindex": "0.1.0",
     "rightkit-http": "0.2.2",
     "rightkit-jobs": "0.2.6",
@@ -322,7 +322,7 @@
       "rightkit-db": "0.3.2",
       "rightkit-embed": "0.3.1",
       "rightkit-framed-sidecar": "0.1.0",
-      "rightkit-fs": "0.3.1",
+      "rightkit-fs": "0.3.2",
       "rightkit-fsindex": "0.1.0",
       "rightkit-http": "0.2.2",
       "rightkit-jobs": "0.2.6",
@@ -498,7 +498,8 @@
     "rightkit-fs": [
       "0.1.0",
       "0.2.0",
-      "0.3.0"
+      "0.3.0",
+      "0.3.1"
     ],
     "rightkit-service": [
       "0.1.0",
