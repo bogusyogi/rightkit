@@ -139,10 +139,13 @@ test("new dependency fingerprints match exact Cargo/npm declarations, not shared
     const npm = [...new Set(fingerprints.filter((f) => f.ecosystem === "npm").map((f) => f.name))];
     writeFileSync(path.join(root, "Cargo.toml"), '[package]\nname = "consumer"\nversion = "0.1.0"\n[dependencies]\n' + cargo.map((name) => `"${name}" = "1"`).join("\n"));
     writeFileSync(path.join(root, "package.json"), JSON.stringify({ dependencies: Object.fromEntries(npm.map((name) => [name, "1"])) }));
+    const swift = [...new Set(fingerprints.filter((f) => f.ecosystem === "swiftpm").map((f) => f.name))];
+    writeFileSync(path.join(root, "Package.swift"), `// swift-tools-version:5.9\nimport PackageDescription\nlet package = Package(name: "consumer", dependencies: [\n${swift.map((name) => `  .package(url: "https://github.com/example/${name}.git", from: "1.0.0"),`).join("\n")}\n])\n`);
     const found = new Set(scanApp(root, catalog, { trust: null }).map((f) => f.fingerprint));
     for (const fingerprint of fingerprints) assert.ok(found.has(fingerprint.id), fingerprint.id);
     writeFileSync(path.join(root, "Cargo.toml"), '[package]\nname = "consumer"\nversion = "0.1.0"\n[dependencies]\nserde = "1"\ntokio = "1"\nsha2 = "1"\ntauri = "2"\n');
     writeFileSync(path.join(root, "package.json"), '{"dependencies":{"react":"19","typescript":"5"}}');
+    writeFileSync(path.join(root, "Package.swift"), '// swift-tools-version:5.9\nimport PackageDescription\nlet package = Package(name: "consumer", dependencies: [\n  .package(url: "https://github.com/apple/swift-argument-parser.git", from: "1.0.0"),\n])\n');
     assert.deepEqual([...scanApp(root, catalog, { trust: null })], []);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });

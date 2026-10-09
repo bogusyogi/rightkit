@@ -11,6 +11,7 @@ import { __testOnly as authorityTestOnly } from "./ownership-key-authority.mjs";
 import { createKeyEvent, eventHash, keyFingerprint } from "./ownership-key-log.mjs";
 import { generateOwnershipCatalog } from "./ownership-catalog.mjs";
 import { buildOwnershipReport, renderOwnershipMarkdown } from "./ownership-report.mjs";
+import { FINGERPRINT_SAMPLES } from "./fixtures/ownership/source-fingerprint-samples.mjs";
 
 const rightkitRoot = path.resolve(import.meta.dirname, "../..");
 const canonicalCatalog = JSON.parse(readFileSync(path.join(import.meta.dirname, MANIFEST_FILE), "utf8"));
@@ -37,6 +38,7 @@ const SAMPLES = {
   "control.api.ax-element": "let app = unsafe { AXUIElementCreateApplication(pid) };",
   "control.api.sendinput": "let sent = unsafe { SendInput(&inputs, size_of::<INPUT>() as i32) };",
   "mcp.protocol.initialized": 'self.notify("notifications/initialized", json!({})).await?;',
+  ...Object.fromEntries(Object.entries(FINGERPRINT_SAMPLES).map(([id, { positive }]) => [id, positive[0]])),
 };
 // Scanner mechanism tests use exact sample rules independent of production policy.
 // Removed catalog patterns stay removed; these fixtures exercise cache/provenance.
@@ -98,7 +100,7 @@ function signedException(findings, { root, fingerprint = "oauth.endpoint.github"
 
 test("shipped catalog equals declarations including canonical Swift declarations", () => {
   assert.deepEqual(canonicalCatalog, generateOwnershipCatalog(rightkitRoot));
-  assert.equal(canonicalCatalog.capabilities.find((c) => c.package === "RightKitSwift").detection, "declaration-only");
+  assert.equal(canonicalCatalog.capabilities.find((c) => c.package === "RightKitSwift").detection, "fingerprinted");
 });
 
 test("every source fingerprint has a realistic positive and neutral negative sample", () => {

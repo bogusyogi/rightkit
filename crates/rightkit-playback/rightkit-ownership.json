@@ -3,12 +3,37 @@
   "capabilities": [
     {
       "capability": "media-playback",
-      "summary": "Source-preserving FFmpeg compatibility playback preparation for Right Suite media apps.; declaration-only detection (no precise implementation fingerprint)",
-      "fingerprints": [],
-      "detection": "declaration-only",
+      "summary": "Source-preserving FFmpeg compatibility playback preparation for Right Suite media apps.",
+      "fingerprints": [
+        {
+          "id": "playback.ffmpeg.faststart-copy",
+          "type": "source",
+          "pattern": "\\b(?:Command\\s*::\\s*new|\\.args?|spawn\\w*|execFile\\w*|exec\\w*|outputOptions?)\\s*\\((?=[^;]{0,500}(?:[\"']copy[\"']|-c(?::v)?\\s+copy))[^;]{0,400}?(?:[\"']-movflags[\"']\\s*,\\s*[\"']\\+faststart[\"']|-movflags\\s+\\+faststart)",
+          "codeOnly": true,
+          "extensions": [
+            ".rs",
+            ".ts",
+            ".tsx",
+            ".js",
+            ".mjs",
+            ".cjs",
+            ".jsx"
+          ],
+          "tier": "advise",
+          "usageContext": {
+            "hosts": [
+              "macos",
+              "windows"
+            ],
+            "scope": "Executable code only; authenticated owner provenance required for exclusions"
+          },
+          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
+        }
+      ],
+      "detection": "fingerprinted",
       "policyNotes": [
         "Package contract retained; dependency declarations do not verify integration.",
-        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
+        "Fingerprints identify review candidates (competing dependencies and distinctive implementation code); published two-host replacement qualification is not recorded."
       ]
     }
   ]

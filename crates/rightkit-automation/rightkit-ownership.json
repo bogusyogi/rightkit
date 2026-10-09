@@ -3,12 +3,109 @@
   "capabilities": [
     {
       "capability": "desktop-automation",
-      "summary": "Brand-neutral desktop automation: observe and act on any app (macOS AX, Windows UIA) through a four-tier input ladder with safety, focus guard, and evidence receipts.; declaration-only detection (no precise implementation fingerprint)",
-      "fingerprints": [],
-      "detection": "declaration-only",
+      "summary": "Brand-neutral desktop automation: observe and act on any app (macOS AX, Windows UIA) through a four-tier input ladder with safety, focus guard, and evidence receipts.",
+      "fingerprints": [
+        {
+          "id": "automation.api.ax-element",
+          "type": "source",
+          "pattern": "\\bAXUIElement(?:CreateApplication|CreateSystemWide|CopyAttributeValue|CopyElementAtPosition|PerformAction|SetAttributeValue|CopyActionNames)\\s*\\(",
+          "codeOnly": true,
+          "extensions": [
+            ".rs",
+            ".c",
+            ".cc",
+            ".cpp",
+            ".h",
+            ".m",
+            ".mm",
+            ".swift"
+          ],
+          "tier": "advise",
+          "usageContext": {
+            "hosts": [
+              "macos",
+              "windows"
+            ],
+            "scope": "Executable code only; authenticated owner provenance required for exclusions"
+          },
+          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
+        },
+        {
+          "id": "automation.api.cgevent-synth",
+          "type": "source",
+          "pattern": "\\bCGEvent(?:CreateKeyboardEvent|CreateMouseEvent|CreateScrollWheelEvent\\w*|Post|PostToPid)\\s*\\(",
+          "codeOnly": true,
+          "extensions": [
+            ".rs",
+            ".c",
+            ".cc",
+            ".cpp",
+            ".h",
+            ".m",
+            ".mm",
+            ".swift"
+          ],
+          "tier": "advise",
+          "usageContext": {
+            "hosts": [
+              "macos",
+              "windows"
+            ],
+            "scope": "Executable code only; authenticated owner provenance required for exclusions"
+          },
+          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
+        },
+        {
+          "id": "automation.api.uia-com",
+          "type": "source",
+          "pattern": "\\b(?:CUIAutomation8?|IUIAutomation(?:Element|Condition|InvokePattern|ValuePattern)?)\\b",
+          "codeOnly": true,
+          "extensions": [
+            ".rs",
+            ".c",
+            ".cc",
+            ".cpp",
+            ".h",
+            ".cs"
+          ],
+          "tier": "advise",
+          "usageContext": {
+            "hosts": [
+              "macos",
+              "windows"
+            ],
+            "scope": "Executable code only; authenticated owner provenance required for exclusions"
+          },
+          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
+        },
+        {
+          "id": "automation.api.sendinput",
+          "type": "source",
+          "pattern": "\\bSendInput\\s*\\(",
+          "codeOnly": true,
+          "extensions": [
+            ".rs",
+            ".c",
+            ".cc",
+            ".cpp",
+            ".h",
+            ".cs"
+          ],
+          "tier": "advise",
+          "usageContext": {
+            "hosts": [
+              "macos",
+              "windows"
+            ],
+            "scope": "Executable code only; authenticated owner provenance required for exclusions"
+          },
+          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
+        }
+      ],
+      "detection": "fingerprinted",
       "policyNotes": [
         "Package contract retained; dependency declarations do not verify integration.",
-        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
+        "Fingerprints identify review candidates (competing dependencies and distinctive implementation code); published two-host replacement qualification is not recorded."
       ]
     }
   ]

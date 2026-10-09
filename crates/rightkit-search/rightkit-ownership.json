@@ -4,11 +4,157 @@
     {
       "capability": "search",
       "summary": "Product-neutral search query language: lexer, AST, operator values, SQL/FTS5 predicate compiler, snippets, and an in-memory filename index.",
-      "fingerprints": [],
-      "detection": "declaration-only",
+      "fingerprints": [
+        {
+          "id": "search.cargo.tantivy",
+          "type": "dependency",
+          "ecosystem": "cargo",
+          "name": "tantivy",
+          "tier": "advise",
+          "usageContext": {
+            "hosts": [
+              "macos",
+              "windows"
+            ],
+            "scope": "cargo direct competing dependency; transitive findings require authenticated reachability"
+          },
+          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
+        },
+        {
+          "id": "search.cargo.nucleo",
+          "type": "dependency",
+          "ecosystem": "cargo",
+          "name": "nucleo",
+          "tier": "advise",
+          "usageContext": {
+            "hosts": [
+              "macos",
+              "windows"
+            ],
+            "scope": "cargo direct competing dependency; transitive findings require authenticated reachability"
+          },
+          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
+        },
+        {
+          "id": "search.cargo.fuzzy-matcher",
+          "type": "dependency",
+          "ecosystem": "cargo",
+          "name": "fuzzy-matcher",
+          "tier": "advise",
+          "usageContext": {
+            "hosts": [
+              "macos",
+              "windows"
+            ],
+            "scope": "cargo direct competing dependency; transitive findings require authenticated reachability"
+          },
+          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
+        },
+        {
+          "id": "search.npm.fuse-js",
+          "type": "dependency",
+          "ecosystem": "npm",
+          "name": "fuse.js",
+          "tier": "advise",
+          "usageContext": {
+            "hosts": [
+              "macos",
+              "windows"
+            ],
+            "scope": "npm direct competing dependency; transitive findings require authenticated reachability"
+          },
+          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
+        },
+        {
+          "id": "search.npm.flexsearch",
+          "type": "dependency",
+          "ecosystem": "npm",
+          "name": "flexsearch",
+          "tier": "advise",
+          "usageContext": {
+            "hosts": [
+              "macos",
+              "windows"
+            ],
+            "scope": "npm direct competing dependency; transitive findings require authenticated reachability"
+          },
+          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
+        },
+        {
+          "id": "search.npm.minisearch",
+          "type": "dependency",
+          "ecosystem": "npm",
+          "name": "minisearch",
+          "tier": "advise",
+          "usageContext": {
+            "hosts": [
+              "macos",
+              "windows"
+            ],
+            "scope": "npm direct competing dependency; transitive findings require authenticated reachability"
+          },
+          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
+        },
+        {
+          "id": "search.npm.lunr",
+          "type": "dependency",
+          "ecosystem": "npm",
+          "name": "lunr",
+          "tier": "advise",
+          "usageContext": {
+            "hosts": [
+              "macos",
+              "windows"
+            ],
+            "scope": "npm direct competing dependency; transitive findings require authenticated reachability"
+          },
+          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
+        },
+        {
+          "id": "search.npm.search-query-parser",
+          "type": "dependency",
+          "ecosystem": "npm",
+          "name": "search-query-parser",
+          "tier": "advise",
+          "usageContext": {
+            "hosts": [
+              "macos",
+              "windows"
+            ],
+            "scope": "npm direct competing dependency; transitive findings require authenticated reachability"
+          },
+          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
+        },
+        {
+          "id": "search.sql.fts5-query",
+          "type": "source",
+          "pattern": "\\b(?:execute_batch|execute|exec|prepare|query_row|query_map|query|all|get|run)\\s*\\(\\s*(?:r#*)?[\"'`][\\s\\S]{0,300}?(?:\\b\\w*[Ff][Tt][Ss]\\w*\\s+MATCH\\s+(?:\\?\\d*|:\\w+|@\\w+|\\$\\d+)|\\b(?:bm25|snippet|highlight)\\s*\\(\\s*\\w*[Ff][Tt][Ss])",
+          "codeOnly": true,
+          "extensions": [
+            ".rs",
+            ".ts",
+            ".tsx",
+            ".js",
+            ".mjs",
+            ".cjs",
+            ".jsx",
+            ".py"
+          ],
+          "tier": "advise",
+          "usageContext": {
+            "hosts": [
+              "macos",
+              "windows"
+            ],
+            "scope": "Executable code only; authenticated owner provenance required for exclusions"
+          },
+          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
+        }
+      ],
+      "detection": "fingerprinted",
       "policyNotes": [
-        "Query language, FTS5 predicates/snippets & optional filename index; no generic full-text engine replacement.",
-        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
+        "Package contract retained; dependency declarations do not verify integration.",
+        "Fingerprints identify review candidates (competing dependencies and distinctive implementation code); published two-host replacement qualification is not recorded."
       ]
     }
   ]

@@ -3,12 +3,37 @@
   "capabilities": [
     {
       "capability": "update-policy",
-      "summary": "Shared runtime update policy helper for Right Suite Tauri apps.; declaration-only detection (no precise implementation fingerprint)",
-      "fingerprints": [],
-      "detection": "declaration-only",
+      "summary": "Shared runtime update policy helper for Right Suite Tauri apps.",
+      "fingerprints": [
+        {
+          "id": "updates.api.download-and-install",
+          "type": "source",
+          "pattern": "\\.\\s*(?:downloadAndInstall|download_and_install)\\s*\\(",
+          "codeOnly": true,
+          "extensions": [
+            ".ts",
+            ".tsx",
+            ".js",
+            ".mjs",
+            ".cjs",
+            ".jsx",
+            ".rs"
+          ],
+          "tier": "advise",
+          "usageContext": {
+            "hosts": [
+              "macos",
+              "windows"
+            ],
+            "scope": "Executable code only; authenticated owner provenance required for exclusions"
+          },
+          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
+        }
+      ],
+      "detection": "fingerprinted",
       "policyNotes": [
-        "Injected updater implementations remain host-owned; ready-before-install repair remains P1.",
-        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
+        "Package contract retained; dependency declarations do not verify integration.",
+        "Fingerprints identify review candidates (competing dependencies and distinctive implementation code); published two-host replacement qualification is not recorded."
       ]
     }
   ]

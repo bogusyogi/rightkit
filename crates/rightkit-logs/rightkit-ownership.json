@@ -4,11 +4,87 @@
     {
       "capability": "structured-logging",
       "summary": "Privacy-safe local JSONL logging and diagnostics for Right Suite desktop apps.",
-      "fingerprints": [],
-      "detection": "declaration-only",
+      "fingerprints": [
+        {
+          "id": "logs.cargo.tracing-appender",
+          "type": "dependency",
+          "ecosystem": "cargo",
+          "name": "tracing-appender",
+          "tier": "advise",
+          "usageContext": {
+            "hosts": [
+              "macos",
+              "windows"
+            ],
+            "scope": "cargo direct competing dependency; transitive findings require authenticated reachability"
+          },
+          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
+        },
+        {
+          "id": "logs.cargo.flexi-logger",
+          "type": "dependency",
+          "ecosystem": "cargo",
+          "name": "flexi_logger",
+          "tier": "advise",
+          "usageContext": {
+            "hosts": [
+              "macos",
+              "windows"
+            ],
+            "scope": "cargo direct competing dependency; transitive findings require authenticated reachability"
+          },
+          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
+        },
+        {
+          "id": "logs.cargo.log4rs",
+          "type": "dependency",
+          "ecosystem": "cargo",
+          "name": "log4rs",
+          "tier": "advise",
+          "usageContext": {
+            "hosts": [
+              "macos",
+              "windows"
+            ],
+            "scope": "cargo direct competing dependency; transitive findings require authenticated reachability"
+          },
+          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
+        },
+        {
+          "id": "logs.cargo.fern",
+          "type": "dependency",
+          "ecosystem": "cargo",
+          "name": "fern",
+          "tier": "advise",
+          "usageContext": {
+            "hosts": [
+              "macos",
+              "windows"
+            ],
+            "scope": "cargo direct competing dependency; transitive findings require authenticated reachability"
+          },
+          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
+        },
+        {
+          "id": "logs.cargo.tauri-plugin-log",
+          "type": "dependency",
+          "ecosystem": "cargo",
+          "name": "tauri-plugin-log",
+          "tier": "advise",
+          "usageContext": {
+            "hosts": [
+              "macos",
+              "windows"
+            ],
+            "scope": "cargo direct competing dependency; transitive findings require authenticated reachability"
+          },
+          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
+        }
+      ],
+      "detection": "fingerprinted",
       "policyNotes": [
-        "JSONL logging only; no tracing/env_logger replacement claimed.",
-        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
+        "Package contract retained; dependency declarations do not verify integration.",
+        "Fingerprints identify review candidates (competing dependencies and distinctive implementation code); published two-host replacement qualification is not recorded."
       ]
     }
   ]

@@ -4,11 +4,65 @@
     {
       "capability": "structured-logging",
       "summary": "Local-only structured logging and diagnostics client for Right Suite apps.",
-      "fingerprints": [],
-      "detection": "declaration-only",
+      "fingerprints": [
+        {
+          "id": "logs.npm.electron-log",
+          "type": "dependency",
+          "ecosystem": "npm",
+          "name": "electron-log",
+          "tier": "advise",
+          "usageContext": {
+            "hosts": [
+              "macos",
+              "windows"
+            ],
+            "scope": "npm direct competing dependency; transitive findings require authenticated reachability"
+          },
+          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
+        },
+        {
+          "id": "logs.npm.tauri-plugin-log",
+          "type": "dependency",
+          "ecosystem": "npm",
+          "name": "@tauri-apps/plugin-log",
+          "tier": "advise",
+          "usageContext": {
+            "hosts": [
+              "macos",
+              "windows"
+            ],
+            "scope": "npm direct competing dependency; transitive findings require authenticated reachability"
+          },
+          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
+        },
+        {
+          "id": "logs.invoke.rightkit-commands",
+          "type": "source",
+          "pattern": "\\binvoke\\s*(?:<[^>()]*>)?\\s*\\(\\s*[\"']rightkit_logs_(?:write|collect|clear)[\"']",
+          "codeOnly": true,
+          "extensions": [
+            ".ts",
+            ".tsx",
+            ".js",
+            ".mjs",
+            ".cjs",
+            ".jsx"
+          ],
+          "tier": "advise",
+          "usageContext": {
+            "hosts": [
+              "macos",
+              "windows"
+            ],
+            "scope": "Executable code only; authenticated owner provenance required for exclusions"
+          },
+          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
+        }
+      ],
+      "detection": "fingerprinted",
       "policyNotes": [
-        "Native invoke JSONL adapter; no generic JS logger replacement claimed.",
-        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
+        "Package contract retained; dependency declarations do not verify integration.",
+        "Fingerprints identify review candidates (competing dependencies and distinctive implementation code); published two-host replacement qualification is not recorded."
       ]
     }
   ]

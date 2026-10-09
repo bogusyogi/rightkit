@@ -4,11 +4,93 @@
     {
       "capability": "os-credential-store",
       "summary": "Native Apple scoped credential storage and sync migration",
-      "fingerprints": [],
-      "detection": "declaration-only",
+      "fingerprints": [
+        {
+          "id": "keychain.api.secitem",
+          "type": "source",
+          "pattern": "\\bSecItem(?:Add|CopyMatching|Update|Delete)\\s*\\(",
+          "codeOnly": true,
+          "extensions": [
+            ".swift",
+            ".m",
+            ".mm",
+            ".rs"
+          ],
+          "tier": "advise",
+          "usageContext": {
+            "hosts": [
+              "macos",
+              "windows"
+            ],
+            "scope": "Executable code only; authenticated owner provenance required for exclusions"
+          },
+          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
+        },
+        {
+          "id": "keychain.swiftpm.keychainaccess",
+          "type": "dependency",
+          "ecosystem": "swiftpm",
+          "name": "keychainaccess",
+          "tier": "advise",
+          "usageContext": {
+            "hosts": [
+              "macos",
+              "windows"
+            ],
+            "scope": "swiftpm direct competing dependency; transitive findings require authenticated reachability"
+          },
+          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
+        },
+        {
+          "id": "keychain.swiftpm.keychainswift",
+          "type": "dependency",
+          "ecosystem": "swiftpm",
+          "name": "keychainswift",
+          "tier": "advise",
+          "usageContext": {
+            "hosts": [
+              "macos",
+              "windows"
+            ],
+            "scope": "swiftpm direct competing dependency; transitive findings require authenticated reachability"
+          },
+          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
+        },
+        {
+          "id": "keychain.swiftpm.swiftkeychainwrapper",
+          "type": "dependency",
+          "ecosystem": "swiftpm",
+          "name": "swiftkeychainwrapper",
+          "tier": "advise",
+          "usageContext": {
+            "hosts": [
+              "macos",
+              "windows"
+            ],
+            "scope": "swiftpm direct competing dependency; transitive findings require authenticated reachability"
+          },
+          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
+        },
+        {
+          "id": "keychain.swiftpm.valet",
+          "type": "dependency",
+          "ecosystem": "swiftpm",
+          "name": "valet",
+          "tier": "advise",
+          "usageContext": {
+            "hosts": [
+              "macos",
+              "windows"
+            ],
+            "scope": "swiftpm direct competing dependency; transitive findings require authenticated reachability"
+          },
+          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
+        }
+      ],
+      "detection": "fingerprinted",
       "policyNotes": [
-        "Apple-only SwiftPM owner; cannot qualify as usable on both hosts.",
-        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
+        "Package contract retained; dependency declarations do not verify integration.",
+        "Fingerprints identify review candidates (competing dependencies and distinctive implementation code); published two-host replacement qualification is not recorded."
       ]
     }
   ]

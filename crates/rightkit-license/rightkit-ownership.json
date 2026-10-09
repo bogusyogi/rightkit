@@ -3,12 +3,31 @@
   "capabilities": [
     {
       "capability": "licensing",
-      "summary": "Right Suite license enforcement primitive — offline verification of server-signed Ed25519 entitlement tokens. The Rust (security) half of @rightkit/license.; declaration-only detection (no precise implementation fingerprint)",
-      "fingerprints": [],
-      "detection": "declaration-only",
+      "summary": "Right Suite license enforcement primitive — offline verification of server-signed Ed25519 entitlement tokens. The Rust (security) half of @rightkit/license.",
+      "fingerprints": [
+        {
+          "id": "license.api.ed25519-verifying-key",
+          "type": "source",
+          "pattern": "\\bVerifyingKey\\s*::\\s*from_bytes\\s*\\((?=[\\s\\S]{0,600}?(?:[Ll]icen[sc]e|[Ee]ntitlement|LICEN[SC]E|ENTITLEMENT))",
+          "codeOnly": true,
+          "extensions": [
+            ".rs"
+          ],
+          "tier": "advise",
+          "usageContext": {
+            "hosts": [
+              "macos",
+              "windows"
+            ],
+            "scope": "Executable code only; authenticated owner provenance required for exclusions"
+          },
+          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
+        }
+      ],
+      "detection": "fingerprinted",
       "policyNotes": [
         "Package contract retained; dependency declarations do not verify integration.",
-        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
+        "Fingerprints identify review candidates (competing dependencies and distinctive implementation code); published two-host replacement qualification is not recorded."
       ]
     }
   ]

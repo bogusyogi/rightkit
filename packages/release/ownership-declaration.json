@@ -3,12 +3,183 @@
   "capabilities": [
     {
       "capability": "release-tooling",
-      "summary": "Portable release CLI/SDK with fail-closed public GitHub Releases and private R2 + RightApps distribution.; declaration-only detection (no precise implementation fingerprint)",
-      "fingerprints": [],
-      "detection": "declaration-only",
+      "summary": "Portable release CLI/SDK with fail-closed public GitHub Releases and private R2 + RightApps distribution.",
+      "fingerprints": [
+        {
+          "id": "release.sign.codesign-signtool",
+          "type": "source",
+          "pattern": "\\b(?:Command\\s*::\\s*new|spawn\\w*|execFile\\w*|exec\\w*)\\s*\\(\\s*(?:[\"`]\\s*(?:codesign\\b[^\"`';]{0,160}--sign|signtool(?:\\.exe)?\\s+sign\\b)|[\"'](?:codesign|signtool(?:\\.exe)?)[\"'][^;]{0,300}?[\"'](?:--sign|sign)[\"'])",
+          "codeOnly": true,
+          "extensions": [
+            ".ts",
+            ".tsx",
+            ".js",
+            ".mjs",
+            ".cjs",
+            ".jsx",
+            ".rs",
+            ".py"
+          ],
+          "tier": "advise",
+          "usageContext": {
+            "hosts": [
+              "macos",
+              "windows"
+            ],
+            "scope": "Executable code only; authenticated owner provenance required for exclusions"
+          },
+          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
+        },
+        {
+          "id": "release.notarize.notarytool",
+          "type": "source",
+          "pattern": "\\b(?:Command\\s*::\\s*new|spawn\\w*|execFile\\w*|exec\\w*)\\s*\\([^;]{0,200}?[\"'`\\s]notarytool\\b",
+          "codeOnly": true,
+          "extensions": [
+            ".ts",
+            ".tsx",
+            ".js",
+            ".mjs",
+            ".cjs",
+            ".jsx",
+            ".rs",
+            ".py"
+          ],
+          "tier": "advise",
+          "usageContext": {
+            "hosts": [
+              "macos",
+              "windows"
+            ],
+            "scope": "Executable code only; authenticated owner provenance required for exclusions"
+          },
+          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
+        },
+        {
+          "id": "release.npm.electron-builder",
+          "type": "dependency",
+          "ecosystem": "npm",
+          "name": "electron-builder",
+          "tier": "advise",
+          "usageContext": {
+            "hosts": [
+              "macos",
+              "windows"
+            ],
+            "scope": "npm direct competing dependency; transitive findings require authenticated reachability"
+          },
+          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
+        },
+        {
+          "id": "release.npm.electron-notarize",
+          "type": "dependency",
+          "ecosystem": "npm",
+          "name": "electron-notarize",
+          "tier": "advise",
+          "usageContext": {
+            "hosts": [
+              "macos",
+              "windows"
+            ],
+            "scope": "npm direct competing dependency; transitive findings require authenticated reachability"
+          },
+          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
+        },
+        {
+          "id": "release.npm.electron-notarize-scoped",
+          "type": "dependency",
+          "ecosystem": "npm",
+          "name": "@electron/notarize",
+          "tier": "advise",
+          "usageContext": {
+            "hosts": [
+              "macos",
+              "windows"
+            ],
+            "scope": "npm direct competing dependency; transitive findings require authenticated reachability"
+          },
+          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
+        },
+        {
+          "id": "release.npm.electron-osx-sign",
+          "type": "dependency",
+          "ecosystem": "npm",
+          "name": "electron-osx-sign",
+          "tier": "advise",
+          "usageContext": {
+            "hosts": [
+              "macos",
+              "windows"
+            ],
+            "scope": "npm direct competing dependency; transitive findings require authenticated reachability"
+          },
+          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
+        },
+        {
+          "id": "release.npm.electron-osx-sign-scoped",
+          "type": "dependency",
+          "ecosystem": "npm",
+          "name": "@electron/osx-sign",
+          "tier": "advise",
+          "usageContext": {
+            "hosts": [
+              "macos",
+              "windows"
+            ],
+            "scope": "npm direct competing dependency; transitive findings require authenticated reachability"
+          },
+          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
+        },
+        {
+          "id": "release.npm.create-dmg",
+          "type": "dependency",
+          "ecosystem": "npm",
+          "name": "create-dmg",
+          "tier": "advise",
+          "usageContext": {
+            "hosts": [
+              "macos",
+              "windows"
+            ],
+            "scope": "npm direct competing dependency; transitive findings require authenticated reachability"
+          },
+          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
+        },
+        {
+          "id": "release.npm.appdmg",
+          "type": "dependency",
+          "ecosystem": "npm",
+          "name": "appdmg",
+          "tier": "advise",
+          "usageContext": {
+            "hosts": [
+              "macos",
+              "windows"
+            ],
+            "scope": "npm direct competing dependency; transitive findings require authenticated reachability"
+          },
+          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
+        },
+        {
+          "id": "release.cargo.apple-codesign",
+          "type": "dependency",
+          "ecosystem": "cargo",
+          "name": "apple-codesign",
+          "tier": "advise",
+          "usageContext": {
+            "hosts": [
+              "macos",
+              "windows"
+            ],
+            "scope": "cargo direct competing dependency; transitive findings require authenticated reachability"
+          },
+          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
+        }
+      ],
+      "detection": "fingerprinted",
       "policyNotes": [
         "Package contract retained; dependency declarations do not verify integration.",
-        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
+        "Fingerprints identify review candidates (competing dependencies and distinctive implementation code); published two-host replacement qualification is not recorded."
       ]
     }
   ]

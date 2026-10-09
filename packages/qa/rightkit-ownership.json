@@ -3,12 +3,62 @@
   "capabilities": [
     {
       "capability": "qa-evidence",
-      "summary": "Shared QA evidence, ownership, browser helpers, and release-backdoor guards for Right Suite apps.; declaration-only detection (no precise implementation fingerprint)",
-      "fingerprints": [],
-      "detection": "declaration-only",
+      "summary": "Shared QA evidence, ownership, browser helpers, and release-backdoor guards for Right Suite apps.",
+      "fingerprints": [
+        {
+          "id": "qa.cdp.method-call",
+          "type": "source",
+          "pattern": "\\b(?:send|sendCommand|call|command|execute|request)\\s*\\(\\s*[\"'](?:Page\\.(?:captureScreenshot|navigate|enable)|Runtime\\.(?:evaluate|callFunctionOn)|Input\\.dispatch(?:Mouse|Key)Event|DOM\\.(?:getDocument|querySelector)|Target\\.(?:attachToTarget|createTarget))[\"']",
+          "codeOnly": true,
+          "extensions": [
+            ".ts",
+            ".tsx",
+            ".js",
+            ".mjs",
+            ".cjs",
+            ".jsx",
+            ".rs",
+            ".py"
+          ],
+          "tier": "advise",
+          "usageContext": {
+            "hosts": [
+              "macos",
+              "windows"
+            ],
+            "scope": "Executable code only; authenticated owner provenance required for exclusions"
+          },
+          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
+        },
+        {
+          "id": "qa.chrome.remote-debugging-flag",
+          "type": "source",
+          "pattern": "\\b(?:spawn\\w*|execFile\\w*|Command\\s*::\\s*new|\\.args?|push)\\s*\\([^;]{0,300}?[\"'`]--remote-debugging-(?:port|pipe)",
+          "codeOnly": true,
+          "extensions": [
+            ".ts",
+            ".tsx",
+            ".js",
+            ".mjs",
+            ".cjs",
+            ".jsx",
+            ".rs"
+          ],
+          "tier": "advise",
+          "usageContext": {
+            "hosts": [
+              "macos",
+              "windows"
+            ],
+            "scope": "Executable code only; authenticated owner provenance required for exclusions"
+          },
+          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
+        }
+      ],
+      "detection": "fingerprinted",
       "policyNotes": [
         "Package contract retained; dependency declarations do not verify integration.",
-        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
+        "Fingerprints identify review candidates (competing dependencies and distinctive implementation code); published two-host replacement qualification is not recorded."
       ]
     }
   ]

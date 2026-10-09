@@ -3,12 +3,56 @@
   "capabilities": [
     {
       "capability": "desktop-overlay",
-      "summary": "Shared overlay state, hit testing, and placement policy for Right Suite apps; declaration-only detection (no precise implementation fingerprint)",
-      "fingerprints": [],
-      "detection": "declaration-only",
+      "summary": "Shared overlay state, hit testing, and placement policy for Right Suite apps",
+      "fingerprints": [
+        {
+          "id": "overlay.api.ws-ex-noactivate",
+          "type": "source",
+          "pattern": "\\bWS_EX_NOACTIVATE\\b",
+          "codeOnly": true,
+          "extensions": [
+            ".rs",
+            ".c",
+            ".cc",
+            ".cpp",
+            ".h",
+            ".cs"
+          ],
+          "tier": "advise",
+          "usageContext": {
+            "hosts": [
+              "macos",
+              "windows"
+            ],
+            "scope": "Executable code only; authenticated owner provenance required for exclusions"
+          },
+          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
+        },
+        {
+          "id": "overlay.api.ns-ignores-mouse",
+          "type": "source",
+          "pattern": "\\bsetIgnoresMouseEvents\\s*[(:]|\\bignoresMouseEvents\\s*=(?!=)",
+          "codeOnly": true,
+          "extensions": [
+            ".swift",
+            ".m",
+            ".mm"
+          ],
+          "tier": "advise",
+          "usageContext": {
+            "hosts": [
+              "macos",
+              "windows"
+            ],
+            "scope": "Executable code only; authenticated owner provenance required for exclusions"
+          },
+          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
+        }
+      ],
+      "detection": "fingerprinted",
       "policyNotes": [
         "Package contract retained; dependency declarations do not verify integration.",
-        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
+        "Fingerprints identify review candidates (competing dependencies and distinctive implementation code); published two-host replacement qualification is not recorded."
       ]
     }
   ]

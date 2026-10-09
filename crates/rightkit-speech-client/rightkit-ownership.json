@@ -3,12 +3,49 @@
   "capabilities": [
     {
       "capability": "shared-speech-service",
-      "summary": "Client and contract for the Orthic Labs shared speech service (one resident engine per machine), built on rightkit-service. Wire-compatible with HeardRight's v1 host.; declaration-only detection (no precise implementation fingerprint)",
-      "fingerprints": [],
-      "detection": "declaration-only",
+      "summary": "Client and contract for the Orthic Labs shared speech service (one resident engine per machine), built on rightkit-service. Wire-compatible with HeardRight's v1 host.",
+      "fingerprints": [
+        {
+          "id": "speech.protocol.schema-name",
+          "type": "source",
+          "pattern": "\\bschema_name\\s*[!=]=\\s*&?\\s*[\"'](?:file_transcription(?:_\\w+)?|engine_health)[\"']",
+          "codeOnly": true,
+          "extensions": [
+            ".rs"
+          ],
+          "tier": "advise",
+          "usageContext": {
+            "hosts": [
+              "macos",
+              "windows"
+            ],
+            "scope": "Executable code only; authenticated owner provenance required for exclusions"
+          },
+          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
+        },
+        {
+          "id": "speech.spawn.speech-service-flag",
+          "type": "source",
+          "pattern": "\\b(?:Command\\s*::\\s*new|\\.args?)\\s*\\([^;]{0,200}?[\"']--speech-service[\"']",
+          "codeOnly": true,
+          "extensions": [
+            ".rs"
+          ],
+          "tier": "advise",
+          "usageContext": {
+            "hosts": [
+              "macos",
+              "windows"
+            ],
+            "scope": "Executable code only; authenticated owner provenance required for exclusions"
+          },
+          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
+        }
+      ],
+      "detection": "fingerprinted",
       "policyNotes": [
         "Package contract retained; dependency declarations do not verify integration.",
-        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
+        "Fingerprints identify review candidates (competing dependencies and distinctive implementation code); published two-host replacement qualification is not recorded."
       ]
     }
   ]

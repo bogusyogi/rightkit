@@ -3,12 +3,36 @@
   "capabilities": [
     {
       "capability": "tauri-host-adapters",
-      "summary": "Typed host adapters for shared Right Suite Tauri commands.; declaration-only detection (no precise implementation fingerprint)",
-      "fingerprints": [],
-      "detection": "declaration-only",
+      "summary": "Typed host adapters for shared Right Suite Tauri commands.",
+      "fingerprints": [
+        {
+          "id": "tauri.invoke.standard-commands",
+          "type": "source",
+          "pattern": "\\binvoke\\s*(?:<[^>()]*>)?\\s*\\(\\s*[\"'](?:secure_update_license_(?:get|set|delete)|secure_device_id_get_or_create|collect_diagnostics|clear_diagnostic_logs)[\"']",
+          "codeOnly": true,
+          "extensions": [
+            ".ts",
+            ".tsx",
+            ".js",
+            ".mjs",
+            ".cjs",
+            ".jsx"
+          ],
+          "tier": "advise",
+          "usageContext": {
+            "hosts": [
+              "macos",
+              "windows"
+            ],
+            "scope": "Executable code only; authenticated owner provenance required for exclusions"
+          },
+          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
+        }
+      ],
+      "detection": "fingerprinted",
       "policyNotes": [
         "Package contract retained; dependency declarations do not verify integration.",
-        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
+        "Fingerprints identify review candidates (competing dependencies and distinctive implementation code); published two-host replacement qualification is not recorded."
       ]
     }
   ]

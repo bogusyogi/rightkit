@@ -3,12 +3,98 @@
   "capabilities": [
     {
       "capability": "browser-qa",
-      "summary": "Zero-dependency Chrome for Testing resolver, launcher and graceful close for Right Suite QA harnesses.; declaration-only detection (no precise implementation fingerprint)",
-      "fingerprints": [],
-      "detection": "declaration-only",
+      "summary": "Zero-dependency Chrome for Testing resolver, launcher and graceful close for Right Suite QA harnesses.",
+      "fingerprints": [
+        {
+          "id": "qa-chrome.npm.chrome-launcher",
+          "type": "dependency",
+          "ecosystem": "npm",
+          "name": "chrome-launcher",
+          "tier": "advise",
+          "usageContext": {
+            "hosts": [
+              "macos",
+              "windows"
+            ],
+            "scope": "npm direct competing dependency; transitive findings require authenticated reachability"
+          },
+          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
+        },
+        {
+          "id": "qa-chrome.npm.puppeteer-browsers",
+          "type": "dependency",
+          "ecosystem": "npm",
+          "name": "@puppeteer/browsers",
+          "tier": "advise",
+          "usageContext": {
+            "hosts": [
+              "macos",
+              "windows"
+            ],
+            "scope": "npm direct competing dependency; transitive findings require authenticated reachability"
+          },
+          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
+        },
+        {
+          "id": "qa-chrome.npm.chromedriver",
+          "type": "dependency",
+          "ecosystem": "npm",
+          "name": "chromedriver",
+          "tier": "advise",
+          "usageContext": {
+            "hosts": [
+              "macos",
+              "windows"
+            ],
+            "scope": "npm direct competing dependency; transitive findings require authenticated reachability"
+          },
+          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
+        },
+        {
+          "id": "qa-chrome.npm.chrome-remote-interface",
+          "type": "dependency",
+          "ecosystem": "npm",
+          "name": "chrome-remote-interface",
+          "tier": "advise",
+          "usageContext": {
+            "hosts": [
+              "macos",
+              "windows"
+            ],
+            "scope": "npm direct competing dependency; transitive findings require authenticated reachability"
+          },
+          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
+        },
+        {
+          "id": "qa-chrome.url.chrome-for-testing",
+          "type": "source",
+          "pattern": "\\b(?:fetch|get|request|download\\w*)\\s*\\(\\s*[`\"'][^`\"'\\n]*(?:googlechromelabs\\.github\\.io/chrome-for-testing|storage\\.googleapis\\.com/chrome-for-testing-public)",
+          "codeOnly": true,
+          "extensions": [
+            ".ts",
+            ".tsx",
+            ".js",
+            ".mjs",
+            ".cjs",
+            ".jsx",
+            ".rs",
+            ".py"
+          ],
+          "tier": "advise",
+          "usageContext": {
+            "hosts": [
+              "macos",
+              "windows"
+            ],
+            "scope": "Executable code only; authenticated owner provenance required for exclusions"
+          },
+          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
+        }
+      ],
+      "detection": "fingerprinted",
       "policyNotes": [
         "Package contract retained; dependency declarations do not verify integration.",
-        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
+        "Fingerprints identify review candidates (competing dependencies and distinctive implementation code); published two-host replacement qualification is not recorded."
       ]
     }
   ]

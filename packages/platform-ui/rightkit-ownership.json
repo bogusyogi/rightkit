@@ -3,12 +3,36 @@
   "capabilities": [
     {
       "capability": "platform-ui",
-      "summary": "Brand-neutral platform, shortcut, and window-control primitives for Right Suite apps.; declaration-only detection (no precise implementation fingerprint)",
-      "fingerprints": [],
-      "detection": "declaration-only",
+      "summary": "Brand-neutral platform, shortcut, and window-control primitives for Right Suite apps.",
+      "fingerprints": [
+        {
+          "id": "platform.js.user-agent-sniff",
+          "type": "source",
+          "pattern": "\\bnavigator\\s*\\??\\.\\s*(?:platform|userAgent)\\s*\\??\\.\\s*(?:to(?:Lower|Upper)Case\\s*\\(\\s*\\)\\s*\\??\\.\\s*)?(?:includes|indexOf|startsWith|match|search)\\s*\\(\\s*[\"'/](?:[Mm]ac|MAC|[Ww]in|WIN|iPhone|iPad)|/[^/\\n]{0,40}\\b(?:[Mm]ac|[Ww]in|iphone|ipad)[^/\\n]{0,40}/[a-z]*\\s*\\.\\s*test\\s*\\(\\s*navigator\\s*\\.\\s*(?:platform|userAgent)\\b",
+          "codeOnly": true,
+          "extensions": [
+            ".ts",
+            ".tsx",
+            ".js",
+            ".mjs",
+            ".cjs",
+            ".jsx"
+          ],
+          "tier": "advise",
+          "usageContext": {
+            "hosts": [
+              "macos",
+              "windows"
+            ],
+            "scope": "Executable code only; authenticated owner provenance required for exclusions"
+          },
+          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
+        }
+      ],
+      "detection": "fingerprinted",
       "policyNotes": [
         "Package contract retained; dependency declarations do not verify integration.",
-        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
+        "Fingerprints identify review candidates (competing dependencies and distinctive implementation code); published two-host replacement qualification is not recorded."
       ]
     }
   ]

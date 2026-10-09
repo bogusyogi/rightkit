@@ -3,12 +3,36 @@
   "capabilities": [
     {
       "capability": "legal-ui",
-      "summary": "The one first-run / re-acceptance legal gate screen for Right Suite desktop apps.; declaration-only detection (no precise implementation fingerprint)",
-      "fingerprints": [],
-      "detection": "declaration-only",
+      "summary": "The one first-run / re-acceptance legal gate screen for Right Suite desktop apps.",
+      "fingerprints": [
+        {
+          "id": "legal.storage.assent-flag",
+          "type": "source",
+          "pattern": "\\blocalStorage\\s*\\.\\s*(?:getItem|setItem)\\s*\\(\\s*[\"'][\\w.:/-]*(?:eula|terms[-_.:]?(?:accepted|agreed)|tos[-_.:]?accepted|legal[-_.:]?(?:accepted|assent))[\\w.:/-]*[\"']",
+          "codeOnly": true,
+          "extensions": [
+            ".ts",
+            ".tsx",
+            ".js",
+            ".mjs",
+            ".cjs",
+            ".jsx"
+          ],
+          "tier": "advise",
+          "usageContext": {
+            "hosts": [
+              "macos",
+              "windows"
+            ],
+            "scope": "Executable code only; authenticated owner provenance required for exclusions"
+          },
+          "tierReason": "No recorded published-version qualification for this usage context on both macOS & Windows."
+        }
+      ],
+      "detection": "fingerprinted",
       "policyNotes": [
         "Package contract retained; dependency declarations do not verify integration.",
-        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
+        "Fingerprints identify review candidates (competing dependencies and distinctive implementation code); published two-host replacement qualification is not recorded."
       ]
     }
   ]
