@@ -16,7 +16,7 @@
     "@rightkit/app-shell": "0.3.0",
     "@rightkit/ax": "0.2.4",
     "@rightkit/doc-render": "0.1.4",
-    "@rightkit/git": "0.2.30",
+    "@rightkit/git": "0.2.31",
     "@rightkit/hooks": "0.1.2",
     "@rightkit/i18n": "0.1.0",
     "@rightkit/legal": "0.3.1",
@@ -71,7 +71,8 @@
       "0.2.26",
       "0.2.27",
       "0.2.28",
-      "0.2.29"
+      "0.2.29",
+      "0.2.30"
     ],
     "@rightkit/legal-ui": [
       "0.1.0",
@@ -365,7 +366,7 @@
       "@rightkit/app-shell": "0.3.0",
       "@rightkit/ax": "0.2.4",
       "@rightkit/doc-render": "0.1.4",
-      "@rightkit/git": "0.2.30",
+      "@rightkit/git": "0.2.31",
       "@rightkit/hooks": "0.1.2",
       "@rightkit/i18n": "0.1.0",
       "@rightkit/legal": "0.3.1",
