@@ -108,6 +108,8 @@ pub enum WatchMsg {
     /// Worker acknowledges after everything queued before it was applied.
     Flush(Sender<()>),
     Stop,
+    /// Rebuild the column store (test hook); acknowledged when done.
+    Compact(Sender<()>),
 }
 
 pub trait Watcher: Send {
@@ -121,8 +123,9 @@ pub trait Backend: Send + Sync {
     fn check_supported(&self) -> Result<()>;
     /// Metadata for one path without following symlinks.
     fn stat(&self, path: &Path) -> std::io::Result<EntryData>;
-    /// Recursive crawl; listing id 0 is `root` itself.
-    fn crawl(&self, root: &Path, excludes: &Excludes, threads: usize) -> Vec<Listing>;
+    /// Recursive crawl streamed to `sink`; listing id 0 is `root` itself. A directory's listing
+    /// is always delivered before the listings of its subdirectories.
+    fn crawl(&self, root: &Path, excludes: &Excludes, threads: usize, sink: &mut dyn FnMut(Listing));
     /// One directory, no recursion; subdirectories have `child == NONE`.
     fn list_dir(&self, dir: &Path, excludes: &Excludes) -> std::io::Result<Listing>;
     /// Start the change feed. `since`: resume from this event id (None: from now).

@@ -3,8 +3,7 @@
 
 mod common;
 use common::*;
-use rightkit_fsindex::{EntryKind, Error, Index, SearchOptions};
-use std::sync::Arc;
+use rightkit_fsindex::{EntryKind, Index, SearchOptions};
 
 #[test]
 fn crawl_sizes_and_children_sorted() {
@@ -352,7 +351,7 @@ extern "C" {
 #[test]
 fn only_the_content_module_may_open_files() {
     // Static guard for name/size mode: no source file except content.rs (feature-gated),
-    // snapshot.rs (our own state file) or the directory-only backend may touch file contents.
+    // col.rs/store.rs/names.rs (our own state files) or the directory-only backend may touch file contents.
     let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
     let banned = [
         "File::open",
@@ -361,7 +360,7 @@ fn only_the_content_module_may_open_files() {
         "OpenOptions",
         "fs::read_to",
     ];
-    let allowed = ["content.rs", "snapshot.rs", "names.rs"];
+    let allowed = ["content.rs", "col.rs", "store.rs", "names.rs"];
     fn walk(d: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
         for e in std::fs::read_dir(d).unwrap().flatten() {
             let p = e.path();
@@ -468,4 +467,84 @@ fn snapshot_resumes_and_catches_up() {
         i.search("two.txt").unwrap().len() == 1 && i.search("one.txt").unwrap().is_empty()
     });
     assert_eq!(idx.folder_size(&t.root).unwrap().logical, 200);
+}
+
+fn state_cfg(root: &std::path::Path, state: &std::path::Path) -> rightkit_fsindex::Config {
+    let mut cfg = config(root);
+    cfg.state_dir = Some(state.to_path_buf());
+    cfg
+}
+
+#[test]
+fn committed_columns_reopen_without_a_crawl_and_stay_exact() {
+    let t = tree();
+    let state = tempfile::tempdir().unwrap();
+    for i in 0..30 {
+        write(&t.root.join(format!("p/q{}/f{i}.dat", i % 5)), 500 + i * 11);
+    }
+    write(&t.root.join("Pkg.app/Contents/x"), 9000);
+    write(&t.root.join("clones/orig.bin"), 2 << 20);
+    let _ = std::process::Command::new("cp").arg("-c").arg(t.root.join("clones/orig.bin")).arg(t.root.join("clones/c1.bin")).status();
+    std::fs::hard_link(t.root.join("p/q0/f0.dat"), t.root.join("p/q0/link.dat")).unwrap();
+    let before = {
+        let idx = Index::open(state_cfg(&t.root, state.path())).unwrap();
+        assert!(!idx.status().resumed_from_snapshot);
+        idx.folder_size(&t.root).unwrap()
+    };
+    let idx = Index::open(state_cfg(&t.root, state.path())).unwrap();
+    assert!(idx.status().resumed_from_snapshot, "clean commit must be reused as is");
+    assert_eq!(idx.folder_size(&t.root).unwrap(), before);
+    assert!(idx.folder_size(t.root.join("Pkg.app")).unwrap().is_package);
+    assert_eq!(idx.search("link.dat").unwrap().len(), 1);
+    // Hard-link ownership and clone groups were rebuilt from the columns: keep editing.
+    std::fs::remove_file(t.root.join("p/q0/f0.dat")).unwrap();
+    std::fs::remove_file(t.root.join("clones/orig.bin")).unwrap();
+    wait_for(&idx, "edits after reopen", |i| i.search("'f0.dat").unwrap().is_empty() && i.search("orig.bin").unwrap().is_empty());
+    idx.flush();
+    assert_matches_fresh_crawl(&idx, &t.root);
+}
+
+#[test]
+fn torn_update_is_discarded_and_recrawled() {
+    let t = tree();
+    let state = tempfile::tempdir().unwrap();
+    write(&t.root.join("a/one.txt"), 100);
+    {
+        let idx = Index::open(state_cfg(&t.root, state.path())).unwrap();
+        write(&t.root.join("a/two.txt"), 200);
+        wait_for(&idx, "two", |i| i.search("two.txt").unwrap().len() == 1);
+        // Simulated crash: the header is dirty (a change landed after the commit) and Drop never runs.
+        std::mem::forget(idx);
+    }
+    let idx = Index::open(state_cfg(&t.root, state.path())).unwrap();
+    assert!(!idx.status().resumed_from_snapshot, "a dirty header means a torn store: crawl again");
+    assert_eq!(idx.folder_size(&t.root).unwrap().logical, 300);
+}
+
+#[test]
+fn compaction_reclaims_slots_and_keeps_rollups() {
+    let t = tree();
+    let state = tempfile::tempdir().unwrap();
+    for i in 0..200 {
+        write(&t.root.join(format!("big/d{}/f{i}", i % 10)), 100 + i);
+    }
+    write(&t.root.join("keep/k.txt"), 4242);
+    let idx = Index::open(state_cfg(&t.root, state.path())).unwrap();
+    std::fs::remove_dir_all(t.root.join("big")).unwrap();
+    wait_for(&idx, "big removed", |i| i.folder_size(t.root.join("big")).is_none());
+    let (slots, free) = idx.slot_counts();
+    assert!(free > 100, "deleted entries leave free slots ({free} of {slots})");
+    idx.compact_now();
+    let (slots2, free2) = idx.slot_counts();
+    assert!(slots2 < slots && free2 == 0, "compaction rebuilds contiguous slots: {slots} -> {slots2}");
+    assert_eq!(idx.folder_size(&t.root).unwrap().logical, 4242);
+    assert_eq!(idx.search("k.txt").unwrap().len(), 1);
+    write(&t.root.join("keep/after.txt"), 10);
+    wait_for(&idx, "live after compaction", |i| i.search("after.txt").unwrap().len() == 1);
+    idx.flush();
+    assert_matches_fresh_crawl(&idx, &t.root);
+    drop(idx);
+    let again = Index::open(state_cfg(&t.root, state.path())).unwrap();
+    assert!(again.status().resumed_from_snapshot);
+    assert_eq!(again.folder_size(&t.root).unwrap().logical, 4252);
 }

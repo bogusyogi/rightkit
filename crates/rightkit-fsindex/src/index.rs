@@ -5,10 +5,8 @@ use crate::config::*;
 #[cfg(feature = "content")]
 use crate::error::Error;
 use crate::error::Result;
-use crate::names::NameStore;
 use crate::query::Query;
-use crate::snapshot;
-use crate::store::Store;
+use crate::store::{now_secs, Store};
 use std::borrow::Cow;
 use std::collections::{BinaryHeap, HashMap, HashSet};
 use std::ffi::OsString;
@@ -386,8 +384,18 @@ impl Index {
         Self::open_with_backend(cfg, default_backend())
     }
 
-    /// Blocks until the first crawl (or snapshot load) finished; unreadable roots are reported in `status()`.
+    /// Blocks until the first crawl (or reopen of the committed column store) finished; unreadable roots are reported in `status()`.
     pub fn open_with_backend(cfg: Config, backend: Arc<dyn Backend>) -> Result<Index> {
+        Self::open_inner(cfg, backend, None)
+    }
+
+    /// Test and benchmark support: fill the columns with `entries` generated entries instead of crawling.
+    #[doc(hidden)]
+    pub fn open_synthetic(cfg: Config, entries: usize) -> Result<Index> {
+        Self::open_inner(cfg, default_backend(), Some(entries))
+    }
+
+    fn open_inner(cfg: Config, backend: Arc<dyn Backend>, synth: Option<usize>) -> Result<Index> {
         backend.check_supported()?;
         let roots: Vec<PathBuf> = cfg.roots.iter().map(|r| canon(r)).collect();
         let fda = backend.has_full_disk_access();
@@ -433,31 +441,29 @@ impl Index {
             fnv(&mut fp, p);
         }
 
-        let names = NameStore::new(cfg.state_dir.as_ref().map(|d| d.join("names")))?;
-        let mut store = Store::new(names, pkg);
-
-        // Snapshot.
-        let snap_path = cfg.state_dir.as_ref().map(|d| d.join("index.snapshot"));
         let mut resumed = None;
-        if let Some(sp) = &snap_path {
-            if sp.exists() {
-                match snapshot::load(&mut store, sp, fp) {
-                    Ok(l)
-                        if snapshot::now_secs().saturating_sub(l.saved_at)
-                            <= cfg.snapshot_max_age.as_secs()
-                            && l.event_id <= backend.current_event_id() =>
+        let mut opened = None;
+        if let Some(sd) = &cfg.state_dir {
+            std::fs::create_dir_all(sd)?;
+            recover_swap(sd);
+            if sd.join("index").exists() {
+                if let Some((st, info)) = Store::open_existing(&sd.join("index"), pkg.clone(), fp)? {
+                    if now_secs().saturating_sub(info.saved_at) <= cfg.snapshot_max_age.as_secs()
+                        && info.event_id <= backend.current_event_id()
                     {
-                        resumed = Some(l.event_id)
-                    }
-                    _ => {
-                        // Unusable: start from an empty store.
-                        let names =
-                            NameStore::new(cfg.state_dir.as_ref().map(|d| d.join("names")))?;
-                        let pk = store_pkg(&store);
-                        store = Store::new(names, pk);
+                        resumed = Some(info.event_id);
+                        opened = Some(st);
                     }
                 }
             }
+        }
+        let mut store = match opened {
+            Some(s) => s,
+            None => fresh_store(cfg.state_dir.as_deref(), "index", pkg, fp)?,
+        };
+        #[cfg(feature = "content")]
+        {
+            store.log_changes = cfg.content.enabled;
         }
 
         let (tx, rx) = channel();
@@ -477,9 +483,14 @@ impl Index {
         };
         let t0 = Instant::now();
         if resumed.is_none() {
-            for r in &roots {
-                crawl_root(&*backend, &excludes, cfg.crawl_threads, &mut store, r)?;
+            if let Some(n) = synth {
+                fill_synthetic(&mut store, &roots[0], n)?;
+            } else {
+                for r in &roots {
+                    crawl_root(&*backend, &excludes, cfg.crawl_threads, &mut store, r)?;
+                }
             }
+            store.commit(start_id)?;
         }
         status.crawl_time = t0.elapsed();
         for r in &roots {
@@ -508,6 +519,8 @@ impl Index {
         let w = Worker {
             shared: shared.clone(),
             pending: Pending::default(),
+            last_commit: Instant::now(),
+            last_compact: Instant::now(),
         };
         let worker = std::thread::Builder::new()
             .name("rightkit-fsindex".into())
@@ -539,8 +552,8 @@ impl Index {
         st.unreadable_dirs.clear();
         st.unreadable_count = 0;
         for s in store.live_slots() {
-            let e = store.entry(s);
-            if e.d.kind == KIND_DIR && e.d.flags & FLAG_UNREADABLE != 0 {
+            let (kind, flags) = store.kind_flags(s);
+            if kind == KIND_DIR && flags & FLAG_UNREADABLE != 0 {
                 st.unreadable_count += 1;
                 if st.unreadable_dirs.len() < 1000 {
                     st.unreadable_dirs.push(os(&store.path_of(s)));
@@ -564,7 +577,7 @@ impl Index {
         let mut heap: BinaryHeap<std::cmp::Reverse<(i32, std::cmp::Reverse<u32>)>> =
             BinaryHeap::new();
         let mut visit = |s: u32| {
-            let nid = store.entry(s).name as usize;
+            let nid = store.name_id(s) as usize;
             if cache[nid] == UNKNOWN {
                 cache[nid] = q.score_name(store.names.get(nid as u32)).unwrap_or(MISS);
             }
@@ -590,7 +603,7 @@ impl Index {
                     if x != root {
                         visit(x);
                     }
-                    stack.extend_from_slice(store.children(x));
+                    stack.extend(store.children(x));
                 }
             }
         }
@@ -630,8 +643,8 @@ impl Index {
         let s = self.lookup(&store, path.as_ref())?;
         let mut v: Vec<(u32, SizeInfo)> = store
             .children(s)
-            .iter()
-            .map(|&c| (c, size_of(&store, c)))
+            .into_iter()
+            .map(|c| (c, size_of(&store, c)))
             .collect();
         let k = |x: &SizeInfo| match key {
             SortKey::AllocatedUnique => x.allocated_unique,
@@ -673,17 +686,30 @@ impl Index {
 
     /// Write the snapshot now (needs `Config::state_dir`).
     pub fn snapshot(&self) -> Result<()> {
-        let Some(d) = &self.shared.cfg.state_dir else {
-            return Ok(());
-        };
-        std::fs::create_dir_all(d)?;
-        let store = rd(&self.shared);
-        snapshot::save(
-            &store,
-            &d.join("index.snapshot"),
-            self.shared.fingerprint,
-            self.shared.last_event_id.load(Ordering::Relaxed),
-        )
+        let mut store = wr(&self.shared);
+        store.commit(self.shared.last_event_id.load(Ordering::Relaxed))?;
+        Ok(())
+    }
+
+    /// Rebuild the column store now (drops freed slots and unreferenced names). Test hook.
+    #[doc(hidden)]
+    pub fn compact_now(&self) {
+        let (ack_tx, ack_rx) = channel();
+        if self.tx.send(WatchMsg::Compact(ack_tx)).is_ok() {
+            let _ = ack_rx.recv_timeout(Duration::from_secs(120));
+        }
+    }
+
+    /// Drop clean mapped pages from the resident set now. Also done automatically after 30 s idle.
+    pub fn trim(&self) {
+        rd(&self.shared).trim();
+    }
+
+    /// Slots in the column store and how many are free (diagnostics).
+    #[doc(hidden)]
+    pub fn slot_counts(&self) -> (usize, usize) {
+        let st = rd(&self.shared);
+        (st.slots(), st.free_slots())
     }
 
     /// Content search (feature `content`; also needs `Config::content.enabled`).
@@ -707,17 +733,59 @@ impl Drop for Index {
     }
 }
 
-fn store_pkg(_s: &Store) -> Vec<Vec<u8>> {
-    _s.package_exts_clone()
+fn recover_swap(sd: &Path) {
+    let (new, cur) = (sd.join("index.new"), sd.join("index"));
+    if new.exists() {
+        if !cur.exists() && new.join("header.bin").exists() {
+            let _ = std::fs::rename(&new, &cur);
+        } else {
+            let _ = std::fs::remove_dir_all(&new);
+        }
+    }
 }
 
-fn crawl_root(
-    backend: &dyn Backend,
-    excludes: &Excludes,
-    threads: usize,
-    store: &mut Store,
-    root: &Path,
-) -> Result<()> {
+fn fresh_store(state_dir: Option<&Path>, sub: &str, pkg: Vec<Vec<u8>>, fp: u64) -> std::io::Result<Store> {
+    match state_dir {
+        Some(sd) => {
+            let d = sd.join(sub);
+            let _ = std::fs::remove_dir_all(&d);
+            std::fs::create_dir_all(&d)?;
+            Store::create(Some(&d), pkg, fp)
+        }
+        None => Store::create(None, pkg, fp),
+    }
+}
+
+/// Stream a crawl of `root` straight into the store under `parent`, never holding more than the in-flight listings.
+fn crawl_into(backend: &dyn Backend, root: &Path, excludes: &Excludes, threads: usize, store: &mut Store, parent: u32) -> std::io::Result<()> {
+    let mut slots: HashMap<u32, u32> = HashMap::from([(0, parent)]);
+    let mut err: Option<std::io::Error> = None;
+    backend.crawl(root, excludes, threads, &mut |l| {
+        if err.is_some() {
+            return;
+        }
+        let Some(slot) = slots.remove(&l.id) else { return };
+        if l.error.is_some() {
+            store.set_flag(slot, FLAG_UNREADABLE);
+        }
+        for e in &l.ents {
+            match store.add_child(slot, l.name(e), e.data) {
+                Ok(s) => {
+                    if e.child != NONE {
+                        slots.insert(e.child, s);
+                    }
+                }
+                Err(e) => {
+                    err = Some(e);
+                    return;
+                }
+            }
+        }
+    });
+    err.map_or(Ok(()), Err)
+}
+
+fn crawl_root(backend: &dyn Backend, excludes: &Excludes, threads: usize, store: &mut Store, root: &Path) -> Result<()> {
     let rb_c = pb(root);
     let rb: &[u8] = &rb_c;
     match backend.stat(root) {
@@ -727,23 +795,59 @@ fn crawl_root(
                 store.set_flag(slot, FLAG_EXCLUDED);
                 return Ok(());
             }
-            let ls = backend.crawl(root, excludes, threads);
-            apply_listings(store, slot, &ls)?;
+            crawl_into(backend, root, excludes, threads, store, slot)?;
         }
         Ok(d) => {
             let slot = store.add_root(rb, d)?;
             store.set_flag(slot, FLAG_UNREADABLE);
         }
         Err(_) => {
-            let slot = store.add_root(
-                rb,
-                EntryData {
-                    kind: KIND_DIR,
-                    ..EntryData::default()
-                },
-            )?;
+            let slot = store.add_root(rb, EntryData { kind: KIND_DIR, ..EntryData::default() })?;
             store.set_flag(slot, FLAG_UNREADABLE);
         }
+    }
+    Ok(())
+}
+
+/// Fill the store with `n` generated entries (no filesystem access): an 8-ary folder tree, files with
+/// skewed 64-bit sizes, a shared name pool, and a few clones.
+fn fill_synthetic(store: &mut Store, root: &Path, n: usize) -> Result<()> {
+    let mut x = 0x9e37_79b9_7f4a_7c15u64;
+    let mut rnd = move || {
+        x ^= x << 13;
+        x ^= x >> 7;
+        x ^= x << 17;
+        x
+    };
+    let r = store.add_root(&pb(root), EntryData { kind: KIND_DIR, ..EntryData::default() })?;
+    let ndirs = (n / 12).max(1);
+    let mut dirs = vec![r];
+    for i in 1..ndirs {
+        let parent = dirs[(i - 1) / 8];
+        let name = format!("dir{:x}", rnd() % (ndirs as u64 / 4 + 1));
+        let d = EntryData { kind: KIND_DIR, ..EntryData::default() };
+        dirs.push(store.add_child(parent, name.as_bytes(), d)?);
+    }
+    const EXT: [&str; 6] = ["dat", "txt", "png", "swift", "json", "log"];
+    for k in 0..n.saturating_sub(ndirs) {
+        let dir = dirs[(rnd() % dirs.len() as u64) as usize];
+        let name = format!("file{:x}.{}", rnd() % (n as u64 / 4 + 1), EXT[k % 6]);
+        let logical = rnd() % (1u64 << (rnd() % 26));
+        let alloc = logical.div_ceil(4096) * 4096;
+        let clone = k % 1000 == 0;
+        let d = EntryData {
+            kind: KIND_FILE,
+            nlink: 1,
+            mtime: 1_700_000_000 + (k % 100_000) as i64,
+            dev: 1,
+            fileid: k as u64 + 2,
+            logical,
+            alloc,
+            private: if clone { alloc / 2 } else { alloc },
+            cloneid: if clone { 1 + rnd() % 500 } else { 0 },
+            ..EntryData::default()
+        };
+        store.add_child(dir, name.as_bytes(), d)?;
     }
     Ok(())
 }
@@ -772,6 +876,8 @@ fn root_status(backend: &dyn Backend, store: &Store, r: &Path) -> RootStatus {
 struct Worker {
     shared: Arc<Shared>,
     pending: Pending,
+    last_commit: Instant,
+    last_compact: Instant,
 }
 
 impl Worker {
@@ -790,13 +896,18 @@ impl Worker {
                         Err(_) => return,
                     }
                 }
-                None => match rx.recv() {
+                None => match rx.recv_timeout(Duration::from_secs(30)) {
                     Ok(m) => Some(m),
+                    Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                        self.maybe_commit();
+                        continue;
+                    }
                     Err(_) => return,
                 },
             };
             let mut events: Vec<Event> = Vec::new();
             let mut acks: Vec<Sender<()>> = Vec::new();
+            let mut compacts: Vec<Sender<()>> = Vec::new();
             let mut stop = false;
             let mut next = msg;
             let mut drained = 0;
@@ -805,6 +916,7 @@ impl Worker {
                     WatchMsg::Events(mut e) => events.append(&mut e),
                     WatchMsg::Flush(a) => acks.push(a),
                     WatchMsg::Stop => stop = true,
+                    WatchMsg::Compact(a) => compacts.push(a),
                 }
                 drained += 1;
                 if stop || drained >= 4096 {
@@ -814,6 +926,10 @@ impl Worker {
             }
             if !events.is_empty() {
                 self.handle(events);
+            }
+            for a in compacts {
+                let _ = self.shared.compact();
+                let _ = a.send(());
             }
             if !acks.is_empty() {
                 self.emit();
@@ -870,7 +986,28 @@ impl Worker {
         self.after_apply();
     }
 
+    fn maybe_commit(&mut self) {
+        if self.last_commit.elapsed() < Duration::from_secs(30) {
+            return;
+        }
+        self.last_commit = Instant::now();
+        let mut st = wr(&self.shared);
+        if st.is_dirty() {
+            let _ = st.commit(self.shared.last_event_id.load(Ordering::Relaxed));
+        }
+        st.trim();
+    }
+
     fn after_apply(&mut self) {
+        self.maybe_commit();
+        let (slots, free) = {
+            let st = rd(&self.shared);
+            (st.slots(), st.free_slots())
+        };
+        if slots > 50_000 && free * 4 > slots && self.last_compact.elapsed() > Duration::from_secs(600) {
+            self.last_compact = Instant::now();
+            let _ = self.shared.compact();
+        }
         let (removed, touched) = wr(&self.shared).take_logs();
         #[cfg(feature = "content")]
         self.shared.content_apply(&removed, &touched);
@@ -880,23 +1017,8 @@ impl Worker {
 
     fn full_rescan(&mut self) {
         let sh = self.shared.clone();
-        let names = match NameStore::new(sh.cfg.state_dir.as_ref().map(|d| d.join("names"))) {
-            Ok(n) => n,
-            Err(_) => NameStore::new(None).expect("anonymous name store"),
-        };
-        let pk = rd(&sh).package_exts_clone();
-        let mut fresh = Store::new(names, pk);
-        for r in &sh.roots {
-            let _ = crawl_root(
-                &*sh.backend,
-                &sh.excludes,
-                sh.cfg.crawl_threads,
-                &mut fresh,
-                r,
-            );
-        }
-        fresh.take_logs();
-        *wr(&sh) = fresh;
+        let Ok(fresh) = sh.build_fresh() else { return };
+        sh.swap_store(fresh);
         sh.status
             .lock()
             .unwrap_or_else(|e| e.into_inner())
@@ -923,9 +1045,7 @@ impl Worker {
             }
             return;
         };
-        let ls = sh
-            .backend
-            .crawl(&os(path), &sh.excludes, sh.cfg.crawl_threads);
+        let ls = sh.collect_listings(path);
         let mut store = wr(&sh);
         if store.lookup(path) != Some(slot) {
             return;
@@ -996,9 +1116,7 @@ impl Worker {
             }
         }
         for (slot, p) in new_dirs {
-            let ls = sh
-                .backend
-                .crawl(&os(&p), &sh.excludes, sh.cfg.crawl_threads);
+            let ls = sh.collect_listings(&p);
             let mut store = wr(&sh);
             if store.is_live(slot) && store.lookup(&p) == Some(slot) {
                 let _ = apply_listings(&mut store, slot, &ls);
@@ -1072,7 +1190,7 @@ fn changed(old: &EntryData, new: &EntryData) -> bool {
         || old.cloneid != new.cloneid
         || old.nlink != new.nlink
         || old.fileid != new.fileid
-        || old.mtime != new.mtime
+        || old.mtime != new.mtime.clamp(0, u32::MAX as i64)
         || (old.flags ^ new.flags) & (FLAG_HIDDEN | FLAG_EXCLUDED | FLAG_MOUNT) != 0
 }
 
@@ -1231,5 +1349,71 @@ impl Shared {
         });
         hits.truncate(limit.max(1));
         Ok(hits)
+    }
+}
+
+impl Shared {
+    fn swap_store(&self, fresh: Store) {
+        let mut g = wr(self);
+        match &self.cfg.state_dir {
+            Some(sd) if fresh.is_file_backed() => {
+                let old = std::mem::replace(&mut *g, fresh);
+                drop(old);
+                let cur = sd.join("index");
+                let _ = std::fs::remove_dir_all(&cur);
+                if std::fs::rename(sd.join("index.new"), &cur).is_ok() {
+                    g.relocate(&cur);
+                }
+            }
+            _ => *g = fresh,
+        }
+    }
+
+    fn build_fresh(&self) -> Result<Store> {
+        let pk = rd(self).package_exts_clone();
+        let start = self.backend.current_event_id();
+        let mut fresh = fresh_store(self.cfg.state_dir.as_deref(), "index.new", pk, self.fingerprint)?;
+        for r in &self.roots {
+            let _ = crawl_root(&*self.backend, &self.excludes, self.cfg.crawl_threads, &mut fresh, r);
+        }
+        fresh.log_changes = rd(self).log_changes;
+        fresh.take_logs();
+        fresh.commit(start)?;
+        Ok(fresh)
+    }
+
+    /// Copy the live tree depth-first into a fresh store (contiguous slots, no garbage names), then swap.
+    /// Only the worker thread writes, so the copy under the read lock is consistent.
+    fn compact(&self) -> Result<()> {
+        let pk = rd(self).package_exts_clone();
+        let mut fresh = fresh_store(self.cfg.state_dir.as_deref(), "index.new", pk, self.fingerprint)?;
+        {
+            let old = rd(self);
+            for &r in &old.roots {
+                let nr = fresh.add_root(old.name_of(r), old.entry(r).d)?;
+                let mut stack = vec![(r, nr)];
+                while let Some((o, n)) = stack.pop() {
+                    for c in old.children(o).into_iter().rev() {
+                        let e = old.entry(c);
+                        let nc = fresh.add_child(n, old.name_of(c), e.d)?;
+                        if e.d.kind == KIND_DIR {
+                            stack.push((c, nc));
+                        }
+                    }
+                }
+            }
+            fresh.log_changes = old.log_changes;
+        }
+        fresh.take_logs();
+        fresh.commit(self.last_event_id.load(Ordering::Relaxed))?;
+        self.swap_store(fresh);
+        Ok(())
+    }
+
+    fn collect_listings(&self, path: &[u8]) -> Vec<Listing> {
+        let mut v = Vec::new();
+        self.backend.crawl(&os(path), &self.excludes, self.cfg.crawl_threads, &mut |l| v.push(l));
+        v.sort_by_key(|l| l.id);
+        v
     }
 }

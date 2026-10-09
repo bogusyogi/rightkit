@@ -276,76 +276,60 @@ impl Backend for MacBackend {
         })
     }
 
-    fn crawl(&self, root: &Path, excludes: &Excludes, threads: usize) -> Vec<Listing> {
+    fn crawl(&self, root: &Path, excludes: &Excludes, threads: usize, sink: &mut dyn FnMut(Listing)) {
         raise_fd_limit();
         let threads = threads.max(1);
-        let q = (
-            Mutex::new(Queue {
-                stack: vec![Job {
-                    id: 0,
-                    path: root.as_os_str().as_bytes().to_vec(),
-                }],
-                active: 0,
-            }),
-            Condvar::new(),
-        );
+        let q = (Mutex::new(Queue { stack: vec![Job { id: 0, path: root.as_os_str().as_bytes().to_vec() }], active: 0 }), Condvar::new());
         let next_id = AtomicU32::new(1);
-        let mut all: Vec<Listing> = std::thread::scope(|s| {
-            let hs: Vec<_> = (0..threads)
-                .map(|_| {
-                    s.spawn(|| {
-                        let mut out = Vec::new();
+        // Bounded: workers block when the consumer falls behind, so a whole-disk crawl never
+        // holds more than a few hundred directory listings in memory.
+        let (tx, rx) = std::sync::mpsc::sync_channel::<Listing>(256);
+        std::thread::scope(|s| {
+            for _ in 0..threads {
+                let tx = tx.clone();
+                let (q, next_id) = (&q, &next_id);
+                s.spawn(move || loop {
+                    let job = {
+                        let mut g = q.0.lock().unwrap();
                         loop {
-                            let job = {
-                                let mut g = q.0.lock().unwrap();
-                                loop {
-                                    if let Some(j) = g.stack.pop() {
-                                        g.active += 1;
-                                        break Some(j);
-                                    }
-                                    if g.active == 0 {
-                                        q.1.notify_all();
-                                        break None;
-                                    }
-                                    g = q.1.wait(g).unwrap();
-                                }
-                            };
-                            let Some(job) = job else { return out };
-                            let mut l = Listing {
-                                id: job.id,
-                                ..Listing::default()
-                            };
-                            l.error = list_path(&job.path, &mut l);
-                            mark_excluded(&mut l, &job.path, excludes);
-                            let mut kids = Vec::new();
-                            for i in 0..l.ents.len() {
-                                let e = l.ents[i];
-                                if e.data.kind == KIND_DIR
-                                    && e.data.flags & (FLAG_MOUNT | FLAG_EXCLUDED) == 0
-                                {
-                                    let id = next_id.fetch_add(1, Ordering::Relaxed);
-                                    l.ents[i].child = id;
-                                    kids.push(Job {
-                                        id,
-                                        path: join(&job.path, l.name(&e)),
-                                    });
-                                }
+                            if let Some(j) = g.stack.pop() {
+                                g.active += 1;
+                                break Some(j);
                             }
-                            out.push(l);
-                            let mut g = q.0.lock().unwrap();
-                            g.stack.extend(kids);
-                            g.active -= 1;
-                            q.1.notify_all();
+                            if g.active == 0 {
+                                q.1.notify_all();
+                                break None;
+                            }
+                            g = q.1.wait(g).unwrap();
                         }
-                    })
-                })
-                .collect();
-            hs.into_iter()
-                .flat_map(|h| h.join().unwrap_or_default())
-                .collect()
+                    };
+                    let Some(job) = job else { return };
+                    let mut l = Listing { id: job.id, ..Listing::default() };
+                    l.error = list_path(&job.path, &mut l);
+                    mark_excluded(&mut l, &job.path, excludes);
+                    let mut kids = Vec::new();
+                    for i in 0..l.ents.len() {
+                        let e = l.ents[i];
+                        if e.data.kind == KIND_DIR && e.data.flags & (FLAG_MOUNT | FLAG_EXCLUDED) == 0 {
+                            let id = next_id.fetch_add(1, Ordering::Relaxed);
+                            l.ents[i].child = id;
+                            kids.push(Job { id, path: join(&job.path, l.name(&e)) });
+                        }
+                    }
+                    // A parent's listing is sent before any child job exists, so the
+                    // consumer always sees parents first.
+                    let _ = tx.send(l);
+                    let mut g = q.0.lock().unwrap();
+                    g.stack.extend(kids);
+                    g.active -= 1;
+                    q.1.notify_all();
+                });
+            }
+            drop(tx);
+            for l in rx {
+                sink(l);
+            }
         });
-        all.sort_by_key(|l| l.id);
-        all
     }
 
     fn list_dir(&self, dir: &Path, excludes: &Excludes) -> std::io::Result<Listing> {

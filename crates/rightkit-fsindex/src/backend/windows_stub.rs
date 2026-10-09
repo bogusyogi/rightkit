@@ -28,11 +28,8 @@ impl Backend for UnsupportedBackend {
     fn stat(&self, _: &Path) -> std::io::Result<EntryData> {
         Err(unsupported())
     }
-    fn crawl(&self, _: &Path, _: &Excludes, _: usize) -> Vec<Listing> {
-        vec![Listing {
-            error: Some(std::io::ErrorKind::Unsupported),
-            ..Listing::default()
-        }]
+    fn crawl(&self, _: &Path, _: &Excludes, _: usize, sink: &mut dyn FnMut(Listing)) {
+        sink(Listing { error: Some(std::io::ErrorKind::Unsupported), ..Listing::default() });
     }
     fn list_dir(&self, _: &Path, _: &Excludes) -> std::io::Result<Listing> {
         Err(unsupported())
