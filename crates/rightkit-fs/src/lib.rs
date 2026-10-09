@@ -33,8 +33,8 @@ pub mod state;
 
 #[cfg(feature = "fs")]
 pub use atomic::{
-    atomic_write, atomic_write_private, atomic_write_with, sweep_stale_temps, AtomicOptions,
-    AtomicWriter,
+    atomic_write, atomic_write_private, atomic_write_with, durable_sync, sweep_stale_temps,
+    AtomicOptions, AtomicWriter,
 };
 #[cfg(feature = "fs")]
 pub use clone::{clone_file_nofollow, CloneError};

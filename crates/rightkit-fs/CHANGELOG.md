@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.2
+
+- **Durable writes fall back like libuv on Apple.** `atomic_write*`, `StateDir` publishes and directory syncs now call the new `durable_sync`: `F_FULLFSYNC`, then `F_BARRIERFSYNC`, then `fsync`. Previously `File::sync_all` (bare `F_FULLFSYNC`) failed hard with `EIO` on some external volumes under parallel writes where Node's `fsync` succeeded. Other platforms still use `sync_all`.
+
 ## 0.3.1
 
 - **`lock` no longer depends on `nix`.** Unix record locks call `libc::fcntl(F_SETLK)` directly (same whole-file POSIX record lock, non-blocking, shared or exclusive), retrying on `EINTR`. Lock semantics are unchanged. `lock` now costs only `fs`.
