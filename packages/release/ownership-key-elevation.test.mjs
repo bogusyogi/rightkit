@@ -5,7 +5,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "no
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { appleScriptString, buildDesktopWrapper, buildMacInvocation, buildMacShellCommand, buildSchtasksCreate, delegateToDesktop, DESKTOP_DELEGATED_ENV, needsDesktopDelegation, shellQuote } from "./ownership-key-elevation.mjs";
+import { appleScriptString, buildDesktopWrapper, buildMacInvocation, buildMacShellCommand, buildSchtasksCreate, decodeLog, delegateToDesktop, DESKTOP_DELEGATED_ENV, needsDesktopDelegation, shellQuote } from "./ownership-key-elevation.mjs";
 import { __testOnly } from "./ownership-key-command.mjs";
 
 const NODE = "/usr/local/bin/node";
@@ -115,4 +115,28 @@ test("delegateToDesktop fails clearly with no interactive user or a stuck task",
   let t = 0;
   assert.throws(() => delegateToDesktop({ run: f.run, command: ["n"], sleep() {}, now: () => (t += 20000) }), /without reporting a result/);
   assert.ok(f.calls.some(([, a]) => a[0] === "/Delete"));
+});
+
+test("desktop wrapper sets the working directory first and logs cwd and argv", () => {
+  const w = buildDesktopWrapper(["node.exe", "C:\\r\\cli.mjs", "ownership", "trust-sync"], "L", "C", "D:\\Claude");
+  assert.ok(w.indexOf("Set-Location -LiteralPath 'D:\\Claude'") > 0);
+  assert.ok(w.indexOf("Set-Location") < w.indexOf("& 'node.exe'"));
+  assert.match(w, /desktop task cwd:/);
+  assert.match(w, /desktop task argv: /);
+  assert.match(w, /Out-File -Append -Encoding utf8/);
+});
+
+test("delegateToDesktop passes the parent cwd to the task and decodes UTF-16LE logs", () => {
+  const f = fakeSchtasks({ log: Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from("NativeCommandError: not a Git repository", "utf16le")]) });
+  const seen = [];
+  const run = (cmd, args, o) => { if (args[0] === "/Create") { const wrapper = args[args.indexOf("/TR") + 1].match(/-File "(.+)"$/)[1]; seen.push(readFileSync(wrapper, "utf8")); } return f.run(cmd, args, o); };
+  const r = delegateToDesktop({ run, command: ["node", "cli"], sleep() {}, suffix: "cwd", cwd: "D:\\Claude" });
+  assert.match(seen[0], /Set-Location -LiteralPath '.*Claude'/);
+  assert.equal(r.output, "NativeCommandError: not a Git repository");
+});
+
+test("decodeLog handles BOM-less UTF-16LE, UTF-8 and BOM variants", () => {
+  assert.equal(decodeLog(Buffer.from("hello world", "utf16le")), "hello world");
+  assert.equal(decodeLog(Buffer.from("\uFEFFplain")), "plain");
+  assert.equal(decodeLog(Buffer.from("caf\u00e9")), "caf\u00e9");
 });

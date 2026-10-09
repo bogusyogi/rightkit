@@ -61,17 +61,32 @@ export function needsDesktopDelegation({ hostPlatform = process.platform, env = 
 
 const psq = (value) => `'${String(value).replaceAll("'", "''")}'`;
 
-export function buildDesktopWrapper(command, logPath, codePath) {
+export function buildDesktopWrapper(command, logPath, codePath, cwd) {
   const invocation = command.map(psq).join(" ");
+  const log = (expr) => `${expr} | Out-File -Append -Encoding utf8 -FilePath ${psq(logPath)}`;
   return [
     "$ErrorActionPreference='Continue'",
     `$env:${DESKTOP_DELEGATED_ENV}='1'`,
     "$c=1",
-    `try { & ${invocation} *>&1 | Tee-Object -FilePath ${psq(logPath)}; $c=$LASTEXITCODE } catch { $_ | Out-File -Append -FilePath ${psq(logPath)}; $c=1 }`,
+    ...(cwd ? [`try { Set-Location -LiteralPath ${psq(cwd)} -ErrorAction Stop } catch { ${log("$_")}; Set-Content -LiteralPath ${psq(codePath)} -Value 1; exit 1 }`] : []),
+    log(`"desktop task cwd: $((Get-Location).Path)"`),
+    log(`"desktop task argv: " + ${psq(invocation)}`),
+    `try { & ${invocation} *>&1 | ForEach-Object { "$_" } | Out-File -Append -Encoding utf8 -FilePath ${psq(logPath)}; $c=$LASTEXITCODE } catch { ${log("$_")}; $c=1 }`,
     `Set-Content -LiteralPath ${psq(codePath)} -Value $c`,
     "exit $c",
     "",
   ].join("\r\n");
+}
+
+/** Decode a relayed task log: UTF-16LE (BOM or NUL-interleaved) or UTF-8, never mojibake. */
+export function decodeLog(buffer) {
+  const b = Buffer.isBuffer(buffer) ? buffer : Buffer.from(buffer);
+  if (b.length >= 2 && b[0] === 0xff && b[1] === 0xfe) return b.subarray(2).toString("utf16le");
+  if (b.length >= 2 && b[0] === 0xfe && b[1] === 0xff) return Buffer.from(b.subarray(2)).swap16().toString("utf16le");
+  const sample = b.subarray(0, 512);
+  let nuls = 0; for (const x of sample) if (x === 0) nuls += 1;
+  if (sample.length >= 2 && nuls * 4 >= sample.length) return b.toString("utf16le");
+  return b.toString("utf8").replace(/^\uFEFF/, "");
 }
 
 export function buildSchtasksCreate(taskName, wrapperPath, user) {
@@ -84,7 +99,7 @@ const USER_RE = /^[^\\/:*?"<>|\s][^\\/:*?"<>|]*\\[^\\/:*?"<>|]+$/;
  * Run `command` once in the logged-on user's interactive, non-elevated desktop session via a
  * one-shot scheduled task, wait for it, then clean up. Returns { status, output }.
  */
-export function delegateToDesktop({ run, command, tmp = os.tmpdir(), sleep = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms), now = Date.now, timeoutMs = 10 * 60 * 1000, pollMs = 1000, startGraceMs = 15000, suffix = randomBytes(6).toString("hex") }) {
+export function delegateToDesktop({ run, command, tmp = os.tmpdir(), sleep = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms), now = Date.now, cwd = process.cwd(), timeoutMs = 10 * 60 * 1000, pollMs = 1000, startGraceMs = 15000, suffix = randomBytes(6).toString("hex") }) {
   const env = windowsPowerShellEnvironment();
   const who = run(POWERSHELL, ["-NoProfile", "-NonInteractive", "-Command", "(Get-CimInstance -ClassName Win32_ComputerSystem).UserName"], { env, encoding: "utf8" });
   const user = String(who.stdout ?? "").trim();
@@ -97,7 +112,7 @@ export function delegateToDesktop({ run, command, tmp = os.tmpdir(), sleep = (ms
   const taskName = `RightKitOwnershipTrustSync-${suffix}`;
   let created = false;
   try {
-    writeFileSync(wrapperPath, buildDesktopWrapper(command, logPath, codePath), { flag: "wx", mode: 0o600 });
+    writeFileSync(wrapperPath, buildDesktopWrapper(command, logPath, codePath, path.resolve(cwd)), { flag: "wx", mode: 0o600 });
     const [createCmd, createArgs] = buildSchtasksCreate(taskName, wrapperPath, user);
     const c = run(createCmd, createArgs, { env, encoding: "utf8" });
     if (c.status !== 0) throw new Error(`could not create the desktop-session task: ${String(c.stderr || c.stdout || "").trim()}`);
@@ -115,7 +130,7 @@ export function delegateToDesktop({ run, command, tmp = os.tmpdir(), sleep = (ms
       sleep(pollMs);
     }
     const status = Number.parseInt(readFileSync(codePath, "utf8").replace(/^\uFEFF/, "").trim(), 10);
-    const output = existsSync(logPath) ? readFileSync(logPath, "utf8") : "";
+    const output = existsSync(logPath) ? decodeLog(readFileSync(logPath)) : "";
     return { status: Number.isInteger(status) ? status : 1, output, user };
   } finally {
     if (created) { try { run(SCHTASKS, ["/Delete", "/TN", taskName, "/F"], { env, encoding: "utf8" }); } catch {} }

@@ -487,7 +487,7 @@ async function resumeRootEnrollment(log, d) {
 /** Advance this host's protected checkpoint to the committed key log (after another host approved or revoked a key). */
 async function trustSync(_args, d) {
   if (needsDesktopDelegation({ hostPlatform: d.hostPlatform, env: d.env, run: d.run, elevatedCheck: d.elevatedCheck })) {
-    const result = delegateToDesktop({ run: d.run, command: d.desktopCommand ?? [process.execPath, ...process.argv.slice(1)], ...(d.desktopOptions ?? {}) });
+    const result = delegateToDesktop({ run: d.run, command: d.desktopCommand ?? [process.execPath, ...(process.argv[1] ? [path.resolve(process.argv[1])] : []), ...process.argv.slice(2)], ...(d.desktopOptions ?? {}) });
     if (result.output) d.print(result.output.trimEnd());
     if (result.status !== 0) throw new Error(`desktop-session trust-sync failed (exit ${result.status}); see output above`);
     return 0;
