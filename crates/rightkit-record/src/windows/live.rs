@@ -12,6 +12,7 @@
 //! `RIGHTKIT_RECORD_WINDOWS_TARGET` overrides the rk2 target path. `RK_RECORD_KEEP=1` keeps the bundle.
 
 use std::fs;
+use std::os::windows::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::thread;
@@ -102,6 +103,7 @@ impl Target {
             dir.join("control.txt"),
         );
         let child = Command::new(&exe)
+            .creation_flags(0x0800_0000)
             .arg("target")
             .arg("--hwnd-file")
             .arg(&hwnd_file)
@@ -124,6 +126,7 @@ impl Target {
             .parse()
             .unwrap();
         let moved = Command::new(&exe)
+            .creation_flags(0x0800_0000)
             .args([
                 "window",
                 "--hwnd",
@@ -214,6 +217,7 @@ fn a_terminated_helper_leaves_quarantined_media_that_decodes() {
     let bundle = scratch.0.join("take");
 
     let mut child = Command::new(helper())
+        .creation_flags(0x0800_0000)
         .arg("serve")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -279,6 +283,7 @@ fn a_terminated_helper_leaves_quarantined_media_that_decodes() {
 
     let clip = bundle.join("clean.mp4");
     let decode = Command::new(media_tool("ffmpeg"))
+        .creation_flags(0x0800_0000)
         .args(["-v", "error", "-i"])
         .arg(&clip)
         .args(["-fps_mode", "passthrough", "-f", "null", "-"])
@@ -292,6 +297,7 @@ fn a_terminated_helper_leaves_quarantined_media_that_decodes() {
         "ffmpeg could not decode the killed take's media: {decode_err}"
     );
     let probe = Command::new(media_tool("ffprobe"))
+        .creation_flags(0x0800_0000)
         .args([
             "-v",
             "error",

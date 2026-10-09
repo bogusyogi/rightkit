@@ -671,6 +671,17 @@
       ]
     },
     {
+      "package": "rightkit-fsindex",
+      "capability": "file-index",
+      "summary": "Live whole-disk file index: getattrlistbulk crawl, FSEvents upkeep, fuzzy name search, and clone- and hard-link-aware folder size rollups (logical, allocated, allocated-unique).",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Name search and folder sizes only; content search is an opt-in cargo feature that is off by default.",
+        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
+      ]
+    },
+    {
       "package": "rightkit-hotkeys",
       "capability": "global-hotkeys",
       "summary": "Global shortcuts and low-level input hooks for Right Suite apps: chord parsing, conflict detection, CGEventTap/WH_KEYBOARD_LL primitives, push-to-talk state.",
@@ -1246,6 +1257,17 @@
       "policyNotes": [
         "Package contract retained; dependency declarations do not verify integration.",
         "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
+      ]
+    },
+    {
+      "package": "rightkit-ownership",
+      "capability": "ownership-scanner",
+      "summary": "RightKit's ownership scanner, verdict and admission: committed-tree inventory, dependency and source fingerprint findings, signed exception evaluation, the six-binding cache key, and single-flight admission for brokers.",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Declaration-only: the scanner is the enforcement point, so it has no competing-dependency fingerprints.",
+        "Shared contract fixtures live in packages/release/fixtures/ownership and are run in place by this crate's tests."
       ]
     },
     {

@@ -680,6 +680,11 @@ pub fn launch_offscreen(spec: &LaunchSpec) -> Result<OffscreenLaunch, OffscreenE
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null());
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
+    }
     let mut child = cmd
         .spawn()
         .map_err(|e| OffscreenError::Launch(e.to_string()))?;
