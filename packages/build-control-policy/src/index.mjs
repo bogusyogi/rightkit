@@ -1,6 +1,7 @@
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { dirname, join, parse, resolve } from 'node:path';
+import { desktopIntrusionViolation, DESKTOP_INTRUSION_REASON } from './desktop-intrusion-policy.mjs';
 import { localDevelopmentPolicy, localDevelopmentCargoAllowed } from '../../build-control-core/src/local-development.mjs';
 
 const tools = new Set(['cargo', 'rustc', 'rustdoc']);
@@ -371,6 +372,7 @@ export function claudeHookDecision(input) {
       .map((match) => match[1].slice(1, -1).replace(/\\([\\'"`nrt])/g, (_, value) => ({ n: '\n', r: '\r', t: '\t' })[value] ?? value)).join('\n')
     : '';
   const inspectedCommand = composed ? composedCommands : command;
+  if (desktopIntrusionViolation(inspectedCommand ?? '')) return { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: `[HOOK:desktop-intrusion:block]\nWhy: ${DESKTOP_INTRUSION_REASON}` } };
   const blocked = githubActionsOnlyViolation(inspectedCommand ?? '', {
     cwd: input?.cwd ?? input?.tool_input?.cwd ?? process.cwd(),
     environment: input?.environment ?? process.env,
