@@ -491,7 +491,19 @@ async function verifyBundle(run, app, { assess, staple, dmg = null }) {
   await step("codesign-requirement", "/usr/bin/codesign", ["-dr", "-", app]);
   if (assess) await step("spctl-assess", "/usr/sbin/spctl", ["--assess", "--type", "execute", app]);
   let ticket = null;
+  let haveStapler = true;
   if (staple) {
+    // Clean macOS hosts have no Xcode/CLT, so `xcrun stapler` can be missing.
+    try { await run("/usr/bin/xcrun", ["--find", "stapler"]); } catch { haveStapler = false; }
+  }
+  if (staple && !haveStapler) {
+    if (dmg) await step("spctl-dmg", "/usr/sbin/spctl", ["-a", "-t", "open", "--context", "context:primary-signature", dmg]);
+    const assessed = await step("spctl-notarized", "/usr/sbin/spctl", ["-a", "-t", "exec", "-vv", app]);
+    if (!/Notarized Developer ID/.test(`${assessed?.stderr || ""}\n${assessed?.stdout || ""}`)) {
+      throw new InstallAppError("spctl-notarized", `spctl-notarized failed for ${app}: not accepted as Notarized Developer ID`);
+    }
+    ticket = "spctl-only";
+  } else if (staple) {
     try { await run("/usr/bin/xcrun", ["stapler", "validate", app]); ticket = "app-ticket"; }
     catch (error) {
       if (!dmg) throw new InstallAppError("stapler-validate", `stapler-validate failed for ${app}: ${errText(error)}`);

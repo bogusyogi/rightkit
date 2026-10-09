@@ -93,6 +93,7 @@ function harness({ team = "TEAM1", installedTeam = "TEAM1", fail = {}, running =
       if (args.includes("-vv")) { fx("spctl-notarized"); return { stdout: "", stderr: fail.notNotarized ? "accepted\nsource=Developer ID" : "accepted\nsource=Notarized Developer ID" }; }
       fx("spctl"); return { stdout: "", stderr: "" };
     }
+    if (cmd.endsWith("xcrun") && args[0] === "--find") { fx("nostapler"); return { stdout: "/usr/bin/stapler", stderr: "" }; }
     if (cmd.endsWith("xcrun")) { if (args[2].endsWith(".app")) fx("stapler-app"); else fx("stapler-dmg"); fx("stapler"); return { stdout: "", stderr: "" }; }
     if (cmd.endsWith("plutil")) return { stdout: JSON.stringify({ CFBundleIdentifier: bundleId }), stderr: "" };
     if (cmd.endsWith("ps")) return { stdout: alive ? `  555 ${dest}/Pulse.app/Contents/MacOS/Pulse\n` : "", stderr: "" };
@@ -458,4 +459,30 @@ test("parseArgs --recover", () => {
   assert.equal(o.recover, true);
   assert.throws(() => parseArgs(["--recover", "--dmg", "a.dmg"]), /--recover only/);
   assert.throws(() => parseArgs(["--recover", "--app-name", "../x.app"]), /app-name/);
+});
+
+test("no xcrun stapler: spctl-only ticket from Notarized Developer ID (+ DMG primary-signature)", async () => {
+  const h = harness({ fail: { nostapler: "xcrun: error: unable to find utility" } });
+  await installApp(h.opts, h.deps);
+  assert.equal(h.marker(), "new");
+  assert.equal(h.events.find((e) => e.event === "verified").ticket, "spctl-only");
+  assert.ok(!h.calls.some((c) => c[0].endsWith("xcrun") && c[1] === "stapler"));
+  assert.ok(h.calls.some((c) => c[0].endsWith("spctl") && c.includes("context:primary-signature")));
+  assert.ok(h.calls.some((c) => c[0].endsWith("spctl") && c.includes("-vv")));
+});
+
+test("no xcrun stapler: refuses when the app is not Notarized Developer ID, or the DMG is rejected", async () => {
+  for (const extra of [{ notNotarized: true }, { "spctl-dmg": "rejected" }]) {
+    const h = harness({ fail: { nostapler: "x", ...extra } });
+    await assert.rejects(installApp(h.opts, h.deps), /spctl-/);
+    assert.equal(h.marker(), "old");
+  }
+});
+
+test("no xcrun stapler: --dev never probes xcrun", async () => {
+  const h = harness({ fail: { nostapler: "x" } });
+  h.opts = { ...h.opts, dmg: null, zip: path.join(h.root, "p.zip"), dev: true };
+  const r = await installApp(h.opts, h.deps);
+  assert.equal(r.ok, true);
+  assert.ok(!h.calls.some((c) => c[0].endsWith("xcrun")));
 });
