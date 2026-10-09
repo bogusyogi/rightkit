@@ -1,0 +1,25 @@
+smartctl 7.5 — GPL-2.0-or-later build for macOS arm64 (Pulse helper)
+Built: 2026-10-09 on Apple Silicon, Apple clang 21.0.0 (clang-2100.3.34.2), macOS SDK 27.0.
+Recipe: native-artifacts/smartmontools/build-macos.sh build --source smartmontools-7.5.tar.gz ...
+Source: https://github.com/smartmontools/smartmontools/releases/download/RELEASE_7_5/smartmontools-7.5.tar.gz
+        (unmodified upstream; also on SourceForge, same md5)
+        sha256 690b83ca331378da9ea0d9d61008c4b22dde391387b9bbad7f29387f2595f76e (observed)
+        sha1   9b0ca96931d6184da34d68bbe9a785713f5a8474 (matches SourceForge file listing)
+        md5    38c38b0b82db7fc4906cdd50d15a7931 (matches upstream GitHub .md5 asset and SourceForge listing)
+        Upstream publishes no sha256 and an OpenPGP .asc (smartmontools-7.5.tar.gz.asc); the OpenPGP
+        signature was verified at publish (2026-10-09): GOOD signature by key 0C95 77FD 2C4C FCB4 B9A5 9964 0A30 812E FF3A EFF5
+        (fingerprint from https://www.smartmontools.org/wiki/Download), verified with openpgp 6.3.2 (gpg unavailable).
+Environment: MACOSX_DEPLOYMENT_TARGET=14.0 CC="clang -arch arm64" CFLAGS=CXXFLAGS="-O2 -mmacosx-version-min=14.0"
+        LDFLAGS="-mmacosx-version-min=14.0" SOURCE_DATE_EPOCH=1745998691 TZ=UTC LC_ALL=C
+configure: --host=aarch64-apple-darwin --disable-dependency-tracking --without-gnupg --without-selinux
+        --without-libcap-ng --without-libsystemd --without-update-smart-drivedb --without-initscriptdir
+        --without-systemdsystemunitdir      (target: make smartctl; then strip -x)
+Linkage (otool -L): CoreFoundation, IOKit, /usr/lib/libc++.1.dylib, /usr/lib/libSystem.B.dylib only. minos 14.0.
+Reproducible: three clean builds produced the identical unsigned sha256
+        69984bbc722adc8a56eae80552378fc835cfa80872cba3c90b44dd9d9313625b.
+Signed: Developer ID Application: Adrian D'souza (6KLGD3LLKF), hardened runtime, secure timestamp, via
+        packages/release/sign-macos.mjs. Signed sha256 (this signing; the timestamp makes each signing differ)
+        be345ce931c2e03e96e282076e92ef2eebf65eb7e9e782902762d09215a653eb, 829040 bytes.
+        A bare helper is not notarized on its own; notarize it as part of the host app bundle.
+Run-verified: smartctl --version (7.5 r5714 arm64); smartctl -j --scan lists the internal NVMe device.
+Use: separate executable the app shells out to; notice + source offer (third-party/NOTICE-smartmontools.txt).
