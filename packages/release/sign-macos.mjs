@@ -1,8 +1,8 @@
 #!/usr/bin/env node
-import { createHash } from "node:crypto";
-import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, readlinkSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { spawnSync } from "./background-process.mjs";
+import { fileEvidence } from "./macos-file-evidence.mjs";
 import { MACOS_PORTABLE_SIGNING_CONTRACT } from "./macos-signing-contract.mjs";
 import { resolveMacosDeveloperIdIdentity } from "./macos-signing-identity.mjs";
 import { runMacCodesignCommands } from "./macos-signing-session.mjs";
@@ -55,28 +55,6 @@ for (const file of files) {
 const absoluteReceipt = path.resolve(receiptPath);
 mkdirSync(path.dirname(absoluteReceipt), { recursive: true });
 writeFileSync(absoluteReceipt, `${JSON.stringify({ schema: 1, signingContract: MACOS_PORTABLE_SIGNING_CONTRACT, identity, files: evidence }, null, 2)}\n`);
-
-function fileEvidence(file) {
-  if (statSync(file).isDirectory()) {
-    const digest = createHash("sha256");
-    let sizeBytes = 0;
-    function visit(directory) {
-      for (const name of readdirSync(directory).sort()) {
-        const entry = path.join(directory, name);
-        const info = lstatSync(entry);
-        const type = info.isSymbolicLink() ? "link" : info.isDirectory() ? "directory" : "file";
-        const bytes = type === "link" ? Buffer.from(readlinkSync(entry)) : type === "file" ? readFileSync(entry) : Buffer.alloc(0);
-        digest.update(`${path.relative(file, entry).split(path.sep).join("/")}\0${type}\0${bytes.length}\0`).update(bytes);
-        sizeBytes += bytes.length;
-        if (type === "directory") visit(entry);
-      }
-    }
-    visit(file);
-    return { sha256: digest.digest("hex"), sizeBytes, kind: "bundle-tree-v1" };
-  }
-  const bytes = readFileSync(file);
-  return { sha256: createHash("sha256").update(bytes).digest("hex"), sizeBytes: statSync(file).size };
-}
 
 function run(cmd, runArgs) {
   const result = spawnSync(cmd, runArgs, { encoding: "utf8" });

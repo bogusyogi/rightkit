@@ -1320,6 +1320,8 @@ export function buildRenderContext(manifest, repoPath, lane = "ci") {
     QA_EVIDENCE_STEP: qaEvidenceStep(manifest) + devArtifactCi(manifest),
     CI_CACHE_WORKSPACE_CRATES: manifest.ciIncremental === true ? "true" : "false",
     CI_CARGO_INCREMENTAL: manifest.ciIncremental === true ? "1" : "0",
+    // sccache refuses CARGO_INCREMENTAL=1; incremental CI relies on the rust-cache target dir instead.
+    CI_RUSTC_WRAPPER: manifest.ciIncremental === true ? '""' : "${{ steps.rust-changes.outputs.required == 'true' && 'sccache' || '' }}",
     CI_DERIVED_DATA_STEP: derivedDataStep(manifest),
   };
 

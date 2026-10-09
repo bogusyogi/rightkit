@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- SwiftPM/macOS DMG ordering: with `notarize.appBeforePackage: true` and no `targets.mac.package`, right-release builds the DMG itself (`dmg-build.mjs`) after the `.app` is notarized and stapled, refusing to pack an app that fails `stapler validate`, then Developer ID signs the DMG (receipt `macos-dmg-signing.json`) before the existing DMG notarization. Options via `targets.mac.dmg` (`dmg: false` or a `package` step keeps a custom flow). Preflight now fails when a prePackage hook builds a DMG while `appBeforePackage` is on (heuristic: `dmg`/`hdiutil` in its command or arguments).
+- `sign.prePackageFiles` no longer crashes with EISDIR on a directory. `.app` bundles are signed inside-out (nested code without entitlements, then the bundle) and the signing receipt is verified with a bundle tree digest (shared `macos-file-evidence.mjs`); other directories fail with a clear error.
+
 ## 0.2.141
 
 - `install-app` probes `xcrun --find stapler` first. On clean macOS hosts without Xcode/CLT it no longer fails: the ticket is accepted when `spctl -a -t exec -vv` reports Notarized Developer ID (and, with `--dmg`, `spctl -a -t open --context context:primary-signature` accepts the DMG), and the `verified` event records `ticket: "spctl-only"`. With stapler present, and with `--dev`, checks are unchanged.

@@ -29,6 +29,9 @@ import { materializeHardeningEvidence } from "./hardening-evidence.mjs";
 import { signingReceiptPath } from "./signing-receipts.mjs";
 import { notarizeAppBundle, validateNotarizationReceipt } from "./macos-notarization.mjs";
 import { MACOS_PORTABLE_SIGNING_CONTRACT } from "./macos-signing-contract.mjs";
+import { fileEvidence } from "./macos-file-evidence.mjs";
+import { expandMacSigningEntries } from "./mac-bundle-signing.mjs";
+import { buildStapledSwiftMacDmg, swiftMacDmgConfigError, swiftMacDmgPlan } from "./swift-mac-dmg.mjs";
 import { runConfiguredChecks } from "./release-checks.mjs";
 import { resolveMacosDeveloperIdIdentity } from "./macos-signing-identity.mjs";
 import { DEFAULT_STORAGE_THRESHOLD_BYTES, findInstallerCopyScripts, findLargeRepositorySubdirectories } from "./installer-storage-doctor.mjs";
@@ -157,6 +160,8 @@ if (opts.platform === "mac") {
   if (!target.sign?.prePackageFiles?.length) fail(`${config.app ?? "app"} mac must declare at least one sign.prePackageFiles`);
   if (!target.notarize?.file) fail(`${config.app ?? "app"} mac must declare notarize.file`);
   if (target.notarize.appBeforePackage && !target.notarize.app) fail(`${config.app ?? "app"} mac notarize.appBeforePackage requires notarize.app`);
+  const swiftDmgError = swiftMacDmgConfigError({ target, projectType: resolveProjectType({ appRoot: root, config, target }), appName: config.app ?? "app" });
+  if (swiftDmgError) fail(swiftDmgError);
 }
 if (opts.upload && target.publishBlocked) fail(`${config.app ?? "app"} ${opts.platform} publish blocked: ${target.publishBlocked}`);
 /**
@@ -329,6 +334,14 @@ if (opts.platform === "win" && target.signingContract === MSIX_SIGNING_CONTRACT)
   }
 }
 
+if (opts.platform === "mac" && runMacPhase("package")) {
+  // SwiftPM + appBeforePackage: the .app is stapled by now, so right-release packs it into the DMG itself.
+  const swiftDmg = swiftMacDmgPlan({ target, projectType: resolveProjectType({ appRoot: root, config, target }), appName: config.app ?? path.basename(root), resolve: (p) => resolveReleaseArtifactPath(root, p) });
+  if (swiftDmg) {
+    if (opts.dryRun) console.log(`dry-run: build DMG ${swiftDmg.out} from stapled app ${swiftDmg.app}, then sign it`);
+    else await buildStapledSwiftMacDmg(swiftDmg, { remove: (file) => rmSync(file, { force: true }), signDmg: (dmg) => signMacos([dmg], root, "dmg-signing") });
+  }
+}
 if (command && (opts.platform !== "mac" || runMacPhase("package"))) await runCommand(command, root);
 
 for (const rel of target.artifacts ?? []) {
@@ -858,8 +871,17 @@ function windowsReceiptPath(root, phase) {
   return signingReceiptPath({ appRoot: root, target, platform: "win", phase, stateRoot: process.env.RIGHT_RELEASE_STATE_ROOT });
 }
 
-async function signMacos(files, root) {
-  const receipt = macosReceiptPath(root, "signing");
+async function signMacos(files, root, phase = "signing") {
+  const receipt = phase === "signing" ? macosReceiptPath(root, "signing") : path.resolve(process.env.RIGHT_RELEASE_STATE_ROOT ?? path.join(root, ".right-release", "receipts"), `macos-${phase}.json`);
+  // Directory entries (.app bundles): nested code first, no entitlements, then the bundle itself.
+  let nested = [];
+  try { ({ nested } = opts.dryRun ? { nested: [] } : expandMacSigningEntries(files)); } catch (error) { fail(error.message); }
+  if (nested.length) {
+    const nestedReceipt = path.resolve(path.dirname(receipt), `macos-${phase}-nested.json`);
+    if (existsSync(nestedReceipt)) unlinkSync(nestedReceipt);
+    console.log(`right-release: signing ${nested.length} nested code item(s) inside-out`);
+    await run("node", [SIGN_MACOS, "--receipt", nestedReceipt, ...nested], root);
+  }
   const args = [SIGN_MACOS];
   if (opts.dryRun) args.push("--dry-run");
   args.push("--receipt", receipt, ...files);
@@ -911,7 +933,7 @@ function verifyMacosSigningReceipt(receipt, files) {
   try { expectedIdentity = resolveMacosDeveloperIdIdentity(); } catch (error) { fail(error.message); }
   const expected = files.map((file) => path.resolve(file)).sort();
   const actual = Array.isArray(evidence.files) ? evidence.files.map((item) => path.resolve(item.file)).sort() : [];
-  const hashes = new Map(files.map((file) => [path.resolve(file), createHash("sha256").update(readFileSync(file)).digest("hex")]));
+  const hashes = new Map(files.map((file) => [path.resolve(file), fileEvidence(file).sha256]));
   if (evidence.schema !== 1 || evidence.signingContract !== MACOS_PORTABLE_SIGNING_CONTRACT || !expectedIdentity || evidence.identity !== expectedIdentity
     || JSON.stringify(expected) !== JSON.stringify(actual)
     || evidence.files.some((item) => item.codesign !== "strict-valid" || item.identity !== expectedIdentity || item.timestampPresent !== true || item.after?.sha256 !== hashes.get(path.resolve(item.file)))) fail(`invalid macOS Developer ID signing receipt evidence: ${receipt}`);
