@@ -56,7 +56,10 @@ export function runCargoSync(args, options = {}, { platform = process.platform, 
     }
     return result;
   }
-  if (platform === 'darwin' || (managedHost(env) && platform === 'win32')) return unavailable('installed RightKit runtime client is unavailable for managed Cargo metadata');
+  // The Mac never falls back to direct Cargo, except on GitHub Actions runners, which have no
+  // RightKit runtime and use the toolchain's cargo (release-candidate signing jobs).
+  const hostedCi = env.GITHUB_ACTIONS === 'true' && !managedHost(env);
+  if ((platform === 'darwin' && !hostedCi) || (managedHost(env) && platform === 'win32')) return unavailable('installed RightKit runtime client is unavailable for managed Cargo metadata');
   return spawn("cargo", args, options);
 }
 

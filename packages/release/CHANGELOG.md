@@ -1,7 +1,8 @@
 # Changelog
 
-## Unreleased
+## 0.2.139
 
+- GitHub Actions runners without a RightKit runtime use the toolchain's cargo for Cargo metadata on macOS; agent hosts still never fall back. Fixes macOS release-candidate signing ("installed RightKit runtime client is unavailable") since 0.2.136.
 - Add project-type-aware preflight (`project-type.mjs`): SwiftPM targets need `swift`, not cargo/rustc; `makeappx`/`signtool` are required only for msix targets. Add the `windows-msix-signed-v1` contract and `targets.win.msix` schema (`msix-config.mjs`, `msix-target.mjs`, `msix-plan.mjs`): explicit virtualization settings, runtime-DLL inventory verification, signer/Publisher match, msix seal record, and `updater.kind: "appinstaller"` (`msix-appinstaller.mjs`) with sealing and `publish-update` support. Tauri updater remains the default.
 
 ## 0.2.138

@@ -40,6 +40,8 @@ test('Mac managed Cargo never falls through to cargo; missing client or socket i
   const spawn = () => { throw new Error('direct cargo must not run'); };
   assert.equal(runCargoSync(['metadata'], { env: {} }, { platform: 'darwin', exists: () => false, spawn }).error.code, 'RK_BROKER_UNAVAILABLE');
   assert.equal(runCargoSync(['metadata'], { env: {} }, { platform: 'darwin', exists: (p) => p.endsWith('rustright'), spawn }).error.code, 'RK_BROKER_UNAVAILABLE');
+  assert.equal(runCargoSync(['metadata'], { env: { GITHUB_ACTIONS: 'true' } }, { platform: 'darwin', exists: () => false, spawn: (command) => ({ command }) }).command, 'cargo', 'hosted GitHub runner uses direct cargo');
+  assert.equal(runCargoSync(['metadata'], { env: { GITHUB_ACTIONS: 'true', RIGHTKIT_BUILD_BROKER_SOCKET: '/x' } }, { platform: 'darwin', exists: () => false, spawn }).error.code, 'RK_BROKER_UNAVAILABLE', 'managed host never falls back');
   let call;
   const env = { RIGHTKIT_CONTROL_ROOT: '/internal', RIGHTKIT_BUILD_BROKER_SOCKET: '/explicit' };
   runCargoSync(['metadata'], { env }, { platform: 'darwin', exists: () => true, spawn: (...args) => { call = args; return { status: 0 }; } });
