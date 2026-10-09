@@ -545,3 +545,15 @@ test("one-key enrollment fails closed with backlog; both distinct keys enforce f
     assert.equal(checkApp(root, shipped, { trust: reused }).enrollmentPending, true);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
+
+import { stripSwiftComments } from "./ownership.mjs";
+test("Swift manifest comments never declare dependencies; URLs and escaped quotes survive", () => {
+  const src = `deps: [\n  .package(url: "https://github.com/a/b", from: "1.0.0"), // trailing\n  // .package(url: "https://github.com/stackotter/TermKit", revision: "x"),\n  /* .package(url: "https://x/y", /* nested */ from: "2") */\n  .package(url: "https://e.com/q\\"//", exact: "3")\n]`;
+  const out = stripSwiftComments(src);
+  assert.equal(out.length, src.length);
+  assert.match(out, /https:\/\/github.com\/a\/b/);
+  assert.doesNotMatch(out, /TermKit/);
+  assert.doesNotMatch(out, /x\/y/);
+  assert.match(out, /https:\/\/e.com\/q\\"\/\//);
+  assert.equal((out.match(/\.package\(/g) ?? []).length, 2);
+});

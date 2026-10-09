@@ -234,7 +234,31 @@ function committedFileInventory(appRoot, trust, pathPrefix, committed) {
   return { files, coverage, committed: true, pathPrefix, repositoryFiles, snapshotFiles: new Map(repositoryFiles.map((file) => [file.rel, file])) };
 }
 
+// Blank out Swift `//` and nested `/* */` comments outside string literals, keeping offsets.
+export function stripSwiftComments(text) {
+  const out = text.split("");
+  let quote = false, depth = 0;
+  for (let i = 0; i < text.length; i++) {
+    if (depth) {
+      if (text.startsWith("/*", i)) { depth++; out[i] = out[i + 1] = " "; i++; continue; }
+      if (text.startsWith("*/", i)) { depth--; out[i] = out[i + 1] = " "; i++; continue; }
+      if (text[i] !== "\n") out[i] = " ";
+      continue;
+    }
+    if (quote) {
+      if (text[i] === "\\") { i++; continue; }
+      if (text[i] === '"' || text[i] === "\n") quote = false;
+      continue;
+    }
+    if (text[i] === '"') { quote = true; continue; }
+    if (text.startsWith("//", i)) { for (; i < text.length && text[i] !== "\n"; i++) out[i] = " "; continue; }
+    if (text.startsWith("/*", i)) { depth = 1; out[i] = out[i + 1] = " "; i++; }
+  }
+  return out.join("");
+}
+
 function swiftPackageArguments(text) {
+  text = stripSwiftComments(text);
   const args = [];
   for (const match of text.matchAll(/\.package\s*\(/g)) {
     let at = match.index + match[0].length, start = at, depth = 1, quote = false;
