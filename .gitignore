@@ -4,3 +4,11 @@
 
 # Machine-local test inputs (artifact paths only, never secrets)
 **/tests/inputs.local.json
+
+# Build output and local tool state (previously covered by the workspace .gitignore)
+node_modules/
+dist/
+target/
+.audit/
+.vite/
+.DS_Store

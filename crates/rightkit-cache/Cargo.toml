@@ -6,7 +6,7 @@ rust-version = "1.98.0"
 license = "MIT OR Apache-2.0"
 description = "Disk cache primitive with a hard size cap, LRU eviction that survives restarts, atomic writes and group invalidation, plus stable-prefix prompt-cache keys."
 readme = "README.md"
-repository = "https://github.com/bogusyogi/claude"
+repository = "https://github.com/bogusyogi/rightkit"
 include = ["src/**", "tests/**", "Cargo.toml", "README.md", "LICENSE-MIT", "LICENSE-APACHE"]
 
 [dependencies]

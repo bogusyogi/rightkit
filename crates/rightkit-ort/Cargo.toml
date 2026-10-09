@@ -6,7 +6,7 @@ rust-version = "1.98.0"
 license = "MIT OR Apache-2.0"
 description = "Product-neutral ONNX Runtime dynamic-library resolution, environment, execution-provider and session setup (single suite ort pin)"
 readme = "README.md"
-repository = "https://github.com/bogusyogi/claude"
+repository = "https://github.com/bogusyogi/rightkit"
 include = ["src/**", "tests/**", "Cargo.toml", "README.md", "LICENSE-MIT", "LICENSE-APACHE"]
 
 [features]

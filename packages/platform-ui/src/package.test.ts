@@ -23,8 +23,8 @@ describe("published package contract", () => {
   it("points consumers at the canonical tracked source directory", () => {
     expect(packageJson.repository).toEqual({
       type: "git",
-      url: "git+https://github.com/bogusyogi/claude.git",
-      directory: "tools/rightkit/packages/platform-ui",
+      url: "git+https://github.com/bogusyogi/rightkit.git",
+      directory: "packages/platform-ui",
     });
   });
 });

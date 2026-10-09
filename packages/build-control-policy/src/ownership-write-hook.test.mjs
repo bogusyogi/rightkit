@@ -145,6 +145,8 @@ test('fingerprint tier governs hook feedback; protected records remain denied', 
   assert.deepEqual(literal, { decision: 'allow' });
 });
 
+// Absolute on every host: a drive-letter path is relative on POSIX and would resolve under the process cwd (inside the RightKit checkout).
+const APPS_ROOT = process.platform === 'win32' ? 'D:/Claude/apps' : '/work/apps';
 const missingManifest = () => { const error = new Error('missing'); error.code = 'ENOENT'; throw error; };
 const manifestWrite = (file, content, before = '', options = {}) => ownershipWriteDecision({ tool_name: 'Write', tool_input: { file_path: file, content } }, { readFile: () => before, ...options });
 const assertAdvice = (result, pattern) => {
@@ -230,7 +232,7 @@ test('MultiEdit reconstructs complete manifest & apply_patch screens each file b
 });
 
 test('new-manifest oauth keyword advises only when owner dependency is absent', () => {
-  const options = { readFile: missingManifest, cwd: 'D:/Claude/apps/acme' };
+  const options = { readFile: missingManifest, cwd: APPS_ROOT + '/acme' };
   assertAdvice(manifestWrite('package.json', '{"name":"acme-oauth-client"}', '', options), /oauth-sign-in.*rightkit-oauth/);
   assert.doesNotMatch(manifestWrite('package.json', '{"name":"acme-oauth-client","dependencies":{"rightkit-oauth":"1"}}', '', options).hookSpecificOutput?.additionalContext ?? '', /rightkit-oauth/);
   assert.doesNotMatch(manifestWrite('package.json', '{"name":"acme-oauth-client","devDependencies":{"owner":"npm:rightkit-oauth@1"}}', '', options).hookSpecificOutput?.additionalContext ?? '', /rightkit-oauth/);
@@ -239,7 +241,7 @@ test('new-manifest oauth keyword advises only when owner dependency is absent', 
 });
 
 test('new-manifest keyword advice respects description, whole tokens, owner synonyms & RightKit exclusion', () => {
-  const options = { readFile: missingManifest, cwd: 'D:/Claude/apps/acme' };
+  const options = { readFile: missingManifest, cwd: APPS_ROOT + '/acme' };
   assertAdvice(manifestWrite('package.json', '{"description":"OAuth client"}', '', options), /rightkit-oauth/);
   assertAdvice(manifestWrite('package.json', '{"name":"acme-model-store"}', '', options), /rightkit-models/);
   assertAdvice(manifestWrite('package.json', '{"name":"acme-keychain"}', '', options), /rightkit-secrets/);
@@ -251,7 +253,7 @@ test('new-manifest keyword advice respects description, whole tokens, owner syno
 test('apply_patch Add File performs new-manifest keyword advice & owner suppression', () => {
   for (const [content, expected] of [['{"name":"acme-oauth-client"}', true], ['{"name":"acme-oauth-client","dependencies":{"rightkit-oauth":"1"}}', false]]) {
     const patch = `*** Begin Patch\n*** Add File: app/package.json\n+${content}\n*** End Patch`;
-    const result = ownershipWriteDecision({ tool_name: 'apply_patch', tool_input: { patch } }, { readFile: missingManifest, cwd: 'D:/Claude/apps' });
+    const result = ownershipWriteDecision({ tool_name: 'apply_patch', tool_input: { patch } }, { readFile: missingManifest, cwd: APPS_ROOT });
     if (expected) assertAdvice(result, /rightkit-oauth/); else assert.doesNotMatch(result.hookSpecificOutput?.additionalContext ?? '', /rightkit-oauth/);
   }
 });

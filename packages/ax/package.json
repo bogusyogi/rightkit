@@ -38,8 +38,8 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/bogusyogi/claude.git",
-    "directory": "tools/rightkit/packages/ax"
+    "url": "git+https://github.com/bogusyogi/rightkit.git",
+    "directory": "packages/ax"
   },
   "packageManager": "pnpm@11.24.0"
 }

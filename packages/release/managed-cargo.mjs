@@ -11,7 +11,17 @@ export function managedRuntimeClient(env = process.env, platform = process.platf
     const client = paths.join(root, "runtime-current", "build-control-clients", "src", "rightkit.mjs");
     if (exists(client)) return client;
   }
+  // RustRight cutover: runtime-current ships the native `rustright` client in place of the Node client.
+  for (const root of roots) {
+    const client = paths.join(root, "runtime-current", platform === 'win32' ? "rustright.exe" : "rustright");
+    if (exists(client)) return client;
+  }
   return undefined;
+}
+
+/** Command line that runs the managed client: Node scripts run under node, the native rustright client runs directly. */
+export function managedRuntimeCommand(client, args) {
+  return /\.m?js$/i.test(client) ? { command: process.execPath, args: [client, ...args] } : { command: client, args };
 }
 
 /** Hold a client-run lease that blocks broker runtime cutover until release() (see
@@ -43,7 +53,8 @@ export function runCargoSync(args, options = {}, { platform = process.platform, 
     const socket = discoverBrokerSocket(env, { platform, exists });
     if (platform === 'darwin' && (!socket || !exists(socket))) return unavailable('RightKit broker socket is unavailable');
     const childEnv = socket ? { ...env, RIGHTKIT_BUILD_BROKER_SOCKET: socket } : env;
-    const result = spawn(process.execPath, [client, "cargo", ...args], { ...options, env: childEnv });
+    const invocation = managedRuntimeCommand(client, ["cargo", ...args]);
+    const result = spawn(invocation.command, invocation.args, { ...options, env: childEnv });
     if (platform === 'darwin' && result.status !== 0 && /RK_BROKER_UNAVAILABLE|RightKit broker (?:unavailable|endpoint is not configured)/i.test(String(result.stderr ?? ''))) {
       return { ...result, error: unavailable(String(result.stderr).trim()).error };
     }

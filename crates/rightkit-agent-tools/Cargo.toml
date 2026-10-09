@@ -5,7 +5,7 @@ edition = "2021"
 rust-version = "1.98.0"
 description = "One typed tool interface for agents over rightkit-automation, rightkit-control, rightkit-browser and each app's engine commands (via rightkit-service), plus the `right-ctl <app> <command>` CLI."
 license = "MIT OR Apache-2.0"
-repository = "https://github.com/bogusyogi/claude"
+repository = "https://github.com/bogusyogi/rightkit"
 publish = false
 
 [features]

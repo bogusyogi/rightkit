@@ -5,7 +5,7 @@ edition = "2021"
 rust-version = "1.98.0"
 description = "Background native input, accessibility reads, and a WebDriver bridge for driving real desktop apps without stealing focus."
 license = "MIT OR Apache-2.0"
-repository = "https://github.com/bogusyogi/claude"
+repository = "https://github.com/bogusyogi/rightkit"
 readme = "README.md"
 include = ["src/**", "tests/**", "README.md", "LICENSE-MIT", "LICENSE-APACHE"]
 

@@ -10,7 +10,7 @@ import { fileURLToPath } from "node:url";
 const packageRoot = path.dirname(fileURLToPath(import.meta.url));
 const rightkitRoot = path.resolve(packageRoot, "..", "..");
 const VERSIONS_FILE = path.join(packageRoot, "rightkit-versions.json");
-const USER_AGENT = "rightkit-sync/1 (https://github.com/bogusyogi/claude)";
+const USER_AGENT = "rightkit-sync/1 (https://github.com/bogusyogi/rightkit)";
 
 const field = (toml, key) => toml.match(new RegExp(`^${key}\\s*=\\s*"([^"]*)"`, "m"))?.[1] ?? null;
 

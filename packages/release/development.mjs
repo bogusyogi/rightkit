@@ -6,7 +6,7 @@ import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { assertPrimaryReleaseCheckout } from "./release-invocation.mjs";
 import { assertReleaseExecutionAllowed } from "./execution-policy.mjs";
-import { acquireManagedRunLease, managedRuntimeClient, runCargoSync } from "./managed-cargo.mjs";
+import { acquireManagedRunLease, managedRuntimeClient, managedRuntimeCommand, runCargoSync } from "./managed-cargo.mjs";
 import { BUNDLE_MARKERS, bundleMarkerBuffer, readTauriBundleMarkers } from "./tauri-bundle-marker.mjs";
 import { installPortableDevelopment } from "./portable-development.mjs";
 import { signMacosDevelopmentBundle } from "./development-signing.mjs";
@@ -213,7 +213,7 @@ export function resolveCommand(command, args, { root, env = process.env } = {}) 
     if (!client) throw new Error("installed RightKit runtime client is unavailable for development command");
     const socket = discoverBrokerSocket(env);
     const childEnv = !env.RIGHTKIT_BUILD_BROKER_SOCKET && existsSync(socket) ? { ...env, RIGHTKIT_BUILD_BROKER_SOCKET: socket } : undefined;
-    return { command: process.execPath, args: [client, ...args], ...(childEnv ? { env: childEnv } : {}) };
+    return { ...managedRuntimeCommand(client, args), ...(childEnv ? { env: childEnv } : {}) };
   }
   return { command, args };
 }

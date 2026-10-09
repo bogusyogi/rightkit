@@ -6,7 +6,7 @@ rust-version = "1.98.0"
 publish = false
 license = "MIT OR Apache-2.0"
 description = "Shared scenario interpreter and durable state machine for the RightKit scenario runtime (RK8): perform separated from observe_until, idempotency keys, append-only fsync journal, leases with fencing tokens, cooperative cancellation, retake replay, and a remote worker transport trait boundary"
-repository = "https://github.com/bogusyogi/claude"
+repository = "https://github.com/bogusyogi/rightkit"
 include = ["src/**", "tests/**", "Cargo.toml"]
 
 [lib]

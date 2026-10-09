@@ -5,7 +5,7 @@ edition = "2021"
 rust-version = "1.98.0"
 description = "Daemon host capability for the Right Suite: HTTPS listener, device enrolment and signed requests, OAuth callback and signed webhook route classes, bounded blake3-keyed resumable uploads, compare-and-swap mutations, durable state and lifecycle events."
 license = "MIT OR Apache-2.0"
-repository = "https://github.com/bogusyogi/claude"
+repository = "https://github.com/bogusyogi/rightkit"
 publish = false
 
 [features]

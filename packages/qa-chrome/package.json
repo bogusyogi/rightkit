@@ -36,8 +36,8 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/bogusyogi/claude.git",
-    "directory": "tools/rightkit/packages/qa-chrome"
+    "url": "git+https://github.com/bogusyogi/rightkit.git",
+    "directory": "packages/qa-chrome"
   },
   "bin": {
     "rightkit-qa-chrome": "dist/cli.js"

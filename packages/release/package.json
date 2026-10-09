@@ -31,8 +31,8 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/bogusyogi/claude.git",
-    "directory": "tools/rightkit/packages/release"
+    "url": "git+https://github.com/bogusyogi/rightkit.git",
+    "directory": "packages/release"
   },
   "packageManager": "pnpm@11.24.0",
   "dependencies": {
