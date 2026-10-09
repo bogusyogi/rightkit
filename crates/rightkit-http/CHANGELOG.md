@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.3
+
+- Add `AsyncClient::stream_any`: streaming request returning any final status
+  with its headers and streaming body (the caller inspects 401/404 etc. and
+  bounds the body). Dropping the future or stream cancels the request.
+
 ## 0.2.2
 
 - Add optional `async` feature: `AsyncClient` (reqwest + tokio, rustls only) with

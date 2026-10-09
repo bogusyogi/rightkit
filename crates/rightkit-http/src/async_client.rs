@@ -123,13 +123,27 @@ impl AsyncClient {
             .unwrap_or_default();
             return Err(status_error(raw.status, &raw.headers, body, raw.attempts));
         }
+        Ok(self.into_stream_response(raw))
+    }
+
+    /// Streaming request returning any final status with its streaming body
+    /// (retryable statuses are still retried per policy; use
+    /// `RetryPolicy::none()` for exactly one attempt). The caller inspects
+    /// `status`/`headers` (e.g. `401` + `www-authenticate`) and bounds the body.
+    /// Dropping the returned stream or this future cancels the request.
+    pub async fn stream_any(&self, req: &Request) -> Result<AsyncStreamResponse, HttpError> {
+        let raw = self.execute(req, self.config.stream_timeout).await?;
+        Ok(self.into_stream_response(raw))
+    }
+
+    fn into_stream_response(&self, raw: Raw) -> AsyncStreamResponse {
         let deadline = self.body_deadline(raw.deadline);
-        Ok(AsyncStreamResponse {
+        AsyncStreamResponse {
             status: raw.status,
             headers: raw.headers,
             attempts: raw.attempts,
             body: BodyStream::new(Box::pin(raw.response.bytes_stream()), deadline),
-        })
+        }
     }
 
     pub async fn get_json<T: DeserializeOwned>(&self, url: &str) -> Result<T, HttpError> {

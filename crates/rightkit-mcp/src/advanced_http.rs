@@ -4,8 +4,12 @@ use crate::client::{rpc_outcome, ClientOptions};
 use crate::client_features::*;
 use crate::events::{emit, next_id, EventSink, LifecycleKind, McpEvent};
 use crate::{McpError, Result};
-use futures_util::{Stream, StreamExt};
-use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
+use futures_util::StreamExt;
+use http::header::{HeaderMap, HeaderName, HeaderValue};
+use rightkit_http::{
+    AsyncClient, AsyncStreamResponse, BodyStream, ClientConfig, HttpError, Method, Request,
+    RetryPolicy,
+};
 use serde_json::{json, Value};
 use std::collections::{HashMap, VecDeque};
 use std::panic::{catch_unwind, AssertUnwindSafe};
@@ -50,7 +54,7 @@ impl Drop for LegacySession {
 struct Shared {
     server: String,
     url: String,
-    client: reqwest::Client,
+    client: AsyncClient,
     auth: Option<Arc<dyn AuthProvider>>,
     extensions: ClientExtensions,
     session: Mutex<Option<String>>,
@@ -129,14 +133,12 @@ impl Shared {
             cancellation: Some(CancellationToken::new()),
         })
     }
-    fn adopt_session(&self, response: &reqwest::Response, context: &mut WireContext) {
+    fn adopt_session(&self, response: &AsyncStreamResponse, context: &mut WireContext) {
         if context.override_session {
             return;
         }
         if let Some(session) = response
-            .headers()
-            .get("mcp-session-id")
-            .and_then(|value| value.to_str().ok())
+            .header("mcp-session-id")
             .filter(|value| !value.is_empty())
         {
             let newly_bound = {
@@ -163,7 +165,7 @@ impl Shared {
         endpoint: &str,
         message: &Value,
         context: &WireContext,
-    ) -> Result<reqwest::Response> {
+    ) -> Result<AsyncStreamResponse> {
         for attempt in 0..2 {
             let mut headers = context.headers.clone();
             if attempt != 0 && !context.override_auth {
@@ -177,19 +179,15 @@ impl Shared {
                     }
                 }
             }
+            let body =
+                serde_json::to_vec(message).map_err(|e| McpError::Protocol(e.to_string()))?;
             let response = self
                 .client
-                .post(endpoint)
-                .headers(headers)
-                .json(message)
-                .send()
+                .stream_any(&wire_request(Method::Post, endpoint, &headers, body))
                 .await
                 .map_err(transport_error)?;
-            if response.status() == reqwest::StatusCode::UNAUTHORIZED {
-                let challenge = response
-                    .headers()
-                    .get("www-authenticate")
-                    .and_then(|v| v.to_str().ok());
+            if response.status == 401 {
+                let challenge = response.header("www-authenticate");
                 if attempt == 0
                     && self
                         .auth
@@ -202,7 +200,7 @@ impl Shared {
                 }
                 return Err(McpError::Unauthorized);
             }
-            if response.status() == reqwest::StatusCode::NOT_FOUND
+            if response.status == 404
                 && context.headers.contains_key("mcp-session-id")
                 && !context.override_session
             {
@@ -213,8 +211,11 @@ impl Shared {
                 }
                 return Err(McpError::Closed);
             }
-            if !response.status().is_success() {
-                return Err(McpError::Transport(format!("HTTP {}", response.status())));
+            if !(200..300).contains(&response.status) {
+                return Err(McpError::Transport(format!(
+                    "HTTP {}",
+                    status_text(response.status)
+                )));
             }
             return Ok(response);
         }
@@ -292,11 +293,17 @@ impl AdvancedHttp {
         extensions
             .endpoint_origin_policy
             .resolve_endpoint(url, url)?;
-        let client = reqwest::Client::builder()
-            .redirect(reqwest::redirect::Policy::none())
-            .connect_timeout(options.connect_timeout.unwrap_or(options.request_timeout))
-            .build()
-            .map_err(transport_error)?;
+        // One attempt, no redirects, no phase deadlines other than connect: the
+        // MCP layer owns retry (auth refresh), timeout and cancellation itself.
+        let client = AsyncClient::new(ClientConfig {
+            user_agent: concat!("rightkit-mcp/", env!("CARGO_PKG_VERSION")).into(),
+            connect_timeout: Some(options.connect_timeout.unwrap_or(options.request_timeout)),
+            response_timeout: None,
+            max_redirects: 0,
+            retry: RetryPolicy::none(),
+            ..ClientConfig::default()
+        })
+        .map_err(transport_error)?;
         let runtime = tokio::runtime::Builder::new_multi_thread()
             .worker_threads(1)
             .enable_all()
@@ -339,22 +346,26 @@ impl AdvancedHttp {
         if let Some(session) = current.as_ref().filter(|s| s.alive.load(Ordering::SeqCst)) {
             return Ok(session.clone());
         }
+        let mut sse_headers = context.headers.clone();
+        sse_headers.insert("accept", HeaderValue::from_static("text/event-stream"));
         let response = self
             .shared
             .client
-            .get(&self.shared.url)
-            .headers(context.headers.clone())
-            .header("accept", "text/event-stream")
-            .send()
+            .stream_any(&wire_request(
+                Method::Get,
+                &self.shared.url,
+                &sse_headers,
+                Vec::new(),
+            ))
             .await
             .map_err(transport_error)?;
-        if response.status() == reqwest::StatusCode::UNAUTHORIZED {
+        if response.status == 401 {
             return Err(McpError::Unauthorized);
         }
-        if !response.status().is_success() {
+        if !(200..300).contains(&response.status) {
             return Err(McpError::Transport(format!(
                 "SSE GET HTTP {}",
-                response.status()
+                status_text(response.status)
             )));
         }
         let mut context = context.clone();
@@ -368,7 +379,7 @@ impl AdvancedHttp {
                 .or_insert_with(|| handler.clone());
         }
         let limits = self.shared.extensions.response_limits;
-        let mut stream = response.bytes_stream();
+        let mut stream = response.into_stream();
         let mut parser = SseParser::new(limits.max_frame_bytes.min(limits.max_response_bytes));
         let endpoint = loop {
             let chunk = stream
@@ -488,9 +499,7 @@ impl AdvancedHttp {
             }
             let id = id.unwrap();
             if response
-                .headers()
-                .get("content-type")
-                .and_then(|v| v.to_str().ok())
+                .header("content-type")
                 .is_some_and(|v| v.contains("text/event-stream"))
             {
                 read_http_sse(self.shared.clone(), response, id, &context).await
@@ -641,22 +650,39 @@ impl Drop for AdvancedHttp {
         }
     }
 }
-fn transport_error(error: reqwest::Error) -> McpError {
-    if error.is_timeout() {
+fn transport_error(error: HttpError) -> McpError {
+    if matches!(error, HttpError::Timeout(_)) {
         McpError::Timeout
     } else {
         McpError::Transport(error.to_string())
     }
 }
-async fn bounded_body(response: reqwest::Response, limit: usize) -> Result<Vec<u8>> {
+fn status_text(status: u16) -> String {
+    http::StatusCode::from_u16(status)
+        .map(|s| s.to_string())
+        .unwrap_or_else(|_| status.to_string())
+}
+fn wire_request(method: Method, url: &str, headers: &HeaderMap, body: Vec<u8>) -> Request {
+    let mut request = Request::new(method, url);
+    for (name, value) in headers {
+        request.headers.push((
+            name.as_str().into(),
+            String::from_utf8_lossy(value.as_bytes()).into_owned(),
+        ));
+    }
+    request.body = body;
+    request
+}
+async fn bounded_body(response: AsyncStreamResponse, limit: usize) -> Result<Vec<u8>> {
     if response
-        .content_length()
+        .header("content-length")
+        .and_then(|v| v.trim().parse::<u64>().ok())
         .is_some_and(|size| size > limit as u64)
     {
         return Err(McpError::ResponseTooLarge { limit });
     }
     let mut bytes = Vec::new();
-    let mut stream = response.bytes_stream();
+    let mut stream = response.into_stream();
     while let Some(chunk) = stream.next().await {
         let chunk = chunk.map_err(transport_error)?;
         if bytes.len().saturating_add(chunk.len()) > limit {
@@ -772,14 +798,14 @@ impl SseParser {
 }
 async fn read_http_sse(
     shared: Arc<Shared>,
-    response: reqwest::Response,
+    response: AsyncStreamResponse,
     id: u64,
     context: &WireContext,
 ) -> Result<Value> {
     let limits = shared.extensions.response_limits;
     let mut parser = SseParser::new(limits.max_frame_bytes);
     let mut received = 0usize;
-    let mut stream = response.bytes_stream();
+    let mut stream = response.into_stream();
     while let Some(chunk) = stream.next().await {
         let chunk = chunk.map_err(transport_error)?;
         received = received.saturating_add(chunk.len());
@@ -801,18 +827,14 @@ async fn read_http_sse(
     }
     Err(McpError::Protocol("no response in event stream".into()))
 }
-async fn read_legacy<S, B>(
+async fn read_legacy(
     shared: Arc<Shared>,
     endpoint: &str,
     stream_context: &WireContext,
     pending: Arc<Mutex<HashMap<u64, Pending>>>,
-    stream: &mut S,
+    stream: &mut BodyStream,
     parser: &mut SseParser,
-) -> Result<()>
-where
-    S: Stream<Item = std::result::Result<B, reqwest::Error>> + Unpin,
-    B: AsRef<[u8]> + Send,
-{
+) -> Result<()> {
     loop {
         while let Some(event) = parser.pop() {
             let message: Value =

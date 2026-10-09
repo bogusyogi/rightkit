@@ -336,6 +336,25 @@ async fn stream_error_status_carries_body_and_retries_before_first_byte() {
 }
 
 #[tokio::test]
+async fn stream_any_returns_error_status_headers_and_streaming_body() {
+    let server = MockServer::start(|_, _| {
+        MockResponse::text(401, "denied").header("WWW-Authenticate", "Bearer realm=\"x\"")
+    });
+    let c = client(base(RetryPolicy::none()));
+    let resp = c.stream_any(&Request::get(server.url("/"))).await.unwrap();
+    assert_eq!(resp.status, 401);
+    assert_eq!(resp.header("www-authenticate"), Some("Bearer realm=\"x\""));
+    assert_eq!(resp.attempts, 1);
+    let mut body = Vec::new();
+    let mut s = resp.into_stream();
+    while let Some(chunk) = s.next().await {
+        body.extend_from_slice(&chunk.unwrap());
+    }
+    assert_eq!(body, b"denied");
+    assert_eq!(server.request_count(), 1);
+}
+
+#[tokio::test]
 async fn body_stream_yields_chunks_and_enforces_deadlines() {
     let server = MockServer::start(|_, _| {
         MockResponse::new(200).chunks(vec![

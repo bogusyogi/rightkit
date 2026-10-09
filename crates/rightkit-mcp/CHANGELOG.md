@@ -1,7 +1,13 @@
 # Changelog
 
-## 0.5.1 — staged, unpublished
+## 0.5.2
 
+- Internal: the HTTP/SSE client transport now runs on `rightkit-http` (`AsyncClient::stream_any`,
+  one attempt, no redirects) instead of a direct `reqwest` dependency; `tokio` no longer enables
+  `net`. Wire behaviour, cancellation and response bounds are unchanged (User-Agent is now
+  `rightkit-mcp/<version>`).
+
+## 0.5.1
 - Security: the stdio server host no longer reads unbounded input lines. Each input frame is
   capped by `ServerHost::with_max_stdio_frame_bytes` (default `DEFAULT_MAX_STDIO_FRAME_BYTES`,
   8 MiB, the HTTP body cap). An oversize line is drained to its terminator and answered with a
