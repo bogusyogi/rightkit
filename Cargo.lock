@@ -5430,6 +5430,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "rightkit-fsindex"
+version = "0.1.0"
+dependencies = [
+ "libc",
+ "memchr",
+ "memmap2",
+ "tempfile",
+]
+
+[[package]]
 name = "rightkit-hotkeys"
 version = "0.1.0"
 dependencies = [
