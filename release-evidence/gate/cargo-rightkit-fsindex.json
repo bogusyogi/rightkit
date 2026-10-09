@@ -1,0 +1,28 @@
+{
+  "schema": 1,
+  "kind": "cargo",
+  "name": "rightkit-fsindex",
+  "version": "0.1.0",
+  "commit": "77b8a8687f7c636bb0e441babb41ed1967364af2",
+  "artifactSha256": "e2150788390d47b04a06bb332b93cec6ff8ef23ab8c3b412511e34ee0db737bf",
+  "artifactBasis": "cargo package rightkit-fsindex-0.1.0.crate",
+  "hostPolicy": "darwin-only",
+  "hostPolicyReason": "Adrian 2026-10-07: publish crates from the Mac (crates.io auth here); Windows qualification follows",
+  "runs": [
+    {
+      "host": {
+        "os": "darwin",
+        "arch": "arm64"
+      },
+      "commit": "77b8a8687f7c636bb0e441babb41ed1967364af2",
+      "command": "right-release publish cargo --crate rightkit-fsindex --dry-run (secret scan, fmt, tests, clippy, package, registry dry-run)",
+      "features": [
+        "default"
+      ],
+      "operator": "claude-opus-5.5 (RightKit lead) for adrdsouza",
+      "timestamp": "2026-10-09T02:38:17Z",
+      "passed": 23,
+      "failed": 0
+    }
+  ]
+}
