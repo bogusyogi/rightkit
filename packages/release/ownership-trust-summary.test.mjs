@@ -96,9 +96,15 @@ test("capSummary truncates with an 'and N more' tail", () => {
   assert.match(out, /…and 36 more$/);
 });
 
+test("Windows dialog uses the shown (interactive) runner, never the hidden one", () => {
+  const used = [];
+  confirmTrustChange({ lines: ["x"], run: () => { used.push("hidden"); return { status: 0 }; }, interactiveRun: (c, a, o) => { used.push(o.windowsHide); return { status: 0 }; }, print: () => {}, hostPlatform: "win32", tty: false });
+  assert.deepEqual(used, [false]);
+});
+
 test("Windows MessageBox script is OKCancel Warning with the pinned title", () => {
   const ps = buildWindowsConfirmScript("a'b\nc");
-  assert.match(ps, /MessageBox\]::Show\(\$o, .*'RightKit ownership trust-sync', 'OKCancel', 'Warning'\)/);
+  assert.match(ps, /MessageBoxW\(\[IntPtr\]::Zero, .*'RightKit ownership trust-sync', 0x50031\)/);
   assert.ok(ps.includes("'a''b', 'c'"));
 });
 

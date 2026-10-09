@@ -133,6 +133,7 @@ export function delegateToDesktop({ run, command, tmp = os.tmpdir(), sleep = (ms
     const output = existsSync(logPath) ? decodeLog(readFileSync(logPath)) : "";
     return { status: Number.isInteger(status) ? status : 1, output, user };
   } finally {
+    if (created) { try { run(SCHTASKS, ["/End", "/TN", taskName], { env, encoding: "utf8" }); } catch {} }
     if (created) { try { run(SCHTASKS, ["/Delete", "/TN", taskName, "/F"], { env, encoding: "utf8" }); } catch {} }
     try { rmSync(dir, { recursive: true, force: true }); } catch {}
   }
@@ -165,11 +166,11 @@ export function buildMacConfirmScript(text) {
 
 export function buildWindowsConfirmScript(text) {
   const lines = String(text).replaceAll("\0", "").split(/\r?\n/).map(psq).join(", ");
+  // user32 MessageBoxW with no owner: OKCANCEL | ICONWARNING | SETFOREGROUND | TOPMOST so it is drawn in front.
   return [
-    "Add-Type -AssemblyName System.Windows.Forms",
-    "$o=New-Object System.Windows.Forms.Form; $o.TopMost=$true",
-    `$r=[System.Windows.Forms.MessageBox]::Show($o, ([string]::Join([Environment]::NewLine, @(${lines}))), ${psq(CONFIRM_TITLE)}, 'OKCancel', 'Warning')`,
-    "if ($r -eq 'OK') { exit 0 } else { exit 1 }",
+    "Add-Type -Namespace RK -Name Dlg -MemberDefinition '[DllImport(\"user32.dll\", CharSet=CharSet.Unicode)] public static extern int MessageBoxW(System.IntPtr h, string t, string c, uint f);'",
+    `$r=[RK.Dlg]::MessageBoxW([IntPtr]::Zero, ([string]::Join([Environment]::NewLine, @(${lines}))), ${psq(CONFIRM_TITLE)}, 0x50031)`,
+    "if ($r -eq 1) { exit 0 } else { exit 1 }",
   ].join("; ");
 }
 
@@ -182,7 +183,7 @@ function readLineSync() {
  * Ask the human to approve the summarized change. Prints the summary, then: TTY -> type `yes`;
  * macOS GUI -> osascript dialog; Windows GUI -> MessageBox. Throws "cancelled by user" unless approved.
  */
-export function confirmTrustChange({ lines, run, print = console.log, hostPlatform = process.platform, tty = hasTerminal(), readLine = readLineSync }) {
+export function confirmTrustChange({ lines, run, interactiveRun, print = console.log, hostPlatform = process.platform, tty = hasTerminal(), readLine = readLineSync }) {
   const text = capSummary(lines);
   print(lines.join("\n"));
   const cancelled = () => new Error("cancelled by user");
@@ -198,7 +199,8 @@ export function confirmTrustChange({ lines, run, print = console.log, hostPlatfo
   }
   if (hostPlatform === "win32") {
     const encoded = Buffer.from(buildWindowsConfirmScript(text), "utf16le").toString("base64");
-    const r = run(POWERSHELL, ["-NoProfile", "-Sta", "-EncodedCommand", encoded], { env: windowsPowerShellEnvironment(), encoding: "utf8" });
+    // Must be an explicitly SHOWN process: a hidden STARTUPINFO would hide the dialog's first window.
+    const r = (interactiveRun ?? run)(POWERSHELL, ["-NoProfile", "-Sta", "-EncodedCommand", encoded], { env: windowsPowerShellEnvironment(), encoding: "utf8", windowsHide: false });
     if (r.status !== 0) throw cancelled();
     return;
   }

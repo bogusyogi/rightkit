@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { accessSync, closeSync, existsSync, lstatSync, mkdirSync, mkdtempSync, openSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
+import { accessSync, closeSync, existsSync, lstatSync, mkdirSync, mkdtempSync, openSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, unlinkSync, writeFileSync, writeSync } from "node:fs";
 import path from "node:path";
 import os from "node:os";
 import { fileURLToPath } from "node:url";
@@ -359,7 +359,7 @@ export async function main(args, deps = {}) {
     const helper = deps.helper ?? helperFor(run);
     const lockPath = deps.lockPath ?? path.join(os.tmpdir(), "rightkit-key-command.lock");
     let lockFd;
-    try { lockFd = openSync(lockPath, "wx", 0o600); } catch { throw new Error("another ownership key command is active for this repository"); }
+    lockFd = acquireCommandLock(lockPath);
     try {
       commandTemp = mkdtempSync(path.join(os.tmpdir(), "rightkit-key-command-"));
       const authority = resolveAuthority(root, run, deps.authority);
@@ -379,6 +379,27 @@ export async function main(args, deps = {}) {
       commandTemp = undefined;
     }
   } catch (error) { print(`[right-release] ownership ${args[0] ?? "keys"} failed: ${error.message}`); return 1; }
+}
+const pidAlive = (pid) => { try { process.kill(pid, 0); return true; } catch (e) { return e.code === "EPERM"; } };
+/** Exclusive lock file holding the owner pid; a lock whose pid is dead (killed run) is reclaimed. */
+export function acquireCommandLock(lockPath, { alive = pidAlive, now = Date.now } = {}) {
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      const fd = openSync(lockPath, "wx", 0o600);
+      writeSync(fd, String(process.pid));
+      return fd;
+    } catch (error) {
+      if (error.code !== "EEXIST") throw new Error("another ownership key command is active for this repository");
+      let stale = false;
+      try {
+        const pid = Number.parseInt(readFileSync(lockPath, "utf8").trim(), 10);
+        stale = Number.isInteger(pid) && pid > 0 ? !alive(pid) : now() - lstatSync(lockPath).mtimeMs > 60_000;
+      } catch { stale = false; }
+      if (!stale) throw new Error("another ownership key command is active for this repository");
+      try { unlinkSync(lockPath); } catch {}
+    }
+  }
+  throw new Error("another ownership key command is active for this repository");
 }
 function flag(args, name) { const i = args.indexOf(name); return i < 0 ? undefined : args[i + 1]; }
 
@@ -518,7 +539,7 @@ function trustSyncGate(d) {
     const existing = (d.trustLoader ?? trustState)()?.trust ?? null;
     const summary = (d.summarize ?? summarizeRequestFile)({ file: request.file, digest: request.digest, existing, ...(d.summaryInputs ?? {}) });
     if (!summary.changed) return false;
-    (d.confirm ?? confirmTrustChange)({ lines: summary.lines, run: d.run, print: d.print, hostPlatform: d.hostPlatform, ...(d.confirmOptions ?? {}) });
+    (d.confirm ?? confirmTrustChange)({ lines: summary.lines, run: d.run, interactiveRun: d.run.interactive, print: d.print, hostPlatform: d.hostPlatform, ...(d.confirmOptions ?? {}) });
     return true;
   };
 }

@@ -9,7 +9,7 @@ import { createKeyEvent, keyFingerprint, verifyKeyLog } from "./ownership-key-lo
 import { prepareTrustUpdate } from "./ownership-key-trust.mjs";
 import { __testOnly as authorityTestOnly } from "./ownership-key-authority.mjs";
 import { resolveKeyLogTrust } from "./ownership-approval.mjs";
-import { __testOnly, main } from "./ownership-key-command.mjs";
+import { __testOnly, acquireCommandLock, main } from "./ownership-key-command.mjs";
 
 const canonical = (v) => v === null || typeof v !== "object" ? JSON.stringify(v) : Array.isArray(v) ? `[${v.map(canonical).join(",")}]` : `{${Object.keys(v).sort().map((k) => `${JSON.stringify(k)}:${canonical(v[k])}`).join(",")}}`;
 const nativeTestHost = process.platform === "win32" ? "windows" : process.platform === "darwin" ? "macos" : null;
@@ -553,4 +553,18 @@ test("trust-sync delegates to the desktop session before taking the command lock
   assert.ok(!lines.some((l) => /another ownership key command is active/.test(l)));
   rmSync(path.dirname(lockPath), { recursive: true, force: true });
   void code;
+});
+
+test("command lock records its pid and reclaims a lock whose pid is dead", () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), "rk-lock2-"));
+  const lock = path.join(dir, "k.lock");
+  try {
+    writeFileSync(lock, "999999");
+    assert.throws(() => acquireCommandLock(lock, { alive: () => true }), /another ownership key command is active/);
+    const fd = acquireCommandLock(lock, { alive: () => false });
+    assert.equal(readFileSync(lock, "utf8"), String(process.pid));
+    assert.throws(() => acquireCommandLock(lock), /another ownership key command is active/);
+    rmSync(lock);
+    void fd;
+  } finally { rmSync(dir, { recursive: true, force: true }); }
 });

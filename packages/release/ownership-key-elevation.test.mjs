@@ -140,3 +140,11 @@ test("decodeLog handles BOM-less UTF-16LE, UTF-8 and BOM variants", () => {
   assert.equal(decodeLog(Buffer.from("\uFEFFplain")), "plain");
   assert.equal(decodeLog(Buffer.from("caf\u00e9")), "caf\u00e9");
 });
+
+test("delegateToDesktop ends the running task before deleting it, so a timeout leaves no orphan", () => {
+  const f = fakeSchtasks({ never: true });
+  let t = 0;
+  assert.throws(() => delegateToDesktop({ run: f.run, command: ["n"], sleep() {}, now: () => (t += 20000), suffix: "end" }), /without reporting a result/);
+  const verbs = f.calls.map(([, a]) => a[0]).filter((v) => v === "/End" || v === "/Delete");
+  assert.deepEqual(verbs, ["/End", "/Delete"]);
+});
