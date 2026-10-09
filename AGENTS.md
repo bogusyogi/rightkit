@@ -30,6 +30,8 @@ RightKit owns shared packages, crates, QA, licensing, logging, & release tooling
 - Never run browser login, `az login`, Azure enrollment, or signing setup; use native-host provisioned signers.
 - Publish Cargo crates only through the RightKit release command.
 - Upload no unsigned or test artifact.
+- Activate enforcement policy & verifier changes only through Adrian-authenticated trust-sync; see `docs/OWNERSHIP-ENFORCEMENT.md`.
+- Apply identical qualification requirements across distribution providers; see `../../docs/rules/release-signing.md`.
 
 ## Verification
 - Run focused package tests before the release contract suite.
