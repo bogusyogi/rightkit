@@ -35,7 +35,9 @@ export async function sha256File(path) {
 }
 
 function cargoPath(path) {
-  return resolve(path).replaceAll("\\", "/").replaceAll('"', '\\"');
+  // A drive-letter path is already absolute for Cargo on every host; posix resolve() would prefix the cwd.
+  const absolute = /^[A-Za-z]:[\\/]/.test(path) ? path : resolve(path);
+  return absolute.replaceAll("\\", "/").replaceAll('"', '\\"');
 }
 
 function probeSource(typeName) {

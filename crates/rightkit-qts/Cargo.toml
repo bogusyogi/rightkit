@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-qts"
-version = "0.2.3"
+version = "0.2.4"
 edition = "2021"
 license = "Apache-2.0"
 repository = "https://github.com/adrdsouza/claude"
@@ -17,25 +17,25 @@ metal = ["rightkit-qts-ggml-sys/metal"]
 vulkan = ["rightkit-qts-ggml-sys/vulkan"]
 blas = ["rightkit-qts-ggml-sys/blas"]
 native = ["rightkit-qts-ggml-sys/native"]
-acl = ["ort/acl"]
-armnn = ["ort/armnn"]
-azure = ["ort/azure"]
-cann = ["ort/cann"]
-coreml = ["ort/coreml"]
-cuda = ["ort/cuda"]
-directml = ["ort/directml"]
-migraphx = ["ort/migraphx"]
-nnapi = ["ort/nnapi"]
-nvrtx = ["ort/nvrtx"]
-onednn = ["ort/onednn"]
-openvino = ["ort/openvino"]
-qnn = ["ort/qnn"]
-rknpu = ["ort/rknpu"]
-tensorrt = ["ort/tensorrt"]
-tvm = ["ort/tvm"]
-vitis = ["ort/vitis"]
-webgpu = ["ort/webgpu"]
-xnnpack = ["ort/xnnpack"]
+acl = ["rightkit-ort/acl"]
+armnn = ["rightkit-ort/armnn"]
+azure = ["rightkit-ort/azure"]
+cann = ["rightkit-ort/cann"]
+coreml = ["rightkit-ort/coreml"]
+cuda = ["rightkit-ort/cuda"]
+directml = ["rightkit-ort/directml"]
+migraphx = ["rightkit-ort/migraphx"]
+nnapi = ["rightkit-ort/nnapi"]
+nvrtx = ["rightkit-ort/nvrtx"]
+onednn = ["rightkit-ort/onednn"]
+openvino = ["rightkit-ort/openvino"]
+qnn = ["rightkit-ort/qnn"]
+rknpu = ["rightkit-ort/rknpu"]
+tensorrt = ["rightkit-ort/tensorrt"]
+tvm = ["rightkit-ort/tvm"]
+vitis = ["rightkit-ort/vitis"]
+webgpu = ["rightkit-ort/webgpu"]
+xnnpack = ["rightkit-ort/xnnpack"]
 
 [dependencies]
 rightkit-qts-ggml-sys = { path = "../rightkit-qts-ggml-sys", version = "0.1.0", default-features = false }
@@ -44,7 +44,7 @@ rand = "0.10"
 hound = "3.5.1"
 rustfft = "6.4.1"
 prost = "0.14"
-ort = { version = "=2.0.0-rc.13", default-features = false, features = ["std", "tracing", "load-dynamic", "api-24"] }
+rightkit-ort = { path = "../rightkit-ort", version = "0.2.2", features = ["tracing"] }
 
 
 [build-dependencies]

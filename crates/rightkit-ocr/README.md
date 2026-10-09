@@ -25,7 +25,7 @@ The crate also ships a `rightkit-ocr` binary (`src/bin/rightkit-ocr.rs`).
 - Windows: `Windows.Media.Ocr` native backend (`src/native/win_native.rs`), plus the ONNX path with DirectML and CPU fallback.
 - Other targets: the ONNX path is the only code path; the crate has no native backend there. This README does not claim support for other targets.
 
-Published version: see `INDEX.md` at the repository root. Release notes: see `CHANGELOG.md`, if present in this crate; this crate has none, so use `INDEX.md`.
+Release notes: see `CHANGELOG.md` in this crate.
 
 ## Example
 

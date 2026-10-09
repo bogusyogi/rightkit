@@ -6,7 +6,10 @@ fn main() {
         match arg.as_str() {
             "--model-dir" => model_dir = args.next().expect("--model-dir needs a path").into(),
             "--backend" => backend = args.next().expect("--backend needs a value"),
-            other => { eprintln!("unknown argument {other}"); std::process::exit(64); }
+            other => {
+                eprintln!("unknown argument {other}");
+                std::process::exit(64);
+            }
         }
     }
     rightkit_tts::worker::run(&model_dir, &backend)

@@ -75,7 +75,7 @@ test("private adapter accepts only its fixed verifier result and rejects malform
       assert.equal(options.env.NODE_OPTIONS, undefined);
       return { status: 0, stdout: JSON.stringify(receipt), stderr: "" };
     };
-    const options = { platform: "win32", verifierPath: "C:\\protected\\verifier.mjs", runtimePath: "C:\\protected\\node.exe", catalogPath: path.join(root, "rightkit-ownership.json"), audit: () => ({ ok: true }), runner: verifier };
+    const options = { platform: "win32", verifierPath: "C:\\protected\\verifier.mjs", runtimePath: "C:\\protected\\node.exe", catalogPath: path.join(root, "rightkit-ownership.json"), audit: () => ({ ok: true }), runner: verifier, loadTrust: () => null };
     assert.equal(runPrivateLocalOwnershipAdapterForTest(root, options).ok, true);
     const malformed = (exe, args, opts) => exe === nativeGitExecutable() ? spawnSync(exe, args, opts) : ({ status: 0, stdout: "{}" });
     const rejected = (exe, args, opts) => exe === nativeGitExecutable() ? spawnSync(exe, args, opts) : ({ status: 3, stderr: "trust unavailable" });

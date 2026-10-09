@@ -463,6 +463,70 @@ fn configure_runtime_with_env(
     Ok(binding)
 }
 
+/// Ordered runtime search for processes that carry no app-supplied runtime
+/// path (worker processes, CLIs): a non-empty `ORT_DYLIB_PATH`, then
+/// `<exe dir>/runtime`, `<exe dir>`, then each caller directory in order.
+/// Caller directories are joined with `runtime_filename()`; relative
+/// directories are skipped. Candidates are not checked for existence.
+pub fn discovery_candidates(
+    extra_dirs: impl IntoIterator<Item = PathBuf>,
+) -> Vec<RuntimeCandidate> {
+    let mut out = Vec::new();
+    if let Some(path) = nonempty_env_path("ORT_DYLIB_PATH") {
+        out.push(RuntimeCandidate::new(path, CandidateSource::Explicit));
+    }
+    let name = runtime_filename();
+    if let Some(exe_dir) = std::env::current_exe()
+        .ok()
+        .and_then(|exe| exe.parent().map(Path::to_path_buf))
+    {
+        out.push(RuntimeCandidate::new(
+            exe_dir.join("runtime").join(name),
+            CandidateSource::Bundled,
+        ));
+        out.push(RuntimeCandidate::new(
+            exe_dir.join(name),
+            CandidateSource::Bundled,
+        ));
+    }
+    out.extend(
+        extra_dirs
+            .into_iter()
+            .filter(|dir| dir.is_absolute())
+            .map(|dir| RuntimeCandidate::new(dir.join(name), CandidateSource::AppData)),
+    );
+    out
+}
+
+/// First regular-file candidate from `discovery_candidates`, skipping the
+/// Windows-ML `System32` copy. A stale `ORT_DYLIB_PATH` does not mask a runtime
+/// installed in a later location. No environment mutation, no ORT loading.
+pub fn discover_runtime(extra_dirs: impl IntoIterator<Item = PathBuf>) -> Option<PathBuf> {
+    discovery_candidates(extra_dirs)
+        .into_iter()
+        .map(|candidate| candidate.path)
+        .find(|path| path.is_file() && !is_system_runtime(path))
+}
+
+/// Export a discovered runtime to this process: set `ORT_DYLIB_PATH` unless
+/// already set and prepend its directory to `PATH` so dependent libraries load.
+/// Returns the runtime path now in effect. Call single-threaded, before ORT use.
+pub fn export_discovered_runtime(extra_dirs: impl IntoIterator<Item = PathBuf>) -> Option<PathBuf> {
+    if let Some(existing) = nonempty_env_path("ORT_DYLIB_PATH") {
+        return Some(existing);
+    }
+    let path = discover_runtime(extra_dirs)?;
+    std::env::set_var("ORT_DYLIB_PATH", &path);
+    if let (Some(dir), Some(existing)) = (path.parent(), std::env::var_os("PATH")) {
+        let mut paths = vec![dir.to_path_buf()];
+        paths.extend(std::env::split_paths(&existing));
+        if let Ok(joined) = std::env::join_paths(paths) {
+            std::env::set_var("PATH", joined);
+        }
+    }
+    Some(path)
+}
+
 fn nonempty_env_path(name: &str) -> Option<PathBuf> {
     std::env::var_os(name)
         .filter(|value| !value.is_empty())
@@ -480,6 +544,43 @@ fn canonical_if_file(path: &Path) -> Result<PathBuf, RuntimeError> {
             path: path.to_path_buf(),
             message: error.to_string(),
         })
+}
+
+#[cfg(test)]
+mod discovery_tests {
+    use super::*;
+
+    #[test]
+    fn caller_dirs_follow_exe_locations_and_relative_dirs_are_skipped() {
+        let abs = std::env::temp_dir().join("rightkit-ort-discovery-absent");
+        let candidates = discovery_candidates([PathBuf::from("relative/runtime"), abs.clone()]);
+        let last = candidates.last().expect("caller candidate");
+        assert_eq!(last.path, abs.join(runtime_filename()));
+        assert_eq!(last.source, CandidateSource::AppData);
+        assert!(candidates
+            .iter()
+            .all(|c| !c.path.starts_with("relative/runtime")));
+        let exe_pos = candidates
+            .iter()
+            .position(|c| c.source == CandidateSource::Bundled);
+        assert!(exe_pos.is_none_or(|pos| pos < candidates.len() - 1));
+    }
+
+    #[test]
+    fn discovery_finds_a_regular_file_and_ignores_a_directory() {
+        let root = std::env::temp_dir().join(format!("rightkit-ort-disc-{}", std::process::id()));
+        let dir_hit = root.join("dir");
+        let file_hit = root.join("file");
+        std::fs::create_dir_all(dir_hit.join(runtime_filename())).unwrap();
+        std::fs::create_dir_all(&file_hit).unwrap();
+        std::fs::write(file_hit.join(runtime_filename()), b"x").unwrap();
+        let found = discover_runtime([dir_hit, file_hit.clone()]);
+        // A developer shell may export ORT_DYLIB_PATH; it wins when it is a file.
+        if nonempty_env_path("ORT_DYLIB_PATH").is_none_or(|p| !p.is_file()) {
+            assert_eq!(found, Some(file_hit.join(runtime_filename())));
+        }
+        let _ = std::fs::remove_dir_all(root);
+    }
 }
 
 #[cfg(test)]

@@ -38,7 +38,9 @@ function assertContained(root, path, label) {
 }
 function assertSkillId(id) { if (typeof id !== "string" || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(id)) throw new Error(`invalid public skill ID: ${id}`); }
 function assertRegularPublicFile(path, label) {
-  if (PRIVATE_PATH.test(path) || PRIVATE_EXTENSION.test(basename(path))) throw new Error(`portable core rejects private/personal path: ${path}`);
+  // Judge the file's own name, not host ancestors: macOS temp dirs resolve
+  // under /private/var, which is not a private path inside the portable core.
+  if (PRIVATE_PATH.test(`/${basename(path)}`) || PRIVATE_EXTENSION.test(basename(path))) throw new Error(`portable core rejects private/personal path: ${path}`);
   const stat = lstatSync(path); if (!stat.isFile() || stat.isSymbolicLink()) throw new Error(`portable core requires regular non-symlink ${label}: ${path}`);
 }
 function scanPublicValue(value, location, findings = []) {
@@ -54,7 +56,8 @@ function scanPublicValue(value, location, findings = []) {
 function copyTreeNoLinks(source, destination, prefix = "", files = []) {
   for (const entry of readdirSync(source, { withFileTypes: true })) {
     const from = join(source, entry.name); const to = join(destination, entry.name); const outputPath = prefix ? `${prefix}/${entry.name}` : entry.name;
-    if (PRIVATE_PATH.test(from) || PRIVATE_EXTENSION.test(entry.name)) throw new Error(`portable core rejects private/personal path: ${from}`);
+    // Judge the path relative to the copied root; host ancestors (e.g. /private/var on macOS) are not part of the core.
+    if (PRIVATE_PATH.test(`/${outputPath}`) || PRIVATE_EXTENSION.test(entry.name)) throw new Error(`portable core rejects private/personal path: ${from}`);
     if (entry.isSymbolicLink() || lstatSync(from).isSymbolicLink()) throw new Error(`portable core cannot contain symlink: ${from}`);
     if (entry.isDirectory()) { mkdirSync(to, { recursive: true }); copyTreeNoLinks(from, to, outputPath, files); }
     else if (entry.isFile()) { const bytes = readFileSync(from); if (!bytes.includes(0) && PERSONAL_MARKER.test(bytes.toString("utf8"))) throw new Error(`portable core rejects personal workspace marker: ${from}`); cpSync(from, to); files.push(outputPath.replaceAll("\\", "/")); }

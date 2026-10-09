@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-qts-ggml-sys"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 license = "Apache-2.0 AND MIT"
 repository = "https://github.com/adrdsouza/claude"
@@ -8,7 +8,7 @@ description = "Low-level FFI bindings to ggml (CPU, Metal, Vulkan, BLAS) for rig
 readme = "README.md"
 links = "rightkit_ggml"
 build = "build.rs"
-include = ["src/**", "build.rs", "wrapper.h", "bindings-*.rs", "vendor/**", "Cargo.toml", "README.md", "LICENSE", "NOTICE", "PINNED.md"]
+include = ["src/**", "build.rs", "bindings_stamp.rs", "wrapper.h", "bindings-*.rs", "vendor/**", "Cargo.toml", "README.md", "VERSIONS.md", "LICENSE", "NOTICE", "PINNED.md"]
 
 [lib]
 name = "ggml_sys"
@@ -20,7 +20,10 @@ vulkan = []
 blas = []
 # Optimize CPU kernels for the host CPU (less portable binaries).
 native = []
+# Regenerates the checked-in bindings-<target>.rs from the vendored headers (needs libclang).
+# Only for refreshing bindings; default builds use the checked-in files.
+regenerate-bindings = ["dep:bindgen"]
 
 [build-dependencies]
-bindgen = "0.72"
+bindgen = { version = "0.72", optional = true }
 cmake = "0.1"

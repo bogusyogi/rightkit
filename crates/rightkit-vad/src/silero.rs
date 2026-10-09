@@ -1,5 +1,6 @@
 use crate::{Error, FrameScorer, Result, FRAME_SAMPLES, SAMPLE_RATE};
-use ort::{
+use rightkit_ort::ort;
+use rightkit_ort::ort::{
     session::{builder::GraphOptimizationLevel, Session},
     value::Value,
 };

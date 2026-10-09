@@ -1,7 +1,8 @@
+use rightkit_ort::ort;
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
 
-use ort::session::Session;
+use rightkit_ort::ort::session::Session;
 use rightkit_ort::{
     configure_runtime, init_environment, CandidateSource, EnvironmentOptions, GlobalPool,
     RuntimeCandidate, SessionOptions,

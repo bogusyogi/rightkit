@@ -1,4 +1,4 @@
-use ort::session::builder::GraphOptimizationLevel;
+use rightkit_ort::ort::session::builder::GraphOptimizationLevel;
 use rightkit_asr::{ExecutionConfig, ExecutionProvider, Transducer, TransducerOptions};
 
 #[test]

@@ -7,6 +7,21 @@
 - **Reported version** (`vendor/ggml/CMakeLists.txt` at this vendoring): **0.9.8**.
 - **Bump**: fetch the new upstream tag in a separate checkout, copy its ggml tree over `vendor/ggml`, update the commit and version above in this file and in `PINNED.md`, then rebuild with `rightkit cargo test -p rightkit-qts-ggml-sys`.
 
+## Checked-in bindings
+
+- Files: `bindings-<target>.rs` beside `Cargo.toml`. Default builds copy the file for the build target into `OUT_DIR`; bindgen does not run and is not a default build-dependency.
+- Targets: `aarch64-apple-darwin` (generated on macOS, stamped). `x86_64-pc-windows-msvc` is **pending**: the file predates the stamp and must be regenerated on Windows before it is stamped (`PENDING_UNSTAMPED` in `tests/bindings_match.rs`).
+- Stamp: line 1 of each regenerated file is `// ggml-sys-stamp ggml=<version> headers=fnv1a64:<digest> target=<triple>`. The digest covers every `vendor/ggml/include/*.h`.
+- Other targets: a target with no checked-in file panics until bindings are generated for it with the command below.
+- Regenerate for the host target (requires libclang; bindgen 0.72):
+
+  ```bash
+  rightkit cargo check -p rightkit-qts-ggml-sys --features regenerate-bindings
+  ```
+
+  This overwrites `bindings-<host-target>.rs`. Commit the file with any vendor/ggml bump.
+- Verify: `rightkit cargo test -p rightkit-qts-ggml-sys --test bindings_match`. It fails when the stamp is missing, names another target, or carries a stale version or header digest, and when `VERSIONS.md` disagrees with `vendor/ggml/CMakeLists.txt`.
+
 ## `ggml-sys` Cargo features → CMake
 
 | Feature | CMake option |

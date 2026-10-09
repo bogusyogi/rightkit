@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-secrets"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Per-app OS credential storage for Right Suite apps: Keychain / Credential Manager, passive presence checks, non-interactive mode, test guards, DB-key provisioning, and migration."
@@ -30,6 +30,10 @@ rightkit-settings = { version = "0.1.0", path = "../rightkit-settings", optional
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security_Credentials", "Win32_Security_Cryptography", "Win32_System_Threading"] }
+
+[target.'cfg(windows)'.dev-dependencies]
+keyring-core = "1"
+windows-native-keyring-store = "1.1.0"
 
 [dev-dependencies]
 tempfile = "3"

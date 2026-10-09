@@ -31,7 +31,7 @@ test("native Windows read masks & documented ancestor-create masks pass without 
   assert.equal(evaluateWindowsAcl(item(isolated, [ace(USERS, 0x40000000, 2)]), { target: isolated }).ok, true, "InheritOnly ACE does not grant access to current object");
 });
 
-test("public native audit requires service SID & denies agent App-key read", () => {
+test("public native audit requires service SID & denies agent App-key read", { skip: process.platform === "win32" ? false : "Windows path semantics: the native ACL evaluator runs only under PowerShell on win32" }, () => {
   const root = "C:\\Program Files\\Orthic Labs\\RightKit";
   const config = { service: { windowsSid: SERVICE, agentWindowsSids: [AGENT], windowsCheckoutRoot: "D:\\runner", macosCheckoutRoot: "/var/lib/rightkit/checkouts", macosUid: 600, agentMacosUids: [501] } };
   const keyPath = `${root}\\ownership\\public-check-app.pem`;
@@ -68,7 +68,7 @@ test("public native audit requires service SID & denies agent App-key read", () 
   assert.match(checkoutProblems.join(";"), /checkout grants write authority/);
 });
 
-test("checkpoint state permits service-only writes in fixed subtree and rejects agent or broad temp-file writes", () => {
+test("checkpoint state permits service-only writes in fixed subtree and rejects agent or broad temp-file writes", { skip: process.platform === "win32" ? false : "Windows path semantics: the native ACL evaluator runs only under PowerShell on win32" }, () => {
   const root = "C:\\Program Files\\Orthic Labs\\RightKit";
   const checkpoints = `${root}\\ownership\\checkpoints`;
   const stateName = `${"a".repeat(64)}.json`;

@@ -9,7 +9,7 @@ const workspaceRoot = path.resolve(here, "../../../..");
 const contractPath = path.join(here, "contract.json");
 
 const sources = {
-  hrDecode: "heardright/tauri-app-next/heardright-engine/src/file_transcribe.rs",
+  hrDecode: "heardright/tauri-app-next/heardright-inference/src/file_transcribe.rs",
   hrStage: "heardright/tauri-app-next/scripts/stage-ffmpeg.mjs",
   srArgs: "scraperight/crates/audio/src/args.rs",
   srProcess: "scraperight/crates/audio/src/process.rs",

@@ -1,13 +1,18 @@
 [package]
 name = "rightkit-tts"
-version = "0.0.0"
+version = "0.1.0"
 edition = "2021"
 rust-version = "1.98.0"
-publish = false
+publish = true
 license = "MIT OR Apache-2.0"
-description = "Shared local QTS and operating-system speech synthesis for Right Suite apps"
-repository = "https://github.com/adrdsouza/claude"
-include = ["src/**", "tests/**", "Cargo.toml", "README.md"]
+description = "Shared local text-to-speech for Right Suite apps: OS voices (say / SAPI) and a Qwen3-TTS QTS worker client"
+readme = "README.md"
+repository = "https://github.com/bogusyogi/claude"
+homepage = "https://github.com/bogusyogi/claude/tree/main/tools/rightkit/crates/rightkit-tts"
+documentation = "https://docs.rs/rightkit-tts"
+keywords = ["tts", "text-to-speech", "speech", "qwen3", "sapi"]
+categories = ["multimedia::audio", "os"]
+include = ["src/**", "tests/**", "Cargo.toml", "README.md", "CHANGELOG.md"]
 
 [lib]
 name = "rightkit_tts"
@@ -19,7 +24,7 @@ path = "src/lib.rs"
 # Qwen3-TTS worker, which implies `client`. Default keeps both pre-existing surfaces.
 default = ["system", "client"]
 system = ["dep:rightkit-transcript"]
-client = ["dep:rightkit-process", "dep:sha2", "dep:serde", "dep:serde_json"]
+client = ["dep:rightkit-ort", "dep:rightkit-process", "dep:sha2", "dep:serde", "dep:serde_json"]
 engine = ["client", "dep:qts", "dep:libc"]
 metal = ["engine", "qts/metal"]
 vulkan = ["engine", "qts/vulkan"]
@@ -29,6 +34,7 @@ serde = { version = "1.0.228", features = ["derive"], optional = true }
 serde_json = { version = "1.0.150", optional = true }
 sha2 = { version = "0.10", optional = true }
 thiserror = "2"
+rightkit-ort = { version = "0.2.2", path = "../rightkit-ort", default-features = false, optional = true }
 rightkit-process = { version = "0.3.0", path = "../rightkit-process", optional = true }
 rightkit-transcript = { version = "0.0.0", path = "../rightkit-transcript", optional = true }
 qts = { package = "rightkit-qts", version = "0.2.0", path = "../rightkit-qts", optional = true }

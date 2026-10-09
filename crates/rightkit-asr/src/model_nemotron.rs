@@ -1,7 +1,8 @@
+use rightkit_ort::ort;
 use crate::error::{Error, Result};
 use crate::execution::ModelConfig as ExecutionConfig;
 use ndarray::{Array1, Array2, Array3, Array4};
-use ort::session::Session;
+use rightkit_ort::ort::session::Session;
 use std::path::Path;
 
 /// Encoder cache state for Nemotron streaming inference.

@@ -33,7 +33,9 @@ pub use worker::WorkerCommand;
 #[cfg(feature = "onnx")]
 use image::{imageops, RgbImage};
 #[cfg(feature = "onnx")]
-use ort::{session::Session, value::Tensor};
+use rightkit_ort::ort;
+#[cfg(feature = "onnx")]
+use rightkit_ort::ort::{session::Session, value::Tensor};
 #[cfg(feature = "onnx")]
 use rightkit_ort::ProviderDiagnostic;
 #[cfg(feature = "onnx")]

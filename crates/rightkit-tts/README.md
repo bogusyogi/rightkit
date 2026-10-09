@@ -33,7 +33,7 @@ Environment variables used by the crate:
 - Windows: `system` uses SAPI. `vulkan` is available for Windows hosts with a Vulkan SDK.
 - Unix: `cfg(unix)` code is in `src/worker.rs`.
 
-Published version: see `INDEX.md` at the repository root. This crate has no `CHANGELOG.md`. The crate's manifest sets `publish = false`.
+Release notes: see `CHANGELOG.md` in this crate.
 
 ## Example
 

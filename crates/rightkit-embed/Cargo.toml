@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-embed"
-version = "0.3.0"
+version = "0.3.1"
 edition = "2021"
 rust-version = "1.98.0"
 license = "MIT OR Apache-2.0"
@@ -13,12 +13,11 @@ include = ["src/**", "tests/**", "Cargo.toml", "README.md", "LICENSE-MIT", "LICE
 # `vector` = persistent cosine vector store (rusqlite). Default keeps both.
 [features]
 default = ["inference", "vector"]
-inference = ["dep:ort", "dep:rightkit-ort", "dep:tokenizers", "dep:sha2", "dep:serde_json"]
+inference = ["dep:rightkit-ort", "dep:tokenizers", "dep:sha2", "dep:serde_json"]
 vector = ["dep:rusqlite"]
 
 [dependencies]
-ort = { version = "=2.0.0-rc.13", default-features = false, features = ["std", "api-24", "load-dynamic"], optional = true }
-rightkit-ort = { version = "0.2.0", path = "../rightkit-ort", optional = true }
+rightkit-ort = { version = "0.2.2", path = "../rightkit-ort", optional = true }
 rusqlite = { version = "0.40.1", default-features = false, optional = true }
 serde_json = { version = "1.0.150", optional = true }
 sha2 = { version = "0.10.9", optional = true }

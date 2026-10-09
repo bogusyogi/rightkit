@@ -22,7 +22,11 @@ pub enum Request {
         out_pcm: String,
     },
     /// Encode a reference WAV into an x-vector voice-clone prompt file.
-    Clone { id: u64, wav: String, out: String },
+    Clone {
+        id: u64,
+        wav: String,
+        out: String,
+    },
     Quit,
 }
 
@@ -30,12 +34,20 @@ pub enum Request {
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum Reply {
     /// Sent once after the engine loaded.
-    Ready { backend: String, vocoder: String, load_ms: u64, version: String },
+    Ready {
+        backend: String,
+        vocoder: String,
+        load_ms: u64,
+        version: String,
+    },
     Done {
         id: u64,
         samples: usize,
         sample_rate: u32,
         gen_ms: u64,
     },
-    Error { id: u64, message: String },
+    Error {
+        id: u64,
+        message: String,
+    },
 }

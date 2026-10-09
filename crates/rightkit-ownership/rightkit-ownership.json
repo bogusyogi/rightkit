@@ -1,0 +1,15 @@
+{
+  "package": "rightkit-ownership",
+  "capabilities": [
+    {
+      "capability": "ownership-scanner",
+      "summary": "RightKit's ownership scanner, verdict and admission: committed-tree inventory, dependency and source fingerprint findings, signed exception evaluation, the six-binding cache key, and single-flight admission for brokers.",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Declaration-only: the scanner is the enforcement point, so it has no competing-dependency fingerprints.",
+        "Shared contract fixtures live in packages/release/fixtures/ownership and are run in place by this crate's tests."
+      ]
+    }
+  ]
+}

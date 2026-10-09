@@ -8,7 +8,8 @@ Catalog capability: `http-client`. Published to crates.io (see [INDEX.md](../../
 
 - `Client`, `ClientConfig`, `Request`, `Response`, `StreamResponse`: timeouts, bounded bodies, redirect policy, streaming reads, and `get_json`.
 - `RetryPolicy`: retry and backoff. Retries respect `Retry-After`. Non-idempotent methods are not retried.
-- `sse`: `SseDecoder`, `SseReader`, `SseEvent`. WHATWG-compliant Server-Sent Events.
+- `AsyncClient` (feature `async`): `send`, `send_any`, `stream`, `get_json` with identical timeout, retry/backoff, redirect, user-agent, proxy (environment variables) and size-limit behaviour. `stream` returns a `BodyStream` of `Bytes` chunks or an `SseStream` (`.sse()`, `.sse_with_limits(max_line, max_event)`), bounded to 1 MiB per line and 4 MiB per event by default.
+- `sse`: `SseDecoder` (`new`, `with_limits`), `SseReader`, `SseEvent`. WHATWG-compliant Server-Sent Events.
 - `untrusted`: `wrap_untrusted_web_text` for external text, with boundary markers and injection-signal reporting.
 - `secret`: a redacted `Secret`, and the `SecretStore` trait that `rightkit-secrets` implements. `MemorySecretStore` is provided for tests.
 - `testing` (feature): an in-process mock server that records exact requests.
@@ -18,13 +19,14 @@ Catalog capability: `http-client`. Published to crates.io (see [INDEX.md](../../
 - Use it for blocking HTTP calls from Right Suite apps where timeouts, retries and bounded bodies must be consistent.
 - Use it for SSE streams and for wrapping web text before model input.
 
-Do not use it for async code. The client is blocking. It is built on `ureq` with `rustls`.
+The default client is blocking (`ureq` with `rustls`). For async code enable the `async` feature: `AsyncClient` on `reqwest` with `rustls`, run inside a tokio runtime.
 
 ## Cargo features
 
 | Feature | Default | Pulls in | Enables |
 |---|---|---|---|
 | `gzip` | yes | `ureq/gzip` | Automatic `Accept-Encoding: gzip` and transparent decoding for buffered responses and stream readers. Matches ureq's default. |
+| `async` | no | `reqwest` (rustls, no native-tls), `tokio` (time), `futures-util`, `bytes` | `AsyncClient`, `AsyncStreamResponse`, `BodyStream`, `SseStream`. Same `ClientConfig`, `Request`, `Response`, `HttpError` and policy as the blocking client. With `gzip`, also enables `reqwest/gzip`. |
 | `testing` | no | none | The `testing` module: `MockServer`, `MockResponse`, `MockBody`, `RecordedRequest`. |
 
 To opt out of gzip:
@@ -75,7 +77,7 @@ Pure Rust over `ureq` with `rustls`. No platform-specific code in the crate. Cer
 
 ## Tests
 
-`tests/e2e.rs`: a real local TCP server. Assertions use exact requests seen on the wire and exact bytes received.
+`tests/e2e.rs` and, with `--features async`, `tests/async_e2e.rs`: a real local TCP server. Assertions use exact requests seen on the wire and exact bytes received.
 
 ## Version and changes
 

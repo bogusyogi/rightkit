@@ -12,8 +12,12 @@ pub struct Chunk {
 /// Default chunk size in characters (about 12-15 s of speech).
 pub const DEFAULT_MAX_CHARS: usize = 220;
 
-const SENT_END: &[char] = &['.', '!', '?', '\u{3002}', '\u{ff01}', '\u{ff1f}', '\u{2026}'];
-const CLAUSE: &[char] = &[',', ';', ':', '\u{ff0c}', '\u{3001}', '\u{ff1b}', '\u{ff1a}'];
+const SENT_END: &[char] = &[
+    '.', '!', '?', '\u{3002}', '\u{ff01}', '\u{ff1f}', '\u{2026}',
+];
+const CLAUSE: &[char] = &[
+    ',', ';', ':', '\u{ff0c}', '\u{3001}', '\u{ff1b}', '\u{ff1a}',
+];
 
 pub fn split_text(text: &str, max_chars: usize) -> Vec<Chunk> {
     let max_chars = max_chars.max(20);
@@ -27,7 +31,10 @@ pub fn split_text(text: &str, max_chars: usize) -> Vec<Chunk> {
         for sent in sentences(para) {
             for piece in hard_split(&sent, max_chars) {
                 if !cur.is_empty() && cur.chars().count() + 1 + piece.chars().count() > max_chars {
-                    out.push(Chunk { text: std::mem::take(&mut cur), pause_ms: 200 });
+                    out.push(Chunk {
+                        text: std::mem::take(&mut cur),
+                        pause_ms: 200,
+                    });
                 }
                 if !cur.is_empty() {
                     cur.push(' ');
@@ -36,7 +43,10 @@ pub fn split_text(text: &str, max_chars: usize) -> Vec<Chunk> {
             }
         }
         if !cur.is_empty() {
-            out.push(Chunk { text: cur, pause_ms: 200 });
+            out.push(Chunk {
+                text: cur,
+                pause_ms: 200,
+            });
         }
         if let Some(last) = out.last_mut() {
             last.pause_ms = 280; // paragraph break; joins must stay at or under 300 ms
@@ -90,7 +100,11 @@ fn hard_split(s: &str, max: usize) -> Vec<String> {
             .unwrap_or(max);
         let head: String = rest[..cut].iter().collect();
         out.push(head.trim().to_string());
-        rest = rest[cut..].iter().skip_while(|c| c.is_whitespace()).copied().collect();
+        rest = rest[cut..]
+            .iter()
+            .skip_while(|c| c.is_whitespace())
+            .copied()
+            .collect();
     }
     if !rest.is_empty() {
         out.push(rest.iter().collect());
@@ -128,12 +142,22 @@ mod tests {
 
     #[test]
     fn overlong_sentence_splits_at_clauses_then_words() {
-        let s = format!("{}, {}", "alpha beta gamma ".repeat(10).trim(), "delta epsilon zeta ".repeat(10).trim());
+        let s = format!(
+            "{}, {}",
+            "alpha beta gamma ".repeat(10).trim(),
+            "delta epsilon zeta ".repeat(10).trim()
+        );
         let c = split_text(&s, 100);
         assert!(c.len() >= 3);
         assert!(c.iter().all(|c| c.text.chars().count() <= 100));
         let nowordcut: Vec<_> = c.iter().flat_map(|c| c.text.split_whitespace()).collect();
-        assert!(nowordcut.iter().all(|w| ["alpha", "beta", "gamma,", "gamma", "delta", "epsilon", "zeta", "beta,"].contains(w)), "{nowordcut:?}");
+        assert!(
+            nowordcut.iter().all(|w| [
+                "alpha", "beta", "gamma,", "gamma", "delta", "epsilon", "zeta", "beta,"
+            ]
+            .contains(w)),
+            "{nowordcut:?}"
+        );
     }
 
     #[test]

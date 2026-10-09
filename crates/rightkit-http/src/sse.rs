@@ -27,6 +27,8 @@ pub struct SseDecoder {
     id: Option<String>,
     retry_ms: Option<u64>,
     max_line: usize,
+    max_event: usize,
+    event_bytes: usize,
 }
 
 impl Default for SseDecoder {
@@ -36,7 +38,14 @@ impl Default for SseDecoder {
 }
 
 impl SseDecoder {
+    /// Decoder bounding each line; events are unbounded (use [`Self::with_limits`]).
     pub fn new(max_line_bytes: usize) -> Self {
+        Self::with_limits(max_line_bytes, usize::MAX)
+    }
+
+    /// Decoder bounding each line and the accumulated bytes of one event
+    /// (event name plus all data lines, one separator byte per line).
+    pub fn with_limits(max_line_bytes: usize, max_event_bytes: usize) -> Self {
         Self {
             line: Vec::new(),
             prev_cr: false,
@@ -47,6 +56,8 @@ impl SseDecoder {
             id: None,
             retry_ms: None,
             max_line: max_line_bytes,
+            max_event: max_event_bytes,
+            event_bytes: 0,
         }
     }
 
@@ -98,6 +109,12 @@ impl SseDecoder {
             Some((f, v)) => (f, v.strip_prefix(' ').unwrap_or(v)),
             None => (text, ""),
         };
+        if matches!(field, "event" | "data") {
+            self.event_bytes = self.event_bytes.saturating_add(value.len() + 1);
+            if self.event_bytes > self.max_event {
+                return Err(HttpError::Stream("SSE event exceeds limit".into()));
+            }
+        }
         match field {
             "event" => self.event = value.to_string(),
             "data" => {
@@ -117,6 +134,7 @@ impl SseDecoder {
 
     fn dispatch(&mut self) -> Option<SseEvent> {
         let had = self.has_data;
+        self.event_bytes = 0;
         let event = std::mem::take(&mut self.event);
         let data = std::mem::take(&mut self.data);
         self.has_data = false;

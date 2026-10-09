@@ -1,4 +1,4 @@
-use ort::session::{builder::GraphOptimizationLevel, Session};
+use rightkit_ort::ort::session::{builder::GraphOptimizationLevel, Session};
 use rightkit_ort::{ProviderDiagnostic, ProviderKind};
 use std::path::Path;
 

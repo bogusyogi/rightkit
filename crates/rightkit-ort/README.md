@@ -15,6 +15,8 @@ The crate accepts ordered absolute candidates from the app. It validates the pla
 | `session` | on | `ort` (pinned `=2.0.0-rc.13`, `load-dynamic`, API 24) | Session and environment APIs, `ExecutionProvider`, `SessionOptions`. Disable it to keep only the path and diagnostic resolver. |
 | `coreml` | off | `session`, `ort/coreml` | Names the CoreML provider explicitly. CoreML is already on for Apple targets. |
 | `directml` | off | `session`, `ort/directml` | Names the DirectML provider explicitly. DirectML is already on for Windows targets. |
+| `tracing`, `download-binaries`, `tls-native`, `copy-dylibs`, `preload-dylibs` | off | `session`, `ort/<same>` | Pass-through ort features, so no crate declares `ort`. |
+| `cuda`, `tensorrt`, `migraphx`, `openvino`, `webgpu`, `nnapi`, `acl`, `armnn`, `azure`, `cann`, `nvrtx`, `onednn`, `qnn`, `rknpu`, `tvm`, `vitis`, `xnnpack` | off | `session`, `ort/<same>` | Pass-through execution-provider features (asr, qts). |
 | `half` | off | `session`, `ort/half`, `half` | Re-exports `half` (f16 tensors), so apps use `rightkit_ort::half::f16`. |
 | `ndarray` | off | `session`, `ort/ndarray`, `ndarray` | Re-exports `ndarray` for `Tensor::from_array` and `try_extract_array`. |
 
@@ -137,3 +139,4 @@ Licensed under MIT OR Apache-2.0.
 bindings are recorded too; failed bindings preserve the previous record. Without
 a recorded binding it reports non-empty `ORT_DYLIB_PATH`, or `None`. Resolution
 alone records nothing; this diagnostic does not validate or load a library.
+- Added in 0.2.2: `discovery_candidates`, `discover_runtime` & `export_discovered_runtime` own the worker-process runtime search (`ORT_DYLIB_PATH`, `<exe>/runtime`, `<exe>`, caller dirs; System32 copy skipped); pass-through ort features (`tracing`, download/copy, execution providers).
