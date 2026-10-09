@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { buildPresenceScript, presenceSummary, requireWindowsPresence, PRESENCE_APPROVE_PREFIX } from "./ownership-windows-presence.mjs";
+import { buildPresenceScript, presenceHelloMessage, presenceSummary, requireWindowsPresence, PRESENCE_APPROVE_PREFIX } from "./ownership-windows-presence.mjs";
 import { performProtectedTrustUpdate } from "./ownership-key-trust.mjs";
 
 const ok = (nonce) => ({ status: 0, stdout: `${PRESENCE_APPROVE_PREFIX}${nonce}\r\n` });
@@ -24,11 +24,35 @@ test("presence script refuses non-interactive sessions before prompting and prin
   const ps = buildPresenceScript("sum 'q'", "tok");
   assert.ok(ps.indexOf("UserInteractive") < ps.indexOf("Verify("));
   assert.ok(ps.indexOf("SessionId") < ps.indexOf("Verify("));
+  assert.ok(ps.indexOf("UserInteractive") < ps.indexOf("RequestForWindow($form"));
   assert.match(ps, /CredUIPromptForWindowsCredentials/);
   assert.match(ps, /LogonUserW/);
   assert.equal(ps.split("RK_PRESENCE_VERIFIED").length, 2);
   assert.ok(ps.includes("'sum ''q'''"));
-  assert.match(ps, /\$a -ne \$b\) \{ exit 1 \}/); // verified account must be the console user
+  assert.match(ps, /\$a -ne \$consoleSid\) \{ exit 1 \}/); // verified account must be the console user
+});
+
+test("exit codes map: Canceled/DeviceBusy/NotConfigured/RetriesExhausted/DisabledByPolicy cancel; 2 error and 3 non-interactive deny", () => {
+  for (const status of [1, 2, 3]) assert.throws(() => requireWindowsPresence({ summary: "s", nonce: "n", run: () => ({ status, stdout: "" }) }), /RK_OWNERSHIP_PRESENCE_DENIED/);
+});
+
+test("presence script approves Hello only on Verified, binds to the console user, shows an owner window, and falls back to password when unavailable", () => {
+  const ps = buildPresenceScript("x\nCatalog: a -> b\nKey log sequence: 1 -> 2\nRepositories: 1 -> 2\nz", "tok");
+  assert.match(ps, /UserConsentVerifier\]::CheckAvailabilityAsync/);
+  assert.match(ps, /\$avail -eq 'Available'/);
+  assert.match(ps, /\$res -ne 'Verified'\) \{ exit 1 \}/);
+  assert.ok(ps.indexOf("$res -ne 'Verified'") < ps.indexOf("RK_PRESENCE_VERIFIED"));
+  assert.ok(ps.indexOf("$avail -eq 'Available'") < ps.indexOf("[RkPresence]::Verify("));
+  assert.match(ps, /RequestVerificationForWindowAsync/);
+  assert.match(ps, /TopMost=\$true/);
+  assert.match(ps, /WindowsIdentity\]::GetCurrent\(\)\.User\.Value -ne \$consoleSid\) \{ exit 1 \}/);
+  assert.ok(ps.includes("RightKit ownership trust-sync: Catalog: a -> b; Key log sequence: 1 -> 2; Repositories: 1 -> 2"));
+  assert.equal(ps.split("RK_PRESENCE_VERIFIED").length, 2);
+});
+
+test("hello message is one bounded line carrying the payload digest", () => {
+  const m = presenceHelloMessage(presenceSummary({ existing: { minimumCatalogDigest: "932449c1ffff" }, next: { minimumCatalogDigest: "a7121f96eeee" } }));
+  assert.match(m, /^RightKit ownership trust-sync: /); assert.match(m, /a7121f96/); assert.ok(!m.includes("\n")); assert.ok(m.length <= 200);
 });
 
 test("summary is bounded and names old and new state", () => {
