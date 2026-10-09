@@ -59,9 +59,17 @@ const TOP_LEVEL_KEYS = new Set([
   "profile",
   "gate",
   "rustCache",
+  "qaEvidencePath",
+  "qaEvidenceRetentionDays",
   "candidate",
   "ownership",
 ]);
+// Optional QA evidence upload (rust-hybrid ci only). qaEvidencePath is a safe
+// relative path under $RUNNER_TEMP; it renders as `${{ runner.temp }}/<path>`.
+const QA_EVIDENCE_DEFAULT_RETENTION_DAYS = 7;
+const QA_EVIDENCE_MAX_RETENTION_DAYS = 90;
+// Pinned to the same upload-artifact release the rust-hybrid release-candidate template uses.
+const UPLOAD_ARTIFACT_PIN = "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4";
 const GATE_PATH_RE = /^(?!.*\.\.)(?!.*\s)[A-Za-z0-9][A-Za-z0-9._/-]*$/;
 const RUST_WORKSPACE_PATH_RE = /^(?:\.|(?!.*\.\.)(?!.*\s)[A-Za-z0-9][A-Za-z0-9._/-]*)$/;
 const PACKAGE_SCRIPT_RE = /^[A-Za-z0-9][A-Za-z0-9:_-]*$/;
@@ -158,6 +166,21 @@ export function validateManifest(manifest) {
     }
   } else if (manifest.gate !== undefined) {
     errors.push("gate is only valid for profile 'rust-hybrid'");
+  }
+
+  if (manifest.qaEvidencePath !== undefined) {
+    if (profile !== "rust-hybrid") {
+      errors.push("qaEvidencePath is only valid for profile 'rust-hybrid'");
+    } else if (typeof manifest.qaEvidencePath !== "string" || !GATE_PATH_RE.test(manifest.qaEvidencePath)) {
+      errors.push("qaEvidencePath must be a safe relative path under $RUNNER_TEMP (no '..', whitespace, leading '/', or expression syntax)");
+    }
+  }
+  if (manifest.qaEvidenceRetentionDays !== undefined) {
+    if (manifest.qaEvidencePath === undefined) {
+      errors.push("qaEvidenceRetentionDays requires qaEvidencePath");
+    } else if (!Number.isInteger(manifest.qaEvidenceRetentionDays) || manifest.qaEvidenceRetentionDays < 1 || manifest.qaEvidenceRetentionDays > QA_EVIDENCE_MAX_RETENTION_DAYS) {
+      errors.push(`qaEvidenceRetentionDays must be an integer from 1 to ${QA_EVIDENCE_MAX_RETENTION_DAYS}`);
+    }
   }
 
   const rustCache = manifest.rustCache;
@@ -1004,6 +1027,27 @@ export function ownershipStep(manifest, lane = "ci") {
   return `\n      - name: RightKit ownership (protected registry roots)\n        shell: bash\n        run: test "$(git rev-parse HEAD)" = "${sourceRevision}" && ${command}`;
 }
 
+/**
+ * Optional QA evidence upload, rendered after the rust-hybrid gate step.
+ * Returns "" when qaEvidencePath is unset, so the rendered workflow stays
+ * byte-identical to a manifest without the key.
+ */
+export function qaEvidenceStep(manifest) {
+  if (manifest.qaEvidencePath === undefined) return "";
+  const retentionDays = manifest.qaEvidenceRetentionDays ?? QA_EVIDENCE_DEFAULT_RETENTION_DAYS;
+  return [
+    "      - name: Upload QA evidence",
+    "        if: always()",
+    `        uses: ${UPLOAD_ARTIFACT_PIN}`,
+    "        with:",
+    "          name: qa-evidence-${{ matrix.os || runner.os }}-${{ github.run_attempt }}",
+    `          path: \${{ runner.temp }}/${manifest.qaEvidencePath}`,
+    `          retention-days: ${retentionDays}`,
+    "          if-no-files-found: ignore",
+    "",
+  ].join("\n");
+}
+
 export function buildRenderContext(manifest, repoPath, lane = "ci") {
   const pm = parsePackageManager(manifest.packageManager);
   const projectName = deriveProjectName(repoPath);
@@ -1031,6 +1075,7 @@ export function buildRenderContext(manifest, repoPath, lane = "ci") {
     MACOS_SIGNING_JOB: macosSigningJob(manifest, pm, artifactPrefix),
     RELEASE_CHAIN_JOBS: releaseChainJobs(manifest, pm, artifactPrefix),
     OWNERSHIP_STEP: ownershipStep(manifest, lane),
+    QA_EVIDENCE_STEP: qaEvidenceStep(manifest),
   };
 
   // Every key below is populated ONLY when its source manifest section is

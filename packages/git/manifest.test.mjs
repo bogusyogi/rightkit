@@ -389,3 +389,17 @@ test("F15 non-regression: realistic homebrew/winget/matrix values still validate
   });
   assert.equal(result.valid, true, JSON.stringify(result.errors));
 });
+
+test("qaEvidencePath and qaEvidenceRetentionDays are optional, rust-hybrid only, and charset-checked", () => {
+  const valid = { ...VALID_MINIMAL, profile: "rust-hybrid", gate: { path: "scripts/gate.sh" } };
+  assert.equal(validateManifest({ ...valid, qaEvidencePath: "pulse-hub-qa" }).valid, true);
+  assert.equal(validateManifest({ ...valid, qaEvidencePath: "pulse-hub-qa", qaEvidenceRetentionDays: 30 }).valid, true);
+  for (const qaEvidencePath of ["/abs", "../up", "pulse hub", "${{ runner.temp }}/x", "a;b", "", null]) {
+    assert.equal(validateManifest({ ...valid, qaEvidencePath }).valid, false, String(qaEvidencePath));
+  }
+  for (const qaEvidenceRetentionDays of [0, 91, 1.5, "7"]) {
+    assert.equal(validateManifest({ ...valid, qaEvidencePath: "pulse-hub-qa", qaEvidenceRetentionDays }).valid, false, String(qaEvidenceRetentionDays));
+  }
+  assert.equal(validateManifest({ ...valid, qaEvidenceRetentionDays: 7 }).valid, false, "retention requires a path");
+  assert.equal(validateManifest({ ...VALID_MINIMAL, qaEvidencePath: "pulse-hub-qa" }).valid, false, "node profile rejects qaEvidencePath");
+});

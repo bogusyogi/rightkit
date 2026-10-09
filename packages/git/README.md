@@ -19,6 +19,24 @@ Public-repository-only GitHub Actions workflow layer for Right Suite products. T
 
 `install` and `sync` refuse private, internal and unconfirmed-visibility repositories. There is no override flag.
 
+## Optional QA evidence upload (rust-hybrid)
+
+Set `qaEvidencePath` in `.rightgit.json` to upload the gate's QA output as a workflow artifact. The path is relative to `$RUNNER_TEMP`; the rendered step uses `${{ runner.temp }}/<path>`. Absolute paths and expression syntax are rejected.
+
+```json
+{
+  "profile": "rust-hybrid",
+  "gate": { "path": "scripts/gate.sh" },
+  "qaEvidencePath": "pulse-hub-qa",
+  "qaEvidenceRetentionDays": 14
+}
+```
+
+- The step runs after the gate with `if: always()` and `if-no-files-found: ignore`.
+- Artifact name: `qa-evidence-${{ matrix.os || runner.os }}-${{ github.run_attempt }}`.
+- `qaEvidenceRetentionDays` is an integer from 1 to 90 and defaults to 7. It requires `qaEvidencePath`.
+- Omit the key and the rendered `ci.yml` is unchanged.
+
 ## Entry points
 
 No importable API. The package has no `main` and no `exports` map. The supported surface is the `right-git` bin.

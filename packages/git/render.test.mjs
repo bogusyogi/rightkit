@@ -829,3 +829,24 @@ test("ci.yml ownership check cannot be removed by deleting optional repo metadat
   const without = renderTemplate(template, buildRenderContext(structuredClone(FULL_MANIFEST), "/repos/widgets"));
   assert.match(without, /RightKit ownership \(protected registry roots\)/);
 });
+
+test("rust-hybrid ci uploads QA evidence after the gate only when qaEvidencePath is set", () => {
+  const base = { ...FULL_MANIFEST, lanes: ["ci"], profile: "rust-hybrid", gate: { path: "scripts/gate.sh" }, templateVersion: "1.1.0" };
+  const template = fs.readFileSync(path.join(templatesDir, "profiles/rust-hybrid/ci.yml"), "utf8");
+
+  const unset = renderTemplate(template, buildRenderContext(structuredClone(base), "/repos/widgets"));
+  assert.doesNotMatch(unset, /upload-artifact|QA evidence|runner\.temp/);
+  assert.match(unset, /CARGO_PROFILE_TEST_DEBUG: "0"\n$/);
+
+  const set = renderTemplate(template, buildRenderContext({ ...structuredClone(base), qaEvidencePath: "pulse-hub-qa" }, "/repos/widgets"));
+  assert.ok(set.indexOf("bash ./scripts/gate.sh") < set.indexOf("- name: Upload QA evidence"), "upload must follow the gate step");
+  assert.match(
+    set,
+    /      - name: Upload QA evidence\n        if: always\(\)\n        uses: actions\/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4\n        with:\n          name: qa-evidence-\$\{\{ matrix\.os \|\| runner\.os \}\}-\$\{\{ github\.run_attempt \}\}\n          path: \$\{\{ runner\.temp \}\}\/pulse-hub-qa\n          retention-days: 7\n          if-no-files-found: ignore\n$/,
+  );
+  // The upload step is the only difference between the two renders.
+  assert.equal(set.replace(/      - name: Upload QA evidence[\s\S]*$/, ""), unset);
+
+  const custom = renderTemplate(template, buildRenderContext({ ...structuredClone(base), qaEvidencePath: "pulse-hub-qa", qaEvidenceRetentionDays: 30 }, "/repos/widgets"));
+  assert.match(custom, /retention-days: 30\n/);
+});

@@ -116,6 +116,18 @@
       "type": "object", "required": ["path"], "additionalProperties": false,
       "properties": { "path": { "type": "string", "pattern": "^(?!.*\\.\\.)(?!.*\\s)[A-Za-z0-9][A-Za-z0-9._/-]*$" } }
     },
+    "qaEvidencePath": {
+      "type": "string",
+      "description": "rust-hybrid only. Safe relative path under $RUNNER_TEMP where the gate writes QA evidence; rendered as ${{ runner.temp }}/<path> and uploaded with if: always().",
+      "pattern": "^(?!.*\\.\\.)(?!.*\\s)[A-Za-z0-9][A-Za-z0-9._/-]*$"
+    },
+    "qaEvidenceRetentionDays": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 90,
+      "default": 7,
+      "description": "rust-hybrid only, requires qaEvidencePath. Artifact retention in days."
+    },
     "candidate": {
       "type": "object",
       "required": ["buildScript", "checkScript", "admissionScript", "stageSummaryScript", "artifactRoot", "os"],
