@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.2.141
 
 - `install-app` probes `xcrun --find stapler` first. On clean macOS hosts without Xcode/CLT it no longer fails: the ticket is accepted when `spctl -a -t exec -vv` reports Notarized Developer ID (and, with `--dmg`, `spctl -a -t open --context context:primary-signature` accepts the DMG), and the `verified` event records `ticket: "spctl-only"`. With stapler present, and with `--dev`, checks are unchanged.
 
