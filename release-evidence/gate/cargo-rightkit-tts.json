@@ -1,0 +1,28 @@
+{
+  "schema": 1,
+  "kind": "cargo",
+  "name": "rightkit-tts",
+  "version": "0.1.0",
+  "commit": "b38bcd250ab510444bfb7a205a6e90ba86614a34",
+  "artifactSha256": "5034446fc2e3f49c82dfbe7452dfcd5f73d81bf0b2f85344878c92d9cc0a3fc9",
+  "artifactBasis": "cargo package rightkit-tts-0.1.0.crate",
+  "hostPolicy": "darwin-only",
+  "hostPolicyReason": "Adrian 2026-10-07: publish crates from the Mac (crates.io auth here); Windows qualification follows",
+  "runs": [
+    {
+      "host": {
+        "os": "darwin",
+        "arch": "arm64"
+      },
+      "commit": "b38bcd250ab510444bfb7a205a6e90ba86614a34",
+      "command": "right-release publish cargo --crate rightkit-tts --dry-run (secret scan, fmt, tests, clippy, package, registry dry-run)",
+      "features": [
+        "default"
+      ],
+      "operator": "claude-opus-5.5 (RightKit lead) for adrdsouza",
+      "timestamp": "2026-10-09T02:04:58Z",
+      "passed": 12,
+      "failed": 0
+    }
+  ]
+}
