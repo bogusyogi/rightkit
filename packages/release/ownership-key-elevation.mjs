@@ -55,8 +55,15 @@ export function windowsProcessIsElevated(run) {
 }
 
 export function needsDesktopDelegation({ hostPlatform = process.platform, env = process.env, run, elevatedCheck = windowsProcessIsElevated }) {
-  if (hostPlatform !== "win32" || env[DESKTOP_DELEGATED_ENV] === "1") return false;
-  return isSshSession(env) || elevatedCheck(run) === true;
+  if (hostPlatform !== "win32") return false;
+  const remoteOrElevated = isSshSession(env) || elevatedCheck(run) === true;
+  // The delegated-child marker is an env var any caller can set. Honoring it from an elevated or SSH process
+  // would skip the human gate entirely, so there it is refused outright.
+  if (env[DESKTOP_DELEGATED_ENV] === "1") {
+    if (remoteOrElevated) throw new Error(`${DESKTOP_DELEGATED_ENV} is not honored in an elevated or SSH process; trust-sync must run in a normal interactive desktop session`);
+    return false;
+  }
+  return remoteOrElevated;
 }
 
 const psq = (value) => `'${String(value).replaceAll("'", "''")}'`;
@@ -164,13 +171,18 @@ export function buildMacConfirmScript(text) {
   return `display dialog ${appleScriptText(text)} with title ${appleScriptText(CONFIRM_TITLE)} buttons {"Cancel","Approve\u2026"} default button "Approve\u2026" cancel button "Cancel" with icon caution`;
 }
 
-export function buildWindowsConfirmScript(text) {
+export const WINDOWS_APPROVE_PREFIX = "RK_CONFIRM_APPROVED:";
+export const MAC_APPROVE_BUTTON = "Approve\u2026";
+export const CONFIRM_TIMEOUT_MS = 10 * 60 * 1000;
+
+export function buildWindowsConfirmScript(text, nonce = "") {
   const lines = String(text).replaceAll("\0", "").split(/\r?\n/).map(psq).join(", ");
   // user32 MessageBoxW with no owner: OKCANCEL | ICONWARNING | SETFOREGROUND | TOPMOST so it is drawn in front.
   return [
     "Add-Type -Namespace RK -Name Dlg -MemberDefinition '[DllImport(\"user32.dll\", CharSet=CharSet.Unicode)] public static extern int MessageBoxW(System.IntPtr h, string t, string c, uint f);'",
     `$r=[RK.Dlg]::MessageBoxW([IntPtr]::Zero, ([string]::Join([Environment]::NewLine, @(${lines}))), ${psq(CONFIRM_TITLE)}, 0x50031)`,
-    "if ($r -eq 1) { exit 0 } else { exit 1 }",
+    // Only the explicit OK branch prints the per-run token; every other outcome (Cancel, close, error, kill) prints nothing.
+    `if ($r -eq 1) { [Console]::Out.WriteLine(${psq(`${WINDOWS_APPROVE_PREFIX}${nonce}`)}); exit 0 } else { exit 1 }`,
   ].join("; ");
 }
 
@@ -183,7 +195,7 @@ function readLineSync() {
  * Ask the human to approve the summarized change. Prints the summary, then: TTY -> type `yes`;
  * macOS GUI -> osascript dialog; Windows GUI -> MessageBox. Throws "cancelled by user" unless approved.
  */
-export function confirmTrustChange({ lines, run, interactiveRun, print = console.log, hostPlatform = process.platform, tty = hasTerminal(), readLine = readLineSync }) {
+export function confirmTrustChange({ lines, run, interactiveRun, print = console.log, hostPlatform = process.platform, tty = hasTerminal(), readLine = readLineSync, nonce = randomBytes(16).toString("hex") }) {
   const text = capSummary(lines);
   print(lines.join("\n"));
   const cancelled = () => new Error("cancelled by user");
@@ -193,15 +205,17 @@ export function confirmTrustChange({ lines, run, interactiveRun, print = console
     return;
   }
   if (hostPlatform === "darwin") {
-    const r = run("/usr/bin/osascript", ["-e", buildMacConfirmScript(text)], { encoding: "utf8" });
-    if (r.status !== 0) throw cancelled();
+    const r = run("/usr/bin/osascript", ["-e", buildMacConfirmScript(text)], { encoding: "utf8", timeout: CONFIRM_TIMEOUT_MS, killSignal: "SIGKILL" });
+    // Affirmative result only: exit 0 AND the Approve button reported. Anything else (cancel, kill, timeout, error) cancels.
+    if (r?.status !== 0 || !String(r.stdout ?? "").includes(`button returned:${MAC_APPROVE_BUTTON}`)) throw cancelled();
     return;
   }
   if (hostPlatform === "win32") {
-    const encoded = Buffer.from(buildWindowsConfirmScript(text), "utf16le").toString("base64");
+    const encoded = Buffer.from(buildWindowsConfirmScript(text, nonce), "utf16le").toString("base64");
     // Must be an explicitly SHOWN process: a hidden STARTUPINFO would hide the dialog's first window.
-    const r = (interactiveRun ?? run)(POWERSHELL, ["-NoProfile", "-Sta", "-EncodedCommand", encoded], { env: windowsPowerShellEnvironment(), encoding: "utf8", windowsHide: false });
-    if (r.status !== 0) throw cancelled();
+    const r = (interactiveRun ?? run)(POWERSHELL, ["-NoProfile", "-Sta", "-EncodedCommand", encoded], { env: windowsPowerShellEnvironment(), encoding: "utf8", windowsHide: false, timeout: CONFIRM_TIMEOUT_MS, killSignal: "SIGKILL" });
+    // Affirmative result only: exit 0 AND the exact per-run token only the OK branch emits. Kill/timeout/error/empty = cancel.
+    if (r?.status !== 0 || r.error || !String(r.stdout ?? "").split(/\r?\n/).includes(`${WINDOWS_APPROVE_PREFIX}${nonce}`)) throw cancelled();
     return;
   }
   throw new Error("no way to ask for approval on this platform; run from a terminal");

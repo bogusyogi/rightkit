@@ -77,7 +77,10 @@ test("desktop delegation is chosen for elevated or SSH Windows runs only, never 
   assert.equal(needsDesktopDelegation({ hostPlatform: "win32", env: {}, run, elevatedCheck: () => false }), false);
   assert.equal(needsDesktopDelegation({ hostPlatform: "win32", env: {}, run, elevatedCheck: () => true }), true);
   assert.equal(needsDesktopDelegation({ hostPlatform: "win32", env: { SSH_CONNECTION: "1 2 3 4" }, run, elevatedCheck: () => false }), true);
-  assert.equal(needsDesktopDelegation({ hostPlatform: "win32", env: { SSH_CONNECTION: "x", [DESKTOP_DELEGATED_ENV]: "1" }, run, elevatedCheck: () => true }), false);
+  // The delegated marker is spoofable: from an elevated/SSH process it must be refused, never honored.
+  assert.throws(() => needsDesktopDelegation({ hostPlatform: "win32", env: { SSH_CONNECTION: "x", [DESKTOP_DELEGATED_ENV]: "1" }, run, elevatedCheck: () => true }), /not honored in an elevated or SSH process/);
+  assert.throws(() => needsDesktopDelegation({ hostPlatform: "win32", env: { [DESKTOP_DELEGATED_ENV]: "1" }, run, elevatedCheck: () => true }), /not honored/);
+  assert.equal(needsDesktopDelegation({ hostPlatform: "win32", env: { [DESKTOP_DELEGATED_ENV]: "1" }, run, elevatedCheck: () => false }), false);
 });
 
 test("desktop task is limited, interactive, for the logged-on user, with quoted wrapper", () => {

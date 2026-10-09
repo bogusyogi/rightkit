@@ -98,7 +98,7 @@ test("capSummary truncates with an 'and N more' tail", () => {
 
 test("Windows dialog uses the shown (interactive) runner, never the hidden one", () => {
   const used = [];
-  confirmTrustChange({ lines: ["x"], run: () => { used.push("hidden"); return { status: 0 }; }, interactiveRun: (c, a, o) => { used.push(o.windowsHide); return { status: 0 }; }, print: () => {}, hostPlatform: "win32", tty: false });
+  confirmTrustChange({ lines: ["x"], nonce: "n1", run: () => { used.push("hidden"); return { status: 0 }; }, interactiveRun: (c, a, o) => { used.push(o.windowsHide); return { status: 0, stdout: "RK_CONFIRM_APPROVED:n1\r\n" }; }, print: () => {}, hostPlatform: "win32", tty: false });
   assert.deepEqual(used, [false]);
 });
 
@@ -113,11 +113,28 @@ test("confirm: macOS dialog cancel throws, approve returns; TTY requires yes", (
   const print = () => {};
   assert.throws(() => confirmTrustChange({ lines: ["x"], run: (c, a) => { calls.push([c, a]); return { status: 1 }; }, print, hostPlatform: "darwin", tty: false }), /cancelled by user/);
   assert.equal(calls[0][0], "/usr/bin/osascript");
-  confirmTrustChange({ lines: ["x"], run: () => ({ status: 0 }), print, hostPlatform: "darwin", tty: false });
+  assert.throws(() => confirmTrustChange({ lines: ["x"], run: () => ({ status: 0, stdout: "" }), print, hostPlatform: "darwin", tty: false }), /cancelled by user/);
+  confirmTrustChange({ lines: ["x"], run: () => ({ status: 0, stdout: "button returned:Approve…, gave up:false\n" }), print, hostPlatform: "darwin", tty: false });
   assert.throws(() => confirmTrustChange({ lines: ["x"], run: () => assert.fail("no dialog on tty"), print, tty: true, readLine: () => "y" }), /cancelled by user/);
   confirmTrustChange({ lines: ["x"], run: () => assert.fail("no dialog on tty"), print, tty: true, readLine: () => "yes\n" });
   assert.throws(() => confirmTrustChange({ lines: ["x"], run: () => ({ status: 1 }), print, hostPlatform: "win32", tty: false }), /cancelled by user/);
-  confirmTrustChange({ lines: ["x"], run: () => ({ status: 0 }), print, hostPlatform: "win32", tty: false });
+  confirmTrustChange({ lines: ["x"], nonce: "abc", run: () => ({ status: 0, stdout: "RK_CONFIRM_APPROVED:abc\n" }), print, hostPlatform: "win32", tty: false });
+});
+
+test("Windows confirm approves ONLY on exit 0 plus the exact per-run token; kill/timeout/empty/wrong token cancel", () => {
+  const confirm = (r) => confirmTrustChange({ lines: ["x"], nonce: "tok", run: () => r, print: () => {}, hostPlatform: "win32", tty: false });
+  for (const r of [
+    { status: 0 }, { status: 0, stdout: "" }, { status: 0, stdout: "RK_CONFIRM_APPROVED:other\n" },
+    { status: 1, stdout: "RK_CONFIRM_APPROVED:tok\n" }, { status: null, signal: "SIGKILL", stdout: "" },
+    { status: null, error: Object.assign(new Error("ETIMEDOUT"), { code: "ETIMEDOUT" }) }, { status: 0, stdout: "RK_CONFIRM_APPROVED:tok\n", error: new Error("x") }, undefined,
+  ]) assert.throws(() => confirm(r), /cancelled by user/);
+  confirm({ status: 0, stdout: "noise\r\nRK_CONFIRM_APPROVED:tok\r\n" });
+});
+
+test("Windows confirm script emits the token only in the OK branch", () => {
+  const ps = buildWindowsConfirmScript("t", "tok");
+  assert.match(ps, /if \(\$r -eq 1\) \{ \[Console\]::Out\.WriteLine\('RK_CONFIRM_APPROVED:tok'\); exit 0 \} else \{ exit 1 \}$/);
+  assert.equal(ps.split("RK_CONFIRM_APPROVED").length, 2);
 });
 
 function gateFixture(existing, log, confirm) {

@@ -6,6 +6,7 @@ import { spawnSync, windowsPowerShellEnvironment } from "./background-process.mj
 import { canonicalJson, canonicalRepositoryIdentity, __testOnly as approvalTestOnly, evaluateWindowsAcl, validateTrustRegistry } from "./ownership-approval.mjs";
 import { verifyKeyLog } from "./ownership-key-log.mjs";
 import { SCANNER_VERSION } from "./ownership.mjs";
+import { presenceSummary, requireWindowsPresence } from "./ownership-windows-presence.mjs";
 
 const HEX = /^[a-f0-9]{64}$/;
 const MAX_REQUEST_BYTES = 2 * 1024 * 1024;
@@ -367,7 +368,7 @@ export function mergeRepositoriesFromInstalledRelease(trust, { firstInstall = fa
   return { trust: merged, warnings };
 }
 
-export function performProtectedTrustUpdate({ log, rootFingerprint, baseline, authority } = {}) {
+export function performProtectedTrustUpdate({ log, rootFingerprint, baseline, authority } = {}, { presence } = {}) {
   assertElevated();
   const file = OWNERSHIP_TRUST_PATH[process.platform];
   const directory = path.dirname(file);
@@ -383,6 +384,9 @@ export function performProtectedTrustUpdate({ log, rootFingerprint, baseline, au
     const merged = mergeRepositoriesFromInstalledRelease(prepared, { firstInstall: existing == null });
     const trust = raiseFloorsToInstalledRelease(merged.trust);
     if (trust.keyAuthority) validateCommittedAuthority(trust.keyAuthority, log, trust.rootFingerprint, trust.keyCheckpoint);
+    // Windows: elevation is not a human gate (silent-elevation policy, already-elevated SSH sessions), so the
+    // updater itself demands an on-screen password verification by the signed-in user before any write.
+    if (process.platform === "win32") (presence ?? requireWindowsPresence)({ summary: presenceSummary({ existing, next: trust }) });
     atomicProtectedWrite(file, trust);
     auditProtected(file);
     return { path: file, trust, warnings: merged.warnings };
