@@ -153,7 +153,11 @@ mod fixture {
                 std::mem::size_of::<PowerThrottlingState>() as u32,
             )
         };
-        let err = if ok == 0 { unsafe { GetLastError() } } else { 0 };
+        let err = if ok == 0 {
+            unsafe { GetLastError() }
+        } else {
+            0
+        };
         (ok != 0, st.control_mask, st.state_mask, err)
     }
 
@@ -324,7 +328,10 @@ mod fixture {
             std::process::exit(2);
         }
         if let Some(p) = out_path("created") {
-            write_json(&p, &format!("{{\"phase\":\"created\",\"hwnd\":{}}}", hwnd as usize));
+            write_json(
+                &p,
+                &format!("{{\"phase\":\"created\",\"hwnd\":{}}}", hwnd as usize),
+            );
         }
 
         if minimized {

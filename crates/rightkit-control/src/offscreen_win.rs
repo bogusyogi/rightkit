@@ -45,7 +45,15 @@ const PROCESS_POWER_THROTTLING_CLASS: i32 = 4; // ProcessPowerThrottling
 #[link(name = "user32")]
 extern "system" {
     fn GetWindowRect(h: RawHwnd, r: *mut WinRect) -> i32;
-    fn SetWindowPos(h: RawHwnd, after: RawHwnd, x: i32, y: i32, cx: i32, cy: i32, flags: u32) -> i32;
+    fn SetWindowPos(
+        h: RawHwnd,
+        after: RawHwnd,
+        x: i32,
+        y: i32,
+        cx: i32,
+        cy: i32,
+        flags: u32,
+    ) -> i32;
     fn IsWindow(h: Hwnd) -> i32;
     fn IsWindowVisible(h: Hwnd) -> i32;
     fn IsIconic(h: Hwnd) -> i32;
@@ -106,7 +114,9 @@ struct WinWindow(Hwnd);
 impl WinWindow {
     fn rect(&self) -> Result<Rect, OffscreenError> {
         let mut r = WinRect::default();
-        if unsafe { IsWindow(self.0) } == 0 || unsafe { GetWindowRect(self.0 as RawHwnd, &mut r) } == 0 {
+        if unsafe { IsWindow(self.0) } == 0
+            || unsafe { GetWindowRect(self.0 as RawHwnd, &mut r) } == 0
+        {
             return Err(OffscreenError::WindowGone);
         }
         Ok(Rect::new(

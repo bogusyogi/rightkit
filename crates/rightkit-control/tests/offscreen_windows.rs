@@ -99,14 +99,18 @@ fn intersects(a: &Rect, b: &Rect) -> bool {
 fn json_u32(body: &str, key: &str) -> Option<u32> {
     let pat = format!("\"{key}\":");
     let rest = &body[body.find(&pat)? + pat.len()..];
-    let end = rest.find(|c: char| !c.is_ascii_digit()).unwrap_or(rest.len());
+    let end = rest
+        .find(|c: char| !c.is_ascii_digit())
+        .unwrap_or(rest.len());
     rest[..end].parse().ok()
 }
 
 fn json_u64(body: &str, key: &str) -> Option<u64> {
     let pat = format!("\"{key}\":");
     let rest = &body[body.find(&pat)? + pat.len()..];
-    let end = rest.find(|c: char| !c.is_ascii_digit()).unwrap_or(rest.len());
+    let end = rest
+        .find(|c: char| !c.is_ascii_digit())
+        .unwrap_or(rest.len());
     rest[..end].parse().ok()
 }
 
@@ -164,7 +168,11 @@ fn wait_for_file(path: &Path, timeout: Duration) -> String {
         if let Ok(body) = std::fs::read_to_string(path) {
             return body;
         }
-        assert!(start.elapsed() < timeout, "timed out waiting for {}", path.display());
+        assert!(
+            start.elapsed() < timeout,
+            "timed out waiting for {}",
+            path.display()
+        );
         std::thread::sleep(Duration::from_millis(50));
     }
 }
@@ -205,15 +213,42 @@ fn live_session_moves_window_off_all_displays_without_focus() {
     // Live geometry, read from this process.
     let rect = window_rect(hwnd);
     let displays = monitors();
-    assert!(!displays.is_empty(), "EnumDisplayMonitors returned monitors");
+    assert!(
+        !displays.is_empty(),
+        "EnumDisplayMonitors returned monitors"
+    );
     for d in &displays {
-        assert!(!intersects(&rect, d), "window {rect:?} intersects monitor {d:?}");
+        assert!(
+            !intersects(&rect, d),
+            "window {rect:?} intersects monitor {d:?}"
+        );
     }
-    assert!((rect.left - r.placed.x as i32).abs() <= 1, "rect.left {} vs placed.x {}", rect.left, r.placed.x);
-    assert!((rect.top - r.placed.y as i32).abs() <= 1, "rect.top {} vs placed.y {}", rect.top, r.placed.y);
-    assert!(unsafe { IsWindowVisible(hwnd) } != 0, "window visible during session");
-    assert_eq!(unsafe { IsIconic(hwnd) }, 0, "window not minimized during session");
-    assert_eq!(unsafe { GetForegroundWindow() }, fg_before, "foreground unchanged after launch");
+    assert!(
+        (rect.left - r.placed.x as i32).abs() <= 1,
+        "rect.left {} vs placed.x {}",
+        rect.left,
+        r.placed.x
+    );
+    assert!(
+        (rect.top - r.placed.y as i32).abs() <= 1,
+        "rect.top {} vs placed.y {}",
+        rect.top,
+        r.placed.y
+    );
+    assert!(
+        unsafe { IsWindowVisible(hwnd) } != 0,
+        "window visible during session"
+    );
+    assert_eq!(
+        unsafe { IsIconic(hwnd) },
+        0,
+        "window not minimized during session"
+    );
+    assert_eq!(
+        unsafe { GetForegroundWindow() },
+        fg_before,
+        "foreground unchanged after launch"
+    );
 
     // EcoQoS during the session, read inside the fixture.
     let session = wait_for_file(&session_file, Duration::from_secs(10));
@@ -228,23 +263,58 @@ fn live_session_moves_window_off_all_displays_without_focus() {
         unsafe { IsIconic(hwnd) },
         unsafe { GetForegroundWindow() },
     );
-    assert_eq!(json_u32(&session, "control_mask"), Some(1), "EXECUTION_SPEED control mask set: {session}");
-    assert_eq!(json_u32(&session, "state_mask"), Some(0), "opt-out state (StateMask 0): {session}");
+    assert_eq!(
+        json_u32(&session, "control_mask"),
+        Some(1),
+        "EXECUTION_SPEED control mask set: {session}"
+    );
+    assert_eq!(
+        json_u32(&session, "state_mask"),
+        Some(0),
+        "opt-out state (StateMask 0): {session}"
+    );
 
     // End the session in the fixture (restore + throttling reset), then check from outside.
     std::fs::write(&stop, b"").expect("write stop file");
     let after = wait_for_file(&after_file, Duration::from_secs(10));
-    assert!(!after.contains("end_error"), "end_active succeeded: {after}");
-    assert_eq!(json_u32(&after, "control_mask"), Some(0), "EcoQoS reset to system-managed: {after}");
+    assert!(
+        !after.contains("end_error"),
+        "end_active succeeded: {after}"
+    );
+    assert_eq!(
+        json_u32(&after, "control_mask"),
+        Some(0),
+        "EcoQoS reset to system-managed: {after}"
+    );
 
     let restored = window_rect(hwnd);
-    assert_eq!(unsafe { IsWindowVisible(hwnd) }, 0, "window hidden after end");
-    assert_eq!(unsafe { IsIconic(hwnd) }, 0, "window not minimized after end");
+    assert_eq!(
+        unsafe { IsWindowVisible(hwnd) },
+        0,
+        "window hidden after end"
+    );
+    assert_eq!(
+        unsafe { IsIconic(hwnd) },
+        0,
+        "window not minimized after end"
+    );
     assert_eq!(restored.left, r.original.x as i32, "restored x");
     assert_eq!(restored.top, r.original.y as i32, "restored y");
-    assert_eq!(restored.right - restored.left, r.original.w as i32, "width unchanged");
-    assert_eq!(restored.bottom - restored.top, r.original.h as i32, "height unchanged");
-    assert_eq!(unsafe { GetForegroundWindow() }, fg_before, "foreground unchanged after end");
+    assert_eq!(
+        restored.right - restored.left,
+        r.original.w as i32,
+        "width unchanged"
+    );
+    assert_eq!(
+        restored.bottom - restored.top,
+        r.original.h as i32,
+        "height unchanged"
+    );
+    assert_eq!(
+        unsafe { GetForegroundWindow() },
+        fg_before,
+        "foreground unchanged after end"
+    );
     eprintln!(
         "[offscreen_windows] after_end rect={restored:?} visible={} iconic={} fg_after={:?} qos_after={after}",
         unsafe { IsWindowVisible(hwnd) },
@@ -278,7 +348,10 @@ fn hidden_at_start_window_is_placed_and_shown_without_ever_appearing_on_a_displa
     let r = launch.report.clone();
     let hwnd = hwnd.expect("fixture published its HWND") as Hwnd;
 
-    assert_eq!(r.window_id as usize as Hwnd, hwnd, "report HWND is the published HWND");
+    assert_eq!(
+        r.window_id as usize as Hwnd, hwnd,
+        "report HWND is the published HWND"
+    );
     let mut owner = 0u32;
     unsafe { GetWindowThreadProcessId(hwnd, &mut owner) };
     assert_eq!(owner, launch.pid(), "HWND belongs to the launched process");
@@ -297,8 +370,14 @@ fn hidden_at_start_window_is_placed_and_shown_without_ever_appearing_on_a_displa
         on_display.len(),
         samples.first().map(|s| s.rect),
     );
-    assert!(hidden_samples > 0, "observed the window hidden before placement");
-    assert!(on_display.is_empty(), "window was visible on a display: {on_display:?}");
+    assert!(
+        hidden_samples > 0,
+        "observed the window hidden before placement"
+    );
+    assert!(
+        on_display.is_empty(),
+        "window was visible on a display: {on_display:?}"
+    );
     assert!(
         samples.iter().all(|s| s.foreground == fg_before as usize),
         "foreground changed while observed"
@@ -306,14 +385,36 @@ fn hidden_at_start_window_is_placed_and_shown_without_ever_appearing_on_a_displa
 
     // Final state: visible, off every monitor, at the placed frame, foreground unchanged.
     let rect = window_rect(hwnd);
-    assert!(unsafe { IsWindowVisible(hwnd) } != 0, "window visible after start");
-    assert_eq!(unsafe { IsIconic(hwnd) }, 0, "window not minimized after start");
+    assert!(
+        unsafe { IsWindowVisible(hwnd) } != 0,
+        "window visible after start"
+    );
+    assert_eq!(
+        unsafe { IsIconic(hwnd) },
+        0,
+        "window not minimized after start"
+    );
     for d in &displays {
-        assert!(!intersects(&rect, d), "window {rect:?} intersects monitor {d:?}");
+        assert!(
+            !intersects(&rect, d),
+            "window {rect:?} intersects monitor {d:?}"
+        );
     }
-    assert!((rect.left - r.placed.x as i32).abs() <= 1, "rect.left {} vs placed.x {}", rect.left, r.placed.x);
-    assert_eq!(r.original.x, 100.0, "fixture created the window at its on-screen origin");
-    assert_eq!(unsafe { GetForegroundWindow() }, fg_before, "foreground unchanged after start");
+    assert!(
+        (rect.left - r.placed.x as i32).abs() <= 1,
+        "rect.left {} vs placed.x {}",
+        rect.left,
+        r.placed.x
+    );
+    assert_eq!(
+        r.original.x, 100.0,
+        "fixture created the window at its on-screen origin"
+    );
+    assert_eq!(
+        unsafe { GetForegroundWindow() },
+        fg_before,
+        "foreground unchanged after start"
+    );
 
     launch.end().expect("kill fixture");
     let _ = std::fs::remove_file(&created);
@@ -326,10 +427,14 @@ fn minimized_window_is_refused() {
     let prefix = unique_prefix();
     let stop = PathBuf::from(format!("{}.stop", prefix.display()));
     let mut spec = base_spec(&prefix, &stop);
-    spec.env.push(("RK_FIXTURE_MODE".into(), "minimized".into()));
+    spec.env
+        .push(("RK_FIXTURE_MODE".into(), "minimized".into()));
     match launch_offscreen(&spec) {
         Err(OffscreenError::AppReportedError(msg)) => {
-            assert!(msg.contains("WindowMiniaturized"), "refusal names WindowMiniaturized: {msg}");
+            assert!(
+                msg.contains("WindowMiniaturized"),
+                "refusal names WindowMiniaturized: {msg}"
+            );
         }
         Err(e) => panic!("expected the fixture to report a refusal, got {e:?}"),
         Ok(launch) => {
