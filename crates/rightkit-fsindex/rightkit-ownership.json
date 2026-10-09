@@ -1,0 +1,15 @@
+{
+  "package": "rightkit-fsindex",
+  "capabilities": [
+    {
+      "capability": "file-index",
+      "summary": "Live whole-disk file index: getattrlistbulk crawl, FSEvents upkeep, fuzzy name search, and clone- and hard-link-aware folder size rollups (logical, allocated, allocated-unique).",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Name search and folder sizes only; content search is an opt-in cargo feature that is off by default.",
+        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
+      ]
+    }
+  ]
+}
