@@ -9,6 +9,8 @@
 //!   `cmake -DBUILD_SHARED_LIBS=ON -DGGML_METAL=ON`, `whisper.dll` on Windows)
 //!   plus `RIGHTKIT_WHISPER_GGML` (ggml model, e.g. turbo q5_k ~574 MB).
 //! - VAD: `RIGHTKIT_VAD_MODEL` (Silero op15 ONNX, 2 MB).
+mod coreml_cache;
+
 use rightkit_asr::{
     Language, Transcriber, Whisper, WhisperModel, WhisperOptions,
 };
@@ -123,6 +125,7 @@ mod coreml {
     use super::*;
 
     fn load(language: Language) -> Option<Whisper> {
+        crate::coreml_cache::prune_stale();
         let dir = coreml_dir()?;
         Some(
             Whisper::load(

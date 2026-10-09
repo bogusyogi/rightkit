@@ -20,6 +20,8 @@
 //!
 //! The model-free tests exercise the shared decode contract against the real
 //! audio fixtures and the real detokenizer fixture file.
+mod coreml_cache;
+
 use rightkit_asr::longform::{self, LongFormOptions};
 use rightkit_asr::parakeet_core::{assemble_pieces, DetokPolicy};
 use std::path::{Path, PathBuf};
@@ -256,6 +258,7 @@ mod coreml {
     }
 
     fn load(options: CoreMlParakeetOptions) -> Option<CoreMlParakeet> {
+        crate::coreml_cache::prune_stale();
         Some(CoreMlParakeet::load(&bundle()?, options).expect("load CoreML Parakeet"))
     }
 
@@ -509,6 +512,7 @@ mod coreml {
             decoder_compute: ComputeUnits::CpuAndGpu,
             ..Default::default()
         };
+        crate::coreml_cache::prune_stale();
         let e = CoreMlParakeet::load(&dir, opts).expect("load .mlpackage bundle");
         let compiled: Vec<_> = std::fs::read_dir(&cache).unwrap().filter_map(|x| x.ok()).collect();
         assert_eq!(compiled.len(), 4, "one compiled .mlmodelc per stage in the supplied cache");
