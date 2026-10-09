@@ -136,14 +136,14 @@ fn raw(file: &std::fs::File) -> rightkit_process::RawHandleOrFd {
 
 #[cfg(unix)]
 fn inheritable(file: &std::fs::File) -> bool {
-    unsafe { nix::libc::fcntl(raw(file), nix::libc::F_GETFD) & nix::libc::FD_CLOEXEC == 0 }
+    unsafe { libc::fcntl(raw(file), libc::F_GETFD) & libc::FD_CLOEXEC == 0 }
 }
 
 #[cfg(unix)]
 fn pipe(cloexec: bool) -> (std::fs::File, std::fs::File) {
     use std::os::fd::FromRawFd;
     let mut fds = [-1; 2];
-    assert_eq!(unsafe { nix::libc::pipe(fds.as_mut_ptr()) }, 0);
+    assert_eq!(unsafe { libc::pipe(fds.as_mut_ptr()) }, 0);
     let files = unsafe {
         (
             std::fs::File::from_raw_fd(fds[0]),
@@ -151,12 +151,12 @@ fn pipe(cloexec: bool) -> (std::fs::File, std::fs::File) {
         )
     };
     assert_eq!(
-        unsafe { nix::libc::fcntl(fds[0], nix::libc::F_SETFD, nix::libc::FD_CLOEXEC) },
+        unsafe { libc::fcntl(fds[0], libc::F_SETFD, libc::FD_CLOEXEC) },
         0
     );
     if cloexec {
         assert_eq!(
-            unsafe { nix::libc::fcntl(fds[1], nix::libc::F_SETFD, nix::libc::FD_CLOEXEC) },
+            unsafe { libc::fcntl(fds[1], libc::F_SETFD, libc::FD_CLOEXEC) },
             0
         );
     }
@@ -233,7 +233,7 @@ fn invalid_allowlisted_fd_fails_before_spawn() {
     command.inherit_handles_only([-1]);
     assert_eq!(
         command.spawn().unwrap_err().raw_os_error(),
-        Some(nix::libc::EBADF)
+        Some(libc::EBADF)
     );
 }
 

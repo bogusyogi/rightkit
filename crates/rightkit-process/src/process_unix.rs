@@ -1,4 +1,3 @@
-use nix::libc;
 use std::{io, os::fd::RawFd};
 
 pub(crate) struct Inheritance {

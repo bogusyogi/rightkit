@@ -259,9 +259,6 @@ impl Drop for FileLock {
 mod posix {
     use super::{open_lock_file, Mode};
     use crate::error::{FsError, Result};
-    use nix::errno::Errno;
-    use nix::fcntl::{fcntl, FcntlArg};
-    use nix::libc;
     use std::collections::BTreeMap;
     use std::fs::File;
     use std::path::{Path, PathBuf};
@@ -332,6 +329,16 @@ mod posix {
             Mode::Exclusive => libc::F_WRLCK,
             Mode::Shared => libc::F_RDLCK,
         };
+        match set_record_lock(file, kind) {
+            Ok(granted) => Ok(granted),
+            Err(error) => Err(FsError::io(path, error)),
+        }
+    }
+
+    /// Takes a non-blocking POSIX record lock of `kind` (`F_WRLCK`/`F_RDLCK`) over the whole file.
+    /// `Ok(false)` when another process holds a conflicting lock. Retries on `EINTR`.
+    fn set_record_lock(file: &File, kind: libc::c_short) -> std::io::Result<bool> {
+        use std::os::fd::AsRawFd;
         let request = libc::flock {
             l_type: kind as _,
             l_whence: libc::SEEK_SET as _,
@@ -339,10 +346,26 @@ mod posix {
             l_len: 0,
             l_pid: 0,
         };
-        match fcntl(file, FcntlArg::F_SETLK(&request)) {
-            Ok(_) => Ok(true),
-            Err(Errno::EAGAIN) | Err(Errno::EACCES) => Ok(false),
-            Err(errno) => Err(FsError::io(path, std::io::Error::from(errno))),
+        loop {
+            // SAFETY: `file` is an open descriptor for the duration of the call, and `request` is
+            // a fully initialised `flock` that outlives it; `F_SETLK` only reads through the
+            // pointer.
+            let rc = unsafe {
+                libc::fcntl(
+                    file.as_raw_fd(),
+                    libc::F_SETLK,
+                    &request as *const libc::flock,
+                )
+            };
+            if rc != -1 {
+                return Ok(true);
+            }
+            let error = std::io::Error::last_os_error();
+            match error.raw_os_error() {
+                Some(libc::EINTR) => continue,
+                Some(libc::EAGAIN) | Some(libc::EACCES) => return Ok(false),
+                _ => return Err(error),
+            }
         }
     }
 

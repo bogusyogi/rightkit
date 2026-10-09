@@ -1,4 +1,4 @@
-#![forbid(unsafe_code)]
+#![deny(unsafe_code)]
 //! Shared engine base: job store, runner, and stdio/CLI command contract.
 
 mod client;

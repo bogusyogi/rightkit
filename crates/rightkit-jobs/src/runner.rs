@@ -56,10 +56,9 @@ fn held_paths() -> &'static Mutex<BTreeSet<PathBuf>> {
 
 /// Take a non-blocking exclusive lock on an open lock file. `Ok(false)` when held elsewhere.
 #[cfg(unix)]
+#[allow(unsafe_code)] // one `fcntl` call; see the SAFETY comment inside
 fn try_lock_file(file: &File) -> JobResult<bool> {
-    use nix::errno::Errno;
-    use nix::fcntl::{fcntl, FcntlArg};
-    use nix::libc;
+    use std::os::fd::AsRawFd;
     // POSIX record lock, not `flock`: it belongs to the process, not the open file
     // description. A child forked by another thread inherits the descriptor until it execs,
     // and a flock would stay held by that child, making a free job look busy.
@@ -70,10 +69,26 @@ fn try_lock_file(file: &File) -> JobResult<bool> {
         l_len: 0,
         l_pid: 0,
     };
-    match fcntl(file, FcntlArg::F_SETLK(&request)) {
-        Ok(_) => Ok(true),
-        Err(Errno::EAGAIN) | Err(Errno::EACCES) => Ok(false),
-        Err(errno) => Err(std::io::Error::from(errno).into()),
+    loop {
+        // SAFETY: `file` is an open descriptor for the duration of the call, and `request` is
+        // a fully initialised `flock` that outlives it; `F_SETLK` only reads through the
+        // pointer.
+        let rc = unsafe {
+            libc::fcntl(
+                file.as_raw_fd(),
+                libc::F_SETLK,
+                &request as *const libc::flock,
+            )
+        };
+        if rc != -1 {
+            return Ok(true);
+        }
+        let error = std::io::Error::last_os_error();
+        match error.raw_os_error() {
+            Some(libc::EINTR) => continue,
+            Some(libc::EAGAIN) | Some(libc::EACCES) => return Ok(false),
+            _ => return Err(error.into()),
+        }
     }
 }
 
