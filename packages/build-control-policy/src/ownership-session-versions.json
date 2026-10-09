@@ -276,7 +276,7 @@
     "rightkit-browser": "0.2.3",
     "rightkit-cache": "0.1.0",
     "rightkit-contracts": "0.1.2",
-    "rightkit-control": "0.1.9",
+    "rightkit-control": "0.1.10",
     "rightkit-crash": "0.2.0",
     "rightkit-db": "0.3.2",
     "rightkit-embed": "0.3.1",
@@ -333,7 +333,7 @@
       "rightkit-audio": "0.2.0",
       "rightkit-browser": "0.2.2",
       "rightkit-cache": "0.1.0",
-      "rightkit-control": "0.1.9",
+      "rightkit-control": "0.1.10",
       "rightkit-crash": "0.2.0",
       "rightkit-db": "0.3.2",
       "rightkit-embed": "0.3.1",
@@ -504,7 +504,8 @@
     "rightkit-control": [
       "0.1.6",
       "0.1.7",
-      "0.1.8"
+      "0.1.8",
+      "0.1.9"
     ],
     "rightkit-secrets": [
       "0.1.0",
