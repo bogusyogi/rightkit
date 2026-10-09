@@ -111,7 +111,7 @@ test("checkout elevation dispatches both trust updater & authority wrapper", () 
   const fixture = checkoutFixture();
   const calls = [];
   try {
-    command.elevate((exe, args, options) => { calls.push({ exe, args, options }); return { status: 0 }; }, fixture.requestPath, fixture.digest, fixture.options);
+    command.elevate((exe, args, options) => { calls.push({ exe, args, options }); return { status: 0 }; }, fixture.requestPath, fixture.digest, { ...fixture.options, tty: true });
     const elevation = calls.find(({ exe, args }) => exe === "/usr/bin/sudo" ? args[0] === "-k" : /powershell\.exe$/i.test(exe));
     assert.ok(elevation);
     if (process.platform === "win32") {
