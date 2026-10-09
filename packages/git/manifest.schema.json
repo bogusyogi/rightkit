@@ -128,6 +128,11 @@
       "default": 7,
       "description": "rust-hybrid only, requires qaEvidencePath. Artifact retention in days."
     },
+    "ciAllOs": {
+      "type": "boolean",
+      "default": false,
+      "description": "rust-hybrid only. When true, the ci job runs the gate on every matrix.os runner in declared order (fail-fast: false). When false or unset, the ci job uses one runner (preferring the first windows-* entry, else the first matrix.os entry)."
+    },
     "candidate": {
       "type": "object",
       "required": ["buildScript", "checkScript", "admissionScript", "stageSummaryScript", "artifactRoot", "os"],

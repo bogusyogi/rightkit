@@ -22,9 +22,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Full validation stays on one declared runner; prefer configured
-        # Windows when available, otherwise preserve first configured OS.
-        os: ${CI_OS_MATRIX}
+${CI_MATRIX_OS}
         node: ${NODE_MATRIX}
     runs-on: ${{ matrix.os }}
     steps:

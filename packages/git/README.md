@@ -37,6 +37,20 @@ Set `qaEvidencePath` in `.rightgit.json` to upload the gate's QA output as a wor
 - `qaEvidenceRetentionDays` is an integer from 1 to 90 and defaults to 7. It requires `qaEvidencePath`.
 - Omit the key and the rendered `ci.yml` is unchanged.
 
+## Full validation on every OS (rust-hybrid)
+
+Set `"ciAllOs": true` to run the rust-hybrid `ci` gate on every `matrix.os` runner instead of one. Runners run in declared order with `fail-fast: false`. Each leg uploads its own artifact, because the QA artifact name already includes the runner label.
+
+```json
+{
+  "profile": "rust-hybrid",
+  "matrix": { "os": ["xcode-27", "windows-2025"], "node": ["26.8.1"] },
+  "ciAllOs": true
+}
+```
+
+Omit the key, or set it to `false`, and the rendered `ci.yml` keeps one runner, preferring the first `windows-*` entry. `ciAllOs: true` is rejected for other profiles.
+
 ## Entry points
 
 No importable API. The package has no `main` and no `exports` map. The supported surface is the `right-git` bin.
