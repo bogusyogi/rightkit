@@ -356,6 +356,22 @@ fn violation_json(v: &rightkit_ownership::Violation) -> Value {
     json!({"capability": v.capability, "owner": v.owner, "fingerprint": v.fingerprint, "file": v.file, "line": v.line})
 }
 
+/// Fixtures name virtual roots like `/fixture/repo`; Windows resolves them onto the current
+/// drive (`D:\fixture\repo`). Compare in the fixtures' POSIX form.
+fn fixture_path(path: &Option<String>) -> Option<String> {
+    let path = path.as_deref()?;
+    if !cfg!(windows) {
+        return Some(path.to_string());
+    }
+    let bytes = path.as_bytes();
+    let rest = if bytes.len() > 2 && bytes[1] == b':' && bytes[2] == b'\\' {
+        &path[2..]
+    } else {
+        path
+    };
+    Some(rest.replace('\\', "/"))
+}
+
 fn project(v: &Verdict) -> Value {
     if v.outcome == "off" {
         return json!({"mode": v.mode.as_str(), "outcome": "off"});
@@ -367,7 +383,7 @@ fn project(v: &Verdict) -> Value {
         "problems": v.problems,
         "outcome": v.outcome,
         "violations": v.violations.iter().map(violation_json).collect::<Vec<_>>(),
-        "scanRoot": v.scan_root,
+        "scanRoot": fixture_path(&v.scan_root),
         "scanMs": v.scan_ms,
         "cached": v.cached,
     });
@@ -605,8 +621,17 @@ fn materialize(input: &Value, base: &Path) -> PathBuf {
         fs::create_dir_all(link.parent().expect("parent")).expect("mkdir");
         #[cfg(unix)]
         std::os::unix::fs::symlink(target.as_str().unwrap_or(""), &link).expect("symlink");
-        #[cfg(not(unix))]
-        let _ = (target, link);
+        #[cfg(windows)]
+        {
+            let target = target.as_str().unwrap_or("");
+            let resolved = link.parent().expect("parent").join(target);
+            let made = if resolved.is_dir() {
+                std::os::windows::fs::symlink_dir(target, &link)
+            } else {
+                std::os::windows::fs::symlink_file(target, &link)
+            };
+            made.expect("symlink (needs Developer Mode or SeCreateSymbolicLinkPrivilege)");
+        }
     }
     if at(at(input, "harness"), "commit").as_bool() != Some(false) {
         git(&root, &["add", "-A"]);
