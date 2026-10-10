@@ -24,6 +24,18 @@ function stalePolicyHook(command, commandText) {
   return Boolean(script) && command !== commandText && /agent-policy[\\/]+content-[0-9a-f]{64}/.test(command) && command.replace(/"$/, '').endsWith(script);
 }
 
+// Read, Grep and Glob are not routed through the PreToolUse hook (a hook per read is too costly), so the QA receipt
+// MAC key is denied to them by permission rule; the hook covers Bash, Write and Edit.
+export const QA_KEY_DENY_RULES = Object.freeze(['Read(**/RightKit/qa-receipt-key.token)', 'Edit(**/RightKit/qa-receipt-key.token)']);
+
+export function appendDenyRules(config, rules) {
+  if (config.permissions !== undefined && (typeof config.permissions !== 'object' || Array.isArray(config.permissions))) throw new TypeError('Claude settings permissions must be an object');
+  const permissions = config.permissions ?? {};
+  if (permissions.deny !== undefined && !Array.isArray(permissions.deny)) throw new TypeError('Claude settings permissions.deny must be an array');
+  permissions.deny = [...new Set([...(permissions.deny ?? []), ...rules])];
+  config.permissions = permissions;
+}
+
 export function appendHook(groups, event, record, commandText) {
   if (groups[event] !== undefined && !Array.isArray(groups[event])) throw new TypeError(`${event} must be an array`);
   // Policy assets are content-addressed, so every update moves the hook path: drop the superseded entry instead of running both.
@@ -62,6 +74,7 @@ export async function installAgentPolicyHooks({ home = homedir(), platform = pro
   if (!claude.config.hooks || typeof claude.config.hooks !== 'object' || Array.isArray(claude.config.hooks)) throw new TypeError('Claude settings.json must contain a hooks object');
   appendHook(claude.config.hooks, 'PreToolUse', { matcher: 'Write|Edit|MultiEdit|Bash' }, writeCommand);
   appendHook(claude.config.hooks, 'SessionStart', {}, sessionCommand);
+  appendDenyRules(claude.config, QA_KEY_DENY_RULES);
   if (!codex.config.hooks || typeof codex.config.hooks !== 'object' || Array.isArray(codex.config.hooks)) throw new TypeError('Codex hooks.json must contain a hooks object');
   appendHook(codex.config.hooks, 'PreToolUse', { matcher: 'Bash|apply_patch|exec_command|functions\\.exec' }, writeCommand);
   appendHook(codex.config.hooks, 'SessionStart', {}, sessionCommand);

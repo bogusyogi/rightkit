@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { appendHook } from './install-agent-policy.mjs';
+import { appendDenyRules, appendHook, QA_KEY_DENY_RULES } from './install-agent-policy.mjs';
 
 const root = 'D:\\.rightkit-managed\\agent-policy';
 const command = (digest, script) => `"C:\\node.exe" "${root}\\content-${digest.repeat(64)}\\src\\${script}"`;
@@ -20,4 +20,16 @@ test('only the same CLI script from a content root is replaced', () => {
   appendHook(groups, 'PreToolUse', { matcher: 'Write|Edit|MultiEdit' }, command('b', 'ownership-session-hook-cli.mjs'));
   assert.equal(groups.PreToolUse.length, 2);
   assert.equal(groups.PreToolUse[0].hooks[0].command, command('a', 'ownership-write-hook-cli.mjs'));
+});
+
+test('QA receipt key deny rules are added once and keep existing permissions', () => {
+  const config = { permissions: { allow: ['Bash(ls:*)'], deny: ['Read(.env)'] } };
+  appendDenyRules(config, QA_KEY_DENY_RULES);
+  appendDenyRules(config, QA_KEY_DENY_RULES);
+  assert.deepEqual(config.permissions.allow, ['Bash(ls:*)']);
+  assert.deepEqual(config.permissions.deny, ['Read(.env)', ...QA_KEY_DENY_RULES]);
+  const fresh = {};
+  appendDenyRules(fresh, QA_KEY_DENY_RULES);
+  assert.deepEqual(fresh.permissions.deny, [...QA_KEY_DENY_RULES]);
+  assert.throws(() => appendDenyRules({ permissions: { deny: 'x' } }, QA_KEY_DENY_RULES), TypeError);
 });
