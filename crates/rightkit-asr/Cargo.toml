@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-asr"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 rust-version = "1.98.0"
 publish = true
@@ -38,8 +38,10 @@ serde_json = "1.0"
 libloading = "0.9"
 rightkit-ort = { path = "../rightkit-ort", version = "0.2.2", features = ["ndarray", "half"] }
 rightkit-transcript = { version = "0.2.0", path = "../rightkit-transcript" }
-rightkit-vad = { version = "0.0.3", path = "../rightkit-vad", default-features = false }
-tokenizers = { version = "0.22.2", default-features = false, features = ["onig"] }
+rightkit-vad = { version = "0.1.0", path = "../rightkit-vad", default-features = false }
+# Optional since 0.2.0: only the `whisper-tokenizers` feature pulls the HF tokenizers
+# crate (and its C regex build). Parakeet CoreML and ONNX TDT paths do not need it.
+tokenizers = { version = "0.22.2", default-features = false, features = ["onig"], optional = true }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = { version = "0.6", features = ["exception"] }
@@ -48,13 +50,17 @@ objc2-foundation = "0.3"
 
 [dev-dependencies]
 # The e2e_whisper test drives the Silero scorer, which rightkit-vad now gates behind `silero`.
-rightkit-vad = { version = "0.0.3", path = "../rightkit-vad", features = ["silero"] }
+rightkit-vad = { version = "0.1.0", path = "../rightkit-vad", features = ["silero"] }
 rightkit-media = { path = "../rightkit-media", version = "0.2.3" }
 rightkit-speech-client = { path = "../rightkit-speech-client", version = "0.3.3" }
 
 [features]
-default = ["cpu", "ort-defaults"]
+default = ["cpu", "ort-defaults", "whisper-tokenizers"]
 cpu = []
+# HF tokenizers for the Whisper CoreML decoder, the CTC and EOU Parakeet decoders
+# and Cohere. Off: the Parakeet CoreML and ONNX TDT paths build without the C
+# tokenizers dependency (use `default-features = false`).
+whisper-tokenizers = ["dep:tokenizers"]
 # ort rc.13's own `default` raises the API floor to 27 (ORT 1.27), which the
 # suite's approved 1.24.4 runtime cannot serve. Keep rc.12's default set with
 # the suite API level instead of `ort/default`.
@@ -71,7 +77,7 @@ webgpu = ["rightkit-ort/webgpu"]
 nnapi = ["rightkit-ort/nnapi"]
 sortformer = []
 multitalker = ["sortformer"]
-cohere = []
+cohere = ["whisper-tokenizers"]
 # rightkit-ort always loads ONNX Runtime dynamically; kept so existing feature lists resolve.
 load-dynamic = []
 preload-dylibs = ["rightkit-ort/preload-dylibs"]
