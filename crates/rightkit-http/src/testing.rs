@@ -9,6 +9,24 @@ use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
+use crate::{AddressPolicy, ClientConfig};
+
+/// Address policy that lets the [`MockServer`] be reached: the hosts `127.0.0.1`,
+/// `localhost` and `[::1]`, loopback addresses only, through `AddressPolicy::allow_if`.
+/// Every other destination keeps the default public-web rules.
+pub fn loopback_policy() -> AddressPolicy {
+    AddressPolicy::default().allow_if(
+        vec!["127.0.0.1".into(), "localhost".into(), "::1".into()],
+        |ip| ip.is_loopback(),
+    )
+}
+
+/// `ClientConfig::default()` with [`loopback_policy`]; the starting point for tests that
+/// talk to a [`MockServer`].
+pub fn loopback_config() -> ClientConfig {
+    ClientConfig::default().address_policy(loopback_policy())
+}
+
 #[derive(Debug, Clone)]
 pub struct RecordedRequest {
     pub method: String,

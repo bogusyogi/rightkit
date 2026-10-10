@@ -13,7 +13,7 @@ Catalog capability: `http-client`. Published to crates.io (see [INDEX.md](../../
 - `netpolicy` / `AddressPolicy`: the outbound address policy (SSRF guard) that every request and redirect hop passes; `ClientConfig::first_party` pins a host set.
 - `CancelToken`: cooperative cancellation for buffered calls, streams and downloads (`HttpError::Cancelled`).
 - `Request::deadline`, `Request::secret_header` and `ClientConfig::redact_values`: a per-call budget, and secrets kept out of error text.
-- `AsyncClient` (feature `async`): `send`, `send_any`, `stream`, `get_json` with identical timeout, retry/backoff, redirect, user-agent, proxy (off by default; `allow_env_proxy` opts in), address policy and size-limit behaviour. `stream` returns a `BodyStream` of `Bytes` chunks or an `SseStream` (`.sse()`, `.sse_with_limits(max_line, max_event)`), bounded to 1 MiB per line and 4 MiB per event by default.
+- `AsyncClient` (feature `async`): `send`, `send_any`, `stream`, `get_json` with identical timeout, retry/backoff, redirect, user-agent, proxy (off by default; `ProxyMode` opts in), address policy and size-limit behaviour. `stream` returns a `BodyStream` of `Bytes` chunks or an `SseStream` (`.sse()`, `.sse_with_limits(max_line, max_event)`), bounded to 1 MiB per line and 4 MiB per event by default.
 - `sse`: `SseDecoder` (`new`, `with_limits`), `SseReader`, `SseEvent`. WHATWG-compliant Server-Sent Events.
 - `untrusted`: `wrap_untrusted_web_text` for external text, with boundary markers and injection-signal reporting.
 - `secret`: a redacted `Secret`, and the `SecretStore` trait that `rightkit-secrets` implements. `MemorySecretStore` is provided for tests.
@@ -138,10 +138,44 @@ let client = Client::new(ClientConfig::default().address_policy(policy));
 
 - `deny_ranges` and `deny_if` always win over `allow_if`. Link-local and metadata destinations cannot be allowed by any hook.
 - `allow_if(hosts, pred)` applies only to the exactly listed hosts (ASCII case-insensitive, one trailing dot ignored) and only to addresses for which `pred` is true.
-- `Client::first_party(hosts)` / `ClientConfig::first_party(hosts)` pin the allowed host set: exact host match, HTTPS only, on every redirect hop. Public-web classification is skipped for those hosts only; link-local and metadata destinations and `deny_ranges`/`deny_if` still apply. Use it for license checks and model downloads.
+- `Client::first_party(hosts)` / `ClientConfig::first_party(hosts)` pin the allowed host set: exact host match, HTTPS only, on every redirect hop. The resolved addresses of those hosts are classified with the public-web classes too, so a listed name that resolves to a private address is refused. An on-premises server opts in per host with `AddressPolicy::allow_private_resolution(host)`; link-local and metadata destinations, `deny_ranges` and `deny_if` still apply. Use it for license checks and model downloads.
 - `AddressPolicy::with_resolver` replaces the system resolver (offline tests, pinned DNS).
-- Proxies: a proxy resolves names itself, so the connection cannot be checked. Environment proxies are therefore off by default. `ClientConfig::allow_env_proxy(true)` turns them back on; then IP literals, the first-party list and metadata names are still enforced, but resolved addresses are not.
+- Proxies: see [Proxies](#proxies). The default is no proxy, and environment variables are ignored. Through a proxy only literals and names can be checked.
 - Tests and consumers that talk to `testing::MockServer` use `testing::loopback_config()` or `testing::loopback_policy()`, which list the loopback hosts through `allow_if`.
+
+## Proxies
+
+`ClientConfig::proxy` takes a `ProxyMode`: `None` (default), `Environment` (`ALL_PROXY`, `HTTPS_PROXY`, `HTTP_PROXY` in that order, either case, plus `NO_PROXY`) or `Explicit("http://10.0.0.5:3128")`. Only `http` and `https` proxies are accepted. `ProxyMode::None` stays the default, and environment variables are ignored unless `Environment` is chosen.
+
+**Proxy mode is weaker than a direct connection by construction.** The proxy resolves the destination name itself, so this crate cannot see or pin the address a proxied connection reaches. What it enforces is name- and literal-based:
+
+- The proxy endpoint is trusted: it is user or administrator configuration and is often on a private address. It gets no address-class denial. Proxy credentials in the URL never appear in `Debug` output or errors.
+- IP-literal destinations (and `localhost`) are classified like any address: `169.254.169.254`, RFC 1918, loopback and the rest are refused.
+- Hostnames are refused when they are `localhost`, `*.localhost`, `*.local`, `*.internal` or single-label, unless an `allow_if` rule lists the host. Cloud metadata names and the first-party host pin apply too. `deny_ranges` and `deny_if` apply to literals only, because a hostname's address is unknown.
+- Only literals are classified, and only `localhost`, `*.localhost`, `*.local`, `*.internal` and single-label names are refused. A public-looking hostname that resolves to a private address at the proxy is not caught, and `deny_ranges` and `deny_if` never see it. Use a direct connection when that matters.
+- Every redirect hop is vetted the same way.
+- Hosts that match `NO_PROXY` connect directly and get the full direct-connection check (resolve once, classify, connect to the checked address).
+- A first-party client uses the proxy too, unless `ClientConfig::proxy_bypass_first_party(true)` sends it direct.
+- A proxy is trusted: it sees destinations and can forward anywhere.
+
+## Headers only
+
+`Client::send_headers(&req)` returns `ResponseHead { status, headers, final_url, hops, attempts }` for any status without reading the body (3xx when redirects are off, 4xx, and 5xx after retries). The unread body is dropped, which closes that connection. Redirects, the address policy on every hop, retries and cancellation behave as for `send_any`. `Request::headers_only()` makes `send` and `send_any` skip the body in the same way. `Client::stream_any` returns any status with its headers and a streaming body; `Client::stream` still turns non-2xx into `HttpError::Status`.
+
+## Error phases
+
+`HttpError::Timeout { message, phase }` and `HttpError::Transport { message, connect_phase, phase }` carry a `Phase`, also available as `HttpError::phase()`:
+
+| `Phase` | When |
+|---|---|
+| `Connect` | Name lookup, TCP connect, TLS handshake. `connect_phase` is true exactly here. |
+| `Headers` | Sending the request and waiting for the response headers, including the request-wide budget. |
+| `Body` | Reading the response body, including streams and downloads. |
+| `Redirect` | Any failure on a redirect hop after the first request, and an exhausted redirect limit. |
+
+## Vetting for other transports
+
+`AddressPolicy::resolve_vetted(host, port) -> Result<Vec<SocketAddr>, HttpError>` resolves a host once and applies exactly the rules the clients use: the address classes, `deny_ranges`, `deny_if`, `allow_if`, the first-party pin and its private-resolution opt-outs, metadata names, and the denial of names with no address. It returns the same `HttpError::AddressDenied`. A WebSocket, raw TCP or gRPC transport calls it and **must connect to the returned addresses, not look the name up again**. A transport that cannot pin its connection leaves a DNS-rebinding window between the check and its own lookup. The host is treated as reached over HTTPS; requiring TLS under a first-party policy is the caller's job.
 
 ## Redirects
 
@@ -157,7 +191,7 @@ Pure Rust over `ureq` with `rustls`. No platform-specific code in the crate. Cer
 
 ## Tests
 
-`tests/e2e.rs` and, with `--features async`, `tests/async_e2e.rs`: a real local TCP server. Assertions use exact requests seen on the wire and exact bytes received. `tests/download.rs` covers resume, restart, 416 verification, cancellation, integrity, length and reconnect. `tests/request_policy.rs` covers per-request overrides, cancellation, redaction and the deadline. `tests/address_policy.rs` (and `tests/async_policy.rs` with `--features async`) cover the address policy: resolver denial per class, embedded IPv4 forms, redirects, cross-origin stripping, first-party mode, `deny_ranges`, `deny_if` and URL redaction. `tests/classify_parity.rs` cross-checks the classification against `rightkit-browser`'s source.
+`tests/e2e.rs` and, with `--features async`, `tests/async_e2e.rs`: a real local TCP server. Assertions use exact requests seen on the wire and exact bytes received. `tests/download.rs` covers resume, restart, 416 verification, cancellation, integrity, length and reconnect. `tests/request_policy.rs` covers per-request overrides, cancellation, redaction and the deadline. `tests/address_policy.rs` (and `tests/async_policy.rs` with `--features async`) cover the address policy: resolver denial per class, embedded IPv4 forms, redirects, cross-origin stripping, first-party mode, `deny_ranges`, `deny_if` and URL redaction. `tests/send_headers.rs`, `tests/proxy.rs` and `tests/phases.rs` cover headers-only calls, proxies and error phases. `tests/classify_parity.rs` cross-checks the classification against `rightkit-browser`'s source.
 
 ## Version and changes
 

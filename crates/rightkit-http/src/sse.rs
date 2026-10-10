@@ -201,11 +201,10 @@ impl<R: Read> Iterator for SseReader<R> {
                 Err(e) => {
                     self.done = true;
                     return Some(Err(match e.kind() {
-                        std::io::ErrorKind::TimedOut => HttpError::Timeout(e.to_string()),
-                        _ => HttpError::Transport {
-                            message: e.to_string(),
-                            connect_phase: false,
-                        },
+                        std::io::ErrorKind::TimedOut => {
+                            HttpError::timeout(e.to_string(), crate::error::Phase::Body)
+                        }
+                        _ => HttpError::transport(e.to_string(), crate::error::Phase::Body),
                     }));
                 }
             }

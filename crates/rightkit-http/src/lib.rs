@@ -2,6 +2,12 @@
 //!
 //! - [`Client`]: timeouts, bounded bodies, retry/backoff honoring `Retry-After`,
 //!   retry-safety rules for non-idempotent methods, streaming responses.
+//! - [`Client::download_to_path`]: resumable download to a file with SHA-256 and
+//!   length verification ([`DownloadOptions`], [`DownloadReport`]).
+//! - [`Multipart`]: `multipart/form-data` bodies with exact framing.
+//! - [`netpolicy`]: the outbound address policy (SSRF guard) every request passes: resolve once,
+//!   classify every address, connect only to checked addresses, on every redirect hop.
+//! - [`CancelToken`]: cooperative cancellation for calls, streams and downloads.
 //! - [`sse`]: WHATWG-compliant Server-Sent Events decoding.
 //! - `untrusted` (feature, default on): tamper-evident wrapping of external text for model input.
 //! - [`secret`]: redacted [`Secret`] and the [`SecretStore`] interface that
@@ -12,22 +18,32 @@
 
 #[cfg(feature = "async")]
 pub mod async_client;
+pub mod cancel;
 pub mod client;
+pub mod download;
 pub mod error;
+pub mod multipart;
+pub mod netpolicy;
+mod redirect;
 pub mod retry;
 pub mod secret;
 pub mod sse;
 #[cfg(feature = "untrusted")]
 pub mod untrusted;
+mod urlredact;
 
 #[cfg(feature = "testing")]
 pub mod testing;
 
+pub use cancel::{is_cancelled_io, CancelToken};
 pub use client::{
-    form_encode, percent_decode, percent_encode, Client, ClientConfig, Method, Request, Response,
-    RetryEvent, StreamResponse,
+    form_encode, percent_decode, percent_encode, Client, ClientConfig, Method, ProxyMode, Request,
+    Response, ResponseHead, RetryEvent, StreamResponse,
 };
-pub use error::HttpError;
+pub use download::{DownloadError, DownloadOptions, DownloadProgress, DownloadReport};
+pub use error::{ErrorClass, HttpError, Phase};
+pub use multipart::Multipart;
+pub use netpolicy::{AddressClass, AddressPolicy, IpNet};
 pub use retry::{parse_retry_after, RetryPolicy};
 pub use secret::{MemorySecretStore, Secret, SecretError, SecretStore};
 pub use sse::{SseDecoder, SseEvent, SseReader};

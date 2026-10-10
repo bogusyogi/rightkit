@@ -27,7 +27,7 @@ fn base(retry: RetryPolicy) -> ClientConfig {
         retry,
         request_timeout: Duration::from_secs(5),
         response_timeout: Some(Duration::from_secs(5)),
-        ..ClientConfig::default()
+        ..rightkit_http::testing::loopback_config()
     }
 }
 
@@ -174,11 +174,11 @@ async fn response_timeout_fires_and_retries_idempotent_only() {
         ..base(fast_retry(2))
     });
     let err = c.send(&Request::get(server.url("/"))).await.unwrap_err();
-    assert!(matches!(err, HttpError::Timeout(_)), "{err:?}");
+    assert!(matches!(err, HttpError::Timeout { .. }), "{err:?}");
     assert_eq!(server.request_count(), 2);
     let before = server.request_count();
     let err = c.send(&Request::post(server.url("/"))).await.unwrap_err();
-    assert!(matches!(err, HttpError::Timeout(_)), "{err:?}");
+    assert!(matches!(err, HttpError::Timeout { .. }), "{err:?}");
     assert_eq!(server.request_count() - before, 1);
 }
 
@@ -195,13 +195,13 @@ async fn request_timeout_bounds_buffered_body() {
         ..base(RetryPolicy::none())
     });
     let err = c.send(&Request::get(server.url("/"))).await.unwrap_err();
-    assert!(matches!(err, HttpError::Timeout(_)), "{err:?}");
+    assert!(matches!(err, HttpError::Timeout { .. }), "{err:?}");
     let c = client(base(RetryPolicy::none()));
     let err = c
         .send(&Request::get(server.url("/")).timeout(Duration::from_millis(200)))
         .await
         .unwrap_err();
-    assert!(matches!(err, HttpError::Timeout(_)), "{err:?}");
+    assert!(matches!(err, HttpError::Timeout { .. }), "{err:?}");
 }
 
 #[tokio::test]
@@ -274,6 +274,7 @@ async fn redirect_policy_matches_blocking_client() {
             HttpError::Transport {
                 message,
                 connect_phase: false,
+                ..
             } => assert_eq!(message, "too many redirects"),
             other => panic!("{other:?}"),
         }
@@ -372,7 +373,10 @@ async fn body_stream_yields_chunks_and_enforces_deadlines() {
         .unwrap()
         .into_stream();
     assert_eq!(&s.next().await.unwrap().unwrap()[..], b"one");
-    assert!(matches!(s.next().await, Some(Err(HttpError::Timeout(_)))));
+    assert!(matches!(
+        s.next().await,
+        Some(Err(HttpError::Timeout { .. }))
+    ));
     assert!(s.next().await.is_none(), "stream ends after the error");
 
     // Without a deadline the whole body arrives.

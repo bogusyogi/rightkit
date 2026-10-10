@@ -23,7 +23,7 @@ fn client_with(retry: RetryPolicy) -> Client {
         retry,
         request_timeout: Duration::from_secs(5),
         response_timeout: Some(Duration::from_secs(5)),
-        ..ClientConfig::default()
+        ..rightkit_http::testing::loopback_config()
     })
 }
 
@@ -83,7 +83,7 @@ fn retries_503_with_backoff_then_succeeds_and_notifies_observer() {
     let ev = events.clone();
     let mut cfg = ClientConfig {
         retry: fast_retry(4),
-        ..ClientConfig::default()
+        ..rightkit_http::testing::loopback_config()
     };
     cfg.on_retry = Some(Arc::new(move |e: &RetryEvent| {
         ev.lock().unwrap().push(e.clone())
@@ -189,7 +189,7 @@ fn connection_refused_is_retried_then_reported() {
     let c = count.clone();
     let mut cfg = ClientConfig {
         retry: fast_retry(3),
-        ..ClientConfig::default()
+        ..rightkit_http::testing::loopback_config()
     };
     cfg.on_retry = Some(Arc::new(move |_| *c.lock().unwrap() += 1));
     let client = Client::new(cfg);
@@ -217,18 +217,18 @@ fn response_timeout_fires_and_is_retried_for_idempotent_only() {
         response_timeout: Some(Duration::from_millis(150)),
         request_timeout: Duration::from_secs(5),
         retry: fast_retry(2),
-        ..ClientConfig::default()
+        ..rightkit_http::testing::loopback_config()
     };
     let client = Client::new(cfg);
     let err = client.send(&Request::get(server.url("/"))).unwrap_err();
-    assert!(matches!(err, HttpError::Timeout(_)), "{err:?}");
+    assert!(matches!(err, HttpError::Timeout { .. }), "{err:?}");
     assert_eq!(server.request_count(), 2, "GET retried once");
 
     let before = server.request_count();
     let err = client
         .send(&Request::post(server.url("/")).body(b"x".to_vec()))
         .unwrap_err();
-    assert!(matches!(err, HttpError::Timeout(_)), "{err:?}");
+    assert!(matches!(err, HttpError::Timeout { .. }), "{err:?}");
     assert_eq!(
         server.request_count() - before,
         1,
@@ -242,7 +242,7 @@ fn oversized_body_is_rejected() {
     let client = Client::new(ClientConfig {
         max_response_bytes: 1000,
         retry: RetryPolicy::none(),
-        ..ClientConfig::default()
+        ..rightkit_http::testing::loopback_config()
     });
     assert!(matches!(
         client.send(&Request::get(server.url("/"))).unwrap_err(),
@@ -269,7 +269,7 @@ fn redirect_limit_errors_as_transport_and_retries_only_idempotent_methods() {
     let client = Client::new(ClientConfig {
         max_redirects: 2,
         retry: fast_retry(2),
-        ..ClientConfig::default()
+        ..rightkit_http::testing::loopback_config()
     });
     assert!(client.config().max_redirects_will_error);
     for (method, expected_requests) in [(Method::Get, 6), (Method::Post, 3)] {
@@ -281,6 +281,7 @@ fn redirect_limit_errors_as_transport_and_retries_only_idempotent_methods() {
             HttpError::Transport {
                 message,
                 connect_phase: false,
+                ..
             } => assert_eq!(message, "too many redirects"),
             other => panic!("unexpected {other:?}"),
         }
@@ -297,7 +298,7 @@ fn redirect_limit_can_return_final_redirect_without_retry() {
         max_redirects: 2,
         max_redirects_will_error: false,
         retry: fast_retry(2),
-        ..ClientConfig::default()
+        ..rightkit_http::testing::loopback_config()
     });
     let response = client.send_any(&Request::get(server.url("/loop"))).unwrap();
     assert_eq!(response.status, 302);
@@ -366,11 +367,11 @@ fn receive_body_timeout_fires_after_fast_headers_in_buffered_and_streamed_calls(
         recv_body_timeout: Some(Duration::from_millis(150)),
         request_timeout: Duration::from_secs(5),
         retry: RetryPolicy::none(),
-        ..ClientConfig::default()
+        ..rightkit_http::testing::loopback_config()
     });
     let err = client.send(&Request::get(server.url("/slow"))).unwrap_err();
     assert!(
-        matches!(err, HttpError::Timeout(ref phase) if phase == "RecvBody"),
+        matches!(err, HttpError::Timeout { ref message, phase: Phase::Body } if message == "RecvBody"),
         "{err:?}"
     );
 
@@ -402,13 +403,13 @@ fn receive_body_timeout_is_total_phase_budget_despite_progress() {
         recv_body_timeout: Some(Duration::from_millis(250)),
         request_timeout: Duration::from_secs(5),
         retry: RetryPolicy::none(),
-        ..ClientConfig::default()
+        ..rightkit_http::testing::loopback_config()
     });
     let err = client
         .send(&Request::get(server.url("/progress")))
         .unwrap_err();
     assert!(
-        matches!(err, HttpError::Timeout(ref phase) if phase == "RecvBody"),
+        matches!(err, HttpError::Timeout { ref message, phase: Phase::Body } if message == "RecvBody"),
         "{err:?}"
     );
 }
@@ -431,7 +432,7 @@ fn optional_phase_deadlines_allow_delayed_headers_and_progressing_body() {
         stream_timeout: None,
         request_timeout: Duration::from_secs(5),
         retry: RetryPolicy::none(),
-        ..ClientConfig::default()
+        ..rightkit_http::testing::loopback_config()
     });
     assert_eq!(client.config().connect_timeout, None);
     assert_eq!(client.config().response_timeout, None);
