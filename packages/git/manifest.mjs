@@ -65,6 +65,7 @@ const TOP_LEVEL_KEYS = new Set([
   "qaEvidenceRetentionDays",
   "ciAllOs",
   "ciIncremental",
+  "concurrency",
   "devArtifact",
   "regenerate",
   "candidate",
@@ -211,6 +212,7 @@ export function validateManifest(manifest) {
     }
   }
 
+  if (manifest.concurrency !== undefined) validateConcurrency(manifest, lanes, errors);
   validateDevArtifact(manifest, profile, errors);
   validateRegenerate(manifest, lanes, errors);
 
@@ -222,7 +224,7 @@ export function validateManifest(manifest) {
       errors.push("rustCache must be an object");
     } else {
       for (const key of Object.keys(rustCache)) {
-        if (key !== "workspaces" && key !== "requiredForGate") errors.push(`unknown rustCache field: ${key}`);
+        if (!["workspaces", "requiredForGate", "keySuffix"].includes(key)) errors.push(`unknown rustCache field: ${key}`);
       }
       if (!Array.isArray(rustCache.workspaces) || rustCache.workspaces.length === 0) {
         errors.push("rustCache.workspaces must be a non-empty array");
@@ -233,6 +235,9 @@ export function validateManifest(manifest) {
       }
       if (rustCache.requiredForGate !== undefined && typeof rustCache.requiredForGate !== "boolean") {
         errors.push("rustCache.requiredForGate must be a boolean");
+      }
+      if (rustCache.keySuffix !== undefined && (typeof rustCache.keySuffix !== "string" || !RUST_CACHE_KEY_SUFFIX_RE.test(rustCache.keySuffix))) {
+        errors.push("rustCache.keySuffix must be 1 to 64 characters: letters, digits, '.', '_', '-', starting with a letter or digit");
       }
     }
   }
@@ -602,7 +607,7 @@ function validateDevArtifact(manifest, profile, errors) {
     return;
   }
   for (const key of Object.keys(dev)) {
-    if (!["mac", "windows", "retentionDays", "macAppPath", "macEntitlements", "windowsGlob", "dispatch"].includes(key)) errors.push(`unknown devArtifact field: ${key}`);
+    if (!["mac", "windows", "retentionDays", "macAppPath", "macEntitlements", "windowsGlob", "dispatch", "parallel", "buildScript"].includes(key)) errors.push(`unknown devArtifact field: ${key}`);
   }
   if (dev.mac !== undefined && !["sign", "notarize", "unsigned", "none"].includes(dev.mac)) errors.push("devArtifact.mac must be 'sign', 'notarize', 'unsigned' or 'none'");
   if (dev.windows !== undefined && dev.windows !== "unsigned" && dev.windows !== "none") errors.push("devArtifact.windows must be 'unsigned' or 'none'");
@@ -616,7 +621,14 @@ function validateDevArtifact(manifest, profile, errors) {
   if (dev.retentionDays !== undefined && (!Number.isInteger(dev.retentionDays) || dev.retentionDays < 1 || dev.retentionDays > DEV_ARTIFACT_MAX_RETENTION_DAYS)) {
     errors.push(`devArtifact.retentionDays must be an integer from 1 to ${DEV_ARTIFACT_MAX_RETENTION_DAYS}`);
   }
-  const runners = effectiveCiRunners(manifest).filter((runner) => typeof runner === "string");
+  if (dev.parallel !== undefined && typeof dev.parallel !== "boolean") errors.push("devArtifact.parallel must be a boolean");
+  if (dev.buildScript !== undefined && dev.parallel !== true) errors.push("devArtifact.buildScript requires devArtifact.parallel: true");
+  if (dev.parallel === true && (typeof dev.buildScript !== "string" || !PACKAGE_SCRIPT_RE.test(dev.buildScript))) {
+    errors.push("devArtifact.buildScript must be one safe package script name when parallel is true (it compiles the dev app in the dev-artifact job)");
+  }
+  // parallel jobs run on their own platform runners, so they do not depend on ciAllOs.
+  const runners = (dev.parallel === true ? (Array.isArray(manifest.matrix?.os) ? manifest.matrix.os : []) : effectiveCiRunners(manifest))
+    .filter((runner) => typeof runner === "string");
   if (macActive) {
     if (typeof dev.macAppPath !== "string" || !DEV_MAC_PATH_RE.test(dev.macAppPath) || !dev.macAppPath.endsWith(".app")) {
       errors.push(`devArtifact.macAppPath must be a safe repository-relative path ending in .app when mac is '${dev.mac}'`);
@@ -627,7 +639,9 @@ function validateDevArtifact(manifest, profile, errors) {
       errors.push("devArtifact.macEntitlements must be a safe repository-relative path");
     }
     if (!runners.some((runner) => MACOS_RUNNER_RE.test(runner))) {
-      errors.push(`devArtifact.mac '${dev.mac}' needs the ci gate to run on a macOS runner (set ciAllOs and include a macos-* or xcode-* runner in matrix.os)`);
+      errors.push(dev.parallel === true
+        ? `devArtifact.mac '${dev.mac}' needs a macOS runner (macos-* or xcode-*) in matrix.os`
+        : `devArtifact.mac '${dev.mac}' needs the ci gate to run on a macOS runner (set ciAllOs and include a macos-* or xcode-* runner in matrix.os)`);
     }
   } else if (dev.macAppPath !== undefined || dev.macEntitlements !== undefined) {
     errors.push("devArtifact.macAppPath and macEntitlements require mac 'sign', 'notarize' or 'unsigned'");
@@ -637,7 +651,9 @@ function validateDevArtifact(manifest, profile, errors) {
       errors.push("devArtifact.windowsGlob must be a safe repository-relative glob when windows is 'unsigned'");
     }
     if (!runners.some((runner) => /^windows-/i.test(runner))) {
-      errors.push("devArtifact.windows 'unsigned' needs the ci gate to run on a windows-* runner");
+      errors.push(dev.parallel === true
+        ? "devArtifact.windows 'unsigned' needs a windows-* runner in matrix.os"
+        : "devArtifact.windows 'unsigned' needs the ci gate to run on a windows-* runner");
     }
   } else if (dev.windowsGlob !== undefined) {
     errors.push("devArtifact.windowsGlob requires windows 'unsigned'");
@@ -645,6 +661,41 @@ function validateDevArtifact(manifest, profile, errors) {
 }
 
 const DEV_PUSH_CONDITION = "github.event_name == 'push' && github.ref_name == github.event.repository.default_branch";
+
+// concurrency.mainPushes: "queue" stops default-branch pushes from cancelling each other.
+// PR runs keep cancel-in-progress true, so superseded PR runs still cancel.
+const CONCURRENCY_MAIN_PUSHES = ["cancel", "queue"];
+const CI_CANCEL_MAIN_QUEUE_EXPRESSION = "${{ !(github.event_name == 'push' && github.ref_name == github.event.repository.default_branch) }}";
+// rustCache.keySuffix: charset-checked before it reaches the rendered `key` input.
+const RUST_CACHE_KEY_SUFFIX_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
+
+function validateConcurrency(manifest, lanes, errors) {
+  const concurrency = manifest.concurrency;
+  if (concurrency === null || typeof concurrency !== "object" || Array.isArray(concurrency)) {
+    errors.push("concurrency must be an object");
+    return;
+  }
+  for (const key of Object.keys(concurrency)) {
+    if (key !== "mainPushes") errors.push(`unknown concurrency field: ${key}`);
+  }
+  if (concurrency.mainPushes !== undefined && !CONCURRENCY_MAIN_PUSHES.includes(concurrency.mainPushes)) {
+    errors.push("concurrency.mainPushes must be 'cancel' or 'queue'");
+  }
+  if (!Array.isArray(lanes) || !lanes.includes("ci")) {
+    errors.push("concurrency requires lane 'ci' (it sets the ci workflow's concurrency)");
+  }
+}
+
+/**
+ * rustCache.keySuffix as the Swatinem/rust-cache `key` input: `<lane>-<suffix>`.
+ * Returns "" when unset, so unopted renders stay byte-identical. rust-cache
+ * never re-saves on an exact key hit; changing the suffix produces a new key,
+ * so the next run on the default branch saves a fresh entry.
+ */
+function rustCacheKeyLine(manifest, lane) {
+  const suffix = manifest.rustCache?.keySuffix;
+  return suffix === undefined ? "" : `          key: ${lane}-${suffix}`;
+}
 
 /** ciIncremental: Xcode DerivedData cache step (leading newline; "" when unset). */
 function derivedDataStep(manifest) {
@@ -679,9 +730,10 @@ export function devArtifactDispatchTrigger(manifest) {
   return manifest.devArtifact?.dispatch === true ? "  workflow_dispatch:\n" : "";
 }
 
-export function devArtifactCi(manifest) {
+export function devArtifactCi(manifest, options = {}) {
   const dev = manifest.devArtifact;
   if (dev === undefined) return "";
+  if (dev.parallel === true) return devArtifactParallelJobs(manifest, options);
   const retention = dev.retentionDays ?? DEV_ARTIFACT_DEFAULT_RETENTION_DAYS;
   const unsignedCondition = devUnsignedCondition(dev);
   const parts = [];
@@ -749,8 +801,147 @@ export function devArtifactCi(manifest) {
   return text;
 }
 
+// devArtifact.parallel: true. Each platform gets its own job that compiles the
+// dev app (devArtifact.buildScript) and stages it. These jobs need only the
+// private-repo guard, so they run beside the QA gate job instead of after it.
+// Unsigned uploads therefore do not wait for the gate; the signing job still
+// needs ci, so nothing is Developer ID-signed from a failed gate.
+function devArtifactParallelJobs(manifest, options) {
+  const dev = manifest.devArtifact;
+  if (!options.artifactPrefix) throw new Error("devArtifactCi: options.artifactPrefix is required when devArtifact.parallel is true");
+  const lane = options.lane ?? "ci";
+  const retention = dev.retentionDays ?? DEV_ARTIFACT_DEFAULT_RETENTION_DAYS;
+  const shared = { manifest, lane, artifactPrefix: options.artifactPrefix, retention };
+  const parts = [];
+  if (dev.mac === "sign" || dev.mac === "notarize" || dev.mac === "unsigned") parts.push(devMacArtifactJob(shared));
+  if (dev.windows === "unsigned") parts.push(devWindowsArtifactJob(shared));
+  if (dev.mac === "sign" || dev.mac === "notarize") parts.push(devMacSigningJob(manifest, dev, retention));
+  return parts.join("");
+}
+
+function firstMatchingRunner(manifest, pattern, platform) {
+  const runner = manifest.matrix.os.find((os) => typeof os === "string" && pattern.test(os));
+  if (!runner) throw new Error(`devArtifact.parallel: no ${platform} runner in matrix.os`);
+  return runner;
+}
+
+function devMacArtifactJob({ manifest, lane, artifactPrefix, retention }) {
+  const dev = manifest.devArtifact;
+  const signed = dev.mac === "sign" || dev.mac === "notarize";
+  const stage = [
+    "      - name: Package unsigned dev app (macOS)",
+    "        shell: bash",
+    "        env:",
+    `          DEV_APP_PATH: ${JSON.stringify(dev.macAppPath)}`,
+    "        run: |",
+    "          set -euo pipefail",
+    "          test -d \"$DEV_APP_PATH\"",
+    "          mkdir -p \"$RUNNER_TEMP/dev-unsigned\"",
+    "          ditto -c -k --keepParent \"$DEV_APP_PATH\" \"$RUNNER_TEMP/dev-unsigned/app.zip\"",
+    ...(signed
+      ? [
+        "      - name: Upload unsigned dev app for signing (macOS)",
+        `        uses: ${UPLOAD_ARTIFACT_PIN}`,
+        "        with:",
+        "          name: dev-unsigned-mac-${{ github.sha }}",
+        "          path: ${{ runner.temp }}/dev-unsigned/app.zip",
+        "          retention-days: 1",
+        "          if-no-files-found: error",
+      ]
+      : [
+        "      - name: Upload unsigned dev app (macOS)",
+        `        uses: ${UPLOAD_ARTIFACT_PIN}`,
+        "        with:",
+        "          name: dev-mac-unsigned-${{ github.sha }}",
+        "          path: ${{ runner.temp }}/dev-unsigned/app.zip",
+        `          retention-days: ${retention}`,
+        "          if-no-files-found: error",
+      ]),
+  ];
+  return devPlatformJob({
+    manifest,
+    id: "dev-artifact-mac",
+    label: "macOS",
+    runner: firstMatchingRunner(manifest, MACOS_RUNNER_RE, "macOS"),
+    condition: signed ? DEV_PUSH_CONDITION : devUnsignedCondition(dev),
+    lane,
+    artifactPrefix,
+    stage,
+  });
+}
+
+function devWindowsArtifactJob({ manifest, lane, artifactPrefix, retention }) {
+  const dev = manifest.devArtifact;
+  const stage = [
+    "      - name: Upload unsigned dev build (Windows)",
+    `        uses: ${UPLOAD_ARTIFACT_PIN}`,
+    "        with:",
+    "          name: dev-windows-${{ github.sha }}",
+    `          path: ${dev.windowsGlob}`,
+    `          retention-days: ${retention}`,
+    "          if-no-files-found: error",
+  ];
+  return devPlatformJob({
+    manifest,
+    id: "dev-artifact-windows",
+    label: "Windows",
+    runner: firstMatchingRunner(manifest, /^windows-/i, "windows-*"),
+    condition: devUnsignedCondition(dev),
+    lane,
+    artifactPrefix,
+    stage,
+  });
+}
+
+// One platform job: toolchain + dependency install + dev build, then the
+// platform staging steps. Mirrors the ci job's setup without the gate, the
+// ownership scan, or any secret.
+function devPlatformJob({ manifest, id, label, runner, condition, lane, artifactPrefix, stage }) {
+  const dev = manifest.devArtifact;
+  const pm = parsePackageManager(manifest.packageManager);
+  const workspaces = (manifest.rustCache?.workspaces ?? ["engine"]).map((workspace) => `            ${workspace} -> target`).join("\n");
+  const cacheKey = rustCacheKeyLine(manifest, `${lane}-${id}`);
+  return [
+    "",
+    `  ${id}:`,
+    `    # ${label} dev app: builds devArtifact.buildScript and stages it. Runs beside the`,
+    "    # QA gate job, not after it, and never reaches a secret.",
+    "    needs: [private-repo-guard]",
+    `    if: \${{ ${condition} }}`,
+    `    runs-on: ${runner}`,
+    "    permissions:",
+    "      contents: read",
+    "    steps:",
+    "      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1",
+    "        with:",
+    "          persist-credentials: false",
+    "      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0",
+    "        with:",
+    `          node-version: ${JSON.stringify(String(manifest.matrix.node[0]))}`,
+    "          package-manager-cache: false",
+    ...(pm.setup ? [pm.setup] : []),
+    `      - run: ${pm.installCommand}`,
+    "      - uses: dtolnay/rust-toolchain@f8be11a05b1d4f3fcebe6410cc16743212b999b0",
+    "      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2",
+    "        with:",
+    "          workspaces: |",
+    workspaces,
+    `          shared-key: ${artifactPrefix}-rust`,
+    ...(cacheKey ? [cacheKey] : []),
+    "          add-job-id-key: false",
+    `          cache-workspace-crates: ${manifest.ciIncremental === true ? "true" : "false"}`,
+    "          cache-on-failure: true",
+    "          save-if: true",
+    "      - name: Build dev app",
+    `        run: ${pm.runPrefix} ${dev.buildScript}`,
+    ...stage,
+    "",
+  ].join("\n");
+}
+
 function devMacSigningJob(manifest, dev, retention) {
-  const runner = effectiveCiRunners(manifest).find((os) => MACOS_RUNNER_RE.test(os));
+  const parallel = dev.parallel === true;
+  const runner = (parallel ? manifest.matrix.os : effectiveCiRunners(manifest)).find((os) => MACOS_RUNNER_RE.test(os));
   const entitlements = dev.macEntitlements ? ` --entitlements "$GITHUB_WORKSPACE/${dev.macEntitlements}"` : "";
   const checkout = dev.macEntitlements
     ? `      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -788,7 +979,7 @@ function devMacSigningJob(manifest, dev, retention) {
   dev-mac-sign:
     # Push to the default branch only. The release environment's protection
     # rules (required reviewers, branch policy) apply to this job.
-    needs: [ci]
+    needs: ${parallel ? "[ci, dev-artifact-mac]" : "[ci]"}
     if: \${{ ${DEV_PUSH_CONDITION} }}
     environment: ${releaseEnvironment(manifest, "signing")}
     runs-on: ${runner}
@@ -1396,6 +1587,7 @@ export function buildRenderContext(manifest, repoPath, lane = "ci") {
       `        os: ${yamlFlowStringList([ciOs])}`,
     ];
 
+  const cacheKeyLine = rustCacheKeyLine(manifest, lane);
   const context = {
     OS_MATRIX: yamlFlowStringList(manifest.matrix.os),
     CI_MATRIX_OS: ciMatrixOs.join("\n"),
@@ -1415,13 +1607,15 @@ export function buildRenderContext(manifest, repoPath, lane = "ci") {
     MACOS_SIGNING_JOB: macosSigningJob(manifest, pm, artifactPrefix),
     RELEASE_CHAIN_JOBS: releaseChainJobs(manifest, pm, artifactPrefix),
     OWNERSHIP_STEP: ownershipStep(manifest, lane),
-    QA_EVIDENCE_STEP: qaEvidenceStep(manifest) + devArtifactCi(manifest),
+    QA_EVIDENCE_STEP: qaEvidenceStep(manifest) + devArtifactCi(manifest, { lane, artifactPrefix }),
     CI_DISPATCH_TRIGGER: devArtifactDispatchTrigger(manifest),
     CI_CACHE_WORKSPACE_CRATES: manifest.ciIncremental === true ? "true" : "false",
     CI_CARGO_INCREMENTAL: manifest.ciIncremental === true ? "1" : "0",
     // sccache refuses CARGO_INCREMENTAL=1; incremental CI relies on the rust-cache target dir instead.
     CI_RUSTC_WRAPPER: manifest.ciIncremental === true ? '""' : "${{ steps.rust-changes.outputs.required == 'true' && 'sccache' || '' }}",
     CI_DERIVED_DATA_STEP: derivedDataStep(manifest),
+    CI_CANCEL_IN_PROGRESS: manifest.concurrency?.mainPushes === "queue" ? CI_CANCEL_MAIN_QUEUE_EXPRESSION : "true",
+    RUST_CACHE_KEY: cacheKeyLine ? `${cacheKeyLine}\n` : "",
   };
 
   // Every key below is populated ONLY when its source manifest section is

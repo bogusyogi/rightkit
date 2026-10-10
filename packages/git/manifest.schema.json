@@ -110,7 +110,12 @@
           "uniqueItems": true,
           "items": { "type": "string", "pattern": "^(?:\\.|(?!.*\\.\\.)(?!.*\\s)[A-Za-z0-9][A-Za-z0-9._/-]*)$" }
         },
-        "requiredForGate": { "type": "boolean" }
+        "requiredForGate": { "type": "boolean" },
+        "keySuffix": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$",
+          "description": "Appended to the Swatinem/rust-cache key as <lane>-<keySuffix>. rust-cache never re-saves on an exact key hit; change the suffix to rotate the cache."
+        }
       }
     },
     "gate": {
@@ -148,13 +153,27 @@
         "script": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9:_-]*$" }
       }
     },
+    "concurrency": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Requires lane 'ci'. Sets the ci workflow's concurrency.",
+      "properties": {
+        "mainPushes": {
+          "enum": ["cancel", "queue"],
+          "default": "cancel",
+          "description": "'cancel' (default) cancels a superseded push to the default branch. 'queue' lets default-branch pushes run to completion; PR runs still cancel superseded runs."
+        }
+      }
+    },
     "devArtifact": {
       "type": "object",
       "additionalProperties": false,
       "description": "rust-hybrid only. Dev builds on push to the default branch (never PRs). mac 'sign' Developer ID-signs (no notarization) in a separate job using the release environment; windows 'unsigned' uploads built files as-is.",
       "properties": {
-        "mac": { "enum": ["sign", "none"] },
+        "mac": { "enum": ["sign", "notarize", "unsigned", "none"] },
         "windows": { "enum": ["unsigned", "none"] },
+        "parallel": { "type": "boolean", "default": false, "description": "When true, each platform builds and stages the dev app in its own dev-artifact-<platform> job beside the QA gate job, instead of after the gate in the ci job. Requires buildScript." },
+        "buildScript": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9:_-]*$", "description": "Package script that compiles the dev app. Required when parallel is true; rejected otherwise." },
         "retentionDays": { "type": "integer", "minimum": 1, "maximum": 90, "default": 7 },
         "macAppPath": { "type": "string", "pattern": "^(?!.*\\.\\.)[A-Za-z0-9][A-Za-z0-9._/ -]*\\.app$", "description": "Repository-relative path of the built .app (required when mac is 'sign')." },
         "macEntitlements": { "type": "string", "pattern": "^(?!.*\\.\\.)(?!.*\\s)[A-Za-z0-9][A-Za-z0-9._/-]*$", "description": "Optional repository-relative entitlements plist for codesign." },

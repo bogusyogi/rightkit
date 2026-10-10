@@ -14,7 +14,7 @@ Public-repository-only GitHub Actions workflow layer for Right Suite products. T
 - `right-git install <repo> --lanes ci,...` writes `.rightgit.json` and renders workflows.
 - Lanes: `ci`, `qualification`, `package-smoke`, `release-candidate`, `publish-npm`, `publish-package-managers`, `regenerate`. The `regenerate` lane is manual-only: it runs `regenerate.script`, checks the result, and opens a pull request from a `right-git/regenerate-<run>` branch; it never writes to the default branch.
 - `right-git sync` re-renders installed workflows from the manifest.
-- `right-git drift --all` checks installed workflows against templates and re-checks visibility.
+- `right-git drift --all` checks installed workflows against templates and re-checks visibility. When the manifest declares the `regenerate` lane, drift also warns (never fails) if the repository's "Allow GitHub Actions to create and approve pull requests" setting is off. It reads `gh api repos/{owner}/{repo}/actions/permissions/workflow` and prints a note instead when gh is unavailable.
 - `right-git adopt` imports existing workflows into the template library.
 - `right-git uninstall` removes every managed file.
 
@@ -80,6 +80,31 @@ Both keys are opt-in; unset, the rendered `ci.yml` is byte-identical.
 - `windows: "unsigned"` needs `windowsGlob` and a `windows-*` runner in the ci gate; matched files upload as `dev-windows-<sha>`.
 - The `dev-mac-sign` job uses the `release` environment, so that environment's protection rules (required reviewers, branch policy) apply. The job only exists for pushes to the default branch.
 - Install a mac dev build with `right-release install-app --dev --zip <file>` (Developer ID-signed, not notarized).
+- `devArtifact.parallel: true` moves each platform's build into its own job, `dev-artifact-mac` or `dev-artifact-windows`. Each runs beside the QA gate job instead of after it, needs only the private-repo guard, and compiles the dev app with `devArtifact.buildScript` (a package script name; required with `parallel`, rejected without it) before staging it. Parallel jobs run on their own platform runners, so they do not need `ciAllOs`. `mac: "sign"` still waits for the gate: `dev-mac-sign` needs `ci` and `dev-artifact-mac`. The trade-off: unsigned uploads no longer wait for the gate, so a failing gate can still leave `dev-windows-<sha>` or `dev-mac-unsigned-<sha>` behind. Unset or `false` keeps the staging inside the gate job.
+- The `~/Library/Developer/Xcode/DerivedData` cache helps only builds that use Xcode's default derived data location. A gate that passes its own `-derivedDataPath` writes outside that directory and gets nothing from the cache; use the default location, or cache the custom path in the gate.
+
+## Cache keys and concurrency (rust-hybrid)
+
+Both keys are opt-in; unset, the rendered workflows are byte-identical.
+
+- `rustCache.keySuffix` (1 to 64 characters: letters, digits, `.`, `_`, `-`; starts with a letter or digit) renders `key: <lane>-<suffix>` into every Swatinem/rust-cache step: `ci`, `regenerate`, `release-candidate`. Each lane therefore keeps its own cache entry. The dev-artifact jobs use `<lane>-dev-artifact-<platform>-<suffix>`. rust-cache never re-saves a cache on an exact key hit, so change the suffix to rotate the cache: the next run on the default branch saves a fresh entry under the new key.
+- `concurrency.mainPushes: "queue"` (requires lane `ci`; both profiles) renders the ci workflow's `cancel-in-progress` as an expression that is false only for pushes to the default branch. Default-branch pushes queue and each one runs to completion; PR runs still cancel superseded runs. `"cancel"` is the default and renders the current `cancel-in-progress: true`.
+
+```json
+{
+  "profile": "rust-hybrid",
+  "rustCache": { "workspaces": ["engine"], "keySuffix": "2026-10" },
+  "concurrency": { "mainPushes": "queue" },
+  "devArtifact": {
+    "mac": "unsigned",
+    "windows": "unsigned",
+    "parallel": true,
+    "buildScript": "build:dev",
+    "macAppPath": "target/release/bundle/macos/Pulse.app",
+    "windowsGlob": "target/release/*.exe"
+  }
+}
+```
 
 ## Entry points
 

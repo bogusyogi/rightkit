@@ -50,7 +50,7 @@ ${OWNERSHIP_STEP}
 ${RUST_CACHE_WORKSPACES}
           shared-key: ${ARTIFACT_PREFIX}-rust
           add-job-id-key: false
-          cache-workspace-crates: ${CI_CACHE_WORKSPACE_CRATES}
+${RUST_CACHE_KEY}          cache-workspace-crates: ${CI_CACHE_WORKSPACE_CRATES}
           cache-on-failure: true
           save-if: false
       - name: Regenerate derived artifacts

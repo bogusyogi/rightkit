@@ -75,6 +75,13 @@ function printErrors(errors) {
   for (const error of errors || []) console.error(`  ${error}`);
 }
 
+// Advisory lines never change drift's exit code: warnings are settings to fix,
+// notes are checks that could not run here.
+function printAdvisories(result) {
+  for (const warning of result.warnings || []) console.log(`  warn: ${warning}`);
+  for (const note of result.notes || []) console.log(`  note: ${note}`);
+}
+
 async function runInstall(argv) {
   const { positional, flags } = parseFlags(argv);
   const repoPath = positional[0];
@@ -136,6 +143,7 @@ async function runDrift(argv) {
       for (const finding of result.findings) {
         if (finding.status !== "match") console.log(`  ${finding.status}: ${finding.filename}`);
       }
+      printAdvisories(result);
       if (result.driftDetected) anyDrift = true;
     }
     return anyDrift ? 1 : 0;
@@ -154,6 +162,7 @@ async function runDrift(argv) {
   }
   console.log(`visibility=${result.visibility.visibility} drift=${result.driftDetected}`);
   for (const finding of result.findings) console.log(`  ${finding.status}: ${finding.filename}`);
+  printAdvisories(result);
   return result.driftDetected ? 1 : 0;
 }
 
@@ -200,7 +209,7 @@ function printHelp() {
 Commands:
   install <repo-path> --lanes ci,... [--profile rust-hybrid --gate-path scripts/gate.sh]  Write .rightgit.json and render workflows; refuses private repos
   sync <repo-path> [--dry-run]                        Re-render templates from .rightgit.json, show diff, apply
-  drift <repo-path>                                   CI-safe check: installed workflows == rendered templates?
+  drift <repo-path>                                   CI-safe check: installed workflows == rendered templates? Also warns when the regenerate lane cannot open pull requests (gh)
   drift --all [workspace-root]                        Drift-check + re-check visibility for every managed repo found
   adopt <repo-path> [--out <dir>]                      Map an existing repo's workflows onto right-git lanes for review
   uninstall <repo-path>                                Remove every right-git-managed workflow file

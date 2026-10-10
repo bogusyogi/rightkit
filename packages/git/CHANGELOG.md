@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.2.38
+
+- `devArtifact.parallel: true` (rust-hybrid) renders one job per platform, `dev-artifact-mac` and `dev-artifact-windows`, that compiles the dev app with the new `devArtifact.buildScript` package script and stages it. The jobs run beside the QA gate job (they need only the private-repo guard) instead of inside it. `dev-mac-sign` now needs `ci` and `dev-artifact-mac`. Parallel jobs do not need `ciAllOs`. Unset or `false` renders the current in-gate output byte-for-byte.
+- `rustCache.keySuffix` (rust-hybrid) renders `key: <lane>-<suffix>` into every rust-cache step, so each lane keeps its own cache entry and a repository can rotate its cache. Unset renders no key. Documented: rust-cache never re-saves on an exact key hit.
+- `concurrency.mainPushes: "cancel" | "queue"` (requires lane `ci`). `"queue"` renders `cancel-in-progress` as an expression that is false only for default-branch pushes, so those queue; PR runs keep cancelling. `"cancel"` (default) renders the current `cancel-in-progress: true`.
+- `right-git drift` (the existing check command; no `doctor` command exists) warns when the manifest declares the `regenerate` lane and the repository's "Allow GitHub Actions to create and approve pull requests" setting is off, read via `gh api repos/{owner}/{repo}/actions/permissions/workflow`. The warning never changes drift or the exit code; a note is printed when gh is unavailable or the setting cannot be read.
+- Docs: a gate that passes its own `-derivedDataPath` gets nothing from the `~/Library/Developer/Xcode/DerivedData` cache.
+- `manifest.schema.json`: documents the new keys and corrects the `devArtifact.mac` enum to match the validator (`notarize` and `unsigned` were missing).
+
 ## 0.2.37
 
 - `devArtifact.mac` accepts `"notarize"`: the `dev-mac-sign` job also submits the Developer ID-signed dev app to the notary service and staples the ticket before uploading `dev-mac-<sha>`. Current macOS refuses to register app extensions (Finder Sync, Share, ...) from an unnotarized Developer ID app, so a `"sign"` dev install silently loses them; use `"notarize"` for apps that ship extensions. Same job gate (push to the default branch, release environment); `"sign"` output is byte-identical to 0.2.36.

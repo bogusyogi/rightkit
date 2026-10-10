@@ -96,3 +96,108 @@ test("driftCommand reports an orphan repo as drift instead of a hard failure", a
   assert.equal(result.driftDetected, true);
   assert.ok(result.findings.some((f) => f.status === "orphan" && f.filename === "ci.yml"));
 });
+
+// Regenerate approval check (drift warns; it is advisory and never changes driftDetected).
+// The stub answers the visibility lookup, `git remote get-url origin`, and `gh api`; any other
+// command throws, so a test cannot reach the real gh or network.
+const REGENERATE_MANIFEST = { ...SAMPLE_MANIFEST, lanes: ["ci", "regenerate"], regenerate: { script: "regenerate" } };
+const PERMISSIONS_PATH = "repos/acme/widgets/actions/permissions/workflow";
+
+function workflowSettingsDeps({ approve = true, origin = "git@github.com:acme/widgets.git", gitFails = false, apiError = null, apiStdout = null } = {}) {
+  const deps = {
+    calls: [],
+    execFile: async (cmd, args) => {
+      deps.calls.push([cmd, ...args].join(" "));
+      if (cmd === "gh" && args[0] === "repo") return { stdout: JSON.stringify({ visibility: "PUBLIC" }) };
+      if (cmd === "git" && args[0] === "remote") {
+        if (gitFails) throw new Error("fatal: No such remote 'origin'");
+        return { stdout: `${origin}\n` };
+      }
+      if (cmd === "gh" && args[0] === "api") {
+        if (apiError) throw apiError;
+        return { stdout: apiStdout ?? JSON.stringify({ default_workflow_permissions: "read", can_approve_pull_request_reviews: approve }) };
+      }
+      throw new Error(`unexpected exec: ${cmd}`);
+    },
+  };
+  return deps;
+}
+
+test("drift warns when the regenerate lane's pull-request setting is off, without reporting drift", async () => {
+  const dir = makeTempRepo(REGENERATE_MANIFEST);
+  await syncCommand(dir, { deps: PUBLIC_DEPS });
+  const deps = workflowSettingsDeps({ approve: false });
+  const result = await driftCommand(dir, deps);
+  assert.equal(result.ok, true);
+  assert.equal(result.driftDetected, false);
+  assert.equal(result.warnings.length, 1);
+  assert.match(result.warnings[0], /Allow GitHub Actions to create and approve pull requests/);
+  assert.deepEqual(result.notes, []);
+  assert.ok(deps.calls.includes(`gh api ${PERMISSIONS_PATH}`), `expected gh api call; got ${deps.calls.join(" | ")}`);
+});
+
+test("drift is silent when the regenerate lane's pull-request setting is on", async () => {
+  const dir = makeTempRepo(REGENERATE_MANIFEST);
+  await syncCommand(dir, { deps: PUBLIC_DEPS });
+  const result = await driftCommand(dir, workflowSettingsDeps({ approve: true }));
+  assert.equal(result.driftDetected, false);
+  assert.deepEqual(result.warnings, []);
+  assert.deepEqual(result.notes, []);
+});
+
+test("drift skips the approval check with a note when gh is not installed", async () => {
+  const dir = makeTempRepo(REGENERATE_MANIFEST);
+  await syncCommand(dir, { deps: PUBLIC_DEPS });
+  const missing = Object.assign(new Error("spawn gh ENOENT"), { code: "ENOENT" });
+  const result = await driftCommand(dir, workflowSettingsDeps({ apiError: missing }));
+  assert.equal(result.driftDetected, false);
+  assert.deepEqual(result.warnings, []);
+  assert.equal(result.notes.length, 1);
+  assert.match(result.notes[0], /skipped the Actions pull-request approval check \(gh is not installed\)/);
+});
+
+test("drift notes an unreadable or incomplete permissions response instead of guessing", async () => {
+  const dir = makeTempRepo(REGENERATE_MANIFEST);
+  await syncCommand(dir, { deps: PUBLIC_DEPS });
+  const notJson = await driftCommand(dir, workflowSettingsDeps({ apiStdout: "<html>403</html>" }));
+  assert.deepEqual(notJson.warnings, []);
+  assert.match(notJson.notes[0], /gh api returned no JSON/);
+
+  const incomplete = await driftCommand(dir, workflowSettingsDeps({ apiStdout: JSON.stringify({ default_workflow_permissions: "read" }) }));
+  assert.deepEqual(incomplete.warnings, []);
+  assert.match(incomplete.notes[0], /no can_approve_pull_request_reviews/);
+
+  const forbidden = await driftCommand(dir, workflowSettingsDeps({ apiError: new Error("HTTP 403: Resource not accessible") }));
+  assert.deepEqual(forbidden.warnings, []);
+  assert.match(forbidden.notes[0], /gh api failed: HTTP 403/);
+});
+
+test("drift skips the approval check for a non-GitHub origin and never calls gh api", async () => {
+  const dir = makeTempRepo(REGENERATE_MANIFEST);
+  await syncCommand(dir, { deps: PUBLIC_DEPS });
+  const deps = workflowSettingsDeps({ origin: "https://gitlab.com/acme/widgets.git" });
+  const result = await driftCommand(dir, deps);
+  assert.deepEqual(result.warnings, []);
+  assert.match(result.notes[0], /origin is not a github\.com repository/);
+  assert.equal(deps.calls.some((call) => call.startsWith("gh api")), false);
+});
+
+test("drift notes a missing origin remote and does not guess the repository", async () => {
+  const dir = makeTempRepo(REGENERATE_MANIFEST);
+  await syncCommand(dir, { deps: PUBLIC_DEPS });
+  const deps = workflowSettingsDeps({ gitFails: true });
+  const result = await driftCommand(dir, deps);
+  assert.deepEqual(result.warnings, []);
+  assert.match(result.notes[0], /no origin remote/);
+  assert.equal(deps.calls.some((call) => call.startsWith("gh api")), false);
+});
+
+test("drift never asks Actions settings for a manifest without the regenerate lane", async () => {
+  const dir = makeTempRepo(SAMPLE_MANIFEST);
+  await syncCommand(dir, { deps: PUBLIC_DEPS });
+  const deps = workflowSettingsDeps({ approve: false });
+  const result = await driftCommand(dir, deps);
+  assert.deepEqual(result.warnings, []);
+  assert.deepEqual(result.notes, []);
+  assert.equal(deps.calls.some((call) => call.startsWith("gh api")), false);
+});

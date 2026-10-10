@@ -9,7 +9,7 @@ ${CI_DISPATCH_TRIGGER}permissions:
   contents: read
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${CI_CANCEL_IN_PROGRESS}
 jobs:
   private-repo-guard:
     runs-on: ubuntu-24.04
@@ -75,7 +75,7 @@ ${OWNERSHIP_STEP}${CI_DERIVED_DATA_STEP}
 ${RUST_CACHE_WORKSPACES}
           shared-key: ${ARTIFACT_PREFIX}-rust
           add-job-id-key: false
-          cache-workspace-crates: ${CI_CACHE_WORKSPACE_CRATES}
+${RUST_CACHE_KEY}          cache-workspace-crates: ${CI_CACHE_WORKSPACE_CRATES}
           cache-on-failure: true
           save-if: ${{ github.event_name != 'pull_request' }}
       - uses: Mozilla-Actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba # v0.0.11

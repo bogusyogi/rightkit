@@ -1073,6 +1073,13 @@ test("rendered ciIncremental + devArtifact workflows pass actionlint", (t) => {
       "ci-dev.yml": { ...DEV_MANIFEST, ciIncremental: true },
       "ci-dev-entitlements.yml": { ...DEV_MANIFEST, devArtifact: { ...DEV_MANIFEST.devArtifact, macEntitlements: "build/pulse.entitlements" } },
       "ci-dev-unsigned-dispatch.yml": { ...DEV_MANIFEST, devArtifact: { ...DEV_MANIFEST.devArtifact, mac: "unsigned", dispatch: true } },
+      "ci-parallel-dev.yml": { ...DEV_MANIFEST, devArtifact: { ...DEV_MANIFEST.devArtifact, parallel: true, buildScript: "build:dev" } },
+      "ci-parallel-unsigned-dispatch.yml": {
+        ...INCREMENTAL_BASE,
+        rustCache: { workspaces: ["engine"], keySuffix: "v2" },
+        concurrency: { mainPushes: "queue" },
+        devArtifact: { mac: "unsigned", windows: "unsigned", dispatch: true, parallel: true, buildScript: "build:dev", macAppPath: "a/B.app", windowsGlob: "dist/*.exe" },
+      },
     };
     const files = [];
     for (const [name, manifest] of Object.entries(samples)) {
@@ -1093,4 +1100,139 @@ test("rendered ciIncremental + devArtifact workflows pass actionlint", (t) => {
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
+});
+
+// rustCache.keySuffix: unset renders no key (byte-identical); set renders `<lane>-<suffix>`
+// in every rust-cache step, and the dev-artifact jobs get their own key.
+const RELEASE_CANDIDATE_MANIFEST = {
+  ...FULL_MANIFEST,
+  lanes: ["ci", "release-candidate"],
+  profile: "rust-hybrid",
+  gate: { path: "scripts/gate.sh" },
+  regenerate: undefined,
+  candidate: {
+    buildScript: "ci:candidate",
+    checkScript: "ci:candidate-check",
+    admissionScript: "release:admit",
+    stageSummaryScript: "release:stage-summary",
+    artifactRoot: "widgets-unsigned",
+    os: ["macos-latest", "windows-latest"],
+  },
+  templateVersion: "1.2.0",
+};
+const VALID_RUST_HYBRID = { ...INCREMENTAL_BASE, regenerate: undefined };
+
+test("rustCache.keySuffix: unset adds no key; set renders a lane-scoped key in every rust-cache step", () => {
+  const unset = renderRustCi({ ...INCREMENTAL_BASE, rustCache: { workspaces: ["engine"] } });
+  assert.doesNotMatch(unset, /^          key: /m);
+  assert.equal(renderRustCi({ ...INCREMENTAL_BASE, rustCache: { workspaces: ["engine"] } }), renderRustCi({ ...INCREMENTAL_BASE, rustCache: { workspaces: ["engine"], keySuffix: undefined } }));
+
+  const set = renderRustCi({ ...INCREMENTAL_BASE, rustCache: { workspaces: ["engine"], keySuffix: "v2" } });
+  assert.match(set, /          shared-key: pulse-rust\n          add-job-id-key: false\n          key: ci-v2\n          cache-workspace-crates: /);
+  assert.equal(set.replace("          key: ci-v2\n", ""), unset, "the key line is the only difference");
+
+  const withDev = renderRustCi({ ...DEV_MANIFEST, rustCache: { workspaces: ["engine"], keySuffix: "v2" }, devArtifact: { ...DEV_MANIFEST.devArtifact, parallel: true, buildScript: "build:dev" } });
+  assert.match(withDev, /dev-artifact-mac:[\s\S]*?          key: ci-dev-artifact-mac-v2\n/);
+  assert.match(withDev, /dev-artifact-windows:[\s\S]*?          key: ci-dev-artifact-windows-v2\n/);
+
+  const lanes = [
+    ["regenerate", { ...INCREMENTAL_BASE, lanes: ["ci", "regenerate"], regenerate: { script: "regenerate" }, rustCache: { workspaces: ["engine"], keySuffix: "v2" } }, "profiles/rust-hybrid/regenerate.yml"],
+    ["release-candidate", { ...RELEASE_CANDIDATE_MANIFEST, rustCache: { workspaces: ["engine"], keySuffix: "v2" } }, "profiles/rust-hybrid/release-candidate.yml"],
+  ];
+  for (const [lane, manifest, template] of lanes) {
+    const out = renderTemplate(fs.readFileSync(path.join(templatesDir, template), "utf8"), buildRenderContext(structuredClone(manifest), "/repos/pulse", lane));
+    assert.match(out, new RegExp(`          add-job-id-key: false\n          key: ${lane}-v2\n`), lane);
+  }
+  const unkeyed = renderTemplate(fs.readFileSync(path.join(templatesDir, "profiles/rust-hybrid/release-candidate.yml"), "utf8"), buildRenderContext(structuredClone(RELEASE_CANDIDATE_MANIFEST), "/repos/pulse", "release-candidate"));
+  assert.doesNotMatch(unkeyed, /^          key: /m);
+
+  for (const bad of ["${{ secrets.X }}", "has space", "-leading", "semi;colon", "a".repeat(65), 7]) {
+    assert.equal(validateManifest({ ...VALID_RUST_HYBRID, rustCache: { workspaces: ["engine"], keySuffix: bad } }).valid, false, String(bad));
+  }
+  assert.equal(validateManifest({ ...VALID_RUST_HYBRID, rustCache: { workspaces: ["engine"], keySuffix: "v2" } }).valid, true);
+  assert.equal(validateManifest({ ...FULL_MANIFEST, lanes: ["ci"], rustCache: { workspaces: ["engine"], keySuffix: "v2" } }).valid, false, "rustCache stays rust-hybrid only");
+});
+
+// concurrency.mainPushes: default and "cancel" keep cancel-in-progress true. "queue" cancels only
+// runs that are not default-branch pushes; PR runs keep cancelling superseded runs.
+test("concurrency.mainPushes: 'queue' stops default-branch pushes cancelling each other and leaves PR runs cancelling", () => {
+  const unset = renderRustCi(INCREMENTAL_BASE);
+  assert.match(unset, /^concurrency:\n  group: \$\{\{ github\.workflow \}\}-\$\{\{ github\.ref \}\}\n  cancel-in-progress: true\n/m);
+  assert.equal(renderRustCi({ ...INCREMENTAL_BASE, concurrency: { mainPushes: "cancel" } }), unset);
+  assert.equal(renderRustCi({ ...INCREMENTAL_BASE, concurrency: {} }), unset);
+
+  const queue = renderRustCi({ ...INCREMENTAL_BASE, concurrency: { mainPushes: "queue" } });
+  assert.match(queue, /^concurrency:\n  group: \$\{\{ github\.workflow \}\}-\$\{\{ github\.ref \}\}\n  cancel-in-progress: \$\{\{ !\(github\.event_name == 'push' && github\.ref_name == github\.event\.repository\.default_branch\) \}\}\n/m);
+  assert.equal(queue.replace(/  cancel-in-progress: .*\n/, "  cancel-in-progress: true\n"), unset, "the concurrency line is the only difference");
+
+  const generic = renderTemplate(fs.readFileSync(path.join(templatesDir, "ci.yml"), "utf8"), buildRenderContext({ ...FULL_MANIFEST, lanes: ["ci"], concurrency: { mainPushes: "queue" } }, "/repos/widgets", "ci"));
+  assert.match(generic, /  cancel-in-progress: \$\{\{ !\(github\.event_name == 'push' && github\.ref_name == github\.event\.repository\.default_branch\) \}\}\n/);
+  assert.match(renderTemplate(fs.readFileSync(path.join(templatesDir, "ci.yml"), "utf8"), buildRenderContext({ ...FULL_MANIFEST, lanes: ["ci"] }, "/repos/widgets", "ci")), /  cancel-in-progress: true\n/);
+
+  const regenerate = renderTemplate(
+    fs.readFileSync(path.join(templatesDir, "profiles/rust-hybrid/regenerate.yml"), "utf8"),
+    buildRenderContext({ ...INCREMENTAL_BASE, lanes: ["ci", "regenerate"], regenerate: { script: "regenerate" }, concurrency: { mainPushes: "queue" } }, "/repos/pulse", "regenerate"),
+  );
+  assert.match(regenerate, /  cancel-in-progress: false\n/, "the regenerate lane is never cancelled");
+
+  assert.equal(validateManifest({ ...VALID_RUST_HYBRID, concurrency: { mainPushes: "queue" } }).valid, true);
+  assert.equal(validateManifest({ ...VALID_RUST_HYBRID, concurrency: { mainPushes: "bogus" } }).valid, false);
+  assert.equal(validateManifest({ ...VALID_RUST_HYBRID, concurrency: { mainPushes: "queue", extra: true } }).valid, false);
+  assert.equal(validateManifest({ ...VALID_RUST_HYBRID, concurrency: "queue" }).valid, false);
+  assert.equal(validateManifest({ ...FULL_MANIFEST, lanes: ["package-smoke"], regenerate: undefined, concurrency: { mainPushes: "queue" } }).valid, false, "concurrency needs lane ci");
+});
+
+// devArtifact.parallel: each platform builds and stages the dev app in its own job beside the gate.
+// The gate job renders exactly as it does without devArtifact; parallel: false is the in-gate default.
+const PARALLEL_DEV = {
+  ...VALID_RUST_HYBRID,
+  ciAllOs: undefined,
+  devArtifact: { ...DEV_MANIFEST.devArtifact, parallel: true, buildScript: "build:dev" },
+};
+
+test("devArtifact.parallel renders per-platform dev-artifact jobs beside the gate; the gate job is unchanged", () => {
+  const inGate = renderRustCi(DEV_MANIFEST);
+  const parallel = renderRustCi(PARALLEL_DEV);
+
+  const gateJobs = parallel.slice(0, parallel.indexOf("\n  dev-artifact-mac:"));
+  assert.equal(gateJobs, renderRustCi({ ...PARALLEL_DEV, devArtifact: undefined }), "the gate job matches a manifest with no devArtifact");
+  assert.doesNotMatch(gateJobs, /Build dev app|dev-windows-|dev-mac-unsigned|dev-unsigned-mac|Package unsigned dev app|DEV_APP_PATH/);
+
+  const devJobs = parallel.slice(parallel.indexOf("\n  dev-artifact-mac:"), parallel.indexOf("\n  dev-mac-sign:"));
+  assert.match(devJobs, /\n  dev-artifact-mac:\n    # macOS dev app[^\n]*\n[^\n]*\n    needs: \[private-repo-guard\]\n    if: \$\{\{ github\.event_name == 'push' && github\.ref_name == github\.event\.repository\.default_branch \}\}\n    runs-on: xcode-27\n/);
+  assert.match(devJobs, /\n  dev-artifact-windows:\n    # Windows dev app[^\n]*\n[^\n]*\n    needs: \[private-repo-guard\]\n    if: \$\{\{ github\.event_name == 'push' && github\.ref_name == github\.event\.repository\.default_branch \}\}\n    runs-on: windows-2025\n/);
+  assert.equal((devJobs.match(/        run: pnpm run build:dev\n/g) ?? []).length, 2, "each platform job compiles devArtifact.buildScript");
+  assert.doesNotMatch(devJobs, /secrets\./, "the dev-artifact jobs never reach a secret");
+  assert.match(devJobs, /name: dev-unsigned-mac-\$\{\{ github\.sha \}\}\n          path: \$\{\{ runner\.temp \}\}\/dev-unsigned\/app\.zip\n          retention-days: 1/);
+  assert.match(devJobs, /name: dev-windows-\$\{\{ github\.sha \}\}\n          path: target\/release\/\*\.exe\n          retention-days: 5/);
+
+  assert.match(parallel, /\n  dev-mac-sign:\n    # Push to the default branch only[^\n]*\n[^\n]*\n    needs: \[ci, dev-artifact-mac\]\n/);
+  assert.match(inGate, /\n  dev-mac-sign:\n[\s\S]*?    needs: \[ci\]\n/, "the in-gate signing job still waits only for ci");
+  assert.equal(renderRustCi({ ...DEV_MANIFEST, devArtifact: { ...DEV_MANIFEST.devArtifact, parallel: false } }), inGate, "parallel: false is the in-gate default");
+  assert.doesNotMatch(inGate, /dev-artifact-mac:|dev-artifact-windows:/);
+  assert.doesNotMatch(parallel.slice(0, parallel.indexOf("\n  dev-artifact-mac:")), /dev-artifact/);
+});
+
+test("devArtifact.parallel: unsigned legs keep manual dispatch and the signing job stays push-only", () => {
+  const out = renderRustCi({
+    ...VALID_RUST_HYBRID,
+    devArtifact: { mac: "unsigned", windows: "unsigned", dispatch: true, parallel: true, buildScript: "build:dev", macAppPath: "a/B.app", windowsGlob: "*.exe" },
+  });
+  const cond = "\\(github\\.event_name == 'push' && github\\.ref_name == github\\.event\\.repository\\.default_branch \\|\\| github\\.event_name == 'workflow_dispatch'\\)";
+  assert.match(out, /^on:\n  pull_request:\n  push:\n    branches: \[main\]\n  workflow_dispatch:\npermissions:/m);
+  assert.match(out, new RegExp(`dev-artifact-mac:\\n[\\s\\S]*?    if: \\$\\{\\{ ${cond} \\}\\}\\n    runs-on: xcode-27`));
+  assert.match(out, new RegExp(`dev-artifact-windows:\\n[\\s\\S]*?    if: \\$\\{\\{ ${cond} \\}\\}\\n    runs-on: windows-2025`));
+  assert.doesNotMatch(out, /dev-mac-sign/);
+});
+
+test("devArtifact.parallel validates its own runners, buildScript and flag; ciAllOs is not required", () => {
+  assert.equal(validateManifest(PARALLEL_DEV).valid, true, JSON.stringify(validateManifest(PARALLEL_DEV).errors));
+  assert.equal(validateManifest({ ...PARALLEL_DEV, ciAllOs: true }).valid, true);
+  const dev = PARALLEL_DEV.devArtifact;
+  assert.equal(validateManifest({ ...PARALLEL_DEV, devArtifact: { ...dev, buildScript: undefined } }).valid, false, "parallel needs buildScript");
+  assert.equal(validateManifest({ ...PARALLEL_DEV, devArtifact: { ...dev, buildScript: "build dev" } }).valid, false, "buildScript charset");
+  assert.equal(validateManifest({ ...PARALLEL_DEV, devArtifact: { ...dev, parallel: undefined } }).valid, false, "buildScript requires parallel");
+  assert.equal(validateManifest({ ...PARALLEL_DEV, devArtifact: { ...dev, parallel: "yes" } }).valid, false, "parallel is a boolean");
+  assert.equal(validateManifest({ ...PARALLEL_DEV, matrix: { os: ["windows-2025"], node: ["26.8.1"] } }).valid, false, "mac sign needs a macOS runner in matrix.os");
+  assert.equal(validateManifest({ ...PARALLEL_DEV, matrix: { os: ["xcode-27"], node: ["26.8.1"] }, devArtifact: { mac: "unsigned", windows: "unsigned", parallel: true, buildScript: "build:dev", macAppPath: "a/B.app", windowsGlob: "*.exe" } }).valid, false, "windows unsigned needs a windows runner");
 });

@@ -5,17 +5,22 @@
 
 import fs from "node:fs";
 import path from "node:path";
-import { assertPublic } from "./policy/visibility-gate.mjs";
+import { execFile as execFileCb } from "node:child_process";
+import { promisify } from "node:util";
+import { assertPublic, parseOwnerRepo } from "./policy/visibility-gate.mjs";
 import { loadManifest } from "./manifest.mjs";
 import { renderLanes, listManagedFiles } from "./sync.mjs";
 import { MANAGED_MARKER } from "./render.mjs";
 
 const IGNORED_DIRS = new Set(["node_modules", ".git", ".pnpm-store"]);
+const execFileAsync = promisify(execFileCb);
 
 /**
  * Drift-check one repo. Never throws. Returns:
- * { ok, driftDetected, visibility, findings: [{filename, status}], errors }
+ * { ok, driftDetected, visibility, findings: [{filename, status}], errors, warnings, notes }
  * status is one of: match | mismatch | missing | unmanaged-extra | orphan
+ * warnings are advisory (never drift): see checkRegenerateApproval.
+ * notes record checks that were skipped and why.
  */
 export async function driftCommand(repoPath, deps = {}) {
   const visibility = await assertPublic(repoPath, deps);
@@ -37,9 +42,11 @@ export async function driftCommand(repoPath, deps = {}) {
         visibility,
         findings: orphanManaged.map((filename) => ({ filename, status: "orphan" })),
         errors: [],
+        warnings: [],
+        notes: [],
       };
     }
-    return { ok: false, driftDetected: null, visibility, findings: [], errors: loaded.errors };
+    return { ok: false, driftDetected: null, visibility, findings: [], errors: loaded.errors, warnings: [], notes: [] };
   }
 
   const rendered = renderLanes(loaded.manifest, repoPath);
@@ -70,7 +77,68 @@ export async function driftCommand(repoPath, deps = {}) {
   }
 
   const driftDetected = findings.some((f) => f.status !== "match") || !visibility.allowed;
-  return { ok: true, driftDetected, visibility, findings, errors: [] };
+
+  const warnings = [];
+  const notes = [];
+  if (loaded.manifest.lanes.includes("regenerate")) {
+    const approval = await checkRegenerateApproval(repoPath, deps);
+    if (approval.status === "warn") warnings.push(approval.message);
+    else if (approval.status === "skipped") notes.push(approval.message);
+  }
+  return { ok: true, driftDetected, visibility, findings, errors: [], warnings, notes };
+}
+
+/**
+ * The regenerate lane opens its pull request with the workflow token, which
+ * GitHub refuses unless the repository allows Actions to create and approve
+ * pull requests. Reads `gh api repos/{owner}/{repo}/actions/permissions/workflow`
+ * (field can_approve_pull_request_reviews). Read-only: an unavailable or
+ * unreadable lookup is a skipped check with a note, never a drift finding.
+ * Returns { status: "ok" | "warn" | "skipped", message }. Never throws.
+ */
+export async function checkRegenerateApproval(repoPath, deps = {}) {
+  const execFile = deps.execFile || execFileAsync;
+  const skip = (reason) => ({
+    status: "skipped",
+    message: `regenerate lane: skipped the Actions pull-request approval check (${reason})`,
+  });
+
+  let remoteUrl;
+  try {
+    const { stdout } = await execFile("git", ["remote", "get-url", "origin"], { cwd: repoPath });
+    remoteUrl = stdout.trim();
+  } catch (error) {
+    return skip(`no origin remote: ${firstLine(error)}`);
+  }
+  const ownerRepo = parseOwnerRepo(remoteUrl);
+  if (!ownerRepo) return skip("origin is not a github.com repository");
+
+  let stdout;
+  try {
+    ({ stdout } = await execFile("gh", ["api", `repos/${ownerRepo.owner}/${ownerRepo.repo}/actions/permissions/workflow`], { cwd: repoPath }));
+  } catch (error) {
+    return skip(error.code === "ENOENT" ? "gh is not installed" : `gh api failed: ${firstLine(error)}`);
+  }
+
+  let settings;
+  try {
+    settings = JSON.parse(stdout);
+  } catch {
+    return skip("gh api returned no JSON");
+  }
+  if (typeof settings?.can_approve_pull_request_reviews !== "boolean") {
+    return skip("response has no can_approve_pull_request_reviews");
+  }
+  if (settings.can_approve_pull_request_reviews) return { status: "ok", message: null };
+  return {
+    status: "warn",
+    message:
+      "regenerate lane: the repository setting \"Allow GitHub Actions to create and approve pull requests\" is off, so regenerate.yml cannot open its pull request. Enable it under Settings > Actions > General.",
+  };
+}
+
+function firstLine(error) {
+  return String(error?.message ?? error).split("\n")[0];
 }
 
 /**
