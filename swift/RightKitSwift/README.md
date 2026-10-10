@@ -187,7 +187,7 @@ the manifest records it.
 ```swift
 // Package.swift
 dependencies: [
-    .package(url: "https://github.com/bogusyogi/rightkit-swift.git", exact: "0.3.8"),
+    .package(url: "https://github.com/bogusyogi/rightkit-swift.git", exact: "0.4.0"),
 ],
 targets: [
     .target(name: "YourApp", dependencies: [
