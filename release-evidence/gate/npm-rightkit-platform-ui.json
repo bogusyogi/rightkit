@@ -2,9 +2,9 @@
   "schema": 1,
   "kind": "npm",
   "name": "@rightkit/platform-ui",
-  "version": "0.2.0",
-  "commit": "d88875afa0ec094fbecee80b3fbc080b26660439",
-  "artifactSha256": "58f33ce73783132c09899f3b8c621dba58673ba2117d7098aec4d8a574c47802",
+  "version": "0.2.1",
+  "commit": "0e707c76b4a02dd08dbe4842e3eb3b860e285511",
+  "artifactSha256": "d2aed7dbe74d9c1d0731a02b306f010a4e9d28190c9cdaec26dec8ce9e4c0ff9",
   "hostPolicy": "darwin-only",
   "hostPolicyReason": "Adrian 2026-10-07: apps validate on macOS first, Windows later",
   "runs": [
@@ -13,14 +13,14 @@
         "os": "darwin",
         "arch": "arm64"
       },
-      "commit": "d88875afa0ec094fbecee80b3fbc080b26660439",
+      "commit": "0e707c76b4a02dd08dbe4842e3eb3b860e285511",
       "command": "pnpm --dir packages/$D test",
       "features": [
         "default"
       ],
       "operator": "claude-opus-5.5 (RightKit lead) for adrdsouza",
-      "timestamp": "2026-10-08T22:12:16Z",
-      "passed": 19,
+      "timestamp": "2026-10-10T22:12:15Z",
+      "passed": 28,
       "failed": 0
     }
   ]
