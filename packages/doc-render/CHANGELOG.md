@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.5 — 2026-10-10
+
+- Test-only: the real-browser e2e harness imports `@rightkit/qa-chrome` directly; the devDependency moves from the `@rightkit/qa` facade (`@rightkit/qa/chrome` re-exports it). No runtime change.
+
 ## 0.1.4 — 2026-10-09
 
 - Removed the unused `mermaid` and `katex` dependencies (no references in `src`, `test` or `styles`). No runtime change; the production dependency closure shrinks for every consumer.

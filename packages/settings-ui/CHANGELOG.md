@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.1 — 2026-10-10
+
+- Test-only: the real-browser e2e harness imports `@rightkit/qa-chrome` directly; the devDependency moves from the `@rightkit/qa` facade (`@rightkit/qa/chrome` re-exports it). No runtime change.
+
 ## 0.2.7 — 2026-10-08
 
 - `useLicenseSection` returns `loaded`: false until the first read settles (or a read fails, or an action sets the licence), so apps can tell "not read yet" from Free without a flash.

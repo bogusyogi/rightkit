@@ -11,7 +11,6 @@ path = "src/main.rs"
 
 [dependencies]
 rightapp-protocol = { path = "../protocol" }
-serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 # PLACEHOLDERS (uncomment + pin exactly when published):
 # rightkit-db   = "=0.2.1"        # app database bootstrap

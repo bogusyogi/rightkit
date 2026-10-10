@@ -18,9 +18,9 @@ importers:
       '@rightkit/platform-ui':
         specifier: workspace:*
         version: link:../platform-ui
-      '@rightkit/qa':
+      '@rightkit/qa-chrome':
         specifier: workspace:*
-        version: link:../qa
+        version: link:../qa-chrome
       '@types/react':
         specifier: ^19.0.0
         version: 19.2.17
@@ -80,9 +80,9 @@ importers:
         specifier: ^11.0.5
         version: 11.0.5
     devDependencies:
-      '@rightkit/qa':
+      '@rightkit/qa-chrome':
         specifier: workspace:*
-        version: link:../qa
+        version: link:../qa-chrome
       '@types/react':
         specifier: ^19.0.0
         version: 19.2.17
@@ -213,9 +213,9 @@ importers:
 
   packages/media-ui:
     devDependencies:
-      '@rightkit/qa':
+      '@rightkit/qa-chrome':
         specifier: workspace:*
-        version: link:../qa
+        version: link:../qa-chrome
       '@testing-library/dom':
         specifier: ^10.4.0
         version: 10.4.1
@@ -261,9 +261,9 @@ importers:
       '@rightkit/legal-ui':
         specifier: workspace:*
         version: link:../legal-ui
-      '@rightkit/qa':
+      '@rightkit/qa-chrome':
         specifier: workspace:*
-        version: link:../qa
+        version: link:../qa-chrome
       '@testing-library/jest-dom':
         specifier: ^6.6.3
         version: 6.9.1
@@ -304,9 +304,9 @@ importers:
         specifier: ^6.3.289
         version: 6.4.299
     devDependencies:
-      '@rightkit/qa':
+      '@rightkit/qa-chrome':
         specifier: workspace:*
-        version: link:../qa
+        version: link:../qa-chrome
       '@types/react':
         specifier: ^19.0.0
         version: 19.2.17
@@ -350,7 +350,7 @@ importers:
   packages/qa:
     dependencies:
       '@rightkit/qa-chrome':
-        specifier: workspace:*
+        specifier: 0.1.3
         version: link:../qa-chrome
     devDependencies:
       '@types/node':
@@ -399,9 +399,9 @@ importers:
         specifier: '>=0.2.0'
         version: link:../updates
     devDependencies:
-      '@rightkit/qa':
+      '@rightkit/qa-chrome':
         specifier: workspace:*
-        version: link:../qa
+        version: link:../qa-chrome
       '@rightkit/shell':
         specifier: workspace:*
         version: link:../shell
@@ -463,9 +463,9 @@ importers:
 
   packages/theme:
     devDependencies:
-      '@rightkit/qa':
+      '@rightkit/qa-chrome':
         specifier: workspace:*
-        version: link:../qa
+        version: link:../qa-chrome
       '@types/node':
         specifier: ^24.0.0
         version: 24.13.3

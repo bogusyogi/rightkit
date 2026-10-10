@@ -3,11 +3,11 @@
 // canvas export round-trip (crop + rotate + text → pixel check). Chrome for Testing is
 // launched with --mute-audio — nothing reaches the speakers.
 //
-// Requires Chrome for Testing (see @rightkit/qa resolveChromeForTesting). Optional env:
+// Requires Chrome for Testing (see @rightkit/qa-chrome resolveChromeForTesting). Optional env:
 //   RIGHTKIT_CHROME_FOR_TESTING=/path/to/chrome-for-testing   override detection
 //   MEDIA_UI_FFMPEG=/path/to/ffmpeg   fixture regeneration (else reuse committed fixtures)
 import { execFileSync } from "node:child_process";
-import { findChromeForTesting, launchChromeForTesting } from "@rightkit/qa/chrome";
+import { findChromeForTesting, launchChromeForTesting } from "@rightkit/qa-chrome";
 import { createServer } from "node:http";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
@@ -94,7 +94,7 @@ const server = createServer((req, res) => {
 await new Promise((r) => server.listen(Number(process.env.MEDIA_UI_PORT ?? 0), "127.0.0.1", r));
 const port = server.address().port;
 
-// ── Chrome for Testing (@rightkit/qa; RIGHTKIT_CHROME_FOR_TESTING overrides) ─
+// ── Chrome for Testing (@rightkit/qa-chrome; RIGHTKIT_CHROME_FOR_TESTING overrides) ─
 const cft = findChromeForTesting();
 if (!cft.path) {
   console.error(`SKIP: ${cft.reason}`);

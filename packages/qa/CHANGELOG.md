@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.1 — 2026-10-10
+
+- Depend on the published `@rightkit/qa-chrome` `0.1.3` exactly instead of `workspace:*`, so the source manifest matches the tarball dependency. No runtime change.
+
 ## 0.4.0 — 2026-10-08
 
 - Add `QaBrowserSession`, `QaPage`, `QaElement`, `QaKeyboard` & typed `TimeoutError` using raw CDP over Node 26's native WebSocket.

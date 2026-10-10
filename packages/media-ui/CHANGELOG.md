@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.1 — 2026-10-10
+
+- Test-only: the real-browser e2e harness imports `@rightkit/qa-chrome` directly; the devDependency moves from the `@rightkit/qa` facade (`@rightkit/qa/chrome` re-exports it). No runtime change.
+
 ## 0.3.0
 
 - Peer contract change: `react-image-crop` (`^11.1.2`) moved from a regular dependency to an optional peer. Only the `@rightkit/media-ui/image` entry imports it. Apps that import `@rightkit/media-ui/image` must add `react-image-crop` `^11.1.2` to their own dependencies. Root-entry-only apps need no change.

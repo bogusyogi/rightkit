@@ -1,6 +1,6 @@
 // Real-browser smoke test for pdf.js rendering plus doc-render XSS boundaries, on Chrome for
-// Testing (@rightkit/qa). Always muted; no media APIs are used.
-import { findChromeForTesting, launchChromeForTesting } from "@rightkit/qa/chrome";
+// Testing (@rightkit/qa-chrome). Always muted; no media APIs are used.
+import { findChromeForTesting, launchChromeForTesting } from "@rightkit/qa-chrome";
 import { createServer } from "node:http";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";

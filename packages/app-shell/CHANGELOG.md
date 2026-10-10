@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.4.0 — 2026-10-10
+
+- Peer contract: declare `react-dom` (`>=18 <21`, matching the `react` range) as a peer dependency; `@rightkit/app-shell/react` imports it for the context-menu portal. Apps already install it alongside `react`.
+- Test-only: the e2e harness imports `@rightkit/qa-chrome` directly; the devDependency moves from the `@rightkit/qa` facade.
+
 ## 0.2.1 — 2026-10-07
 
 - Test-only: the real-browser e2e harness launches Chrome for Testing through `@rightkit/qa/chrome` (`RIGHTKIT_CHROME_FOR_TESTING` overrides; skips with install instructions when missing, never regular Chrome) and closes gracefully (CDP `Browser.close`, SIGTERM, SIGKILL last) with its temp profile removed. No runtime change.

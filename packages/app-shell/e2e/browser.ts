@@ -1,10 +1,10 @@
 /**
  * Minimal real-browser driver over the DevTools protocol (Node's built-in WebSocket): launches
- * headless Chrome for Testing muted through @rightkit/qa, serves the built harness from a local
+ * headless Chrome for Testing muted through @rightkit/qa-chrome, serves the built harness from a local
  * static server, sends real input events and captures screenshots. One browser per suite; close
  * is graceful (CDP Browser.close, SIGTERM, SIGKILL last) and removes the temp profile.
  */
-import { findChromeForTesting, launchChromeForTesting } from "@rightkit/qa/chrome";
+import { findChromeForTesting, launchChromeForTesting } from "@rightkit/qa-chrome";
 import { existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { createServer, type Server } from "node:http";
 import { extname, join, normalize } from "node:path";

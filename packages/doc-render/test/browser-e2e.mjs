@@ -1,5 +1,5 @@
-// Real-browser sanitizer boundary test on Chrome for Testing (@rightkit/qa), launched muted.
-import { findChromeForTesting, launchChromeForTesting } from "@rightkit/qa/chrome";
+// Real-browser sanitizer boundary test on Chrome for Testing (@rightkit/qa-chrome), launched muted.
+import { findChromeForTesting, launchChromeForTesting } from "@rightkit/qa-chrome";
 import { createServer } from "node:http";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";

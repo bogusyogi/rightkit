@@ -1,6 +1,6 @@
 {
   "name": "@rightkit/theme",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "Brand file to CSS tokens generator for Right Suite apps: light/dark/system, derived dark accent, WCAG contrast and hard-coded-colour checks, runtime brand application.",
   "license": "MIT OR Apache-2.0",
   "type": "module",
@@ -29,7 +29,7 @@
   ],
   "sideEffects": false,
   "devDependencies": {
-    "@rightkit/qa": "workspace:*",
+    "@rightkit/qa-chrome": "workspace:*",
     "@types/node": "^24.0.0",
     "typescript": "^5.7.0",
     "vitest": "^2.1.8"
