@@ -10,6 +10,7 @@ RightKit owns shared packages, crates, QA, licensing, logging, & release tooling
 - Read `docs/RIGHT-SUITE-RELEASE-PIPELINE.md` before release tooling changes.
 - Read `docs/RIGHT-SUITE-UPDATE-TIER-ROUTING.md` before tier changes.
 - Read signing, distribution, & licensing runbooks before publication.
+- Read `docs/RUNTIME-BUDGETS.md` before publishing or adopting any crate that runs continuously; declare, measure & expose its budget.
 
 ## Commands
 - Run `pnpm --dir rightkit test:release` for release package changes.
