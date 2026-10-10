@@ -242,6 +242,8 @@ describe.skipIf(!chrome)("app-shell in real headless Chrome (muted)", () => {
     await open("p=macos");
     const plane = () => page.eval<string>("getComputedStyle(document.querySelector('.rk-plane')).backgroundColor");
     await page.setColorScheme("light");
+    // The store follows OS changes from its own listener; wait for it before sampling.
+    await page.waitFor("document.documentElement.dataset.theme === 'light'");
     const light = await plane();
     await page.click("[aria-label=Appearance]");
     await page.waitFor("document.querySelector('[role=menu]')");
@@ -254,8 +256,10 @@ describe.skipIf(!chrome)("app-shell in real headless Chrome (muted)", () => {
     await page.waitFor("document.querySelector('[role=menu]')");
     expect(await page.eval<string>("document.querySelector('[role=menuitemcheckbox][aria-checked=true]').textContent")).toContain("Dark");
     await page.eval("[...document.querySelectorAll('[role^=menuitem]')].find((e) => e.textContent.includes('System')).click()");
-    await page.waitFor("!document.documentElement.dataset.theme");
+    // System keeps data-theme set to the resolved value (light while the OS is light).
+    await page.waitFor("document.documentElement.dataset.theme === 'light'");
     await page.setColorScheme("dark");
+    await page.waitFor("document.documentElement.dataset.theme === 'dark'");
     expect(await plane()).toBe(dark);
     await page.setColorScheme("light");
   });

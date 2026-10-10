@@ -31,6 +31,7 @@ it("lets apps override the keyboard chord accessibility label", () => {
 it("exports usePlatform as a real stable React hook", () => {
   const dispatcher = {
     useState: vi.fn((initializer: () => string) => [initializer(), vi.fn()]),
+    useEffect: vi.fn(),
   };
   const internals = (
     React as unknown as {
@@ -44,6 +45,7 @@ it("exports usePlatform as a real stable React hook", () => {
   try {
     expect(usePlatform()).toBe("windows");
     expect(dispatcher.useState).toHaveBeenCalledOnce();
+    expect(dispatcher.useEffect).toHaveBeenCalledOnce();
   } finally {
     internals.H = previous;
     delete globalThis.__RIGHTKIT_QA_PLATFORM__;

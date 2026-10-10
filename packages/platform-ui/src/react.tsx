@@ -1,5 +1,5 @@
-import { useState, type CSSProperties, type ReactElement } from "react";
-import { formatChord, getPlatform, type Platform } from "./index.js";
+import { useEffect, useState, type CSSProperties, type ReactElement } from "react";
+import { formatChord, getPlatform, loadPlatform, type Platform } from "./index.js";
 
 export interface KbdProps {
   chord: string;
@@ -10,9 +10,21 @@ export interface KbdProps {
   ariaLabel?: string;
 }
 
-/** The native OS is static for the lifetime of a mounted app. */
+/**
+ * The native OS is static for the lifetime of a mounted app. The first render uses the synchronous
+ * platform; the native `plugin-os` value replaces it once it has loaded (a no-op when unavailable).
+ */
 export function usePlatform(): Platform {
-  const [platform] = useState<Platform>(getPlatform);
+  const [platform, setPlatform] = useState<Platform>(getPlatform);
+  useEffect(() => {
+    let live = true;
+    void loadPlatform().then((next) => {
+      if (live) setPlatform(next);
+    });
+    return () => {
+      live = false;
+    };
+  }, []);
   return platform;
 }
 

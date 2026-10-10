@@ -15,13 +15,16 @@ Settings panel frame and standard sections for Right Suite apps: appearance, upd
 |---|---|
 | `@rightkit/settings-ui` | `SettingsPanel`, `SectionFrame`, `mergeSections`, `orderSections`, `searchSections`, `revealSetting`, `SettingsGroup`, `SettingRow`, `ProgressBar`, `formatBytes`, `useSettings`, `standardSections`, `sectionIcons`, `useLicenseSection`, `useDoctor`, and types |
 | `@rightkit/settings-ui/settings.css` | Stylesheet |
+| `@rightkit/settings-ui/shell-adapter` | `createShellBackends` and the `rightkit-settings` / `rightkit-models` engine wire constants, over the `@rightkit/shell` engine bridge. The engine is described structurally, so this subpath needs no import of `@rightkit/shell`. |
+
+The persistence port is the `SettingsBackend` interface (`load`, `patch` with `expectedRevision`, optional `subscribe`). Use the shell adapter in a Tauri app, or implement the interface over your own store. For example, a blob-backed adapter keeps the whole settings object in one JSON string, bumps a revision on each patch and throws `code: "revision_conflict"` on a stale write. `useSettings(backend)` takes any `SettingsBackend`. `createMemorySettings` is the in-memory reference implementation.
 
 ## Peer dependencies
 
 | Peer | Range | Note |
 |---|---|---|
 | `@rightkit/app-shell` | `>=0.2.0 <1` | |
-| `@rightkit/shell` | `>=0.1.0 <1` | Type use only |
+| `@rightkit/shell` | `>=0.1.0 <1` | Optional. Not imported by the package; `@rightkit/settings-ui/shell-adapter` only needs a structurally compatible `engine`. |
 | `@rightkit/license` | `>=0.1.0` | No upper bound |
 | `@rightkit/logs` | `>=0.1.0` | No upper bound. Type use only. |
 | `@rightkit/theme` | `>=0.2.0 <1` | |

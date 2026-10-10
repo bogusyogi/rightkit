@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.2.1
+
+- `onAgree` now receives `{ version, acceptedAt, manifestSha256, eligibilityBasis }`. Chosen compatibility: the object stays the FIRST and only argument (it already was an object, `{ eligibilityBasis }`), so existing callbacks that read `eligibilityBasis` keep working; the three new keys are added. There are no positional arguments to preserve. `acceptedAt` is a UTC ISO-8601 string (`toISOString()`, `YYYY-MM-DDTHH:mm:ss.sssZ`) taken when the user presses Agree (a retry after a failed save takes a fresh one). `version` and `manifestSha256` come from the new optional props of the same name and are `undefined` when the host passes none.
+- New optional prop `eligibilityLabels` (`legend`, `individual.{label,description}`, `enterprise.{label,description}`); omitted fields keep the previous text, which is the default.
+- New optional prop `lockup` (`ReactNode`) replaces the publisher lockup; `null` hides it; absent keeps the Orthic Labs mark and name.
+- Removed the forced light theme. The gate no longer sets `color-scheme: light` (it sets no `color-scheme` and no `data-theme`), so native radios and checkboxes follow the host's `data-theme`/`color-scheme`. `theme` and each of its fields are now optional and accept CSS values or `var(--token)` references; an omitted `bg` leaves the background transparent, an omitted `text` inherits the host `color`, and the other colours derive from the text colour or the platform accent. Hosts passing a full theme render as before apart from the native control scheme. `legal-ui.css` has no hard-coded colours.
+- New exports: types `LegalGateAgreement`, `LegalGateEligibilityLabels`.
+
 ## 0.2.0 — 2026-10-09
 
 - Peer range widened: `react` `>=18 <20` to `>=18 <21` (`ca41ba38`). Widening only; consumers change nothing.

@@ -1,10 +1,17 @@
 import { resolveBrand, type BrandFile, type Mode } from "./brand.js";
 import { modeVars } from "./css.js";
 import { isHex } from "./color.js";
+import { SUITE_ALIASES, aliasTokens, applyTokens, type StyleTarget } from "./tokens.js";
 
-/** Minimal element surface so this stays testable without a DOM. */
-export interface StyleTarget {
-  style: { setProperty(name: string, value: string): void; removeProperty(name: string): string };
+export type { StyleTarget } from "./tokens.js";
+
+export interface ApplyBrandOptions {
+  /**
+   * Also write the unprefixed suite aliases (`--ink`, `--panel`, `--danger`, ...) inline. Off by
+   * default: an app that owns those names would have them overwritten. Turn it on only when the app
+   * relies on the flat names and does not set them itself.
+   */
+  applySuiteAliases?: boolean;
 }
 
 /**
@@ -12,16 +19,23 @@ export interface StyleTarget {
  * `root`'s inline style. Both modes are applied through the accent pair; the per-mode variables follow `mode`.
  * Call again with the resolved mode when the theme changes. Returns a function that removes everything it set.
  */
-export function applyBrand(brand: BrandFile, mode: Mode, root: StyleTarget | null = typeof document === "undefined" ? null : document.documentElement): () => void {
+export function applyBrand(
+  brand: BrandFile,
+  mode: Mode,
+  root: StyleTarget | null = typeof document === "undefined" ? null : document.documentElement,
+  options: ApplyBrandOptions = {},
+): () => void {
   if (!root) return () => {};
   const vars = modeVars(brand, mode);
   const light = modeVars(brand, "light");
   // The accent pair is mode-independent in shell.css; keep it complete whichever mode is applied.
   vars["--rk-brand"] = light["--rk-brand"];
   vars["--rk-brand-dark"] = resolveBrand(brand).palette.dark["brand-action"];
-  for (const [k, v] of Object.entries(vars)) root.style.setProperty(k, v);
+  const aliases = options.applySuiteAliases ? aliasTokens(SUITE_ALIASES) : {};
+  applyTokens({ ...vars, ...aliases }, root);
   return () => {
     for (const k of Object.keys(vars)) root.style.removeProperty(k);
+    for (const k of Object.keys(aliases)) root.style.removeProperty(k);
   };
 }
 

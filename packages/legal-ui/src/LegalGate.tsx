@@ -1,26 +1,76 @@
-import { useId, useState, type CSSProperties, type ReactElement } from "react";
+import { useId, useState, type CSSProperties, type ReactElement, type ReactNode } from "react";
 
 export type LegalGateVariant = "first-run" | "re-acceptance";
 export type LegalGateEligibilityBasis = "individual" | "enterprise";
 
 /**
- * Light-only theme (locked by Adrian 2026-07-17): the legal gate always
- * renders on the app's LIGHT base tokens from brands.md, regardless of the
- * app's own theme setting. There is no mode switch.
+ * Host-supplied colours and faces. The gate has no theme of its own and never forces light or
+ * dark: it does not set `data-theme` or `color-scheme`, so native radios and checkboxes follow the
+ * host's `data-theme` / `color-scheme`. Pass the host's current tokens (CSS values or
+ * `var(--token)` references both work). Every field is optional; an omitted colour inherits from
+ * the host (`bg` leaves the background transparent, `text` inherits `color`, the others derive from
+ * the text colour or the platform accent).
  */
 export interface LegalGateTheme {
-  bg: string;
-  surface: string;
-  border: string;
-  text: string;
-  muted: string;
-  accent: string;
-  accentContrast: string;
+  bg?: string;
+  surface?: string;
+  border?: string;
+  text?: string;
+  muted?: string;
+  accent?: string;
+  accentContrast?: string;
   /** Wordmark face. LOCKED to Tanker suite-wide — hosts must ship Tanker
    * (or pass `wordmarkFontUrl` and keep "Tanker" first in this stack). */
-  fontDisplay: string;
-  fontBody: string;
+  fontDisplay?: string;
+  fontBody?: string;
 }
+
+type ResolvedTheme = Required<Omit<LegalGateTheme, "bg">> & { bg: string | undefined };
+
+function resolveTheme(theme: LegalGateTheme | undefined): ResolvedTheme {
+  return {
+    bg: theme?.bg,
+    text: theme?.text ?? "currentColor",
+    surface: theme?.surface ?? "color-mix(in srgb, currentColor 6%, transparent)",
+    border: theme?.border ?? "color-mix(in srgb, currentColor 25%, transparent)",
+    muted: theme?.muted ?? "color-mix(in srgb, currentColor 68%, transparent)",
+    accent: theme?.accent ?? "AccentColor",
+    accentContrast: theme?.accentContrast ?? "AccentColorText",
+    fontDisplay: theme?.fontDisplay ?? "inherit",
+    fontBody: theme?.fontBody ?? "inherit",
+  };
+}
+
+/** What `onAgree` receives. `version` and `manifestSha256` echo the props of the same name
+ *  (undefined when the host passed none). `acceptedAt` is a UTC ISO-8601 string
+ *  (`YYYY-MM-DDTHH:mm:ss.sssZ`) taken when the user pressed Agree; a retry after a failed save
+ *  takes a fresh one. */
+export interface LegalGateAgreement {
+  version: string | undefined;
+  acceptedAt: string;
+  manifestSha256: string | undefined;
+  eligibilityBasis: LegalGateEligibilityBasis;
+}
+
+/** Copy for the eligibility choice. Every field is optional; omitted ones keep the defaults. */
+export interface LegalGateEligibilityLabels {
+  /** Screen-reader legend of the radio group. Default "Who is this license for". */
+  legend?: string;
+  individual?: { label?: string; description?: string };
+  enterprise?: { label?: string; description?: string };
+}
+
+const DEFAULT_ELIGIBILITY_LABELS = {
+  legend: "Who is this license for",
+  individual: {
+    label: "For myself",
+    description: "One person, my own devices, including my own freelance work.",
+  },
+  enterprise: {
+    label: "For an organization",
+    description: "Seats are licensed under an Enterprise Order.",
+  },
+} as const;
 
 export interface LegalGateDocument {
   title: string;
@@ -31,20 +81,32 @@ export interface LegalGateDocument {
 }
 
 export interface LegalGateProps {
-  theme: LegalGateTheme;
+  /** Optional host tokens; see LegalGateTheme. */
+  theme?: LegalGateTheme;
   appName: string;
   trustLine: string;
   documents: LegalGateDocument[];
   agreementStatement: string;
   variant: LegalGateVariant;
-  onAgree: (input: { eligibilityBasis: LegalGateEligibilityBasis }) => void | Promise<void>;
+  /** Receives one object argument: `{ version, acceptedAt, manifestSha256, eligibilityBasis }`. */
+  onAgree: (input: LegalGateAgreement) => void | Promise<void>;
   onQuit: () => void;
+  /** Document-set version, echoed to `onAgree`. */
+  version?: string;
+  /** SHA-256 of the accepted manifest, echoed to `onAgree`. */
+  manifestSha256?: string;
+  /** Overrides the eligibility copy (defaults equal the built-in text). */
+  eligibilityLabels?: LegalGateEligibilityLabels;
+  /** Replaces the publisher lockup (the Orthic Labs mark and name). Absent: the default lockup.
+   *  `null`: no lockup. It renders inside the centred lockup band; `parentLogoSrc` only affects the
+   *  default lockup. */
+  lockup?: ReactNode;
   dbaLine?: string;
   /** Overrides the built-in Orthic Labs mark with an image URL. The mark is
    * inlined by default (see OrthicMark) so no asset wiring is needed; pass this
    * only if a host must ship its own file. Note the on-disk
    * rightsuite/brand-assets marks are dark-background variants and will not
-   * read on this gate's light base. */
+   * read on a light background. */
   parentLogoSrc?: string;
   /** Optional URL of the Tanker woff2. When provided, the component registers
    * an @font-face for family "Tanker" (weight 400) so the wordmarks render in
@@ -103,6 +165,10 @@ function splitWordmark(appName: string): { base: string; suffix: string } {
     return { base: appName.slice(0, -"Right".length), suffix: "Right" };
   }
   return { base: appName, suffix: "" };
+}
+
+function stripUndefined<T extends object>(value: T | undefined): Partial<T> {
+  return Object.fromEntries(Object.entries(value ?? {}).filter(([, entry]) => entry !== undefined)) as Partial<T>;
 }
 
 let styleInjected = false;
@@ -164,7 +230,7 @@ function ensureWordmarkFont(url: string): void {
 }
 
 export function LegalGate({
-  theme,
+  theme: themeProp,
   appName,
   trustLine,
   documents,
@@ -172,10 +238,20 @@ export function LegalGate({
   variant,
   onAgree,
   onQuit,
+  version,
+  manifestSha256,
+  eligibilityLabels,
+  lockup,
   dbaLine = DEFAULT_DBA_LINE,
   parentLogoSrc,
   wordmarkFontUrl,
 }: LegalGateProps): ReactElement {
+  const theme = resolveTheme(themeProp);
+  const labels = {
+    legend: eligibilityLabels?.legend ?? DEFAULT_ELIGIBILITY_LABELS.legend,
+    individual: { ...DEFAULT_ELIGIBILITY_LABELS.individual, ...stripUndefined(eligibilityLabels?.individual) },
+    enterprise: { ...DEFAULT_ELIGIBILITY_LABELS.enterprise, ...stripUndefined(eligibilityLabels?.enterprise) },
+  };
   ensureStyle();
   if (wordmarkFontUrl) ensureWordmarkFont(wordmarkFontUrl);
 
@@ -198,7 +274,8 @@ export function LegalGate({
     setSubmitError(null);
     setSubmitting(true);
     try {
-      await Promise.resolve(onAgree({ eligibilityBasis }));
+      const acceptedAt = new Date().toISOString();
+      await Promise.resolve(onAgree({ version, acceptedAt, manifestSha256, eligibilityBasis }));
     } catch {
       setSubmitError("Couldn’t save your acceptance. Try again.");
     } finally {
@@ -208,10 +285,9 @@ export function LegalGate({
 
   const rootStyle: CSSProperties = {
     ["--rk-accent" as string]: theme.accent,
-    // Locked light: native radios and checkboxes must not follow a dark app theme.
-    colorScheme: "light",
-    background: theme.bg,
-    color: theme.text,
+    // No colorScheme and no data-theme here: the host's theme decides, native controls follow it.
+    ...(theme.bg === undefined ? {} : { background: theme.bg }),
+    ...(themeProp?.text === undefined ? {} : { color: theme.text }),
     fontFamily: theme.fontBody,
     minHeight: "100vh",
     width: "100%",
@@ -235,6 +311,7 @@ export function LegalGate({
           className="rk-legal-gate__lockup"
           style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 10 }}
         >
+          {lockup !== undefined ? lockup : (<>
           {parentLogoSrc ? (
             <img src={parentLogoSrc} alt="" aria-hidden="true" style={{ height: 24, width: "auto" }} />
           ) : (
@@ -253,6 +330,7 @@ export function LegalGate({
           >
             Orthic Labs
           </div>
+          </>)}
         </div>
       </div>
 
@@ -334,7 +412,7 @@ export function LegalGate({
         {/* Right rail: the decision itself. */}
         <div className="rk-legal-gate__rail">
         <fieldset style={{ border: "none", padding: 0, margin: "0 0 16px" }}>
-          <legend className="rk-sr-only">Who is this license for</legend>
+          <legend className="rk-sr-only">{labels.legend}</legend>
           <div style={{ display: "flex", flexDirection: "column", gap: 11 }}>
             <label htmlFor={individualId} className="rk-legal-gate__radio-row">
               <input
@@ -346,10 +424,10 @@ export function LegalGate({
                 onChange={() => setEligibilityBasis("individual")}
               />
               <span style={{ fontSize: 14, lineHeight: 1.4 }}>
-                For myself
+                {labels.individual.label}
                 <br />
                 <span style={{ color: theme.muted, fontSize: 12.5 }}>
-                  One person, my own devices, including my own freelance work.
+                  {labels.individual.description}
                 </span>
               </span>
             </label>
@@ -363,10 +441,10 @@ export function LegalGate({
                 onChange={() => setEligibilityBasis("enterprise")}
               />
               <span style={{ fontSize: 14, lineHeight: 1.4 }}>
-                For an organization
+                {labels.enterprise.label}
                 <br />
                 <span style={{ color: theme.muted, fontSize: 12.5 }}>
-                  Seats are licensed under an Enterprise Order.
+                  {labels.enterprise.description}
                 </span>
               </span>
             </label>

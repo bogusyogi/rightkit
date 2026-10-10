@@ -1,4 +1,4 @@
-/* @rightkit/legal-ui — layout for the locked-light legal gate. Import this file in apps with a
+/* @rightkit/legal-ui — layout for the legal gate (colours come from the host theme; no light/dark is forced). Import this file in apps with a
    strict CSP (style-src 'self'): the gate then skips its runtime <style> injection. */
 :root { --rk-legal-ui-css: 1; }
 .rk-legal-gate a { color: inherit; text-decoration: underline; text-decoration-color: currentColor; text-underline-offset: 3px; opacity: 0.72; transition: opacity 120ms ease, color 120ms ease; }

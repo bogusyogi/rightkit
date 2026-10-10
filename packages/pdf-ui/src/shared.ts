@@ -28,6 +28,14 @@ export function viewportRotation(pageRotation: number | undefined, userRotation:
   return (((page + user) % 360) + 360) % 360;
 }
 
+/** How many pages (from page 1) may render: all of them unless `max` is a finite number, in which
+ *  case it is floored and bounded to `0..numPages`. Absent/NaN means unlimited. */
+export function renderPageLimit(numPages: number, max?: number): number {
+  const total = Math.max(0, Math.floor(numPages) || 0);
+  if (max === undefined || max === null || typeof max !== "number" || Number.isNaN(max)) return total;
+  return Math.max(0, Math.min(total, Math.floor(max)));
+}
+
 export function clampScale(scale: number): number {
   return Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, scale));
 }

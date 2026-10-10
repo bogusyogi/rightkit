@@ -1,6 +1,6 @@
-import { platform as tauriPlatform } from "@tauri-apps/plugin-os";
+import { formatChord as formatChordFor, normalizePlatform, type Platform } from "./format.js";
 
-export type Platform = "macos" | "ios" | "windows" | "linux" | "unknown";
+export { normalizePlatform, type Platform } from "./format.js";
 
 export interface QaPlatformBootstrapInput {
   /** Raw query string. The override is ignored unless it also contains `qa=1`. */
@@ -15,14 +15,6 @@ export interface QaPlatformBootstrapInput {
 declare global {
   // Browser QA must opt into a deterministic platform; production uses Tauri.
   var __RIGHTKIT_QA_PLATFORM__: string | undefined;
-}
-
-export function normalizePlatform(value: string): Platform {
-  if (value === "Win32" || value === "win32") return "windows";
-  if (value === "macos" || value === "ios" || value === "windows" || value === "linux") {
-    return value;
-  }
-  return "unknown";
 }
 
 export function resolveQaPlatform(input: QaPlatformBootstrapInput): Platform | undefined {
@@ -52,7 +44,13 @@ export function bootstrapQaPlatform(input: QaPlatformBootstrapInput): Platform |
   return platform;
 }
 
-let cachedPlatform: Platform | undefined;
+/**
+ * The native platform from `@tauri-apps/plugin-os`, once loaded. `plugin-os` is loaded with a dynamic
+ * import, so apps that never call native detection never pull it in, and an app without the plugin
+ * installed falls back to the browser's report instead of failing.
+ */
+let nativePlatform: Platform | undefined;
+let nativeLoad: Promise<Platform> | undefined;
 
 function browserPlatform(): Platform {
   const nav = (globalThis as { navigator?: { platform?: string; userAgent?: string; userAgentData?: { platform?: string } } }).navigator;
@@ -65,92 +63,42 @@ function browserPlatform(): Platform {
   return "unknown";
 }
 
+/**
+ * Resolve the native platform (loads `@tauri-apps/plugin-os` on first call). Outside Tauri, or when
+ * the plugin is absent, the result is the browser's own platform report. Resolves once and caches.
+ */
+export function loadPlatform(): Promise<Platform> {
+  if (nativePlatform !== undefined) return Promise.resolve(nativePlatform);
+  nativeLoad ??= import("@tauri-apps/plugin-os")
+    .then((os) => {
+      // Throws outside Tauri (no injected internals); the catch below then takes the browser report.
+      nativePlatform = normalizePlatform(os.platform());
+    })
+    .catch(() => {
+      // Outside Tauri (browser dev, previews) or plugin not installed.
+      nativePlatform = browserPlatform();
+    })
+    .then(() => nativePlatform as Platform);
+  return nativeLoad;
+}
+
+/**
+ * Synchronous platform. A QA override wins; then the native result once `loadPlatform` has resolved.
+ * Before that it returns the browser's report (correct for every supported desktop webview) and
+ * starts the native load in the background.
+ */
 export function getPlatform(): Platform {
   if (globalThis.__RIGHTKIT_QA_PLATFORM__ !== undefined) {
     return normalizePlatform(globalThis.__RIGHTKIT_QA_PLATFORM__);
   }
-  if (cachedPlatform) return cachedPlatform;
-  try {
-    cachedPlatform = normalizePlatform(tauriPlatform());
-  } catch {
-    // Outside Tauri (browser dev, previews) fall back to the browser's own platform report.
-    cachedPlatform = browserPlatform();
-  }
-  return cachedPlatform;
+  if (nativePlatform !== undefined) return nativePlatform;
+  void loadPlatform();
+  return browserPlatform();
 }
 
-const MAC_KEYS: Readonly<Record<string, string>> = {
-  mod: "⌘",
-  ctrl: "⌃",
-  alt: "⌥",
-  shift: "⇧",
-  fn: "fn",
-  win: "⌘",
-  space: "Space",
-  enter: "↩",
-  esc: "Esc",
-};
-
-const WINDOWS_KEYS: Readonly<Record<string, string>> = {
-  mod: "Ctrl",
-  ctrl: "Ctrl",
-  rctrl: "Right Ctrl",
-  alt: "Alt",
-  ralt: "Right Alt",
-  shift: "Shift",
-  fn: "Fn",
-  win: "Win",
-  space: "Space",
-  enter: "Enter",
-  esc: "Esc",
-};
-
-const IOS_KEYS: Readonly<Record<string, string>> = {
-  mod: "Touch",
-  ctrl: "Touch",
-  alt: "Touch",
-  shift: "Touch",
-  fn: "Touch",
-  win: "Touch",
-  space: "Record",
-  enter: "Send",
-  esc: "Cancel",
-  record: "Record",
-  send: "Send",
-  cancel: "Cancel",
-};
-
-const GENERIC_KEYS: Readonly<Record<string, string>> = {
-  mod: "Mod",
-  ctrl: "Ctrl",
-  rctrl: "Right Ctrl",
-  alt: "Alt",
-  ralt: "Right Alt",
-  shift: "Shift",
-  fn: "Fn",
-  win: "System",
-  space: "Space",
-  enter: "Enter",
-  esc: "Esc",
-};
-
+/** Display tokens for a canonical chord. `platform` defaults to the detected platform. */
 export function formatChord(chord: string, platform: Platform = getPlatform()): string[] {
-  const keys =
-    platform === "macos"
-      ? MAC_KEYS
-      : platform === "ios"
-        ? IOS_KEYS
-        : platform === "windows" || platform === "linux"
-          ? WINDOWS_KEYS
-          : GENERIC_KEYS;
-  return chord
-    .split("+")
-    .map((token) => token.trim().toLowerCase())
-    .filter(Boolean)
-    .map((token) =>
-      keys[token] ??
-      (token.length === 1 ? token.toUpperCase() : token.replace(/^\w/, (letter) => letter.toUpperCase())),
-    );
+  return formatChordFor(chord, platform);
 }
 
 export function platformCapabilities(platform: Platform = getPlatform()) {

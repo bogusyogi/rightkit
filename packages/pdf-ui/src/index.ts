@@ -2,8 +2,11 @@ export { PdfViewer, PdfSearchContext, usePdfSearch, createPdfLinkService } from 
 export { isSafeExternalUrl } from "./linkService.js";
 export { configurePdfJs, ensurePdfWorker, pdfWasmUrl } from "./pdfJs.js";
 export { acquirePdfRenderKeepalive } from "./renderKeepalive.js";
-export { boundedCanvasDpr, clampScale, highlightSpan, viewportRotation, withTimeout, ZOOM_MAX, ZOOM_MIN } from "./shared.js";
+export { boundedCanvasDpr, clampScale, highlightSpan, renderPageLimit, viewportRotation, withTimeout, ZOOM_MAX, ZOOM_MIN } from "./shared.js";
+export { PdfPasswordCancelledError } from "./password.js";
 export { findLiteralMatches } from "./searchUtils.js";
 export { thumbnailWindow } from "./thumbnailWindow.js";
 export type { PdfLinkActions } from "./linkService.js";
+export type { PdfPasswordHandler, PdfPasswordReason } from "./password.js";
+export type { PdfViewerProps } from "./PdfViewer.js";
 export type { OutlineNode, PdfDocumentInfo, PdfFitMode, PdfPanel, PdfSearchOptions, PdfSearchProvider, PdfSearchResult, PdfSource, PdfViewState, PdfViewerAdapters, Size } from "./types.js";

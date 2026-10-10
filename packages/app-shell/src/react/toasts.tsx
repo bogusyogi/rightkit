@@ -1,25 +1,37 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { defaultToastBus, type Toast, type ToastBus, type ToastKind } from "../toast.js";
+import { cx } from "./ui.js";
+import type { SlotClasses } from "./slots.js";
+
+export type ToastSlot = "root" | "toast" | "message" | "action" | "dismiss";
 
 const GLYPH: Record<ToastKind, string> = { info: "i", success: "✓", warning: "!", error: "!" };
 const EXIT_MS = 150;
 const MAX_VISIBLE = 4;
 
-function ToastRow({ toast, leaving, onDismiss }: { toast: Toast; leaving: boolean; onDismiss: () => void }) {
+function ToastRow({ toast, leaving, onDismiss, slots }: { toast: Toast; leaving: boolean; onDismiss: () => void; slots?: SlotClasses<ToastSlot> }) {
   return (
-    <div role={toast.kind === "error" ? "alert" : "status"} data-kind={toast.kind} className={`rk-toast rk-toast--${toast.kind}${leaving ? " is-leaving" : ""}`}>
+    <div role={toast.kind === "error" ? "alert" : "status"} data-kind={toast.kind} className={cx("rk-toast", `rk-toast--${toast.kind}`, leaving && "is-leaving", slots?.toast)}>
       <span className="rk-toast__glyph" aria-hidden="true">{GLYPH[toast.kind]}</span>
-      <span className="rk-toast__msg">{toast.message}</span>
+      <span className={cx("rk-toast__msg", slots?.message)}>{toast.message}</span>
       {toast.action ? (
-        <button type="button" className="rk-toast__action" onClick={() => { toast.action?.run(); onDismiss(); }}>{toast.action.label}</button>
+        <button type="button" className={cx("rk-toast__action", slots?.action)} onClick={() => { toast.action?.run(); onDismiss(); }}>{toast.action.label}</button>
       ) : null}
-      <button type="button" className="rk-toast__x" aria-label="Dismiss notification" onClick={onDismiss}>✕</button>
+      <button type="button" className={cx("rk-toast__x", slots?.dismiss)} aria-label="Dismiss notification" onClick={onDismiss}>✕</button>
     </div>
   );
 }
 
 /** Single mount point for a toast bus: a polite live region, errors announce as alerts. */
-export function ToastViewport({ bus = defaultToastBus }: { bus?: ToastBus }) {
+export interface ToastViewportProps {
+  bus?: ToastBus;
+  /** Extra class on the live region. */
+  className?: string;
+  /** Extra classes per region: `root` (live region), `toast`, `message`, `action`, `dismiss`. */
+  slots?: SlotClasses<ToastSlot>;
+}
+
+export function ToastViewport({ bus = defaultToastBus, className, slots }: ToastViewportProps) {
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [leaving, setLeaving] = useState<ReadonlySet<number>>(() => new Set());
   const timers = useRef(new Map<number, number>());
@@ -55,9 +67,9 @@ export function ToastViewport({ bus = defaultToastBus }: { bus?: ToastBus }) {
   }, [bus, dismiss]);
 
   return (
-    <div className="rk-toasts" aria-live="polite" aria-atomic="false" data-rk-toasts>
+    <div className={cx("rk-toasts", className, slots?.root)} aria-live="polite" aria-atomic="false" data-rk-toasts>
       {toasts.map((toast) => (
-        <ToastRow key={toast.id} toast={toast} leaving={leaving.has(toast.id)} onDismiss={() => dismiss(toast.id)} />
+        <ToastRow key={toast.id} toast={toast} leaving={leaving.has(toast.id)} onDismiss={() => dismiss(toast.id)} slots={slots} />
       ))}
     </div>
   );

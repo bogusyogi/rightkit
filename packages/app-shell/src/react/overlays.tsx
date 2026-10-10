@@ -1,6 +1,7 @@
 import { useId, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { useFocusTrap, useModalDismiss } from "./hooks.js";
-import { Button, Input } from "./ui.js";
+import { Button, Input, cx } from "./ui.js";
+import type { SlotClasses } from "./slots.js";
 
 export interface ModalShellProps {
   /** Accessible name when there is no visible title. */
@@ -16,6 +17,10 @@ export interface ModalShellProps {
   /** `id` of a visible heading inside; replaces `label` for aria-labelledby. */
   labelledBy?: string;
   describedBy?: string;
+  /** Extra class on the dialog surface. */
+  className?: string;
+  /** `root`: extra class on the dialog surface (same as `className`). */
+  slots?: SlotClasses<"root">;
   children: ReactNode;
 }
 
@@ -24,7 +29,7 @@ export interface ModalShellProps {
  * backdrop dismissal with an exit animation, Tab focus trap, focus restored to the opener, and a
  * width that never exceeds the viewport.
  */
-export function ModalShell({ label, onClose, width = 440, align = "center", autoFocus = true, role = "dialog", dismissOnBackdrop = true, labelledBy, describedBy, children }: ModalShellProps) {
+export function ModalShell({ label, onClose, width = 440, align = "center", autoFocus = true, role = "dialog", dismissOnBackdrop = true, labelledBy, describedBy, className, slots, children }: ModalShellProps) {
   const ref = useRef<HTMLDivElement>(null);
   const { closing, close } = useModalDismiss(onClose, { escape: true });
   useFocusTrap(ref, true, { autoFocus });
@@ -39,7 +44,7 @@ export function ModalShell({ label, onClose, width = 440, align = "center", auto
         aria-describedby={describedBy}
         tabIndex={-1}
         style={{ width }}
-        className={`rk-modal${closing ? " is-closing" : ""}`}
+        className={cx("rk-modal", closing && "is-closing", className, slots?.root)}
       >
         {children}
       </div>
@@ -47,29 +52,41 @@ export function ModalShell({ label, onClose, width = 440, align = "center", auto
   );
 }
 
-export interface DialogProps extends Omit<ModalShellProps, "label" | "labelledBy" | "describedBy" | "children"> {
+export interface DialogSlots {
+  root?: string;
+  header?: string;
+  body?: string;
+  footer?: string;
+}
+
+export interface DialogProps extends Omit<ModalShellProps, "label" | "labelledBy" | "describedBy" | "children" | "slots"> {
   title: string;
   description?: ReactNode;
   children?: ReactNode;
   /** Footer buttons; right-aligned. */
   actions?: ReactNode;
+  /** Extra classes per region: `root` (surface), `header` (title), `body` (wraps children), `footer` (actions). */
+  slots?: SlotClasses<keyof DialogSlots>;
 }
 
 /** Titled dialog: heading, optional description, body, action row. */
-export function Dialog({ title, description, children, actions, ...shell }: DialogProps) {
+export function Dialog({ title, description, children, actions, slots, ...shell }: DialogProps) {
   const titleId = useId();
   const descId = useId();
+  const body = children;
   return (
-    <ModalShell {...shell} label={title} labelledBy={titleId} describedBy={description ? descId : undefined}>
-      <h2 id={titleId} className="rk-modal__title">{title}</h2>
+    <ModalShell {...shell} slots={{ root: slots?.root }} label={title} labelledBy={titleId} describedBy={description ? descId : undefined}>
+      <h2 id={titleId} className={cx("rk-modal__title", slots?.header)}>{title}</h2>
       {description ? <p id={descId} className="rk-modal__desc">{description}</p> : null}
-      {children}
-      {actions ? <div className="rk-modal__actions">{actions}</div> : null}
+      {slots?.body ? <div className={cx("rk-modal__body", slots.body)}>{body}</div> : body}
+      {actions ? <div className={cx("rk-modal__actions", slots?.footer)}>{actions}</div> : null}
     </ModalShell>
   );
 }
 
 export interface ConfirmDialogProps {
+  className?: string;
+  slots?: SlotClasses<keyof DialogSlots>;
   title: string;
   description?: ReactNode;
   confirmLabel?: string;
@@ -80,9 +97,11 @@ export interface ConfirmDialogProps {
   onCancel: () => void;
 }
 
-export function ConfirmDialog({ title, description, confirmLabel = "Confirm", cancelLabel = "Cancel", danger, onConfirm, onCancel }: ConfirmDialogProps) {
+export function ConfirmDialog({ title, description, confirmLabel = "Confirm", cancelLabel = "Cancel", danger, onConfirm, onCancel, className, slots }: ConfirmDialogProps) {
   return (
     <Dialog
+      className={className}
+      slots={slots}
       title={title}
       description={description}
       role={danger ? "alertdialog" : "dialog"}
@@ -99,6 +118,8 @@ export function ConfirmDialog({ title, description, confirmLabel = "Confirm", ca
 }
 
 export interface PromptDialogProps {
+  className?: string;
+  slots?: SlotClasses<keyof DialogSlots>;
   title: string;
   label: string;
   initialValue?: string;
@@ -111,7 +132,7 @@ export interface PromptDialogProps {
 }
 
 /** Single-field text prompt (rename, new folder). */
-export function PromptDialog({ title, label, initialValue = "", placeholder, confirmLabel = "OK", cancelLabel = "Cancel", validate, onSubmit, onCancel }: PromptDialogProps) {
+export function PromptDialog({ title, label, initialValue = "", placeholder, confirmLabel = "OK", cancelLabel = "Cancel", validate, onSubmit, onCancel, className, slots }: PromptDialogProps) {
   const [value, setValue] = useState(initialValue);
   const [error, setError] = useState<string | null>(null);
   const inputId = useId();
@@ -122,7 +143,7 @@ export function PromptDialog({ title, label, initialValue = "", placeholder, con
     if (!problem) onSubmit(value);
   };
   return (
-    <Dialog title={title} onClose={onCancel} autoFocus={false}>
+    <Dialog title={title} onClose={onCancel} autoFocus={false} className={className} slots={slots}>
       <form onSubmit={submit} className="rk-modal__form">
         <label htmlFor={inputId} className="rk-modal__label">{label}</label>
         <Input id={inputId} autoFocus value={value} placeholder={placeholder} aria-invalid={error ? true : undefined} onChange={(e) => setValue(e.target.value)} onFocus={(e) => e.currentTarget.select()} />

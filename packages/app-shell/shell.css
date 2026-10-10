@@ -14,6 +14,17 @@
   --rk-sidebar-width: 220px;
   --rk-titlebar-height: 52px;
   --rk-lights-width: 72px;
+  /* Titlebar geometry. Defaults reproduce the built-in look; an app can match its own titlebar exactly. */
+  --rk-titlebar-start-pad: 16px;
+  --rk-titlebar-side-pad-end: 14px;
+  --rk-titlebar-pad-end: 14px;
+  --rk-titlebar-gap: 10px;
+  --rk-caption-width: 46px;
+  --rk-caption-close-bg: #c42b1c;
+  --rk-caption-close-ink: #fff;
+  --rk-plane-radius: 20px;
+  --rk-toast-offset: 16px;
+  --rk-palette-width: 640px;
 
   --rk-chrome: #eee9df; --rk-plane: #fffcf5; --rk-elevated: #ffffff;
   --rk-win: var(--rk-plane); --rk-side: var(--rk-chrome); --rk-bg: var(--rk-plane); --rk-panel: #ffffff; --rk-sunk: #f6f1e8;
@@ -78,8 +89,8 @@
 .rk-shell input, .rk-shell textarea, .rk-shell .selectable { user-select: text; -webkit-user-select: text; }
 
 /* Fused titlebar: spans the window on the same chrome surface as the sidebar. */
-.rk-top { display: flex; align-items: center; gap: 10px; height: var(--rk-titlebar-height); padding: 0 14px 0 0; background: var(--rk-chrome); flex: none; }
-.rk-top__side { display: flex; align-items: center; width: var(--rk-sidebar-width); flex: none; height: 100%; padding: 0 14px 0 16px; gap: 10px; }
+.rk-top { display: flex; align-items: center; gap: var(--rk-titlebar-gap); height: var(--rk-titlebar-height); padding: 0 var(--rk-titlebar-pad-end) 0 0; background: var(--rk-chrome); flex: none; }
+.rk-top__side { display: flex; align-items: center; width: var(--rk-sidebar-width); flex: none; height: 100%; padding: 0 var(--rk-titlebar-side-pad-end) 0 var(--rk-titlebar-start-pad); gap: var(--rk-titlebar-gap); }
 .rk-top__lights { width: var(--rk-lights-width); height: 100%; flex: none; }
 .rk-top__title { font-size: 15px; font-weight: 700; letter-spacing: -.01em; }
 .rk-top__drag { flex: 1; align-self: stretch; }
@@ -87,16 +98,16 @@
 .rk-pill--warn { background: var(--rk-warn-soft); color: var(--rk-warn); }
 
 /* Windows / Linux caption buttons. */
-.rk-caption { display: flex; align-self: stretch; margin-right: -14px; margin-left: 6px; }
-.rk-caption__btn { width: 46px; border: 0; background: transparent; color: var(--rk-ink-2); display: flex; align-items: center; justify-content: center; }
+.rk-caption { display: flex; align-self: stretch; margin-right: calc(-1 * var(--rk-titlebar-pad-end)); margin-left: 6px; }
+.rk-caption__btn { width: var(--rk-caption-width); border: 0; background: transparent; color: var(--rk-ink-2); display: flex; align-items: center; justify-content: center; }
 .rk-caption__btn:hover { background: var(--rk-fill-2); color: var(--rk-ink); }
 .rk-caption__btn:focus-visible { outline: 2px solid var(--rk-focus); outline-offset: -2px; }
-.rk-caption__close:hover { background: #c42b1c; color: #fff; }
+.rk-caption__close:hover { background: var(--rk-caption-close-bg); color: var(--rk-caption-close-ink); }
 
 .rk-body { flex: 1; min-height: 0; display: flex; }
 .rk-side[hidden] { display: none; }
 .rk-side { background: var(--rk-chrome); width: var(--rk-sidebar-width); flex: none; display: flex; flex-direction: column; min-height: 0; }
-.rk-plane { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; background: var(--rk-plane); border-top-left-radius: 20px; overflow: hidden; }
+.rk-plane { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; background: var(--rk-plane); border-top-left-radius: var(--rk-plane-radius); overflow: hidden; }
 
 .rk-search { margin: 8px 10px 6px; display: flex; align-items: center; gap: 6px; height: 28px; padding: 0 8px; border-radius: 7px; background: var(--rk-fill-2); color: var(--rk-ink-3); font-size: 13px; flex: none; }
 .rk-search:focus-within { background: var(--rk-elevated); box-shadow: 0 0 0 2px var(--rk-focus); }
@@ -236,7 +247,7 @@
 @keyframes rk-pop { from { opacity: 0; transform: scale(.97) translateY(4px); } }
 @keyframes rk-pop-out { to { opacity: 0; transform: scale(.98); } }
 
-.rk-palette { width: 640px; overflow: hidden; }
+.rk-palette { width: var(--rk-palette-width); overflow: hidden; }
 .rk-palette__field { display: flex; align-items: center; gap: 12px; height: 54px; padding: 0 18px; border-bottom: .5px solid var(--rk-hairline); color: var(--rk-ink-3); }
 .rk-palette__field svg { width: 18px; height: 18px; flex: none; }
 .rk-palette__field input { flex: 1; min-width: 0; border: 0; outline: 0; background: none; color: var(--rk-ink); font-size: 18px; user-select: text; }
@@ -280,7 +291,7 @@
 .rk-menu__sep { height: 1px; margin: 4px 6px; background: var(--rk-hairline); }
 
 /* ---- Toasts ----------------------------------------------------------------------------- */
-.rk-toasts { position: fixed; z-index: 95; bottom: 16px; left: 50%; transform: translateX(-50%); width: min(26rem, calc(100vw - 2rem)); display: flex; flex-direction: column; align-items: center; gap: 8px; pointer-events: none;
+.rk-toasts { position: fixed; z-index: 95; bottom: var(--rk-toast-offset); left: 50%; transform: translateX(-50%); width: min(26rem, calc(100vw - 2rem)); display: flex; flex-direction: column; align-items: center; gap: 8px; pointer-events: none;
   font: 13px/1.4 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
 .rk-toast { pointer-events: auto; display: flex; align-items: center; gap: 10px; min-height: 38px; max-width: 100%; padding: 6px 6px 6px 12px; border-radius: 99px; background: var(--rk-elevated); color: var(--rk-ink); box-shadow: var(--rk-pop); animation: rk-toast-in .18s cubic-bezier(.2,.8,.2,1); }
 .rk-toast.is-leaving { animation: rk-pop-out .15s ease-in forwards; }

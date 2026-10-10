@@ -15,7 +15,7 @@ The first-run and re-acceptance legal gate screen for Right Suite desktop apps. 
 
 | Import | Contents |
 |---|---|
-| `@rightkit/legal-ui` | `LegalGate`; types `LegalGateDocument`, `LegalGateEligibilityBasis`, `LegalGateProps`, `LegalGateTheme`, `LegalGateVariant` |
+| `@rightkit/legal-ui` | `LegalGate`; types `LegalGateAgreement`, `LegalGateDocument`, `LegalGateEligibilityLabels`, `LegalGateEligibilityBasis`, `LegalGateProps`, `LegalGateTheme`, `LegalGateVariant` |
 | `@rightkit/legal-ui/legal-ui.css` | Stylesheet. Import it under a strict CSP. |
 
 Peer dependency: `react` `>=18 <21`.
@@ -42,7 +42,7 @@ import "@rightkit/legal-ui/legal-ui.css";
 />
 ```
 
-Props: `theme`, `appName`, `trustLine`, `documents`, `agreementStatement`, `variant`, `onAgree`, `onQuit`, and optional `dbaLine`, `parentLogoSrc`, `wordmarkFontUrl`. `onAgree` may return a Promise. While it is pending the button shows `aria-busy`. A rejection or throw shows an alert and lets the user retry.
+Props: `appName`, `trustLine`, `documents`, `agreementStatement`, `variant`, `onAgree`, `onQuit`, and optional `theme`, `version`, `manifestSha256`, `eligibilityLabels`, `lockup`, `dbaLine`, `parentLogoSrc`, `wordmarkFontUrl`. `onAgree` receives one object, `{ version, acceptedAt, manifestSha256, eligibilityBasis }`; `acceptedAt` is a UTC ISO string taken at acceptance, and `version`/`manifestSha256` echo the props. It may return a Promise. `eligibilityLabels` overrides the eligibility copy. `lockup` replaces the publisher lockup (`null` hides it). The gate forces no light or dark theme: it sets no `data-theme` or `color-scheme`, so pass host tokens (or `var(--token)` references) in `theme` and the host's `data-theme` applies. While it is pending the button shows `aria-busy`. A rejection or throw shows an alert and lets the user retry.
 
 ## Known issues
 

@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.5
+
+- New optional `PdfViewer` prop `onPassword(reason, attempt)` for encrypted PDFs. `reason` is `"need"` (first request) or `"incorrect"` (last one was wrong). Return the string to retry with, or null/undefined to give up: the viewer shows no document and reports `PdfPasswordCancelledError` through `onError`. The load timeout is paused while the callback runs; a handler that keeps failing stops after 10 attempts. Absent: encrypted PDFs fail through `onError` exactly as before.
+- New optional `PdfViewer` prop `maxRenderPages`. Pages past the cap stay as empty placeholders (`data-capped`) and are never rendered; thumbnails and find also stop at the cap. Default unlimited, so existing behaviour is unchanged.
+- New exports: `PdfPasswordCancelledError`, `renderPageLimit`, types `PdfPasswordHandler`, `PdfPasswordReason`, `PdfViewerProps`. Backwards compatible.
+
 ## 0.1.4
 
 - Republish with `dist/` present. 0.1.3 was published from an unbuilt tree and cannot be imported (exports point at ./dist/index.js); do not pin 0.1.3. `prepack` now builds.

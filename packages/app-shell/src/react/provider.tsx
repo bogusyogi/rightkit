@@ -26,8 +26,41 @@ type ModalRequest =
   | { kind: "confirm"; options: ConfirmOptions; resolve: (value: boolean) => void }
   | { kind: "prompt"; options: PromptOptions; resolve: (value: string | null) => void };
 
+/**
+ * Built-in shell chords. A string rebinds, `false` disables. Defaults: palette `mod+k`, help `?`,
+ * sidebar toggle `mod+\`. Apps that own `mod+k` (an in-editor "add link") disable or move it here.
+ */
+export interface ShellKeybindings {
+  palette?: string | false;
+  help?: string | false;
+  sidebar?: string | false;
+}
+
+export interface ResolvedKeybindings {
+  palette: string | false;
+  help: string | false;
+  sidebar: string | false;
+}
+
+/** Built-in defaults: the palette and help props are the legacy spelling; `keybindings` wins when set. */
+export function resolveShellKeybindings(input: {
+  keybindings?: ShellKeybindings;
+  paletteChord?: string | false;
+  helpChord?: string | false;
+  sidebarChord?: string | false;
+}): ResolvedKeybindings {
+  const pick = <T,>(override: T | undefined, fallback: T) => (override !== undefined ? override : fallback);
+  return {
+    palette: pick(input.keybindings?.palette, input.paletteChord ?? "mod+k"),
+    help: pick(input.keybindings?.help, input.helpChord ?? "?"),
+    sidebar: pick(input.keybindings?.sidebar, input.sidebarChord ?? "mod+\\"),
+  };
+}
+
 export interface ShellContextValue {
   platform: Platform;
+  /** Resolved built-in chords (after `keybindings` and the legacy chord props). */
+  keybindings: Readonly<ResolvedKeybindings>;
   registry: ShortcutRegistry;
   commands: CommandRegistry;
   toasts: ToastBus;
@@ -51,10 +84,14 @@ export interface ShellProviderProps {
   toastBus?: ToastBus;
   bridge?: AppShellBridge;
   platform?: Platform;
-  /** Palette chord. `false` disables the built-in binding. Default "mod+k". */
+  /** Palette chord. `false` disables the built-in binding. Default "mod+k". Superseded by `keybindings.palette`. */
   paletteChord?: string | false;
-  /** Shortcut-help chord. `false` disables. Default "?". */
+  /** Shortcut-help chord. `false` disables. Default "?". Superseded by `keybindings.help`. */
   helpChord?: string | false;
+  /** Override or disable the built-in chords (palette, help, sidebar toggle). */
+  keybindings?: ShellKeybindings;
+  /** Palette width in px. Default 640. */
+  paletteWidth?: number;
   paletteLabels?: Partial<PaletteLabels>;
   helpTitle?: string;
   /** Render palette/help/dialogs/toasts. Default true; set false to mount them yourself. */
@@ -70,10 +107,16 @@ export function ShellProvider({
   platform: platformProp,
   paletteChord = "mod+k",
   helpChord = "?",
+  keybindings,
+  paletteWidth = 640,
   paletteLabels,
   helpTitle,
   mountOverlays = true,
 }: ShellProviderProps) {
+  const resolvedKeys = useMemo(
+    () => resolveShellKeybindings({ keybindings, paletteChord, helpChord }),
+    [keybindings, paletteChord, helpChord],
+  );
   const platform = platformProp ?? getPlatform();
   const registry = useMemo(() => registryProp ?? createShortcutRegistry({ platform }), [registryProp, platform]);
   const commands = useMemo(() => createCommandRegistry(), []);
@@ -105,14 +148,14 @@ export function ShellProvider({
   // Built-in bindings. Apps override by registering the same id, or disable via props.
   useEffect(() => {
     const offs: Array<() => void> = [];
-    if (paletteChord) {
-      offs.push(registry.register({ id: "shell.palette", chord: paletteChord, label: "Command palette", group: "General", allowInInput: true, run: () => setPaletteOpen((o) => !o) }));
+    if (resolvedKeys.palette) {
+      offs.push(registry.register({ id: "shell.palette", chord: resolvedKeys.palette, label: "Command palette", group: "General", allowInInput: true, run: () => setPaletteOpen((o) => !o) }));
     }
-    if (helpChord) {
+    if (resolvedKeys.help) {
       offs.push(
         registry.register({
           id: "shell.help",
-          chord: helpChord,
+          chord: resolvedKeys.help,
           label: "Keyboard shortcuts",
           group: "General",
           run: () => setHelpOpen((o) => !o),
@@ -120,7 +163,7 @@ export function ShellProvider({
       );
     }
     return () => offs.forEach((off) => off());
-  }, [registry, paletteChord, helpChord]);
+  }, [registry, resolvedKeys.palette, resolvedKeys.help]);
 
   // Native menu / tray / deep-link actions route to a command or shortcut with the same id.
   const onMenuAction = bridge?.onMenuAction;
@@ -149,8 +192,8 @@ export function ShellProvider({
   }, [choice, bridgeRef]);
 
   const value = useMemo<ShellContextValue>(
-    () => ({ platform, registry, commands, toasts: bus, bridge, themeStore: store, palette, help, confirm, prompt }),
-    [platform, registry, commands, bus, bridge, store, palette, help, confirm, prompt],
+    () => ({ platform, keybindings: resolvedKeys, registry, commands, toasts: bus, bridge, themeStore: store, palette, help, confirm, prompt }),
+    [platform, resolvedKeys, registry, commands, bus, bridge, store, palette, help, confirm, prompt],
   );
 
   const paletteCommands = useSyncExternalStore(commands.subscribe, commands.list, commands.list);
@@ -165,7 +208,7 @@ export function ShellProvider({
       {children}
       {mountOverlays ? (
         <>
-          {paletteOpen ? <CommandPalette commands={paletteCommands} registry={registry} labels={paletteLabels} onClose={palette.hide} /> : null}
+          {paletteOpen ? <CommandPalette commands={paletteCommands} registry={registry} labels={paletteLabels} paletteWidth={paletteWidth} onClose={palette.hide} /> : null}
           {helpOpen ? <ShortcutHelp registry={registry} title={helpTitle} onClose={help.hide} /> : null}
           {top?.kind === "confirm" ? (
             <ConfirmDialog {...top.options} onConfirm={() => settle(() => top.resolve(true))} onCancel={() => settle(() => top.resolve(false))} />

@@ -48,9 +48,59 @@ describe("LegalGate", () => {
     expect(onOpen).toHaveBeenCalledTimes(1);
   });
 
-  it("renders in the locked light colour scheme", () => {
+  it("forces no theme: no data-theme, no colour-scheme, and it follows an ancestor data-theme", () => {
+    const host = document.createElement("div");
+    host.setAttribute("data-theme", "dark");
+    document.body.appendChild(host);
+    const { container } = render(<LegalGate {...baseProps({ theme: undefined })} />, { container: host });
+    const root = container.querySelector(".rk-legal-gate") as HTMLElement;
+    expect(root.hasAttribute("data-theme")).toBe(false);
+    expect(root.closest("[data-theme]")?.getAttribute("data-theme")).toBe("dark");
+    expect(root.style.colorScheme).toBe("");
+    expect(root.style.background).toBe("");
+    expect(root.style.color).toBe("");
+    host.remove();
+  });
+
+  it("keeps the colour-scheme unset when a full host theme is passed", () => {
     const { container } = render(<LegalGate {...baseProps()} />);
-    expect((container.querySelector(".rk-legal-gate") as HTMLElement).style.colorScheme).toBe("light");
+    const root = container.querySelector(".rk-legal-gate") as HTMLElement;
+    expect(root.style.colorScheme).toBe("");
+    expect(root.hasAttribute("data-theme")).toBe(false);
+    expect(root.style.background).not.toBe("");
+  });
+
+  it("accepts CSS variable references as theme values", () => {
+    const { container } = render(<LegalGate {...baseProps({ theme: { bg: "var(--app-bg)", text: "var(--app-fg)" } })} />);
+    const root = container.querySelector(".rk-legal-gate") as HTMLElement;
+    expect(root.style.background).toContain("var(--app-bg)");
+    expect(root.style.color).toContain("var(--app-fg)");
+  });
+
+  it("renders the default eligibility copy and lockup", () => {
+    const { container } = render(<LegalGate {...baseProps()} />);
+    expect(screen.getByRole("radio", { name: /for myself/i })).toBeInTheDocument();
+    expect(screen.getByText("One person, my own devices, including my own freelance work.")).toBeInTheDocument();
+    expect(screen.getByText("Seats are licensed under an Enterprise Order.")).toBeInTheDocument();
+    expect(screen.getByText("Who is this license for")).toBeInTheDocument();
+    expect(container.querySelector(".rk-legal-gate__lockup")).toHaveTextContent("Orthic Labs");
+  });
+
+  it("overrides eligibility copy per field and keeps the other defaults", () => {
+    render(<LegalGate {...baseProps({ eligibilityLabels: { legend: "Licensee", individual: { label: "Solo" }, enterprise: { description: "Via order form." } } })} />);
+    expect(screen.getByRole("radio", { name: /solo/i })).toBeInTheDocument();
+    expect(screen.getByText("One person, my own devices, including my own freelance work.")).toBeInTheDocument();
+    expect(screen.getByRole("radio", { name: /for an organization/i })).toBeInTheDocument();
+    expect(screen.getByText("Via order form.")).toBeInTheDocument();
+    expect(screen.getByText("Licensee")).toBeInTheDocument();
+  });
+
+  it("replaces the lockup with a host slot, or hides it with null", () => {
+    const { container, rerender } = render(<LegalGate {...baseProps({ lockup: <span data-testid="mine">Acme</span> })} />);
+    expect(screen.getByTestId("mine")).toBeInTheDocument();
+    expect(container.querySelector(".rk-legal-gate__lockup")).not.toHaveTextContent("Orthic Labs");
+    rerender(<LegalGate {...baseProps({ lockup: null })} />);
+    expect(container.querySelector(".rk-legal-gate__lockup")).toBeEmptyDOMElement();
   });
 
   it("keeps Agree disabled until a basis is chosen and the checkbox is ticked", async () => {
@@ -90,7 +140,28 @@ describe("LegalGate", () => {
     await user.click(screen.getByRole("button", { name: /agree/i }));
 
     expect(onAgree).toHaveBeenCalledTimes(1);
-    expect(onAgree).toHaveBeenCalledWith({ eligibilityBasis: "enterprise" });
+    expect(onAgree).toHaveBeenCalledWith({ version: undefined, acceptedAt: expect.any(String), manifestSha256: undefined, eligibilityBasis: "enterprise" });
+  });
+
+  it("passes { version, acceptedAt, manifestSha256, eligibilityBasis } with a UTC ISO acceptedAt taken at click time", async () => {
+    const user = userEvent.setup();
+    const onAgree = vi.fn();
+    const sha = "a".repeat(64);
+    render(<LegalGate {...baseProps({ onAgree, version: "2026-10-01", manifestSha256: sha })} />);
+    await user.click(screen.getByRole("radio", { name: /for myself/i }));
+    await user.click(screen.getByRole("checkbox"));
+    const before = Date.now();
+    await user.click(screen.getByRole("button", { name: /agree/i }));
+    const after = Date.now();
+    expect(onAgree).toHaveBeenCalledTimes(1);
+    const [arg, ...rest] = onAgree.mock.calls[0]!;
+    expect(rest).toEqual([]);
+    expect(Object.keys(arg).sort()).toEqual(["acceptedAt", "eligibilityBasis", "manifestSha256", "version"]);
+    expect(arg).toMatchObject({ version: "2026-10-01", manifestSha256: sha, eligibilityBasis: "individual" });
+    expect(arg.acceptedAt).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
+    expect(new Date(arg.acceptedAt).toISOString()).toBe(arg.acceptedAt);
+    expect(Date.parse(arg.acceptedAt)).toBeGreaterThanOrEqual(before);
+    expect(Date.parse(arg.acceptedAt)).toBeLessThanOrEqual(after);
   });
 
   it("fires onQuit when Quit is clicked, independent of agreement state", async () => {

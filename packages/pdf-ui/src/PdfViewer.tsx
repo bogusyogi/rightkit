@@ -15,7 +15,8 @@ import type { PDFDocumentProxy, PDFPageProxy, PageViewport } from "pdfjs-dist";
 import { TextLayer } from "pdfjs-dist";
 import { createPdfLinkService, type PdfLinkActions } from "./linkService.js";
 import { ensurePdfWorker } from "./pdfJs.js";
-import { boundedCanvasDpr, clampScale, viewportRotation, withTimeout } from "./shared.js";
+import { boundedCanvasDpr, clampScale, renderPageLimit, viewportRotation, withTimeout } from "./shared.js";
+import { attachPasswordHandler, createLoadTimer, type PdfPasswordHandler } from "./password.js";
 import type {
   OutlineNode,
   PdfDocumentInfo,
@@ -46,6 +47,14 @@ export interface PdfViewerProps {
   hideToolbar?: boolean;
   /** Render a find input in the toolbar. Defaults to true. */
   findBar?: boolean;
+  /** Called when an encrypted PDF needs a password (`"need"`) or the last one was wrong
+   *  (`"incorrect"`). Return the password to retry, or null/undefined to give up: the viewer then
+   *  shows no document and reports a `PdfPasswordCancelledError` through `onError`. Absent: an
+   *  encrypted PDF fails through `onError` as before. Presence is read when loading starts. */
+  onPassword?: PdfPasswordHandler;
+  /** Render at most this many pages (from page 1). Later pages stay as empty placeholders, are
+   *  never rendered, and are skipped by the thumbnails and find. Absent/invalid: unlimited. */
+  maxRenderPages?: number;
 }
 
 interface PageState {
@@ -96,13 +105,17 @@ function fitScale(mode: Exclude<PdfFitMode, null>, host: HTMLElement, size: Size
   return clampScale(value);
 }
 
-function usePdfDocument(source: PdfSource, onError?: (error: Error) => void, onLoadingChange?: (loading: boolean) => void) {
+function usePdfDocument(source: PdfSource, onError?: (error: Error) => void, onLoadingChange?: (loading: boolean) => void, onPassword?: PdfPasswordHandler) {
   const [document, setDocument] = useState<PDFDocumentProxy | null>(null);
   const [loading, setLoading] = useState(true);
+  const unlockRef = useRef(onPassword);
+  unlockRef.current = onPassword;
   const key = sourceKey(source);
   useEffect(() => {
     let cancelled = false;
     let task: ReturnType<typeof pdfjs.getDocument> | null = null;
+    let flow: { failure: Error | null } | null = null;
+    let timer: ReturnType<typeof createLoadTimer> | null = null;
     setLoading(true);
     onLoadingChange?.(true);
     ensurePdfWorker();
@@ -111,7 +124,9 @@ function usePdfDocument(source: PdfSource, onError?: (error: Error) => void, onL
         const data = await loadSource(source);
         if (cancelled) return;
         task = pdfjs.getDocument(typeof data === "string" ? { url: data } : { data });
-        const next = await withTimeout(task.promise, PAGE_LOAD_TIMEOUT, "PDF document load timed out");
+        timer = createLoadTimer(PAGE_LOAD_TIMEOUT, "PDF document load timed out");
+        if (unlockRef.current) flow = attachPasswordHandler(task, () => unlockRef.current, timer);
+        const next = await Promise.race([task.promise, timer.promise]);
         if (cancelled) {
           void next.cleanup();
           return;
@@ -119,9 +134,10 @@ function usePdfDocument(source: PdfSource, onError?: (error: Error) => void, onL
         setDocument(next);
       } catch (value) {
         if (cancelled) return;
-        const error = value instanceof Error ? value : new Error(String(value));
+        const error = flow?.failure ?? (value instanceof Error ? value : new Error(String(value)));
         onError?.(error);
       } finally {
+        timer?.clear();
         if (!cancelled) {
           setLoading(false);
           onLoadingChange?.(false);
@@ -152,6 +168,8 @@ export function PdfViewer({
   toolbar,
   hideToolbar = false,
   findBar = true,
+  onPassword,
+  maxRenderPages,
 }: PdfViewerProps) {
   const hostRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -159,7 +177,7 @@ export function PdfViewer({
   const pageRefs = useRef(new Map<number, PageState>());
   const pdfRef = useRef<PDFDocumentProxy | null>(null);
   const [pdf, setPdf] = useState<PDFDocumentProxy | null>(null);
-  const { document: pdfDocument, loading } = usePdfDocument(source, onError, onLoadingChange);
+  const { document: pdfDocument, loading } = usePdfDocument(source, onError, onLoadingChange, onPassword);
   const [numPages, setNumPages] = useState(0);
   const [page, setPage] = useState(Math.max(1, initialView?.page ?? 1));
   const [scale, setScale] = useState(initialView?.scale ?? 1);
@@ -174,6 +192,7 @@ export function PdfViewer({
   const [pageDraft, setPageDraft] = useState("");
   const [scaleDraft, setScaleDraft] = useState("");
   const [renderedPages, setRenderedPages] = useState<Set<number>>(new Set());
+  const renderLimit = renderPageLimit(numPages, maxRenderPages);
 
   useEffect(() => {
     pdfRef.current = pdfDocument;
@@ -240,7 +259,7 @@ export function PdfViewer({
   }, [adapters?.openExternal, goToDest, goToPage, numPages, page]);
 
   const renderPage = useCallback(async (pageNumber: number, slot: HTMLDivElement) => {
-    if (!pdf) return;
+    if (!pdf || pageNumber > renderLimit) return;
     try {
       const pdfPage = await pdf.getPage(pageNumber);
       const pageRotation = viewportRotation(pdfPage.rotate, rotation);
@@ -278,7 +297,7 @@ export function PdfViewer({
       message.textContent = `Page ${pageNumber} could not render: ${error.message}`;
       slot.append(message);
     }
-  }, [linkService, pdf, rotation, scale]);
+  }, [linkService, pdf, renderLimit, rotation, scale]);
 
   useEffect(() => {
     if (!pdf || !scrollRef.current) return;
@@ -286,13 +305,20 @@ export function PdfViewer({
       for (const entry of entries) {
         if (entry.isIntersecting) {
           const pageNumber = Number((entry.target as HTMLElement).dataset.page);
-          if (Number.isFinite(pageNumber) && !pageRefs.current.has(pageNumber)) void renderPage(pageNumber, entry.target as HTMLDivElement);
+          if (Number.isFinite(pageNumber) && pageNumber <= renderLimit && !pageRefs.current.has(pageNumber)) void renderPage(pageNumber, entry.target as HTMLDivElement);
         }
       }
     }, { root: scrollRef.current, rootMargin: "700px 0px" });
     for (const slot of slotsRef.current.values()) observer.observe(slot);
     return () => observer.disconnect();
-  }, [numPages, pdf, renderPage]);
+  }, [numPages, pdf, renderLimit, renderPage]);
+
+  // A lowered cap un-renders pages that are now past it (they fall back to empty placeholders).
+  useEffect(() => {
+    for (const [pageNumber, slot] of slotsRef.current) {
+      if (pageNumber > renderLimit) { slot.replaceChildren(); pageRefs.current.delete(pageNumber); }
+    }
+  }, [renderLimit]);
 
   useEffect(() => {
     if (!pdf) return;
@@ -307,7 +333,7 @@ export function PdfViewer({
     }
     const found: Array<{ page: number; index: number }> = [];
     const needle = findOptions.matchCase ? nextQuery : nextQuery.toLocaleLowerCase();
-    for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber++) {
+    for (let pageNumber = 1; pageNumber <= Math.min(pdf.numPages, renderLimit); pageNumber++) {
       try {
         const content = await pdf.getPage(pageNumber).then((p) => p.getTextContent());
         let text = content.items.map((item) => "str" in item ? item.str : "").join(" ");
@@ -326,7 +352,7 @@ export function PdfViewer({
     setActiveMatch(found.length ? 0 : -1);
     if (found[0]) goToPage(found[0].page);
     return { count: found.length, activeIndex: found.length ? 0 : -1 };
-  }, [findOptions, goToPage, pdf, query]);
+  }, [findOptions, goToPage, pdf, query, renderLimit]);
 
   const stepMatch = useCallback((delta: number): PdfSearchResult => {
     if (!matches.length) return { count: 0, activeIndex: -1 };
@@ -374,12 +400,12 @@ export function PdfViewer({
     </div>}
     <div className="rk-pdf-body">
       {panel === "outline" && <OutlinePanel nodes={outline ?? []} onSelect={(dest) => void goToDest(dest)} />}
-      {panel === "thumbs" && pdf && <ThumbnailPanel pdf={pdf} numPages={numPages} current={page} onSelect={goToPage} />}
+      {panel === "thumbs" && pdf && <ThumbnailPanel pdf={pdf} numPages={renderLimit} current={page} onSelect={goToPage} />}
       <div ref={scrollRef} className="rk-pdf-scroll" role="region" aria-label="PDF pages" tabIndex={0}>
         <div className="rk-pdf-pages">
           {Array.from({ length: numPages }, (_, index) => index + 1).map((pageNumber) => <div
             key={pageNumber} data-page={pageNumber} ref={(element) => { if (element) slotsRef.current.set(pageNumber, element); else slotsRef.current.delete(pageNumber); }}
-            className="rk-pdf-page" style={{ width: (pageRefs.current.get(pageNumber)?.width ?? 612) * scale, height: (pageRefs.current.get(pageNumber)?.height ?? 792) * scale }}
+            className="rk-pdf-page" data-capped={pageNumber > renderLimit || undefined} style={{ width: (pageRefs.current.get(pageNumber)?.width ?? 612) * scale, height: (pageRefs.current.get(pageNumber)?.height ?? 792) * scale }}
           >{pageRefs.current.get(pageNumber)?.error && <p className="rk-pdf-error">{pageRefs.current.get(pageNumber)?.error}</p>}</div>)}
         </div>
       </div>

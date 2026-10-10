@@ -2,6 +2,8 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, typ
 import { createPortal } from "react-dom";
 import { Kbd } from "@rightkit/platform-ui/react";
 import { floatingPanelStyle } from "../geometry.js";
+import { cx } from "./ui.js";
+import type { SlotClasses } from "./slots.js";
 
 export interface MenuItem {
   id: string;
@@ -25,6 +27,10 @@ export interface ContextMenuProps {
   /** Accessible name, e.g. "Document actions". */
   label: string;
   width?: number;
+  /** Extra class on the menu element. */
+  className?: string;
+  /** Extra classes per region: `root` (menu), `item`, `separator`, `label`. */
+  slots?: SlotClasses<"root" | "item" | "separator" | "label">;
 }
 
 const enabled = (items: readonly MenuItem[]) => items.map((item, i) => (item.disabled ? -1 : i)).filter((i) => i >= 0);
@@ -34,7 +40,7 @@ const enabled = (items: readonly MenuItem[]) => items.map((item, i) => (item.dis
  * menu exists and what is in it. Keyboard: arrows/Home/End move, Enter/Space activate, Escape
  * closes and restores focus. Mouse-down never steals the document selection (Copy/Cut still work).
  */
-export function ContextMenu({ x, y, items, onClose, label, width = 200 }: ContextMenuProps) {
+export function ContextMenu({ x, y, items, onClose, label, width = 200, className, slots }: ContextMenuProps) {
   const ref = useRef<HTMLDivElement>(null);
   const menuId = useRef(`rk-menu-${Math.random().toString(36).slice(2, 8)}`);
   const opener = useRef<HTMLElement | null>(typeof document !== "undefined" ? (document.activeElement as HTMLElement | null) : null);
@@ -113,25 +119,25 @@ export function ContextMenu({ x, y, items, onClose, label, width = 200 }: Contex
         aria-label={label}
         aria-activedescendant={active >= 0 ? `${menuId.current}-${active}` : undefined}
         tabIndex={-1}
-        className="rk-menu"
+        className={cx("rk-menu", className, slots?.root)}
         style={pos}
         onMouseDown={(e) => e.preventDefault()}
         onKeyDown={onKeyDown}
       >
         {items.map((item, i) => (
           <div key={item.id}>
-            {item.separatorBefore ? <div className="rk-menu__sep" role="separator" /> : null}
+            {item.separatorBefore ? <div className={cx("rk-menu__sep", slots?.separator)} role="separator" /> : null}
             <div
               id={`${menuId.current}-${i}`}
               role={item.checked === undefined ? "menuitem" : "menuitemcheckbox"}
               aria-checked={item.checked}
               aria-disabled={item.disabled || undefined}
-              className={`rk-menu__item${i === active ? " is-active" : ""}${item.danger ? " is-danger" : ""}${item.disabled ? " is-disabled" : ""}`}
+              className={cx("rk-menu__item", i === active && "is-active", item.danger && "is-danger", item.disabled && "is-disabled", slots?.item)}
               onMouseMove={() => !item.disabled && setActive(i)}
               onClick={() => run(item)}
             >
               <span className="rk-menu__lead" aria-hidden="true">{item.checked ? "✓" : item.icon}</span>
-              <span className="rk-menu__label">{item.label}</span>
+              <span className={cx("rk-menu__label", slots?.label)}>{item.label}</span>
               {item.shortcut ? <Kbd chord={item.shortcut} gap={1} /> : null}
             </div>
           </div>

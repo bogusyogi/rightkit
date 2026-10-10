@@ -24,7 +24,8 @@ import { THEME_CHOICES, type ThemeChoice } from "../theme.js";
 import { useMediaQuery } from "./hooks.js";
 import { ContextMenu, type MenuItem } from "./contextmenu.js";
 import { ShellProvider, useCommands, useShellOptional, useShortcuts, useTheme, type ShellProviderProps } from "./provider.js";
-import { IconButton } from "./ui.js";
+import { IconButton, cx } from "./ui.js";
+import type { SlotClasses } from "./slots.js";
 
 export interface ShellLabels {
   jumpTo: string;
@@ -91,10 +92,10 @@ const blurThen = (fn: () => Promise<void>) => (event: MouseEvent<HTMLButtonEleme
   void fn().catch(() => undefined);
 };
 
-export function CaptionControls({ adapter, labels = createWindowControlLabels() }: { adapter: WindowControlAdapter; labels?: WindowControlLabels }) {
+export function CaptionControls({ adapter, labels = createWindowControlLabels(), className }: { adapter: WindowControlAdapter; labels?: WindowControlLabels; className?: string }) {
   const controls = useMemo(() => createWindowControls(adapter), [adapter]);
   return (
-    <div className="rk-caption">
+    <div className={cx("rk-caption", className)}>
       <button type="button" className="rk-caption__btn" title={labels.minimize} aria-label={labels.minimize} onClick={blurThen(controls.minimize)}>
         <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><rect x="0" y="4.5" width="10" height="1" fill="currentColor" /></svg>
       </button>
@@ -120,27 +121,33 @@ export interface TitlebarProps {
   windowControlLabels?: WindowControlLabels;
   platform?: Platform;
   className?: string;
+  /**
+   * Extra classes per region: `root` (header, same as `className`), `side` (start cluster), `lights`
+   * (macOS traffic-light space), `title`, `drag` (flexible drag region), `end` and `caption`.
+   */
+  slots?: SlotClasses<"root" | "side" | "lights" | "title" | "drag" | "end" | "caption">;
 }
 
 /**
  * Drag-region titlebar usable in ANY layout. macOS reserves space for the native traffic lights
- * (Overlay title bar); Windows/Linux draw caption buttons from the adapter.
+ * (Overlay title bar); Windows/Linux draw caption buttons from the adapter. Heights, paddings and
+ * widths are `--rk-titlebar-*` / `--rk-lights-width` / `--rk-caption-*` tokens (see the README recipe).
  */
-export function Titlebar({ start, startWidth, title, end, windowControls, windowControlLabels, platform: platformProp, className }: TitlebarProps) {
+export function Titlebar({ start, startWidth, title, end, windowControls, windowControlLabels, platform: platformProp, className, slots }: TitlebarProps) {
   const detected = usePlatform();
   const platform = platformProp ?? detected;
   const caps = platformCapabilities(platform);
   const style = startWidth !== undefined ? ({ width: startWidth } as CSSProperties) : undefined;
   return (
-    <header className={`rk-top${className ? ` ${className}` : ""}`} data-tauri-drag-region>
-      <div className="rk-top__side" style={style} data-tauri-drag-region>
-        {caps.nativeTrafficLights ? <span className="rk-top__lights" data-tauri-drag-region /> : null}
+    <header className={cx("rk-top", className, slots?.root)} data-tauri-drag-region>
+      <div className={cx("rk-top__side", slots?.side)} style={style} data-tauri-drag-region>
+        {caps.nativeTrafficLights ? <span className={cx("rk-top__lights", slots?.lights)} data-tauri-drag-region /> : null}
         {start}
       </div>
-      {title ? <div className="rk-top__title" data-tauri-drag-region>{title}</div> : null}
-      <div className="rk-top__drag" data-tauri-drag-region />
+      {title ? <div className={cx("rk-top__title", slots?.title)} data-tauri-drag-region>{title}</div> : null}
+      <div className={cx("rk-top__drag", slots?.drag)} data-tauri-drag-region />
       {end}
-      {caps.customCaptionButtons && windowControls ? <CaptionControls adapter={windowControls} labels={windowControlLabels} /> : null}
+      {caps.customCaptionButtons && windowControls ? <CaptionControls adapter={windowControls} labels={windowControlLabels} className={slots?.caption} /> : null}
     </header>
   );
 }
@@ -229,12 +236,13 @@ export function JumpTo({ groups, query, onQueryChange, onNavigate, label = DEFAU
 }
 
 /** Sidebar search that opens the command palette (HeardRight / CodeRight pattern). */
-export function PaletteTrigger({ onOpen, label = DEFAULT_SHELL_LABELS.jumpTo, chord = "mod+k", platform }: { onOpen: () => void; label?: string; chord?: string; platform?: Platform }) {
+/** `chord={false}` hides the shortcut hint (the binding is disabled in `keybindings`). */
+export function PaletteTrigger({ onOpen, label = DEFAULT_SHELL_LABELS.jumpTo, chord = "mod+k", platform, className }: { onOpen: () => void; label?: string; chord?: string | false; platform?: Platform; className?: string }) {
   return (
-    <button type="button" className="rk-search rk-search--trigger" aria-label={`${label} (command palette)`} aria-haspopup="dialog" onClick={onOpen}>
+    <button type="button" className={cx("rk-search rk-search--trigger", className)} aria-label={`${label} (command palette)`} aria-haspopup="dialog" onClick={onOpen}>
       <SearchIcon />
       <span className="rk-search__text">{label}…</span>
-      <Kbd chord={chord} platform={platform} gap={3} />
+      {chord ? <Kbd chord={chord} platform={platform} gap={3} /> : null}
     </button>
   );
 }
@@ -363,7 +371,7 @@ export interface AppShellProps {
   commands?: readonly Command[];
   sidebarCollapsed?: boolean;
   onSidebarCollapsedChange?: (collapsed: boolean) => void;
-  /** Show the titlebar sidebar toggle and bind `mod+\`. Default true. */
+  /** Show the titlebar sidebar toggle and bind the sidebar chord (`keybindings.sidebar`, default `mod+\`). Default true. */
   sidebarToggle?: boolean;
   /** Native bridge (`@rightkit/shell`); `window` supplies caption buttons. */
   bridge?: AppShellBridge;
@@ -375,8 +383,13 @@ export interface AppShellProps {
   platform?: Platform;
   sidebarWidth?: number;
   className?: string;
-  /** Options for the implicit `ShellProvider` (ignored when an ancestor provider exists). */
+  /** Options for the implicit `ShellProvider` (ignored when an ancestor provider exists). Includes `keybindings` and `paletteWidth`. */
   shell?: Omit<ShellProviderProps, "children" | "bridge" | "platform">;
+  /**
+   * Extra classes per region: `root` (frame, same as `className`), `titlebar` (default titlebar),
+   * `sidebar`, `sidebarFoot`, `body` (the row under the titlebar) and `plane` (the content surface).
+   */
+  slots?: SlotClasses<"root" | "titlebar" | "sidebar" | "sidebarFoot" | "body" | "plane">;
   children: ReactNode;
 }
 
@@ -414,9 +427,10 @@ function ShellLayout(props: AppShellProps) {
     [props.groups, props.commands, props.onOpenSettings, labels.goTo, labels.settings, labels.appearance, labels.toggleSidebar, hasSidebar, sidebarToggle, collapsed],
   );
   useCommands(navCommands);
+  const sidebarChord = shell.keybindings.sidebar;
   useShortcuts(
-    hasSidebar && sidebarToggle
-      ? [{ id: "shell.sidebar", chord: "mod+\\", label: labels.toggleSidebar, group: "View", rebindable: true, allowInInput: true, run: () => setCollapsed(!collapsed) }]
+    hasSidebar && sidebarToggle && sidebarChord
+      ? [{ id: "shell.sidebar", chord: sidebarChord, label: labels.toggleSidebar, group: "View", rebindable: true, allowInInput: true, run: () => setCollapsed(!collapsed) }]
       : [],
   );
 
@@ -429,12 +443,12 @@ function ShellLayout(props: AppShellProps) {
   ) : null;
 
   const defaultSidebar = (
-    <aside className="rk-side" aria-label={labels.sections} hidden={sideHidden}>
-      {searchMode === "palette" ? <PaletteTrigger onOpen={shell.palette.show} label={labels.jumpTo} platform={platform} /> : null}
+    <aside className={cx("rk-side", props.slots?.sidebar)} aria-label={labels.sections} hidden={sideHidden}>
+      {searchMode === "palette" ? <PaletteTrigger onOpen={shell.palette.show} label={labels.jumpTo} platform={platform} chord={shell.keybindings.palette} /> : null}
       {searchMode === "filter" ? <JumpTo groups={props.groups} query={query} onQueryChange={setQuery} onNavigate={props.onNavigate} label={labels.jumpTo} platform={platform} /> : null}
       {props.sidebarTop}
       <NavList groups={visible} activeId={props.activeId} onNavigate={(id) => { props.onNavigate(id); if (narrow) setCollapsed(true); }} label={labels.sections} />
-      <div className="rk-side__foot">
+      <div className={cx("rk-side__foot", props.slots?.sidebarFoot)}>
         {props.statusFooter ? <div className="rk-status">{props.statusFooter}</div> : null}
         <footer className="rk-brand-foot">
           <span className="rk-wordmark">{props.wordmark}</span>
@@ -450,7 +464,7 @@ function ShellLayout(props: AppShellProps) {
   );
 
   return (
-    <AppFrame platform={platform} className={`rk-shell--fused${sideHidden ? " is-collapsed" : ""}${narrow ? " is-narrow" : ""}${hasSidebar ? "" : " no-sidebar"}${props.className ? ` ${props.className}` : ""}`} style={style}>
+    <AppFrame platform={platform} className={cx("rk-shell--fused", sideHidden && "is-collapsed", narrow && "is-narrow", !hasSidebar && "no-sidebar", props.className, props.slots?.root)} style={style}>
       {props.titlebar === false ? null : props.titlebar !== undefined ? (
         props.titlebar
       ) : (
@@ -462,11 +476,12 @@ function ShellLayout(props: AppShellProps) {
           windowControls={adapter}
           windowControlLabels={props.windowControlLabels}
           platform={platform}
+          className={props.slots?.titlebar}
         />
       )}
-      <div className="rk-body">
+      <div className={cx("rk-body", props.slots?.body)}>
         {hasSidebar ? props.sidebar ?? defaultSidebar : null}
-        <Plane>{props.children}</Plane>
+        <Plane className={props.slots?.plane}>{props.children}</Plane>
       </div>
     </AppFrame>
   );

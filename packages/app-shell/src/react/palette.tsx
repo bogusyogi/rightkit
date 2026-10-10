@@ -5,6 +5,8 @@ import { groupByName, initialPaletteSelection, rankItems, selectByKeyboard, sele
 import type { ShortcutRegistry } from "../shortcuts.js";
 import { chordSteps } from "../shortcuts.js";
 import { useFocusTrap, useModalDismiss } from "./hooks.js";
+import { cx } from "./ui.js";
+import type { SlotClasses } from "./slots.js";
 
 export interface PaletteLabels {
   placeholder: string;
@@ -27,13 +29,19 @@ export interface CommandPaletteProps {
   registry?: ShortcutRegistry;
   labels?: Partial<PaletteLabels>;
   limit?: number;
+  /** Width in px. Default 640. */
+  paletteWidth?: number;
+  /** Extra class on the palette surface. */
+  className?: string;
+  /** Extra classes per region: `root`, `field`, `input`, `list`, `group`, `option`, `empty`. */
+  slots?: SlotClasses<"root" | "field" | "input" | "list" | "group" | "option" | "empty">;
 }
 
 /**
  * Cmd/Ctrl+K quick-open + command runner. Ranking merges substring/keyword/subsequence matching;
  * results are grouped by `command.group`; keyboard selection is not stolen by a resting mouse.
  */
-export function CommandPalette({ commands, onClose, registry, labels: labelOverrides, limit = 50 }: CommandPaletteProps) {
+export function CommandPalette({ commands, onClose, registry, labels: labelOverrides, limit = 50, paletteWidth = 640, className, slots }: CommandPaletteProps) {
   const labels = { ...DEFAULT_PALETTE_LABELS, ...labelOverrides };
   const [query, setQuery] = useState("");
   const [selection, setSelection] = useState<PaletteSelection>(initialPaletteSelection);
@@ -72,7 +80,8 @@ export function CommandPalette({ commands, onClose, registry, labels: labelOverr
         role="dialog"
         aria-modal="true"
         aria-label={labels.title}
-        className={`rk-palette${closing ? " is-closing" : ""}`}
+        style={{ width: paletteWidth }}
+        className={cx("rk-palette", closing && "is-closing", className, slots?.root)}
         onKeyDown={(e) => {
           if (e.key === "Escape") {
             e.preventDefault();
@@ -81,10 +90,11 @@ export function CommandPalette({ commands, onClose, registry, labels: labelOverr
           }
         }}
       >
-        <div className="rk-palette__field">
+        <div className={cx("rk-palette__field", slots?.field)}>
           <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" aria-hidden="true"><circle cx="7" cy="7" r="4.5" /><path d="M10.5 10.5 14 14" /></svg>
           <input
             ref={inputRef}
+            className={slots?.input}
             role="combobox"
             aria-label={labels.placeholder}
             aria-expanded="true"
@@ -107,11 +117,11 @@ export function CommandPalette({ commands, onClose, registry, labels: labelOverr
             }}
           />
         </div>
-        <div id={`${id}-list`} role="listbox" aria-label={labels.results} className="rk-palette__list">
-          {ordered.length === 0 ? <div className="rk-palette__empty">{labels.empty}</div> : null}
+        <div id={`${id}-list`} role="listbox" aria-label={labels.results} className={cx("rk-palette__list", slots?.list)}>
+          {ordered.length === 0 ? <div className={cx("rk-palette__empty", slots?.empty)}>{labels.empty}</div> : null}
           {groups.map((group) => (
             <div key={group.name} role="group" aria-label={group.name}>
-              <div className="rk-palette__group" aria-hidden="true">{group.name}</div>
+              <div className={cx("rk-palette__group", slots?.group)} aria-hidden="true">{group.name}</div>
               {group.items.map((command) => {
                 const i = row++;
                 const chord = chordOf(command);
@@ -122,7 +132,7 @@ export function CommandPalette({ commands, onClose, registry, labels: labelOverr
                     role="option"
                     aria-selected={i === sel}
                     data-command={command.id}
-                    className={`rk-palette__opt${i === sel ? " is-active" : ""}`}
+                    className={cx("rk-palette__opt", i === sel && "is-active", slots?.option)}
                     onMouseMove={(e) => setSelection((cur) => selectByPointer({ ...cur, active: cur.active }, i, { x: e.clientX, y: e.clientY }))}
                     onClick={() => run(command)}
                   >

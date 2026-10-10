@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.5.0
+
+Added:
+- `keybindings` on `ShellProvider` (and `AppShell`'s `shell` prop) to rebind or disable the palette (`mod+k`), help (`?`) and sidebar (`mod+\`) chords. `false` disables a binding. Overrides the legacy `paletteChord` and `helpChord` props. `ShellContextValue.keybindings` exposes the resolved values; `resolveShellKeybindings` is exported for tests.
+- `paletteWidth` on `ShellProvider` and `CommandPalette` (default 640). The palette sets its width inline.
+- `className` and `slots` on `ModalShell`, `Dialog`, `ConfirmDialog`, `PromptDialog`, `ContextMenu`, `CommandPalette`, `ToastViewport`, `Titlebar` and `AppShell`. Slot regions are listed in the README.
+- Titlebar and caption tokens: `--rk-titlebar-start-pad`, `--rk-titlebar-side-pad-end`, `--rk-titlebar-pad-end`, `--rk-titlebar-gap`, `--rk-caption-width`, `--rk-caption-close-bg`, `--rk-caption-close-ink`, `--rk-plane-radius`, `--rk-toast-offset` and `--rk-palette-width`. Defaults match the previous fixed values.
+- Theme store options: `defaultChoice` (default `"system"`), `alwaysPaintDataTheme` (default `true`) and `systemMedia`. The store listens to the OS colour scheme itself and exposes `resolved()` and `dispose()`.
+- Peer `@rightkit/platform-ui` `>=0.2.1` (headless exports). Optional peer `@tauri-apps/plugin-os` (`peerDependenciesMeta`).
+
+Changed:
+- `system` theme mode keeps `data-theme` set to the resolved `light` or `dark` value instead of removing it. Set `alwaysPaintDataTheme: false` for the previous behaviour. Stored `"system"` values are now honoured, and selecting the default removes the stored key.
+- `floatingPanelStyle`, `createToastBus`, `defaultToastBus`, `toast`, `useFocusTrap`, `useModalDismiss` and `useLatest` now live in `@rightkit/platform-ui/headless`. app-shell re-exports them, so existing imports are unchanged.
+
 ## 0.4.1
 
 - Republish with `dist/` present. 0.4.0 was published from an unbuilt tree and cannot be imported (exports point at ./dist/index.js); do not pin 0.4.0. `prepack` now builds.

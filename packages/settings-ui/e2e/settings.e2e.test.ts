@@ -85,7 +85,8 @@ describe.skipIf(!chrome)("settings-ui in real headless Chrome (muted) against a 
     await shot("settings-theme-restored-dark");
     // Back to system so later tests start from the OS scheme.
     await page.click(".rk-seg__item:nth-child(1)");
-    await page.waitFor("!document.documentElement.hasAttribute('data-theme')");
+    // System paints the resolved OS value into data-theme (alwaysPaintDataTheme default).
+    await page.waitFor("document.documentElement.getAttribute('data-theme') === (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')");
     await page.waitFor("document.querySelector('.rk-settings__saving')?.textContent === ''");
     await waitHost(() => settingsOnDisk().values["appearance.theme"] === "system");
   });

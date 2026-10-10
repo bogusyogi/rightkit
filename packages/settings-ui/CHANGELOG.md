@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.3.3
+
+Added:
+- `@rightkit/settings-ui/shell-adapter` subpath: `createShellBackends`, `METHODS`, `EVENTS`, `EngineShell`, `SettingsShell` and `ShellBackends`. The module describes the engine structurally and imports nothing from `@rightkit/shell`.
+- `src/blob-adapter` test and README example: an app-supplied `SettingsBackend` over a single blob.
+
+Changed:
+- The shell-backed adapter moved out of `backends.ts`. The root `@rightkit/settings-ui` entry still re-exports it, marked `@deprecated`, so existing imports keep working.
+- `@rightkit/shell` is an optional peer (`peerDependenciesMeta`). No file in the package imports it at runtime or in its types.
+
 ## 0.3.2
 
 - Republish with `dist/` present. 0.3.1 was published from an unbuilt tree and cannot be imported (exports point at ./dist/index.js); do not pin 0.3.1. `prepack` now builds.
