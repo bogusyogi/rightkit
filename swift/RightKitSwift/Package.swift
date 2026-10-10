@@ -21,6 +21,7 @@ let package = Package(
         .library(name: "RightKitIntents", targets: ["RightKitIntents"]),
         .library(name: "RightKitAppleCredentials", targets: ["RightKitAppleCredentials"]),
         .library(name: "RightKitOverlay", targets: ["RightKitOverlay"]),
+        .library(name: "RightKitWatch", targets: ["RightKitWatch"]),
         .library(name: "RightKitUI", targets: ["RightKitUI"]),
     ],
     targets: [
@@ -63,6 +64,9 @@ let package = Package(
         .testTarget(name: "RightKitAppleCredentialsTests", dependencies: ["RightKitAppleCredentials"]),
         .target(name: "RightKitOverlay"),
         .testTarget(name: "RightKitOverlayTests", dependencies: ["RightKitOverlay"]),
+        // FSEvents file watcher (macOS only; the target is empty on iOS). CoreServices from the SDK.
+        .target(name: "RightKitWatch"),
+        .testTarget(name: "RightKitWatchTests", dependencies: ["RightKitWatch"]),
         .target(name: "RightKitUI"),
         .testTarget(name: "RightKitUITests", dependencies: ["RightKitUI"]),
     ],

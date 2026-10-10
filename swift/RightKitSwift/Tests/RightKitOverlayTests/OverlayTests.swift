@@ -43,7 +43,62 @@ final class OverlayTests: XCTestCase {
         XCTAssertEqual(model.hitbox, RightKitOverlayRect(x: 726, y: 580, width: 84, height: 30))
     }
 
+    func testHitRegionsTakeTheMouseOnlyInsideAnyRect() {
+        let regions = RightKitOverlayHitRegions([
+            CGRect(x: 0, y: 0, width: 64, height: 10),
+            CGRect(x: 100, y: 50, width: 40, height: 40),
+        ])
+        XCTAssertEqual(regions.ignoresMouseEvents(at: CGPoint(x: 10, y: 5)), false)
+        XCTAssertEqual(regions.ignoresMouseEvents(at: CGPoint(x: 120, y: 70)), false, "second rect also takes the mouse")
+        XCTAssertEqual(regions.ignoresMouseEvents(at: CGPoint(x: 80, y: 30)), true, "gap between rects is click-through")
+        XCTAssertEqual(regions.ignoresMouseEvents(at: CGPoint(x: -1, y: 5)), true)
+        XCTAssertEqual(regions.ignoresMouseEvents(at: CGPoint(x: Double.nan, y: 5)), true, "non-finite pointer never takes the mouse")
+    }
+
+    func testEmptyHitRegionsLeaveClickThroughAlone() {
+        let regions = RightKitOverlayHitRegions()
+        XCTAssertFalse(regions.isActive)
+        XCTAssertNil(regions.ignoresMouseEvents(at: CGPoint(x: 1, y: 1)))
+    }
+
 #if os(macOS)
+    @MainActor
+    func testPanelDefaultsToInteractiveAndSetClickThroughToggles() {
+        let panel = RightKitOverlayPanel(contentRect: NSRect(x: 10, y: 10, width: 64, height: 10))
+        XCTAssertFalse(panel.ignoresMouseEvents)
+        XCTAssertTrue(panel.hitRegions.isEmpty)
+        panel.setClickThrough(true)
+        XCTAssertTrue(panel.ignoresMouseEvents)
+        panel.setClickThrough(false)
+        XCTAssertFalse(panel.ignoresMouseEvents)
+    }
+
+    @MainActor
+    func testUpdateClickThroughTogglesPerRegion() {
+        let origin = CGPoint(x: 400, y: 300)
+        let panel = RightKitOverlayPanel(contentRect: NSRect(origin: origin, size: CGSize(width: 200, height: 100)))
+        // Window coordinates: a 60x20 card at the lower left and a 30x30 card at the right.
+        panel.hitRegions = [CGRect(x: 0, y: 0, width: 60, height: 20), CGRect(x: 150, y: 50, width: 30, height: 30)]
+        func screen(_ x: CGFloat, _ y: CGFloat) -> CGPoint { panel.convertPoint(toScreen: CGPoint(x: x, y: y)) }
+
+        XCTAssertFalse(panel.updateClickThrough(forMouseAt: screen(10, 10)))
+        XCTAssertFalse(panel.ignoresMouseEvents)
+        XCTAssertTrue(panel.updateClickThrough(forMouseAt: screen(100, 40)), "transparent gap passes the mouse through")
+        XCTAssertTrue(panel.ignoresMouseEvents)
+        XCTAssertFalse(panel.updateClickThrough(forMouseAt: screen(160, 60)))
+        XCTAssertFalse(panel.ignoresMouseEvents)
+        XCTAssertTrue(panel.updateClickThrough(forMouseAt: CGPoint(x: -5000, y: -5000)))
+    }
+
+    @MainActor
+    func testUpdateClickThroughWithoutRegionsKeepsExplicitState() {
+        let panel = RightKitOverlayPanel(contentRect: NSRect(x: 10, y: 10, width: 64, height: 10))
+        panel.setClickThrough(true)
+        XCTAssertTrue(panel.updateClickThrough(forMouseAt: panel.convertPoint(toScreen: CGPoint(x: 5, y: 5))))
+        panel.setClickThrough(false)
+        XCTAssertFalse(panel.updateClickThrough(forMouseAt: CGPoint(x: -5000, y: -5000)))
+    }
+
     @MainActor
     func testPanelIsNonActivatingAndStatusLevel() {
         let panel = RightKitOverlayPanel(contentRect: NSRect(x: 10, y: 10, width: 64, height: 10))

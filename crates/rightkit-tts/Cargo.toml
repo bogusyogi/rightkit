@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-tts"
-version = "0.1.1"
+version = "0.2.0"
 edition = "2021"
 rust-version = "1.98.0"
 publish = true
@@ -36,8 +36,8 @@ thiserror = { version = "2", optional = true }
 rightkit-fs = { version = "0.3.3", path = "../rightkit-fs", default-features = false, features = ["digest"], optional = true }
 rightkit-ort = { version = "0.2.2", path = "../rightkit-ort", default-features = false, optional = true }
 rightkit-process = { version = "0.3.0", path = "../rightkit-process", optional = true }
-rightkit-transcript = { version = "0.2.0", path = "../rightkit-transcript", optional = true }
-qts = { package = "rightkit-qts", version = "0.2.0", path = "../rightkit-qts", optional = true }
+rightkit-transcript = { version = "0.3.0", path = "../rightkit-transcript", optional = true }
+qts = { package = "rightkit-qts", version = "0.2.6", path = "../rightkit-qts", optional = true }
 
 [target.'cfg(unix)'.dependencies]
 libc = { version = "0.2", optional = true }

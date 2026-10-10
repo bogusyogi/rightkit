@@ -17,8 +17,9 @@ truth for the pieces every app would otherwise reimplement and let drift.
 | `RightKitLiveActivity` | Live Activity lifecycle rules (session binding, terminal restart, adoption, watchdog). The app supplies its own phase type. |
 | `RightKitWatchBridge` | WatchConnectivity transfer ledger and delivery states. |
 | `RightKitIntents` | App Intents recording bridge: Darwin notifications, microphone permission handshake, and recording actions. |
-| `RightKitAppleCredentials` | Security.framework credential backend: raw-status probing (`probeStatus`) and all-location deletion (`deleteAnyScope`). |
-| `RightKitOverlay` | Overlay state, hit testing, and the non-activating overlay panel model. |
+| `RightKitAppleCredentials` | Security.framework credential backend: raw-status probing (`probeStatus`), all-location deletion (`deleteAnyScope`), and `ForeignGenericPassword`, a read-only, no-prompt reader for another app's legacy file-Keychain item (macOS). |
+| `RightKitOverlay` | Overlay state, hit testing, and the non-activating overlay panel model, with per-rectangle click-through (`setClickThrough`, `hitRegions`, `updateClickThrough(forMouseAt:)`). |
+| `RightKitWatch` | FSEvents file watcher (macOS): `RightKitWatcher` delivers typed item, root-changed, history-done and must-rescan events as an `AsyncStream`, with event IDs for replay. |
 
 ## RightKitLicense configuration (0.3.5)
 
@@ -169,6 +170,76 @@ for outcome in outcomes {
 0.3.8 adds passive raw-status probing and all-location deletion. `status()`, `exists`,
 strict scoped `delete`, and `AppleCredentialStore.deleteEverywhere` retain their behavior.
 
+## ForeignGenericPassword, per-rect click-through, RightKitWatch (0.5.0)
+
+All three are additive; nothing existing changes behavior. Gap ledger #63.
+
+### `ForeignGenericPassword` (RightKitAppleCredentials, macOS)
+
+Reads a generic-password item that **another app or tool** filed in the legacy file-based login
+Keychain (for example a CLI's OAuth token). `AppleCredentialStore` cannot see these: it owns items
+in the data-protection Keychain under your access group.
+
+```swift
+switch ForeignGenericPassword.read(service: "Claude Code-credentials", account: nil, policy: .noPrompt) {
+case let .success(item): use(item.string)            // newest item by modification date
+case .failure(.notFound): break
+case .failure(.interactionRequired): break           // the item's ACL needs the user; nothing was shown
+case .failure(let other): print(other)
+}
+```
+
+- Queries only the legacy file Keychain (`kSecUseDataProtectionKeychain = false`), no access group.
+- Several matches (a tool that files a new item per token rotation): the newest
+  `kSecAttrModificationDate` wins. Attributes are enumerated first, which never prompts.
+  `ForeignGenericPassword.matches(service:account:)` lists them, newest first.
+- The secret is read **by persistent reference** of the winning item, not by a second search.
+- `.noPrompt` (default) never presents UI and returns `.interactionRequired` instead.
+  `.allowPrompt` lets the system ask, for an action the user just started.
+- **Read-only for foreign items:** there is no write, update or delete here.
+- No-prompt mechanics (review point): `kSecUseAuthenticationUISkip` and `LAContext.interactionNotAllowed`
+  do **not** stop the legacy ACL dialog (measured: a read of an item that trusts no application waited
+  ~10 s on the dialog). `.noPrompt` therefore also turns off Keychain UI for the duration of the call with
+  `SecKeychainSetUserInteractionAllowed(false)`, resolved at runtime because the SDK no longer declares
+  it. That switch is process-wide: other threads' Keychain calls inside the call are also refused
+  without UI, and calls are serialised. If the symbol is ever missing the read fails closed
+  (`.keychainStatus(errSecUnimplemented)`), never prompts.
+
+### Per-rectangle click-through (RightKitOverlay)
+
+`RightKitOverlayPanel` stays interactive by default. New:
+
+- `setClickThrough(_ enabled: Bool)`: whole-panel pass-through; assigns only on change.
+- `hitRegions: [CGRect]`: interactive rectangles in window coordinates (origin lower left). Empty
+  (default) means per-region toggling is off.
+- `updateClickThrough(forMouseAt:) -> Bool`: pass a screen-coordinate point (`NSEvent.mouseLocation`);
+  the panel takes the mouse inside any region and ignores it elsewhere. A click-through window gets
+  no events itself, so call it from a mouse-moved monitor. For full pass-through with no regions use
+  `setClickThrough(true)`.
+- `RightKitOverlayHitRegions` is the pure rule (cross-platform) behind it.
+
+### `RightKitWatch` (macOS; empty on iOS)
+
+```swift
+let watcher = try RightKitWatcher(.init(paths: [folder], sinceWhen: savedID ?? .sinceNow, latency: 0.5))
+for await event in watcher.events {
+    switch event {
+    case let .item(path, kind, id): handle(path, kind); savedID = id
+    case let .rootChanged(path): break      // the watched folder itself moved or was deleted
+    case .historyDone: break                // replay since savedID finished; later events are live
+    case let .mustRescan(path, reason, id): rescan(path); savedID = id
+    }
+}
+```
+
+`FSEventStreamCreate` with `FileEvents | UseCFTypes` (plus `WatchRoot`, needed for `rootChanged`;
+`NoDefer` and `IgnoreSelf` optional), delivered on a private dispatch queue into an unbounded
+`AsyncStream`. `RightKitWatchEventID` is `Codable`; persist the ID of the last event you *handled*
+(`event.eventID`) and pass it as `sinceWhen` to replay. `RightKitWatchEventID.current()` is a bookmark
+to store before the first watch. `watcher.lastEventId` is the delivery high-water mark;
+`watcher.flush()` waits for already-seen events; `stop()` (or ending the iteration) tears down.
+Event IDs are per volume and journal; a replay that cannot be honoured reports `mustRescan`.
+
 ## Consuming it
 
 Swift has no public package registry like npmjs.com or crates.io (Apple is
@@ -187,7 +258,7 @@ the manifest records it.
 ```swift
 // Package.swift
 dependencies: [
-    .package(url: "https://github.com/bogusyogi/rightkit-swift.git", exact: "0.4.0"),
+    .package(url: "https://github.com/bogusyogi/rightkit-swift.git", exact: "0.5.0"),
 ],
 targets: [
     .target(name: "YourApp", dependencies: [

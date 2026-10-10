@@ -1,5 +1,15 @@
 # RightKitSwift changelog
 
+## 0.5.0
+
+Gap ledger #63 (Pulse port). All additions are source compatible.
+
+- `RightKitAppleCredentials`: `ForeignGenericPassword.read(service:account:policy:)` reads another app's generic-password item from the legacy file Keychain, newest by modification date, by persistent reference, with a typed `ReadError` and a `.noPrompt` default policy; `matches(service:account:)` lists candidates. Read-only: no write or delete. macOS only.
+- `RightKitOverlay`: `RightKitOverlayPanel.setClickThrough(_:)`, `hitRegions: [CGRect]` and `updateClickThrough(forMouseAt:)` toggle `ignoresMouseEvents` per rectangle; `RightKitOverlayHitRegions` is the pure rule. The default panel is unchanged (interactive).
+- New product `RightKitWatch`: `RightKitWatcher` (FSEvents) delivers typed `item`, `rootChanged`, `historyDone` and `mustRescan` events as an `AsyncStream`, with `RightKitWatchEventID` (`Codable`) and `lastEventId` for replay. macOS only; the target is empty on iOS.
+
+Source-visible for apps: `.noPrompt` uses `SecKeychainSetUserInteractionAllowed(false)` (process-wide, resolved with `dlsym`) because the Skip/`LAContext` settings do not stop legacy ACL dialogs; see the README.
+
 ## 0.4.0
 
 Closure of the 2026-10-10 Apple audit (`docs/audits/fresh-2026-10-10/evidence/apple-closure.md`, "Closure 2026-10-10").

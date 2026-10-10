@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(CoreGraphics)
+import CoreGraphics
+#endif
 
 /// The overlay surface a host presents. Raw values are the persisted/wire identifiers and never
 /// change; the case names are product-neutral. The product-named spellings remain as deprecated
@@ -142,6 +145,32 @@ public struct RightKitOverlayModel: Sendable, Equatable {
     public func hitTest(x: Double, y: Double) -> Bool { visible && (hitbox ?? frame).contains(x: x, y: y) }
 }
 
+/// Pure click-through rule shared by the panel and by hosts that track the mouse themselves.
+///
+/// A borderless overlay is usually mostly transparent: only a few rectangles (the pill, a card, a
+/// tooltip) should take the mouse and everything else should fall through to the app below. AppKit
+/// has no per-rectangle hit testing for a window, so a host toggles the window's `ignoresMouseEvents`
+/// as the pointer moves. This type is the decision: pointer inside any region means "take the mouse".
+public struct RightKitOverlayHitRegions: Sendable, Equatable {
+    /// Regions in the panel's window coordinate space (origin at the lower left, as AppKit uses).
+    public var regions: [CGRect]
+
+    public init(_ regions: [CGRect] = []) { self.regions = regions }
+
+    /// Per-region toggling is active only while at least one region is set.
+    public var isActive: Bool { !regions.isEmpty }
+
+    public func contains(_ point: CGPoint) -> Bool {
+        point.x.isFinite && point.y.isFinite && regions.contains { $0.contains(point) }
+    }
+
+    /// The value for `ignoresMouseEvents` with the pointer at `point`, or nil when no region is set
+    /// and the current state should be left alone.
+    public func ignoresMouseEvents(at point: CGPoint) -> Bool? {
+        isActive ? !contains(point) : nil
+    }
+}
+
 #if os(macOS)
 import AppKit
 
@@ -164,6 +193,32 @@ public final class RightKitOverlayPanel: NSPanel {
         becomesKeyOnlyIfNeeded = true
         isReleasedWhenClosed = false
         ignoresMouseEvents = false
+    }
+
+    /// Interactive rectangles in window coordinates (origin lower left). Empty (the default) leaves
+    /// click-through entirely to ``setClickThrough(_:)``; with one or more regions,
+    /// ``updateClickThrough(forMouseAt:)`` makes only those regions take the mouse.
+    public var hitRegions: [CGRect] = []
+
+    /// Makes the whole panel transparent to the mouse (`true`) or interactive (`false`). The
+    /// default panel is interactive. Assigning only on change avoids re-sending the window's event
+    /// mask to WindowServer when the value is unchanged, which matters when called per mouse event.
+    public func setClickThrough(_ enabled: Bool) {
+        if ignoresMouseEvents != enabled { ignoresMouseEvents = enabled }
+    }
+
+    /// Toggles `ignoresMouseEvents` for a pointer at `screenPoint` (screen coordinates, such as
+    /// `NSEvent.mouseLocation`): interactive inside any ``hitRegions`` rectangle, click-through
+    /// elsewhere. Call it from a global/local mouse-moved monitor, because a click-through window
+    /// receives no events of its own. Does nothing while ``hitRegions`` is empty.
+    /// - Returns: the resulting `ignoresMouseEvents`.
+    @discardableResult
+    public func updateClickThrough(forMouseAt screenPoint: CGPoint) -> Bool {
+        let local = convertPoint(fromScreen: screenPoint)
+        if let ignores = RightKitOverlayHitRegions(hitRegions).ignoresMouseEvents(at: local) {
+            setClickThrough(ignores)
+        }
+        return ignoresMouseEvents
     }
 
     public override var canBecomeKey: Bool { false }
