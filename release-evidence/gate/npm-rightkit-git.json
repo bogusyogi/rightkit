@@ -2,9 +2,9 @@
   "schema": 1,
   "kind": "npm",
   "name": "@rightkit/git",
-  "version": "0.2.34",
-  "commit": "cd37df91c38bfa2b25e3356433443d12422521e9",
-  "artifactSha256": "2f20823b1c77bdfb334840c9624f5b652b03bf125c4fd6383b572b464e4a2727",
+  "version": "0.2.35",
+  "commit": "82cad32260a7cf5b6554fdd623191756145b2e46",
+  "artifactSha256": "156ee21619296201aa6b92747e12da841d2eec02a1f588500c72a9ffb8f2f58e",
   "hostPolicy": "darwin-only",
   "hostPolicyReason": "Adrian 2026-10-07: apps validate on macOS first, Windows later",
   "runs": [
@@ -13,14 +13,14 @@
         "os": "darwin",
         "arch": "arm64"
       },
-      "commit": "cd37df91c38bfa2b25e3356433443d12422521e9",
+      "commit": "82cad32260a7cf5b6554fdd623191756145b2e46",
       "command": "pnpm --dir packages/$D test",
       "features": [
         "default"
       ],
       "operator": "claude-fable-5.1 (RightKit lead) for adrdsouza",
-      "timestamp": "2026-10-10T08:31:40Z",
-      "passed": 110,
+      "timestamp": "2026-10-10T09:09:16Z",
+      "passed": 111,
       "failed": 0
     }
   ]
