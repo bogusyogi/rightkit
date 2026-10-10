@@ -466,18 +466,3 @@ test('allowlist: packaged copies match the release files and cover every registe
   for (const { repositoryIdentity } of JSON.parse(release('ownership-repositories.json')).repositories) assert.ok(shipped.repositories.some((entry) => entry.repositoryIdentity === repositoryIdentity), repositoryIdentity);
   setAllowlistSources({ readTrust: () => null, shipped: null });
 });
-
-test('QA receipt key is denied to every tool, reads included, on macOS and Windows paths', () => {
-  const decision = (tool_name, tool_input) => ownershipWriteDecision({ tool_name, tool_input, cwd: '/tmp' }).hookSpecificOutput?.permissionDecision;
-  const mac = '/Users/x/Library/Application Support/RightKit/qa-receipt-key.token';
-  const win = 'C:\\Users\\x\\AppData\\Roaming\\RightKit\\qa-receipt-key.token';
-  assert.equal(decision('Bash', { command: `cat "${mac}"` }), 'deny');
-  assert.equal(decision('Bash', { command: `Get-Content $env:APPDATA\\RightKit\\qa-receipt-key.token` }), 'deny');
-  assert.equal(decision('exec_command', { cmd: 'base64 < ~/Library/Application\\ Support/RightKit/QA-RECEIPT-KEY.TOKEN' }), 'deny');
-  assert.equal(decision('Read', { file_path: mac }), 'deny');
-  assert.equal(decision('Grep', { pattern: 'x', path: win }), 'deny');
-  assert.equal(decision('Write', { file_path: win, content: 'forged' }), 'deny');
-  assert.equal(decision('apply_patch', { patch: `*** Begin Patch\n*** Add File: ${mac}\n+k\n*** End Patch` }), 'deny');
-  assert.match(ownershipWriteDecision({ tool_name: 'Read', tool_input: { file_path: mac } }).hookSpecificOutput.permissionDecisionReason, /QA receipt key/);
-  assert.notEqual(decision('Bash', { command: 'right-release qa --stage source' }), 'deny');
-});

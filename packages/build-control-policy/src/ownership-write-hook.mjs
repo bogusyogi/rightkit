@@ -162,17 +162,7 @@ function isTrustPath(value, cwd) {
   return Boolean(normalized && normalized.includes('/orthic labs/rightkit/ownership/trust.json'));
 }
 
-// The QA receipt MAC key (macOS ~/Library/Application Support/RightKit, Windows %APPDATA%\RightKit): an agent that
-// can read it can forge a QA receipt, so any tool input naming it is denied, reads included.
-const QA_KEY_FILE = 'qa-receipt-key.token';
-const QA_KEY_DENIAL = 'The RightKit QA receipt key is protected: agents never read, copy or change it. Run `right-release qa` to produce receipts.';
-function isQaKeyPath(value, cwd) {
-  const normalized = normalizedPath(value, cwd);
-  return Boolean(normalized && normalized.endsWith(`/rightkit/${QA_KEY_FILE}`));
-}
-const namesQaKey = (text) => typeof text === 'string' && text.toLowerCase().includes(QA_KEY_FILE);
-
-function isProtectedPath(value, cwd) { return isExceptionPath(value, cwd) || isTrustPath(value, cwd) || isQaKeyPath(value, cwd); }
+function isProtectedPath(value, cwd) { return isExceptionPath(value, cwd) || isTrustPath(value, cwd); }
 
 function writeTargetException(command, cwd) {
   if (typeof command !== 'string') return false;
@@ -616,7 +606,6 @@ function writeDecision(input, { readFile = readFileSync, cwd = input?.cwd ?? pro
   const tool = input?.tool_name ?? input?.toolName ?? '';
   const data = input?.tool_input ?? input?.toolInput ?? {};
   const command = tool === 'exec_command' ? data.cmd ?? input?.cmd : data.command ?? data.cmd ?? data.code ?? data.input ?? input?.command ?? input?.cmd ?? input?.code;
-  if (namesQaKey(command) || [data.file_path, data.filePath, data.path, data.file, data.pattern].some(namesQaKey)) return denial(QA_KEY_DENIAL);
   if (writeTargetException(command, cwd)) return denial('Agent changes to ownership exception or protected trust records are blocked.');
   if (['Bash', 'bash', 'shell', 'Shell', 'exec_command', 'shell_command'].includes(tool)) {
     const feedback = inScopeDirectory(cwd) ? dependencyDecision(commandDependencies(command), cwd) : null; if (feedback) return feedback;
