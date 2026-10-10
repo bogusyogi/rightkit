@@ -5,6 +5,7 @@ use rightkit_logs::{
     collect_diagnostics as collect_shared, BundleMetadata, CollectionPolicy, DiagnosticsBundle, EventRecord,
     JsonlStore, Level, LogSource, RedactionPolicy,
 };
+use rightapp_protocol::app_data_root;
 use serde_json::{json, Value};
 use std::path::PathBuf;
 
@@ -13,13 +14,13 @@ const MAX_BATCH_EVENTS: usize = 500;
 const LOG_FAMILIES: [(&str, &str); 3] =
     [("shell", "rightapp"), ("engine", "rightapp-engine"), ("renderer", "rightkit-renderer")];
 
-fn logs_dir() -> PathBuf {
-    crate::app_data_root().join("logs")
+fn logs_dir() -> Result<PathBuf, String> {
+    Ok(app_data_root()?.join("logs"))
 }
 
 #[tauri::command]
 pub fn rightkit_logs_write(events: Vec<Value>) -> Result<(), String> {
-    let store = JsonlStore::new(logs_dir().join("rightkit-renderer.events.jsonl"), MAX_RENDERER_LOG_BYTES);
+    let store = JsonlStore::new(logs_dir()?.join("rightkit-renderer.events.jsonl"), MAX_RENDERER_LOG_BYTES);
     let dropped = events.len().saturating_sub(MAX_BATCH_EVENTS);
     if dropped > 0 {
         store
@@ -35,14 +36,14 @@ pub fn rightkit_logs_write(events: Vec<Value>) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub fn rightkit_logs_collect() -> DiagnosticsBundle {
-    let dir = logs_dir();
+pub fn rightkit_logs_collect() -> Result<DiagnosticsBundle, String> {
+    let dir = logs_dir()?;
     let sources: Vec<LogSource> = LOG_FAMILIES
         .iter()
         .map(|(name, prefix)| LogSource::new(*name, dir.join(format!("{prefix}.current.jsonl"))))
         .collect();
     let policy = CollectionPolicy { include_rotated: false, ..CollectionPolicy::default() };
-    collect_shared(
+    Ok(collect_shared(
         &sources,
         BundleMetadata {
             app_name: "RightApp".into(),
@@ -52,13 +53,14 @@ pub fn rightkit_logs_collect() -> DiagnosticsBundle {
             settings: json!({}),
         },
         &policy,
-    )
+    ))
 }
 
 #[tauri::command]
 pub fn rightkit_logs_clear() -> Result<(), String> {
+    let dir = logs_dir()?;
     for (_, prefix) in LOG_FAMILIES {
-        let path = logs_dir().join(format!("{prefix}.current.jsonl"));
+        let path = dir.join(format!("{prefix}.current.jsonl"));
         match std::fs::remove_file(path) {
             Ok(()) => {}
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}

@@ -1,21 +1,7 @@
 {
-  "$comment": "Single list of every shared capability the template cannot consume by published exact version yet. Each entry is gated: `check` fails if the capability appears in rightkit-versions.json while its stand-in still exists, if the entry is declared as a real dependency, or if its stand-in file is gone. When a package publishes: pin it exactly, delete the stand-in, delete the entry. Nothing else in the template is a local copy of shared code.",
-  "npm": {
-    "@rightkit/app-shell": {
-      "blockedOn": "publish to the registry (packages/app-shell 0.1.0 is built; not in rightkit-versions.json)",
-      "standIn": "src/shell/AppShell.tsx"
-    },
-    "@rightkit/media-ui": {
-      "blockedOn": "publish + rightkit-versions.json entry; add only when the app shows media",
-      "standIn": "none (media apps add it)"
-    }
-  },
-  "cargo": {
-    "rightkit-jobs": {
-      "blockedOn": "not yet in rightkit-versions.json; adds the durable job store",
-      "standIn": "none (the engine has no job store until it publishes)"
-    }
-  },
+  "$comment": "Single list of every shared capability the template cannot yet consume by exact published version. Each entry is gated: `check` fails when a placeholder's package is listed in rightkit-versions.json at all (published or staged), and when its stand-in file is gone. When a package is listed: pin it exactly, delete the stand-in, delete the entry. Nothing else in the template is a local copy of shared code.",
+  "npm": {},
+  "cargo": {},
   "harness": {
     "rightkit-qa": {
       "blockedOn": "distribution of the `rightkit-qa` binary to app checkouts (crate is publish=false; apps invoke the managed binary)",

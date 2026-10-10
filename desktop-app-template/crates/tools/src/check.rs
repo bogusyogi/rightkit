@@ -32,6 +32,19 @@ fn exact_registry(spec: &str) -> bool {
     parts.len() == 3 && parts.iter().all(|p| !p.is_empty() && p.chars().all(|c| c.is_ascii_digit()))
 }
 
+/// The version of `dep` that rightkit-versions.json lists in `section` (`npm` or `cargo`), searched in
+/// the registry snapshot first, then the published list, then the staged list. Staged means built but
+/// not on the registry, so a staged-only version is listed (a placeholder must yield to it) but is never
+/// the version a pin may name.
+fn listed_version(m: &Value, section: &str, dep: &str) -> Option<String> {
+    let staged = format!("staged{}", section[..1].to_uppercase() + &section[1..]);
+    [m["registry"][section][dep].as_str(), m[section][dep].as_str(), m[staged.as_str()][dep].as_str()]
+        .into_iter()
+        .flatten()
+        .next()
+        .map(String::from)
+}
+
 pub fn run(root: &Path) -> Result<()> {
     let mut problems: Vec<String> = vec![];
     let mut need = |ok: bool, msg: String| {
@@ -59,11 +72,11 @@ pub fn run(root: &Path) -> Result<()> {
     need(tauri["productName"].as_str().map(|p| p.to_lowercase()).as_deref() == Some(name.as_str()), "productName lowercased != package name".into());
     need(tauri["identifier"].as_str().map(|i| i.ends_with(&format!(".{name}"))).unwrap_or(false), "identifier must end with .<package name>".into());
 
-    // 2. Sidecar wiring: externalBin <-> engine bin <-> supervisor.
+    // 2. Sidecar wiring: externalBin <-> engine bin <-> the shell that spawns it (src-tauri/src/lib.rs).
     let engine_bin = field(after(&engine_toml, "[[bin]]"), "name").unwrap_or_default();
     let ext: Vec<&str> = tauri["bundle"]["externalBin"].as_array().map(|a| a.iter().filter_map(Value::as_str).collect()).unwrap_or_default();
     need(ext == [format!("binaries/{engine_bin}").as_str()], format!("externalBin must be binaries/{engine_bin}"));
-    need(read(root, "src-tauri/src/engine_supervisor.rs")?.contains(&engine_bin), "supervisor does not name the engine binary".into());
+    need(read(root, "src-tauri/src/lib.rs")?.contains(&engine_bin), "src-tauri/src/lib.rs does not name the engine binary (the supervisor spawns it)".into());
 
     // 3. Dev server port agrees: tauri devUrl, vite, package dev script.
     let dev_url = tauri["build"]["devUrl"].as_str().unwrap_or("");
@@ -79,7 +92,7 @@ pub fn run(root: &Path) -> Result<()> {
         need(!lib.contains(plugin) || perms.contains(perm), format!("capability missing {perm}* for {plugin}"));
     }
 
-    // 5. RightKit pins: exact, registry-only, equal to the version manifest when reachable.
+    // 5. RightKit pins: exact, registry-only, equal to the published version when the manifest is reachable.
     let manifest: Option<Value> = std::fs::read_to_string(root.join("..").join("packages").join("release").join("rightkit-versions.json")).ok().and_then(|t| serde_json::from_str(&t).ok());
     let mut deps: BTreeMap<String, String> = BTreeMap::new();
     for section in ["dependencies", "devDependencies"] {
@@ -94,7 +107,10 @@ pub fn run(root: &Path) -> Result<()> {
         need(exact_registry(spec), format!("{dep} must be an exact registry version, got {spec}"));
         need(!ph_npm.contains_key(dep), format!("{dep} is listed as a placeholder; remove it from placeholders.json when adopting"));
         if let Some(m) = &manifest {
-            need(m["npm"][dep].is_string() || m["stagedNpm"][dep].is_string(), format!("{dep} unknown to rightkit-versions.json"));
+            match listed_version(m, "npm", dep) {
+                None => need(false, format!("{dep} unknown to rightkit-versions.json")),
+                Some(want) => need(want == *spec, format!("{dep} pin {spec} != published {want} in rightkit-versions.json")),
+            }
         }
     }
     for spec in deps.values() {
@@ -115,13 +131,26 @@ pub fn run(root: &Path) -> Result<()> {
         need(spec.starts_with('=') && exact_registry(&spec[1..]), format!("{dep} must be pinned with =x.y.z, got {spec}"));
         need(!ph_cargo.contains_key(dep), format!("{dep} is listed as a placeholder; remove it from placeholders.json when adopting"));
         if let Some(m) = &manifest {
-            let want = m["stagedCargo"][dep].as_str().or_else(|| m["cargo"][dep].as_str());
-            need(want == spec.strip_prefix('='), format!("{dep} pin {spec} != rightkit-versions.json {want:?}"));
+            let want = listed_version(m, "cargo", dep);
+            need(want.as_deref() == spec.strip_prefix('='), format!("{dep} pin {spec} != published {want:?} in rightkit-versions.json"));
         }
     }
 
-    // 6. Placeholders are honest: each stand-in exists while the entry does, and a capability
-    // that the version manifest now lists must be adopted instead of stood in for.
+    // 5b. Tauri plugin crates pin exactly to their npm counterparts (one Tauri plugin generation per app).
+    for line in active_lines(&shell_toml) {
+        let Some((dep, rest)) = line.split_once('=') else { continue };
+        let dep = dep.trim();
+        let Some(plugin) = dep.strip_prefix("tauri-plugin-") else { continue };
+        let npm_name = format!("@tauri-apps/plugin-{plugin}");
+        let crate_spec = rest.trim().trim_start_matches('{').split('"').nth(1).unwrap_or("");
+        let npm_spec = deps.get(&npm_name).map(String::as_str).unwrap_or("");
+        need(exact_registry(npm_spec), format!("{npm_name} must be declared at an exact version (the counterpart of {dep}), got {npm_spec:?}"));
+        need(crate_spec.strip_prefix('=') == Some(npm_spec) && crate_spec.starts_with('='), format!("{dep} must be pinned =x.y.z equal to {npm_name} {npm_spec}, got {crate_spec:?}"));
+    }
+
+    // 6. Placeholders are honest. A package that rightkit-versions.json lists at all (published or staged)
+    // has shipped: adopt it (pin exactly, delete its stand-in, delete the entry). Each stand-in file that
+    // is named must still exist while its entry does.
     for (section, entries) in [("npm", ph_npm), ("cargo", ph_cargo)] {
         for (dep, entry) in entries {
             if let Some(stand_in) = entry["standIn"].as_str().filter(|s| s.contains('/') || s.contains('.')) {
@@ -129,11 +158,8 @@ pub fn run(root: &Path) -> Result<()> {
                     need(root.join(stand_in).exists(), format!("placeholder {dep}: stand-in {stand_in} is gone; delete the placeholders.json entry"));
                 }
             }
-            // `npm`/`cargo` are published; `staged*` are built but not yet on the registry, so a
-            // staged capability stays a gated placeholder until it moves to the published list.
             if let Some(m) = &manifest {
-                let published = if section == "npm" { &m["npm"][dep] } else { &m["cargo"][dep] };
-                need(!published.is_string(), format!("{dep} is published in rightkit-versions.json: pin it exactly, delete its stand-in, and drop the placeholder"));
+                need(listed_version(m, section, dep).is_none(), format!("{dep} is listed in rightkit-versions.json: pin it exactly, delete its stand-in, and drop the placeholder"));
             }
         }
     }
@@ -175,9 +201,25 @@ pub fn run(root: &Path) -> Result<()> {
 
     // 9. pnpm release-age exclusions list exactly the pinned freshly published @rightkit versions.
     let ws = read(root, "pnpm-workspace.yaml")?;
-    for dep in ["@rightkit/release", "@rightkit/logs", "@rightkit/platform-ui", "@rightkit/tauri", "@rightkit/updates"] {
+    for dep in ["@rightkit/release", "@rightkit/app-shell", "@rightkit/logs", "@rightkit/platform-ui", "@rightkit/tauri", "@rightkit/updates"] {
         if let Some(spec) = deps.get(dep) {
             need(ws.contains(&format!("'{dep}@{spec}'")), format!("pnpm-workspace.yaml minimumReleaseAgeExclude missing {dep}@{spec}"));
+        }
+    }
+
+    // 9b. Warn (not fail) when an exclusion names an exact version the lockfile no longer contains: once
+    // the install rewrote the lockfile with the new pin, the old exclusion is stale (README step 4).
+    if let Ok(lock) = read(root, "pnpm-lock.yaml") {
+        let excl = ws.split("minimumReleaseAgeExclude:").nth(1).unwrap_or("");
+        for line in excl.lines().take_while(|l| l.trim().is_empty() || l.starts_with("  -")) {
+            let entry = line.trim().trim_start_matches('-').trim().trim_matches('\'').trim_matches('"');
+            // Only exact `name@version`; ranges (`||`) and blanks are not checked.
+            if entry.is_empty() || entry.contains(' ') || entry.contains('|') || entry.rfind('@').map_or(true, |i| i == 0) {
+                continue;
+            }
+            if !lock.contains(&format!("{entry}'")) && !lock.contains(&format!("{entry}:")) {
+                eprintln!("WARN minimumReleaseAgeExclude {entry} is not in pnpm-lock.yaml; remove it once the install has rewritten the lockfile with the new pin");
+            }
         }
     }
 
