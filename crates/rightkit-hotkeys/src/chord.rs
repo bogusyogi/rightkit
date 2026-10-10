@@ -120,12 +120,20 @@ impl Key {
 
     /// macOS virtual keycode (ANSI layout, `kVK_*`).
     pub fn mac_keycode(self) -> u16 {
-        TABLE.iter().find(|(n, _, _)| *n == self.0).map(|(_, mac, _)| *mac).unwrap_or(0)
+        TABLE
+            .iter()
+            .find(|(n, _, _)| *n == self.0)
+            .map(|(_, mac, _)| *mac)
+            .unwrap_or(0)
     }
 
     /// Windows virtual-key code (`VK_*`).
     pub fn windows_vk(self) -> u16 {
-        TABLE.iter().find(|(n, _, _)| *n == self.0).map(|(_, _, vk)| *vk).unwrap_or(0)
+        TABLE
+            .iter()
+            .find(|(n, _, _)| *n == self.0)
+            .map(|(_, _, vk)| *vk)
+            .unwrap_or(0)
     }
 
     fn display(self) -> String {
@@ -154,23 +162,86 @@ impl Key {
 
 // (name, macOS keycode, Windows VK)
 const TABLE: &[(&str, u16, u16)] = &[
-    ("a", 0, 0x41), ("s", 1, 0x53), ("d", 2, 0x44), ("f", 3, 0x46), ("h", 4, 0x48), ("g", 5, 0x47),
-    ("z", 6, 0x5A), ("x", 7, 0x58), ("c", 8, 0x43), ("v", 9, 0x56), ("b", 11, 0x42), ("q", 12, 0x51),
-    ("w", 13, 0x57), ("e", 14, 0x45), ("r", 15, 0x52), ("y", 16, 0x59), ("t", 17, 0x54),
-    ("1", 18, 0x31), ("2", 19, 0x32), ("3", 20, 0x33), ("4", 21, 0x34), ("6", 22, 0x36),
-    ("5", 23, 0x35), ("equal", 24, 0xBB), ("9", 25, 0x39), ("7", 26, 0x37), ("minus", 27, 0xBD),
-    ("8", 28, 0x38), ("0", 29, 0x30), ("rightbracket", 30, 0xDD), ("o", 31, 0x4F), ("u", 32, 0x55),
-    ("leftbracket", 33, 0xDB), ("i", 34, 0x49), ("p", 35, 0x50), ("enter", 36, 0x0D), ("l", 37, 0x4C),
-    ("j", 38, 0x4A), ("quote", 39, 0xDE), ("k", 40, 0x4B), ("semicolon", 41, 0xBA),
-    ("backslash", 42, 0xDC), ("comma", 43, 0xBC), ("slash", 44, 0xBF), ("n", 45, 0x4E),
-    ("m", 46, 0x4D), ("period", 47, 0xBE), ("tab", 48, 0x09), ("space", 49, 0x20), ("grave", 50, 0xC0),
-    ("backspace", 51, 0x08), ("escape", 53, 0x1B), ("delete", 117, 0x2E),
-    ("home", 115, 0x24), ("end", 119, 0x23), ("pageup", 116, 0x21), ("pagedown", 121, 0x22),
-    ("left", 123, 0x25), ("right", 124, 0x27), ("down", 125, 0x28), ("up", 126, 0x26),
-    ("f1", 122, 0x70), ("f2", 120, 0x71), ("f3", 99, 0x72), ("f4", 118, 0x73), ("f5", 96, 0x74),
-    ("f6", 97, 0x75), ("f7", 98, 0x76), ("f8", 100, 0x77), ("f9", 101, 0x78), ("f10", 109, 0x79),
-    ("f11", 103, 0x7A), ("f12", 111, 0x7B), ("f13", 105, 0x7C), ("f14", 107, 0x7D),
-    ("f15", 113, 0x7E), ("f16", 106, 0x7F), ("f17", 64, 0x80), ("f18", 79, 0x81), ("f19", 80, 0x82),
+    ("a", 0, 0x41),
+    ("s", 1, 0x53),
+    ("d", 2, 0x44),
+    ("f", 3, 0x46),
+    ("h", 4, 0x48),
+    ("g", 5, 0x47),
+    ("z", 6, 0x5A),
+    ("x", 7, 0x58),
+    ("c", 8, 0x43),
+    ("v", 9, 0x56),
+    ("b", 11, 0x42),
+    ("q", 12, 0x51),
+    ("w", 13, 0x57),
+    ("e", 14, 0x45),
+    ("r", 15, 0x52),
+    ("y", 16, 0x59),
+    ("t", 17, 0x54),
+    ("1", 18, 0x31),
+    ("2", 19, 0x32),
+    ("3", 20, 0x33),
+    ("4", 21, 0x34),
+    ("6", 22, 0x36),
+    ("5", 23, 0x35),
+    ("equal", 24, 0xBB),
+    ("9", 25, 0x39),
+    ("7", 26, 0x37),
+    ("minus", 27, 0xBD),
+    ("8", 28, 0x38),
+    ("0", 29, 0x30),
+    ("rightbracket", 30, 0xDD),
+    ("o", 31, 0x4F),
+    ("u", 32, 0x55),
+    ("leftbracket", 33, 0xDB),
+    ("i", 34, 0x49),
+    ("p", 35, 0x50),
+    ("enter", 36, 0x0D),
+    ("l", 37, 0x4C),
+    ("j", 38, 0x4A),
+    ("quote", 39, 0xDE),
+    ("k", 40, 0x4B),
+    ("semicolon", 41, 0xBA),
+    ("backslash", 42, 0xDC),
+    ("comma", 43, 0xBC),
+    ("slash", 44, 0xBF),
+    ("n", 45, 0x4E),
+    ("m", 46, 0x4D),
+    ("period", 47, 0xBE),
+    ("tab", 48, 0x09),
+    ("space", 49, 0x20),
+    ("grave", 50, 0xC0),
+    ("backspace", 51, 0x08),
+    ("escape", 53, 0x1B),
+    ("delete", 117, 0x2E),
+    ("home", 115, 0x24),
+    ("end", 119, 0x23),
+    ("pageup", 116, 0x21),
+    ("pagedown", 121, 0x22),
+    ("left", 123, 0x25),
+    ("right", 124, 0x27),
+    ("down", 125, 0x28),
+    ("up", 126, 0x26),
+    ("f1", 122, 0x70),
+    ("f2", 120, 0x71),
+    ("f3", 99, 0x72),
+    ("f4", 118, 0x73),
+    ("f5", 96, 0x74),
+    ("f6", 97, 0x75),
+    ("f7", 98, 0x76),
+    ("f8", 100, 0x77),
+    ("f9", 101, 0x78),
+    ("f10", 109, 0x79),
+    ("f11", 103, 0x7A),
+    ("f12", 111, 0x7B),
+    ("f13", 105, 0x7C),
+    ("f14", 107, 0x7D),
+    ("f15", 113, 0x7E),
+    ("f16", 106, 0x7F),
+    ("f17", 64, 0x80),
+    ("f18", 79, 0x81),
+    ("f19", 80, 0x82),
     ("f20", 90, 0x83),
 ];
 
@@ -305,6 +376,113 @@ impl Chord {
                 parts.push(self.key.display());
                 parts.join("+")
             }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_modifiers_and_key_case_insensitively() {
+        let chord = parse_chord("ctrl + SHIFT + space").unwrap();
+        assert_eq!(chord.modifiers, vec![Modifier::Ctrl, Modifier::Shift]);
+        assert_eq!(chord.key.name(), "space");
+        assert_eq!(chord.canonical(), "Ctrl+Shift+Space");
+    }
+
+    #[test]
+    fn modifier_order_is_normalized() {
+        let a = parse_chord("Shift+Ctrl+K").unwrap();
+        let b = parse_chord("Ctrl+Shift+K").unwrap();
+        assert_eq!(a, b);
+        assert_eq!(a.canonical(), "Ctrl+Shift+K");
+    }
+
+    #[test]
+    fn aliases_resolve_to_canonical_names() {
+        assert_eq!(
+            parse_chord("Cmd+Esc").unwrap(),
+            parse_chord("Meta+Escape").unwrap()
+        );
+        assert_eq!(
+            parse_chord("Option+Return").unwrap(),
+            parse_chord("Alt+Enter").unwrap()
+        );
+        assert_eq!(parse_chord("Ctrl+.").unwrap().key.name(), "period");
+        assert_eq!(parse_chord("Ctrl+`").unwrap().key.name(), "grave");
+    }
+
+    #[test]
+    fn rejects_empty_and_blank_chords() {
+        assert_eq!(parse_chord(""), Err(ChordError::Empty));
+        assert_eq!(parse_chord("   "), Err(ChordError::Empty));
+    }
+
+    #[test]
+    fn rejects_chord_without_a_key() {
+        assert!(matches!(
+            parse_chord("Ctrl+Shift"),
+            Err(ChordError::NoKey(_))
+        ));
+    }
+
+    #[test]
+    fn rejects_multiple_keys_unknown_tokens_and_duplicate_modifiers() {
+        assert!(matches!(
+            parse_chord("Ctrl+A+B"),
+            Err(ChordError::MultipleKeys(_))
+        ));
+        assert!(
+            matches!(parse_chord("Ctrl+Banana"), Err(ChordError::UnknownToken(t)) if t == "Banana")
+        );
+        assert!(matches!(
+            parse_chord("Ctrl+Control+A"),
+            Err(ChordError::DuplicateModifier(_))
+        ));
+        assert!(matches!(parse_chord("Ctrl++A"), Err(ChordError::UnknownToken(t)) if t.is_empty()));
+    }
+
+    #[test]
+    fn canonical_round_trips_through_parse() {
+        for text in ["Ctrl+Alt+Delete", "Meta+Shift+F12", "Alt+,", "Win+Left"] {
+            let chord = parse_chord(text).unwrap();
+            assert_eq!(parse_chord(&chord.canonical()).unwrap(), chord, "{text}");
+        }
+    }
+
+    #[test]
+    fn formats_per_platform() {
+        let chord = parse_chord("Ctrl+Shift+Meta+K").unwrap();
+        assert_eq!(chord.format(Platform::Mac), "\u{2303}\u{21E7}\u{2318}K");
+        assert_eq!(chord.format(Platform::Windows), "Ctrl+Shift+Win+K");
+        assert_eq!(chord.format(Platform::Other), "Ctrl+Shift+Meta+K");
+    }
+
+    #[test]
+    fn key_table_maps_platform_codes() {
+        let space = Key::parse("space").unwrap();
+        assert_eq!(space.mac_keycode(), 49);
+        assert_eq!(space.windows_vk(), 0x20);
+        assert!(Key::parse("nope").is_none());
+    }
+
+    #[test]
+    fn modifier_tokens_carry_side() {
+        let p = parse_modifier_token("RCtrl").unwrap();
+        assert_eq!((p.modifier, p.side), (Modifier::Ctrl, Side::Right));
+        assert_eq!(parse_modifier_token("command").unwrap().side, Side::Any);
+        assert!(parse_modifier_token("space").is_none());
+    }
+
+    #[test]
+    fn ptt_alias_allows_only_lalt_ralt_rctrl() {
+        for ok in ["lalt", "RAlt", "rctrl"] {
+            assert!(parse_ptt_key_name(ok).is_ok(), "{ok}");
+        }
+        for bad in ["lctrl", "shift", "Ctrl+Space", "f5"] {
+            assert!(parse_ptt_key_name(bad).is_err(), "{bad}");
         }
     }
 }

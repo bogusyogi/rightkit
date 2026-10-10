@@ -8,10 +8,7 @@ use std::sync::atomic::{AtomicU64, AtomicU8, Ordering};
 
 /// Keep optimistic acknowledgement ahead of backend work. Backend state/error
 /// remains authoritative after action completes.
-pub fn run_feedback_before_action<T>(
-    feedback: impl FnOnce(),
-    action: impl FnOnce() -> T,
-) -> T {
+pub fn run_feedback_before_action<T>(feedback: impl FnOnce(), action: impl FnOnce() -> T) -> T {
     feedback();
     action()
 }
@@ -198,10 +195,7 @@ impl PttHandoff {
 
     /// Publish completion only after start callback returns. Any release/chord
     /// received meanwhile becomes one immediate end callback.
-    pub fn complete_start(
-        &self,
-        still_valid: bool,
-    ) -> Option<(PttEnd, Option<PttAbortCause>)> {
+    pub fn complete_start(&self, still_valid: bool) -> Option<(PttEnd, Option<PttAbortCause>)> {
         loop {
             let state = self.state.load(Ordering::SeqCst);
             if !(Self::STARTING..=4).contains(&state) {
@@ -308,11 +302,6 @@ pub fn should_clear_ptt_hold_suppression(ctrl_down: bool, other_mods: bool) -> b
 /// Any suppressing fn chord must be backed by both the modifier bit on the key
 /// event and a preceding fn FLAGS_CHANGED transition observed by this tap.
 /// This rejects stale/synthetic Space or Escape events that inherit SecondaryFn.
-pub fn should_accept_fn_chord(
-    event_has_fn: bool,
-    cached_fn_down: bool,
-    enabled: bool,
-) -> bool {
+pub fn should_accept_fn_chord(event_has_fn: bool, cached_fn_down: bool, enabled: bool) -> bool {
     event_has_fn && cached_fn_down && enabled
 }
-

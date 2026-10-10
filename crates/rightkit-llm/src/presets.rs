@@ -24,25 +24,81 @@ pub struct Preset {
     pub max_tokens_field: MaxTokensField,
 }
 
-const fn p(id: &'static str, wire: Wire, base_url: &'static str, requires_credential: bool) -> Preset {
-    Preset { id, wire, base_url, requires_credential, max_tokens_field: MaxTokensField::MaxTokens }
+const fn p(
+    id: &'static str,
+    wire: Wire,
+    base_url: &'static str,
+    requires_credential: bool,
+) -> Preset {
+    Preset {
+        id,
+        wire,
+        base_url,
+        requires_credential,
+        max_tokens_field: MaxTokensField::MaxTokens,
+    }
 }
 
 pub const PRESETS: &[Preset] = &[
     p("anthropic", Wire::Anthropic, ANTHROPIC_BASE_URL, true),
     Preset {
         max_tokens_field: MaxTokensField::MaxCompletionTokens,
-        ..p("openai", Wire::OpenAiCompat, "https://api.openai.com/v1", true)
+        ..p(
+            "openai",
+            Wire::OpenAiCompat,
+            "https://api.openai.com/v1",
+            true,
+        )
     },
-    p("openrouter", Wire::OpenAiCompat, "https://openrouter.ai/api/v1", true),
-    p("groq", Wire::OpenAiCompat, "https://api.groq.com/openai/v1", true),
-    p("deepseek", Wire::OpenAiCompat, "https://api.deepseek.com/v1", true),
-    p("together", Wire::OpenAiCompat, "https://api.together.xyz/v1", true),
-    p("mistral", Wire::OpenAiCompat, "https://api.mistral.ai/v1", true),
+    p(
+        "openrouter",
+        Wire::OpenAiCompat,
+        "https://openrouter.ai/api/v1",
+        true,
+    ),
+    p(
+        "groq",
+        Wire::OpenAiCompat,
+        "https://api.groq.com/openai/v1",
+        true,
+    ),
+    p(
+        "deepseek",
+        Wire::OpenAiCompat,
+        "https://api.deepseek.com/v1",
+        true,
+    ),
+    p(
+        "together",
+        Wire::OpenAiCompat,
+        "https://api.together.xyz/v1",
+        true,
+    ),
+    p(
+        "mistral",
+        Wire::OpenAiCompat,
+        "https://api.mistral.ai/v1",
+        true,
+    ),
     p("xai", Wire::OpenAiCompat, "https://api.x.ai/v1", true),
-    p("gemini", Wire::OpenAiCompat, "https://generativelanguage.googleapis.com/v1beta/openai", true),
-    p("ollama", Wire::OpenAiCompat, "http://127.0.0.1:11434/v1", false),
-    p("lmstudio", Wire::OpenAiCompat, "http://127.0.0.1:1234/v1", false),
+    p(
+        "gemini",
+        Wire::OpenAiCompat,
+        "https://generativelanguage.googleapis.com/v1beta/openai",
+        true,
+    ),
+    p(
+        "ollama",
+        Wire::OpenAiCompat,
+        "http://127.0.0.1:11434/v1",
+        false,
+    ),
+    p(
+        "lmstudio",
+        Wire::OpenAiCompat,
+        "http://127.0.0.1:1234/v1",
+        false,
+    ),
 ];
 
 pub fn preset(id: &str) -> Option<&'static Preset> {

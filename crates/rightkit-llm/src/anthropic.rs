@@ -30,7 +30,10 @@ pub struct AnthropicProvider {
 pub fn default_client_config() -> ClientConfig {
     let mut retry = RetryPolicy::default();
     retry.retry_statuses.push(529);
-    ClientConfig { retry, ..ClientConfig::default() }
+    ClientConfig {
+        retry,
+        ..ClientConfig::default()
+    }
 }
 
 impl AnthropicProvider {
@@ -62,7 +65,14 @@ impl AnthropicProvider {
         let mut http = Request::post(format!("{}/v1/messages", self.base_url))
             .header("x-api-key", credential.expose())
             .header("anthropic-version", ANTHROPIC_VERSION)
-            .header("Accept", if stream { "text/event-stream" } else { "application/json" })
+            .header(
+                "Accept",
+                if stream {
+                    "text/event-stream"
+                } else {
+                    "application/json"
+                },
+            )
             .json(&body)?;
         for (k, v) in &self.extra_headers {
             http = http.header(k.as_str(), v.as_str());
@@ -156,8 +166,13 @@ fn message_json(m: &Message) -> Value {
             ContentBlock::ToolUse { id, name, input } => {
                 json!({"type": "tool_use", "id": id, "name": name, "input": input})
             }
-            ContentBlock::ToolResult { tool_use_id, content, is_error } => {
-                let mut v = json!({"type": "tool_result", "tool_use_id": tool_use_id, "content": content});
+            ContentBlock::ToolResult {
+                tool_use_id,
+                content,
+                is_error,
+            } => {
+                let mut v =
+                    json!({"type": "tool_result", "tool_use_id": tool_use_id, "content": content});
                 if *is_error {
                     v["is_error"] = json!(true);
                 }
@@ -221,7 +236,9 @@ impl Provider for AnthropicProvider {
 
     fn complete(&self, req: &ChatRequest) -> Result<ChatResponse, LlmError> {
         let resp = self.client.send(&self.request(req, false)?)?;
-        let v: Value = resp.json().map_err(|e| LlmError::Malformed(e.to_string()))?;
+        let v: Value = resp
+            .json()
+            .map_err(|e| LlmError::Malformed(e.to_string()))?;
         parse_response(&v)
     }
 
@@ -243,7 +260,11 @@ impl Provider for AnthropicProvider {
             }
             let data: Value = serde_json::from_str(&ev.data)
                 .map_err(|e| late_msg(format!("bad SSE JSON: {e}"), delivered))?;
-            let kind = data.get("type").and_then(Value::as_str).unwrap_or(&ev.event).to_string();
+            let kind = data
+                .get("type")
+                .and_then(Value::as_str)
+                .unwrap_or(&ev.event)
+                .to_string();
             match kind.as_str() {
                 "error" => {
                     let e = &data["error"];
@@ -254,7 +275,10 @@ impl Provider for AnthropicProvider {
                     return Err(if delivered {
                         LlmError::MidStream(format!("{k}: {m}"))
                     } else {
-                        LlmError::Provider { kind: k, message: m }
+                        LlmError::Provider {
+                            kind: k,
+                            message: m,
+                        }
                     });
                 }
                 "message_stop" => return asm.finish(),
@@ -268,7 +292,10 @@ impl Provider for AnthropicProvider {
                 }
             }
         }
-        Err(late_msg("stream ended before message_stop".into(), delivered))
+        Err(late_msg(
+            "stream ended before message_stop".into(),
+            delivered,
+        ))
     }
 }
 
@@ -299,7 +326,11 @@ struct Assembler {
 
 enum Slot {
     Text(String),
-    Tool { id: String, name: String, json: String },
+    Tool {
+        id: String,
+        name: String,
+        json: String,
+    },
     Other,
 }
 
@@ -334,8 +365,15 @@ impl Assembler {
                             cb["id"].as_str().unwrap_or_default().to_string(),
                             cb["name"].as_str().unwrap_or_default().to_string(),
                         );
-                        out.push(StreamEvent::ToolUseStart { id: id.clone(), name: name.clone() });
-                        Slot::Tool { id, name, json: String::new() }
+                        out.push(StreamEvent::ToolUseStart {
+                            id: id.clone(),
+                            name: name.clone(),
+                        });
+                        Slot::Tool {
+                            id,
+                            name,
+                            json: String::new(),
+                        }
                     }
                     _ => Slot::Other,
                 };
@@ -352,7 +390,10 @@ impl Assembler {
                     (Some(Slot::Tool { id, json, .. }), Some("input_json_delta")) => {
                         let s = delta["partial_json"].as_str().unwrap_or_default();
                         json.push_str(s);
-                        out.push(StreamEvent::ToolInputDelta { id: id.clone(), partial_json: s.to_string() });
+                        out.push(StreamEvent::ToolInputDelta {
+                            id: id.clone(),
+                            partial_json: s.to_string(),
+                        });
                     }
                     _ => {}
                 }

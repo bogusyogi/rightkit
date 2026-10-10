@@ -6,7 +6,7 @@ One hotkey foundation for Right Suite apps: cross-platform shortcut policy with 
 - fn gestures, push-to-talk, and the middle mouse button use `FnHotkeyTap` and `MiddleMouseTap`.
 - Every native handle stops and joins on drop.
 
-Catalog capability: `global-hotkeys`. Published to crates.io (see [INDEX.md](../../INDEX.md)).
+Catalog capability: `global-hotkeys`. Release versions are tracked in [INDEX.md](../../INDEX.md) and `CHANGELOG.md`.
 
 ## What it owns
 
@@ -56,7 +56,7 @@ Registration and taps are platform-specific. See `src/macos` and `src/windows` f
 
 ## Version and changes
 
-Published version: see [INDEX.md](../../INDEX.md). No CHANGELOG.md in this crate.
+Version: see [INDEX.md](../../INDEX.md). Changes are recorded in `CHANGELOG.md`.
 
 ## Windows
 

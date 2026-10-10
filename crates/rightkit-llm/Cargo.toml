@@ -9,7 +9,7 @@ readme = "README.md"
 repository = "https://github.com/bogusyogi/rightkit"
 keywords = ["llm", "anthropic", "openai", "streaming"]
 categories = ["api-bindings"]
-include = ["src/**", "tests/**", "assets/**", "README.md", "LICENSE-MIT", "LICENSE-APACHE"]
+include = ["src/**", "tests/**", "assets/**", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
 
 [dependencies]
 rightkit-http = { version = "0.2.0", path = "../rightkit-http" }

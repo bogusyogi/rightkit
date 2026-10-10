@@ -10,23 +10,23 @@ Generic cloud sync engine for Right Suite apps. It owns change cursors, tombston
 
 - `API.md` (in this crate): adapter traits, the shared wire contract, the helper protocol, and per-app migration. Read it before changing record or conflict behavior.
 - `helper::{CloudKitHelper, HelperBackend, HelperAuth}`: the macOS CloudKit backend, over the Swift `rightkit-cloudkit-helper` (`swift/RightKitCloudKitHelper` at the RightKit root). `HelperAuth` is defined in `src/helper/mod.rs`.
-- `MemoryBackend` (`src/memory.rs`) and the `rightkit-sync-fake-helper` binary (`src/bin/rightkit-sync-fake-helper.rs`): a reference zone and protocol fake for tests.
+- `MemoryBackend` (`src/memory.rs`) and the `rightkit-sync-fake-helper` binary (`src/bin/rightkit-sync-fake-helper.rs`): a reference zone and protocol fake for tests. The fake-helper binary and its end-to-end test live in the repository only; the published package ships `MemoryBackend` but not the binary.
 
 ## Features
 
-None. The crate has no Cargo features. Dependencies: `serde` and `serde_json`.
+None. The crate has no Cargo features. Dependencies: `serde`, `serde_json`, and `rightkit-fs` (`fs` feature, for the durable ledger write).
 
 ## Platform support
 
 - macOS: the CloudKit helper backend. The helper is a separate Swift binary.
 - Windows: `cfg(windows)` process handling in `src/helper/process.rs`.
-- The engine, `MemoryBackend`, and the fake helper are portable Rust.
+- The engine, `MemoryBackend`, and the fake helper (repository only) are portable Rust.
 
-Published version: see `INDEX.md` at the repository root. This crate has no `CHANGELOG.md`.
+Published version: see `INDEX.md` at the repository root. Changes are recorded in `CHANGELOG.md`.
 
 ## Example
 
-Illustrative; not compiled as a doctest. For compiled usage, see `tests/convergence.rs` (engine behavior) and `tests/helper_e2e.rs` (helper protocol through the fake helper).
+Illustrative; not compiled as a doctest. For compiled usage, see `tests/convergence.rs` (engine behavior) and, in the repository only, `tests/helper_e2e.rs` (helper protocol through the fake helper).
 
 ```rust,ignore
 // Build a sync engine over MemoryBackend in tests, or over CloudKitHelper

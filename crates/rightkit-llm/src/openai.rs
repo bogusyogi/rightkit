@@ -34,7 +34,12 @@ pub struct OpenAiCompatProvider {
 }
 
 impl OpenAiCompatProvider {
-    pub fn new(id: &str, base_url: &str, client: Client, credentials: Arc<dyn CredentialSource>) -> Self {
+    pub fn new(
+        id: &str,
+        base_url: &str,
+        client: Client,
+        credentials: Arc<dyn CredentialSource>,
+    ) -> Self {
         Self {
             id: id.into(),
             base_url: base_url.trim_end_matches('/').to_string(),
@@ -60,11 +65,19 @@ impl OpenAiCompatProvider {
 
     fn request(&self, req: &ChatRequest, stream: bool) -> Result<Request, LlmError> {
         let body = build_body(req, stream, self.max_tokens_field);
-        let mut http = Request::post(format!("{}/chat/completions", self.base_url))
-            .header("Accept", if stream { "text/event-stream" } else { "application/json" });
+        let mut http = Request::post(format!("{}/chat/completions", self.base_url)).header(
+            "Accept",
+            if stream {
+                "text/event-stream"
+            } else {
+                "application/json"
+            },
+        );
         match self.credentials.credential(&self.id)? {
             Some(c) => http = http.bearer(c.expose()),
-            None if self.requires_credential => return Err(LlmError::MissingCredential(self.id.clone())),
+            None if self.requires_credential => {
+                return Err(LlmError::MissingCredential(self.id.clone()))
+            }
             None => {}
         }
         for (k, v) in &self.extra_headers {
@@ -127,7 +140,11 @@ fn push_message(out: &mut Vec<Value>, m: &Message) {
             for b in &m.content {
                 match b {
                     ContentBlock::Text { text: t } => text.push_str(t),
-                    ContentBlock::ToolResult { tool_use_id, content, .. } => {
+                    ContentBlock::ToolResult {
+                        tool_use_id,
+                        content,
+                        ..
+                    } => {
                         out.push(json!({"role": "tool", "tool_call_id": tool_use_id, "content": content}));
                     }
                     ContentBlock::ToolUse { .. } => {}
@@ -161,8 +178,8 @@ fn push_message(out: &mut Vec<Value>, m: &Message) {
 fn parse_usage(u: &Value) -> Usage {
     let n = |v: &Value| v.as_u64().unwrap_or(0);
     let prompt = n(&u["prompt_tokens"]);
-    let cached = n(&u["prompt_tokens_details"]["cached_tokens"])
-        .max(n(&u["prompt_cache_hit_tokens"])); // DeepSeek-style field
+    let cached =
+        n(&u["prompt_tokens_details"]["cached_tokens"]).max(n(&u["prompt_cache_hit_tokens"])); // DeepSeek-style field
     Usage {
         input_tokens: prompt.saturating_sub(cached),
         output_tokens: n(&u["completion_tokens"]),
@@ -222,7 +239,9 @@ impl Provider for OpenAiCompatProvider {
 
     fn complete(&self, req: &ChatRequest) -> Result<ChatResponse, LlmError> {
         let resp = self.client.send(&self.request(req, false)?)?;
-        let v: Value = resp.json().map_err(|e| LlmError::Malformed(e.to_string()))?;
+        let v: Value = resp
+            .json()
+            .map_err(|e| LlmError::Malformed(e.to_string()))?;
         parse_response(&v)
     }
 
@@ -265,7 +284,10 @@ impl Provider for OpenAiCompatProvider {
             let chunk: Value = serde_json::from_str(&ev.data)
                 .map_err(|e| fail(format!("bad SSE JSON: {e}"), delivered))?;
             if let Some(err) = chunk.get("error").filter(|e| !e.is_null()) {
-                let message = err["message"].as_str().unwrap_or("provider error").to_string();
+                let message = err["message"]
+                    .as_str()
+                    .unwrap_or("provider error")
+                    .to_string();
                 let kind = err["type"].as_str().unwrap_or("error").to_string();
                 return Err(if delivered {
                     LlmError::MidStream(format!("{kind}: {message}"))
@@ -282,7 +304,9 @@ impl Provider for OpenAiCompatProvider {
             if let Some(u) = chunk.get("usage").filter(|u| !u.is_null()) {
                 usage = parse_usage(u);
             }
-            let Some(choice) = chunk["choices"].get(0) else { continue };
+            let Some(choice) = chunk["choices"].get(0) else {
+                continue;
+            };
             let delta = &choice["delta"];
             let mut out = Vec::new();
             if let Some(t) = delta["content"].as_str().filter(|t| !t.is_empty()) {
@@ -298,11 +322,20 @@ impl Provider for OpenAiCompatProvider {
                     }
                     if let Some(n) = tc["function"]["name"].as_str().filter(|s| !s.is_empty()) {
                         entry.1 = n.to_string();
-                        out.push(StreamEvent::ToolUseStart { id: entry.0.clone(), name: entry.1.clone() });
+                        out.push(StreamEvent::ToolUseStart {
+                            id: entry.0.clone(),
+                            name: entry.1.clone(),
+                        });
                     }
-                    if let Some(a) = tc["function"]["arguments"].as_str().filter(|s| !s.is_empty()) {
+                    if let Some(a) = tc["function"]["arguments"]
+                        .as_str()
+                        .filter(|s| !s.is_empty())
+                    {
                         entry.2.push_str(a);
-                        out.push(StreamEvent::ToolInputDelta { id: entry.0.clone(), partial_json: a.to_string() });
+                        out.push(StreamEvent::ToolInputDelta {
+                            id: entry.0.clone(),
+                            partial_json: a.to_string(),
+                        });
                     }
                 }
             }
@@ -317,15 +350,28 @@ impl Provider for OpenAiCompatProvider {
             }
         }
         if !done && finish.is_none() {
-            return Err(fail("stream ended before [DONE] or a finish reason".into(), delivered));
+            return Err(fail(
+                "stream ended before [DONE] or a finish reason".into(),
+                delivered,
+            ));
         }
         let mut content = Vec::new();
         if !text.is_empty() {
             content.push(ContentBlock::text(text));
         }
         for (_, (cid, name, args)) in calls {
-            content.push(ContentBlock::ToolUse { id: cid, name, input: tool_input(&args)? });
+            content.push(ContentBlock::ToolUse {
+                id: cid,
+                name,
+                input: tool_input(&args)?,
+            });
         }
-        Ok(ChatResponse { id, model, content, stop_reason: parse_finish(finish.as_deref()), usage })
+        Ok(ChatResponse {
+            id,
+            model,
+            content,
+            stop_reason: parse_finish(finish.as_deref()),
+            usage,
+        })
     }
 }

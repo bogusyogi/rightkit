@@ -39,7 +39,11 @@ const FUNCTION_KEYCODES: [u16; 20] = [
 /// Post one key event with explicit `flags` (see the `FLAG_*` constants). Function keys get
 /// [`FLAG_SECONDARY_FN`] added, exactly as a physical keyboard reports them.
 pub fn post_key(location: TapLocation, keycode: u16, down: bool, flags: u64) -> bool {
-    let flags = if FUNCTION_KEYCODES.contains(&keycode) { flags | FLAG_SECONDARY_FN } else { flags };
+    let flags = if FUNCTION_KEYCODES.contains(&keycode) {
+        flags | FLAG_SECONDARY_FN
+    } else {
+        flags
+    };
     unsafe {
         let source = CGEventSourceCreate(K_CG_EVENT_SOURCE_STATE_PRIVATE);
         if source.is_null() {
@@ -51,7 +55,11 @@ pub fn post_key(location: TapLocation, keycode: u16, down: bool, flags: u64) -> 
             return false;
         }
         CGEventSetFlags(event, flags);
-        CGEventSetIntegerValueField(event, K_CG_EVENT_SOURCE_USER_DATA, SYNTHETIC_EVENT_USER_DATA);
+        CGEventSetIntegerValueField(
+            event,
+            K_CG_EVENT_SOURCE_USER_DATA,
+            SYNTHETIC_EVENT_USER_DATA,
+        );
         CGEventPost(tap_location(location), event);
         CFRelease(event);
         CFRelease(source);
@@ -74,7 +82,11 @@ pub fn post_other_mouse(location: TapLocation, button: u32, x: f64, y: f64, down
         }
         let event = CGEventCreateMouseEvent(
             source,
-            if down { K_CG_EVENT_OTHER_MOUSE_DOWN_T } else { K_CG_EVENT_OTHER_MOUSE_UP_T },
+            if down {
+                K_CG_EVENT_OTHER_MOUSE_DOWN_T
+            } else {
+                K_CG_EVENT_OTHER_MOUSE_UP_T
+            },
             CGPoint { x, y },
             button,
         );
@@ -82,7 +94,11 @@ pub fn post_other_mouse(location: TapLocation, button: u32, x: f64, y: f64, down
             CFRelease(source);
             return false;
         }
-        CGEventSetIntegerValueField(event, K_CG_EVENT_SOURCE_USER_DATA, SYNTHETIC_EVENT_USER_DATA);
+        CGEventSetIntegerValueField(
+            event,
+            K_CG_EVENT_SOURCE_USER_DATA,
+            SYNTHETIC_EVENT_USER_DATA,
+        );
         CGEventPost(tap_location(location), event);
         CFRelease(event);
         CFRelease(source);
@@ -105,17 +121,40 @@ pub fn pump_run_loop(seconds: f64) {
     unsafe {
         type SendF = unsafe extern "C" fn(*mut c_void, *mut c_void, f64) -> *mut c_void;
         type SendP = unsafe extern "C" fn(*mut c_void, *mut c_void, *mut c_void) -> *mut c_void;
-        type SendStr = unsafe extern "C" fn(*mut c_void, *mut c_void, *const std::ffi::c_char) -> *mut c_void;
-        type Next = unsafe extern "C" fn(*mut c_void, *mut c_void, u64, *mut c_void, *mut c_void, bool) -> *mut c_void;
+        type SendStr =
+            unsafe extern "C" fn(*mut c_void, *mut c_void, *const std::ffi::c_char) -> *mut c_void;
+        type Next = unsafe extern "C" fn(
+            *mut c_void,
+            *mut c_void,
+            u64,
+            *mut c_void,
+            *mut c_void,
+            bool,
+        ) -> *mut c_void;
         let m = objc_msgSend as unsafe extern "C" fn();
         let date_class = objc_getClass(c"NSDate".as_ptr());
         let string_class = objc_getClass(c"NSString".as_ptr());
-        let until = std::mem::transmute::<unsafe extern "C" fn(), SendF>(m)(date_class, sel_registerName(c"dateWithTimeIntervalSinceNow:".as_ptr()), seconds);
-        let mode = std::mem::transmute::<unsafe extern "C" fn(), SendStr>(m)(string_class, sel_registerName(c"stringWithUTF8String:".as_ptr()), c"kCFRunLoopDefaultMode".as_ptr());
+        let until = std::mem::transmute::<unsafe extern "C" fn(), SendF>(m)(
+            date_class,
+            sel_registerName(c"dateWithTimeIntervalSinceNow:".as_ptr()),
+            seconds,
+        );
+        let mode = std::mem::transmute::<unsafe extern "C" fn(), SendStr>(m)(
+            string_class,
+            sel_registerName(c"stringWithUTF8String:".as_ptr()),
+            c"kCFRunLoopDefaultMode".as_ptr(),
+        );
         let next = sel_registerName(c"nextEventMatchingMask:untilDate:inMode:dequeue:".as_ptr());
         let send_event = sel_registerName(c"sendEvent:".as_ptr());
         loop {
-            let event = std::mem::transmute::<unsafe extern "C" fn(), Next>(m)(app, next, u64::MAX, until, mode, true);
+            let event = std::mem::transmute::<unsafe extern "C" fn(), Next>(m)(
+                app,
+                next,
+                u64::MAX,
+                until,
+                mode,
+                true,
+            );
             if event.is_null() {
                 break;
             }
@@ -137,14 +176,18 @@ pub fn init_background_app() -> bool {
             return false;
         }
         type Shared = unsafe extern "C" fn(*mut c_void, *mut c_void) -> *mut c_void;
-        let shared = std::mem::transmute::<unsafe extern "C" fn(), Shared>(objc_msgSend as unsafe extern "C" fn());
+        let shared = std::mem::transmute::<unsafe extern "C" fn(), Shared>(
+            objc_msgSend as unsafe extern "C" fn(),
+        );
         let app = shared(class, sel_registerName(c"sharedApplication".as_ptr()));
         if app.is_null() {
             return false;
         }
         // NSApplicationActivationPolicyAccessory = 1
         type SetPolicy = unsafe extern "C" fn(*mut c_void, *mut c_void, isize) -> bool;
-        let set_policy = std::mem::transmute::<unsafe extern "C" fn(), SetPolicy>(objc_msgSend as unsafe extern "C" fn());
+        let set_policy = std::mem::transmute::<unsafe extern "C" fn(), SetPolicy>(
+            objc_msgSend as unsafe extern "C" fn(),
+        );
         let ok = set_policy(app, sel_registerName(c"setActivationPolicy:".as_ptr()), 1);
         // Finish launching without activating: installs the event queue the pump drains.
         shared(app, sel_registerName(c"finishLaunching".as_ptr()));

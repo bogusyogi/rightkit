@@ -2,7 +2,7 @@
 
 Brand-neutral bring-your-own-key (BYOK) LLM provider clients for Right Suite apps. It provides Anthropic Messages and OpenAI-compatible chat clients with streaming, tool use, forced-tool structured output, route failover with a circuit breaker, pricing, and prompt-cache breakpoints.
 
-Catalog capability: `llm-providers`. Published to crates.io (see [INDEX.md](../../INDEX.md)).
+Catalog capability: `llm-providers`. Release versions are tracked in [INDEX.md](../../INDEX.md) and `CHANGELOG.md`.
 
 ## What it owns
 
@@ -56,4 +56,4 @@ Pure Rust over `rightkit-http` (`ureq` with `rustls`). No platform-specific code
 
 ## Version and changes
 
-Published version: see [INDEX.md](../../INDEX.md). No CHANGELOG.md in this crate.
+Version: see [INDEX.md](../../INDEX.md). Changes are recorded in `CHANGELOG.md`.

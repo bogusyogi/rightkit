@@ -5,8 +5,11 @@ edition = "2021"
 rust-version = "1.98.0"
 description = "Shared review capability for the content pipeline: deterministic checks over a media or brief description, declared holds, a capped repair loop, an advisory judge interface, and versioned verdict records."
 license = "MIT OR Apache-2.0"
+readme = "README.md"
 repository = "https://github.com/bogusyogi/rightkit"
-publish = false
+keywords = ["review", "verdict", "content-pipeline", "qa"]
+categories = ["development-tools"]
+include = ["src/**", "tests/**", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
 
 [lib]
 path = "src/lib.rs"

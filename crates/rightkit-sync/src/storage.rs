@@ -9,7 +9,8 @@ pub trait LedgerStorage: Send + Sync {
     fn save(&self, bytes: &[u8]) -> Result<(), String>;
 }
 
-/// Atomic write (temp file + rename) to one JSON file.
+/// Atomic, durable, owner-only write (temp file, fsync, rename, fsync directory) to one file,
+/// through `rightkit_fs::atomic_write_private`.
 pub struct FileStorage {
     path: PathBuf,
 }
@@ -32,9 +33,7 @@ impl LedgerStorage for FileStorage {
         if let Some(dir) = self.path.parent() {
             std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
         }
-        let tmp = self.path.with_extension("tmp");
-        std::fs::write(&tmp, bytes).map_err(|e| e.to_string())?;
-        std::fs::rename(&tmp, &self.path).map_err(|e| e.to_string())
+        rightkit_fs::atomic_write_private(&self.path, bytes).map_err(|e| e.to_string())
     }
 }
 
@@ -49,5 +48,27 @@ impl LedgerStorage for MemoryStorage {
     fn save(&self, bytes: &[u8]) -> Result<(), String> {
         *self.0.lock().unwrap() = Some(bytes.to_vec());
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn file_storage_round_trips_replaces_and_leaves_no_temp_files() {
+        let dir = std::env::temp_dir().join(format!("rk-sync-storage-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let store = FileStorage::new(dir.join("nested").join("ledger.json"));
+        assert_eq!(store.load().unwrap(), None);
+        store.save(b"one").unwrap();
+        store.save(b"two").unwrap();
+        assert_eq!(store.load().unwrap().as_deref(), Some(&b"two"[..]));
+        let names: Vec<_> = std::fs::read_dir(dir.join("nested"))
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(names, vec!["ledger.json".to_string()]);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

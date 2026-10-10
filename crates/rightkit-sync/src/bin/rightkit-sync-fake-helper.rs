@@ -101,11 +101,17 @@ fn put(zone: &mut Zone, mut r: WireRecord) {
 
 fn handle(files: &Files, req: &Request) -> Result<Map<String, Value>, WireError> {
     let mut faults: Faults = load(&files.faults);
-    let account = faults.account.clone().unwrap_or_else(|| "fake-account-A".into());
+    let account = faults
+        .account
+        .clone()
+        .unwrap_or_else(|| "fake-account-A".into());
     let zone_path = files.zone(&account);
     let mut zone: Zone = load(&zone_path);
     let params = Value::Object(req.params.clone());
-    let scope = faults.account.clone().unwrap_or_else(|| "fake-account-A".into());
+    let scope = faults
+        .account
+        .clone()
+        .unwrap_or_else(|| "fake-account-A".into());
     let mut body = Map::new();
     body.insert("scope".into(), scope.clone().into());
 
@@ -168,7 +174,11 @@ fn handle(files: &Files, req: &Request) -> Result<Map<String, Value>, WireError>
                 if faults.expire_token_once {
                     faults.expire_token_once = false;
                     store(&files.faults, &faults);
-                    return Err(WireError::new("token_expired", "change token expired", None));
+                    return Err(WireError::new(
+                        "token_expired",
+                        "change token expired",
+                        None,
+                    ));
                 }
                 let bytes = b64_decode(s).unwrap_or_default();
                 match <[u8; 8]>::try_from(bytes.as_slice()) {
@@ -186,7 +196,11 @@ fn handle(files: &Files, req: &Request) -> Result<Map<String, Value>, WireError>
                 .cloned()
                 .collect();
             changed.sort_by_key(|(s, _)| *s);
-            let limit = if faults.page_size == 0 { usize::MAX } else { faults.page_size };
+            let limit = if faults.page_size == 0 {
+                usize::MAX
+            } else {
+                faults.page_size
+            };
             let more = changed.len() > limit;
             changed.truncate(limit);
             let cursor = if more {
@@ -227,7 +241,10 @@ fn handle(files: &Files, req: &Request) -> Result<Map<String, Value>, WireError>
             Ok(body)
         }
         "fetch_record" => {
-            let name = params.get("record_name").and_then(Value::as_str).unwrap_or("");
+            let name = params
+                .get("record_name")
+                .and_then(Value::as_str)
+                .unwrap_or("");
             let rec = zone.records.get(name).map(|(_, r)| r.clone());
             body.insert("record".into(), serde_json::to_value(rec).unwrap());
             Ok(body)
@@ -237,14 +254,14 @@ fn handle(files: &Files, req: &Request) -> Result<Map<String, Value>, WireError>
             if !zone.exists {
                 return Err(WireError::new("zone_missing", "zone not found", None));
             }
-            let records: Vec<WireRecord> = serde_json::from_value(
-                params.get("records").cloned().unwrap_or(Value::Null),
-            )
-            .map_err(|e| WireError::new("transient", e.to_string(), None))?;
+            let records: Vec<WireRecord> =
+                serde_json::from_value(params.get("records").cloned().unwrap_or(Value::Null))
+                    .map_err(|e| WireError::new("transient", e.to_string(), None))?;
             if let Some(r) = faults.inject_before_save.take() {
                 put(&mut zone, r);
             }
-            let conditional = params.get("policy").and_then(Value::as_str) == Some("if_server_unchanged");
+            let conditional =
+                params.get("policy").and_then(Value::as_str) == Some("if_server_unchanged");
             let mut outcomes = Vec::new();
             let mut budget = faults.fail_after_saves;
             for r in records {
@@ -287,7 +304,11 @@ fn handle(files: &Files, req: &Request) -> Result<Map<String, Value>, WireError>
             body.insert("outcomes".into(), json!(outcomes));
             Ok(body)
         }
-        other => Err(WireError::new("transient", format!("unknown command {other}"), None)),
+        other => Err(WireError::new(
+            "transient",
+            format!("unknown command {other}"),
+            None,
+        )),
     };
     store(&zone_path, &zone);
     store(&files.faults, &faults);
@@ -320,7 +341,11 @@ fn main() {
         let req: Request = match serde_json::from_str(&line) {
             Ok(r) => r,
             Err(e) => {
-                let _ = writeln!(out, "{}", err_line(0, &WireError::new("transient", e.to_string(), None)));
+                let _ = writeln!(
+                    out,
+                    "{}",
+                    err_line(0, &WireError::new("transient", e.to_string(), None))
+                );
                 let _ = out.flush();
                 continue;
             }

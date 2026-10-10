@@ -12,7 +12,8 @@ use crate::record::{FieldValue, RawRecord};
 pub const PROTOCOL_VERSION: u32 = 1;
 
 /// Standard base64 (RFC 4648, padded). Tokens and byte fields cross the wire
-/// as base64 text.
+/// as base64 text. Kept in-crate on purpose: no workspace crate owns base64, and `rightkit-secrets`
+/// and `rightkit-shell` carry their own small copies; the next owner of a shared helper replaces all three.
 pub fn b64_encode(bytes: &[u8]) -> String {
     const T: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
@@ -22,8 +23,16 @@ pub fn b64_encode(bytes: &[u8]) -> String {
             | u32::from(*c.get(2).unwrap_or(&0));
         out.push(T[(n >> 18) as usize & 63] as char);
         out.push(T[(n >> 12) as usize & 63] as char);
-        out.push(if c.len() > 1 { T[(n >> 6) as usize & 63] as char } else { '=' });
-        out.push(if c.len() > 2 { T[n as usize & 63] as char } else { '=' });
+        out.push(if c.len() > 1 {
+            T[(n >> 6) as usize & 63] as char
+        } else {
+            '='
+        });
+        out.push(if c.len() > 2 {
+            T[n as usize & 63] as char
+        } else {
+            '='
+        });
     }
     out
 }
@@ -118,9 +127,9 @@ impl WireRecord {
                 WireValue::I64(n) => FieldValue::I64(n),
                 WireValue::F64(n) => FieldValue::F64(n),
                 WireValue::Date(n) => FieldValue::Date(n),
-                WireValue::Bytes(b) => FieldValue::Bytes(
-                    b64_decode(&b).map_err(|e| format!("field {k}: {e}"))?,
-                ),
+                WireValue::Bytes(b) => {
+                    FieldValue::Bytes(b64_decode(&b).map_err(|e| format!("field {k}: {e}"))?)
+                }
                 WireValue::Strings(s) => FieldValue::Strings(s),
             };
             fields.insert(k, f);
@@ -226,6 +235,9 @@ pub fn err_line(id: u64, error: &WireError) -> String {
     let mut m = Map::new();
     m.insert("id".into(), id.into());
     m.insert("ok".into(), false.into());
-    m.insert("error".into(), serde_json::to_value(error).unwrap_or(Value::Null));
+    m.insert(
+        "error".into(),
+        serde_json::to_value(error).unwrap_or(Value::Null),
+    );
     Value::Object(m).to_string()
 }

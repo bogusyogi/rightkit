@@ -69,4 +69,4 @@ let phase = run.execute(&lease, &spec, &mut driver, &ctx)?;
 
 ## Version
 
-Crate version: see [INDEX.md](../../INDEX.md). The crate is not published (`publish = false`). It has no CHANGELOG.
+Crate version: see [INDEX.md](../../INDEX.md) and `CHANGELOG.md`. First published release: 0.1.0.

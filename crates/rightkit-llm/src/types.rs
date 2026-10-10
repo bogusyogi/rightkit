@@ -41,10 +41,16 @@ pub struct Message {
 
 impl Message {
     pub fn user(text: impl Into<String>) -> Self {
-        Self { role: Role::User, content: vec![ContentBlock::text(text)] }
+        Self {
+            role: Role::User,
+            content: vec![ContentBlock::text(text)],
+        }
     }
     pub fn assistant(text: impl Into<String>) -> Self {
-        Self { role: Role::Assistant, content: vec![ContentBlock::text(text)] }
+        Self {
+            role: Role::Assistant,
+            content: vec![ContentBlock::text(text)],
+        }
     }
     pub fn tool_result(id: impl Into<String>, content: impl Into<String>, is_error: bool) -> Self {
         Self {
@@ -173,14 +179,23 @@ impl ChatResponse {
     }
     /// Input of the first call to `name` (structured output via a forced tool).
     pub fn tool_input(&self, name: &str) -> Option<&Value> {
-        self.tool_uses().into_iter().find(|(_, n, _)| *n == name).map(|(_, _, i)| i)
+        self.tool_uses()
+            .into_iter()
+            .find(|(_, n, _)| *n == name)
+            .map(|(_, _, i)| i)
     }
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum StreamEvent {
     Text(String),
-    ToolUseStart { id: String, name: String },
+    ToolUseStart {
+        id: String,
+        name: String,
+    },
     /// Partial JSON for the tool call `id`.
-    ToolInputDelta { id: String, partial_json: String },
+    ToolInputDelta {
+        id: String,
+        partial_json: String,
+    },
 }

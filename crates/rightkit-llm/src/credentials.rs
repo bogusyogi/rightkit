@@ -19,7 +19,10 @@ pub struct SecretStoreCredentials {
 
 impl SecretStoreCredentials {
     pub fn new(store: Arc<dyn SecretStore>, service: impl Into<String>) -> Self {
-        Self { store, service: service.into() }
+        Self {
+            store,
+            service: service.into(),
+        }
     }
 }
 

@@ -28,10 +28,16 @@ pub enum HotkeyState {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RegisterError {
     /// The chord is already registered (by this process or another app).
-    Conflict { chord: String, os_status: i32 },
+    Conflict {
+        chord: String,
+        os_status: i32,
+    },
     /// The chord cannot be expressed as a Carbon hotkey (for example it needs fn).
     Unsupported(String),
-    Os { chord: String, os_status: i32 },
+    Os {
+        chord: String,
+        os_status: i32,
+    },
 }
 
 impl RegisterError {
@@ -39,7 +45,9 @@ impl RegisterError {
     pub fn message(&self) -> String {
         match self {
             RegisterError::Conflict { chord, os_status } => {
-                format!("register {chord} failed: shortcut already registered (OSStatus {os_status})")
+                format!(
+                    "register {chord} failed: shortcut already registered (OSStatus {os_status})"
+                )
             }
             RegisterError::Unsupported(chord) => {
                 format!("register {chord} failed: chord not expressible as a system hotkey")
@@ -104,10 +112,19 @@ impl GlobalHotkeys {
     /// Install the dispatcher. `callback` runs on the main run-loop thread for each press/release.
     pub fn new(callback: impl Fn(HotkeyId, HotkeyState) + 'static) -> Result<Self, i32> {
         let signature = NEXT_SIGNATURE.fetch_add(1, Ordering::SeqCst);
-        let inner = Box::into_raw(Box::new(Inner { signature, callback: Box::new(callback) }));
+        let inner = Box::into_raw(Box::new(Inner {
+            signature,
+            callback: Box::new(callback),
+        }));
         let types = [
-            EventTypeSpec { event_class: K_EVENT_CLASS_KEYBOARD, event_kind: K_EVENT_HOTKEY_PRESSED },
-            EventTypeSpec { event_class: K_EVENT_CLASS_KEYBOARD, event_kind: K_EVENT_HOTKEY_RELEASED },
+            EventTypeSpec {
+                event_class: K_EVENT_CLASS_KEYBOARD,
+                event_kind: K_EVENT_HOTKEY_PRESSED,
+            },
+            EventTypeSpec {
+                event_class: K_EVENT_CLASS_KEYBOARD,
+                event_kind: K_EVENT_HOTKEY_RELEASED,
+            },
         ];
         let mut handler: *mut c_void = std::ptr::null_mut();
         let status = unsafe {
@@ -124,7 +141,12 @@ impl GlobalHotkeys {
             unsafe { drop(Box::from_raw(inner)) };
             return Err(status);
         }
-        Ok(Self { inner, handler, refs: HashMap::new(), next_id: 1 })
+        Ok(Self {
+            inner,
+            handler,
+            refs: HashMap::new(),
+            next_id: 1,
+        })
     }
 
     pub fn register(&mut self, chord: &Chord) -> Result<HotkeyId, RegisterError> {
@@ -139,7 +161,10 @@ impl GlobalHotkeys {
             };
         }
         let id = HotkeyId(self.next_id);
-        let hk = EventHotKeyID { signature: unsafe { (*self.inner).signature }, id: id.0 };
+        let hk = EventHotKeyID {
+            signature: unsafe { (*self.inner).signature },
+            id: id.0,
+        };
         let mut out: *mut c_void = std::ptr::null_mut();
         let status = unsafe {
             RegisterEventHotKey(
@@ -157,9 +182,15 @@ impl GlobalHotkeys {
                 self.refs.insert(id, out);
                 Ok(id)
             }
-            EVENT_HOTKEY_EXISTS_ERR => Err(RegisterError::Conflict { chord: name, os_status: status }),
+            EVENT_HOTKEY_EXISTS_ERR => Err(RegisterError::Conflict {
+                chord: name,
+                os_status: status,
+            }),
             EVENT_HOTKEY_INVALID_ERR => Err(RegisterError::Unsupported(name)),
-            other => Err(RegisterError::Os { chord: name, os_status: other }),
+            other => Err(RegisterError::Os {
+                chord: name,
+                os_status: other,
+            }),
         }
     }
 

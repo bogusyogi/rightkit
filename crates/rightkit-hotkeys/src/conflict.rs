@@ -26,7 +26,10 @@ impl HotkeyConflict {
             .filter(|shortcut| required.contains(shortcut))
             .map(|shortcut| vec![shortcut.to_string()])
             .unwrap_or_else(|| required.iter().map(|s| (*s).to_string()).collect());
-        Self { shortcuts, message: message.to_string() }
+        Self {
+            shortcuts,
+            message: message.to_string(),
+        }
     }
 }
 
@@ -69,5 +72,88 @@ impl ChordRegistry {
 
     pub fn owner_of(&self, chord: &Chord) -> Option<&str> {
         self.bound.get(&chord.canonical()).map(String::as_str)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::chord::parse_chord;
+
+    fn chord(text: &str) -> Chord {
+        parse_chord(text).unwrap()
+    }
+
+    #[test]
+    fn bind_succeeds_for_distinct_chords() {
+        let mut reg = ChordRegistry::new();
+        assert!(reg.bind(&chord("Ctrl+Shift+K"), "palette").is_ok());
+        assert!(reg.bind(&chord("Ctrl+Shift+J"), "search").is_ok());
+        assert_eq!(reg.owner_of(&chord("Ctrl+Shift+K")), Some("palette"));
+    }
+
+    #[test]
+    fn bind_reports_conflict_with_holder_and_requester() {
+        let mut reg = ChordRegistry::new();
+        reg.bind(&chord("Ctrl+Space"), "dictation").unwrap();
+        let err = reg.bind(&chord("ctrl+space"), "launcher").unwrap_err();
+        assert_eq!(
+            err,
+            RegistryConflict {
+                chord: "Ctrl+Space".into(),
+                held_by: "dictation".into(),
+                requested_by: "launcher".into(),
+            }
+        );
+        assert_eq!(reg.owner_of(&chord("Ctrl+Space")), Some("dictation"));
+    }
+
+    #[test]
+    fn conflict_detection_ignores_modifier_order_and_aliases() {
+        let mut reg = ChordRegistry::new();
+        reg.bind(&chord("Shift+Cmd+K"), "a").unwrap();
+        assert!(reg.bind(&chord("Meta+Shift+K"), "b").is_err());
+    }
+
+    #[test]
+    fn rebinding_same_owner_is_idempotent() {
+        let mut reg = ChordRegistry::new();
+        reg.bind(&chord("Alt+F4"), "close").unwrap();
+        assert!(reg.bind(&chord("Alt+F4"), "close").is_ok());
+    }
+
+    #[test]
+    fn release_frees_the_chord_for_another_owner() {
+        let mut reg = ChordRegistry::new();
+        reg.bind(&chord("Ctrl+1"), "one").unwrap();
+        reg.release(&chord("Ctrl+1"));
+        assert_eq!(reg.owner_of(&chord("Ctrl+1")), None);
+        assert!(reg.bind(&chord("Ctrl+1"), "two").is_ok());
+    }
+
+    #[test]
+    fn registration_error_names_the_failed_required_shortcut() {
+        let c = HotkeyConflict::from_registration_error(
+            "register Ctrl+Space failed: already taken",
+            &["Ctrl+Space", "Alt+Space"],
+            "in use",
+        );
+        assert_eq!(c.shortcuts, vec!["Ctrl+Space".to_string()]);
+        assert_eq!(c.message, "in use");
+    }
+
+    #[test]
+    fn unrecognized_registration_error_lists_all_required() {
+        let c = HotkeyConflict::from_registration_error(
+            "register F13 failed: nope",
+            &["Ctrl+Space", "Alt+Space"],
+            "in use",
+        );
+        assert_eq!(
+            c.shortcuts,
+            vec!["Ctrl+Space".to_string(), "Alt+Space".to_string()]
+        );
+        let c = HotkeyConflict::from_registration_error("garbage", &["A"], "m");
+        assert_eq!(c.shortcuts, vec!["A".to_string()]);
     }
 }

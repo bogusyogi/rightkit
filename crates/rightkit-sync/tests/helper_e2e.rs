@@ -118,12 +118,20 @@ impl Clock for TestClock {
 struct Events(Mutex<Vec<(String, String)>>);
 impl SyncObserver for Events {
     fn event(&self, name: &'static str, detail: &str) {
-        self.0.lock().unwrap().push((name.to_string(), detail.to_string()));
+        self.0
+            .lock()
+            .unwrap()
+            .push((name.to_string(), detail.to_string()));
     }
 }
 impl Events {
     fn names(&self) -> Vec<String> {
-        self.0.lock().unwrap().iter().map(|(n, _)| n.clone()).collect()
+        self.0
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|(n, _)| n.clone())
+            .collect()
     }
 }
 
@@ -260,7 +268,11 @@ fn two_macs_converge_through_helper_processes() {
     let rich = b.local.get("rich").expect("rich note downloaded");
     assert_eq!(rich.tags, ["alpha", "beta"]);
     assert_eq!(rich.body, big, "asset-sized bytes survive the wire");
-    assert_eq!(a.helper.spawn_count(), 1, "one long-lived helper per device");
+    assert_eq!(
+        a.helper.spawn_count(),
+        1,
+        "one long-lived helper per device"
+    );
     assert!(
         zone.counter("fetch_calls") >= 4,
         "page_size 2 forced multi-page fetches"
@@ -283,10 +295,17 @@ fn two_macs_converge_through_helper_processes() {
     let saved = zone.counter("saved_records");
     b.pass();
     assert!(b.local.get("n1").is_none());
-    assert_eq!(zone.counter("saved_records"), saved, "blocked id not re-uploaded");
+    assert_eq!(
+        zone.counter("saved_records"),
+        saved,
+        "blocked id not re-uploaded"
+    );
     let tomb = &zone.records("fake-account-A")["n1"];
     assert!(tomb["fields"].get("deletedAt").is_some());
-    assert!(tomb["fields"].get("text").is_none(), "tombstone clears content");
+    assert!(
+        tomb["fields"].get("text").is_none(),
+        "tombstone clears content"
+    );
     assert_eq!(a.pass().outcome, PassOutcome::Synced);
     assert_eq!(b.local.len(), 5);
 }
@@ -305,8 +324,16 @@ fn per_record_fetch_failure_never_advances_the_cursor() {
         f.insert("failed_fetch_retry_after".into(), 42.0.into());
     });
     let rep = b.pass();
-    assert!(matches!(rep.outcome, PassOutcome::Failed(_)), "{:?}", rep.outcome);
-    assert_eq!(rep.retry_after_secs, Some(42.0), "server retry hint honoured");
+    assert!(
+        matches!(rep.outcome, PassOutcome::Failed(_)),
+        "{:?}",
+        rep.outcome
+    );
+    assert_eq!(
+        rep.retry_after_secs,
+        Some(42.0),
+        "server retry hint honoured"
+    );
     assert!(b.ledger().change_token.is_none(), "cursor must not move");
     assert_eq!(b.local.len(), 0, "page not half-applied");
     // Next pass replays the page and lands every record, including n1.
@@ -324,7 +351,11 @@ fn account_switch_isolates_ledger_and_pending_deletions() {
         a.local.put(&format!("n{i}"), "v", 10 + i, 10 + i);
     }
     assert_eq!(a.pass().outcome, PassOutcome::Synced);
-    let scope_a = a.ledger().scope.clone().expect("ledger bound to account scope");
+    let scope_a = a
+        .ledger()
+        .scope
+        .clone()
+        .expect("ledger bound to account scope");
     assert_eq!(scope_a, "fake-account-A");
     assert_eq!(zone.records("fake-account-A").len(), 3);
 
@@ -344,7 +375,11 @@ fn account_switch_isolates_ledger_and_pending_deletions() {
         !b_zone.contains_key("n0"),
         "old account's pending deletion must not leak into the new account"
     );
-    assert_eq!(b_zone.len(), 2, "surviving local items published to the new account");
+    assert_eq!(
+        b_zone.len(),
+        2,
+        "surviving local items published to the new account"
+    );
     assert_eq!(
         zone.records("fake-account-A")["n0"]["fields"].get("deletedAt"),
         None,
@@ -375,8 +410,15 @@ fn account_change_during_a_pass_cancels_without_committing() {
     let rep = a.pass();
     flipper.join().unwrap();
     assert_eq!(rep.outcome, PassOutcome::Cancelled, "{rep:?}");
-    assert_eq!(a.ledger().change_token, before, "cancelled pass commits no cursor");
-    assert!(zone.records("fake-account-B").is_empty(), "nothing written to the new account");
+    assert_eq!(
+        a.ledger().change_token,
+        before,
+        "cancelled pass commits no cursor"
+    );
+    assert!(
+        zone.records("fake-account-B").is_empty(),
+        "nothing written to the new account"
+    );
     assert!(!zone.records("fake-account-A").contains_key("n1"));
 }
 
@@ -397,7 +439,11 @@ fn helper_crash_timeout_throttle_and_signed_out_recover() {
         f.insert("hang_once_ms".into(), 6000.into());
     });
     let rep = a.pass();
-    assert!(matches!(rep.outcome, PassOutcome::Failed(_)), "{:?}", rep.outcome);
+    assert!(
+        matches!(rep.outcome, PassOutcome::Failed(_)),
+        "{:?}",
+        rep.outcome
+    );
     assert!(a.helper.spawn_count() >= 2);
 
     // Throttled: the server hint (77 s) beats our 15 s base backoff.
@@ -405,12 +451,19 @@ fn helper_crash_timeout_throttle_and_signed_out_recover() {
         f.insert("throttle_secs".into(), 77.0.into());
     });
     let rep = a.engine.run_pass();
-    assert!(matches!(rep.outcome, PassOutcome::Failed(_)), "{:?}", rep.outcome);
+    assert!(
+        matches!(rep.outcome, PassOutcome::Failed(_)),
+        "{:?}",
+        rep.outcome
+    );
     assert!(rep.retry_after_secs.unwrap() >= 77.0, "{rep:?}");
     a.clock.0.fetch_add(3_600_000, Ordering::SeqCst);
     zone.faults(|f| {
         f.remove("throttle_secs");
-        f.insert("unavailable".into(), "Sign in to iCloud on this Mac.".into());
+        f.insert(
+            "unavailable".into(),
+            "Sign in to iCloud on this Mac.".into(),
+        );
     });
     let rep = a.pass();
     assert_eq!(
@@ -457,7 +510,11 @@ fn token_expiry_and_zone_loss_replay_without_losing_local_data() {
     assert!(a.events.names().contains(&"zone_recreated".to_string()));
     assert_eq!(a.local.len(), 3);
     a.pass();
-    assert_eq!(zone.records("fake-account-A").len(), 3, "library republished");
+    assert_eq!(
+        zone.records("fake-account-A").len(),
+        3,
+        "library republished"
+    );
 
     // Permanently undecodable record is reported, not a retry loop.
     zone.faults(|f| {
@@ -467,7 +524,10 @@ fn token_expiry_and_zone_loss_replay_without_losing_local_data() {
     a.pass();
     let rep = b.pass();
     assert_eq!(rep.outcome, PassOutcome::Synced, "{rep:?}");
-    assert!(b.events.names().contains(&"records_undecodable".to_string()));
+    assert!(b
+        .events
+        .names()
+        .contains(&"records_undecodable".to_string()));
 }
 
 #[test]
@@ -489,7 +549,11 @@ fn helper_missing_is_unavailable_not_a_crash() {
     .build()
     .unwrap();
     let rep = engine.run_pass();
-    assert!(matches!(rep.outcome, PassOutcome::Unavailable(_)), "{:?}", rep.outcome);
+    assert!(
+        matches!(rep.outcome, PassOutcome::Unavailable(_)),
+        "{:?}",
+        rep.outcome
+    );
 }
 
 /// The real Swift helper (memory backend, no iCloud) must speak the protocol
@@ -501,8 +565,8 @@ fn swift_helper() -> Option<PathBuf> {
     if let Ok(p) = std::env::var("RIGHTKIT_CLOUDKIT_HELPER") {
         return Some(PathBuf::from(p));
     }
-    let base = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../swift/RightKitCloudKitHelper/.build");
+    let base =
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../swift/RightKitCloudKitHelper/.build");
     ["release", "debug"]
         .iter()
         .map(|c| base.join(c).join("rightkit-cloudkit-helper"))
@@ -540,7 +604,14 @@ fn real_swift_helper_memory_backend_converges_two_engines() {
     let (la, mut ea, sa, ca) = mk(&helper);
     let (lb, mut eb, _sb, cb) = mk(&helper);
     let big: Vec<u8> = (0..200_000u32).map(|i| (i % 253) as u8).collect();
-    la.put_full("rich", "body+tags", vec!["x".into(), "y".into()], big.clone(), 50, 50);
+    la.put_full(
+        "rich",
+        "body+tags",
+        vec!["x".into(), "y".into()],
+        big.clone(),
+        50,
+        50,
+    );
     la.put("n1", "keep-me", 60, 60);
     la.put("n2", "doomed", 61, 61);
     assert_eq!(ea.run_pass().outcome, PassOutcome::Synced);
@@ -548,7 +619,10 @@ fn real_swift_helper_memory_backend_converges_two_engines() {
     assert_eq!(rep.downloaded, 3, "{rep:?}");
     let rich = lb.get("rich").unwrap();
     assert_eq!(rich.tags, ["x", "y"]);
-    assert_eq!(rich.body, big, "bytes cross Swift CKAsset-style mapping intact");
+    assert_eq!(
+        rich.body, big,
+        "bytes cross Swift CKAsset-style mapping intact"
+    );
     assert_eq!(rich.created, 50, "createdAt immutable origin time survives");
 
     // Edit + delete: LWW edit lands, tombstone removes remotely and clears content.
@@ -561,9 +635,16 @@ fn real_swift_helper_memory_backend_converges_two_engines() {
     assert_eq!(eb.run_pass().outcome, PassOutcome::Synced);
     assert_eq!(lb.get("n1").unwrap().text, "edited-on-a");
     assert!(lb.get("n2").is_none());
-    let tomb = helper.backend().fetch_record("n2").unwrap().expect("tombstone record");
+    let tomb = helper
+        .backend()
+        .fetch_record("n2")
+        .unwrap()
+        .expect("tombstone record");
     assert!(tomb.date_ms("deletedAt").is_some());
-    assert!(tomb.get("text").is_none(), "tombstone cleared the content field: {tomb:?}");
+    assert!(
+        tomb.get("text").is_none(),
+        "tombstone cleared the content field: {tomb:?}"
+    );
 
     // Ledgers are bound to the helper-reported scope.
     let ledger: Ledger = serde_json::from_slice(&sa.load().unwrap().unwrap()).unwrap();
@@ -613,12 +694,19 @@ fn concurrent_write_between_fetch_and_save_never_loses_an_update() {
     // server keeps it (the old blind overwrite would have destroyed it).
     b.local.put("n0", "from-b", 100, 600);
     zone.faults(|f| {
-        f.insert("inject_before_save".into(), wire_note("n0", "from-a-newer", 100, 900));
+        f.insert(
+            "inject_before_save".into(),
+            wire_note("n0", "from-a-newer", 100, 900),
+        );
     });
     let rep = b.pass();
     assert_eq!(rep.outcome, PassOutcome::Synced, "{rep:?}");
     assert_eq!(zone.counter("conflicts"), 1);
-    assert_eq!(zone_text(&zone, "n0").as_deref(), Some("from-a-newer"), "no lost update");
+    assert_eq!(
+        zone_text(&zone, "n0").as_deref(),
+        Some("from-a-newer"),
+        "no lost update"
+    );
     assert_eq!(b.local.get("n0").unwrap().text, "from-a-newer");
     assert_eq!(rep.uploaded, 0);
     a.pass();
@@ -628,7 +716,10 @@ fn concurrent_write_between_fetch_and_save_never_loses_an_update() {
     // the server's change tag, and its newer edit survives on both devices.
     b.local.put("n1", "from-b-newest", 100, 700);
     zone.faults(|f| {
-        f.insert("inject_before_save".into(), wire_note("n1", "stale-concurrent", 100, 550));
+        f.insert(
+            "inject_before_save".into(),
+            wire_note("n1", "stale-concurrent", 100, 550),
+        );
     });
     let rep = b.pass();
     assert_eq!(rep.outcome, PassOutcome::Synced, "{rep:?}");
@@ -646,14 +737,19 @@ fn concurrent_write_between_fetch_and_save_never_loses_an_update() {
     let rep = b.pass();
     assert_eq!(rep.outcome, PassOutcome::Synced, "{rep:?}");
     assert!(b.local.get("n2").is_none(), "tombstone applied locally");
-    assert!(zone.records("fake-account-A")["n2"]["fields"].get("deletedAt").is_some());
+    assert!(zone.records("fake-account-A")["n2"]["fields"]
+        .get("deletedAt")
+        .is_some());
     assert!(b.ledger().tombstones.contains_key("n2"));
 
     // 4. First publication of a name another device just created: the insert
     // is refused (record exists), the server record is judged, nothing is lost.
     b.local.put("n7", "b-first", 200, 1_000);
     zone.faults(|f| {
-        f.insert("inject_before_save".into(), wire_note("n7", "a-first-newer", 200, 2_000));
+        f.insert(
+            "inject_before_save".into(),
+            wire_note("n7", "a-first-newer", 200, 2_000),
+        );
     });
     let rep = b.pass();
     assert_eq!(rep.outcome, PassOutcome::Synced, "{rep:?}");
@@ -686,16 +782,30 @@ fn real_swift_helper_refuses_stale_conditional_save_and_reports_server_record() 
         base.set(k, v);
     }
     mapper.encode(
-        &Note { id: "n0".into(), text: "v1".into(), tags: vec![], body: vec![], created: 1, updated: 10 },
+        &Note {
+            id: "n0".into(),
+            text: "v1".into(),
+            tags: vec![],
+            body: vec![],
+            created: 1,
+            updated: 10,
+        },
         &mut base,
     );
     // Insert (no tag) succeeds; inserting the same name again is refused.
-    let r = backend.save_records(&[base.clone()], SavePolicy::IfServerUnchanged).unwrap();
+    let r = backend
+        .save_records(&[base.clone()], SavePolicy::IfServerUnchanged)
+        .unwrap();
     assert!(r[0].result.is_ok());
-    let r = backend.save_records(&[base.clone()], SavePolicy::IfServerUnchanged).unwrap();
+    let r = backend
+        .save_records(&[base.clone()], SavePolicy::IfServerUnchanged)
+        .unwrap();
     assert_eq!(r[0].result, Err(SyncError::Conflict));
     let fetched = backend.fetch_record("n0").unwrap().unwrap();
-    let tag = fetched.change_tag.clone().expect("server change tag travels to Rust");
+    let tag = fetched
+        .change_tag
+        .clone()
+        .expect("server change tag travels to Rust");
 
     // Another device writes: the tag is now stale.
     helper
@@ -703,18 +813,30 @@ fn real_swift_helper_refuses_stale_conditional_save_and_reports_server_record() 
         .unwrap();
     let mut mine = fetched.clone();
     mine.set("text", FieldValue::Text("mine-stale".into()));
-    let r = backend.save_records(&[mine.clone()], SavePolicy::IfServerUnchanged).unwrap();
+    let r = backend
+        .save_records(&[mine.clone()], SavePolicy::IfServerUnchanged)
+        .unwrap();
     assert_eq!(r[0].result, Err(SyncError::Conflict));
-    let server = r[0].server_record.clone().expect("conflict carries the server record");
+    let server = r[0]
+        .server_record
+        .clone()
+        .expect("conflict carries the server record");
     assert_eq!(server.text("text").as_deref(), Some("from-other-device"));
     assert_ne!(server.change_tag.as_deref(), Some(tag.as_str()));
     // On top of the server's tag the save lands.
     let mut retry = server.clone();
     retry.set("text", FieldValue::Text("merged".into()));
-    let r = backend.save_records(&[retry], SavePolicy::IfServerUnchanged).unwrap();
+    let r = backend
+        .save_records(&[retry], SavePolicy::IfServerUnchanged)
+        .unwrap();
     assert!(r[0].result.is_ok(), "{:?}", r[0].result);
     assert_eq!(
-        backend.fetch_record("n0").unwrap().unwrap().text("text").as_deref(),
+        backend
+            .fetch_record("n0")
+            .unwrap()
+            .unwrap()
+            .text("text")
+            .as_deref(),
         Some("merged")
     );
     helper.shutdown();

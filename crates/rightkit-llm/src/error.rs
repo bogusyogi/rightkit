@@ -18,7 +18,10 @@ pub enum LlmError {
     /// Error after the first token was delivered; never retried or failed over.
     MidStream(String),
     /// Provider reported an in-stream error event (before the first token).
-    Provider { kind: String, message: String },
+    Provider {
+        kind: String,
+        message: String,
+    },
     /// The caller's callback requested cancellation.
     Cancelled,
     /// Every route failed; one entry per route tried.
@@ -46,8 +49,10 @@ impl LlmError {
                 true
             }
             LlmError::Provider { kind, message } => {
-                matches!(kind.as_str(), "overloaded_error" | "rate_limit_error" | "api_error")
-                    || says_unavailable(message)
+                matches!(
+                    kind.as_str(),
+                    "overloaded_error" | "rate_limit_error" | "api_error"
+                ) || says_unavailable(message)
             }
             _ => false,
         }
@@ -56,7 +61,9 @@ impl LlmError {
 
 fn says_unavailable(text: &str) -> bool {
     let t = text.to_lowercase();
-    ["overloaded", "unavailable", "capacity", "try again later"].iter().any(|k| t.contains(k))
+    ["overloaded", "unavailable", "capacity", "try again later"]
+        .iter()
+        .any(|k| t.contains(k))
 }
 
 impl fmt::Display for LlmError {

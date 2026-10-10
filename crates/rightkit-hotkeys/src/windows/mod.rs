@@ -129,7 +129,10 @@ impl LowLevelKeyboardHook {
             })
             .map_err(|e| HookError::Install(e.to_string()))?;
         match rx.recv() {
-            Ok(Ok(thread_id)) => Ok(Self { thread_id, thread: Some(thread) }),
+            Ok(Ok(thread_id)) => Ok(Self {
+                thread_id,
+                thread: Some(thread),
+            }),
             Ok(Err(e)) => {
                 *slot().lock().unwrap_or_else(|p| p.into_inner()) = None;
                 let _ = thread.join();
@@ -155,8 +158,13 @@ impl Drop for LowLevelKeyboardHook {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RegisterError {
     /// `ERROR_HOTKEY_ALREADY_REGISTERED` (1409).
-    Conflict { chord: String },
-    Os { chord: String, message: String },
+    Conflict {
+        chord: String,
+    },
+    Os {
+        chord: String,
+        message: String,
+    },
 }
 
 impl RegisterError {
@@ -205,7 +213,8 @@ impl GlobalHotkeys {
                         }
                         let id = next_id;
                         let registered =
-                            RegisterHotKey(null_mut(), id, mods, chord.key.windows_vk() as u32) != 0;
+                            RegisterHotKey(null_mut(), id, mods, chord.key.windows_vk() as u32)
+                                != 0;
                         let result = if registered {
                             next_id += 1;
                             ids.push(id);
@@ -214,7 +223,9 @@ impl GlobalHotkeys {
                             // Read the error immediately after the failing call.
                             let code = GetLastError();
                             if code == ERROR_HOTKEY_ALREADY_REGISTERED {
-                                Err(RegisterError::Conflict { chord: chord.canonical() })
+                                Err(RegisterError::Conflict {
+                                    chord: chord.canonical(),
+                                })
                             } else {
                                 Err(RegisterError::Os {
                                     chord: chord.canonical(),
@@ -224,7 +235,8 @@ impl GlobalHotkeys {
                         };
                         let _ = reply.send(result);
                     }
-                    if stop2.load(Ordering::SeqCst) || GetMessageW(&mut msg, null_mut(), 0, 0) == 0 {
+                    if stop2.load(Ordering::SeqCst) || GetMessageW(&mut msg, null_mut(), 0, 0) == 0
+                    {
                         break;
                     }
                     if msg.message == WM_HOTKEY {
@@ -237,20 +249,31 @@ impl GlobalHotkeys {
             })
             .map_err(|e| e.to_string())?;
         let thread_id = ready_rx.recv().map_err(|e| e.to_string())?;
-        Ok(Self { thread_id, thread: Some(thread), cmd: cmd_tx, stop })
+        Ok(Self {
+            thread_id,
+            thread: Some(thread),
+            cmd: cmd_tx,
+            stop,
+        })
     }
 
     pub fn register(&self, chord: &Chord) -> Result<i32, RegisterError> {
         let (tx, rx) = mpsc::channel();
         self.cmd
             .send((chord.clone(), tx))
-            .map_err(|_| RegisterError::Os { chord: chord.canonical(), message: "loop stopped".into() })?;
+            .map_err(|_| RegisterError::Os {
+                chord: chord.canonical(),
+                message: "loop stopped".into(),
+            })?;
         // Wake the loop so it drains the command queue.
         unsafe {
             let _ = PostThreadMessageW(self.thread_id, 0x0400, 0, 0);
         }
         rx.recv().unwrap_or_else(|_| {
-            Err(RegisterError::Os { chord: chord.canonical(), message: "loop stopped".into() })
+            Err(RegisterError::Os {
+                chord: chord.canonical(),
+                message: "loop stopped".into(),
+            })
         })
     }
 }

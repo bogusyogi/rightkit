@@ -29,11 +29,12 @@ impl ModelPrice {
         self.cache_read_multiplier.unwrap_or(0.1)
     }
     fn write_mult(&self) -> f64 {
-        self.cache_write_multiplier.unwrap_or(if normalize(&self.slug).starts_with("claude") {
-            1.25
-        } else {
-            1.0
-        })
+        self.cache_write_multiplier
+            .unwrap_or(if normalize(&self.slug).starts_with("claude") {
+                1.25
+            } else {
+                1.0
+            })
     }
 }
 

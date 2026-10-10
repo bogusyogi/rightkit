@@ -32,7 +32,11 @@ pub struct Route {
 
 impl Route {
     pub fn new(name: &str, provider: Arc<dyn Provider>, model: &str) -> Self {
-        Self { name: name.into(), provider, model: model.into() }
+        Self {
+            name: name.into(),
+            provider,
+            model: model.into(),
+        }
     }
 }
 
@@ -79,7 +83,12 @@ pub struct FailoverChain {
 
 impl FailoverChain {
     pub fn new(routes: Vec<Route>, policy: FailoverPolicy) -> Self {
-        Self { routes, policy, breakers: Mutex::new(HashMap::new()), observer: None }
+        Self {
+            routes,
+            policy,
+            breakers: Mutex::new(HashMap::new()),
+            observer: None,
+        }
     }
     pub fn on_failover(mut self, f: impl Fn(&FailoverEvent) + Send + Sync + 'static) -> Self {
         self.observer = Some(Box::new(f));
@@ -111,7 +120,8 @@ impl FailoverChain {
         let now = Instant::now();
         let mut g = self.breakers.lock().unwrap();
         let b = g.entry(name.to_string()).or_default();
-        b.away.retain(|t| now.duration_since(*t) < self.policy.breaker_window);
+        b.away
+            .retain(|t| now.duration_since(*t) < self.policy.breaker_window);
         b.away.push(now);
         if b.away.len() as u32 >= self.policy.breaker_threshold {
             b.cooling_until = Some(now + self.policy.breaker_cool_down);
@@ -128,7 +138,11 @@ impl FailoverChain {
 
     fn notify(&self, from: &str, to: Option<&str>, reason: &str) {
         if let Some(o) = &self.observer {
-            o(&FailoverEvent { from: from.into(), to: to.map(String::from), reason: reason.into() });
+            o(&FailoverEvent {
+                from: from.into(),
+                to: to.map(String::from),
+                reason: reason.into(),
+            });
         }
     }
 
@@ -153,7 +167,10 @@ impl FailoverChain {
                     self.record_away(&route.name);
                     let next = order.get(pos + 1).map(|&n| self.routes[n].name.as_str());
                     self.notify(&route.name, next, &reason);
-                    attempts.push(Attempt { route: route.name.clone(), reason });
+                    attempts.push(Attempt {
+                        route: route.name.clone(),
+                        reason,
+                    });
                 }
                 Err(e) => return Err(e),
             }
@@ -226,7 +243,9 @@ impl Provider for FailoverChain {
                         )));
                     }
                     Err(RecvTimeoutError::Disconnected) => {
-                        return Err(LlmError::Malformed("stream worker ended unexpectedly".into()))
+                        return Err(LlmError::Malformed(
+                            "stream worker ended unexpectedly".into(),
+                        ))
                     }
                 }
             }

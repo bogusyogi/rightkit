@@ -291,7 +291,11 @@ fn on_flags_changed(s: &Arc<Shared>, ev: &TapEvent) {
         s.hold_started_ms.store(0, Ordering::SeqCst);
         s.generation.fetch_add(1, Ordering::SeqCst);
         s.armed.store(false, Ordering::SeqCst);
-        let end = if s.send_pending.swap(false, Ordering::SeqCst) { PttEnd::Send } else { PttEnd::Stop };
+        let end = if s.send_pending.swap(false, Ordering::SeqCst) {
+            PttEnd::Send
+        } else {
+            PttEnd::Stop
+        };
         if let Some(end) = s.handoff.request_end(end, None) {
             s.dispatch_end(end);
         }
@@ -312,7 +316,10 @@ fn on_flags_changed(s: &Arc<Shared>, ev: &TapEvent) {
             s.generation.fetch_add(1, Ordering::SeqCst);
             s.request_abort(cause);
         } else {
-            (s.cb.diag)("ptt_chord_ignored_late", &format!("kind=modifier_joined elapsed_ms={elapsed}"));
+            (s.cb.diag)(
+                "ptt_chord_ignored_late",
+                &format!("kind=modifier_joined elapsed_ms={elapsed}"),
+            );
         }
     }
 }

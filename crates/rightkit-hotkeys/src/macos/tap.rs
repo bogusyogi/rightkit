@@ -85,9 +85,14 @@ impl std::fmt::Display for TapError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             TapError::NotPermitted => {
-                write!(f, "CGEventTapCreate failed: grant Accessibility (and Input Monitoring)")
+                write!(
+                    f,
+                    "CGEventTapCreate failed: grant Accessibility (and Input Monitoring)"
+                )
             }
-            TapError::RunLoopSource => write!(f, "could not create the run-loop source for the tap"),
+            TapError::RunLoopSource => {
+                write!(f, "could not create the run-loop source for the tap")
+            }
             TapError::Thread(e) => write!(f, "could not start the tap thread: {e}"),
         }
     }
@@ -120,14 +125,17 @@ unsafe extern "C" fn callback(
         return event;
     }
     let ctx = &*(user_info as *const Ctx);
-    if etype == K_CG_EVENT_TAP_DISABLED_BY_TIMEOUT || etype == K_CG_EVENT_TAP_DISABLED_BY_USER_INPUT {
+    if etype == K_CG_EVENT_TAP_DISABLED_BY_TIMEOUT || etype == K_CG_EVENT_TAP_DISABLED_BY_USER_INPUT
+    {
         let port = ctx.port.load(Ordering::SeqCst);
         if !port.is_null() {
             CGEventTapEnable(port, true);
         }
         return event;
     }
-    let Some(kind) = TapKind::from_raw(etype) else { return event };
+    let Some(kind) = TapKind::from_raw(etype) else {
+        return event;
+    };
     if event.is_null() {
         return event;
     }
@@ -177,12 +185,17 @@ impl EventTap {
             .spawn(move || unsafe { run(config, handler, ready_tx) })
             .map_err(|e| TapError::Thread(e.to_string()))?;
         match ready_rx.recv() {
-            Ok(Ok(run_loop)) => Ok(EventTap { run_loop, thread: Some(thread) }),
+            Ok(Ok(run_loop)) => Ok(EventTap {
+                run_loop,
+                thread: Some(thread),
+            }),
             Ok(Err(error)) => {
                 let _ = thread.join();
                 Err(error)
             }
-            Err(_) => Err(TapError::Thread("tap thread exited before reporting".into())),
+            Err(_) => Err(TapError::Thread(
+                "tap thread exited before reporting".into(),
+            )),
         }
     }
 }
@@ -201,12 +214,11 @@ impl Drop for EventTap {
     }
 }
 
-unsafe fn run(
-    config: TapConfig,
-    handler: Handler,
-    ready: mpsc::Sender<Result<usize, TapError>>,
-) {
-    let ctx = Box::into_raw(Box::new(Ctx { handler, port: AtomicPtr::new(std::ptr::null_mut()) }));
+unsafe fn run(config: TapConfig, handler: Handler, ready: mpsc::Sender<Result<usize, TapError>>) {
+    let ctx = Box::into_raw(Box::new(Ctx {
+        handler,
+        port: AtomicPtr::new(std::ptr::null_mut()),
+    }));
     let mask = config.kinds.iter().fold(0u64, |m, k| m | k.mask_bit());
     let location = match config.location {
         TapLocation::Hid => K_CG_HID_EVENT_TAP,

@@ -78,7 +78,8 @@ impl CloudKitHelper {
     /// Memory backend only: another device writes `record` (wire JSON).
     #[doc(hidden)]
     pub fn backend_debug_write(&self, record: Value) -> SyncResult<()> {
-        self.debug_call("debug_write", json!({ "record": record })).map(|_| ())
+        self.debug_call("debug_write", json!({ "record": record }))
+            .map(|_| ())
     }
 
     /// Stop the helper process; the next call starts a fresh one.
@@ -293,10 +294,8 @@ impl Backend for HelperBackend {
             SavePolicy::IfServerUnchanged => "if_server_unchanged",
         };
         let wire: Vec<WireRecord> = records.iter().map(WireRecord::from).collect();
-        let body = self.call_scoped(
-            "save_records",
-            json!({ "policy": policy, "records": wire }),
-        )?;
+        let body =
+            self.call_scoped("save_records", json!({ "policy": policy, "records": wire }))?;
         let outcomes = body
             .get("outcomes")
             .and_then(Value::as_array)

@@ -57,7 +57,10 @@ pub struct CacheBreakpointPlanner {
 
 impl CacheBreakpointPlanner {
     pub fn new(max: usize) -> Self {
-        Self { max, ..Self::default() }
+        Self {
+            max,
+            ..Self::default()
+        }
     }
 
     pub fn plan_for(&mut self, blocks: &[CacheableBlock]) -> &[usize] {

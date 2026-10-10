@@ -168,11 +168,8 @@ pub struct EventHotKeyID {
     pub id: u32,
 }
 
-pub type EventHandlerUPP = unsafe extern "C" fn(
-    next: *mut c_void,
-    event: *mut c_void,
-    user_data: *mut c_void,
-) -> i32;
+pub type EventHandlerUPP =
+    unsafe extern "C" fn(next: *mut c_void, event: *mut c_void, user_data: *mut c_void) -> i32;
 
 #[link(name = "Carbon", kind = "framework")]
 extern "C" {
