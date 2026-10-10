@@ -66,6 +66,8 @@ Swift (SwiftPM) apps are a first-class project type. `projectType: "swiftpm"` (c
 
 `updater.kind: "appinstaller"` (default remains the Tauri minisign flow) generates `msix.appInstaller.out` (https `uri`/`msixUri`); trust is the MSIX Authenticode signature, so no `.sig` is produced and `publish-update` records the sealed package digest.
 
+Never cancel an MSIX deployment from app or updater code. Cancelling `AddPackageAsync` while it is in `RegistrationChanged` leaves the package `Modified, NeedsRemediation` (0x80073CF8, AppX event 751); the app then cannot activate, so the OnLaunch feed check never runs and cannot self-heal. Measured recovery (SwiftRight SliceApp R5 W08, 2026-10-10): `Add-AppxPackage -AppInstallerFile <feed uri>` restores launch by deploying the feed's newer version, with user data intact; `-RegisterByFamilyName`, `Reset-AppxPackage` and relaunching do not. Recovery when the feed offers no newer version is unverified, so publish the next version to the feed before directing a user to that command.
+
 macOS Swift apps use `right-release swift-package mac-app` (Info.plist from config, resources, frameworks, entitlements on the bundle only; nested code signed inside-out before the app).
 
 Build a SwiftPM app with `right-release build --platform mac|win` (add `--config <path>` when the config is not `right-release.config.mjs`). Build is tier-neutral and never uploads, so it rejects `--tier` and takes no `--upload`/`--no-upload`; the old `release --tier patch --no-upload` form no longer works. Pick the tier only at upload: `right-release upload --release <sealed-id> --platform mac|win --tier patch|update`.
