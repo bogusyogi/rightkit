@@ -2,24 +2,24 @@
   "schema": 1,
   "kind": "npm",
   "name": "@rightkit/doc-render",
-  "version": "0.1.4",
-  "commit": "a719a4afb795b7b299357f8f3f33d6446bedad8d",
-  "artifactSha256": "cbcc797fd7fe7bfb3b3d1eaa4bf993bfc6f88a5ec391bc0ca69ac267812716c5",
+  "version": "0.1.5",
+  "commit": "40ce4f938ddacf13f618af6096889026996c34c8",
+  "artifactSha256": "f723acf9ed39c743c492a0c5d16304129e69f9236d2927b952fe821feb036228",
   "hostPolicy": "darwin-only",
-  "hostPolicyReason": "Pure TypeScript package; tests are host-independent (Adrian 2026-10-07: macOS first)",
+  "hostPolicyReason": "Adrian 2026-10-07: apps validate on macOS first, Windows later",
   "runs": [
     {
       "host": {
         "os": "darwin",
         "arch": "arm64"
       },
-      "commit": "a719a4afb795b7b299357f8f3f33d6446bedad8d",
-      "command": "pnpm --dir packages/doc-render test",
+      "commit": "40ce4f938ddacf13f618af6096889026996c34c8",
+      "command": "pnpm --dir packages/$D test",
       "features": [
         "default"
       ],
-      "operator": "claude-opus-5.5 (RightKit lead) for adrdsouza",
-      "timestamp": "2026-10-08T19:54:28Z",
+      "operator": "claude-fable-5.1 (RightKit lead) for adrdsouza",
+      "timestamp": "2026-10-10T14:42:40Z",
       "passed": 7,
       "failed": 0
     }
