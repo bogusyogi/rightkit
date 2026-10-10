@@ -50,7 +50,7 @@ None. The crate has no Cargo features. Dependencies: `getrandom` 0.3 and `rightk
 
 The crate has no platform-specific code. Keyring and Tauri integration live in each app.
 
-Published version: see `INDEX.md` at the repository root. This crate has no `CHANGELOG.md`.
+Published version: see `INDEX.md` at the repository root. Changes are recorded in `CHANGELOG.md`.
 
 ## Example
 
