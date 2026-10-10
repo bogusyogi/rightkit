@@ -456,4 +456,16 @@ test("devArtifact validates keys, paths, and runner coverage", () => {
   assert.equal(bad(full, { ...base, ciAllOs: false }), false, "single windows runner cannot build the mac app");
   assert.equal(bad(full, { ...VALID_MINIMAL, devArtifact: full }), false);
   assert.equal(validateManifest({ ...VALID_MINIMAL, devArtifact: full }).valid, false, "node profile rejects devArtifact");
+
+  // mac 'unsigned' uploads the bare app; dispatch is allowed only for unsigned legs.
+  const unsigned = { ...full, mac: "unsigned" };
+  assert.equal(validateManifest({ ...base, devArtifact: unsigned }).valid, true);
+  assert.equal(validateManifest({ ...base, devArtifact: { ...unsigned, dispatch: true } }).valid, true);
+  assert.equal(validateManifest({ ...base, devArtifact: { mac: "unsigned", macAppPath: "target/Pulse.app" } }).valid, true, "mac unsigned alone");
+  assert.equal(bad({ ...unsigned, macAppPath: undefined }), false, "mac unsigned needs macAppPath");
+  assert.equal(bad({ ...unsigned, macEntitlements: "build/x.entitlements" }), false, "entitlements require mac sign");
+  assert.equal(bad(unsigned, { ...base, ciAllOs: false }), false, "mac unsigned needs a macOS runner");
+  assert.equal(bad({ ...full, dispatch: false }), false, "dispatch must be true when present");
+  assert.equal(bad({ mac: "sign", macAppPath: "target/Pulse.app", dispatch: true }), false, "dispatch never reaches the signing leg");
+  assert.equal(validateManifest({ ...base, devArtifact: { ...full, dispatch: true } }).valid, true, "dispatch with a windows unsigned leg beside mac sign");
 });

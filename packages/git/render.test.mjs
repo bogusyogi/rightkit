@@ -939,6 +939,29 @@ test("devArtifact renders push-to-default-branch dev steps and a signing job; un
   assert.equal(renderRustCi({ ...INCREMENTAL_BASE, devArtifact: undefined }), renderRustCi(INCREMENTAL_BASE));
 });
 
+test("devArtifact mac 'unsigned' uploads the bare app with no signing job, and dispatch opens unsigned legs only", () => {
+  const unsigned = { ...DEV_MANIFEST, devArtifact: { ...DEV_MANIFEST.devArtifact, mac: "unsigned" } };
+  const out = renderRustCi(unsigned);
+  assert.match(out, /DEV_APP_PATH: "target\/release\/bundle\/macos\/Pulse\.app"/);
+  assert.match(out, /name: dev-mac-unsigned-\$\{\{ github\.sha \}\}\n          path: \$\{\{ runner\.temp \}\}\/dev-unsigned\/app\.zip\n          retention-days: 5/);
+  assert.doesNotMatch(out, /dev-mac-sign|dev-unsigned-mac-|secrets\.|environment:/);
+  assert.doesNotMatch(out, /workflow_dispatch/);
+  assert.equal(out, renderRustCi({ ...unsigned, devArtifact: { ...unsigned.devArtifact, dispatch: undefined } }));
+
+  const dispatch = renderRustCi({ ...unsigned, devArtifact: { ...unsigned.devArtifact, dispatch: true } });
+  assert.match(dispatch, /^on:\n  pull_request:\n  push:\n    branches: \[main\]\n  workflow_dispatch:\npermissions:/m);
+  const cond = "\\(github\\.event_name == 'push' && github\\.ref_name == github\\.event\\.repository\\.default_branch \\|\\| github\\.event_name == 'workflow_dispatch'\\)";
+  assert.match(dispatch, new RegExp(`if: \\$\\{\\{ ${cond} && runner\\.os == 'Windows' \\}\\}`));
+  assert.match(dispatch, new RegExp(`if: \\$\\{\\{ ${cond} && runner\\.os == 'macOS' \\}\\}`));
+
+  // Dispatch beside a signed mac leg: the signing job and its package step stay push-only.
+  const signedDispatch = renderRustCi({ ...DEV_MANIFEST, devArtifact: { ...DEV_MANIFEST.devArtifact, dispatch: true } });
+  assert.match(signedDispatch, /workflow_dispatch:/);
+  assert.match(signedDispatch, /Package unsigned dev app for signing \(macOS\)|Package unsigned dev app \(macOS\)\n        if: \$\{\{ github\.event_name == 'push' && github\.ref_name == github\.event\.repository\.default_branch && runner\.os == 'macOS' \}\}/);
+  assert.match(signedDispatch, /dev-mac-sign:\n[\s\S]*?if: \$\{\{ github\.event_name == 'push' && github\.ref_name == github\.event\.repository\.default_branch \}\}\n    environment: release/);
+  assert.doesNotMatch(signedDispatch.split("  dev-mac-sign:")[1], /workflow_dispatch/);
+});
+
 test("devArtifact entitlements add a checkout and --entitlements", () => {
   const out = renderRustCi({ ...DEV_MANIFEST, devArtifact: { ...DEV_MANIFEST.devArtifact, macEntitlements: "build/pulse.entitlements" } });
   assert.match(out, /--entitlements "\$GITHUB_WORKSPACE\/build\/pulse\.entitlements"/);
@@ -957,6 +980,7 @@ test("rendered ciIncremental + devArtifact workflows pass actionlint", (t) => {
       "ci-incremental.yml": { ...INCREMENTAL_BASE, ciIncremental: true },
       "ci-dev.yml": { ...DEV_MANIFEST, ciIncremental: true },
       "ci-dev-entitlements.yml": { ...DEV_MANIFEST, devArtifact: { ...DEV_MANIFEST.devArtifact, macEntitlements: "build/pulse.entitlements" } },
+      "ci-dev-unsigned-dispatch.yml": { ...DEV_MANIFEST, devArtifact: { ...DEV_MANIFEST.devArtifact, mac: "unsigned", dispatch: true } },
     };
     const files = [];
     for (const [name, manifest] of Object.entries(samples)) {

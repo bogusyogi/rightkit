@@ -524,6 +524,76 @@ test("permits only declared Apple signing secrets in an admission-gated tag-last
   assert.equal(result.status, 0, result.stderr);
 });
 
+const DEV_MAC_SIGN_CI = [
+  "# Managed by right-git",
+  "permissions:",
+  "  contents: read",
+  "jobs:",
+  "  ci:",
+  "    runs-on: macos-15",
+  "  dev-mac-sign:",
+  "    # Push to the default branch only.",
+  "    needs: [ci]",
+  "    if: ${{ github.event_name == 'push' && github.ref_name == github.event.repository.default_branch }}",
+  "    environment: release",
+  "    permissions:",
+  "      contents: read",
+  "    env:",
+  "      CERT: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}",
+  "      PASS: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}",
+  "      KEYCHAIN: ${{ secrets.APPLE_KEYCHAIN_PASSWORD }}",
+  "",
+].join("\n");
+
+test("accepts the right-git devArtifact dev-mac-sign job in ci.yml when the manifest declares mac signing", () => {
+  const config = fixture({ hostedWorkflows: "right-git-ci-only", includeCargoSources: false });
+  const root = path.dirname(config);
+  const workflowDir = path.join(root, ".github", "workflows");
+  mkdirSync(workflowDir, { recursive: true });
+  writeFileSync(path.join(root, ".rightgit.json"), JSON.stringify({ schemaVersion: 1, compile: "github-actions-only", lanes: ["ci"], devArtifact: { mac: "sign", macAppPath: "target/App.app" } }));
+  writeFileSync(path.join(workflowDir, "ci.yml"), DEV_MAC_SIGN_CI);
+  git(root, "add", ".");
+  git(root, "commit", "-m", "add dev-mac-sign ci workflow");
+  const result = run(config, "--tier=patch");
+  assert.equal(result.status, 0, result.stderr);
+});
+
+test("rejects dev-mac-sign secrets in ci.yml without a devArtifact mac sign declaration, on a dispatchable job, or with notarization keys", () => {
+  const cases = [
+    { manifest: { devArtifact: { windows: "unsigned", windowsGlob: "dist/*.exe" } }, ci: DEV_MAC_SIGN_CI },
+    { manifest: {}, ci: DEV_MAC_SIGN_CI },
+    { manifest: { devArtifact: { mac: "sign", macAppPath: "target/App.app" } }, ci: DEV_MAC_SIGN_CI.replace("github.event_name == 'push' && github.ref_name == github.event.repository.default_branch", "github.event_name == 'workflow_dispatch'") },
+    { manifest: { devArtifact: { mac: "sign", macAppPath: "target/App.app" } }, ci: `${DEV_MAC_SIGN_CI}      KEY: \${{ secrets.APPLE_API_KEY_BASE64 }}\n` },
+  ];
+  for (const { manifest, ci } of cases) {
+    const config = fixture({ hostedWorkflows: "right-git-ci-only", includeCargoSources: false });
+    const root = path.dirname(config);
+    const workflowDir = path.join(root, ".github", "workflows");
+    mkdirSync(workflowDir, { recursive: true });
+    writeFileSync(path.join(root, ".rightgit.json"), JSON.stringify({ schemaVersion: 1, compile: "github-actions-only", lanes: ["ci"], ...manifest }));
+    writeFileSync(path.join(workflowDir, "ci.yml"), ci);
+    git(root, "add", ".");
+    git(root, "commit", "-m", "add unsafe dev-mac-sign ci workflow");
+    const result = run(config, "--tier=patch");
+    assert.notEqual(result.status, 0, JSON.stringify(manifest));
+    assert.match(result.stderr, /release-capable permissions or secrets/i);
+  }
+});
+
+test("accepts every right-git lane the manifest schema allows", () => {
+  const config = fixture({ hostedWorkflows: "right-git-ci-only", includeCargoSources: false });
+  const root = path.dirname(config);
+  const workflowDir = path.join(root, ".github", "workflows");
+  mkdirSync(workflowDir, { recursive: true });
+  const lanes = ["ci", "qualification", "package-smoke", "release-candidate", "publish-npm", "publish-package-managers"];
+  writeFileSync(path.join(root, ".rightgit.json"), JSON.stringify({ schemaVersion: 1, compile: "github-actions-only", lanes }));
+  for (const lane of lanes) writeFileSync(path.join(workflowDir, `${lane}.yml`), "# Managed by right-git\npermissions:\n  contents: read\njobs: {}\n");
+  git(root, "add", ".");
+  git(root, "commit", "-m", "add every managed lane");
+  const result = run(config, "--tier=patch");
+  assert.equal(result.status, 0, result.stderr);
+});
+
 test("rejects broad manual dispatch authority for Apple signing in the tag-last lane", () => {
   const config = fixture({ hostedWorkflows: "right-git-ci-only", includeCargoSources: false });
   const root = path.dirname(config);

@@ -575,27 +575,34 @@ function validateDevArtifact(manifest, profile, errors) {
     return;
   }
   for (const key of Object.keys(dev)) {
-    if (!["mac", "windows", "retentionDays", "macAppPath", "macEntitlements", "windowsGlob"].includes(key)) errors.push(`unknown devArtifact field: ${key}`);
+    if (!["mac", "windows", "retentionDays", "macAppPath", "macEntitlements", "windowsGlob", "dispatch"].includes(key)) errors.push(`unknown devArtifact field: ${key}`);
   }
-  if (dev.mac !== undefined && dev.mac !== "sign" && dev.mac !== "none") errors.push("devArtifact.mac must be 'sign' or 'none'");
+  if (dev.mac !== undefined && dev.mac !== "sign" && dev.mac !== "unsigned" && dev.mac !== "none") errors.push("devArtifact.mac must be 'sign', 'unsigned' or 'none'");
   if (dev.windows !== undefined && dev.windows !== "unsigned" && dev.windows !== "none") errors.push("devArtifact.windows must be 'unsigned' or 'none'");
-  if (dev.mac !== "sign" && dev.windows !== "unsigned") errors.push("devArtifact requires mac 'sign' and/or windows 'unsigned'");
+  const macActive = dev.mac === "sign" || dev.mac === "unsigned";
+  if (!macActive && dev.windows !== "unsigned") errors.push("devArtifact requires mac 'sign'/'unsigned' and/or windows 'unsigned'");
+  if (dev.dispatch !== undefined && dev.dispatch !== true) errors.push("devArtifact.dispatch must be true when present");
+  if (dev.dispatch === true && dev.mac !== "unsigned" && dev.windows !== "unsigned") {
+    errors.push("devArtifact.dispatch builds only unsigned legs; declare mac 'unsigned' and/or windows 'unsigned'");
+  }
   if (dev.retentionDays !== undefined && (!Number.isInteger(dev.retentionDays) || dev.retentionDays < 1 || dev.retentionDays > DEV_ARTIFACT_MAX_RETENTION_DAYS)) {
     errors.push(`devArtifact.retentionDays must be an integer from 1 to ${DEV_ARTIFACT_MAX_RETENTION_DAYS}`);
   }
   const runners = effectiveCiRunners(manifest).filter((runner) => typeof runner === "string");
-  if (dev.mac === "sign") {
+  if (macActive) {
     if (typeof dev.macAppPath !== "string" || !DEV_MAC_PATH_RE.test(dev.macAppPath) || !dev.macAppPath.endsWith(".app")) {
-      errors.push("devArtifact.macAppPath must be a safe repository-relative path ending in .app when mac is 'sign'");
+      errors.push(`devArtifact.macAppPath must be a safe repository-relative path ending in .app when mac is '${dev.mac}'`);
     }
-    if (dev.macEntitlements !== undefined && (typeof dev.macEntitlements !== "string" || !GATE_PATH_RE.test(dev.macEntitlements))) {
+    if (dev.macEntitlements !== undefined && dev.mac !== "sign") {
+      errors.push("devArtifact.macEntitlements requires mac 'sign'");
+    } else if (dev.macEntitlements !== undefined && (typeof dev.macEntitlements !== "string" || !GATE_PATH_RE.test(dev.macEntitlements))) {
       errors.push("devArtifact.macEntitlements must be a safe repository-relative path");
     }
     if (!runners.some((runner) => MACOS_RUNNER_RE.test(runner))) {
-      errors.push("devArtifact.mac 'sign' needs the ci gate to run on a macOS runner (set ciAllOs and include a macos-* or xcode-* runner in matrix.os)");
+      errors.push(`devArtifact.mac '${dev.mac}' needs the ci gate to run on a macOS runner (set ciAllOs and include a macos-* or xcode-* runner in matrix.os)`);
     }
   } else if (dev.macAppPath !== undefined || dev.macEntitlements !== undefined) {
-    errors.push("devArtifact.macAppPath and macEntitlements require mac 'sign'");
+    errors.push("devArtifact.macAppPath and macEntitlements require mac 'sign' or 'unsigned'");
   }
   if (dev.windows === "unsigned") {
     if (typeof dev.windowsGlob !== "string" || !DEV_WINDOWS_GLOB_RE.test(dev.windowsGlob)) {
@@ -631,15 +638,29 @@ function derivedDataStep(manifest) {
  * Dev artifact steps appended to the ci job (unsigned, no secrets) plus the
  * separate signing job. Returns "" when devArtifact is unset.
  */
+// Unsigned legs may also run on a manual dispatch of any ref when
+// `devArtifact.dispatch` is set; the signing job never does (push to the
+// default branch only), so no secret is reachable from a dispatched run.
+function devUnsignedCondition(dev) {
+  return dev.dispatch === true
+    ? `(${DEV_PUSH_CONDITION} || github.event_name == 'workflow_dispatch')`
+    : DEV_PUSH_CONDITION;
+}
+
+export function devArtifactDispatchTrigger(manifest) {
+  return manifest.devArtifact?.dispatch === true ? "  workflow_dispatch:\n" : "";
+}
+
 export function devArtifactCi(manifest) {
   const dev = manifest.devArtifact;
   if (dev === undefined) return "";
   const retention = dev.retentionDays ?? DEV_ARTIFACT_DEFAULT_RETENTION_DAYS;
+  const unsignedCondition = devUnsignedCondition(dev);
   const parts = [];
   if (dev.windows === "unsigned") {
     parts.push([
       "      - name: Upload unsigned dev build (Windows)",
-      `        if: \${{ ${DEV_PUSH_CONDITION} && runner.os == 'Windows' }}`,
+      `        if: \${{ ${unsignedCondition} && runner.os == 'Windows' }}`,
       `        uses: ${UPLOAD_ARTIFACT_PIN}`,
       "        with:",
       "          name: dev-windows-${{ github.sha }}",
@@ -668,6 +689,29 @@ export function devArtifactCi(manifest) {
       "          name: dev-unsigned-mac-${{ github.sha }}",
       "          path: ${{ runner.temp }}/dev-unsigned/app.zip",
       "          retention-days: 1",
+      "          if-no-files-found: error",
+      "",
+    ].join("\n"));
+  }
+  if (dev.mac === "unsigned") {
+    parts.push([
+      "      - name: Package unsigned dev app (macOS)",
+      `        if: \${{ ${unsignedCondition} && runner.os == 'macOS' }}`,
+      "        shell: bash",
+      "        env:",
+      `          DEV_APP_PATH: ${JSON.stringify(dev.macAppPath)}`,
+      "        run: |",
+      "          set -euo pipefail",
+      "          test -d \"$DEV_APP_PATH\"",
+      "          mkdir -p \"$RUNNER_TEMP/dev-unsigned\"",
+      "          ditto -c -k --keepParent \"$DEV_APP_PATH\" \"$RUNNER_TEMP/dev-unsigned/app.zip\"",
+      "      - name: Upload unsigned dev app (macOS)",
+      `        if: \${{ ${unsignedCondition} && runner.os == 'macOS' }}`,
+      `        uses: ${UPLOAD_ARTIFACT_PIN}`,
+      "        with:",
+      "          name: dev-mac-unsigned-${{ github.sha }}",
+      "          path: ${{ runner.temp }}/dev-unsigned/app.zip",
+      `          retention-days: ${retention}`,
       "          if-no-files-found: error",
       "",
     ].join("\n"));
@@ -1318,6 +1362,7 @@ export function buildRenderContext(manifest, repoPath, lane = "ci") {
     RELEASE_CHAIN_JOBS: releaseChainJobs(manifest, pm, artifactPrefix),
     OWNERSHIP_STEP: ownershipStep(manifest, lane),
     QA_EVIDENCE_STEP: qaEvidenceStep(manifest) + devArtifactCi(manifest),
+    CI_DISPATCH_TRIGGER: devArtifactDispatchTrigger(manifest),
     CI_CACHE_WORKSPACE_CRATES: manifest.ciIncremental === true ? "true" : "false",
     CI_CARGO_INCREMENTAL: manifest.ciIncremental === true ? "1" : "0",
     // sccache refuses CARGO_INCREMENTAL=1; incremental CI relies on the rust-cache target dir instead.

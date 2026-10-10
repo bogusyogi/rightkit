@@ -742,7 +742,8 @@ async function validateHostedWorkflows(root, appName, workflows, policy) {
     fail(`${appName} right-git-ci-only policy requires a valid .rightgit.json`);
   }
   const lanes = manifest?.lanes;
-  const safeLanes = new Set(["ci", "release-candidate"]);
+  // Mirrors the `lanes` enum in @rightkit/git manifest.schema.json.
+  const safeLanes = new Set(["ci", "qualification", "package-smoke", "release-candidate", "publish-npm", "publish-package-managers"]);
   if (manifest?.schemaVersion !== 1
     || manifest?.compile !== "github-actions-only"
     || !Array.isArray(lanes)
@@ -750,7 +751,7 @@ async function validateHostedWorkflows(root, appName, workflows, policy) {
     || !lanes.includes("ci")
     || new Set(lanes).size !== lanes.length
     || lanes.some((lane) => !safeLanes.has(lane))) {
-    fail(`${appName} right-git-ci-only policy requires compile=github-actions-only plus unique .rightgit.json lanes drawn from ["ci", "release-candidate"] and including "ci"`);
+    fail(`${appName} right-git-ci-only policy requires compile=github-actions-only plus unique .rightgit.json lanes drawn from [${[...safeLanes].map((lane) => `"${lane}"`).join(", ")}] and including "ci"`);
   }
   const expectedWorkflows = lanes.map((lane) => `${lane}.yml`).sort();
   if (JSON.stringify(workflows) !== JSON.stringify(expectedWorkflows)) {
@@ -798,6 +799,15 @@ async function validateHostedWorkflows(root, appName, workflows, policy) {
     const protectedMacosSigning = workflow === "release-candidate.yml"
       && manifest?.candidate?.signMacos === true
       && (legacySigningGate("macos-sign").test(macosSource) || admittedSigningGate("macos-sign").test(macosSource));
+    // @rightkit/git `devArtifact.mac: "sign"` renders a `dev-mac-sign` job into
+    // the managed ci.yml: push to the default branch only, release environment,
+    // Developer ID certificate secrets only (no notarization keys).
+    const devMacSpan = workflow === "ci.yml" ? jobSpan("dev-mac-sign") : null;
+    const devMacSource = devMacSpan ? source.slice(devMacSpan.start, devMacSpan.end) : "";
+    const allowedDevMacSecrets = new Set(["APPLE_CERTIFICATE_BASE64", "APPLE_CERTIFICATE_PASSWORD", "APPLE_KEYCHAIN_PASSWORD"]);
+    const protectedDevMacSigning = workflow === "ci.yml"
+      && manifest?.devArtifact?.mac === "sign"
+      && /dev-mac-sign:\n(?:    #[^\n]*\n)*    needs: \[ci\]\n    if: \$\{\{ github\.event_name == 'push' && github\.ref_name == github\.event\.repository\.default_branch \}\}\n    environment: /.test(devMacSource);
     const releaseChain = workflow === "release-candidate.yml" ? manifest?.candidate?.releaseChain : undefined;
     const allowedReleaseSecrets = new Set(releaseChain?.publishSecrets ?? []);
     const writePermissions = [...source.matchAll(/^\s*(actions|attestations|checks|contents|deployments|discussions|id-token|issues|models|packages|pages|pull-requests|security-events|statuses):\s*write\s*$/gmi)].map((match) => ({ name: match[1].toLowerCase(), index: match.index }));
@@ -821,6 +831,7 @@ async function validateHostedWorkflows(root, appName, workflows, policy) {
       || /pull_request_target\s*:/i.test(source)
       || /\bsecrets\s*\[/i.test(source)
       || requestedSecrets.some(({ name, index }) => !(protectedMacosSigning && inside(index, macosSpan) && allowedMacosSecrets.has(name))
+        && !(protectedDevMacSigning && inside(index, devMacSpan) && allowedDevMacSecrets.has(name))
         && !(protectedReleasePublish && inside(index, publishSpan) && allowedReleaseSecrets.has(name)))) {
       fail(`${appName} right-git managed ${workflow} requests release-capable permissions or secrets`);
     }

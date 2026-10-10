@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.148
+
+- Hosted-workflow policy (`right-git-ci-only`) accepts every lane in the @rightkit/git manifest schema (`ci`, `qualification`, `package-smoke`, `release-candidate`, `publish-npm`, `publish-package-managers`); it previously accepted only `ci` and `release-candidate`.
+- The policy accepts the `dev-mac-sign` job that @rightkit/git renders into ci.yml for `devArtifact.mac: "sign"`: push-to-default-branch only, `environment:` set, and only the three Developer ID certificate secrets. Any other secret, a dispatchable gate, or a manifest without that declaration still fails as release-capable.
+
 ## 0.2.143
 
 - `install-app` bundle swap can be truly atomic. When a `rightkit-swap` helper (rightkit-fs 0.4.0, `renamex_np(RENAME_SWAP)`) is found, the staged bundle is exchanged with the installed one in a single kernel step, so `<dest>/<App>.app` is never absent, even under SIGKILL. The old bundle then sits at the staged path and is moved to the Trash only after the new one re-verifies; on re-verify failure (or SIGINT/SIGTERM) the exchange is reversed. Helper lookup order: `RIGHTKIT_SWAP`, `<package>/bin/darwin/rightkit-swap`, then `PATH`. With no helper, or `ENOTSUP`/`EINVAL` (non-APFS volume), it falls back to the previous two-rename + journal path and emits a `swap-fallback` event. The `replaced` and `done` JSON events record `swap: "atomic"` or `swap: "two-rename"` (`"rename"` for a first install with nothing to exchange). The recovery journal records the mode (`swap`, plus the staged inode for atomic) and `--recover` handles both. The helper is not yet bundled in this package, so installs use the two-rename path unless `RIGHTKIT_SWAP` or `PATH` provides it.
