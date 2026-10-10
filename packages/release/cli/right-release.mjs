@@ -170,8 +170,8 @@ function printHelp() {
   console.log(`right-release <command> [options]
 
 Commands:
-  dmg build --app <.app> --out <dmg> --volname <name> [--background <png>]
-            [--icon-size N] [--app-position x,y] [--applications-position x,y] [--window w,h]
+  dmg build --app <.app> --out <dmg> --volname <name> [--background <png>] [--spec <appdmg.json>]
+            [--icon-size N] [--app-position x,y] [--applications-position x,y] [--window w,h] [--window-position x,y]
                                                       Build branded UDZO image without Finder
   install-app --dmg <path.dmg> [--app-name Pulse.app] [--bundle-id <id>] [--dest /Applications]
               [--relaunch|--no-relaunch] [--json]

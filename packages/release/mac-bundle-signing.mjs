@@ -6,7 +6,7 @@ import { discoverNestedCode } from "./swift-mac-app.mjs";
 
 const fail = (message) => Object.assign(new Error(message), { code: "MAC_SIGN_ENTRY_INVALID" });
 
-function mainExecutableName(app) {
+export function mainExecutableName(app) {
   try {
     const plist = readFileSync(path.join(app, "Contents", "Info.plist"), "utf8");
     const match = /<key>CFBundleExecutable<\/key>\s*<string>([^<]+)<\/string>/.exec(plist);

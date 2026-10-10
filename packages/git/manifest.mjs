@@ -70,6 +70,7 @@ const TOP_LEVEL_KEYS = new Set([
   "regenerate",
   "candidate",
   "ownership",
+  "swift",
 ]);
 // Optional QA evidence upload (rust-hybrid ci only). qaEvidencePath is a safe
 // relative path under $RUNNER_TEMP; it renders as `${{ runner.temp }}/<path>`.
@@ -383,6 +384,7 @@ export function validateManifest(manifest) {
       errors.push("ownership.roots must not contain duplicates");
     }
   }
+  if (manifest.swift !== undefined) validateSwift(manifest, lanes, errors);
   if (profile !== "rust-hybrid" && candidate !== undefined) {
     errors.push("candidate is only valid for profile 'rust-hybrid'");
   }
@@ -592,6 +594,56 @@ function validateRegenerate(manifest, lanes, errors) {
   }
   if (typeof regenerate.script !== "string" || !PACKAGE_SCRIPT_RE.test(regenerate.script)) {
     errors.push("regenerate.script must be a package.json script name (letters, digits, ':', '_', '-')");
+  }
+}
+
+// swift.privatePackages (ci lane only): read access to private Swift package
+// mirrors from a public repository's CI. The secret is a GitHub Actions secret
+// name; the token value never appears in the rendered workflow.
+const SWIFT_PRIVATE_MAX_ENTRIES = 4;
+const SWIFT_PRIVATE_HOST_RE = /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,62})(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,62}))*$/;
+
+function isSwiftPrivateSecretName(value) {
+  return typeof value === "string" && /^[A-Za-z_][A-Za-z0-9_]{0,99}$/.test(value) && !/^github_/i.test(value);
+}
+
+function validateSwift(manifest, lanes, errors) {
+  const swift = manifest.swift;
+  if (swift === null || typeof swift !== "object" || Array.isArray(swift)) {
+    errors.push("swift must be an object");
+    return;
+  }
+  for (const key of Object.keys(swift)) {
+    if (key !== "privatePackages") errors.push(`unknown swift field: ${key}`);
+  }
+  const entries = swift.privatePackages;
+  if (!Array.isArray(entries) || entries.length === 0 || entries.length > SWIFT_PRIVATE_MAX_ENTRIES) {
+    errors.push(`swift.privatePackages must be an array of 1 to ${SWIFT_PRIVATE_MAX_ENTRIES} { host, secret } entries`);
+    return;
+  }
+  const hosts = new Set();
+  entries.forEach((entry, index) => {
+    if (entry === null || typeof entry !== "object" || Array.isArray(entry) || Object.keys(entry).some((key) => key !== "host" && key !== "secret")) {
+      errors.push(`swift.privatePackages[${index}] must be an object with only host and secret`);
+      return;
+    }
+    if (typeof entry.host !== "string" || !SWIFT_PRIVATE_HOST_RE.test(entry.host)) {
+      errors.push(`swift.privatePackages[${index}].host must be a bare host name such as github.com`);
+    } else if (hosts.has(entry.host)) {
+      errors.push(`swift.privatePackages host must be unique: ${entry.host}`);
+    } else {
+      hosts.add(entry.host);
+    }
+    if (!isSwiftPrivateSecretName(entry.secret)) {
+      errors.push(`swift.privatePackages[${index}].secret must be a GitHub Actions secret name (letters, digits, '_'; not starting with a digit or GITHUB_)`);
+    }
+  });
+  if (!Array.isArray(lanes) || !lanes.includes("ci")) {
+    errors.push("swift.privatePackages requires lane 'ci' (the steps render into the ci workflow)");
+  }
+  // Dispatched runs of ci.yml can come from any ref; the private-package secret must never reach one.
+  if (manifest.devArtifact?.dispatch === true) {
+    errors.push("swift.privatePackages cannot be combined with devArtifact.dispatch: a manual dispatch of any ref would reach the secret");
   }
 }
 
@@ -1549,6 +1601,99 @@ export function ownershipStep(manifest, lane = "ci") {
 }
 
 /**
+ * pnpm stale-lockfile hint for the ci lane. The step runs only when the step
+ * before it (the frozen install) failed. It regenerates the lockfile with
+ * `pnpm install --lockfile-only` and prints the lockfile's git diff as a patch
+ * block. It never changes the job result, which the failed install already
+ * decided. Returns "" for npm and yarn, so their renders stay unchanged.
+ */
+export function lockfilePatchStep(manifest) {
+  const { name } = parsePackageManager(manifest.packageManager);
+  if (name !== "pnpm") return "";
+  return [
+    "",
+    "      - name: Print pnpm-lock.yaml patch when the lockfile is stale",
+    "        if: failure()",
+    "        shell: bash",
+    "        run: |",
+    "          if pnpm install --lockfile-only; then",
+    "            if git diff --quiet -- pnpm-lock.yaml; then",
+    '              echo "::notice::pnpm-lock.yaml already matches package.json; the frozen install failed for another reason."',
+    "            else",
+    '              echo "::group::pnpm-lock.yaml patch (apply and commit)"',
+    "              git diff -- pnpm-lock.yaml",
+    '              echo "::endgroup::"',
+    '              echo "::error file=pnpm-lock.yaml::pnpm-lock.yaml is stale; commit the patch above."',
+    "            fi",
+    "          else",
+    '            echo "::error::pnpm install --lockfile-only failed; no lockfile patch was produced."',
+    "          fi",
+  ].join("\n");
+}
+
+/**
+ * swift.privatePackages: configure step, placed directly before the first step
+ * in the ci job that builds or tests project code. It refuses to overwrite an
+ * existing ~/.netrc, writes one machine entry per private host with mode 600,
+ * and adds a job-scoped git insteadOf rewrite. The token reaches the step only
+ * through env, never through the run script text. Returns "" when unset; the
+ * value starts with a newline and has no trailing newline.
+ */
+export function swiftPrivatePackagesConfigureStep(manifest) {
+  const entries = manifest.swift?.privatePackages;
+  if (!Array.isArray(entries) || entries.length === 0) return "";
+  const env = entries.map((entry, index) => `          RIGHT_GIT_PRIVATE_TOKEN_${index}: \${{ secrets.${entry.secret} }}`);
+  const checks = entries.map((entry, index) => `          test -n "$RIGHT_GIT_PRIVATE_TOKEN_${index}" || { echo "::error::right-git: secret ${entry.secret} is unavailable to this run"; exit 1; }`);
+  const netrc = entries.map((entry, index) => `          printf 'machine %s\\nlogin x-access-token\\npassword %s\\n' '${entry.host}' "$RIGHT_GIT_PRIVATE_TOKEN_${index}" >> "$HOME/.netrc"`);
+  const insteadOf = entries.map((entry, index) => `          git config --global "url.https://x-access-token:$RIGHT_GIT_PRIVATE_TOKEN_${index}@${entry.host}/.insteadOf" "https://${entry.host}/"`);
+  return [
+    "",
+    "      - name: Configure private Swift package access",
+    "        shell: bash",
+    "        env:",
+    ...env,
+    "        run: |",
+    "          set -euo pipefail",
+    "          umask 077",
+    ...checks,
+    "          test ! -e \"$HOME/.netrc\" || { echo \"::error::right-git: $HOME/.netrc already exists on this runner; refusing to overwrite it\"; exit 1; }",
+    "          : > \"$HOME/.netrc\"",
+    // The marker follows creation so cleanup removes this file even if a later line fails.
+    "          : > \"$RUNNER_TEMP/right-git-private-netrc\"",
+    ...netrc,
+    "          chmod 600 \"$HOME/.netrc\"",
+    ...insteadOf,
+  ].join("\n");
+}
+
+/**
+ * swift.privatePackages: cleanup step, rendered at the end of the ci job and
+ * run even after a failed build. It only removes what the configure step
+ * created (the marker file), so a cancelled run never deletes a pre-existing
+ * ~/.netrc. Returns "" when unset; same newline convention as the configure step.
+ */
+export function swiftPrivatePackagesCleanupStep(manifest) {
+  const entries = manifest.swift?.privatePackages;
+  if (!Array.isArray(entries) || entries.length === 0) return "";
+  const env = entries.map((entry, index) => `          RIGHT_GIT_PRIVATE_TOKEN_${index}: \${{ secrets.${entry.secret} }}`);
+  const removals = entries.map((entry, index) => `            git config --global --remove-section "url.https://x-access-token:$RIGHT_GIT_PRIVATE_TOKEN_${index}@${entry.host}/" || true`);
+  return [
+    "",
+    "      - name: Remove private Swift package access",
+    "        if: ${{ always() }}",
+    "        shell: bash",
+    "        env:",
+    ...env,
+    "        run: |",
+    "          if [ -f \"$RUNNER_TEMP/right-git-private-netrc\" ]; then",
+    "            rm -f \"$HOME/.netrc\"",
+    ...removals,
+    "            rm -f \"$RUNNER_TEMP/right-git-private-netrc\"",
+    "          fi",
+  ].join("\n");
+}
+
+/**
  * Optional QA evidence upload, rendered after the rust-hybrid gate step.
  * Returns "" when qaEvidencePath is unset, so the rendered workflow stays
  * byte-identical to a manifest without the key.
@@ -1607,6 +1752,9 @@ export function buildRenderContext(manifest, repoPath, lane = "ci") {
     MACOS_SIGNING_JOB: macosSigningJob(manifest, pm, artifactPrefix),
     RELEASE_CHAIN_JOBS: releaseChainJobs(manifest, pm, artifactPrefix),
     OWNERSHIP_STEP: ownershipStep(manifest, lane),
+    PNPM_LOCK_PATCH_STEP: lockfilePatchStep(manifest),
+    SWIFT_PRIVATE_CONFIGURE_STEP: swiftPrivatePackagesConfigureStep(manifest),
+    SWIFT_PRIVATE_CLEANUP_STEP: swiftPrivatePackagesCleanupStep(manifest),
     QA_EVIDENCE_STEP: qaEvidenceStep(manifest) + devArtifactCi(manifest, { lane, artifactPrefix }),
     CI_DISPATCH_TRIGGER: devArtifactDispatchTrigger(manifest),
     CI_CACHE_WORKSPACE_CRATES: manifest.ciIncremental === true ? "true" : "false",

@@ -6,6 +6,7 @@ import { execFileSync, spawnSync } from "./background-process.mjs";
 import { brokerManagedHost } from "./cargo-contract.mjs";
 import { fileURLToPath } from "node:url";
 import { signingReceiptPath } from "./signing-receipts.mjs";
+import { swiftPrivatePackagesCleanupStep, swiftPrivatePackagesConfigureStep } from "../git/manifest.mjs";
 import test from "node:test";
 
 const release = fileURLToPath(new URL("./release.mjs", import.meta.url));
@@ -314,6 +315,68 @@ test("swiftpm mac preflight rejects a prePackage that builds the DMG with appBef
   assert.match(result.stderr, /prePackage builds a DMG/);
 });
 
+// Rewrite the fixture's mac target (sign matrix, dmg spec, ...) and files, then commit like swiftMacFixture.
+function macMatrixFixture({ sign, target = {}, files = {} }) {
+  const config = fixture({ platform: "mac", macSigning: true });
+  const dir = path.dirname(config);
+  const body = readFileSync(config, "utf8");
+  const parsed = JSON.parse(body.slice("export default ".length, body.lastIndexOf(";")));
+  parsed.targets.mac = { ...parsed.targets.mac, ...(sign ? { sign } : {}), ...target };
+  writeFileSync(config, `export default ${JSON.stringify(parsed)};\n`);
+  for (const [name, text] of Object.entries(files)) { mkdirSync(path.dirname(path.join(dir, name)), { recursive: true }); writeFileSync(path.join(dir, name), text); }
+  git(dir, "add", ".");
+  git(dir, "commit", "-m", "mac matrix");
+  return config;
+}
+const ENTITLEMENTS_PLIST = '<?xml version="1.0" encoding="UTF-8"?>\n<plist version="1.0"><dict/></plist>\n';
+
+test("macOS signing matrix: object entries and nestedCode pass validation and reach the dry-run signing step", () => {
+  const config = macMatrixFixture({
+    sign: { prePackageFiles: [{ file: "dist/Fixture.app", entitlements: "release/app.plist", hardenedRuntime: true }, "dist/tool"],
+      nestedCode: { "Contents/Helpers/helper": { hardenedRuntime: true }, "Contents/PlugIns/Ext.appex": { entitlements: "release/ext.plist" } } },
+    files: { "release/app.plist": ENTITLEMENTS_PLIST, "release/ext.plist": ENTITLEMENTS_PLIST },
+  });
+  const result = runRaw(config, "--platform", "mac", "--tier=patch", "--dry-run");
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /dry-run: per-file signing matrix \(2 nestedCode rule\(s\), 1 entry setting\(s\)\)/);
+  assert.match(result.stdout, /dry-run: Developer ID signing|sign-macos\.mjs/);
+});
+
+test("macOS signing matrix: a missing entitlements file or malformed matrix fails release validation naming the field", () => {
+  const missing = runRaw(macMatrixFixture({ sign: { prePackageFiles: [{ file: "dist/Fixture.app", entitlements: "release/missing.plist" }] } }), "--platform", "mac", "--dry-run");
+  assert.notEqual(missing.status, 0);
+  assert.match(missing.stderr, /sign\.prePackageFiles\[0\]\.entitlements file not found: release\/missing\.plist/);
+  const malformed = runRaw(macMatrixFixture({ sign: { prePackageFiles: ["dist/tool"], nestedCode: { "Contents/Helpers/h": { hardenedRuntime: false } } } }), "--platform", "mac", "--dry-run");
+  assert.notEqual(malformed.status, 0);
+  assert.match(malformed.stderr, /exactly one \.app entry[\s\S]*hardenedRuntime: false is not allowed|hardenedRuntime: false is not allowed[\s\S]*exactly one \.app entry/);
+});
+
+test("macOS signing matrix: doctor validates the matrix too", () => {
+  const result = runDoctor(macMatrixFixture({ sign: { prePackageFiles: [{ file: "dist/Fixture.app", entitlements: "release/missing.plist" }] } }));
+  assert.notEqual(result.status, 0);
+  if (hostPlatform === "mac") assert.match(`${result.stdout}${result.stderr}`, /entitlements file not found: release\/missing\.plist/);
+});
+
+test("targets.mac.dmg.spec is validated at release time", () => {
+  const spec = (value) => macMatrixFixture({ target: { dmg: { spec: "release/appdmg.json" } }, files: { "release/appdmg.json": JSON.stringify(value) } });
+  const ok = runRaw(spec({ title: "Fixture", contents: [{ x: 1, y: 2, type: "link", path: "/Applications" }] }), "--platform", "mac", "--dry-run");
+  assert.equal(ok.status, 0, ok.stderr);
+  const bad = runRaw(spec({ title: "Fixture", "code-sign": {} }), "--platform", "mac", "--dry-run");
+  assert.notEqual(bad.status, 0);
+  assert.match(bad.stderr, /targets\.mac\.dmg\.spec: DMG spec: code-sign is not supported/);
+});
+
+test("Windows targets reject object sign entries and nestedCode (macOS-only)", () => {
+  const config = fixture();
+  const body = readFileSync(config, "utf8");
+  const parsed = JSON.parse(body.slice("export default ".length, body.lastIndexOf(";")));
+  parsed.targets.win.sign.prePackageFiles = [{ file: "raw.exe", entitlements: "x.plist" }];
+  writeFileSync(config, `export default ${JSON.stringify(parsed)};\n`);
+  const result = run(config, "--tier=patch");
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /object entries and sign\.nestedCode are macOS-only/);
+});
+
 test("macOS portable contract rejects missing signing or notarization declarations", () => {
   const result = run(fixture({ platform: "mac" }), "--platform", "mac", "--tier=patch", "--dry-run");
   assert.notEqual(result.status, 0);
@@ -602,6 +665,113 @@ test("rejects dev-mac-sign secrets in ci.yml without a devArtifact mac sign decl
     assert.notEqual(result.status, 0, JSON.stringify(manifest));
     assert.match(result.stderr, /release-capable permissions or secrets/i);
   }
+});
+
+const SWIFT_PRIVATE = [{ host: "github.com", secret: "SWIFT_PRIVATE_TOKEN" }];
+
+// Mirrors the managed ci job around the real rendered private-package steps.
+function swiftPrivateCi(manifest, { extraStepLines = [], dispatch = false } = {}) {
+  return [
+    "# Managed by right-git",
+    "name: fixture-ci",
+    "on:",
+    "  pull_request:",
+    "  push:",
+    "    branches: [main]",
+    ...(dispatch ? ["  workflow_dispatch:"] : []),
+    "permissions:",
+    "  contents: read",
+    "jobs:",
+    "  private-repo-guard:",
+    "    runs-on: ubuntu-24.04",
+    "    steps:",
+    "      - run: exit 1",
+    "  ci:",
+    "    needs: [private-repo-guard]",
+    "    runs-on: macos-15",
+    "    steps:",
+    "      - uses: actions/checkout@v7",
+    swiftPrivatePackagesConfigureStep(manifest).replace(/^\n/, ""),
+    "      - run: bash ./gate.sh",
+    ...extraStepLines,
+    swiftPrivatePackagesCleanupStep(manifest).replace(/^\n/, ""),
+    "",
+  ].join("\n");
+}
+
+function releaseWithSwiftPrivate({ manifest, ci }) {
+  const config = fixture({ hostedWorkflows: "right-git-ci-only", includeCargoSources: false });
+  const root = path.dirname(config);
+  const workflowDir = path.join(root, ".github", "workflows");
+  mkdirSync(workflowDir, { recursive: true });
+  writeFileSync(path.join(root, ".rightgit.json"), JSON.stringify({ schemaVersion: 1, compile: "github-actions-only", lanes: ["ci"], ...manifest }));
+  writeFileSync(path.join(workflowDir, "ci.yml"), ci);
+  git(root, "add", ".");
+  git(root, "commit", "-m", "add swift private ci workflow");
+  return run(config, "--tier=patch");
+}
+
+test("accepts exactly the declared swift.privatePackages secret in the rendered configure and cleanup steps", () => {
+  const manifest = { swift: { privatePackages: SWIFT_PRIVATE } };
+  const result = releaseWithSwiftPrivate({ manifest, ci: swiftPrivateCi(manifest) });
+  assert.equal(result.status, 0, result.stderr);
+
+  const two = { swift: { privatePackages: [...SWIFT_PRIVATE, { host: "example.com", secret: "OTHER_TOKEN" }] } };
+  const twoResult = releaseWithSwiftPrivate({ manifest: two, ci: swiftPrivateCi(two) });
+  assert.equal(twoResult.status, 0, twoResult.stderr);
+});
+
+test("rejects a declared swift.privatePackages secret outside the rendered private-package steps", () => {
+  const manifest = { swift: { privatePackages: SWIFT_PRIVATE } };
+  const base = swiftPrivateCi(manifest);
+  const elsewhere = [
+    // Another step of the ci job.
+    swiftPrivateCi(manifest, { extraStepLines: ["      - run: echo ${{ secrets.SWIFT_PRIVATE_TOKEN }}"] }),
+    // Same env line shape under an unrelated step.
+    swiftPrivateCi(manifest, { extraStepLines: ["      - name: Gate", "        env:", "          RIGHT_GIT_PRIVATE_TOKEN_0: ${{ secrets.SWIFT_PRIVATE_TOKEN }}", "        run: bash ./gate.sh"] }),
+    // Another job.
+    `${base}  other:\n    runs-on: ubuntu-24.04\n    env:\n      T: \${{ secrets.SWIFT_PRIVATE_TOKEN }}\n`,
+    // Workflow-level env.
+    base.replace("permissions:\n  contents: read\n", "permissions:\n  contents: read\nenv:\n  T: ${{ secrets.SWIFT_PRIVATE_TOKEN }}\n"),
+  ];
+  for (const ci of elsewhere) {
+    const result = releaseWithSwiftPrivate({ manifest, ci });
+    assert.notEqual(result.status, 0, ci);
+    assert.match(result.stderr, /release-capable permissions or secrets/i);
+  }
+});
+
+test("rejects undeclared secrets and undeclared swift.privatePackages in ci.yml", () => {
+  const declared = { swift: { privatePackages: SWIFT_PRIVATE } };
+  const base = swiftPrivateCi(declared);
+  const cases = [
+    // A secret the manifest does not declare, in the rendered step position.
+    { manifest: declared, ci: base.replace(/secrets\.SWIFT_PRIVATE_TOKEN/g, "secrets.UNDECLARED_TOKEN") },
+    // Declared secret plus an extra undeclared secret in the configure step env.
+    { manifest: declared, ci: base.replace("        run: |\n          set -euo pipefail", "          EXTRA: ${{ secrets.UNDECLARED_TOKEN }}\n        run: |\n          set -euo pipefail") },
+    // Rendered steps with no swift declaration in the manifest.
+    { manifest: {}, ci: base },
+    // Env index naming a different secret than the declared entry at that index.
+    { manifest: { swift: { privatePackages: [{ host: "github.com", secret: "OTHER_TOKEN" }] } }, ci: base },
+  ];
+  for (const { manifest, ci } of cases) {
+    const result = releaseWithSwiftPrivate({ manifest, ci });
+    assert.notEqual(result.status, 0, JSON.stringify(manifest));
+    assert.match(result.stderr, /release-capable permissions or secrets/i);
+  }
+});
+
+test("rejects swift.privatePackages secrets when ci.yml is dispatchable", () => {
+  const manifest = { swift: { privatePackages: SWIFT_PRIVATE }, devArtifact: { mac: "unsigned", dispatch: true, macAppPath: "target/App.app" } };
+  const dispatched = releaseWithSwiftPrivate({ manifest, ci: swiftPrivateCi(manifest) });
+  assert.notEqual(dispatched.status, 0);
+  assert.match(dispatched.stderr, /release-capable permissions or secrets/i);
+
+  // A rendered workflow_dispatch trigger refuses even if the manifest omits the flag.
+  const plain = { swift: { privatePackages: SWIFT_PRIVATE } };
+  const triggered = releaseWithSwiftPrivate({ manifest: plain, ci: swiftPrivateCi(plain, { dispatch: true }) });
+  assert.notEqual(triggered.status, 0);
+  assert.match(triggered.stderr, /release-capable permissions or secrets/i);
 });
 
 test("accepts every right-git lane the manifest schema allows", () => {

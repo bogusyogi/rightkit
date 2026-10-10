@@ -98,6 +98,28 @@
         }
       }
     }
+    ,"swift": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["privatePackages"],
+      "description": "Opt-in read access to private Swift package mirrors from the ci lane. Renders a configure step before the first build or test step and an always-run cleanup step at the end of the ci job. Unset renders nothing.",
+      "properties": {
+        "privatePackages": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 4,
+          "items": {
+            "type": "object",
+            "required": ["host", "secret"],
+            "additionalProperties": false,
+            "properties": {
+              "host": { "type": "string", "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9-]{0,62})(?:\\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,62}))*$", "description": "Bare host name, for example github.com. Unique within the list." },
+              "secret": { "type": "string", "pattern": "^(?![Gg][Ii][Tt][Hh][Uu][Bb]_)[A-Za-z_][A-Za-z0-9_]{0,99}$", "description": "GitHub Actions secret name holding a fine-grained token with contents:read on the mirror. Provisioned by the repository owner." }
+            }
+          }
+        }
+      }
+    }
     ,"profile": { "enum": ["node", "rust-hybrid"] },
     "rustCache": {
       "type": "object",

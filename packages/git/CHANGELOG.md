@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.39
+
+- New opt-in `swift.privatePackages` (ci lane, rust-hybrid and node): a list of `{ host, secret }` entries (at most four, unique hosts, `secret` a GitHub Actions secret name) that lets a public repository's ci job fetch a private Swift package mirror. A configure step placed right before the first build or test step writes `~/.netrc` (mode 600; refuses to overwrite an existing file) and a job-scoped `git config --global url.<base>.insteadOf` rewrite, with the token passed through `env`. An always-run cleanup step at the end of the ci job removes both. Refused with `devArtifact.dispatch: true`. Unset renders byte-identical output.
+- `profile: rust-hybrid` and node ci (`pnpm` only): when the frozen install fails, a new step runs `pnpm install --lockfile-only` and prints `git diff -- pnpm-lock.yaml` as a patch block (a `::group::` with a `::error file=pnpm-lock.yaml::` annotation). It runs only after a failed install, never changes the job result, and prints a notice instead when the lockfile already matches. npm and yarn renders are unchanged; the new pnpm step is the only difference in a pnpm render.
+
 ## 0.2.38
 
 - `devArtifact.parallel: true` (rust-hybrid) renders one job per platform, `dev-artifact-mac` and `dev-artifact-windows`, that compiles the dev app with the new `devArtifact.buildScript` package script and stages it. The jobs run beside the QA gate job (they need only the private-repo guard) instead of inside it. `dev-mac-sign` now needs `ci` and `dev-artifact-mac`. Parallel jobs do not need `ciAllOs`. Unset or `false` renders the current in-gate output byte-for-byte.

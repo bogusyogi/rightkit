@@ -194,8 +194,26 @@ export function assertCommittedCheckoutClean(root, { expectedCommit, expectedTre
   const output = runGit(path.resolve(root), ["status", "--porcelain=v1", "-z", "--untracked-files=all"], {
     encoding: "buffer", maxBuffer: MAX_TREE_BYTES, timeout: COMMAND_TIMEOUT_MS, runner, env: gitEnv(),
   });
-  if (stripOwnLockRecords(Buffer.from(output).toString("utf8")).length) throw new CommittedSourceIncompleteError("committed ownership: protected release checkout has tracked or untracked changes");
+  const dirty = stripOwnLockRecords(Buffer.from(output).toString("utf8"));
+  if (dirty.length) {
+    const error = new CommittedSourceIncompleteError("committed ownership: protected release checkout has tracked or untracked changes");
+    // The check name and every offending path travel with the error so the CLI can name them.
+    error.blocked = { check: "clean-checkout", paths: statusPaths(dirty) };
+    throw error;
+  }
   return true;
+}
+
+// Paths from NUL-terminated porcelain v1 records. A rename or copy record is followed by its source path as its own record.
+function statusPaths(status) {
+  const records = status.split("\0").filter(Boolean);
+  const paths = [];
+  for (let index = 0; index < records.length; index += 1) {
+    const record = records[index];
+    paths.push(record.slice(3));
+    if (/^[RC]/.test(record) || /^.[RC]/.test(record)) index += 1;
+  }
+  return paths;
 }
 
 export const committedOwnershipLimitsForTest = Object.freeze({ MAX_TREE_BYTES, MAX_TOTAL_BLOB_BYTES, MAX_BLOB_BYTES });

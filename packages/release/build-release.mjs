@@ -49,7 +49,7 @@ import { macosCodesignEnvironment } from "./codesign-environment.mjs";
 // and test-only edits and would force a cold Rust rebuild of every app each time.
 // Cached target directories must not outlive changes to these signing helpers.
 
-const PIPELINE_FINGERPRINT_SOURCES = ["release.mjs", "sign-windows.mjs", "sign-macos.mjs", "macos-signing-session.mjs", "codesign-environment.mjs", "codesign-shim.mjs", "codesign-argv.mjs", "osascript-guard.mjs", "dmg-build.mjs", "dmg-layout.mjs", "swift-mac-dmg.mjs", "mac-bundle-signing.mjs", "macos-file-evidence.mjs", "swift-mac-app.mjs", "rightkit-signing-agent.mjs", "notarize-macos.mjs", "macos-notarization.mjs", "signing-receipts.mjs", "tauri-bundle-marker.mjs", "nsis-payload.mjs", "msix-build.mjs", "msix-plan.mjs"];
+const PIPELINE_FINGERPRINT_SOURCES = ["release.mjs", "sign-windows.mjs", "sign-macos.mjs", "macos-signing-session.mjs", "codesign-environment.mjs", "codesign-shim.mjs", "codesign-argv.mjs", "osascript-guard.mjs", "dmg-build.mjs", "dmg-layout.mjs", "dmg-spec.mjs", "swift-mac-dmg.mjs", "mac-bundle-signing.mjs", "mac-signing-matrix.mjs", "mac-sign-core.mjs", "macos-file-evidence.mjs", "swift-mac-app.mjs", "rightkit-signing-agent.mjs", "notarize-macos.mjs", "macos-notarization.mjs", "signing-receipts.mjs", "tauri-bundle-marker.mjs", "nsis-payload.mjs", "msix-build.mjs", "msix-plan.mjs"];
 const PIPELINE_FINGERPRINT = createHash("sha256")
   .update(PIPELINE_FINGERPRINT_SOURCES.map((file) => `${file}:${createHash("sha256").update(readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), file))).digest("hex")}`).join("\n"))
   .digest("hex")

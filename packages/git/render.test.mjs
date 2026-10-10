@@ -6,7 +6,7 @@ import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { renderTemplate, MANAGED_MARKER } from "./render.mjs";
-import { buildRenderContext, LANE_FILENAMES, KNOWN_LANES, validateManifest } from "./manifest.mjs";
+import { buildRenderContext, LANE_FILENAMES, KNOWN_LANES, validateManifest, swiftPrivatePackagesConfigureStep, swiftPrivatePackagesCleanupStep } from "./manifest.mjs";
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)));
 const templatesDir = path.join(packageRoot, "templates");
@@ -1235,4 +1235,145 @@ test("devArtifact.parallel validates its own runners, buildScript and flag; ciAl
   assert.equal(validateManifest({ ...PARALLEL_DEV, devArtifact: { ...dev, parallel: "yes" } }).valid, false, "parallel is a boolean");
   assert.equal(validateManifest({ ...PARALLEL_DEV, matrix: { os: ["windows-2025"], node: ["26.8.1"] } }).valid, false, "mac sign needs a macOS runner in matrix.os");
   assert.equal(validateManifest({ ...PARALLEL_DEV, matrix: { os: ["xcode-27"], node: ["26.8.1"] }, devArtifact: { mac: "unsigned", windows: "unsigned", parallel: true, buildScript: "build:dev", macAppPath: "a/B.app", windowsGlob: "*.exe" } }).valid, false, "windows unsigned needs a windows runner");
+});
+
+// swift.privatePackages: read access to a private Swift package mirror from the ci job.
+// The configure step sits right before the first build or test step; the cleanup step
+// runs always, after the gate. The secret is referenced only from step env, never a run script.
+const SWIFT_ONE = [{ host: "github.com", secret: "RIGHTKIT_SWIFT_TOKEN" }];
+const NODE_CI_BASE = { schemaVersion: 1, compile: "github-actions-only", lanes: ["ci"], matrix: { os: ["ubuntu-latest"], node: ["24"] }, packageManager: "pnpm@11.24.0", templateVersion: "1.0.0" };
+const renderNodeCi = (manifest) => renderTemplate(
+  fs.readFileSync(path.join(templatesDir, "ci.yml"), "utf8"),
+  buildRenderContext(structuredClone(manifest), "/repos/widgets"),
+);
+const CONFIGURE_HEAD = "      - name: Configure private Swift package access\n";
+const CLEANUP_HEAD = "      - name: Remove private Swift package access\n";
+// The rendered run body of a step, with the 10-space YAML block indent removed.
+const stepScript = (step) => step.slice(step.indexOf("        run: |\n") + "        run: |\n".length).split("\n").map((line) => line.slice(10)).join("\n");
+
+test("swift.privatePackages unset renders nothing new in either ci template", () => {
+  for (const [render, base] of [[renderRustCi, INCREMENTAL_BASE], [renderNodeCi, NODE_CI_BASE]]) {
+    const unset = render(base);
+    assert.doesNotMatch(unset, /private Swift package|\.netrc|insteadOf|RIGHT_GIT_PRIVATE_TOKEN/);
+    assert.equal(render({ ...base, swift: undefined }), unset);
+  }
+});
+
+test("rust-hybrid ci: configure follows the toolchain and precedes the gate; cleanup runs always after it", () => {
+  const out = renderRustCi({ ...INCREMENTAL_BASE, swift: { privatePackages: SWIFT_ONE } });
+  const configure = out.indexOf(CONFIGURE_HEAD);
+  const gate = out.indexOf("      - run: bash ./scripts/gate.sh\n");
+  const cleanup = out.indexOf(CLEANUP_HEAD);
+  assert.ok(out.indexOf("Swatinem/rust-cache") < configure && configure < gate && gate < cleanup, "order: toolchain, configure, gate, cleanup");
+  assert.match(out.slice(cleanup), /        if: \$\{\{ always\(\) \}\}\n/);
+  assert.equal(out.slice(0, configure).includes("RIGHT_GIT_PRIVATE_TOKEN"), false);
+  assert.equal(out.match(/\$\{\{ secrets\.RIGHTKIT_SWIFT_TOKEN \}\}/g)?.length, 2, "one env reference per step");
+  assert.equal(out.match(/^          RIGHT_GIT_PRIVATE_TOKEN_0: \$\{\{ secrets\.RIGHTKIT_SWIFT_TOKEN \}\}$/gm)?.length, 2);
+  assert.doesNotMatch(stepScript(out.slice(configure, gate)), /secrets\./);
+});
+
+test("node ci: configure follows install and precedes the tests; cleanup is the last step", () => {
+  const out = renderNodeCi({ ...NODE_CI_BASE, swift: { privatePackages: SWIFT_ONE } });
+  const install = out.indexOf("      - run: pnpm install");
+  const configure = out.indexOf(CONFIGURE_HEAD);
+  const firstTest = out.search(/      - run: pnpm (?:run )?test\n/);
+  const cleanup = out.indexOf(CLEANUP_HEAD);
+  assert.ok(install > 0 && install < configure && configure < firstTest && firstTest < cleanup, "order: install, configure, tests, cleanup");
+  assert.ok(out.indexOf("check-network-boundary") < cleanup);
+  assert.match(out, /          fi\n$/);
+});
+
+test("swift.privatePackages renders one machine entry and one job-scoped rewrite per host", () => {
+  const out = renderRustCi({ ...INCREMENTAL_BASE, swift: { privatePackages: [...SWIFT_ONE, { host: "git.example.com", secret: "SECOND_SWIFT_TOKEN" }] } });
+  assert.ok(out.includes(`'git.example.com' "$RIGHT_GIT_PRIVATE_TOKEN_1"`));
+  assert.ok(out.includes(`git config --global "url.https://x-access-token:$RIGHT_GIT_PRIVATE_TOKEN_1@git.example.com/.insteadOf" "https://git.example.com/"`));
+  assert.ok(out.includes(`git config --global --remove-section "url.https://x-access-token:$RIGHT_GIT_PRIVATE_TOKEN_1@git.example.com/" || true`));
+  assert.equal(out.match(/printf 'machine/g)?.length, 2);
+});
+
+test("swift.privatePackages validation refuses unsafe names, hosts and duplicates, and placements it cannot serve", () => {
+  const withSwift = (swift, base = VALID_RUST_HYBRID) => validateManifest({ ...base, swift }).errors;
+  assert.deepEqual(validateManifest({ ...VALID_RUST_HYBRID, swift: { privatePackages: SWIFT_ONE } }).errors, []);
+  assert.deepEqual(validateManifest({ ...NODE_CI_BASE, swift: { privatePackages: SWIFT_ONE } }).errors, []);
+  for (const secret of ["GITHUB_TOKEN", "github_token", "1BAD", "A B", "A}}", "${{ secrets.X }}", ""]) {
+    assert.ok(withSwift({ privatePackages: [{ host: "github.com", secret }] }).some((e) => /GitHub Actions secret name/.test(e)), `secret ${secret}`);
+  }
+  for (const host of ["github.com/evil", "-bad.example", "https://github.com", "git hub.com"]) {
+    assert.ok(withSwift({ privatePackages: [{ host, secret: "A_B" }] }).some((e) => /bare host name/.test(e)), `host ${host}`);
+  }
+  assert.ok(withSwift({ privatePackages: [SWIFT_ONE[0], SWIFT_ONE[0]] }).some((e) => /must be unique/.test(e)));
+  assert.ok(withSwift({ privatePackages: [] }).some((e) => /1 to 4/.test(e)));
+  assert.ok(withSwift({ privatePackages: Array.from({ length: 5 }, (_, i) => ({ host: `h${i}.example`, secret: `S${i}` })) }).some((e) => /1 to 4/.test(e)));
+  assert.ok(withSwift({ privatePackages: [{ host: "github.com", secret: "A", extra: 1 }] }).some((e) => /only host and secret/.test(e)));
+  assert.ok(withSwift({ privatePackages: SWIFT_ONE, other: 1 }).some((e) => /unknown swift field: other/.test(e)));
+  assert.ok(validateManifest({ ...NODE_CI_BASE, lanes: ["publish-npm"], publish: { npm: { oidc: true, provenance: true } }, swift: { privatePackages: SWIFT_ONE } }).errors.some((e) => /requires lane 'ci'/.test(e)));
+  assert.ok(validateManifest({ ...VALID_RUST_HYBRID, devArtifact: { mac: "unsigned", dispatch: true, macAppPath: "a/B.app" }, swift: { privatePackages: SWIFT_ONE } }).errors.some((e) => /cannot be combined with devArtifact\.dispatch/.test(e)));
+});
+
+test("swift.privatePackages configure and cleanup scripts write, refuse and remove only the credentials they own", () => {
+  const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "right-git-swift-"));
+  try {
+    const home = path.join(scratch, "home");
+    const runnerTemp = path.join(scratch, "runner-temp");
+    fs.mkdirSync(home);
+    fs.mkdirSync(runnerTemp);
+    const manifest = { ...VALID_RUST_HYBRID, swift: { privatePackages: SWIFT_ONE } };
+    const configure = stepScript(swiftPrivatePackagesConfigureStep(manifest));
+    const cleanup = stepScript(swiftPrivatePackagesCleanupStep(manifest));
+    const run = (script, token) => spawnSync("bash", ["-c", script], {
+      encoding: "utf8",
+      windowsHide: true,
+      env: { PATH: process.env.PATH, HOME: home, XDG_CONFIG_HOME: path.join(home, ".config"), RUNNER_TEMP: runnerTemp, RIGHT_GIT_PRIVATE_TOKEN_0: token },
+    });
+    const netrc = path.join(home, ".netrc");
+    const gitconfig = path.join(home, ".gitconfig");
+
+    // A missing secret fails closed before anything is written.
+    assert.notEqual(run(configure, "").status, 0);
+    assert.equal(fs.existsSync(netrc), false);
+
+    const configured = run(configure, "placeholder-value");
+    assert.equal(configured.status, 0, configured.stderr);
+    assert.equal(fs.readFileSync(netrc, "utf8"), "machine github.com\nlogin x-access-token\npassword placeholder-value\n");
+    assert.equal(fs.statSync(netrc).mode & 0o777, 0o600);
+    assert.match(fs.readFileSync(gitconfig, "utf8"), /\[url "https:\/\/x-access-token:placeholder-value@github\.com\/"\]\n\tinsteadOf = https:\/\/github\.com\//);
+
+    // A second configure refuses to replace the file it already owns.
+    assert.notEqual(run(configure, "placeholder-value").status, 0);
+
+    const cleaned = run(cleanup, "placeholder-value");
+    assert.equal(cleaned.status, 0, cleaned.stderr);
+    assert.equal(fs.existsSync(netrc), false);
+    assert.doesNotMatch(fs.existsSync(gitconfig) ? fs.readFileSync(gitconfig, "utf8") : "", /x-access-token/);
+
+    // Cleanup on a run that never configured leaves a pre-existing netrc alone.
+    fs.writeFileSync(netrc, "machine other.example\nlogin a\npassword b\n", { mode: 0o600 });
+    assert.equal(run(cleanup, "placeholder-value").status, 0);
+    assert.equal(fs.readFileSync(netrc, "utf8"), "machine other.example\nlogin a\npassword b\n");
+  } finally {
+    fs.rmSync(scratch, { recursive: true, force: true });
+  }
+});
+
+test("rendered swift.privatePackages workflows pass actionlint", (t) => {
+  const bin = spawnSync("actionlint", ["-version"], { encoding: "utf8" });
+  if (bin.error) return t.skip("actionlint not installed");
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "right-git-swift-actionlint-"));
+  try {
+    fs.mkdirSync(path.join(dir, ".github", "workflows"), { recursive: true });
+    fs.writeFileSync(path.join(dir, ".github", "actionlint.yaml"), "self-hosted-runner:\n  labels:\n    - xcode-*\n");
+    const files = [
+      ["swift-rust.yml", renderRustCi({ ...INCREMENTAL_BASE, swift: { privatePackages: SWIFT_ONE } })],
+      ["swift-rust-two-hosts.yml", renderRustCi({ ...INCREMENTAL_BASE, swift: { privatePackages: [...SWIFT_ONE, { host: "git.example.com", secret: "SECOND_SWIFT_TOKEN" }] } })],
+      ["swift-node.yml", renderNodeCi({ ...NODE_CI_BASE, swift: { privatePackages: SWIFT_ONE } })],
+    ].map(([name, text]) => {
+      const file = path.join(dir, ".github", "workflows", name);
+      fs.writeFileSync(file, text);
+      return file;
+    });
+    const result = spawnSync("actionlint", ["-shellcheck=", "-pyflakes=", "-config-file", path.join(dir, ".github", "actionlint.yaml"), ...files], { encoding: "utf8" });
+    assert.equal(result.status, 0, result.stdout + result.stderr);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
 });

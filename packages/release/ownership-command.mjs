@@ -18,6 +18,7 @@ import { spawnSync } from "./background-process.mjs";
 import { main as stagedMain } from "./ownership-staged.mjs";
 import { loadTrustedExternal } from "./ownership-approval.mjs";
 import { trustComparison } from "./ownership-policy-bundle.mjs";
+import { isBlockingFinding } from "./ownership-verdict.mjs";
 
 const packageRoot = path.dirname(fileURLToPath(import.meta.url));
 
@@ -37,7 +38,7 @@ export function trustCompare(args, { print, trustLoader = loadTrustedExternal } 
   return 0;
 }
 
-export async function main(args, { evidenceFactory = createOwnershipEvidence, gitRunner = spawnSync, print = (value) => console.log(value), trustLoader = loadTrustedExternal } = {}) {
+export async function main(args, { evidenceFactory = createOwnershipEvidence, gitRunner = spawnSync, print = (value) => console.log(value), stderr = (line) => console.error(line), trustLoader = loadTrustedExternal } = {}) {
   if (args.includes("--help")) {
     print("right-release ownership [--app <dir>] [--json]\nright-release ownership --staged [--app <dir>] [--json]  (pre-commit gate: scans the index, not the working tree)\nright-release ownership --write-manifest [--rightkit <dir>] [--approve-new-capabilities]\n--approve-new-capabilities permits new capability ids during local generation only. Existing owner conflicts are always refused. Protected installation authorization remains separate.");
     return 0;
@@ -58,20 +59,27 @@ export async function main(args, { evidenceFactory = createOwnershipEvidence, gi
   }
   const app = path.resolve(flag(args, "--app") ?? process.cwd());
   const top = gitRunner("git", ["-C", app, "rev-parse", "--show-toplevel"], { encoding: "utf8", windowsHide: true });
-  if (top.status !== 0) return failClosed(args, "repository", "could not resolve --app to a Git repository");
+  if (top.status !== 0) return refuse(args, { type: "repository", message: "could not resolve --app to a Git repository" }, { print, stderr });
   const repoRoot = path.resolve(String(top.stdout).trim());
   let checked;
   try { checked = evidenceFactory(repoRoot, app); }
-  catch (error) { return failClosed(args, "protected-evidence", error.message, print); }
+  catch (error) {
+    // A refusal from the protected checkout carries its check name and offending paths.
+    const blocked = error?.blocked ? [blockedCheck(error.blocked.check, error.message, error.blocked.paths)] : undefined;
+    return refuse(args, { type: "protected-evidence", message: error.message, blocked }, { print, stderr });
+  }
   const result = checked.result;
   if (args.includes("--audit-json")) return printAuditJson(result, print);
+  // A refusal names every blocking check on stderr and in the JSON `blocked` field. Advise-tier findings never refuse.
+  const blocked = checked.enrollmentPending || checked.ok ? undefined : blockingChecks(checked);
+  if (blocked) reportBlocked(blocked, stderr);
   if (args.includes("--json")) {
     const error = checked.enrollmentPending ? undefined : !checked.floor.ok
       ? { type: "ownership-floor", message: checked.floor.problems.join("; ") }
       : result.coverage.length
         ? { type: "ownership-coverage", message: `${result.coverage.length} ownership coverage gap(s)` }
         : undefined;
-    print(JSON.stringify({ ok: checked.ok, ...(checked.enrollmentPending ? { enrollmentPending: true, warning: checked.warning } : {}), ...(error ? { error } : {}), rows: result.rows, violations: result.violations, covered: result.covered, problems: [...result.problems, ...checked.floor.problems], coverage: result.coverage, metadata: result.metadata }, null, 2));
+    print(JSON.stringify({ ok: checked.ok, ...(checked.enrollmentPending ? { enrollmentPending: true, warning: checked.warning } : {}), ...(error ? { error } : {}), ...(blocked ? { blocked } : {}), rows: result.rows, violations: result.violations, covered: result.covered, problems: [...result.problems, ...checked.floor.problems], coverage: result.coverage, metadata: result.metadata }, null, 2));
   } else {
     print(`RightKit ownership: ${path.basename(app)}`);
     print(formatTable(result.rows));
@@ -79,7 +87,7 @@ export async function main(args, { evidenceFactory = createOwnershipEvidence, gi
       print(`  OWN COPY ${v.fingerprint} (${v.package}) ${v.file}${v.line ? `:${v.line}` : ""}  ${v.text}`);
     }
     for (const p of result.problems) print(`  ${checked.enrollmentPending ? "DIAGNOSTIC" : "EXCEPTION"} ${p}`);
-    print(checked.enrollmentPending ? `[right-release] ${checked.warning}` : checked.ok ? "[right-release] ownership passed" : `[right-release] ownership FAILED: ${[...result.problems, ...checked.floor.problems].join("; ") || "move these to RightKit or add a reviewed, dated exception"}`);
+    print(verdictLine(checked, result, blocked));
   }
   // CI lanes may pass `--advisory-when-pending`: before approval keys are enrolled the scan asserts
   // nothing, so findings print as diagnostics and the step exits 0. Release lanes never pass it.
@@ -115,9 +123,62 @@ function printAuditJson(result, print) {
   }
 }
 
-function failClosed(args, type, message, print = (value) => console.log(value)) {
-  if (args.includes("--audit-json")) { console.error(`[right-release] ownership audit failed: ${message}`); return 1; }
-  if (args.includes("--json")) print(JSON.stringify({ ok: false, error: { type, message }, rows: [], violations: [], covered: [], problems: [message], coverage: [], metadata: null }, null, 2));
+// Each refusal names its blocking check and the first offending paths. Stderr and the JSON `blocked` field carry the same list.
+const BLOCKED_PATH_LIMIT = 10;
+
+function blockedCheck(check, message, paths = []) {
+  return { check, message, count: paths.length, paths: paths.slice(0, BLOCKED_PATH_LIMIT) };
+}
+
+// The checks that refuse a scan that did not pass. Advise-tier findings are never listed here.
+function blockingChecks(checked) {
+  const result = checked.result;
+  const checks = [];
+  const blocking = (result.violations ?? []).filter(isBlockingFinding);
+  if (blocking.length) checks.push(blockedCheck("ownership-violation", `${blocking.length} block-tier finding(s) duplicate RightKit owners`, blocking.map((entry) => entry.file).filter(Boolean)));
+  const floorProblems = checked.floor?.ok === false ? checked.floor.problems ?? [] : [];
+  if (floorProblems.length) checks.push(blockedCheck("ownership-floor", floorProblems.join("; ")));
+  const problems = (result.problems ?? []).filter((problem) => !floorProblems.includes(problem));
+  if (problems.length) checks.push(blockedCheck("ownership-problem", problems.join("; ")));
+  const gaps = result.coverage ?? [];
+  if (gaps.length) checks.push(blockedCheck("ownership-coverage", `${gaps.length} coverage gap(s): ${[...new Set(gaps.map((gap) => gap.reason))].join(", ")}`, gaps.map((gap) => gap.path)));
+  if (!checks.length) checks.push(blockedCheck("ownership-unknown", "scan reported not ok without a listed cause"));
+  return checks;
+}
+
+function reportBlocked(checks, stderr) {
+  for (const check of checks) {
+    stderr(`[right-release] refused by check ${check.check}: ${check.message}`);
+    for (const file of check.paths) stderr(`  - ${file}`);
+    if (check.count > check.paths.length) stderr(`  ... and ${check.count - check.paths.length} more`);
+  }
+}
+
+function tierCounts(violations) {
+  const counts = { block: 0, advise: 0 };
+  for (const violation of violations) counts[isBlockingFinding(violation) ? "block" : "advise"] += 1;
+  return counts;
+}
+
+// The human verdict line. Advise-only results pass and say so; a refusal names its checks.
+function verdictLine(checked, result, blocked) {
+  if (checked.enrollmentPending) return `[right-release] ${checked.warning}`;
+  if (checked.ok) {
+    const counts = tierCounts(result.violations ?? []);
+    return counts.advise
+      ? `[right-release] ownership ADVISE: block ${counts.block}, advise ${counts.advise} (reported, not refused)`
+      : "[right-release] ownership passed";
+  }
+  const hint = blocked.some((entry) => entry.check === "ownership-violation") ? "; move these to RightKit or add a reviewed, dated exception" : "";
+  return `[right-release] ownership FAILED: ${blocked.map((entry) => `${entry.check}: ${entry.message}`).join("; ")}${hint}`;
+}
+
+// Refusal before any verdict: unresolved repository, protected evidence, or a dirty protected checkout.
+function refuse(args, { type, message, blocked }, { print = (value) => console.log(value), stderr = (line) => console.error(line) } = {}) {
+  const checks = blocked ?? [blockedCheck(type, message)];
+  reportBlocked(checks, stderr);
+  if (args.includes("--audit-json")) { stderr(`[right-release] ownership audit failed: ${message}`); return 1; }
+  if (args.includes("--json")) print(JSON.stringify({ ok: false, error: { type, message }, blocked: checks, rows: [], violations: [], covered: [], problems: [message], coverage: [], metadata: null }, null, 2));
   else print(`[right-release] ownership FAILED: ${message}`);
   return 1;
 }

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileEvidence } from "./macos-file-evidence.mjs";
@@ -67,4 +67,26 @@ test("fileEvidence hashes a bundle directory instead of crashing with EISDIR", (
   assert.equal(a.kind, "bundle-tree-v1");
   writeFileSync(path.join(app, "Contents", "MacOS", "App"), "y");
   assert.notEqual(fileEvidence(app).sha256, a.sha256);
+});
+
+test("an appdmg spec supplies the volume name; targets.mac.dmg options and the app name are fallbacks", async () => {
+  const built = [];
+  const run = () => ({ status: 0 });
+  const build = (o) => { built.push(o); return { out: o.out }; };
+  const dir = mkdtempSync(path.join(os.tmpdir(), "rk-swift-dmg-"));
+  try {
+    const spec = path.join(dir, "appdmg.json");
+    writeFileSync(spec, JSON.stringify({ title: "Spec Title", window: { size: { width: 600, height: 400 } } }));
+    const plan = swiftMacDmgPlan({ target: target({ dmg: { spec: "appdmg.json" } }), projectType: "swiftpm", appName: "App", resolve: (p) => path.join(dir, p) });
+    assert.equal(plan.options.spec, spec);
+    assert.equal(plan.options.volname, undefined);
+    await buildStapledSwiftMacDmg(plan, { run, build, log: () => {} });
+    assert.equal(built[0].volname, "Spec Title"); assert.equal(built[0].spec, spec);
+    // No title in the spec: the app name is the volume name. An explicit dmg.volname wins over the spec title.
+    writeFileSync(spec, JSON.stringify({ window: { size: { width: 600, height: 400 } } }));
+    await buildStapledSwiftMacDmg(plan, { run, build, log: () => {} });
+    assert.equal(built[1].volname, "App");
+    const explicit = swiftMacDmgPlan({ target: target({ dmg: { spec: "appdmg.json", volname: "Mine" } }), projectType: "swiftpm", appName: "App", resolve: (p) => path.join(dir, p) });
+    assert.equal(explicit.options.volname, "Mine");
+  } finally { rmSync(dir, { recursive: true, force: true }); }
 });

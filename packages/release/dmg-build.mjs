@@ -3,6 +3,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "./background-process.mjs";
 import { backgroundAlias, dmgDSStore } from "./dmg-layout.mjs";
+import { readDmgSpec } from "./dmg-spec.mjs";
 import { detachWithRetrySync } from "./hdiutil-detach.mjs";
 import { assertReleaseExecutionAllowed } from "./execution-policy.mjs";
 
@@ -15,11 +16,20 @@ const pair = (value, label, positive = false) => {
   return numbers;
 };
 
-export function buildDmg({ app, out, volname, background, iconSize = 128, appPosition = [158, 231],
-  applicationsPosition = [492, 231], window = [660, 400], volumeIcon } = {},
+const definedOnly = (object) => Object.fromEntries(Object.entries(object).filter(([, value]) => value !== undefined));
+
+/** Layer explicit options over an appdmg-style spec file (`spec`); explicit values win. */
+export function resolveDmgOptions(input = {}) {
+  const { spec, ...explicit } = input;
+  return spec ? { ...readDmgSpec(spec, { app: explicit.app }), ...definedOnly(explicit) } : explicit;
+}
+
+export function buildDmg(input = {},
 { platform = process.platform, run = spawnSync, makeAlias = backgroundAlias,
   log = (event) => console.error(JSON.stringify(event)), sleep } = {}) {
   if (platform !== "darwin") throw fail("DMG_NATIVE_HOST_REQUIRED", "DMG creation requires macOS");
+  let { app, out, volname, background, iconSize = 128, appPosition = [158, 231],
+    applicationsPosition = [492, 231], window = [660, 400], windowPosition = [100, 100], volumeIcon } = resolveDmgOptions(input);
   if (!app || !out || !volname) throw fail("DMG_INVALID_OPTIONS", "--app, --out & --volname are required");
   app = path.resolve(app); out = path.resolve(out);
   if (!app.endsWith(".app") || !statSync(app).isDirectory() || !existsSync(path.join(app, "Contents", "Info.plist"))) {
@@ -30,7 +40,7 @@ export function buildDmg({ app, out, volname, background, iconSize = 128, appPos
   iconSize = Number(iconSize);
   if (!Number.isInteger(iconSize) || iconSize < 16 || iconSize > 512) throw fail("DMG_INVALID_OPTIONS", "--icon-size must be 16..512");
   appPosition = pair(appPosition, "--app-position"); applicationsPosition = pair(applicationsPosition, "--applications-position");
-  window = pair(window, "--window", true);
+  window = pair(window, "--window", true); windowPosition = pair(windowPosition, "--window-position");
   if (volumeIcon) {
     volumeIcon = path.resolve(volumeIcon);
     if (!existsSync(volumeIcon) || !statSync(volumeIcon).isFile() || !/\.icns$/i.test(volumeIcon)) throw fail("DMG_INVALID_OPTIONS", "--volume-icon must be an .icns file");
@@ -84,7 +94,7 @@ export function buildDmg({ app, out, volname, background, iconSize = 128, appPos
     }
     const alias = relative ? makeAlias({ mount, volname, relative }) : undefined;
     writeFileSync(path.join(mount, ".DS_Store"), dmgDSStore({ appName: path.basename(app), iconSize,
-      appPosition, applicationsPosition, window, alias }));
+      appPosition, applicationsPosition, window, windowPosition, alias }));
     detach(); attached = false;
     command("/usr/bin/hdiutil", ["convert", rw, "-format", "UDZO", "-imagekey", "zlib-level=9", "-o", compressed]);
     command("/usr/bin/hdiutil", ["verify", compressed]);
@@ -107,7 +117,7 @@ export function buildDmg({ app, out, volname, background, iconSize = 128, appPos
 export function parseDmgArguments(args) {
   if (args[0] !== "build") throw fail("DMG_INVALID_OPTIONS", "expected dmg build");
   const flags = new Map([["--app", "app"], ["--out", "out"], ["--volname", "volname"], ["--background", "background"],
-    ["--icon-size", "iconSize"], ["--app-position", "appPosition"], ["--applications-position", "applicationsPosition"], ["--window", "window"], ["--volume-icon", "volumeIcon"]]);
+    ["--icon-size", "iconSize"], ["--app-position", "appPosition"], ["--applications-position", "applicationsPosition"], ["--window", "window"], ["--window-position", "windowPosition"], ["--volume-icon", "volumeIcon"], ["--spec", "spec"]]);
   const options = {};
   for (let i = 1; i < args.length; i += 2) {
     const key = flags.get(args[i]);

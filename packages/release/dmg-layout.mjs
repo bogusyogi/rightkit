@@ -81,7 +81,7 @@ export function backgroundAlias({ mount, volname, relative, stat = statSync }) {
 
 /** One sorted B-tree leaf in a valid Bud1 allocator, sufficient for DMG layout. */
 export function dmgDSStore({ appName, iconSize = 128, appPosition = [158, 231],
-  applicationsPosition = [492, 231], window = [660, 400], alias } = {}) {
+  applicationsPosition = [492, 231], window = [660, 400], windowPosition = [100, 100], alias } = {}) {
   const entries = [];
   const add = (name, code, type, bytes) => entries.push({ name, code, bytes: Buffer.concat([
     u32(name.length), utf16(name), Buffer.from(code + type), ...(type === "blob" ? [u32(bytes.length)] : []), bytes,
@@ -90,7 +90,7 @@ export function dmgDSStore({ appName, iconSize = 128, appPosition = [158, 231],
   add(".", "icvl", "type", Buffer.from("icnv"));
   add(".", "bwsp", "blob", finderPlist({ ShowStatusBar: false, ShowToolbar: false, ShowTabView: false,
     ShowPathbar: false, ShowSidebar: false, ContainerShowSidebar: false, PreviewPaneVisibility: false,
-    SidebarWidth: 0, WindowBounds: `{{100, 100}, {${window[0]}, ${window[1]}}}` }));
+    SidebarWidth: 0, WindowBounds: `{{${windowPosition[0]}, ${windowPosition[1]}}, {${window[0]}, ${window[1]}}}` }));
   add(".", "icvp", "blob", finderPlist({ viewOptionsVersion: 1, backgroundType: alias ? 2 : 0,
     backgroundColorRed: 1, backgroundColorGreen: 1, backgroundColorBlue: 1,
     gridOffsetX: 0, gridOffsetY: 0, gridSpacing: 100, arrangeBy: "none", showIconPreview: true,

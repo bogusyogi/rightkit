@@ -4,6 +4,7 @@
 import path from "node:path";
 import { spawnSync } from "./background-process.mjs";
 import { buildDmg } from "./dmg-build.mjs";
+import { readDmgSpec } from "./dmg-spec.mjs";
 
 const fail = (code, message) => Object.assign(new Error(message), { code });
 const DMG_HOOK = /dmg|hdiutil/i;
@@ -30,7 +31,9 @@ export function swiftMacDmgPlan({ target, projectType, appName = "app", resolve 
   return {
     app: resolve(target.notarize.app),
     out: resolve(d.out ?? target.notarize.file),
-    options: { volname: d.volname ?? appName, background: d.background && resolve(d.background), iconSize: d.iconSize, appPosition: d.appPosition,
+    // `spec` is an appdmg-style JSON file (dmg-spec.mjs); explicit options here win over it, and its title is the volume name.
+    fallbackVolname: appName,
+    options: { volname: d.volname ?? (d.spec ? undefined : appName), spec: d.spec && resolve(d.spec), background: d.background && resolve(d.background), iconSize: d.iconSize, appPosition: d.appPosition,
       applicationsPosition: d.applicationsPosition, window: d.window, volumeIcon: d.volumeIcon && resolve(d.volumeIcon) },
   };
 }
@@ -46,7 +49,9 @@ export async function buildStapledSwiftMacDmg(plan, { run = spawnSync, build = b
   if (probe.error || probe.status !== 0) throw fail("SWIFT_DMG_APP_NOT_STAPLED", `refusing to build the DMG: ${plan.app} is not stapled (xcrun stapler validate failed). Notarize and staple the app before packaging.`);
   remove(plan.out);
   log(`right-release: building macOS DMG from stapled app ${plan.app}`);
-  const built = build({ app: plan.app, out: plan.out, ...definedOnly(plan.options) });
+  let options = definedOnly(plan.options);
+  if (options.spec && !options.volname) options = { ...options, volname: readDmgSpec(options.spec, { app: plan.app }).volname ?? plan.fallbackVolname };
+  const built = build({ app: plan.app, out: plan.out, ...options });
   if (signDmg) await signDmg(plan.out);
   return built;
 }

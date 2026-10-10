@@ -42,9 +42,9 @@ jobs:
           node-version: ${{ matrix.node }}
           package-manager-cache: false
 ${PACKAGE_MANAGER_SETUP}
-      - run: ${INSTALL_COMMAND}
+      - run: ${INSTALL_COMMAND}${PNPM_LOCK_PATCH_STEP}${SWIFT_PRIVATE_CONFIGURE_STEP}
       - run: ${PM_RUN} test
       - run: ${PM_RUN} test:random
       - run: ${PM_RUN} test:all
       - run: node scripts/ci/check-generated.mjs
-      - run: node scripts/ci/check-network-boundary.mjs${OWNERSHIP_STEP}
+      - run: node scripts/ci/check-network-boundary.mjs${OWNERSHIP_STEP}${SWIFT_PRIVATE_CLEANUP_STEP}

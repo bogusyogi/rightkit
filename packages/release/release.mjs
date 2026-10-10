@@ -30,7 +30,8 @@ import { signingReceiptPath } from "./signing-receipts.mjs";
 import { notarizeAppBundle, validateNotarizationReceipt } from "./macos-notarization.mjs";
 import { MACOS_PORTABLE_SIGNING_CONTRACT } from "./macos-signing-contract.mjs";
 import { fileEvidence } from "./macos-file-evidence.mjs";
-import { expandMacSigningEntries } from "./mac-bundle-signing.mjs";
+import { readDmgSpec } from "./dmg-spec.mjs";
+import { hasNonDefaultSettings, matrixReceiptProblems, planMacSigning, validateMacSigningConfig } from "./mac-signing-matrix.mjs";
 import { buildStapledSwiftMacDmg, swiftMacDmgConfigError, swiftMacDmgPlan } from "./swift-mac-dmg.mjs";
 import { runConfiguredChecks } from "./release-checks.mjs";
 import { resolveMacosDeveloperIdIdentity } from "./macos-signing-identity.mjs";
@@ -138,6 +139,7 @@ const legalContract = config.legal
 if (target.signed !== true) {
   fail(`${config.app ?? "app"} ${opts.platform} must declare signed: true; unsigned release targets are forbidden`);
 }
+let macSigning; // validated macOS sign.prePackageFiles / sign.nestedCode (mac only)
 if (opts.platform === "win") {
   const isNsis = target.signingContract === WINDOWS_NSIS_SIGNING_CONTRACT;
   const isPortable = target.signingContract === WINDOWS_PORTABLE_SIGNING_CONTRACT;
@@ -148,6 +150,7 @@ if (opts.platform === "win") {
   } else {
   if (!target.prePackage?.cmd) fail(`${config.app ?? "app"} win must declare prePackage for the raw EXE build`);
   if (!target.sign?.prePackageFiles?.length) fail(`${config.app ?? "app"} win must declare at least one sign.prePackageFiles raw EXE`);
+  if (target.sign.prePackageFiles.some((file) => typeof file !== "string") || target.sign.nestedCode !== undefined) fail(`${config.app ?? "app"} win sign.prePackageFiles entries must be path strings; object entries and sign.nestedCode are macOS-only`);
   if (isNsis && target.sign.prePackageFiles.length !== 1) fail(`${config.app ?? "app"} win NSIS must declare exactly one sign.prePackageFiles raw EXE`);
   if (isNsis && !target.sign?.files?.length) fail(`${config.app ?? "app"} win NSIS must declare sign.files for installer signing`);
   if (isNsis && target.sign.prePackageFiles.some((file) => target.sign.files.includes(file))) fail(`${config.app ?? "app"} win raw EXE and installer signing files must be distinct`);
@@ -158,6 +161,7 @@ if (opts.platform === "mac") {
   if (target.signingContract !== MACOS_PORTABLE_SIGNING_CONTRACT) fail(`${config.app ?? "app"} mac must declare signingContract: ${MACOS_PORTABLE_SIGNING_CONTRACT}`);
   if (!target.prePackage?.cmd) fail(`${config.app ?? "app"} mac must declare prePackage to materialize Developer ID signing files`);
   if (!target.sign?.prePackageFiles?.length) fail(`${config.app ?? "app"} mac must declare at least one sign.prePackageFiles`);
+  try { macSigning = validateMacSigningConfig(target.sign, { root }); } catch (error) { fail(`${config.app ?? "app"} mac ${error.message}`); }
   if (!target.notarize?.file) fail(`${config.app ?? "app"} mac must declare notarize.file`);
   if (target.notarize.appBeforePackage && !target.notarize.app) fail(`${config.app ?? "app"} mac notarize.appBeforePackage requires notarize.app`);
   if (target.notarize.staple === false && (target.notarize.app || /\.(dmg|pkg)$/i.test(target.notarize.file))) {
@@ -165,6 +169,13 @@ if (opts.platform === "mac") {
   }
   const swiftDmgError = swiftMacDmgConfigError({ target, projectType: resolveProjectType({ appRoot: root, config, target }), appName: config.app ?? "app" });
   if (swiftDmgError) fail(swiftDmgError);
+  if (target.dmg && typeof target.dmg === "object" && target.dmg.spec !== undefined) {
+    try {
+      if (typeof target.dmg.spec !== "string" || !target.dmg.spec) throw new Error("dmg.spec must be a path string");
+      const specOptions = readDmgSpec(path.resolve(root, target.dmg.spec), { app: target.notarize.app });
+      for (const asset of [specOptions.background, specOptions.volumeIcon]) if (asset && !existsSync(asset)) throw new Error(`referenced file not found: ${asset}`);
+    } catch (error) { fail(`${config.app ?? "app"} mac targets.mac.dmg.spec: ${error.message}`); }
+  }
 }
 if (opts.upload && target.publishBlocked) fail(`${config.app ?? "app"} ${opts.platform} publish blocked: ${target.publishBlocked}`);
 /**
@@ -317,10 +328,10 @@ if (opts.platform === "win" && target.signingContract === MSIX_SIGNING_CONTRACT)
 } else if (opts.platform === "mac") {
   if (runMacPhase("prepackage")) await runCommand(target.prePackage, root);
   // Resolve after prePackage: with storage governance the artifact may live only in RIGHT_RELEASE_ARTIFACT_DIR.
-  const signingFiles = target.sign.prePackageFiles.map((p) => resolveReleaseArtifactPath(root, p));
-  for (const file of signingFiles) await mustExist(file, `missing macOS Developer ID signing artifact: ${file}`);
+  const signingEntries = macSigning.entries.map((entry) => ({ ...entry, file: resolveReleaseArtifactPath(root, entry.file) }));
+  for (const { file } of signingEntries) await mustExist(file, `missing macOS Developer ID signing artifact: ${file}`);
   if (runMacPhase("sign")) {
-    await signMacos(signingFiles, root);
+    await signMacos(signingEntries, root, "signing", macSigning.nestedCode);
     // Opt-in (notarize.appBeforePackage): staple the .app itself before the package step copies it into the DMG.
     if (target.notarize.appBeforePackage) await notarizeAppBeforePackage(root);
   }
@@ -342,7 +353,7 @@ if (opts.platform === "mac" && runMacPhase("package")) {
   const swiftDmg = swiftMacDmgPlan({ target, projectType: resolveProjectType({ appRoot: root, config, target }), appName: config.app ?? path.basename(root), resolve: (p) => resolveReleaseArtifactPath(root, p) });
   if (swiftDmg) {
     if (opts.dryRun) console.log(`dry-run: build DMG ${swiftDmg.out} from stapled app ${swiftDmg.app}, then sign it`);
-    else await buildStapledSwiftMacDmg(swiftDmg, { remove: (file) => rmSync(file, { force: true }), signDmg: (dmg) => signMacos([dmg], root, "dmg-signing") });
+    else await buildStapledSwiftMacDmg(swiftDmg, { remove: (file) => rmSync(file, { force: true }), signDmg: (dmg) => signMacos([{ file: dmg, options: [] }], root, "dmg-signing") });
   }
 }
 if (command && (opts.platform !== "mac" || runMacPhase("package"))) await runCommand(command, root);
@@ -831,6 +842,33 @@ async function validateHostedWorkflows(root, appName, workflows, policy) {
     const protectedDevMacSigning = workflow === "ci.yml"
       && (manifest?.devArtifact?.mac === "sign" || manifest?.devArtifact?.mac === "notarize")
       && /dev-mac-sign:\n(?:    #[^\n]*\n)*    needs: \[ci\]\n    if: \$\{\{ github\.event_name == 'push' && github\.ref_name == github\.event\.repository\.default_branch \}\}\n    environment: /.test(devMacSource);
+    // @rightkit/git `swift.privatePackages` renders a configure step and a cleanup
+    // step into the ci job of ci.yml; both pass the declared secret through step
+    // `env` as `RIGHT_GIT_PRIVATE_TOKEN_<n>`. Exactly the secret names the manifest
+    // declares are allowed, only on those env lines (entry <n> names that secret),
+    // only inside those two named steps of the `ci` job, and never when ci.yml can
+    // be dispatched (a manual run of any ref would reach the secret).
+    const swiftPrivateEntries = manifest?.swift?.privatePackages;
+    const swiftPrivateStepNames = new Set(["Configure private Swift package access", "Remove private Swift package access"]);
+    const ciSpan = workflow === "ci.yml" ? jobSpan("ci") : null;
+    const protectedSwiftPrivate = workflow === "ci.yml"
+      && Array.isArray(swiftPrivateEntries)
+      && swiftPrivateEntries.length > 0
+      && swiftPrivateEntries.every((entry) => typeof entry?.secret === "string" && /^[A-Za-z_][A-Za-z0-9_]{0,99}$/.test(entry.secret) && !/^github_/i.test(entry.secret))
+      && lanes.includes("ci")
+      && manifest?.devArtifact?.dispatch !== true
+      && !/workflow_dispatch/.test(source);
+    const swiftPrivateSecretAllowed = (name, index) => {
+      if (!protectedSwiftPrivate || !inside(index, ciSpan)) return false;
+      const lineStart = source.lastIndexOf("\n", index) + 1;
+      const lineEnd = source.indexOf("\n", index);
+      const line = source.slice(lineStart, lineEnd < 0 ? source.length : lineEnd);
+      const envLine = /^ {10}RIGHT_GIT_PRIVATE_TOKEN_(\d+): \$\{\{ secrets\.([A-Za-z0-9_]+) \}\}$/.exec(line);
+      if (!envLine || envLine[2] !== name || swiftPrivateEntries[Number(envLine[1])]?.secret !== name) return false;
+      // The owning step is the nearest preceding step line (`      - ...`).
+      const owner = [...source.slice(0, lineStart).matchAll(/^ {6}- [^\n]*$/gm)].at(-1)?.[0];
+      return swiftPrivateStepNames.has(/^ {6}- name: (.+)$/.exec(owner ?? "")?.[1]);
+    };
     const releaseChain = workflow === "release-candidate.yml" ? manifest?.candidate?.releaseChain : undefined;
     const allowedReleaseSecrets = new Set(releaseChain?.publishSecrets ?? []);
     const writePermissions = [...source.matchAll(/^\s*(actions|attestations|checks|contents|deployments|discussions|id-token|issues|models|packages|pages|pull-requests|security-events|statuses):\s*write\s*$/gmi)].map((match) => ({ name: match[1].toLowerCase(), index: match.index }));
@@ -858,7 +896,8 @@ async function validateHostedWorkflows(root, appName, workflows, policy) {
       || /\bsecrets\s*\[/i.test(source)
       || requestedSecrets.some(({ name, index }) => !(protectedMacosSigning && inside(index, macosSpan) && allowedMacosSecrets.has(name))
         && !(protectedDevMacSigning && inside(index, devMacSpan) && allowedDevMacSecrets.has(name))
-        && !(protectedReleasePublish && inside(index, publishSpan) && allowedReleaseSecrets.has(name)))) {
+        && !(protectedReleasePublish && inside(index, publishSpan) && allowedReleaseSecrets.has(name))
+        && !swiftPrivateSecretAllowed(name, index))) {
       fail(`${appName} right-git managed ${workflow} requests release-capable permissions or secrets`);
     }
   }
@@ -908,24 +947,37 @@ function windowsReceiptPath(root, phase) {
   return signingReceiptPath({ appRoot: root, target, platform: "win", phase, stateRoot: process.env.RIGHT_RELEASE_STATE_ROOT });
 }
 
-async function signMacos(files, root, phase = "signing") {
+// A signing step with per-file settings (entitlements, codesign options) goes to sign-macos.mjs as a manifest;
+// a step with only defaults keeps the historical positional invocation.
+function macSignInvocation(items, receiptPath, extra = []) {
+  if (opts.dryRun || !items.some(hasNonDefaultSettings)) return [SIGN_MACOS, ...extra, "--receipt", receiptPath, ...items.map((item) => item.file)];
+  const manifest = path.resolve(path.dirname(receiptPath), `${path.basename(receiptPath, ".json")}.manifest.json`);
+  mkdirSync(path.dirname(manifest), { recursive: true });
+  writeFileSync(manifest, `${JSON.stringify({ schema: 1, entries: items.map((item) => ({ file: item.file, ...(item.entitlements ? { entitlements: item.entitlements } : {}), options: item.options ?? [] })) }, null, 2)}\n`);
+  return [SIGN_MACOS, ...extra, "--receipt", receiptPath, "--manifest", manifest];
+}
+
+async function signMacos(entries, root, phase = "signing", nestedCode = []) {
+  const files = entries.map((entry) => entry.file);
   const receipt = phase === "signing" ? macosReceiptPath(root, "signing") : path.resolve(process.env.RIGHT_RELEASE_STATE_ROOT ?? path.join(root, ".right-release", "receipts"), `macos-${phase}.json`);
-  // Directory entries (.app bundles): nested code first, no entitlements, then the bundle itself.
+  // Directory entries (.app bundles): nested code first (default settings unless sign.nestedCode names it), then the bundle itself.
   let nested = [];
-  try { ({ nested } = opts.dryRun ? { nested: [] } : expandMacSigningEntries(files)); } catch (error) { fail(error.message); }
+  try { ({ nested } = opts.dryRun ? { nested: [] } : planMacSigning({ entries, nestedCode })); } catch (error) { fail(error.message); }
+  if (opts.dryRun && (nestedCode.length || entries.some(hasNonDefaultSettings))) {
+    console.log(`right-release: dry-run: per-file signing matrix (${nestedCode.length} nestedCode rule(s), ${entries.filter(hasNonDefaultSettings).length} entry setting(s)); nested code is resolved against the built bundle at sign time`);
+  }
   if (nested.length) {
     const nestedReceipt = path.resolve(path.dirname(receipt), `macos-${phase}-nested.json`);
     if (existsSync(nestedReceipt)) unlinkSync(nestedReceipt);
     console.log(`right-release: signing ${nested.length} nested code item(s) inside-out`);
-    await run("node", [SIGN_MACOS, "--receipt", nestedReceipt, ...nested], root);
+    await run("node", macSignInvocation(nested, nestedReceipt), root);
+    verifyMacosSigningSettings(nestedReceipt, nested);
   }
-  const args = [SIGN_MACOS];
-  if (opts.dryRun) args.push("--dry-run");
-  args.push("--receipt", receipt, ...files);
+  const args = macSignInvocation(entries, receipt, opts.dryRun ? ["--dry-run"] : []);
   if (!opts.dryRun && existsSync(receipt)) unlinkSync(receipt);
   console.log("right-release: signing macOS Developer ID files");
   await run("node", args, root);
-  if (!opts.dryRun) verifyMacosSigningReceipt(receipt, files);
+  if (!opts.dryRun) { verifyMacosSigningReceipt(receipt, files); verifyMacosSigningSettings(receipt, entries); }
 }
 
 async function notarizeMacos(archive, root) {
@@ -975,6 +1027,15 @@ function verifyMacosSigningReceipt(receipt, files) {
   if (evidence.schema !== 1 || evidence.signingContract !== MACOS_PORTABLE_SIGNING_CONTRACT || !expectedIdentity || evidence.identity !== expectedIdentity
     || JSON.stringify(expected) !== JSON.stringify(actual)
     || evidence.files.some((item) => item.codesign !== "strict-valid" || item.identity !== expectedIdentity || item.timestampPresent !== true || item.after?.sha256 !== hashes.get(path.resolve(item.file)))) fail(`invalid macOS Developer ID signing receipt evidence: ${receipt}`);
+}
+
+// The receipt must record the entitlements digest and codesign options the plan asked for.
+function verifyMacosSigningSettings(receipt, items) {
+  if (!items.some(hasNonDefaultSettings)) return;
+  let evidence;
+  try { evidence = JSON.parse(readFileSync(receipt, "utf8")); } catch { fail(`invalid macOS Developer ID signing receipt: ${receipt}`); }
+  const problems = matrixReceiptProblems(evidence.files, items, (file) => fileEvidence(file).sha256);
+  if (problems.length) fail(`macOS signing receipt does not match the signing matrix (${receipt}):\n${problems.map((line) => `- ${line}`).join("\n")}`);
 }
 
 function verifyMacosNotarizationReceipt(receipt, archive) {

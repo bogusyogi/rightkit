@@ -191,3 +191,42 @@ test("DMG detach exhausts 5 tries then uses -force as last resort", (t) => {
   assert.deepEqual(sleeps, [500, 1000, 2000, 4000]);
   assert.ok(events.some((e) => e.event === "hdiutil-detach-force"));
 });
+
+test("DS_Store records the window position when one is given (default stays 100,100)", (t) => {
+  const f = fixture(t); void f;
+  const bounds = (options) => readPlist(readStore(dmgDSStore({ appName: "A.app", ...options }))["./bwsp"]).WindowBounds;
+  assert.equal(bounds({ window: [640, 420] }), "{{100, 100}, {640, 420}}");
+  assert.equal(bounds({ window: [640, 420], windowPosition: [50, 60] }), "{{50, 60}, {640, 420}}");
+});
+
+test("an appdmg-style spec drives the layout; explicit options win over it", (t) => {
+  const f = fixture(t), specFile = path.join(f.root, "appdmg.json");
+  writeFileSync(specFile, JSON.stringify({ title: "From Spec", "icon-size": 96, window: { position: { x: 70, y: 80 }, size: { width: 640, height: 420 } },
+    contents: [{ x: 180, y: 210, type: "file", path: path.basename(f.app) }, { x: 460, y: 210, type: "link", path: "/Applications" }] }));
+  const layouts = [], calls = [];
+  const run = mockCommands(f, calls);
+  const spy = (tool, args, options) => {
+    if (args[0] === "detach" && args[1] !== "-force") layouts.push(readStore(readFileSync(path.join(args[1], ".DS_Store"))));
+    return run(tool, args, options);
+  };
+  buildDmg({ app: f.app, out: f.out, spec: specFile }, { platform: "darwin", run: spy, log() {} });
+  const create = calls.find((call) => call[1] === "create");
+  assert.equal(create[create.indexOf("-volname") + 1], "From Spec");
+  const [layout] = layouts, name = path.basename(f.app);
+  assert.equal(readPlist(layout["./bwsp"]).WindowBounds, "{{70, 80}, {640, 420}}");
+  assert.equal(readPlist(layout["./icvp"]).iconSize, 96);
+  assert.equal(layout[`${name}/Iloc`].readUInt32BE(0), 180); assert.equal(layout[`${name}/Iloc`].readUInt32BE(4), 210);
+  assert.equal(layout["Applications/Iloc"].readUInt32BE(0), 460);
+  // Explicit --volname / --icon-size beat the spec.
+  calls.length = 0; layouts.length = 0;
+  buildDmg({ app: f.app, out: f.out, spec: specFile, volname: "Explicit", iconSize: 64 }, { platform: "darwin", run: spy, log() {} });
+  const again = calls.find((call) => call[1] === "create");
+  assert.equal(again[again.indexOf("-volname") + 1], "Explicit"); assert.equal(readPlist(layouts[0]["./icvp"]).iconSize, 64);
+});
+
+test("a spec with unsupported fields stops the build before any hdiutil call", (t) => {
+  const f = fixture(t), specFile = path.join(f.root, "bad.json");
+  writeFileSync(specFile, JSON.stringify({ title: "X", "code-sign": {} }));
+  assert.throws(() => buildDmg({ app: f.app, out: f.out, spec: specFile }, { platform: "darwin", run: () => assert.fail("hdiutil must not run"), log() {} }), { code: "DMG_SPEC_UNSUPPORTED" });
+  assert.deepEqual(parseDmgArguments(["build", "--app", f.app, "--out", f.out, "--spec", specFile, "--window-position", "1,2"]), { app: f.app, out: f.out, spec: specFile, windowPosition: "1,2" });
+});

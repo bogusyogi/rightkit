@@ -143,3 +143,12 @@ test("production clean-check rejects a dirty checkout before protected evidence"
     return true;
   });
 });
+
+test("the clean-check refusal carries its check name and every offending path, rename sources excluded", () => {
+  const runner = (status) => () => ({ status: 0, stdout: Buffer.from(status), stderr: Buffer.alloc(0) });
+  assert.throws(() => assertCommittedCheckoutClean("/repo", { runner: runner("?? .right-release/locks/mac.lock.json\0R  new.rs\0old.rs\0?? stray.txt\0") }), (error) => {
+    assert.match(error.message, /checkout has tracked or untracked changes/);
+    assert.deepEqual(error.blocked, { check: "clean-checkout", paths: ["new.rs", "stray.txt"] });
+    return true;
+  });
+});

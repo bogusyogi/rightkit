@@ -6,6 +6,7 @@ import { spawnSync } from "./background-process.mjs";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 import { main } from "./ownership-command.mjs";
+import { assertCommittedCheckoutClean } from "./committed-source.mjs";
 
 const releaseRoot = path.dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = path.resolve(releaseRoot, "..", "..", "..");
@@ -180,4 +181,85 @@ test("trust-compare prints this host's trust digest, ignoring the per-host check
   const json = JSON.parse((await run({ trust }, ["trust-compare", "--json"])).out[0]);
   assert.equal(json.digest, mac.out[0].split(": ")[1]);
   assert.equal((await run({ trust: null })).status, 1);
+});
+
+const commandOptions = (overrides) => ({
+  gitRunner: () => ({ status: 0, stdout: `${repositoryRoot}\n` }),
+  print: () => {},
+  stderr: () => {},
+  ...overrides,
+});
+const scanResult = (violations, coverage = []) => ({ rows: [], covered: [], problems: [], coverage, metadata: {}, violations });
+const advisory = (file, name) => ({ fingerprint: "log.println", capability: "logging", package: "rightkit-log", tier: "advise", file, line: 2, text: name });
+
+test("a dirty protected checkout refuses by naming clean-checkout and its first ten paths, on stderr and in JSON", async () => {
+  const temp = mkdtempSync(path.join(os.tmpdir(), "right-release-dirty-"));
+  try {
+    const init = spawnSync("git", ["-C", temp, "init", "-q"], { encoding: "utf8", windowsHide: true });
+    assert.equal(init.status, 0, init.stderr);
+    for (let index = 1; index <= 12; index += 1) writeFileSync(path.join(temp, `stray-${String(index).padStart(2, "0")}.txt`), "x\n");
+    const printed = [];
+    const errors = [];
+    const status = await main(["--app", temp, "--json"], commandOptions({
+      gitRunner: () => ({ status: 0, stdout: `${temp}\n` }),
+      evidenceFactory: (root) => { assertCommittedCheckoutClean(root); return null; },
+      print: (line) => printed.push(line),
+      stderr: (line) => errors.push(line),
+    }));
+    assert.equal(status, 1);
+    const output = JSON.parse(printed[0]);
+    assert.equal(output.ok, false);
+    assert.equal(output.error.type, "protected-evidence");
+    assert.equal(output.blocked.length, 1);
+    assert.equal(output.blocked[0].check, "clean-checkout");
+    assert.equal(output.blocked[0].count, 12);
+    assert.deepEqual(output.blocked[0].paths, Array.from({ length: 10 }, (_, index) => `stray-${String(index + 1).padStart(2, "0")}.txt`));
+    assert.match(errors[0], /^\[right-release\] refused by check clean-checkout: committed ownership: protected release checkout/);
+    assert.equal(errors.filter((line) => line.startsWith("  - ")).length, 10);
+    assert.equal(errors.at(-1), "  ... and 2 more");
+  } finally {
+    rmSync(temp, { recursive: true, force: true });
+  }
+});
+
+test("a scan refused only for coverage gaps names them instead of asking to move findings", async () => {
+  const printed = [];
+  const errors = [];
+  const status = await main(["--app", repositoryRoot], commandOptions({
+    evidenceFactory: () => ({ ok: false, floor: { ok: true, problems: [] }, result: scanResult([advisory("src/main.rs", "println!")], [{ path: "node_modules/pkg", status: "unscanned", reason: "installed-or-build-cache" }]) }),
+    print: (line) => printed.push(line),
+    stderr: (line) => errors.push(line),
+  }));
+  assert.equal(status, 1);
+  assert.equal(printed.at(-1), "[right-release] ownership FAILED: ownership-coverage: 1 coverage gap(s): installed-or-build-cache");
+  assert.doesNotMatch(printed.join("\n"), /move these/);
+  assert.ok(errors.includes("  - node_modules/pkg"));
+});
+
+test("advise-only findings pass with per-tier counts, exit 0, and no move-these hint", async () => {
+  const violations = [advisory("src/main.rs", "println!"), { ...advisory("package.json", "zip-lib"), fingerprint: "zip.dep", capability: "archive", package: "rightkit-zip", ecosystem: "npm", name: "zip-lib" }];
+  const printed = [];
+  const errors = [];
+  const options = commandOptions({ evidenceFactory: () => ({ ok: true, floor: { ok: true, problems: [] }, result: scanResult(violations) }), print: (line) => printed.push(line), stderr: (line) => errors.push(line) });
+  assert.equal(await main(["--app", repositoryRoot], options), 0);
+  assert.equal(printed.at(-1), "[right-release] ownership ADVISE: block 0, advise 2 (reported, not refused)");
+  assert.doesNotMatch(printed.join("\n"), /FAILED|move these/);
+  assert.deepEqual(errors, []);
+  const json = [];
+  assert.equal(await main(["--app", repositoryRoot, "--json"], { ...options, print: (line) => json.push(line) }), 0);
+  assert.equal(JSON.parse(json[0]).blocked, undefined);
+});
+
+test("block-tier findings still refuse, name the ownership-violation check, and keep the move-these hint", async () => {
+  const printed = [];
+  const errors = [];
+  const block = { fingerprint: "rk.source.hash", capability: "hashing", package: "rightkit-hash", tier: "block", file: "src/lib.rs", line: 12, text: "fn sha() {}" };
+  const status = await main(["--app", repositoryRoot], commandOptions({
+    evidenceFactory: () => ({ ok: false, floor: { ok: true, problems: [] }, result: scanResult([block]) }),
+    print: (line) => printed.push(line),
+    stderr: (line) => errors.push(line),
+  }));
+  assert.equal(status, 1);
+  assert.equal(printed.at(-1), "[right-release] ownership FAILED: ownership-violation: 1 block-tier finding(s) duplicate RightKit owners; move these to RightKit or add a reviewed, dated exception");
+  assert.deepEqual(errors, ["[right-release] refused by check ownership-violation: 1 block-tier finding(s) duplicate RightKit owners", "  - src/lib.rs"]);
 });
