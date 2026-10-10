@@ -33,7 +33,7 @@
     "@rightkit/settings-ui": "0.3.2",
     "@rightkit/shell": "0.1.0",
     "@rightkit/tauri": "0.2.0",
-    "@rightkit/theme": "0.2.2",
+    "@rightkit/theme": "0.2.3",
     "@rightkit/updates": "0.2.5"
   },
   "legacyNpm": {
@@ -225,7 +225,8 @@
     "@rightkit/theme": [
       "0.1.0",
       "0.2.0",
-      "0.2.1"
+      "0.2.1",
+      "0.2.2"
     ],
     "@rightkit/settings-ui": [
       "0.1.0",
@@ -425,7 +426,7 @@
       "@rightkit/settings-ui": "0.3.2",
       "@rightkit/shell": "0.1.0",
       "@rightkit/tauri": "0.2.0",
-      "@rightkit/theme": "0.2.2",
+      "@rightkit/theme": "0.2.3",
       "@rightkit/updates": "0.2.5"
     }
   },
