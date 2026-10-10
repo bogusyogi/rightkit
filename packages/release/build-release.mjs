@@ -31,7 +31,7 @@ import { createTargetBridge } from "./target-bridge.mjs";
 import { signingReceiptPath } from "./signing-receipts.mjs";
 import { validateNotarizationReceipt } from "./macos-notarization.mjs";
 import { brokerManagedHost } from "./cargo-contract.mjs";
-import { resolveReleaseCacheMode } from "./release-cache-mode.mjs";
+import { ensureLegacyTargetLink, resolveReleaseCacheMode } from "./release-cache-mode.mjs";
 import { resolveTargetRoot } from "./cargo-target.mjs";
 import { assertNsisInPlaceUpgradeContract } from "./nsis-upgrade-contract.mjs";
 import { collectSwiftToolVersions, planSwiftBuild } from "./swift-build-context.mjs";
@@ -363,9 +363,10 @@ try {
         // flag already knows to leave a real directory untouched instead.
         if (swiftPlan) { /* SwiftPM: no Rust target link */ }
         else if (cacheMode === "shared" || managedCargoTarget) targetBridge.ensure();
-        else if (!existsSync(targetLink)) symlinkSync(cacheTarget, targetLink, process.platform === "win32" ? "junction" : "dir");
-        else if (realpathSync(targetLink) !== realpathSync(cacheTarget)) {
-          fail(`primary checkout target exists and is not the release cache link: ${targetLink}`);
+        else {
+          const linked = ensureLegacyTargetLink({ targetLink, cacheTarget, fs: { existsSync, realpathSync, renameSync, symlinkSync } });
+          if (linked.action === "refused") fail(linked.reason);
+          if (linked.action === "moved-aside") console.error(`[right-release] hosted CI: moved existing ${targetLink} aside to ${linked.aside}`);
         }
         if (resolveProjectType({ appRoot, config, target }) !== "swiftpm" || config.packageManager) await runProgress(config.packageManager ?? "pnpm", ["install", "--frozen-lockfile"], appRoot, env, cacheTarget, path.join(stateRoot, "stall-install.log"));
       },
