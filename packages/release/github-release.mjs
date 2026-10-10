@@ -7,7 +7,7 @@ import { readVerifiedArtifact, assertArtifactUnchanged, digestBytes, verifyArtif
 import { spawnSync } from "./background-process.mjs";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { verifySealedRelease } from "./release-state.mjs";
-import { assertInstalledQaAdmission } from "./release-qa-receipt.mjs";
+import { admitInstalledQa } from "./release-qa-audit.mjs";
 import { addonManifestSha256, validateAddonConfig, validateAddonManifest } from "./addon-contract.mjs";
 import { RIGHTRELEASE_MANIFEST_SIGNER, verifyManifestCatalogSignature } from "./sign-release-manifest.mjs";
 
@@ -395,13 +395,11 @@ if (process.argv[1] && realOrSelf(process.argv[1]) === realOrSelf(fileURLToPath(
     plan = prepareGitHubAddonRelease({ repoRoot, config, configRoot: path.dirname(configPath), ...options });
   } else {
     options.repo ||= repositoryFromRemote(repoRoot);
-    // Hardening step 4: the direct GitHub lane is a publication path too; it needs installed QA like `upload` does.
+    // Hardening step 4: the direct GitHub lane is a publication path too; installed QA is recorded like `upload` does, never enforced.
     if (!options.dryRun) {
       const sealed = verifySealedRelease(path.join(repoRoot, ".right-release", "sealed", options.releaseId, options.platform === "win" ? "windows" : "mac"));
       const configPath = path.resolve("right-release.config.mjs");
-      try {
-        assertInstalledQaAdmission({ repoRoot, manifest: sealed.manifest, platform: options.platform, configName: "right-release.config.mjs", releaseConfigSha256: existsSync(configPath) ? createHash("sha256").update(readFileSync(configPath)).digest("hex") : undefined });
-      } catch (error) { if (error?.code !== "QA_ADMISSION_REFUSED") throw error; console.error(`right-release github: ${error.message}`); process.exit(1); }
+      admitInstalledQa({ repoRoot, manifest: sealed.manifest, platform: options.platform, configName: "right-release.config.mjs", releaseConfigSha256: existsSync(configPath) ? createHash("sha256").update(readFileSync(configPath)).digest("hex") : undefined }, { provider: "github-releases" });
     }
     plan = prepareGitHubRelease({ repoRoot, ...options });
   }

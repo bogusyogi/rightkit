@@ -3,6 +3,7 @@
 //
 //   right-release qa --stage source    --platform mac|win [--config right-release.config.mjs]
 //   right-release qa --stage installed --platform mac|win --release <sealed-id> [--config right-release.config.mjs]
+//   right-release qa audit [--app <dir>] [--json] [--since <YYYY-MM-DD>]   (release-qa-audit.mjs; exit 1 when an uploaded build lacks passing QA)
 //
 // The release config declares the app's QA plan:
 //   qa: { version: "1", config: "rightkit-qa.toml", runner?: "<path to rightkit-qa>",
@@ -18,6 +19,7 @@ import { spawnSync } from "./background-process.mjs";
 import { assertPrimaryReleaseCheckout } from "./release-invocation.mjs";
 import { assertCleanSource } from "./source-gate.mjs";
 import { verifySealedRelease } from "./release-state.mjs";
+import { auditMain } from "./release-qa-audit.mjs";
 import { darwinKeyFile, PROTECTED_SECRETS } from "./protected-credentials.mjs";
 import {
   buildQaReceipt, currentPolicyBundleDigest, dependencyClosure, ensureQaReceiptKey, evaluateRequiredChecks, loadQaFloor,
@@ -114,11 +116,12 @@ export async function runQa({ stage, platform, releaseIdArg, configPath, deps = 
 }
 
 function usage(code) {
-  console.log("usage: right-release qa --stage source|installed --platform mac|win [--release <sealed-id>] [--config right-release.config.mjs]");
+  console.log("usage: right-release qa --stage source|installed --platform mac|win [--release <sealed-id>] [--config right-release.config.mjs]\n       right-release qa audit [--app <dir>] [--json] [--since <YYYY-MM-DD>]");
   process.exit(code);
 }
 
 export async function main(args) {
+  if (args[0] === "audit") process.exit(auditMain(args.slice(1)));
   let stage = "", platform = process.platform === "win32" ? "win" : "mac", releaseId = "", configName = "right-release.config.mjs";
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];

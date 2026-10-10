@@ -235,12 +235,17 @@ test("receipt key comes from the protected store; the CI env fallback is limited
 test("dev lanes never reach the upload gate (install-app --dev, development lane); no manifest flag skips it", () => {
   for (const file of ["install-app.mjs", "development.mjs", "portable-development.mjs", "development-signing.mjs"]) {
     const source = readFileSync(path.join(here, file), "utf8");
-    assert.doesNotMatch(source, /assertInstalledQaAdmission|assertSourceQaAdmission|upload-release|publish-update/, `${file} must stay outside the release QA gate`);
+    assert.doesNotMatch(source, /assertInstalledQaAdmission|assertSourceQaAdmission|admitInstalledQa|admitSourceQa|upload-release|publish-update/, `${file} must stay outside the release QA gate`);
   }
   const gateSource = readFileSync(path.join(here, "release-qa-receipt.mjs"), "utf8");
   assert.doesNotMatch(gateSource, /manifest\.kind|manifest\.dev|process\.env\.RIGHT_RELEASE_(?:SKIP|DEV)/);
+  // Releases are never blocked: callers go through the warn-and-record wrappers, not the throwing gates directly.
   for (const file of ["upload-release.mjs", "publish-update.mjs", "github-release.mjs"]) {
-    assert.match(readFileSync(path.join(here, file), "utf8"), /assertInstalledQaAdmission/, `${file} must call the installed-QA gate`);
+    const source = readFileSync(path.join(here, file), "utf8");
+    assert.match(source, /admitInstalledQa/, `${file} must record installed QA`);
+    assert.doesNotMatch(source, /assertInstalledQaAdmission|QA_ADMISSION_REFUSED/, `${file} must not block on QA`);
   }
-  assert.match(readFileSync(path.join(here, "build-release.mjs"), "utf8"), /assertSourceQaAdmission/);
+  const build = readFileSync(path.join(here, "build-release.mjs"), "utf8");
+  assert.match(build, /admitSourceQa/);
+  assert.doesNotMatch(build, /assertSourceQaAdmission|QA_ADMISSION_REFUSED/);
 });

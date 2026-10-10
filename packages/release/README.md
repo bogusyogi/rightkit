@@ -25,6 +25,15 @@ Signing and publication rules are in the workspace file `docs/rules/release-sign
 | Checks | `deps`, `hardening`, `harden`, `hardeningscan`, `cargo-target` |
 | Ownership | `ownership`, `ownership-approval`, `ownership-report` |
 
+## QA receipts (warn-and-record)
+
+`right-release qa --stage source|installed --platform mac|win` still runs `rightkit-qa` and writes a signed receipt, and receipt verification is unchanged. A missing or invalid receipt no longer blocks a release. `build`, `upload`, `publish-update` and `github` print `[right-release] QA warning: ...` to stderr, continue, and record the outcome:
+
+- Source stage: sealed into the manifest as `qa: { status: "passed", sourceReceiptDigest, floorDigest }` or `qa: { status: "missing" | "rejected", reason }`.
+- Installed stage: written to `.right-release/state/<releaseId>/<platformDir>/qa-installed.json` as `{ status, reason?, receiptDigest?, checkedAt, provider }`. It is written when publication starts, so a later upload failure still leaves a record.
+
+Audit ad hoc or on a weekly schedule with `right-release qa audit [--app <dir>] [--json] [--since <YYYY-MM-DD>]`. It reads the app repo's sealed manifests and state and lists source and installed QA status per release and platform (passed, missing, rejected, not-uploaded). It exits 0 when every uploaded build has passing QA and 1 when any uploaded build lacks it. An installed receipt can only chain to a build sealed with a passing source receipt, so a build sealed with `qa.status: "missing"` needs source QA and a rebuild before installed QA can pass.
+
 ## Local app install (macOS)
 
 Agents must not run `osascript`, `open`, `screencapture`, or `notifyutil -p` directly. Install a signed build through:

@@ -184,7 +184,8 @@ Commands:
                                                       Stage SwiftPM app; build+sign MSIX (Windows) or assemble+sign+notarize .app (macOS); never uploads
   upload --release <id> --platform mac|win --tier patch|update
                                                       Upload one sealed release; never builds
-  qa --stage source|installed --platform mac|win [--release <id>]   Run rightkit-qa and write the sealed QA receipt (required to build/upload)
+  qa --stage source|installed --platform mac|win [--release <id>]   Run rightkit-qa and write the sealed QA receipt (a missing receipt warns and is recorded; it never blocks)
+  qa audit [--app <dir>] [--json] [--since <YYYY-MM-DD>]            List source/installed QA status per release; exit 1 if an uploaded build lacks passing QA
   publish-update --release <id> --platform mac|win --tier patch|update
                                                       Upload sealed bytes to R2 & register RightApps
   release                                             Compatibility alias for build

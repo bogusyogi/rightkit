@@ -24,7 +24,7 @@ import { spawn, spawnSync } from "./background-process.mjs";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { assertPrimaryReleaseCheckout, dirtyBuildInputs, resolveReleaseBuildInputs } from "./release-invocation.mjs";
 import { resolveNativeCargoLayout } from "./native-cargo-layout.mjs";
-import { assertSourceQaAdmission } from "./release-qa-receipt.mjs";
+import { admitSourceQa } from "./release-qa-audit.mjs";
 import { commandOutputPortable, releaseEnvironment, resolveReleaseLayout, runBuildStateMachine, verifySealedRelease, watchProgress } from "./release-state.mjs";
 import { acquireCacheLease, acquireSuiteBuildSlot, applyCachePrune, assertWriteVolumeFloors, inspectCache, inspectWriteVolumes, markCacheEntrySuccessful, planCachePrune, readCachePolicy, resolveCacheLayout, resolveSharedCacheIdentity, resolveSharedCacheRoot } from "./cache-policy.mjs";
 import { createTargetBridge } from "./target-bridge.mjs";
@@ -254,15 +254,9 @@ try {
   for (const check of preflight) {
     if (check.status !== "ok") console.error(`[right-release] preflight ${check.name}: ${check.detail}`);
   }
-  // Hardening step 4: source QA admits the candidate build/sign. The receipt digest is sealed into the manifest so
-  // upload/publication can require installed QA chained to it. Dev lanes (install-app --dev) never reach this file.
-  let qaAdmission;
-  try {
-    qaAdmission = assertSourceQaAdmission({ repoRoot: layout.repoRoot, releaseId, platform, configName: path.relative(process.cwd(), configPath) || path.basename(configPath), releaseConfigSha256: hashFile(configPath) });
-  } catch (error) {
-    if (error?.code !== "QA_ADMISSION_REFUSED") throw error;
-    fail(error.message);
-  }
+  // Hardening step 4: source QA is recorded, not enforced. A missing or rejected receipt warns loudly and the outcome
+  // is sealed into the manifest (`qa.status`) for `right-release qa audit`. Dev lanes (install-app --dev) never reach this file.
+  const qaAdmission = admitSourceQa({ repoRoot: layout.repoRoot, releaseId, platform, configName: path.relative(process.cwd(), configPath) || path.basename(configPath), releaseConfigSha256: hashFile(configPath) });
 
   // A tool being INSTALLED is not the same as it being the one PATH picks. The
   // vendored-OpenSSL build shells out to `perl`, and under Git Bash/MSYS that
@@ -517,7 +511,7 @@ function sealRelease({ configRoot, managedCargoTarget, nativeLayout, sealedDir, 
     version: config.version,
     commit,
     ownershipEvidence,
-    qa: { sourceReceiptDigest: qaAdmission.digest, floorDigest: qaAdmission.floorDigest },
+    qa: qaAdmission,
     platform,
     cacheKey,
     // Portable contracts sign only raw executables — installer/embedding
