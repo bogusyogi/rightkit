@@ -3,17 +3,21 @@
 
 import fs from "node:fs";
 import path from "node:path";
-import { POLICIES, PLATFORMS, SCHEMA_VERSION, type Policy, type Source, type UpdateManifest } from "./types.js";
+import { LAND_MODES, POLICIES, PLATFORMS, SCHEMA_VERSION, type Policy, type Source, type UpdateManifest } from "./types.js";
 
 export const MANIFEST_RELATIVE_PATH = ".rightkit/update.json";
 export const RIGHTKIT_VERSIONS_DEFAULT = "packages/release/rightkit-versions.json";
 
 const SOURCE_KINDS = ["cargo", "pnpm", "swiftpm", "rightkit", "tool"] as const;
 const UPSTREAM_TYPES = ["github-release", "url"] as const;
-const TOP_LEVEL_KEYS = new Set(["schemaVersion", "sources", "policy"]);
-const POLICY_KEYS = new Set(["default", "held", "tier"]);
+const TOP_LEVEL_KEYS = new Set(["schemaVersion", "sources", "policy", "gates"]);
+const POLICY_KEYS = new Set(["default", "held", "tier", "land"]);
+const GATE_KEYS = new Set(["name", "command", "cwd", "timeoutSec"]);
 const TOOL_KEYS = new Set(["kind", "name", "pin", "assets", "upstream", "journey", "policy"]);
-const TOOL_ASSET_KEYS = new Set(["asset", "checksum", "extract"]);
+const TOOL_ASSET_KEYS = new Set(["asset", "checksum", "extract", "maxBytes"]);
+const MAX_TIMEOUT_SEC = 86_400;
+const MODEL_RE = /^[A-Za-z0-9][A-Za-z0-9._:/@+-]{0,127}$/;
+const GATE_NAME_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
 
 const TOOL_NAME_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
 const TOOL_PIN_RE = /^[A-Za-z0-9][A-Za-z0-9._+-]{0,63}$/;
@@ -53,6 +57,54 @@ function safeRelativePath(value: unknown): boolean {
   return !value.split(/[\\/]/).includes("..");
 }
 
+/**
+ * A manifest glob: a safe relative path where `*` may appear inside a segment
+ * (never `**`, `?`, `[`, `{`), and the last segment is exactly the manifest file name.
+ */
+export function safeManifestGlob(value: unknown, fileName: string): boolean {
+  if (!safeRelativePath(value)) return false;
+  const segments = (value as string).split(/[\\/]/);
+  if (segments[segments.length - 1] !== fileName) return false;
+  return segments.every((seg) => seg.length > 0 && !seg.includes("**") && !/[?[\]{}]/.test(seg));
+}
+
+function validateTimeout(value: unknown, where: string, errors: string[]): void {
+  if (value === undefined) return;
+  if (typeof value !== "number" || !Number.isInteger(value) || value < 1 || value > MAX_TIMEOUT_SEC) {
+    errors.push(`${where} must be an integer from 1 to ${MAX_TIMEOUT_SEC}`);
+  }
+}
+
+function validateGates(value: unknown, errors: string[]): void {
+  if (value === undefined) return;
+  if (!Array.isArray(value)) {
+    errors.push("gates must be an array");
+    return;
+  }
+  const seen = new Set<string>();
+  value.forEach((gate, index) => {
+    const where = `gates[${index}]`;
+    if (!isObject(gate)) {
+      errors.push(`${where} must be an object`);
+      return;
+    }
+    checkUnknownKeys(gate, GATE_KEYS, where, errors);
+    if (typeof gate.name !== "string" || !GATE_NAME_RE.test(gate.name)) {
+      errors.push(`${where}.name must match ${GATE_NAME_RE.source}`);
+    } else if (seen.has(gate.name)) {
+      errors.push(`${where}.name duplicates ${gate.name}`);
+    } else {
+      seen.add(gate.name);
+    }
+    const cmd = gate.command;
+    if (!Array.isArray(cmd) || cmd.length === 0 || cmd.some((a) => typeof a !== "string" || a.length === 0 || a.length > 1024)) {
+      errors.push(`${where}.command must be a non-empty array of strings`);
+    }
+    if (gate.cwd !== undefined && !safeRelativePath(gate.cwd)) errors.push(`${where}.cwd must be a relative path`);
+    validateTimeout(gate.timeoutSec, `${where}.timeoutSec`, errors);
+  });
+}
+
 function validateHttps(value: unknown, where: string, errors: string[]): void {
   if (typeof value !== "string") {
     errors.push(`${where} must be a string`);
@@ -77,6 +129,9 @@ function validatePolicyConfig(value: unknown, errors: string[]): void {
     if (!Array.isArray(value.held) || value.held.some((n) => typeof n !== "string" || n.length === 0)) {
       errors.push("policy.held must be an array of dependency names");
     }
+  }
+  if (value.land !== undefined && !(LAND_MODES as readonly string[]).includes(value.land as string)) {
+    errors.push(`policy.land must be one of ${LAND_MODES.join(", ")}`);
   }
   if (value.tier !== undefined) {
     if (!isObject(value.tier)) {
@@ -140,6 +195,9 @@ function validateTool(source: Obj, where: string, errors: string[]): void {
       if (typeof entry.checksum !== "string" || !CHECKSUM_RE.test(entry.checksum)) {
         errors.push(`${at}: checksum must be sha256:<64 lowercase hex>`);
       }
+      if (entry.maxBytes !== undefined && (typeof entry.maxBytes !== "number" || !Number.isInteger(entry.maxBytes) || entry.maxBytes < 1 || entry.maxBytes > 8 * 1024 ** 3)) {
+        errors.push(`${at}.maxBytes must be an integer from 1 to ${8 * 1024 ** 3}`);
+      }
       if (entry.extract !== undefined) {
         if (!isObject(entry.extract)) {
           errors.push(`${at}.extract must be an object`);
@@ -174,7 +232,7 @@ function validateTool(source: Obj, where: string, errors: string[]): void {
   if (!isObject(source.journey)) {
     errors.push(`${where}: journey must be an object {command, report, inputs?}`);
   } else {
-    checkUnknownKeys(source.journey, new Set(["command", "report", "inputs"]), `${where}.journey`, errors);
+    checkUnknownKeys(source.journey, new Set(["command", "report", "inputs", "model", "timeoutSec"]), `${where}.journey`, errors);
     const cmd = source.journey.command;
     if (!Array.isArray(cmd) || cmd.length === 0 || cmd.some((a) => typeof a !== "string" || a.length === 0 || a.length > 1024)) {
       errors.push(`${where}.journey.command must be a non-empty array of strings`);
@@ -189,6 +247,10 @@ function validateTool(source: Obj, where: string, errors: string[]): void {
     if (source.journey.inputs !== undefined && !isObject(source.journey.inputs)) {
       errors.push(`${where}.journey.inputs must be an object`);
     }
+    if (source.journey.model !== undefined && (typeof source.journey.model !== "string" || !MODEL_RE.test(source.journey.model))) {
+      errors.push(`${where}.journey.model must be a model id matching ${MODEL_RE.source}`);
+    }
+    validateTimeout(source.journey.timeoutSec, `${where}.journey.timeoutSec`, errors);
   }
 }
 
@@ -201,6 +263,7 @@ export function validateManifest(raw: unknown): ManifestValidation {
   if (raw.schemaVersion !== SCHEMA_VERSION) errors.push(`schemaVersion must be exactly ${SCHEMA_VERSION}`);
 
   validatePolicyConfig(raw.policy, errors);
+  validateGates(raw.gates, errors);
 
   if (!Array.isArray(raw.sources)) {
     errors.push("sources must be an array");
@@ -220,10 +283,18 @@ export function validateManifest(raw: unknown): ManifestValidation {
       }
       switch (source.kind) {
         case "cargo":
-        case "pnpm":
-          checkUnknownKeys(source, new Set(["kind", "manifest", "policy"]), where, errors);
-          if (!safeRelativePath(source.manifest)) errors.push(`${where}.manifest must be a relative path`);
+        case "pnpm": {
+          checkUnknownKeys(source, new Set(["kind", "manifest", "glob", "policy"]), where, errors);
+          const fileName = source.kind === "cargo" ? "Cargo.toml" : "package.json";
+          if ((source.manifest === undefined) === (source.glob === undefined)) {
+            errors.push(`${where}: set exactly one of manifest and glob`);
+          } else if (source.manifest !== undefined) {
+            if (!safeRelativePath(source.manifest)) errors.push(`${where}.manifest must be a relative path`);
+          } else if (!safeManifestGlob(source.glob, fileName)) {
+            errors.push(`${where}.glob must be a relative pattern ending in ${fileName}, using * inside a segment only`);
+          }
           break;
+        }
         case "swiftpm":
           checkUnknownKeys(source, new Set(["kind", "manifest", "policy"]), where, errors);
           if (!safeRelativePath(source.manifest)) {

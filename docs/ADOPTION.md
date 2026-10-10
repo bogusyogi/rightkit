@@ -15,9 +15,9 @@ Status values compare each pin with the latest published version (registry-recor
 
 ## Summary
 
-- Packages in RightKit: 84 (55 crates, 29 npm packages).
-- Packages with at least one app pin: 51.
-- App pins: 208. Stale: 132. Ahead of published: 0. Unpublished: 0. Local: 0. Git: 0. Unparsed: 0.
+- Packages in RightKit: 80 (56 crates, 24 npm packages).
+- Packages with at least one app pin: 55.
+- App pins: 226. Stale: 129. Ahead of published: 0. Unpublished: 0. Local: 0. Git: 0. Unparsed: 0.
 - Vendored copies of RightKit packages inside app repos: 0.
 - App and package pairs with more than one requirement: 3.
 
@@ -25,90 +25,92 @@ Status values compare each pin with the latest published version (registry-recor
 
 | Package | Registry | Source | Latest published | Apps | App names | Notes |
 |---|---|---|---|---|---|---|
-| `agent-room-core` | private | 0.3.0 | none recorded | 0 | none | - |
+| `agent-room-core` | private | 0.3.1 | none recorded | 0 | none | - |
 | `rightkit-agent-tools` | private | 0.1.2 | none recorded | 0 | none | - |
-| `rightkit-align` | private | 0.0.0 | none recorded | 0 | none | - |
-| `rightkit-asr` | crates.io | 0.0.2 | none recorded | 0 | none | - |
-| `rightkit-audio` | crates.io | 0.2.0 | 0.2.0 | 2 | cutright, heardright | - |
-| `rightkit-automation` | private | 0.1.0 | none recorded | 0 | none | - |
-| `rightkit-browser` | crates.io | 0.2.3 | 0.2.2 | 2 | coderight, genright | 1 stale |
+| `rightkit-align` | private | 0.0.1 | none recorded | 0 | none | - |
+| `rightkit-asr` | crates.io | 0.1.0 | 0.0.2 | 1 | heardright | - |
+| `rightkit-audio` | crates.io | 0.2.1 | 0.2.0 | 2 | cutright, heardright | - |
+| `rightkit-automation` | private | 0.2.0 | none recorded | 0 | none | - |
+| `rightkit-browser` | crates.io | 0.2.4 | 0.2.2 | 2 | coderight, genright | 1 stale |
 | `rightkit-cache` | crates.io | 0.1.0 | 0.1.0 | 2 | coderight, mailright | - |
 | `rightkit-channel-memory` | private | 0.1.0 | none recorded | 0 | none | - |
-| `rightkit-compose` | private | 0.0.0 | none recorded | 0 | none | - |
-| `rightkit-contracts` | private | 0.1.2 | none recorded | 0 | none | - |
-| `rightkit-control` | crates.io | 0.1.9 | 0.1.9 | 3 | cockpit, cutright, genright | 1 stale |
-| `rightkit-crash` | crates.io | 0.2.0 | 0.2.0 | 1 | heardright | - |
-| `rightkit-daemon` | private | 0.1.0 | none recorded | 0 | none | - |
-| `rightkit-db` | crates.io | 0.3.2 | 0.3.2 | 5 | coderight, genright, mailright, scraperight, viewright | 11 stale |
-| `rightkit-embed` | crates.io | 0.3.1 | 0.3.0 | 2 | coderight, mailright | 2 stale |
-| `rightkit-framed-sidecar` | crates.io | 0.1.0 | 0.1.0 | 1 | scraperight | - |
-| `rightkit-fs` | crates.io | 0.3.1 | 0.3.0 | 4 | coderight, cutright, genright, scraperight | 1 stale |
+| `rightkit-compose` | private | 0.0.1 | none recorded | 0 | none | - |
+| `rightkit-contracts` | private | 0.1.3 | none recorded | 0 | none | - |
+| `rightkit-control` | crates.io | 0.2.0 | 0.1.11 | 2 | cutright, genright | 2 stale |
+| `rightkit-crash` | crates.io | 0.2.1 | 0.2.0 | 2 | heardright, postright | - |
+| `rightkit-daemon` | private | 0.1.2 | none recorded | 0 | none | - |
+| `rightkit-db` | crates.io | 0.3.2 | 0.3.2 | 6 | coderight, genright, mailright, postright, scraperight, viewright | 10 stale |
+| `rightkit-embed` | crates.io | 0.3.2 | 0.3.1 | 2 | coderight, mailright | 2 stale |
+| `rightkit-framed-sidecar` | crates.io | 0.1.0 | 0.1.0 | 2 | postright, scraperight | - |
+| `rightkit-fs` | crates.io | 0.3.3 | 0.3.3 | 4 | coderight, cutright, genright, scraperight | 7 stale |
+| `rightkit-fsindex` | crates.io | 0.1.1 | 0.1.0 | 0 | none | - |
 | `rightkit-hotkeys` | crates.io | 0.1.0 | none recorded | 0 | none | - |
-| `rightkit-http` | crates.io | 0.2.2 | 0.2.1 | 3 | coderight, mailright, viewright | 2 stale |
-| `rightkit-jobs` | crates.io | 0.2.6 | 0.2.5 | 2 | cutright, genright | 3 stale |
+| `rightkit-http` | crates.io | 0.2.5 | 0.2.4 | 4 | coderight, mailright, postright, viewright | 2 stale |
+| `rightkit-jobs` | crates.io | 0.2.7 | 0.2.6 | 3 | cutright, genright, postright | 3 stale |
 | `rightkit-license` | crates.io | 0.1.3 | 0.1.3 | 5 | coderight, heardright, mailright, scraperight, viewright | - |
 | `rightkit-llm` | crates.io | 0.1.0 | none recorded | 0 | none | - |
-| `rightkit-logs` | crates.io | 0.2.0 | 0.2.0 | 6 | coderight, genright, heardright, mailright, scraperight, viewright | 2 stale |
-| `rightkit-mcp` | crates.io | 0.5.1 | 0.5.1 | 1 | coderight | - |
-| `rightkit-media` | crates.io | 0.2.4 | 0.2.4 | 1 | genright | 1 stale |
-| `rightkit-models` | crates.io | 0.2.7 | 0.2.6 | 4 | cutright, genright, heardright, scraperight | 5 stale |
-| `rightkit-oauth` | crates.io | 0.3.0 | 0.3.0 | 2 | coderight, mailright | 2 stale |
-| `rightkit-ocr` | crates.io | 0.1.2 | none recorded | 0 | none | - |
-| `rightkit-ort` | crates.io | 0.2.2 | 0.2.1 | 4 | coderight, cutright, genright, scraperight | 16 stale |
-| `rightkit-overlay` | crates.io | 0.1.0 | none recorded | 0 | none | - |
-| `rightkit-ownership` | crates.io | 0.2.0 | none recorded | 0 | none | - |
+| `rightkit-logs` | crates.io | 0.2.1 | 0.2.0 | 7 | coderight, genright, heardright, mailright, postright, scraperight, viewright | 1 stale |
+| `rightkit-mcp` | crates.io | 0.5.3 | 0.5.2 | 1 | coderight | 2 stale |
+| `rightkit-media` | crates.io | 0.2.5 | 0.2.4 | 1 | genright | 1 stale |
+| `rightkit-models` | crates.io | 0.2.8 | 0.2.7 | 4 | cutright, genright, heardright, scraperight | 7 stale |
+| `rightkit-oauth` | crates.io | 0.3.1 | 0.3.0 | 2 | coderight, mailright | 2 stale |
+| `rightkit-ocr` | crates.io | 0.2.0 | 0.1.2 | 3 | coderight, scraperight, viewright | - |
+| `rightkit-ort` | crates.io | 0.2.2 | 0.2.2 | 4 | coderight, cutright, genright, scraperight | 6 stale |
+| `rightkit-overlay` | crates.io | 0.1.1 | none recorded | 0 | none | - |
+| `rightkit-ownership` | crates.io | 0.2.1 | 0.2.1 | 0 | none | - |
 | `rightkit-pdf` | crates.io | 0.2.0 | 0.2.0 | 0 | none | - |
-| `rightkit-playback` | crates.io | 0.1.1 | 0.1.1 | 0 | none | - |
-| `rightkit-process` | crates.io | 0.3.3 | 0.3.2 | 4 | coderight, cutright, genright, heardright | 6 stale |
-| `rightkit-qa` | crates.io | 0.2.14 | 0.2.14 | 3 | cockpit, cutright, genright | 4 stale |
-| `rightkit-qts` | crates.io | 0.2.4 | 0.2.3 | 1 | genright | 1 stale |
-| `rightkit-qts-ggml` | crates.io | 0.1.1 | 0.1.1 | 1 | genright | 1 stale |
-| `rightkit-qts-ggml-sys` | crates.io | 0.1.1 | 0.1.0 | 1 | genright | - |
+| `rightkit-playback` | crates.io | 0.1.2 | 0.1.1 | 0 | none | - |
+| `rightkit-process` | crates.io | 0.3.3 | 0.3.3 | 5 | coderight, cutright, genright, heardright, postright | 9 stale |
+| `rightkit-qa` | crates.io | 0.2.15 | 0.2.14 | 2 | cutright, genright | 3 stale |
+| `rightkit-qts` | crates.io | 0.2.5 | 0.2.4 | 1 | genright | 1 stale |
+| `rightkit-qts-ggml` | crates.io | 0.1.2 | 0.1.1 | 1 | genright | 1 stale |
+| `rightkit-qts-ggml-sys` | crates.io | 0.1.2 | 0.1.1 | 1 | genright | 1 stale |
 | `rightkit-record` | private | 0.1.1 | none recorded | 0 | none | - |
-| `rightkit-review` | private | 0.1.0 | none recorded | 0 | none | - |
-| `rightkit-sandbox` | crates.io | 0.3.3 | 0.3.2 | 1 | coderight | 1 stale |
-| `rightkit-scenario` | private | 0.0.0 | none recorded | 0 | none | - |
+| `rightkit-review` | crates.io | 0.1.0 | none recorded | 0 | none | - |
+| `rightkit-sandbox` | crates.io | 0.3.3 | 0.3.3 | 1 | coderight | 1 stale |
+| `rightkit-scenario` | crates.io | 0.1.0 | none recorded | 0 | none | - |
 | `rightkit-search` | crates.io | 0.2.0 | 0.2.0 | 0 | none | - |
-| `rightkit-secrets` | crates.io | 0.1.2 | 0.1.1 | 6 | coderight, cutright, genright, mailright, scraperight, viewright | 6 stale |
-| `rightkit-service` | crates.io | 0.1.3 | 0.1.3 | 1 | heardright | 1 stale |
-| `rightkit-settings` | crates.io | 0.1.0 | 0.1.0 | 1 | genright | - |
-| `rightkit-shell` | crates.io | 0.1.4 | 0.1.4 | 3 | coderight, mailright, viewright | 3 stale |
-| `rightkit-speech-client` | crates.io | 0.3.2 | 0.3.2 | 2 | cutright, heardright | 4 stale |
+| `rightkit-secrets` | crates.io | 0.1.2 | 0.1.2 | 7 | coderight, cutright, genright, mailright, postright, scraperight, viewright | 6 stale |
+| `rightkit-service` | crates.io | 0.1.4 | 0.1.3 | 1 | heardright | 1 stale |
+| `rightkit-settings` | crates.io | 0.1.1 | 0.1.0 | 2 | genright, postright | - |
+| `rightkit-shell` | crates.io | 0.2.0 | 0.1.4 | 3 | coderight, mailright, viewright | 2 stale |
+| `rightkit-speech-client` | crates.io | 0.3.3 | 0.3.2 | 2 | cutright, heardright | 4 stale |
 | `rightkit-sync` | crates.io | 0.1.0 | none recorded | 0 | none | - |
-| `rightkit-tauri` | crates.io | 0.1.2 | 0.1.2 | 5 | coderight, heardright, mailright, scraperight, viewright | 6 stale |
-| `rightkit-transcript` | crates.io | 0.1.0 | none recorded | 0 | none | - |
-| `rightkit-tts` | crates.io | 0.1.0 | none recorded | 0 | none | - |
-| `rightkit-vad` | crates.io | 0.0.2 | none recorded | 0 | none | - |
-| `rightkit-watch` | crates.io | 0.3.1 | 0.3.1 | 2 | coderight, viewright | 2 stale |
+| `rightkit-tauri` | crates.io | 0.1.2 | 0.1.2 | 6 | coderight, heardright, mailright, postright, scraperight, viewright | 5 stale |
+| `rightkit-transcript` | crates.io | 0.2.0 | 0.1.0 | 0 | none | - |
+| `rightkit-tts` | crates.io | 0.1.0 | 0.1.0 | 1 | genright | - |
+| `rightkit-vad` | crates.io | 0.0.2 | 0.0.2 | 0 | none | - |
+| `rightkit-watch` | crates.io | 0.3.2 | 0.3.1 | 2 | coderight, viewright | 2 stale |
 | `@rightkit/agent-room-mcp` | private | 0.1.0 | none recorded | 0 | none | - |
-| `@rightkit/app-shell` | npm | 0.3.0 | 0.3.0 | 5 | cockpit, cutright, genright, heardright, scraperight | 5 stale |
+| `@rightkit/app-shell` | npm | 0.4.0 | 0.4.0 | 4 | cutright, genright, heardright, scraperight | 4 stale |
 | `@rightkit/ax` | npm | 0.2.4 | 0.2.4 | 2 | coderight, legion | - |
 | `@rightkit/build-control-policy` | private | 0.1.0-phase1 | none recorded | 0 | none | - |
-| `@rightkit/doc-render` | npm | 0.1.4 | 0.1.4 | 1 | viewright | 1 stale |
-| `@rightkit/git` | npm | 0.2.26 | 0.2.26 | 2 | coderight, legion | 2 stale |
-| `@rightkit/hooks` | npm | 0.1.2 | 0.1.2 | 2 | coderight, legion | 2 stale |
+| `@rightkit/doc-render` | npm | 0.1.5 | 0.1.5 | 1 | viewright | 1 stale |
+| `@rightkit/git` | npm | 0.2.37 | 0.2.37 | 2 | coderight, legion | 1 stale |
+| `@rightkit/hooks` | npm | 0.1.2 | 0.1.2 | 2 | coderight, legion | 1 stale |
 | `@rightkit/i18n` | npm | 0.1.0 | 0.1.0 | 0 | none | - |
 | `@rightkit/legal` | npm | 0.3.1 | 0.3.1 | 8 | coderight, cutright, heardright, mailright, rightsites, scraperight, sellright, viewright | 1 stale |
-| `@rightkit/legal-ui` | npm | 0.2.0 | 0.2.0 | 4 | cutright, heardright, scraperight, viewright | 4 stale |
+| `@rightkit/legal-ui` | npm | 0.2.0 | 0.2.0 | 4 | cutright, heardright, scraperight, viewright | 3 stale |
 | `@rightkit/license` | npm | 0.1.8 | 0.1.8 | 6 | coderight, cutright, heardright, mailright, scraperight, viewright | 1 stale |
-| `@rightkit/logs` | npm | 0.1.4 | 0.1.4 | 6 | coderight, cutright, heardright, mailright, scraperight, viewright | 1 stale |
-| `@rightkit/media-ui` | npm | 0.3.0 | 0.3.0 | 4 | cutright, genright, scraperight, viewright | 4 stale |
-| `@rightkit/onboarding` | npm | 0.3.0 | 0.3.0 | 4 | cutright, genright, heardright, scraperight | 4 stale |
-| `@rightkit/pdf-ui` | npm | 0.1.2 | 0.1.2 | 1 | viewright | - |
-| `@rightkit/platform-ui` | npm | 0.2.0 | 0.2.0 | 4 | cockpit, cutright, genright, scraperight | 4 stale |
-| `@rightkit/qa` | npm | 0.4.0 | 0.4.0 | 0 | none | - |
-| `@rightkit/qa-chrome` | npm | 0.1.3 | 0.1.3 | 3 | heardright, scraperight, viewright | 2 stale |
-| `@rightkit/release` | npm | 0.2.135 | 0.2.135 | 10 | cockpit, coderight, cutright, genright, heardright, legion, mailright, scraperight, viewright, voiceright | 6 stale |
-| `@rightkit/settings-ui` | npm | 0.3.0 | 0.3.0 | 4 | cutright, genright, heardright, scraperight | 4 stale |
+| `@rightkit/logs` | npm | 0.1.4 | 0.1.4 | 7 | coderight, cutright, heardright, mailright, postright, scraperight, viewright | 1 stale |
+| `@rightkit/media-ui` | npm | 0.3.1 | 0.3.1 | 4 | cutright, genright, scraperight, viewright | 4 stale |
+| `@rightkit/onboarding` | npm | 0.3.1 | 0.3.1 | 4 | cutright, genright, heardright, scraperight | 4 stale |
+| `@rightkit/pdf-ui` | npm | 0.1.3 | 0.1.3 | 1 | viewright | 1 stale |
+| `@rightkit/platform-ui` | npm | 0.2.0 | 0.2.0 | 4 | cutright, genright, postright, scraperight | 3 stale |
+| `@rightkit/qa` | npm | 0.4.1 | 0.4.1 | 1 | scraperight | 1 stale |
+| `@rightkit/qa-chrome` | npm | 0.1.3 | 0.1.3 | 3 | heardright, scraperight, viewright | - |
+| `@rightkit/release` | npm | 0.2.151 | 0.2.151 | 10 | coderight, cutright, genright, heardright, legion, mailright, postright, scraperight, viewright, voiceright | 8 stale |
+| `@rightkit/settings-ui` | npm | 0.3.1 | 0.3.1 | 4 | cutright, genright, heardright, scraperight | 4 stale |
 | `@rightkit/shell` | npm | 0.1.0 | 0.1.0 | 2 | coderight, cutright | - |
-| `@rightkit/tauri` | npm | 0.2.0 | 0.2.0 | 5 | coderight, heardright, mailright, scraperight, viewright | 5 stale |
-| `@rightkit/theme` | npm | 0.2.1 | 0.2.1 | 4 | cutright, genright, heardright, scraperight | 3 stale |
-| `@rightkit/updates` | npm | 0.2.5 | 0.2.5 | 6 | coderight, cutright, heardright, mailright, scraperight, viewright | 1 stale |
+| `@rightkit/tauri` | npm | 0.2.0 | 0.2.0 | 6 | coderight, heardright, mailright, postright, scraperight, viewright | 4 stale |
+| `@rightkit/theme` | npm | 0.2.2 | 0.2.2 | 4 | cutright, genright, heardright, scraperight | 4 stale |
+| `@rightkit/updates` | npm | 0.2.5 | 0.2.5 | 7 | coderight, cutright, heardright, mailright, postright, scraperight, viewright | 1 stale |
 
 ## Pins
 
 | Package | App | Manifest | Section | Requirement | Latest published | Status |
 |---|---|---|---|---|---|---|
+| `rightkit-asr` | heardright | `heardright/tauri-app-next/heardright-parakeet-core/Cargo.toml` | dependencies | `=0.0.2` | 0.0.2 | current |
 | `rightkit-audio` | cutright | `cutright/crates/cutright-audio/Cargo.toml` | dependencies | `=0.2.0` | 0.2.0 | current |
 | `rightkit-audio` | heardright | `heardright/tauri-app-next/heardright-engine/Cargo.toml` | dev-dependencies | `=0.2.0` | 0.2.0 | current |
 | `rightkit-audio` | heardright | `heardright/tauri-app-next/heardright-runtime/Cargo.toml` | dependencies | `=0.2.0` | 0.2.0 | current |
@@ -117,10 +119,10 @@ Status values compare each pin with the latest published version (registry-recor
 | `rightkit-browser` | genright | `genright/crates/genright-e2e/Cargo.toml` | dev-dependencies | `=0.2.2` | 0.2.2 | current |
 | `rightkit-cache` | coderight | `coderight/engine/Cargo.toml` | workspace.dependencies | `=0.1.0` | 0.1.0 | current |
 | `rightkit-cache` | mailright | `mailright/src-tauri/Cargo.toml` | dependencies | `=0.1.0` | 0.1.0 | current |
-| `rightkit-control` | cockpit | `cockpit/hub/src-tauri/Cargo.toml` | dependencies | `=0.1.6` | 0.1.9 | stale |
-| `rightkit-control` | cutright | `cutright/apps/cutright/src-tauri/Cargo.toml` | dependencies | `=0.1.9` | 0.1.9 | current |
-| `rightkit-control` | genright | `genright/src-tauri/Cargo.toml` | dependencies | `=0.1.9` | 0.1.9 | current |
+| `rightkit-control` | cutright | `cutright/apps/cutright/src-tauri/Cargo.toml` | dependencies | `=0.1.9` | 0.1.11 | stale |
+| `rightkit-control` | genright | `genright/src-tauri/Cargo.toml` | dependencies | `=0.1.9` | 0.1.11 | stale |
 | `rightkit-crash` | heardright | `heardright/tauri-app-next/heardright-telemetry/Cargo.toml` | dependencies | `=0.2.0` | 0.2.0 | current |
+| `rightkit-crash` | postright | `postright/crates/engine/Cargo.toml` | dependencies | `=0.2.0` | 0.2.0 | current |
 | `rightkit-db` | coderight | `coderight/context/engine/crates/cortex-store/Cargo.toml` | dependencies | `=0.3.0` | 0.3.2 | stale |
 | `rightkit-db` | coderight | `coderight/context/engine/crates/cortex/Cargo.toml` | dependencies | `=0.3.0` | 0.3.2 | stale |
 | `rightkit-db` | coderight | `coderight/context/engine/crates/membrane-blueprint/Cargo.toml` | dependencies | `=0.3.0` | 0.3.2 | stale |
@@ -130,25 +132,29 @@ Status values compare each pin with the latest published version (registry-recor
 | `rightkit-db` | genright | `genright/crates/genright-gen/Cargo.toml` | dependencies | `=0.3.0` | 0.3.2 | stale |
 | `rightkit-db` | genright | `genright/crates/genright-local-image/Cargo.toml` | dependencies | `=0.3.0` | 0.3.2 | stale |
 | `rightkit-db` | mailright | `mailright/src-tauri/Cargo.toml` | dependencies | `=0.2.1` | 0.3.2 | stale |
+| `rightkit-db` | postright | `postright/crates/engine/Cargo.toml` | dependencies | `=0.3.2` | 0.3.2 | current |
 | `rightkit-db` | scraperight | `scraperight/crates/store/Cargo.toml` | dependencies | `=0.2.1` | 0.3.2 | stale |
-| `rightkit-db` | viewright | `viewright/src-tauri/Cargo.toml` | dependencies | `=0.2.1` | 0.3.2 | stale |
-| `rightkit-embed` | coderight | `coderight/context/engine/crates/membrane-blueprint/Cargo.toml` | dependencies | `=0.2.2` | 0.3.0 | stale |
-| `rightkit-embed` | mailright | `mailright/src-tauri/Cargo.toml` | dependencies | `=0.2.1` | 0.3.0 | stale |
+| `rightkit-db` | viewright | `viewright/src-tauri/Cargo.toml` | dependencies | `=0.3.2` | 0.3.2 | current |
+| `rightkit-embed` | coderight | `coderight/context/engine/crates/membrane-blueprint/Cargo.toml` | dependencies | `=0.2.2` | 0.3.1 | stale |
+| `rightkit-embed` | mailright | `mailright/src-tauri/Cargo.toml` | dependencies | `=0.2.1` | 0.3.1 | stale |
+| `rightkit-framed-sidecar` | postright | `postright/crates/protocol/Cargo.toml` | dependencies | `=0.1.0` | 0.1.0 | current |
 | `rightkit-framed-sidecar` | scraperight | `scraperight/crates/engine/Cargo.toml` | dependencies | `=0.1.0` | 0.1.0 | current |
 | `rightkit-framed-sidecar` | scraperight | `scraperight/src-tauri/Cargo.toml` | dependencies | `=0.1.0` | 0.1.0 | current |
-| `rightkit-fs` | coderight | `coderight/engine/Cargo.toml` | workspace.dependencies | `=0.1.0` | 0.3.0 | stale |
-| `rightkit-fs` | cutright | `cutright/crates/cutright-project/Cargo.toml` | dependencies | `=0.3.0` | 0.3.0 | current |
-| `rightkit-fs` | cutright | `cutright/crates/cutright-qa/Cargo.toml` | dependencies | `=0.3.0` | 0.3.0 | current |
-| `rightkit-fs` | genright | `genright/crates/genright-gen/Cargo.toml` | dependencies | `=0.3.0` | 0.3.0 | current |
-| `rightkit-fs` | genright | `genright/crates/genright-studio/Cargo.toml` | dependencies | `=0.3.0` | 0.3.0 | current |
-| `rightkit-fs` | scraperight | `scraperight/crates/engine/Cargo.toml` | dependencies | `=0.3.0` | 0.3.0 | current |
-| `rightkit-fs` | scraperight | `scraperight/src-tauri/Cargo.toml` | dependencies | `=0.3.0` | 0.3.0 | current |
-| `rightkit-http` | coderight | `coderight/engine/Cargo.toml` | workspace.dependencies | `=0.1.0` | 0.2.1 | stale |
-| `rightkit-http` | mailright | `mailright/src-tauri/Cargo.toml` | dependencies | `=0.1.0` | 0.2.1 | stale |
-| `rightkit-http` | viewright | `viewright/src-tauri/Cargo.toml` | dependencies | `=0.2.1` | 0.2.1 | current |
-| `rightkit-jobs` | cutright | `cutright/crates/cutright-engine/Cargo.toml` | dependencies | `=0.2.1` | 0.2.5 | stale |
-| `rightkit-jobs` | genright | `genright/crates/genright-gen/Cargo.toml` | dependencies | `=0.2.2` | 0.2.5 | stale |
-| `rightkit-jobs` | genright | `genright/crates/genright-local-image/Cargo.toml` | dependencies | `=0.2.2` | 0.2.5 | stale |
+| `rightkit-fs` | coderight | `coderight/engine/Cargo.toml` | workspace.dependencies | `=0.1.0` | 0.3.3 | stale |
+| `rightkit-fs` | cutright | `cutright/crates/cutright-project/Cargo.toml` | dependencies | `=0.3.0` | 0.3.3 | stale |
+| `rightkit-fs` | cutright | `cutright/crates/cutright-qa/Cargo.toml` | dependencies | `=0.3.0` | 0.3.3 | stale |
+| `rightkit-fs` | genright | `genright/crates/genright-gen/Cargo.toml` | dependencies | `=0.3.0` | 0.3.3 | stale |
+| `rightkit-fs` | genright | `genright/crates/genright-studio/Cargo.toml` | dependencies | `=0.3.0` | 0.3.3 | stale |
+| `rightkit-fs` | scraperight | `scraperight/crates/engine/Cargo.toml` | dependencies | `=0.3.0` | 0.3.3 | stale |
+| `rightkit-fs` | scraperight | `scraperight/src-tauri/Cargo.toml` | dependencies | `=0.3.0` | 0.3.3 | stale |
+| `rightkit-http` | coderight | `coderight/engine/Cargo.toml` | workspace.dependencies | `=0.1.0` | 0.2.4 | stale |
+| `rightkit-http` | mailright | `mailright/src-tauri/Cargo.toml` | dependencies | `=0.1.0` | 0.2.4 | stale |
+| `rightkit-http` | postright | `postright/crates/engine/Cargo.toml` | dependencies | `=0.2.4` | 0.2.4 | current |
+| `rightkit-http` | viewright | `viewright/src-tauri/Cargo.toml` | dependencies | `=0.2.4` | 0.2.4 | current |
+| `rightkit-jobs` | cutright | `cutright/crates/cutright-engine/Cargo.toml` | dependencies | `=0.2.1` | 0.2.6 | stale |
+| `rightkit-jobs` | genright | `genright/crates/genright-gen/Cargo.toml` | dependencies | `=0.2.2` | 0.2.6 | stale |
+| `rightkit-jobs` | genright | `genright/crates/genright-local-image/Cargo.toml` | dependencies | `=0.2.2` | 0.2.6 | stale |
+| `rightkit-jobs` | postright | `postright/crates/engine/Cargo.toml` | dependencies | `=0.2.6` | 0.2.6 | current |
 | `rightkit-license` | coderight | `coderight/apps/coderight-tauri/src-tauri/Cargo.toml` | dependencies | `=0.1.3` | 0.1.3 | current |
 | `rightkit-license` | heardright | `heardright/tauri-app-next/src-tauri/Cargo.toml` | dependencies | `=0.1.3` | 0.1.3 | current |
 | `rightkit-license` | mailright | `mailright/src-tauri/Cargo.toml` | dependencies | `=0.1.3` | 0.1.3 | current |
@@ -161,65 +167,73 @@ Status values compare each pin with the latest published version (registry-recor
 | `rightkit-logs` | heardright | `heardright/tauri-app-next/heardright-telemetry/Cargo.toml` | dependencies | `=0.2.0` | 0.2.0 | current |
 | `rightkit-logs` | heardright | `heardright/tauri-app-next/src-tauri/Cargo.toml` | dependencies | `=0.2.0` | 0.2.0 | current |
 | `rightkit-logs` | mailright | `mailright/src-tauri/Cargo.toml` | dependencies | `=0.2.0` | 0.2.0 | current |
+| `rightkit-logs` | postright | `postright/crates/engine/Cargo.toml` | dependencies | `=0.2.0` | 0.2.0 | current |
+| `rightkit-logs` | postright | `postright/src-tauri/Cargo.toml` | dependencies | `=0.2.0` | 0.2.0 | current |
 | `rightkit-logs` | scraperight | `scraperight/src-tauri/Cargo.toml` | dependencies | `=0.1.0` | 0.2.0 | stale |
-| `rightkit-logs` | viewright | `viewright/src-tauri/Cargo.toml` | dependencies | `=0.1.0` | 0.2.0 | stale |
-| `rightkit-mcp` | coderight | `coderight/context/engine/crates/membrane-mcp/Cargo.toml` | dependencies | `=0.5.1` | 0.5.1 | current |
-| `rightkit-mcp` | coderight | `coderight/engine/Cargo.toml` | workspace.dependencies | `=0.5.1` | 0.5.1 | current |
+| `rightkit-logs` | viewright | `viewright/src-tauri/Cargo.toml` | dependencies | `=0.2.0` | 0.2.0 | current |
+| `rightkit-mcp` | coderight | `coderight/context/engine/crates/membrane-mcp/Cargo.toml` | dependencies | `=0.5.1` | 0.5.2 | stale |
+| `rightkit-mcp` | coderight | `coderight/engine/Cargo.toml` | workspace.dependencies | `=0.5.1` | 0.5.2 | stale |
 | `rightkit-media` | genright | `genright/crates/genright-studio/Cargo.toml` | dependencies | `=0.2.3` | 0.2.4 | stale |
-| `rightkit-models` | cutright | `cutright/crates/cutright-model-store/Cargo.toml` | dependencies | `=0.2.1` | 0.2.6 | stale |
-| `rightkit-models` | genright | `genright/crates/genright-local-image/Cargo.toml` | dependencies | `=0.2.2` | 0.2.6 | stale |
-| `rightkit-models` | genright | `genright/crates/genright-protocol/Cargo.toml` | dependencies | `=0.2.2` | 0.2.6 | stale |
-| `rightkit-models` | genright | `genright/crates/genright-qts/Cargo.toml` | dependencies | `=0.2.2` | 0.2.6 | stale |
-| `rightkit-models` | genright | `genright/crates/genright-studio/Cargo.toml` | dependencies | `=0.2.2` | 0.2.6 | stale |
-| `rightkit-models` | heardright | `heardright/tauri-app-next/heardright-model-store/Cargo.toml` | dependencies | `=0.2.6` | 0.2.6 | current |
-| `rightkit-models` | scraperight | `scraperight/crates/model-store/Cargo.toml` | dependencies | `=0.2.6` | 0.2.6 | current |
+| `rightkit-models` | cutright | `cutright/crates/cutright-model-store/Cargo.toml` | dependencies | `=0.2.1` | 0.2.7 | stale |
+| `rightkit-models` | genright | `genright/crates/genright-local-image/Cargo.toml` | dependencies | `=0.2.2` | 0.2.7 | stale |
+| `rightkit-models` | genright | `genright/crates/genright-protocol/Cargo.toml` | dependencies | `=0.2.2` | 0.2.7 | stale |
+| `rightkit-models` | genright | `genright/crates/genright-qts/Cargo.toml` | dependencies | `=0.2.2` | 0.2.7 | stale |
+| `rightkit-models` | genright | `genright/crates/genright-studio/Cargo.toml` | dependencies | `=0.2.2` | 0.2.7 | stale |
+| `rightkit-models` | heardright | `heardright/tauri-app-next/heardright-model-store/Cargo.toml` | dependencies | `=0.2.6` | 0.2.7 | stale |
+| `rightkit-models` | scraperight | `scraperight/crates/model-store/Cargo.toml` | dependencies | `=0.2.6` | 0.2.7 | stale |
 | `rightkit-oauth` | coderight | `coderight/engine/Cargo.toml` | workspace.dependencies | `=0.2.0` | 0.3.0 | stale |
 | `rightkit-oauth` | mailright | `mailright/src-tauri/Cargo.toml` | dependencies | `=0.2.0` | 0.3.0 | stale |
-| `rightkit-ort` | coderight | `coderight/apps/coderight-tauri/src-tauri/Cargo.toml` | dependencies | `=0.2.0` | 0.2.1 | stale |
-| `rightkit-ort` | coderight | `coderight/context/engine/crates/membrane-blueprint/Cargo.toml` | dependencies | `=0.2.0` | 0.2.1 | stale |
-| `rightkit-ort` | coderight | `coderight/context/engine/crates/membrane-runtime/Cargo.toml` | dependencies | `=0.2.0` | 0.2.1 | stale |
-| `rightkit-ort` | coderight | `coderight/engine/Cargo.toml` | workspace.dependencies | `=0.2.0` | 0.2.1 | stale |
-| `rightkit-ort` | cutright | `cutright/crates/cutright-reframe/Cargo.toml` | dependencies | `=0.1.4` | 0.2.1 | stale |
-| `rightkit-ort` | cutright | `cutright/crates/cutright-speech/Cargo.toml` | dependencies | `=0.1.4` | 0.2.1 | stale |
-| `rightkit-ort` | genright | `genright/crates/genright-e2e/Cargo.toml` | dev-dependencies | `=0.2.0` | 0.2.1 | stale |
-| `rightkit-ort` | genright | `genright/crates/genright-engine/Cargo.toml` | dev-dependencies | `=0.2.0` | 0.2.1 | stale |
-| `rightkit-ort` | genright | `genright/crates/genright-gen/Cargo.toml` | dependencies | `=0.2.0` | 0.2.1 | stale |
-| `rightkit-ort` | genright | `genright/crates/genright-qts/Cargo.toml` | dependencies | `=0.2.0` | 0.2.1 | stale |
-| `rightkit-ort` | scraperight | `scraperight/crates/engine/Cargo.toml` | dependencies | `=0.2.0` | 0.2.1 | stale |
-| `rightkit-ort` | scraperight | `scraperight/crates/ocr/Cargo.toml` | dependencies | `=0.2.0` | 0.2.1 | stale |
-| `rightkit-ort` | scraperight | `scraperight/crates/ort_common/Cargo.toml` | dependencies | `=0.2.0` | 0.2.1 | stale |
-| `rightkit-ort` | scraperight | `scraperight/crates/speech/Cargo.toml` | dependencies | `=0.2.0` | 0.2.1 | stale |
-| `rightkit-ort` | scraperight | `scraperight/src-tauri/Cargo.toml` | dependencies | `=0.2.0` | 0.2.1 | stale |
-| `rightkit-ort` | scraperight | `scraperight/vendor/parakeet-rs/Cargo.toml` | dependencies | `=0.2.0` | 0.2.1 | stale |
-| `rightkit-process` | coderight | `coderight/context/engine/crates/membrane-runtime/Cargo.toml` | dependencies | `=0.3.2` | 0.3.2 | current |
-| `rightkit-process` | coderight | `coderight/engine/crates/tools/Cargo.toml` | dependencies | `=0.3.2` | 0.3.2 | current |
-| `rightkit-process` | cutright | `cutright/Cargo.toml` | workspace.dependencies | `=0.1.0` | 0.3.2 | stale |
-| `rightkit-process` | genright | `genright/crates/genright-e2e/Cargo.toml` | dev-dependencies | `=0.3.0` | 0.3.2 | stale |
-| `rightkit-process` | genright | `genright/crates/genright-gen/Cargo.toml` | dependencies | `=0.3.0` | 0.3.2 | stale |
-| `rightkit-process` | genright | `genright/crates/genright-local-image/Cargo.toml` | dependencies | `=0.3.0` | 0.3.2 | stale |
-| `rightkit-process` | genright | `genright/crates/genright-qts/Cargo.toml` | dependencies | `=0.3.0` | 0.3.2 | stale |
-| `rightkit-process` | genright | `genright/src-tauri/Cargo.toml` | dependencies | `=0.3.0` | 0.3.2 | stale |
-| `rightkit-process` | heardright | `heardright/tauri-app-next/heardright-app-runtime/Cargo.toml` | dependencies | `=0.3.2` | 0.3.2 | current |
-| `rightkit-qa` | cockpit | `cockpit/hub/qa-e2e/Cargo.toml` | dev-dependencies | `=0.2.12` | 0.2.14 | stale |
+| `rightkit-ocr` | coderight | `coderight/engine/crates/media/Cargo.toml` | dependencies | `0.1.2` | 0.1.2 | range ok |
+| `rightkit-ocr` | scraperight | `scraperight/crates/ocr/Cargo.toml` | dependencies | `=0.1.2` | 0.1.2 | current |
+| `rightkit-ocr` | viewright | `viewright/src-tauri/Cargo.toml` | dependencies | `=0.1.2` | 0.1.2 | current |
+| `rightkit-ort` | coderight | `coderight/apps/coderight-tauri/src-tauri/Cargo.toml` | dependencies | `=0.2.0` | 0.2.2 | stale |
+| `rightkit-ort` | coderight | `coderight/context/engine/crates/membrane-blueprint/Cargo.toml` | dependencies | `=0.2.0` | 0.2.2 | stale |
+| `rightkit-ort` | coderight | `coderight/context/engine/crates/membrane-runtime/Cargo.toml` | dependencies | `=0.2.0` | 0.2.2 | stale |
+| `rightkit-ort` | coderight | `coderight/engine/Cargo.toml` | workspace.dependencies | `=0.2.0` | 0.2.2 | stale |
+| `rightkit-ort` | cutright | `cutright/crates/cutright-reframe/Cargo.toml` | dependencies | `=0.1.4` | 0.2.2 | stale |
+| `rightkit-ort` | cutright | `cutright/crates/cutright-speech/Cargo.toml` | dependencies | `=0.1.4` | 0.2.2 | stale |
+| `rightkit-ort` | genright | `genright/crates/genright-e2e/Cargo.toml` | dev-dependencies | `=0.2.2` | 0.2.2 | current |
+| `rightkit-ort` | genright | `genright/crates/genright-engine/Cargo.toml` | dev-dependencies | `=0.2.2` | 0.2.2 | current |
+| `rightkit-ort` | genright | `genright/crates/genright-gen/Cargo.toml` | dependencies | `=0.2.2` | 0.2.2 | current |
+| `rightkit-ort` | genright | `genright/crates/genright-qts/Cargo.toml` | dependencies | `=0.2.2` | 0.2.2 | current |
+| `rightkit-ort` | scraperight | `scraperight/crates/engine/Cargo.toml` | dependencies | `=0.2.2` | 0.2.2 | current |
+| `rightkit-ort` | scraperight | `scraperight/crates/ocr/Cargo.toml` | dependencies | `=0.2.2` | 0.2.2 | current |
+| `rightkit-ort` | scraperight | `scraperight/crates/ort_common/Cargo.toml` | dependencies | `=0.2.2` | 0.2.2 | current |
+| `rightkit-ort` | scraperight | `scraperight/crates/speech/Cargo.toml` | dependencies | `=0.2.2` | 0.2.2 | current |
+| `rightkit-ort` | scraperight | `scraperight/src-tauri/Cargo.toml` | dependencies | `=0.2.2` | 0.2.2 | current |
+| `rightkit-ort` | scraperight | `scraperight/vendor/parakeet-rs/Cargo.toml` | dependencies | `=0.2.2` | 0.2.2 | current |
+| `rightkit-process` | coderight | `coderight/context/engine/crates/membrane-runtime/Cargo.toml` | dependencies | `=0.3.2` | 0.3.3 | stale |
+| `rightkit-process` | coderight | `coderight/engine/crates/tools/Cargo.toml` | dependencies | `=0.3.2` | 0.3.3 | stale |
+| `rightkit-process` | cutright | `cutright/Cargo.toml` | workspace.dependencies | `=0.1.0` | 0.3.3 | stale |
+| `rightkit-process` | genright | `genright/crates/genright-e2e/Cargo.toml` | dev-dependencies | `=0.3.0` | 0.3.3 | stale |
+| `rightkit-process` | genright | `genright/crates/genright-gen/Cargo.toml` | dependencies | `=0.3.0` | 0.3.3 | stale |
+| `rightkit-process` | genright | `genright/crates/genright-local-image/Cargo.toml` | dependencies | `=0.3.0` | 0.3.3 | stale |
+| `rightkit-process` | genright | `genright/crates/genright-qts/Cargo.toml` | dependencies | `=0.3.0` | 0.3.3 | stale |
+| `rightkit-process` | genright | `genright/src-tauri/Cargo.toml` | dependencies | `=0.3.0` | 0.3.3 | stale |
+| `rightkit-process` | heardright | `heardright/tauri-app-next/heardright-app-runtime/Cargo.toml` | dependencies | `=0.3.2` | 0.3.3 | stale |
+| `rightkit-process` | postright | `postright/crates/engine/Cargo.toml` | dependencies | `=0.3.3` | 0.3.3 | current |
+| `rightkit-process` | postright | `postright/src-tauri/Cargo.toml` | dependencies | `=0.3.3` | 0.3.3 | current |
 | `rightkit-qa` | cutright | `cutright/crates/cutright-ui-e2e/Cargo.toml` | dependencies | `=0.2.12` | 0.2.14 | stale |
 | `rightkit-qa` | genright | `genright/crates/genright-e2e/Cargo.toml` | dependencies | `=0.2.12` | 0.2.14 | stale |
 | `rightkit-qa` | genright | `genright/crates/genright-e2e/Cargo.toml` | dev-dependencies | `=0.2.12` | 0.2.14 | stale |
-| `rightkit-qts` | genright | `genright/crates/genright-qts/Cargo.toml` | dependencies | `=0.2.1` | 0.2.3 | stale |
+| `rightkit-qts` | genright | `genright/crates/genright-qts/Cargo.toml` | dependencies | `=0.2.1` | 0.2.4 | stale |
 | `rightkit-qts-ggml` | genright | `genright/crates/genright-qts/Cargo.toml` | dependencies | `=0.1.0` | 0.1.1 | stale |
-| `rightkit-qts-ggml-sys` | genright | `genright/crates/genright-qts/Cargo.toml` | dependencies | `=0.1.0` | 0.1.0 | current |
-| `rightkit-sandbox` | coderight | `coderight/engine/crates/tools/Cargo.toml` | dependencies | `=0.2.4` | 0.3.2 | stale |
-| `rightkit-secrets` | coderight | `coderight/engine/Cargo.toml` | workspace.dependencies | `=0.1.0` | 0.1.1 | stale |
-| `rightkit-secrets` | cutright | `cutright/crates/cutright-shorts/Cargo.toml` | dependencies | `=0.1.0` | 0.1.1 | stale |
-| `rightkit-secrets` | genright | `genright/crates/genright-gen/Cargo.toml` | dependencies | `=0.1.0` | 0.1.1 | stale |
-| `rightkit-secrets` | mailright | `mailright/src-tauri/Cargo.toml` | dependencies | `=0.1.0` | 0.1.1 | stale |
-| `rightkit-secrets` | scraperight | `scraperight/crates/engine/Cargo.toml` | dependencies | `=0.1.0` | 0.1.1 | stale |
-| `rightkit-secrets` | scraperight | `scraperight/src-tauri/Cargo.toml` | dependencies | `=0.1.0` | 0.1.1 | stale |
-| `rightkit-secrets` | viewright | `viewright/src-tauri/Cargo.toml` | dependencies | `=0.1.1` | 0.1.1 | current |
+| `rightkit-qts-ggml-sys` | genright | `genright/crates/genright-qts/Cargo.toml` | dependencies | `=0.1.0` | 0.1.1 | stale |
+| `rightkit-sandbox` | coderight | `coderight/engine/crates/tools/Cargo.toml` | dependencies | `=0.2.4` | 0.3.3 | stale |
+| `rightkit-secrets` | coderight | `coderight/engine/Cargo.toml` | workspace.dependencies | `=0.1.0` | 0.1.2 | stale |
+| `rightkit-secrets` | cutright | `cutright/crates/cutright-shorts/Cargo.toml` | dependencies | `=0.1.0` | 0.1.2 | stale |
+| `rightkit-secrets` | genright | `genright/crates/genright-gen/Cargo.toml` | dependencies | `=0.1.0` | 0.1.2 | stale |
+| `rightkit-secrets` | mailright | `mailright/src-tauri/Cargo.toml` | dependencies | `=0.1.0` | 0.1.2 | stale |
+| `rightkit-secrets` | postright | `postright/crates/engine/Cargo.toml` | dependencies | `=0.1.2` | 0.1.2 | current |
+| `rightkit-secrets` | scraperight | `scraperight/crates/engine/Cargo.toml` | dependencies | `=0.1.0` | 0.1.2 | stale |
+| `rightkit-secrets` | scraperight | `scraperight/src-tauri/Cargo.toml` | dependencies | `=0.1.0` | 0.1.2 | stale |
+| `rightkit-secrets` | viewright | `viewright/src-tauri/Cargo.toml` | dependencies | `=0.1.2` | 0.1.2 | current |
 | `rightkit-service` | heardright | `heardright/tauri-app-next/heardright-runtime/Cargo.toml` | dependencies | `=0.1.0` | 0.1.3 | stale |
 | `rightkit-settings` | genright | `genright/src-tauri/Cargo.toml` | dependencies | `=0.1.0` | 0.1.0 | current |
+| `rightkit-settings` | postright | `postright/crates/engine/Cargo.toml` | dependencies | `=0.1.0` | 0.1.0 | current |
 | `rightkit-shell` | coderight | `coderight/apps/coderight-tauri/src-tauri/Cargo.toml` | dependencies | `=0.1.2` | 0.1.4 | stale |
 | `rightkit-shell` | mailright | `mailright/src-tauri/Cargo.toml` | dependencies | `=0.1.2` | 0.1.4 | stale |
-| `rightkit-shell` | viewright | `viewright/src-tauri/Cargo.toml` | dependencies | `=0.1.3` | 0.1.4 | stale |
+| `rightkit-shell` | viewright | `viewright/src-tauri/Cargo.toml` | dependencies | `=0.1.4` | 0.1.4 | current |
 | `rightkit-speech-client` | cutright | `cutright/crates/cutright-speech/Cargo.toml` | dependencies | `=0.3.0` | 0.3.2 | stale |
 | `rightkit-speech-client` | heardright | `heardright/tauri-app-next/heardright-engine/Cargo.toml` | dev-dependencies | `=0.3.0` | 0.3.2 | stale |
 | `rightkit-speech-client` | heardright | `heardright/tauri-app-next/heardright-runtime/Cargo.toml` | dependencies | `=0.3.0` | 0.3.2 | stale |
@@ -228,23 +242,24 @@ Status values compare each pin with the latest published version (registry-recor
 | `rightkit-tauri` | coderight | `coderight/apps/coderight-tauri/src-tauri/crates/auth/Cargo.toml` | dependencies | `=0.1.1` | 0.1.2 | stale |
 | `rightkit-tauri` | heardright | `heardright/tauri-app-next/src-tauri/Cargo.toml` | dependencies | `=0.1.1` | 0.1.2 | stale |
 | `rightkit-tauri` | mailright | `mailright/src-tauri/Cargo.toml` | dependencies | `=0.1.1` | 0.1.2 | stale |
+| `rightkit-tauri` | postright | `postright/src-tauri/Cargo.toml` | dependencies | `=0.1.2` | 0.1.2 | current |
 | `rightkit-tauri` | scraperight | `scraperight/src-tauri/Cargo.toml` | dependencies | `=0.1.1` | 0.1.2 | stale |
-| `rightkit-tauri` | viewright | `viewright/src-tauri/Cargo.toml` | dependencies | `=0.1.1` | 0.1.2 | stale |
+| `rightkit-tauri` | viewright | `viewright/src-tauri/Cargo.toml` | dependencies | `=0.1.2` | 0.1.2 | current |
+| `rightkit-tts` | genright | `genright/crates/genright-qts/Cargo.toml` | dependencies | `=0.1.0` | 0.1.0 | current |
 | `rightkit-watch` | coderight | `coderight/context/engine/crates/membrane-blueprint/Cargo.toml` | dependencies | `=0.3.0` | 0.3.1 | stale |
 | `rightkit-watch` | coderight | `coderight/engine/Cargo.toml` | workspace.dependencies | `=0.1.0` | 0.3.1 | stale |
 | `rightkit-watch` | viewright | `viewright/src-tauri/Cargo.toml` | dependencies | `=0.3.1` | 0.3.1 | current |
-| `@rightkit/app-shell` | cockpit | `cockpit/hub/package.json` | dependencies | `0.2.1` | 0.3.0 | stale |
-| `@rightkit/app-shell` | cutright | `cutright/apps/cutright/package.json` | dependencies | `0.2.0` | 0.3.0 | stale |
-| `@rightkit/app-shell` | genright | `genright/package.json` | dependencies | `0.2.1` | 0.3.0 | stale |
-| `@rightkit/app-shell` | heardright | `heardright/tauri-app-next/package.json` | dependencies | `0.1.0` | 0.3.0 | stale |
-| `@rightkit/app-shell` | scraperight | `scraperight/package.json` | dependencies | `0.2.0` | 0.3.0 | stale |
+| `@rightkit/app-shell` | cutright | `cutright/apps/cutright/package.json` | dependencies | `0.2.0` | 0.4.0 | stale |
+| `@rightkit/app-shell` | genright | `genright/package.json` | dependencies | `0.2.1` | 0.4.0 | stale |
+| `@rightkit/app-shell` | heardright | `heardright/tauri-app-next/package.json` | dependencies | `0.1.0` | 0.4.0 | stale |
+| `@rightkit/app-shell` | scraperight | `scraperight/package.json` | dependencies | `0.2.0` | 0.4.0 | stale |
 | `@rightkit/ax` | coderight | `coderight/context/package.json` | devDependencies | `0.2.4` | 0.2.4 | current |
 | `@rightkit/ax` | legion | `legion/package.json` | devDependencies | `0.2.4` | 0.2.4 | current |
-| `@rightkit/doc-render` | viewright | `viewright/package.json` | dependencies | `0.1.3` | 0.1.4 | stale |
-| `@rightkit/git` | coderight | `coderight/context/package.json` | devDependencies | `0.2.24` | 0.2.26 | stale |
-| `@rightkit/git` | legion | `legion/package.json` | devDependencies | `0.2.24` | 0.2.26 | stale |
+| `@rightkit/doc-render` | viewright | `viewright/package.json` | dependencies | `0.1.4` | 0.1.5 | stale |
+| `@rightkit/git` | coderight | `coderight/context/package.json` | devDependencies | `0.2.24` | 0.2.37 | stale |
+| `@rightkit/git` | legion | `legion/package.json` | devDependencies | `0.2.37` | 0.2.37 | current |
 | `@rightkit/hooks` | coderight | `coderight/context/package.json` | dependencies | `0.1.1` | 0.1.2 | stale |
-| `@rightkit/hooks` | legion | `legion/package.json` | dependencies | `0.1.1` | 0.1.2 | stale |
+| `@rightkit/hooks` | legion | `legion/package.json` | dependencies | `0.1.2` | 0.1.2 | current |
 | `@rightkit/legal` | coderight | `coderight/apps/coderight-tauri/package.json` | dependencies | `0.3.1` | 0.3.1 | current |
 | `@rightkit/legal` | cutright | `cutright/apps/cutright/package.json` | devDependencies | `0.3.1` | 0.3.1 | current |
 | `@rightkit/legal` | heardright | `heardright/tauri-app-next/package.json` | dependencies | `0.3.1` | 0.3.1 | current |
@@ -256,7 +271,7 @@ Status values compare each pin with the latest published version (registry-recor
 | `@rightkit/legal-ui` | cutright | `cutright/apps/cutright/package.json` | dependencies | `0.1.3` | 0.2.0 | stale |
 | `@rightkit/legal-ui` | heardright | `heardright/tauri-app-next/package.json` | dependencies | `0.1.3` | 0.2.0 | stale |
 | `@rightkit/legal-ui` | scraperight | `scraperight/package.json` | dependencies | `0.1.3` | 0.2.0 | stale |
-| `@rightkit/legal-ui` | viewright | `viewright/package.json` | dependencies | `0.1.3` | 0.2.0 | stale |
+| `@rightkit/legal-ui` | viewright | `viewright/package.json` | dependencies | `0.2.0` | 0.2.0 | current |
 | `@rightkit/license` | coderight | `coderight/apps/coderight-tauri/package.json` | dependencies | `0.1.8` | 0.1.8 | current |
 | `@rightkit/license` | cutright | `cutright/apps/cutright/package.json` | dependencies | `0.1.8` | 0.1.8 | current |
 | `@rightkit/license` | heardright | `heardright/tauri-app-next/package.json` | dependencies | `0.1.8` | 0.1.8 | current |
@@ -267,54 +282,58 @@ Status values compare each pin with the latest published version (registry-recor
 | `@rightkit/logs` | cutright | `cutright/apps/cutright/package.json` | dependencies | `0.1.4` | 0.1.4 | current |
 | `@rightkit/logs` | heardright | `heardright/tauri-app-next/package.json` | dependencies | `0.1.4` | 0.1.4 | current |
 | `@rightkit/logs` | mailright | `mailright/package.json` | dependencies | `0.1.4` | 0.1.4 | current |
+| `@rightkit/logs` | postright | `postright/package.json` | dependencies | `0.1.4` | 0.1.4 | current |
 | `@rightkit/logs` | scraperight | `scraperight/package.json` | dependencies | `0.1.3` | 0.1.4 | stale |
 | `@rightkit/logs` | viewright | `viewright/package.json` | dependencies | `0.1.4` | 0.1.4 | current |
-| `@rightkit/media-ui` | cutright | `cutright/apps/cutright/package.json` | dependencies | `0.2.0` | 0.3.0 | stale |
-| `@rightkit/media-ui` | genright | `genright/package.json` | dependencies | `0.2.6` | 0.3.0 | stale |
-| `@rightkit/media-ui` | scraperight | `scraperight/package.json` | dependencies | `0.2.5` | 0.3.0 | stale |
-| `@rightkit/media-ui` | viewright | `viewright/package.json` | dependencies | `0.2.6` | 0.3.0 | stale |
-| `@rightkit/onboarding` | cutright | `cutright/apps/cutright/package.json` | dependencies | `0.2.0` | 0.3.0 | stale |
-| `@rightkit/onboarding` | genright | `genright/package.json` | dependencies | `0.2.3` | 0.3.0 | stale |
-| `@rightkit/onboarding` | heardright | `heardright/tauri-app-next/package.json` | dependencies | `0.1.0` | 0.3.0 | stale |
-| `@rightkit/onboarding` | scraperight | `scraperight/package.json` | dependencies | `0.2.2` | 0.3.0 | stale |
-| `@rightkit/pdf-ui` | viewright | `viewright/package.json` | dependencies | `0.1.2` | 0.1.2 | current |
-| `@rightkit/platform-ui` | cockpit | `cockpit/hub/package.json` | dependencies | `0.1.2` | 0.2.0 | stale |
+| `@rightkit/media-ui` | cutright | `cutright/apps/cutright/package.json` | dependencies | `0.2.0` | 0.3.1 | stale |
+| `@rightkit/media-ui` | genright | `genright/package.json` | dependencies | `0.2.6` | 0.3.1 | stale |
+| `@rightkit/media-ui` | scraperight | `scraperight/package.json` | dependencies | `0.2.5` | 0.3.1 | stale |
+| `@rightkit/media-ui` | viewright | `viewright/package.json` | dependencies | `0.3.0` | 0.3.1 | stale |
+| `@rightkit/onboarding` | cutright | `cutright/apps/cutright/package.json` | dependencies | `0.2.0` | 0.3.1 | stale |
+| `@rightkit/onboarding` | genright | `genright/package.json` | dependencies | `0.2.3` | 0.3.1 | stale |
+| `@rightkit/onboarding` | heardright | `heardright/tauri-app-next/package.json` | dependencies | `0.1.0` | 0.3.1 | stale |
+| `@rightkit/onboarding` | scraperight | `scraperight/package.json` | dependencies | `0.2.2` | 0.3.1 | stale |
+| `@rightkit/pdf-ui` | viewright | `viewright/package.json` | dependencies | `0.1.2` | 0.1.3 | stale |
 | `@rightkit/platform-ui` | cutright | `cutright/apps/cutright/package.json` | dependencies | `0.1.1` | 0.2.0 | stale |
 | `@rightkit/platform-ui` | genright | `genright/package.json` | dependencies | `0.1.2` | 0.2.0 | stale |
+| `@rightkit/platform-ui` | postright | `postright/package.json` | dependencies | `0.2.0` | 0.2.0 | current |
 | `@rightkit/platform-ui` | scraperight | `scraperight/package.json` | dependencies | `0.1.2` | 0.2.0 | stale |
+| `@rightkit/qa` | scraperight | `scraperight/package.json` | devDependencies | `0.4.0` | 0.4.1 | stale |
 | `@rightkit/qa-chrome` | heardright | `heardright/tauri-app-next/package.json` | devDependencies | `0.1.3` | 0.1.3 | current |
-| `@rightkit/qa-chrome` | scraperight | `scraperight/package.json` | devDependencies | `0.1.0` | 0.1.3 | stale |
-| `@rightkit/qa-chrome` | viewright | `viewright/package.json` | devDependencies | `0.1.2` | 0.1.3 | stale |
-| `@rightkit/release` | cockpit | `cockpit/package.json` | devDependencies | `0.2.135` | 0.2.135 | current |
-| `@rightkit/release` | coderight | `coderight/apps/coderight-tauri/package.json` | devDependencies | `0.2.133` | 0.2.135 | stale |
-| `@rightkit/release` | coderight | `coderight/context/package.json` | devDependencies | `0.2.121` | 0.2.135 | stale |
-| `@rightkit/release` | cutright | `cutright/apps/cutright/package.json` | devDependencies | `0.2.133` | 0.2.135 | stale |
-| `@rightkit/release` | genright | `genright/package.json` | devDependencies | `0.2.135` | 0.2.135 | current |
-| `@rightkit/release` | heardright | `heardright/tauri-app-next/package.json` | devDependencies | `0.2.135` | 0.2.135 | current |
-| `@rightkit/release` | legion | `legion/package.json` | devDependencies | `0.2.109` | 0.2.135 | stale |
-| `@rightkit/release` | mailright | `mailright/package.json` | devDependencies | `0.2.135` | 0.2.135 | current |
-| `@rightkit/release` | scraperight | `scraperight/package.json` | devDependencies | `0.2.133` | 0.2.135 | stale |
-| `@rightkit/release` | viewright | `viewright/package.json` | devDependencies | `0.2.135` | 0.2.135 | current |
-| `@rightkit/release` | voiceright | `voiceright/package.json` | devDependencies | `0.2.109` | 0.2.135 | stale |
-| `@rightkit/settings-ui` | cutright | `cutright/apps/cutright/package.json` | dependencies | `0.2.7` | 0.3.0 | stale |
-| `@rightkit/settings-ui` | genright | `genright/package.json` | dependencies | `0.2.7` | 0.3.0 | stale |
-| `@rightkit/settings-ui` | heardright | `heardright/tauri-app-next/package.json` | dependencies | `0.1.0` | 0.3.0 | stale |
-| `@rightkit/settings-ui` | scraperight | `scraperight/package.json` | dependencies | `0.2.7` | 0.3.0 | stale |
+| `@rightkit/qa-chrome` | scraperight | `scraperight/package.json` | devDependencies | `0.1.3` | 0.1.3 | current |
+| `@rightkit/qa-chrome` | viewright | `viewright/package.json` | devDependencies | `0.1.3` | 0.1.3 | current |
+| `@rightkit/release` | coderight | `coderight/apps/coderight-tauri/package.json` | devDependencies | `0.2.133` | 0.2.151 | stale |
+| `@rightkit/release` | coderight | `coderight/context/package.json` | devDependencies | `0.2.121` | 0.2.151 | stale |
+| `@rightkit/release` | cutright | `cutright/apps/cutright/package.json` | devDependencies | `0.2.133` | 0.2.151 | stale |
+| `@rightkit/release` | genright | `genright/package.json` | devDependencies | `0.2.151` | 0.2.151 | current |
+| `@rightkit/release` | heardright | `heardright/tauri-app-next/package.json` | devDependencies | `0.2.135` | 0.2.151 | stale |
+| `@rightkit/release` | legion | `legion/package.json` | devDependencies | `0.2.151` | 0.2.151 | current |
+| `@rightkit/release` | mailright | `mailright/package.json` | devDependencies | `0.2.135` | 0.2.151 | stale |
+| `@rightkit/release` | postright | `postright/package.json` | devDependencies | `0.2.149` | 0.2.151 | stale |
+| `@rightkit/release` | scraperight | `scraperight/package.json` | devDependencies | `0.2.133` | 0.2.151 | stale |
+| `@rightkit/release` | viewright | `viewright/package.json` | devDependencies | `0.2.151` | 0.2.151 | current |
+| `@rightkit/release` | voiceright | `voiceright/package.json` | devDependencies | `0.2.109` | 0.2.151 | stale |
+| `@rightkit/settings-ui` | cutright | `cutright/apps/cutright/package.json` | dependencies | `0.2.7` | 0.3.1 | stale |
+| `@rightkit/settings-ui` | genright | `genright/package.json` | dependencies | `0.2.7` | 0.3.1 | stale |
+| `@rightkit/settings-ui` | heardright | `heardright/tauri-app-next/package.json` | dependencies | `0.1.0` | 0.3.1 | stale |
+| `@rightkit/settings-ui` | scraperight | `scraperight/package.json` | dependencies | `0.2.7` | 0.3.1 | stale |
 | `@rightkit/shell` | coderight | `coderight/apps/coderight-tauri/package.json` | dependencies | `0.1.0` | 0.1.0 | current |
 | `@rightkit/shell` | cutright | `cutright/apps/cutright/package.json` | dependencies | `0.1.0` | 0.1.0 | current |
 | `@rightkit/tauri` | coderight | `coderight/apps/coderight-tauri/package.json` | dependencies | `0.1.1` | 0.2.0 | stale |
 | `@rightkit/tauri` | heardright | `heardright/tauri-app-next/package.json` | dependencies | `0.1.1` | 0.2.0 | stale |
 | `@rightkit/tauri` | mailright | `mailright/package.json` | dependencies | `0.1.1` | 0.2.0 | stale |
+| `@rightkit/tauri` | postright | `postright/package.json` | dependencies | `0.2.0` | 0.2.0 | current |
 | `@rightkit/tauri` | scraperight | `scraperight/package.json` | dependencies | `0.1.0` | 0.2.0 | stale |
-| `@rightkit/tauri` | viewright | `viewright/package.json` | dependencies | `0.1.1` | 0.2.0 | stale |
-| `@rightkit/theme` | cutright | `cutright/apps/cutright/package.json` | dependencies | `0.2.0` | 0.2.1 | stale |
-| `@rightkit/theme` | genright | `genright/package.json` | dependencies | `0.2.1` | 0.2.1 | current |
-| `@rightkit/theme` | heardright | `heardright/tauri-app-next/package.json` | dependencies | `0.1.0` | 0.2.1 | stale |
-| `@rightkit/theme` | scraperight | `scraperight/package.json` | dependencies | `0.2.0` | 0.2.1 | stale |
+| `@rightkit/tauri` | viewright | `viewright/package.json` | dependencies | `0.2.0` | 0.2.0 | current |
+| `@rightkit/theme` | cutright | `cutright/apps/cutright/package.json` | dependencies | `0.2.0` | 0.2.2 | stale |
+| `@rightkit/theme` | genright | `genright/package.json` | dependencies | `0.2.1` | 0.2.2 | stale |
+| `@rightkit/theme` | heardright | `heardright/tauri-app-next/package.json` | dependencies | `0.1.0` | 0.2.2 | stale |
+| `@rightkit/theme` | scraperight | `scraperight/package.json` | dependencies | `0.2.0` | 0.2.2 | stale |
 | `@rightkit/updates` | coderight | `coderight/apps/coderight-tauri/package.json` | dependencies | `0.2.5` | 0.2.5 | current |
 | `@rightkit/updates` | cutright | `cutright/apps/cutright/package.json` | dependencies | `0.2.4` | 0.2.5 | stale |
 | `@rightkit/updates` | heardright | `heardright/tauri-app-next/package.json` | dependencies | `0.2.5` | 0.2.5 | current |
 | `@rightkit/updates` | mailright | `mailright/package.json` | dependencies | `0.2.5` | 0.2.5 | current |
+| `@rightkit/updates` | postright | `postright/package.json` | dependencies | `0.2.5` | 0.2.5 | current |
 | `@rightkit/updates` | scraperight | `scraperight/package.json` | dependencies | `0.2.5` | 0.2.5 | current |
 | `@rightkit/updates` | viewright | `viewright/package.json` | dependencies | `0.2.5` | 0.2.5 | current |
 
@@ -337,14 +356,14 @@ Split pins: one app names the same package with different requirements, possibly
 | App | Present | Manifests read | Parse errors | RightKit pins matched |
 |---|---|---|---|---|
 | cutright | yes | 28 | 0 | 25 |
-| genright | yes | 11 | 0 | 37 |
-| scraperight | yes | 14 | 0 | 32 |
-| viewright | yes | 9 | 0 | 19 |
-| heardright | yes | 19 | 0 | 26 |
-| coderight | yes | 93 | 0 | 41 |
+| genright | yes | 11 | 0 | 38 |
+| scraperight | yes | 14 | 0 | 34 |
+| viewright | yes | 8 | 0 | 20 |
+| heardright | yes | 19 | 0 | 27 |
+| coderight | yes | 92 | 0 | 42 |
 | mailright | yes | 3 | 0 | 16 |
-| postright | yes | 0 | 0 | 0 |
-| cockpit | yes | 15 | 0 | 5 |
+| postright | yes | 6 | 0 | 17 |
+| cockpit | **missing** | 0 | 0 | 0 |
 | workright | yes | 16 | 0 | 0 |
 | sellright | yes | 6 | 0 | 1 |
 | rightsites | yes | 18 | 0 | 1 |

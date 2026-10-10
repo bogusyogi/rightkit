@@ -23,17 +23,39 @@ export interface PolicyConfig {
     /** Exact names, or `/regex/` strings, that default to held. */
     held?: string[];
   };
+  /** What `land` does after committing: `commit` (default) keeps the commit local, `push` also pushes. */
+  land?: LandMode;
+}
+
+export const LAND_MODES = ["commit", "push"] as const;
+export type LandMode = (typeof LAND_MODES)[number];
+
+/** A repository gate: a command that must exit 0 for `gate` to pass. */
+export interface GateDef {
+  name: string;
+  /** Argument vector. Spawned directly, never through a shell. */
+  command: string[];
+  /** Working directory relative to the repository root. Defaults to the root. */
+  cwd?: string;
+  /** Timeout in seconds. Defaults to 1800. */
+  timeoutSec?: number;
 }
 
 export interface CargoSource {
   kind: "cargo";
-  manifest: string;
+  /** One manifest path. Exactly one of `manifest` and `glob` is set. */
+  manifest?: string;
+  /** Glob over manifests (`*` within one path segment), whose last segment is `Cargo.toml`. */
+  glob?: string;
   policy?: Policy;
 }
 
 export interface PnpmSource {
   kind: "pnpm";
-  manifest: string;
+  /** One manifest path. Exactly one of `manifest` and `glob` is set. */
+  manifest?: string;
+  /** Glob over manifests (`*` within one path segment), whose last segment is `package.json`. */
+  glob?: string;
   policy?: Policy;
 }
 
@@ -62,6 +84,8 @@ export interface ToolAsset {
   /** `sha256:<hex>` digest of the downloaded asset exactly as published. */
   checksum: string;
   extract?: ToolExtract;
+  /** Download size bound in bytes. Defaults to 512 MiB. */
+  maxBytes?: number;
 }
 
 export type ToolUpstream =
@@ -75,6 +99,10 @@ export interface Journey {
   report: string;
   /** Free-form inputs, passed as JSON on stdin when gate runs the journey. */
   inputs?: Record<string, unknown>;
+  /** Model id substituted for `{model}`; empty when omitted. */
+  model?: string;
+  /** Journey timeout in seconds. Defaults to 1800. */
+  timeoutSec?: number;
 }
 
 export interface ToolSource {
@@ -93,6 +121,8 @@ export interface UpdateManifest {
   schemaVersion: typeof SCHEMA_VERSION;
   sources: Source[];
   policy: PolicyConfig;
+  /** Repository gates run by `right-update gate`. */
+  gates?: GateDef[];
 }
 
 export type CheckStatus = "current" | "outdated" | "unknown";
