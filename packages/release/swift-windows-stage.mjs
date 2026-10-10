@@ -41,7 +41,9 @@ function findInDirs(name, dirs) {
  *   systemDlls[] (extra allowed), dependencies[{ name, provides[] }], architecture }
  * Returns a manifest; throws SWIFT_STAGE_UNRESOLVED listing every missing DLL.
  */
-export function stageSwiftWindows({ exe, out, searchDirs = [], include = [], systemDlls = [], dependencies = [], architecture, clean = true } = {}) {
+const PE_SUBSYSTEMS = { gui: 2, console: 3 };
+
+export function stageSwiftWindows({ exe, out, searchDirs = [], include = [], systemDlls = [], dependencies = [], architecture, subsystem, clean = true } = {}) {
   if (!exe || !out) throw fail("SWIFT_STAGE_OPTIONS", "exe and out are required");
   exe = path.resolve(exe); out = path.resolve(out);
   if (!/\.exe$/i.test(exe) || !existsSync(exe) || !statSync(exe).isFile()) throw fail("SWIFT_STAGE_OPTIONS", `exe must be an existing .exe: ${exe}`);
@@ -71,6 +73,14 @@ export function stageSwiftWindows({ exe, out, searchDirs = [], include = [], sys
     const info = readPeImports(readFileSync(item.source));
     if (!["x64", "arm64"].includes(info.architecture)) throw fail("SWIFT_STAGE_ARCH", `${item.source} is ${info.architecture}; only x64 and arm64 are supported`);
     arch ??= info.architecture;
+    if (item.from === "<root>" && subsystem) {
+      const want = PE_SUBSYSTEMS[subsystem];
+      if (!want) throw fail("SWIFT_STAGE_OPTIONS", `windows.subsystem must be "gui" or "console", got ${JSON.stringify(subsystem)}`);
+      if (info.subsystem !== want) {
+        throw fail("SWIFT_STAGE_SUBSYSTEM", `${item.source} has PE subsystem ${info.subsystem}, expected ${want} (${subsystem})` +
+          (subsystem === "gui" ? "; link with -Xlinker /SUBSYSTEM:WINDOWS -Xlinker /ENTRY:mainCRTStartup so launching it opens no console window" : ""));
+      }
+    }
     if (info.architecture !== arch) throw fail("SWIFT_STAGE_ARCH", `${item.source} is ${info.architecture} but package architecture is ${arch}`);
     for (const dep of [...info.imports, ...info.delayImports]) {
       const dk = lower(dep);

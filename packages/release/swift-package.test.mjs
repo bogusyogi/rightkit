@@ -10,7 +10,7 @@ import { assembleMacApp, discoverNestedCode, generateInfoPlist, signAndNotarizeM
 import { loadSwiftPackageConfig, macOptions, main, msixOptions, windowsStageOptions } from "./swift-package-command.mjs";
 
 // Build a tiny valid PE32+ with the given import names (one .idata section).
-function pe({ imports = [], delay = [], machine = 0x8664 } = {}) {
+function pe({ imports = [], delay = [], machine = 0x8664, subsystem = 3 } = {}) {
   const rva = 0x1000, raw = 0x200;
   const section = Buffer.alloc(0x400);
   let cursor = 0;
@@ -31,6 +31,7 @@ function pe({ imports = [], delay = [], machine = 0x8664 } = {}) {
   header.writeUInt32LE(0x00004550, 0x80);
   header.writeUInt16LE(machine, 0x84); header.writeUInt16LE(1, 0x86); header.writeUInt16LE(240, 0x94);
   const opt = 0x98; header.writeUInt16LE(0x20b, opt);
+  header.writeUInt16LE(subsystem, opt + 68);
   header.writeUInt32LE(rva, opt + 112 + 8); header.writeUInt32LE(tableSize, opt + 112 + 12);
   if (delay.length) { header.writeUInt32LE(rva + delayAt, opt + 112 + 13 * 8); header.writeUInt32LE(delaySize, opt + 112 + 13 * 8 + 4); }
   const sec = opt + 240;
@@ -78,6 +79,20 @@ test("stage fails closed on unresolved dependency, naming importer", () => {
     dependencies: [{ name: "Microsoft.VCLibs.140.00.UWPDesktop", provides: ["msvcp140.dll"] }] });
   assert.equal(m.providedByDependencies["msvcp140.dll"], "Microsoft.VCLibs.140.00.UWPDesktop");
   rmSync(root, { recursive: true });
+});
+
+test("stage enforces the declared Windows subsystem on the root exe only", () => {
+  const dir = tmp();
+  try {
+    const consoleExe = write(dir, "bin/App.exe", pe({ imports: ["KERNEL32.dll"] }));
+    assert.equal(readPeImports(readFileSync(consoleExe)).subsystem, 3);
+    assert.throws(() => stageSwiftWindows({ exe: consoleExe, out: path.join(dir, "out"), subsystem: "gui" }),
+      (e) => e.code === "SWIFT_STAGE_SUBSYSTEM" && /\/SUBSYSTEM:WINDOWS/.test(e.message) && /ENTRY:mainCRTStartup/.test(e.message));
+    assert.throws(() => stageSwiftWindows({ exe: consoleExe, out: path.join(dir, "out"), subsystem: "windowed" }), { code: "SWIFT_STAGE_OPTIONS" });
+    const guiExe = write(dir, "gui/App.exe", pe({ imports: ["KERNEL32.dll"], subsystem: 2 }));
+    assert.equal(stageSwiftWindows({ exe: guiExe, out: path.join(dir, "out2"), subsystem: "gui" }).architecture, "x64");
+    assert.ok(stageSwiftWindows({ exe: consoleExe, out: path.join(dir, "out3") }));
+  } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
 test("stage rejects mixed architectures", () => {

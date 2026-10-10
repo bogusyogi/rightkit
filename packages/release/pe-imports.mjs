@@ -55,5 +55,7 @@ export function readPeImports(bytes) {
       delayImports.add(cstring(name));
     }
   }
-  return { machine, architecture: PE_MACHINES[machine] ?? `0x${machine.toString(16)}`, imports: [...imports], delayImports: [...delayImports] };
+  // Optional header Subsystem is at offset 68 in both PE32 and PE32+ (2 = WINDOWS_GUI, 3 = WINDOWS_CUI).
+  const subsystem = buf.readUInt16LE(optional + 68);
+  return { machine, architecture: PE_MACHINES[machine] ?? `0x${machine.toString(16)}`, subsystem, imports: [...imports], delayImports: [...delayImports] };
 }

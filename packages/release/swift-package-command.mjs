@@ -29,7 +29,7 @@ export function windowsStageOptions({ config, base }) {
   const w = config.windows;
   if (!w?.exe || !w?.out) throw fail("SWIFT_PACKAGE_CONFIG", "windows.exe and windows.out are required");
   return { exe: rel(base, w.exe), out: rel(base, w.stageDir ?? `${w.out}.stage`), searchDirs: relList(base, w.searchDirs),
-    include: relList(base, w.include), systemDlls: w.systemDlls, dependencies: w.dependencies, architecture: w.architecture };
+    include: relList(base, w.include), systemDlls: w.systemDlls, dependencies: w.dependencies, architecture: w.architecture, subsystem: w.subsystem };
 }
 
 export function msixOptions({ config, base }, staged) {
