@@ -6,7 +6,7 @@
 //! already have taken effect). The next call restarts the engine within the restart budget, and
 //! callers see `engine restart budget exhausted` once the budget is spent instead of looping.
 
-use std::io::{BufReader, BufWriter};
+use std::io::{BufReader, BufWriter, Write};
 use std::path::PathBuf;
 use std::process::{ChildStdin, Stdio};
 use std::sync::mpsc::{channel, Receiver, RecvTimeoutError};
@@ -130,7 +130,9 @@ impl EngineSupervisor {
         let started = Instant::now();
         let request = Request { id, cmd: cmd.to_string(), input };
         let live = self.live.as_mut().expect("ensure_live set it");
-        if let Err(e) = framed::write_json_line(&mut live.stdin, &request, MAX_FRAME_BYTES) {
+        // `write_json_line` only writes; the BufWriter must be flushed or the engine never sees the request.
+        let sent = framed::write_json_line(&mut live.stdin, &request, MAX_FRAME_BYTES).and_then(|()| live.stdin.flush().map_err(framed::FrameError::Io));
+        if let Err(e) = sent {
             self.retire();
             return Err(format!("engine write failed: {e}"));
         }
