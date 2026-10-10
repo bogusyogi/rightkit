@@ -404,7 +404,7 @@
     "npm": {
       "@rightkit/app-shell": "0.4.0",
       "@rightkit/ax": "0.2.4",
-      "@rightkit/doc-render": "0.1.5",
+      "@rightkit/doc-render": "0.1.6",
       "@rightkit/git": "0.2.37",
       "@rightkit/hooks": "0.1.2",
       "@rightkit/i18n": "0.1.0",

@@ -2,9 +2,9 @@
   "schema": 1,
   "kind": "npm",
   "name": "@rightkit/doc-render",
-  "version": "0.1.5",
-  "commit": "40ce4f938ddacf13f618af6096889026996c34c8",
-  "artifactSha256": "f723acf9ed39c743c492a0c5d16304129e69f9236d2927b952fe821feb036228",
+  "version": "0.1.6",
+  "commit": "049e67f99782fc0f8ce134f526508b9018c39073",
+  "artifactSha256": "1e538c347245860160588c4f8381d65a89b6a1f0562823090d8eb43b0c3cddc2",
   "hostPolicy": "darwin-only",
   "hostPolicyReason": "Adrian 2026-10-07: apps validate on macOS first, Windows later",
   "runs": [
@@ -13,13 +13,13 @@
         "os": "darwin",
         "arch": "arm64"
       },
-      "commit": "40ce4f938ddacf13f618af6096889026996c34c8",
+      "commit": "049e67f99782fc0f8ce134f526508b9018c39073",
       "command": "pnpm --dir packages/$D test",
       "features": [
         "default"
       ],
       "operator": "claude-fable-5.1 (RightKit lead) for adrdsouza",
-      "timestamp": "2026-10-10T14:42:40Z",
+      "timestamp": "2026-10-10T18:50:08Z",
       "passed": 7,
       "failed": 0
     }
