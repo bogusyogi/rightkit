@@ -4,7 +4,8 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { validateNativeQaContract } from './guard.js';
 
-const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../../..');
+// Workspace root: the RightKit repo lives at <workspace>/rightkit since 2026-10-10 (was tools/rightkit).
+const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../..');
 
 const apps = [
   {
