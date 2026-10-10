@@ -87,5 +87,5 @@ Gaps reported by app chats to the RightKit lead, with the decision and owner. Ap
 
 - Catalog capability `device-send` for rightkit-send (#14).
 - New shared crates for platform capability rules, autonomy ladder, skill runner (#12), names after Sage design.
-- `ownership-dependency-allowlist.json`: add PostRight's 28 flagged dependencies (list from the PostRight chat's `right-release doctor` output, #57); add `react-image-crop ^11.1.2` (required by @rightkit/media-ui/image; raised by CutRight, #34); add the PDFium binding crate apps use app-side until `rightkit-pdfium` exists (#42).
+- `ownership-dependency-allowlist.json` (#57, every app scaffolded from desktop-app-template flags the same set): Cargo `serde_json 1`, `serde 1` (derive), `tauri 2` (protocol-asset), `tauri-build 2`, `tauri-plugin-os 2`, `tauri-plugin-process =2.3.1`, `tauri-plugin-updater =2.10.1`; npm `@tauri-apps/api ^2.11.1`, `@tauri-apps/plugin-os ^2.3.2`, `@tauri-apps/plugin-process 2.3.1`, `@tauri-apps/plugin-updater 2.10.1`, `react`, `react-dom` (19.3.0), `@tailwindcss/vite`, `@tauri-apps/cli ^2.11.4`, `@types/react`, `@types/react-dom`, `@vitejs/plugin-react`, `tailwindcss`, `vite`; add `react-image-crop ^11.1.2` (required by @rightkit/media-ui/image; raised by CutRight, #34); add the PDFium binding crate apps use app-side until `rightkit-pdfium` exists (#42).
 
