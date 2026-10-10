@@ -558,6 +558,19 @@ test("accepts the right-git devArtifact dev-mac-sign job in ci.yml when the mani
   assert.equal(result.status, 0, result.stderr);
 });
 
+test("accepts notary API key secrets in dev-mac-sign when the manifest declares devArtifact mac notarize", () => {
+  const config = fixture({ hostedWorkflows: "right-git-ci-only", includeCargoSources: false });
+  const root = path.dirname(config);
+  const workflowDir = path.join(root, ".github", "workflows");
+  mkdirSync(workflowDir, { recursive: true });
+  writeFileSync(path.join(root, ".rightgit.json"), JSON.stringify({ schemaVersion: 1, compile: "github-actions-only", lanes: ["ci"], devArtifact: { mac: "notarize", macAppPath: "target/App.app" } }));
+  writeFileSync(path.join(workflowDir, "ci.yml"), `${DEV_MAC_SIGN_CI}      KEY: \${{ secrets.APPLE_API_KEY_BASE64 }}\n      KEY_ID: \${{ secrets.APPLE_API_KEY }}\n      ISSUER: \${{ secrets.APPLE_API_ISSUER }}\n`);
+  git(root, "add", ".");
+  git(root, "commit", "-m", "add notarizing dev-mac-sign ci workflow");
+  const result = run(config, "--tier=patch");
+  assert.equal(result.status, 0, result.stderr);
+});
+
 test("rejects dev-mac-sign secrets in ci.yml without a devArtifact mac sign declaration, on a dispatchable job, or with notarization keys", () => {
   const cases = [
     { manifest: { devArtifact: { windows: "unsigned", windowsGlob: "dist/*.exe" } }, ci: DEV_MAC_SIGN_CI },

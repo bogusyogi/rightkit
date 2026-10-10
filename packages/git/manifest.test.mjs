@@ -450,7 +450,8 @@ test("devArtifact validates keys, paths, and runner coverage", () => {
   assert.equal(bad({ ...full, windowsGlob: "${{ x }}" }), false);
   assert.equal(bad({ ...full, retentionDays: 0 }), false);
   assert.equal(bad({ ...full, retentionDays: 91 }), false);
-  assert.equal(bad({ ...full, mac: "notarize" }), false);
+  assert.equal(bad({ ...full, mac: "staple" }), false);
+  assert.equal(validateManifest({ ...base, devArtifact: { ...full, mac: "notarize" } }).valid, true, "notarize is a signed mac mode");
   assert.equal(bad({ ...full, extra: 1 }), false);
   assert.equal(bad({ windows: "unsigned", windowsGlob: "a/*.exe", macAppPath: "x.app" }), false, "macAppPath requires mac sign");
   assert.equal(bad(full, { ...base, ciAllOs: false }), false, "single windows runner cannot build the mac app");

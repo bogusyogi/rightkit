@@ -1038,6 +1038,22 @@ test("regenerate lane is dispatch-only, pushes only to right-git/regenerate-<run
   assert.equal(validateManifest({ ...FULL_MANIFEST, lanes: ["ci", "regenerate"], regenerate: { script: "re gen" } }).valid, false, "script name charset");
 });
 
+test("devArtifact mac 'notarize' notarizes and staples inside dev-mac-sign only; 'sign' output is unchanged", () => {
+  const signed = renderRustCi(DEV_MANIFEST);
+  const notarized = renderRustCi({ ...DEV_MANIFEST, devArtifact: { ...DEV_MANIFEST.devArtifact, mac: "notarize" } });
+  assert.doesNotMatch(signed, /notarytool|stapler|AuthKey|APPLE_API/);
+  const [ciPart, jobPart] = notarized.split("  dev-mac-sign:");
+  assert.doesNotMatch(ciPart, /secrets\.|notarytool/);
+  assert.match(jobPart, /xcrun notarytool submit "\$zip" --key "\$RUNNER_TEMP\/AuthKey\.p8" --key-id "\$APPLE_API_KEY" --issuer "\$APPLE_API_ISSUER" --wait\n\s+xcrun stapler staple "\$app"\n\s+xcrun stapler validate "\$app"/);
+  assert.match(jobPart, /APPLE_API_KEY_BASE64: \$\{\{ secrets\.APPLE_API_KEY_BASE64 \}\}/);
+  assert.match(jobPart, /Upload signed and notarized dev app/);
+  assert.match(jobPart, /rm -f "\$RUNNER_TEMP\/apple-signing\.p12" "\$RUNNER_TEMP\/AuthKey\.p8"/);
+  assert.match(jobPart, /if: \$\{\{ github\.event_name == 'push' && github\.ref_name == github\.event\.repository\.default_branch \}\}\n    environment: release/);
+  const notarizeEntitled = validateManifest({ ...DEV_MANIFEST, regenerate: undefined, devArtifact: { ...DEV_MANIFEST.devArtifact, mac: "notarize", macEntitlements: "build/pulse.entitlements" } });
+  assert.equal(notarizeEntitled.valid, true, JSON.stringify(notarizeEntitled.errors));
+  assert.equal(validateManifest({ ...DEV_MANIFEST, regenerate: undefined, devArtifact: { mac: "notarize" } }).valid, false, "notarize needs macAppPath");
+});
+
 test("devArtifact entitlements add a checkout and --entitlements", () => {
   const out = renderRustCi({ ...DEV_MANIFEST, devArtifact: { ...DEV_MANIFEST.devArtifact, macEntitlements: "build/pulse.entitlements" } });
   assert.match(out, /--entitlements "\$GITHUB_WORKSPACE\/build\/pulse\.entitlements"/);

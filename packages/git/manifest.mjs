@@ -604,9 +604,10 @@ function validateDevArtifact(manifest, profile, errors) {
   for (const key of Object.keys(dev)) {
     if (!["mac", "windows", "retentionDays", "macAppPath", "macEntitlements", "windowsGlob", "dispatch"].includes(key)) errors.push(`unknown devArtifact field: ${key}`);
   }
-  if (dev.mac !== undefined && dev.mac !== "sign" && dev.mac !== "unsigned" && dev.mac !== "none") errors.push("devArtifact.mac must be 'sign', 'unsigned' or 'none'");
+  if (dev.mac !== undefined && !["sign", "notarize", "unsigned", "none"].includes(dev.mac)) errors.push("devArtifact.mac must be 'sign', 'notarize', 'unsigned' or 'none'");
   if (dev.windows !== undefined && dev.windows !== "unsigned" && dev.windows !== "none") errors.push("devArtifact.windows must be 'unsigned' or 'none'");
-  const macActive = dev.mac === "sign" || dev.mac === "unsigned";
+  const macSigned = dev.mac === "sign" || dev.mac === "notarize";
+  const macActive = macSigned || dev.mac === "unsigned";
   if (!macActive && dev.windows !== "unsigned") errors.push("devArtifact requires mac 'sign'/'unsigned' and/or windows 'unsigned'");
   if (dev.dispatch !== undefined && dev.dispatch !== true) errors.push("devArtifact.dispatch must be true when present");
   if (dev.dispatch === true && dev.mac !== "unsigned" && dev.windows !== "unsigned") {
@@ -620,8 +621,8 @@ function validateDevArtifact(manifest, profile, errors) {
     if (typeof dev.macAppPath !== "string" || !DEV_MAC_PATH_RE.test(dev.macAppPath) || !dev.macAppPath.endsWith(".app")) {
       errors.push(`devArtifact.macAppPath must be a safe repository-relative path ending in .app when mac is '${dev.mac}'`);
     }
-    if (dev.macEntitlements !== undefined && dev.mac !== "sign") {
-      errors.push("devArtifact.macEntitlements requires mac 'sign'");
+    if (dev.macEntitlements !== undefined && !macSigned) {
+      errors.push("devArtifact.macEntitlements requires mac 'sign' or 'notarize'");
     } else if (dev.macEntitlements !== undefined && (typeof dev.macEntitlements !== "string" || !GATE_PATH_RE.test(dev.macEntitlements))) {
       errors.push("devArtifact.macEntitlements must be a safe repository-relative path");
     }
@@ -629,7 +630,7 @@ function validateDevArtifact(manifest, profile, errors) {
       errors.push(`devArtifact.mac '${dev.mac}' needs the ci gate to run on a macOS runner (set ciAllOs and include a macos-* or xcode-* runner in matrix.os)`);
     }
   } else if (dev.macAppPath !== undefined || dev.macEntitlements !== undefined) {
-    errors.push("devArtifact.macAppPath and macEntitlements require mac 'sign' or 'unsigned'");
+    errors.push("devArtifact.macAppPath and macEntitlements require mac 'sign', 'notarize' or 'unsigned'");
   }
   if (dev.windows === "unsigned") {
     if (typeof dev.windowsGlob !== "string" || !DEV_WINDOWS_GLOB_RE.test(dev.windowsGlob)) {
@@ -697,7 +698,7 @@ export function devArtifactCi(manifest) {
       "",
     ].join("\n"));
   }
-  if (dev.mac === "sign") {
+  if (dev.mac === "sign" || dev.mac === "notarize") {
     parts.push([
       "      - name: Package unsigned dev app (macOS)",
       `        if: \${{ ${DEV_PUSH_CONDITION} && runner.os == 'macOS' }}`,
@@ -744,7 +745,7 @@ export function devArtifactCi(manifest) {
     ].join("\n"));
   }
   let text = parts.join("");
-  if (dev.mac === "sign") text += devMacSigningJob(manifest, dev, retention);
+  if (dev.mac === "sign" || dev.mac === "notarize") text += devMacSigningJob(manifest, dev, retention);
   return text;
 }
 
@@ -758,6 +759,31 @@ function devMacSigningJob(manifest, dev, retention) {
           persist-credentials: false
 `
     : "";
+  // `mac: "notarize"` also submits the signed app to the notary service and
+  // staples the ticket, so app extensions (Finder Sync, Share, ...) register on
+  // current macOS, which refuses them from unnotarized Developer ID apps.
+  const notarize = dev.mac === "notarize";
+  const apiKeyEnv = notarize ? `
+          APPLE_API_KEY_BASE64: \${{ secrets.APPLE_API_KEY_BASE64 }}` : "";
+  const apiKeyInstall = notarize ? `
+          printf '%s' "$APPLE_API_KEY_BASE64" | base64 --decode > "$RUNNER_TEMP/AuthKey.p8"` : "";
+  const notarizeStep = notarize ? `      - name: Notarize and staple dev app
+        shell: bash
+        env:
+          APPLE_API_KEY: \${{ secrets.APPLE_API_KEY }}
+          APPLE_API_ISSUER: \${{ secrets.APPLE_API_ISSUER }}
+        run: |
+          set -euo pipefail
+          app="$(find "$RUNNER_TEMP/dev-sign" -maxdepth 1 -name '*.app' -print -quit)"
+          test -n "$app"
+          zip="$RUNNER_TEMP/dev-signed/$(basename "$app").zip"
+          xcrun notarytool submit "$zip" --key "$RUNNER_TEMP/AuthKey.p8" --key-id "$APPLE_API_KEY" --issuer "$APPLE_API_ISSUER" --wait
+          xcrun stapler staple "$app"
+          xcrun stapler validate "$app"
+          rm -f "$zip"
+          ditto -c -k --keepParent "$app" "$zip"
+` : "";
+  const uploadLabel = notarize ? "Upload signed and notarized dev app" : "Upload signed (not notarized) dev app";
   return `
   dev-mac-sign:
     # Push to the default branch only. The release environment's protection
@@ -779,19 +805,19 @@ ${checkout}      - name: Download unsigned dev app
         env:
           APPLE_CERTIFICATE_BASE64: \${{ secrets.APPLE_CERTIFICATE_BASE64 }}
           APPLE_CERTIFICATE_PASSWORD: \${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          APPLE_KEYCHAIN_PASSWORD: \${{ secrets.APPLE_KEYCHAIN_PASSWORD }}
+          APPLE_KEYCHAIN_PASSWORD: \${{ secrets.APPLE_KEYCHAIN_PASSWORD }}${apiKeyEnv}
         run: |
           set -euo pipefail
           certificate_path="$RUNNER_TEMP/apple-signing.p12"
           keychain_path="$RUNNER_TEMP/apple-signing.keychain-db"
-          printf '%s' "$APPLE_CERTIFICATE_BASE64" | base64 --decode > "$certificate_path"
+          printf '%s' "$APPLE_CERTIFICATE_BASE64" | base64 --decode > "$certificate_path"${apiKeyInstall}
           security create-keychain -p "$APPLE_KEYCHAIN_PASSWORD" "$keychain_path"
           security set-keychain-settings -lut 21600 "$keychain_path"
           security unlock-keychain -p "$APPLE_KEYCHAIN_PASSWORD" "$keychain_path"
           security import "$certificate_path" -P "$APPLE_CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k "$keychain_path"
           security set-key-partition-list -S apple-tool:,apple: -k "$APPLE_KEYCHAIN_PASSWORD" "$keychain_path"
           security list-keychain -d user -s "$keychain_path"
-      - name: Developer ID sign dev app (no notarization)
+      - name: Developer ID sign dev app${notarize ? "" : " (no notarization)"}
         shell: bash
         env:
           APPLE_DEVELOPER_ID: \${{ vars.APPLE_DEVELOPER_ID }}
@@ -806,7 +832,7 @@ ${checkout}      - name: Download unsigned dev app
           codesign --verify --deep --strict "$app"
           mkdir -p "$RUNNER_TEMP/dev-signed"
           ditto -c -k --keepParent "$app" "$RUNNER_TEMP/dev-signed/$(basename "$app").zip"
-      - name: Upload signed (not notarized) dev app
+${notarizeStep}      - name: ${uploadLabel}
         uses: ${UPLOAD_ARTIFACT_PIN}
         with:
           name: dev-mac-\${{ github.sha }}
@@ -818,7 +844,7 @@ ${checkout}      - name: Download unsigned dev app
         shell: bash
         run: |
           security delete-keychain "$RUNNER_TEMP/apple-signing.keychain-db" 2>/dev/null || true
-          rm -f "$RUNNER_TEMP/apple-signing.p12"
+          rm -f "$RUNNER_TEMP/apple-signing.p12"${notarize ? ' "$RUNNER_TEMP/AuthKey.p8"' : ""}
 `;
 }
 

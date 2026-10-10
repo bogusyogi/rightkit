@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.37
+
+- `devArtifact.mac` accepts `"notarize"`: the `dev-mac-sign` job also submits the Developer ID-signed dev app to the notary service and staples the ticket before uploading `dev-mac-<sha>`. Current macOS refuses to register app extensions (Finder Sync, Share, ...) from an unnotarized Developer ID app, so a `"sign"` dev install silently loses them; use `"notarize"` for apps that ship extensions. Same job gate (push to the default branch, release environment); `"sign"` output is byte-identical to 0.2.36.
+
 ## 0.2.36
 
 - New manual-only `regenerate` lane (`lanes: [..., "regenerate"]` + `regenerate: { script }`). The managed `regenerate.yml` runs on `workflow_dispatch` only: checks out the default branch, runs the package script, runs the ownership scan and (rust-hybrid) the ci gate or (node) the test script on the regenerated tree, then pushes it to `right-git/regenerate-<run_id>-<attempt>` and opens a pull request with the workflow token. It never writes to the default branch; `contents: write` and `pull-requests: write` are job-scoped. Pull requests opened with the workflow token do not trigger `pull_request` workflows, which is why the checks run in the lane and the PR body links the run. rust-hybrid now accepts `regenerate` beside `ci` and `release-candidate`.

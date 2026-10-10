@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.150
+
+- Hosted-workflow policy accepts the notary API key secrets inside the `dev-mac-sign` job when `.rightgit.json` declares `devArtifact.mac: "notarize"`; with `"sign"` only the three Developer ID certificate secrets remain allowed. The job gate is unchanged.
+- `publish swift`: the source archive is taken from the git toplevel (archiving the package subtree from inside the package produced an empty tar), and the mirror reproduces the verified subtree exactly (tracked `.swiftpm` scheme metadata is no longer dropped, which made the mirror comparison fail).
+
 ## 0.2.149
 
 - Hosted-workflow policy accepts the @rightkit/git `regenerate` lane: `regenerate.yml` may hold `contents: write` and `pull-requests: write` only inside its `regenerate` job, only when `.rightgit.json` declares `regenerate.script`, only with `workflow_dispatch` as the sole trigger, a dispatch-gated job, and a single push to `right-git/regenerate-<run>`. Anything else (push triggers, a push to the default branch, `actions: write`, workflow-level write) still fails as release-capable.

@@ -820,9 +820,13 @@ async function validateHostedWorkflows(root, appName, workflows, policy) {
     const allowedRegeneratePermissions = new Set(["contents", "pull-requests"]);
     const devMacSpan = workflow === "ci.yml" ? jobSpan("dev-mac-sign") : null;
     const devMacSource = devMacSpan ? source.slice(devMacSpan.start, devMacSpan.end) : "";
-    const allowedDevMacSecrets = new Set(["APPLE_CERTIFICATE_BASE64", "APPLE_CERTIFICATE_PASSWORD", "APPLE_KEYCHAIN_PASSWORD"]);
+    // `mac: "notarize"` additionally allows the notary API key secrets; the
+    // job gate (push to the default branch, release environment) is the same.
+    const allowedDevMacSecrets = manifest?.devArtifact?.mac === "notarize"
+      ? allowedMacosSecrets
+      : new Set(["APPLE_CERTIFICATE_BASE64", "APPLE_CERTIFICATE_PASSWORD", "APPLE_KEYCHAIN_PASSWORD"]);
     const protectedDevMacSigning = workflow === "ci.yml"
-      && manifest?.devArtifact?.mac === "sign"
+      && (manifest?.devArtifact?.mac === "sign" || manifest?.devArtifact?.mac === "notarize")
       && /dev-mac-sign:\n(?:    #[^\n]*\n)*    needs: \[ci\]\n    if: \$\{\{ github\.event_name == 'push' && github\.ref_name == github\.event\.repository\.default_branch \}\}\n    environment: /.test(devMacSource);
     const releaseChain = workflow === "release-candidate.yml" ? manifest?.candidate?.releaseChain : undefined;
     const allowedReleaseSecrets = new Set(releaseChain?.publishSecrets ?? []);
