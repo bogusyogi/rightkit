@@ -1,9 +1,14 @@
+# This template is its own workspace root, so pnpm never resolves the enclosing RightKit workspace.
+packages:
+  - "."
+
 allowBuilds:
   esbuild: true
 # Pin-by-exact-version is the RightKit rule; the release-age guard needs an explicit allowance for
 # each freshly published @rightkit version this app pins. Keep this list equal to package.json.
 minimumReleaseAgeExclude:
-  - '@rightkit/release@0.2.149'
+  - '@rightkit/release@0.2.151'
+  - '@rightkit/app-shell@0.4.1'
   - '@rightkit/platform-ui@0.2.0'
   - '@rightkit/logs@0.1.4'
   - '@rightkit/tauri@0.2.0'

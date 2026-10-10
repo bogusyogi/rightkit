@@ -1,25 +1,38 @@
 import { useState } from "react";
-import { AppShell } from "./shell/AppShell";
+import { AppShell, type NavGroup } from "@rightkit/app-shell/react";
 import { invoke } from "./lib/host";
 import { detectPlatform } from "./lib/platform";
+import { shellBridge } from "./lib/shell";
 
-// PLACEHOLDER for `@rightkit/media-ui` (player / image viewer): add it when the app shows media:
-//   pnpm add @rightkit/media-ui@<exact>, import "@rightkit/media-ui/styles.css", mount in a view.
+// One destination. A media app adds @rightkit/media-ui for its player or viewer (README step 10).
+const NAV: readonly NavGroup[] = [{ items: [{ id: "home", label: "Home" }] }];
 
 export default function App() {
   const [doctor, setDoctor] = useState<string>("");
   const platform = detectPlatform();
   return (
-    <AppShell title="RightApp">
-      <p>Platform: <span data-testid="platform">{platform}</span></p>
-      <button
-        type="button"
-        className="rounded bg-brand-action px-3 py-1 text-white hover:bg-brand-action-hover"
-        onClick={async () => setDoctor(JSON.stringify(await invoke("engine_call", { cmd: "doctor", input: {} })))}
-      >
-        Run engine doctor
-      </button>
-      <pre data-testid="doctor">{doctor}</pre>
+    <AppShell
+      title="RightApp"
+      groups={NAV}
+      activeId="home"
+      onNavigate={() => undefined}
+      sidebar={false}
+      sidebarToggle={false}
+      searchMode="none"
+      bridge={shellBridge}
+      platform={platform}
+    >
+      <div className="p-4">
+        <p>Platform: <span data-testid="platform">{platform}</span></p>
+        <button
+          type="button"
+          className="rounded bg-brand-action px-3 py-1 text-white hover:bg-brand-action-hover"
+          onClick={async () => setDoctor(JSON.stringify(await invoke("engine_call", { cmd: "doctor", input: {} })))}
+        >
+          Run engine doctor
+        </button>
+        <pre data-testid="doctor">{doctor}</pre>
+      </div>
     </AppShell>
   );
 }

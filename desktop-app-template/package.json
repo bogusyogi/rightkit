@@ -38,19 +38,20 @@
     "rightkit:package:win": "node scripts/package-placeholder.mjs win"
   },
   "dependencies": {
+    "@rightkit/app-shell": "0.4.1",
     "@rightkit/logs": "0.1.4",
     "@rightkit/platform-ui": "0.2.0",
     "@rightkit/tauri": "0.2.0",
     "@rightkit/updates": "0.2.5",
     "@tauri-apps/api": "^2.11.1",
-    "@tauri-apps/plugin-os": "^2.3.2",
+    "@tauri-apps/plugin-os": "2.4.0",
     "@tauri-apps/plugin-process": "2.3.1",
     "@tauri-apps/plugin-updater": "2.10.1",
     "react": "^19.2.8",
     "react-dom": "^19.2.8"
   },
   "devDependencies": {
-    "@rightkit/release": "0.2.149",
+    "@rightkit/release": "0.2.151",
     "@tailwindcss/vite": "^4.3.3",
     "@tauri-apps/cli": "^2.11.4",
     "@types/react": "^19.2.18",

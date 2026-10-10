@@ -1,12 +1,14 @@
-//! Real-process supervisor behaviour: a hung engine cannot hold a call past its deadline, the
-//! timed-out command is never replayed, and the next call restarts the engine.
+//! Real-process supervision through rightkit-jobs' EngineSupervisor, using the shell's engine
+//! configuration. A hung engine cannot hold a call past its deadline, the timed-out command is never
+//! replayed, the next call restarts the engine, and a crash loop ends at the restart budget.
 #![cfg(unix)]
 
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
 use std::time::{Duration, Instant};
 
-use rightapp::engine_supervisor::EngineSupervisor;
+use rightapp::engine_config;
+use rightkit_jobs::EngineSupervisor;
 use serde_json::json;
 
 fn script(dir: &std::path::Path, body: &str) -> std::path::PathBuf {
@@ -16,42 +18,45 @@ fn script(dir: &std::path::Path, body: &str) -> std::path::PathBuf {
     p
 }
 
+/// The rightkit-jobs serve contract's `hello` frame, the first line of every generation.
+const HELLO: &str = r#"echo '{"type":"hello","engine":"fake","version":"0","contract_version":1}'"#;
+
 #[test]
 fn hung_engine_times_out_then_restarts_without_replay() {
     let dir = std::env::temp_dir().join(format!("rightapp-sup-{}", std::process::id()));
     fs::create_dir_all(&dir).unwrap();
     let marker = dir.join("first-run");
     let log = dir.join("requests.log");
-    // First generation reads a request and hangs; later generations answer every request.
+    // The first generation reads one request and hangs (`exec` so the kill reaches the sleep itself);
+    // later generations answer every request in the serve contract's response shape.
     let engine = script(
         &dir,
         &format!(
-            r#"read line
-echo "$line" >> '{log}'
-if [ ! -e '{marker}' ]; then : > '{marker}'; sleep 60; fi
-while true; do
-  id=$(echo "$line" | sed 's/.*"id":\([0-9]*\).*/\1/')
-  echo "{{\"id\":$id,\"result\":{{\"served\":true}}}}"
-  read line || exit 0
+            r#"{HELLO}
+if [ ! -e '{marker}' ]; then : > '{marker}'; read line; echo "$line" >> '{log}'; exec sleep 60; fi
+while read line; do
   echo "$line" >> '{log}'
+  id=$(echo "$line" | sed 's/.*"id":\([0-9]*\).*/\1/')
+  echo "{{\"type\":\"response\",\"id\":$id,\"ok\":true,\"result\":{{\"served\":true}}}}"
 done"#,
-            log = log.display(),
-            marker = marker.display()
+            marker = marker.display(),
+            log = log.display()
         ),
     );
-    let mut sup = EngineSupervisor::with_path(engine, dir.clone()).unwrap();
+    let sup = EngineSupervisor::new(engine_config(engine).unwrap().with_rpc_timeout(Duration::from_millis(600)));
+    sup.start().unwrap();
 
     let started = Instant::now();
-    let err = sup.call_with_deadline("slow", json!({"n": 1}), Duration::from_millis(600)).unwrap_err();
-    assert!(err.contains("deadline"), "{err}");
+    let err = sup.call("slow", json!({"n": 1})).unwrap_err();
+    assert_eq!(err.code, "timeout", "{err}");
     assert!(started.elapsed() < Duration::from_secs(5), "call held {:?}", started.elapsed());
 
-    let ok = sup.call_with_deadline("echo", json!({"n": 2}), Duration::from_secs(10)).unwrap();
+    let ok = sup.call("echo", json!({"n": 2})).unwrap();
     assert_eq!(ok, json!({"served": true}));
 
     let seen = fs::read_to_string(&log).unwrap();
-    assert_eq!(seen.matches("\"cmd\":\"slow\"").count(), 1, "timed-out command must not be replayed: {seen}");
-    assert_eq!(seen.matches("\"cmd\":\"echo\"").count(), 1);
+    assert_eq!(seen.matches("\"method\":\"slow\"").count(), 1, "timed-out command must not be replayed: {seen}");
+    assert_eq!(seen.matches("\"method\":\"echo\"").count(), 1, "{seen}");
     drop(sup);
     let _ = fs::remove_dir_all(&dir);
 }
@@ -60,18 +65,24 @@ done"#,
 fn restart_budget_is_bounded() {
     let dir = std::env::temp_dir().join(format!("rightapp-sup-budget-{}", std::process::id()));
     fs::create_dir_all(&dir).unwrap();
-    // An engine that dies immediately: every call fails, and the budget (5 per minute) ends the loop.
-    let engine = script(&dir, "exit 1");
-    let mut sup = EngineSupervisor::with_path(engine, dir.clone()).unwrap();
+    // An engine that says hello, then dies on its first request: every call fails, and the restart
+    // budget (5 per minute) ends the crash loop with a `down` error. Each granted restart costs two
+    // calls (the first hits the dead pipe, the next triggers the restart), so the loop needs more than
+    // 2 * 5 + 2 iterations to reach the refusal.
+    let engine = script(&dir, &format!("{HELLO}\nread line\nexit 1"));
+    let sup = EngineSupervisor::new(
+        engine_config(engine).unwrap().with_hello_timeout(Duration::from_secs(5)).with_rpc_timeout(Duration::from_secs(5)),
+    );
+    sup.start().unwrap();
     let started = Instant::now();
     let mut last = String::new();
-    for _ in 0..12 {
-        last = sup.call_with_deadline("x", json!({}), Duration::from_secs(2)).unwrap_err();
-        if last.contains("budget exhausted") {
+    for _ in 0..30 {
+        last = sup.call("x", json!({})).unwrap_err().message;
+        if last.contains("budget") {
             break;
         }
     }
-    assert!(last.contains("budget exhausted"), "{last}");
-    assert!(started.elapsed() < Duration::from_secs(30));
+    assert!(last.contains("budget"), "{last}");
+    assert!(started.elapsed() < Duration::from_secs(60), "{:?}", started.elapsed());
     let _ = fs::remove_dir_all(&dir);
 }

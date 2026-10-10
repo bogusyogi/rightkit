@@ -21,19 +21,26 @@ serde_json = "1"
 [dependencies]
 rightapp-protocol = { path = "../crates/protocol" }
 tauri = { version = "2", features = ["protocol-asset"] }
-tauri-plugin-os = "2"
-tauri-plugin-process = "2"
-tauri-plugin-updater = "2"
 serde_json = "1"
-dirs = "6"
+
+# Tauri plugin crates: exact, equal to their npm counterparts (@tauri-apps/plugin-*).
+tauri-plugin-os = "=2.4.0"
+tauri-plugin-process = "=2.3.1"
+tauri-plugin-updater = "=2.10.1"
 
 # RightKit shared crates: exact registry pins only (no path/git/vendored copies).
-# Versions must equal packages/release/rightkit-versions.json `cargo`/`stagedCargo`;
+# Versions must equal packages/release/rightkit-versions.json `registry` (the published set);
 # `pnpm check:template` enforces this.
+# rightkit-jobs supervises the engine sidecar (EngineSupervisor).
+rightkit-jobs = "=0.2.6"
+# rightkit-logs: JSONL diagnostics.
 rightkit-logs = "=0.2.0"
+# rightkit-process: OwnedCommand, the ownership-safe child spawn for the sidecar.
 rightkit-process = "=0.3.3"
+# rightkit-service: Suite, the one data root.
+rightkit-service = "=0.1.3"
+# rightkit-shell hosts the window; wv2-0_39 matches Tauri 2.12 (the locked tauri version).
+rightkit-shell = { version = "=0.1.4", default-features = false, features = ["wv2-0_39"] }
+# rightkit-tauri: DeviceService.
 rightkit-tauri = "=0.1.2"
-
-# --- Optional / upcoming shared crates (add-ons; pin exactly from rightkit-versions.json). ---
-# rightkit-db = "=0.2.1"             # SQLite/SQLCipher bootstrap; add when the app owns a DB.
-# rightkit-jobs = "=PLACEHOLDER"     # UPCOMING: durable job store/queue; replaces per-app job code.
+# rightkit-db = "=0.3.2"  (add when the app owns a database beside the job store)
