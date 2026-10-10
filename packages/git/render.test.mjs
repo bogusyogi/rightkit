@@ -22,6 +22,7 @@ const FULL_MANIFEST = {
     homebrew: { tap: "acme/homebrew-tap", formulaName: "widgets" },
     winget: { packageIdentifier: "Acme.Widgets" },
   },
+  regenerate: { script: "regenerate" },
   templateVersion: "1.0.0",
 };
 
@@ -1007,6 +1008,36 @@ test("devArtifact mac 'unsigned' uploads the bare app with no signing job, and d
   assert.doesNotMatch(signedDispatch.split("  dev-mac-sign:")[1], /workflow_dispatch/);
 });
 
+test("regenerate lane is dispatch-only, pushes only to right-git/regenerate-<run>, opens a PR, and reaches no secret", () => {
+  for (const profile of ["rust-hybrid", "node"]) {
+    const manifest = profile === "rust-hybrid"
+      ? { ...INCREMENTAL_BASE, lanes: ["ci", "regenerate"], regenerate: { script: "regenerate" } }
+      : { ...FULL_MANIFEST, lanes: ["ci", "regenerate"], regenerate: { script: "regenerate" } };
+    assert.equal(validateManifest(manifest).valid, true, JSON.stringify(validateManifest(manifest).errors));
+    const templatePath = profile === "rust-hybrid" ? "profiles/rust-hybrid/regenerate.yml" : "regenerate.yml";
+    const out = renderTemplate(fs.readFileSync(path.join(templatesDir, templatePath), "utf8"), buildRenderContext(manifest, "/repos/widgets", "regenerate"));
+    assert.match(out, /^on:\n  workflow_dispatch:\npermissions:\n  contents: read\n/m);
+    assert.match(out, /regenerate:\n    needs: \[private-repo-guard\]\n    if: \$\{\{ github\.event_name == 'workflow_dispatch' \}\}\n/);
+    assert.match(out, /    permissions:\n      contents: write\n      pull-requests: write\n/);
+    assert.match(out, /run: pnpm run regenerate\n/);
+    assert.match(out, /branch="right-git\/regenerate-\$\{\{ github\.run_id \}\}-\$\{\{ github\.run_attempt \}\}"\n/);
+    assert.match(out, /git push origin "HEAD:refs\/heads\/\$branch"\n/);
+    assert.match(out, /gh pr create --base "\$RIGHT_GIT_DEFAULT_BRANCH" --head "\$branch"/);
+    assert.doesNotMatch(out, /secrets\.|HEAD:main|HEAD:refs\/heads\/main|pull_request:|push:\n/);
+    assert.equal((out.match(/git push/g) ?? []).length, 1);
+    if (profile === "rust-hybrid") {
+      assert.match(out, /run: bash \.\/scripts\/gate\.sh\n/);
+      assert.match(out, /dtolnay\/rust-toolchain@/);
+    } else {
+      assert.match(out, /run: pnpm run test\n/);
+      assert.doesNotMatch(out, /rust-toolchain/);
+    }
+  }
+  assert.equal(validateManifest({ ...FULL_MANIFEST, lanes: ["ci", "regenerate"], regenerate: undefined }).valid, false, "lane needs regenerate.script");
+  assert.equal(validateManifest({ ...FULL_MANIFEST, lanes: ["ci"], regenerate: { script: "x" } }).valid, false, "regenerate needs the lane");
+  assert.equal(validateManifest({ ...FULL_MANIFEST, lanes: ["ci", "regenerate"], regenerate: { script: "re gen" } }).valid, false, "script name charset");
+});
+
 test("devArtifact entitlements add a checkout and --entitlements", () => {
   const out = renderRustCi({ ...DEV_MANIFEST, devArtifact: { ...DEV_MANIFEST.devArtifact, macEntitlements: "build/pulse.entitlements" } });
   assert.match(out, /--entitlements "\$GITHUB_WORKSPACE\/build\/pulse\.entitlements"/);
@@ -1031,6 +1062,14 @@ test("rendered ciIncremental + devArtifact workflows pass actionlint", (t) => {
     for (const [name, manifest] of Object.entries(samples)) {
       const file = path.join(dir, ".github", "workflows", name);
       fs.writeFileSync(file, renderRustCi(manifest));
+      files.push(file);
+    }
+    for (const [name, template] of [["regenerate-rust.yml", "profiles/rust-hybrid/regenerate.yml"], ["regenerate-node.yml", "regenerate.yml"]]) {
+      const manifest = template.startsWith("profiles/")
+        ? { ...INCREMENTAL_BASE, lanes: ["ci", "regenerate"], regenerate: { script: "regenerate" } }
+        : { ...FULL_MANIFEST, lanes: ["ci", "regenerate"], regenerate: { script: "regenerate" } };
+      const file = path.join(dir, ".github", "workflows", name);
+      fs.writeFileSync(file, renderTemplate(fs.readFileSync(path.join(templatesDir, template), "utf8"), buildRenderContext(manifest, "/repos/widgets", "regenerate")));
       files.push(file);
     }
     const result = spawnSync("actionlint", ["-shellcheck=", "-pyflakes=", "-config-file", path.join(dir, ".github", "actionlint.yaml"), ...files], { encoding: "utf8" });

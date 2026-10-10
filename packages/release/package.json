@@ -1,6 +1,6 @@
 {
   "name": "@rightkit/release",
-  "version": "0.2.148",
+  "version": "0.2.149",
   "description": "Portable release CLI/SDK with fail-closed public GitHub Releases and private R2 + RightApps distribution.",
   "license": "MIT OR Apache-2.0",
   "type": "module",

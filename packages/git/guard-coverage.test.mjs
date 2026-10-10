@@ -54,6 +54,7 @@ const FULL_MANIFEST = {
   schemaVersion: 1,
   compile: "github-actions-only",
   lanes: [...KNOWN_LANES],
+  regenerate: { script: "regenerate" },
   matrix: { os: ["ubuntu-latest", "macos-latest", "windows-latest"], node: ["22.13", "24"] },
   packageManager: "pnpm@11.24.0",
   publish: {

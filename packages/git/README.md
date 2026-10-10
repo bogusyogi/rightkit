@@ -12,6 +12,7 @@ Public-repository-only GitHub Actions workflow layer for Right Suite products. T
 ## Commands
 
 - `right-git install <repo> --lanes ci,...` writes `.rightgit.json` and renders workflows.
+- Lanes: `ci`, `qualification`, `package-smoke`, `release-candidate`, `publish-npm`, `publish-package-managers`, `regenerate`. The `regenerate` lane is manual-only: it runs `regenerate.script`, checks the result, and opens a pull request from a `right-git/regenerate-<run>` branch; it never writes to the default branch.
 - `right-git sync` re-renders installed workflows from the manifest.
 - `right-git drift --all` checks installed workflows against templates and re-checks visibility.
 - `right-git adopt` imports existing workflows into the template library.

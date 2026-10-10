@@ -1,0 +1,96 @@
+# Managed by right-git — do not hand-edit. Run `right-git sync` to update.
+# Template: profiles/rust-hybrid/regenerate.yml | Template version: ${TEMPLATE_VERSION}
+# Manual only. Runs the repository's regenerate script (derived artifacts,
+# formatting, lockfile repair) and, when tracked files change, runs the ci
+# gate on the result, pushes it to a right-git/regenerate-<run> branch and
+# opens a pull request. It never writes to the default branch. Pull requests
+# opened with the workflow token do not trigger pull_request workflows, which
+# is why the gate runs here and the PR body links this run.
+name: ${ARTIFACT_PREFIX}-regenerate
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: ${ARTIFACT_PREFIX}-regenerate
+  cancel-in-progress: false
+jobs:
+  private-repo-guard:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Refuse private repository
+        if: ${{ github.event.repository.private }}
+        run: exit 1
+  regenerate:
+    needs: [private-repo-guard]
+    if: ${{ github.event_name == 'workflow_dispatch' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          fetch-depth: 0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: ${NODE_PUBLISH_VERSION}
+          package-manager-cache: false
+${PACKAGE_MANAGER_SETUP}
+      - run: ${INSTALL_COMMAND}
+${OWNERSHIP_STEP}
+      - uses: dtolnay/rust-toolchain@f8be11a05b1d4f3fcebe6410cc16743212b999b0
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: |
+${RUST_CACHE_WORKSPACES}
+          shared-key: ${ARTIFACT_PREFIX}-rust
+          add-job-id-key: false
+          cache-workspace-crates: ${CI_CACHE_WORKSPACE_CRATES}
+          cache-on-failure: true
+          save-if: false
+      - name: Regenerate derived artifacts
+        run: ${PM_RUN} ${REGENERATE_SCRIPT}
+      - name: Detect regenerated files
+        id: changes
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -z "$(git status --porcelain)" ]]; then
+            echo "Derived artifacts are already current."
+            printf 'changed=false\n' >> "$GITHUB_OUTPUT"
+          else
+            printf 'changed=true\n' >> "$GITHUB_OUTPUT"
+          fi
+      - name: Gate the regenerated tree
+        if: steps.changes.outputs.changed == 'true'
+        run: bash ./${GATE_PATH}
+        env:
+          RIGHT_GIT_RUST_CHANGED: "true"
+          RIGHT_GIT_RUST_REQUIRED: "true"
+          CARGO_INCREMENTAL: "0"
+          CARGO_PROFILE_DEV_DEBUG: "0"
+          CARGO_PROFILE_TEST_DEBUG: "0"
+      - name: Open a pull request with the regenerated files
+        if: steps.changes.outputs.changed == 'true'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RIGHT_GIT_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          RIGHT_GIT_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          branch="right-git/regenerate-${{ github.run_id }}-${{ github.run_attempt }}"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -b "$branch"
+          git add -A
+          git commit -m "Regenerate derived artifacts"
+          git push origin "HEAD:refs/heads/$branch"
+          gh pr create --base "$RIGHT_GIT_DEFAULT_BRANCH" --head "$branch" \
+            --title "Regenerate derived artifacts" \
+            --body "Opened by the right-git regenerate lane. The ci gate passed on this tree in $RIGHT_GIT_RUN_URL (pull requests opened with the workflow token do not trigger pull_request workflows)."

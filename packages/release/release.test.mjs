@@ -594,6 +594,67 @@ test("accepts every right-git lane the manifest schema allows", () => {
   assert.equal(result.status, 0, result.stderr);
 });
 
+const REGENERATE_WORKFLOW = [
+  "# Managed by right-git",
+  "on:",
+  "  workflow_dispatch:",
+  "permissions:",
+  "  contents: read",
+  "jobs:",
+  "  private-repo-guard:",
+  "    runs-on: ubuntu-24.04",
+  "  regenerate:",
+  "    needs: [private-repo-guard]",
+  "    if: ${{ github.event_name == 'workflow_dispatch' }}",
+  "    permissions:",
+  "      contents: write",
+  "      pull-requests: write",
+  "    steps:",
+  "      - run: |",
+  "          branch=\"right-git/regenerate-${{ github.run_id }}-${{ github.run_attempt }}\"",
+  "          git push origin \"HEAD:refs/heads/$branch\"",
+  "",
+].join("\n");
+
+test("accepts the right-git regenerate lane: manual-only, branch-scoped write, declared in the manifest", () => {
+  const config = fixture({ hostedWorkflows: "right-git-ci-only", includeCargoSources: false });
+  const root = path.dirname(config);
+  const workflowDir = path.join(root, ".github", "workflows");
+  mkdirSync(workflowDir, { recursive: true });
+  writeFileSync(path.join(root, ".rightgit.json"), JSON.stringify({ schemaVersion: 1, compile: "github-actions-only", lanes: ["ci", "regenerate"], regenerate: { script: "regenerate" } }));
+  writeFileSync(path.join(workflowDir, "ci.yml"), "# Managed by right-git\npermissions:\n  contents: read\njobs: {}\n");
+  writeFileSync(path.join(workflowDir, "regenerate.yml"), REGENERATE_WORKFLOW);
+  git(root, "add", ".");
+  git(root, "commit", "-m", "add regenerate lane");
+  const result = run(config, "--tier=patch");
+  assert.equal(result.status, 0, result.stderr);
+});
+
+test("rejects a regenerate workflow that is undeclared, push-triggered, writes the default branch, or widens permissions", () => {
+  const cases = [
+    { name: "undeclared", manifest: { lanes: ["ci", "regenerate"] }, workflow: REGENERATE_WORKFLOW },
+    { name: "push trigger", manifest: { lanes: ["ci", "regenerate"], regenerate: { script: "regenerate" } }, workflow: REGENERATE_WORKFLOW.replace("on:\n  workflow_dispatch:\n", "on:\n  workflow_dispatch:\n  push:\n    branches: [main]\n") },
+    { name: "default-branch push", manifest: { lanes: ["ci", "regenerate"], regenerate: { script: "regenerate" } }, workflow: REGENERATE_WORKFLOW.replace('git push origin \"HEAD:refs/heads/$branch\"', 'git push origin \"HEAD:refs/heads/$branch\"\n          git push origin HEAD:main') },
+    { name: "job not dispatch-gated", manifest: { lanes: ["ci", "regenerate"], regenerate: { script: "regenerate" } }, workflow: REGENERATE_WORKFLOW.replace("    if: ${{ github.event_name == 'workflow_dispatch' }}\n", "") },
+    { name: "actions write", manifest: { lanes: ["ci", "regenerate"], regenerate: { script: "regenerate" } }, workflow: REGENERATE_WORKFLOW.replace("      pull-requests: write\n", "      pull-requests: write\n      actions: write\n") },
+    { name: "top-level write", manifest: { lanes: ["ci", "regenerate"], regenerate: { script: "regenerate" } }, workflow: REGENERATE_WORKFLOW.replace("permissions:\n  contents: read\n", "permissions:\n  contents: write\n") },
+  ];
+  for (const { name, manifest, workflow } of cases) {
+    const config = fixture({ hostedWorkflows: "right-git-ci-only", includeCargoSources: false });
+    const root = path.dirname(config);
+    const workflowDir = path.join(root, ".github", "workflows");
+    mkdirSync(workflowDir, { recursive: true });
+    writeFileSync(path.join(root, ".rightgit.json"), JSON.stringify({ schemaVersion: 1, compile: "github-actions-only", ...manifest }));
+    writeFileSync(path.join(workflowDir, "ci.yml"), "# Managed by right-git\npermissions:\n  contents: read\njobs: {}\n");
+    writeFileSync(path.join(workflowDir, "regenerate.yml"), workflow);
+    git(root, "add", ".");
+    git(root, "commit", "-m", `unsafe regenerate: ${name}`);
+    const result = run(config, "--tier=patch");
+    assert.notEqual(result.status, 0, name);
+    assert.match(result.stderr, /release-capable permissions or secrets/i, name);
+  }
+});
+
 test("rejects broad manual dispatch authority for Apple signing in the tag-last lane", () => {
   const config = fixture({ hostedWorkflows: "right-git-ci-only", includeCargoSources: false });
   const root = path.dirname(config);

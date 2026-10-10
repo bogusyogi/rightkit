@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.36
+
+- New manual-only `regenerate` lane (`lanes: [..., "regenerate"]` + `regenerate: { script }`). The managed `regenerate.yml` runs on `workflow_dispatch` only: checks out the default branch, runs the package script, runs the ownership scan and (rust-hybrid) the ci gate or (node) the test script on the regenerated tree, then pushes it to `right-git/regenerate-<run_id>-<attempt>` and opens a pull request with the workflow token. It never writes to the default branch; `contents: write` and `pull-requests: write` are job-scoped. Pull requests opened with the workflow token do not trigger `pull_request` workflows, which is why the checks run in the lane and the PR body links the run. rust-hybrid now accepts `regenerate` beside `ci` and `release-candidate`.
+
 ## 0.2.35
 
 - Every identity-bound release-candidate artifact name (candidate, signed, summary, installed-qualification, and their downloads) now ends with the admission job's `artifact_suffix` output, so a `dry_run` rehearsal produces `…-<sha>-dry-run` artifacts that cannot be mistaken for a real candidate. Admission already emitted the output; the names never consumed it. The publish job's `if:` is unchanged (dry runs are refused by admission, and @rightkit/release pins that gate text). Re-render with `right-git sync`.

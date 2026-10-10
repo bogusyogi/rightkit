@@ -23,7 +23,8 @@
           "package-smoke",
           "release-candidate",
           "publish-npm",
-          "publish-package-managers"
+          "publish-package-managers",
+          "regenerate"
         ]
       }
     },
@@ -137,6 +138,15 @@
       "type": "boolean",
       "default": false,
       "description": "rust-hybrid only. When true, the ci job uses Swatinem/rust-cache with cache-workspace-crates, CARGO_INCREMENTAL=1, and caches Xcode DerivedData on macOS legs."
+    },
+    "regenerate": {
+      "type": "object",
+      "description": "Manual-only lane: runs `script`, checks the result, and opens a pull request from a right-git/regenerate-<run> branch. Requires lane 'regenerate'. Never writes to the default branch.",
+      "required": ["script"],
+      "additionalProperties": false,
+      "properties": {
+        "script": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9:_-]*$" }
+      }
     },
     "devArtifact": {
       "type": "object",

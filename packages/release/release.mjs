@@ -743,7 +743,7 @@ async function validateHostedWorkflows(root, appName, workflows, policy) {
   }
   const lanes = manifest?.lanes;
   // Mirrors the `lanes` enum in @rightkit/git manifest.schema.json.
-  const safeLanes = new Set(["ci", "qualification", "package-smoke", "release-candidate", "publish-npm", "publish-package-managers"]);
+  const safeLanes = new Set(["ci", "qualification", "package-smoke", "release-candidate", "publish-npm", "publish-package-managers", "regenerate"]);
   if (manifest?.schemaVersion !== 1
     || manifest?.compile !== "github-actions-only"
     || !Array.isArray(lanes)
@@ -802,6 +802,22 @@ async function validateHostedWorkflows(root, appName, workflows, policy) {
     // @rightkit/git `devArtifact.mac: "sign"` renders a `dev-mac-sign` job into
     // the managed ci.yml: push to the default branch only, release environment,
     // Developer ID certificate secrets only (no notarization keys).
+    // @rightkit/git `regenerate` lane: manual-only, opens a pull request from a
+    // right-git/regenerate-<run> branch and never writes to the default branch.
+    // `contents: write` and `pull-requests: write` are accepted only inside that
+    // job, only when the manifest declares `regenerate`, and only when the
+    // workflow has no trigger other than workflow_dispatch and pushes solely to
+    // the right-git/regenerate-* branch namespace.
+    const regenerateSpan = workflow === "regenerate.yml" ? jobSpan("regenerate") : null;
+    const regenerateSource = regenerateSpan ? source.slice(regenerateSpan.start, regenerateSpan.end) : "";
+    const protectedRegenerate = workflow === "regenerate.yml"
+      && manifest?.regenerate && typeof manifest.regenerate.script === "string"
+      && /^on:\n  workflow_dispatch:\n(?!  )/m.test(source)
+      && /regenerate:\n    needs: \[private-repo-guard\]\n    if: \$\{\{ github\.event_name == 'workflow_dispatch' \}\}\n/.test(regenerateSource)
+      && /branch="right-git\/regenerate-\$\{\{ github\.run_id \}\}-\$\{\{ github\.run_attempt \}\}"\n/.test(regenerateSource)
+      && /git push origin "HEAD:refs\/heads\/\$branch"\n/.test(regenerateSource)
+      && !/git push(?![^\n]*"HEAD:refs\/heads\/\$branch")/.test(regenerateSource);
+    const allowedRegeneratePermissions = new Set(["contents", "pull-requests"]);
     const devMacSpan = workflow === "ci.yml" ? jobSpan("dev-mac-sign") : null;
     const devMacSource = devMacSpan ? source.slice(devMacSpan.start, devMacSpan.end) : "";
     const allowedDevMacSecrets = new Set(["APPLE_CERTIFICATE_BASE64", "APPLE_CERTIFICATE_PASSWORD", "APPLE_KEYCHAIN_PASSWORD"]);
@@ -825,9 +841,12 @@ async function validateHostedWorkflows(root, appName, workflows, policy) {
       && (legacyReleasePublishGate || admittedReleasePublishGate)
       && /\n    permissions:\n      contents: write\n/.test(publishSource);
     if (/^\s*permissions:\s*write-all\s*$/mi.test(source)
-      || writePermissions.some(({ name, index }) => name === "id-token"
-        ? !(protectedWindowsSigning && inside(index, windowsSpan))
-        : name !== "contents" || !protectedReleasePublish || !inside(index, publishSpan))
+      || writePermissions.some(({ name, index }) => {
+        if (protectedRegenerate && inside(index, regenerateSpan) && allowedRegeneratePermissions.has(name)) return false;
+        return name === "id-token"
+          ? !(protectedWindowsSigning && inside(index, windowsSpan))
+          : name !== "contents" || !protectedReleasePublish || !inside(index, publishSpan);
+      })
       || /pull_request_target\s*:/i.test(source)
       || /\bsecrets\s*\[/i.test(source)
       || requestedSecrets.some(({ name, index }) => !(protectedMacosSigning && inside(index, macosSpan) && allowedMacosSecrets.has(name))

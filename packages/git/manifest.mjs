@@ -14,6 +14,7 @@ export const KNOWN_LANES = Object.freeze([
   "release-candidate",
   "publish-npm",
   "publish-package-managers",
+  "regenerate",
 ]);
 
 // Rendered filename for each lane, installed under <repo>/.github/workflows/.
@@ -24,6 +25,7 @@ export const LANE_FILENAMES = Object.freeze({
   "release-candidate": "release-candidate.yml",
   "publish-npm": "publish-npm.yml",
   "publish-package-managers": "publish-package-managers.yml",
+  regenerate: "regenerate.yml",
 });
 
 const PACKAGE_MANAGER_RE = /^(pnpm|npm|yarn)@\d+\.\d+\.\d+$/;
@@ -64,6 +66,7 @@ const TOP_LEVEL_KEYS = new Set([
   "ciAllOs",
   "ciIncremental",
   "devArtifact",
+  "regenerate",
   "candidate",
   "ownership",
 ]);
@@ -164,8 +167,8 @@ export function validateManifest(manifest) {
   const profile = manifest.profile === undefined ? "node" : manifest.profile;
   if (profile !== "node" && profile !== "rust-hybrid") errors.push("profile must be 'node' or 'rust-hybrid'");
   if (profile === "rust-hybrid") {
-    if (lanes.some((lane) => lane !== "ci" && lane !== "release-candidate") || !lanes.includes("ci")) {
-      errors.push("profile 'rust-hybrid' requires lane 'ci' and supports optional lane 'release-candidate'");
+    if (lanes.some((lane) => lane !== "ci" && lane !== "release-candidate" && lane !== "regenerate") || !lanes.includes("ci")) {
+      errors.push("profile 'rust-hybrid' requires lane 'ci' and supports optional lanes 'release-candidate' and 'regenerate'");
     }
     if (!manifest.gate || typeof manifest.gate !== "object" || Array.isArray(manifest.gate) || Object.keys(manifest.gate).some((key) => key !== "path") || typeof manifest.gate.path !== "string" || !GATE_PATH_RE.test(manifest.gate.path)) {
       errors.push("profile 'rust-hybrid' requires gate.path with a safe relative path");
@@ -209,6 +212,7 @@ export function validateManifest(manifest) {
   }
 
   validateDevArtifact(manifest, profile, errors);
+  validateRegenerate(manifest, lanes, errors);
 
   const rustCache = manifest.rustCache;
   if (rustCache !== undefined) {
@@ -561,6 +565,29 @@ function effectiveCiRunners(manifest) {
   if (!Array.isArray(os) || os.length === 0) return [];
   if (manifest.ciAllOs === true) return os;
   return [os.find((runner) => typeof runner === "string" && runner.startsWith("windows-")) ?? os[0]];
+}
+
+// The regenerate lane is manual-only: it runs `regenerate.script`, checks the
+// result, and opens a pull request from a right-git/regenerate-<run> branch.
+// It never writes to the default branch.
+function validateRegenerate(manifest, lanes, errors) {
+  const regenerate = manifest.regenerate;
+  const hasLane = Array.isArray(lanes) && lanes.includes("regenerate");
+  if (regenerate === undefined) {
+    if (hasLane) errors.push("lane 'regenerate' requires regenerate { script }");
+    return;
+  }
+  if (regenerate === null || typeof regenerate !== "object" || Array.isArray(regenerate)) {
+    errors.push("regenerate must be an object");
+    return;
+  }
+  if (!hasLane) errors.push("regenerate requires lane 'regenerate'");
+  for (const key of Object.keys(regenerate)) {
+    if (key !== "script") errors.push(`unknown regenerate field: ${key}`);
+  }
+  if (typeof regenerate.script !== "string" || !PACKAGE_SCRIPT_RE.test(regenerate.script)) {
+    errors.push("regenerate.script must be a package.json script name (letters, digits, ':', '_', '-')");
+  }
 }
 
 function validateDevArtifact(manifest, profile, errors) {
@@ -1381,6 +1408,9 @@ export function buildRenderContext(manifest, repoPath, lane = "ci") {
   // template ever references a token this manifest didn't opt into.
   if (manifest.gate) {
     context.GATE_PATH = manifest.gate.path;
+  }
+  if (manifest.regenerate) {
+    context.REGENERATE_SCRIPT = manifest.regenerate.script;
   }
   if (manifest.candidate) {
     context.CANDIDATE_BUILD_SCRIPT = manifest.candidate.buildScript;
