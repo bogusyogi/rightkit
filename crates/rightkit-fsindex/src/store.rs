@@ -325,6 +325,7 @@ impl Store {
         s.generation = rd_u64(&hdr, H_GEN);
         s.hdr = Some(hdr);
         s.rebuild_aux();
+        s.trim();
         Ok(Some((s, OpenInfo { event_id, saved_at })))
     }
 
@@ -370,6 +371,21 @@ impl Store {
             let d = self.entry(s).d;
             self.group_join_membership(s, d.alloc - d.private);
         }
+    }
+
+    /// (hard-link groups, clone groups, clone members) held resident.
+    pub fn aux_counts(&self) -> (usize, usize, usize) {
+        (
+            self.links.len(),
+            self.clones.len(),
+            self.clones.values().map(|g| g.members.len()).sum(),
+        )
+    }
+
+    pub fn special_count(&self) -> usize {
+        (0..self.nslots)
+            .filter(|&i| self.c_meta.get(i) & SPECIAL != 0)
+            .count()
     }
 
     pub fn is_file_backed(&self) -> bool {
@@ -466,33 +482,24 @@ impl Store {
     }
 
     /// Drop clean mapped pages from this process's resident set (they refault on demand).
-    pub fn trim(&self) {
+    pub fn trim(&mut self) {
         self.names.trim();
-        for c in [
-            &self.c_name,
-            &self.c_parent,
-            &self.c_first,
-            &self.c_next,
-            &self.c_prev,
-            &self.c_dir,
-            &self.c_mtime,
-            &self.c_dev,
-        ] {
-            c.trim();
-        }
-        for c in [&self.c_meta, &self.c_flags] {
-            c.trim();
-        }
+        self.c_name.trim();
+        self.c_parent.trim();
+        self.c_first.trim();
+        self.c_next.trim();
+        self.c_prev.trim();
+        self.c_dir.trim();
+        self.c_mtime.trim();
+        self.c_dev.trim();
+        self.c_meta.trim();
+        self.c_flags.trim();
         self.c_nlink.trim();
-        for c in [
-            &self.c_fileid,
-            &self.c_logical,
-            &self.c_alloc,
-            &self.c_private,
-            &self.c_clone,
-        ] {
-            c.trim();
-        }
+        self.c_fileid.trim();
+        self.c_logical.trim();
+        self.c_alloc.trim();
+        self.c_private.trim();
+        self.c_clone.trim();
         self.d_owner.trim();
         self.d_roll.trim();
     }

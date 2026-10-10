@@ -2,7 +2,7 @@
 
 Live whole-disk file index for RightKit apps (Pulse and others): fuzzy,
 typo-tolerant **name search** plus **folder sizes** that are correct for a
-storage app. Library API only; a daemon/IPC can come later. `publish = false`.
+storage app. Library API only; a daemon/IPC can come later. `published to crates.io`.
 
 ```rust
 let mut cfg = Config::new(vec!["/".into()]);
@@ -97,9 +97,28 @@ and one-typo scoring (`src/query.rs`). Full licence text in `THIRD-PARTY-NOTICES
 crates.io dependency on upstream. Unlike upstream this crate keeps 64-bit logical and allocated sizes,
 rolls folders and packages up, and dedupes hard links and clones.
 
+## Memory and on-disk layout
+
+All per-entry state (name id, parent, first-child/sibling links, sizes, flags, ids) and the per-folder rollups live in
+memory-mapped fixed-width column files under `Config::state_dir/index/` (anonymous maps when there is no state dir). Names are
+interned in mapped segments with an on-disk chained hash. Resident memory is only the pages a query touches, the FSEvents working
+set, the hard-link and clone-group tables (proportional to hard-linked and cloned files, not to the disk), and query scratch.
+Updates are in-place column writes plus slot appends; freed slots are reused and the worker rebuilds the store (`compaction`,
+depth-first, drops garbage names) when more than a quarter of the slots are free.
+
+Crash safety: `header.bin` carries a `dirty` flag and a generation. The flag is made durable (msync) before the first column
+write after a commit; a commit flushes every column, then writes the header clean with the next generation (every 30 s while
+changing, and on drop). A dirty header at open means a torn update: the store is discarded and re-crawled. A crawl or compaction builds
+`index.new` and swaps it in; an interrupted swap is recovered on open.
+
+Measured (`rightkit cargo bench -p rightkit-fsindex --bench footprint -- 7700000`, entries generated straight into the columns,
+fresh process reopening the store, macOS): ~114 bytes/entry on disk (836 MB at 7.7M); after reopen 3.5 MB phys footprint /
+22.6 MB resident; after a name search 24.4 MB footprint / 185 MB resident (clean mapped pages touched by the scan; footprint does
+not count them), back to 24 MB footprint / 29 MB resident after `trim()`, which the worker also does after large searches and
+after 30 s idle. That is ~3 bytes/entry footprint and ~4 bytes/entry resident at rest.
+
 ## Known gaps (v1)
 
-Name search is name-only (no path tokens); memory is ~100 bytes per entry (a 7M-entry disk is
-several hundred MB resident; only the names are memory-mapped); snapshots are rewritten whole;
-the event-ID resume cannot detect a purged FSEvents history beyond the snapshot age limit; no
+Name search is name-only (no path tokens); a search touches clean mapped pages (transient resident spike, ~25 bytes/entry, released by the trim); hard-link
+and clone-group tables are resident (large pnpm-style hard-link stores grow them); the event-ID resume cannot detect a purged FSEvents history beyond the snapshot age limit; no
 daemon/IPC; no Windows backend.

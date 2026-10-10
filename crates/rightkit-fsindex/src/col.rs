@@ -105,14 +105,13 @@ impl<T: Copy> Col<T> {
         Ok(())
     }
 
-    /// Ask the kernel to drop this mapping's resident pages (file-backed only; data stays in the file).
-    pub fn trim(&self) {
-        if self.file.is_some() {
-            // Safe for MAP_SHARED file mappings: dirty pages are written back, nothing is discarded.
-            let _ = unsafe {
-                self.map
-                    .unchecked_advise(memmap2::UncheckedAdvice::DontNeed)
-            };
+    /// Drop this mapping's resident pages by remapping the file (data stays in the page cache and the file;
+    /// madvise(DONTNEED) does not shrink the resident set on macOS, a fresh mapping does).
+    pub fn trim(&mut self) {
+        if let Some(f) = &self.file {
+            if let Ok(m) = unsafe { MmapMut::map_mut(f) } {
+                self.map = m;
+            }
         }
     }
 

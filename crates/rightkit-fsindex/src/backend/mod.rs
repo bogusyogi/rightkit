@@ -110,6 +110,8 @@ pub enum WatchMsg {
     Stop,
     /// Rebuild the column store (test hook); acknowledged when done.
     Compact(Sender<()>),
+    /// Drop clean mapped pages from the resident set (throttled by the worker).
+    Trim,
 }
 
 pub trait Watcher: Send {

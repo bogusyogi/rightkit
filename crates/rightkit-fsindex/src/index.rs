@@ -522,6 +522,7 @@ impl Index {
             pending: Pending::default(),
             last_commit: Instant::now(),
             last_compact: Instant::now(),
+            last_trim: Instant::now(),
         };
         let worker = std::thread::Builder::new()
             .name("rightkit-fsindex".into())
@@ -613,12 +614,18 @@ impl Index {
             .map(|std::cmp::Reverse((sc, std::cmp::Reverse(s)))| (sc, s))
             .collect();
         v.sort_by(|a, b| b.0.cmp(&a.0).then(a.1.cmp(&b.1)));
-        Ok(v.into_iter()
+        let hits: Vec<Hit> = v
+            .into_iter()
             .map(|(score, s)| Hit {
                 item: item_of(&store, s),
                 score,
             })
-            .collect())
+            .collect();
+        if store.slots() > 500_000 {
+            // A whole-index scan faults in tens of MB of clean pages; have the worker drop them (throttled).
+            let _ = self.tx.send(WatchMsg::Trim);
+        }
+        Ok(hits)
     }
 
     fn lookup(&self, store: &Store, path: &Path) -> Option<u32> {
@@ -703,7 +710,14 @@ impl Index {
 
     /// Drop clean mapped pages from the resident set now. Also done automatically after 30 s idle.
     pub fn trim(&self) {
-        rd(&self.shared).trim();
+        wr(&self.shared).trim();
+    }
+
+    #[doc(hidden)]
+    pub fn aux_counts(&self) -> (usize, usize, usize, usize) {
+        let st = rd(&self.shared);
+        let a = st.aux_counts();
+        (a.0, a.1, a.2, st.special_count())
     }
 
     /// Slots in the column store and how many are free (diagnostics).
@@ -914,6 +928,7 @@ struct Worker {
     pending: Pending,
     last_commit: Instant,
     last_compact: Instant,
+    last_trim: Instant,
 }
 
 impl Worker {
@@ -944,6 +959,7 @@ impl Worker {
             let mut events: Vec<Event> = Vec::new();
             let mut acks: Vec<Sender<()>> = Vec::new();
             let mut compacts: Vec<Sender<()>> = Vec::new();
+            let mut trim = false;
             let mut stop = false;
             let mut next = msg;
             let mut drained = 0;
@@ -953,6 +969,7 @@ impl Worker {
                     WatchMsg::Flush(a) => acks.push(a),
                     WatchMsg::Stop => stop = true,
                     WatchMsg::Compact(a) => compacts.push(a),
+                    WatchMsg::Trim => trim = true,
                 }
                 drained += 1;
                 if stop || drained >= 4096 {
@@ -962,6 +979,10 @@ impl Worker {
             }
             if !events.is_empty() {
                 self.handle(events);
+            }
+            if trim && self.last_trim.elapsed() >= Duration::from_secs(2) {
+                self.last_trim = Instant::now();
+                wr(&self.shared).trim();
             }
             for a in compacts {
                 let _ = self.shared.compact();

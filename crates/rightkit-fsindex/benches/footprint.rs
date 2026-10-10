@@ -1,6 +1,6 @@
 //! Resident-memory benchmark for the column store (no real crawl).
 //!
-//! Generates N entries (default 2,000,000; set FSINDEX_SYNTH_ENTRIES) directly into the
+//! Generates N entries (default 2,000,000; pass a count after `--` or set FSINDEX_SYNTH_ENTRIES) directly into the
 //! memory-mapped columns, commits, then measures a *fresh child process* that reopens the
 //! store: phys_footprint / resident size before and after a name search and a size query.
 //! Run: `rightkit cargo bench -p rightkit-fsindex --bench footprint`.
@@ -71,6 +71,7 @@ mod mac {
             let t = Instant::now();
             let idx = Index::open(config(&state)).unwrap();
             let open = t.elapsed();
+            println!("aux (link groups, clone groups, clone members): {:?}; resident right after open {:.1} MB", idx.aux_counts(), mb(footprint().1));
             assert!(
                 idx.status().resumed_from_snapshot,
                 "child must reopen, not rebuild"
@@ -111,6 +112,7 @@ mod mac {
         let n: usize = std::env::var("FSINDEX_SYNTH_ENTRIES")
             .ok()
             .and_then(|v| v.parse().ok())
+            .or_else(|| args.iter().skip(1).find_map(|a| a.parse().ok()))
             .unwrap_or(2_000_000);
         let tmp = tempfile::tempdir().unwrap();
         let state = tmp.path().to_path_buf();

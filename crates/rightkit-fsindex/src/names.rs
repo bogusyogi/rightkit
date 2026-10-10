@@ -98,10 +98,18 @@ impl NameStore {
         }
     }
 
-    pub fn trim(&self) {
-        for s in &self.segs {
-            if self.dir.is_some() {
-                let _ = unsafe { s.unchecked_advise(memmap2::UncheckedAdvice::DontNeed) };
+    pub fn trim(&mut self) {
+        if let Some(d) = &self.dir {
+            for (i, s) in self.segs.iter_mut().enumerate() {
+                if let Ok(f) = OpenOptions::new()
+                    .read(true)
+                    .write(true)
+                    .open(d.join(format!("names-{i}.seg")))
+                {
+                    if let Ok(m) = unsafe { MmapMut::map_mut(&f) } {
+                        *s = m;
+                    }
+                }
             }
         }
         self.off.trim();

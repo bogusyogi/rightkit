@@ -1,17 +1,18 @@
 [package]
 name = "rightkit-fsindex"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 rust-version = "1.98.0"
 publish = true
 license = "MIT"
-description = "Live whole-disk file index: fuzzy name search plus clone- and hard-link-aware folder size rollups"
+description = "Live whole-disk file index: fuzzy name search plus clone- and hard-link-aware folder size rollups on memory-mapped columns"
 readme = "README.md"
 repository = "https://github.com/bogusyogi/rightkit"
 homepage = "https://github.com/bogusyogi/rightkit/tree/main/crates/rightkit-fsindex"
-keywords = ["file-index", "search", "disk-usage", "fsevents", "macos"]
-categories = ["filesystem"]
-include = ["src/**", "tests/*.rs", "tests/common/**", "benches/*.rs", "Cargo.toml", "README.md", "THIRD-PARTY-NOTICES"]
+documentation = "https://docs.rs/rightkit-fsindex"
+keywords = ["filesystem", "file-index", "fsevents", "disk-usage", "search"]
+categories = ["filesystem", "os::macos-apis"]
+include = ["src/**", "tests/*.rs", "tests/common/*.rs", "benches/*.rs", "Cargo.toml", "README.md", "CHANGELOG.md", "LICENSE", "THIRD-PARTY-NOTICES"]
 
 [lib]
 name = "rightkit_fsindex"
