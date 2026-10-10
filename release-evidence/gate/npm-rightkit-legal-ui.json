@@ -2,9 +2,9 @@
   "schema": 1,
   "kind": "npm",
   "name": "@rightkit/legal-ui",
-  "version": "0.2.1",
-  "commit": "afeb4a2356f06ef1ce07a8f5ffbdd6f317d2a64f",
-  "artifactSha256": "924bb7d77779ae1a69ec5b79d4e5ae753ceef4c7e6c685e417c8b2817ad9c18b",
+  "version": "0.2.2",
+  "commit": "5d64a2f4996de9df24d6d2a003c271a8bbe75c6e",
+  "artifactSha256": "2a7901ea43ca67da2f74ddbcf70d8a6fffbbb6ff09c9072c19a41538aa6b5d8d",
   "hostPolicy": "darwin-only",
   "hostPolicyReason": "Adrian 2026-10-07: apps validate on macOS first, Windows later",
   "runs": [
@@ -13,14 +13,14 @@
         "os": "darwin",
         "arch": "arm64"
       },
-      "commit": "afeb4a2356f06ef1ce07a8f5ffbdd6f317d2a64f",
+      "commit": "5d64a2f4996de9df24d6d2a003c271a8bbe75c6e",
       "command": "pnpm --dir packages/$D test",
       "features": [
         "default"
       ],
       "operator": "claude-opus-5.5 (RightKit lead) for adrdsouza",
-      "timestamp": "2026-10-10T22:21:54Z",
-      "passed": 28,
+      "timestamp": "2026-10-10T23:01:44Z",
+      "passed": 57,
       "failed": 0
     }
   ]
