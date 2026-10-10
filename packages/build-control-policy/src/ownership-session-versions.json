@@ -390,7 +390,7 @@
       "rightkit-watch": "0.3.1"
     },
     "npm": {
-      "@rightkit/app-shell": "0.3.0",
+      "@rightkit/app-shell": "0.4.0",
       "@rightkit/ax": "0.2.4",
       "@rightkit/doc-render": "0.1.4",
       "@rightkit/git": "0.2.37",
