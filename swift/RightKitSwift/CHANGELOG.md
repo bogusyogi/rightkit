@@ -1,5 +1,28 @@
 # RightKitSwift changelog
 
+## 0.6.0
+
+Gap ledger #75 (HeardRight fit review). The Diagnostics additions are source compatible. The Artifacts install API changes, see below.
+
+- `RightKitDiagnostics`: `StoreOptions` (`fileProtection`, `redaction`, `maxBytes`, `retainBytes`, `uploader`) and `JSONLDiagnosticStore(fileURL:options:now:)`. The pre-0.6.0 initializers still work and keep their defaults.
+- `RedactionPolicy`: `.standard` (default, unchanged), `.fields([String])`, `.custom((key, value) -> String)` and `.none`. The event name is screened unless the policy is `.none`.
+- `fileProtection` applies a data-protection class to the log and its lock file after each write. The attribute write is best-effort; its errors are ignored. Not exercised on device in 0.6.0.
+- Trimming keeps whole records only; `retainBytes` sets the trim target (default half of `maxBytes`), clamped to `maxBytes`.
+- `append(_:) async -> Bool` runs the blocking record off the caller's executor.
+- `drain() async throws -> Int` seals the active log under the record lock, uploads each sealed batch oldest first through `uploader`, and deletes a batch only after its upload succeeds. Delivery is at-least-once. A concurrent drain fails with `DiagnosticStoreError.drainInProgress`.
+- `RightKitArtifacts`: `ArtifactInstaller.install(archive:descriptor:destinationRoot:options:)` is now `async` and takes `InstallOptions`.
+- A nil `expectedSHA256` throws `ArtifactError.missingExpectedDigest` before the archive is read or the destination is created. Set `InstallOptions.allowUnverified` to install without a digest.
+- The previous install is kept aside (`.aside-<name>`) until the new one passes `InstallOptions.postActivationValidation`, a hook that receives the activated directory. A throwing hook restores the previous install.
+- `InstallOptions.requiredFiles` are checked before activation. Paths must be relative and free of `..`.
+- Every install writes `.rightkit-manifest.json` into the installed directory (`version`, `archiveSHA256` when verified, and every file's path, size and SHA-256). Read it with `ArtifactInstaller.readManifest(destinationRoot:topLevelDirectory:)`.
+- `ArtifactInstaller.recoverInterruptedInstall(destinationRoot:topLevelDirectory:postActivationValidation:)` resolves an interrupted activation. An unvalidated activation is rolled back, or completed when a validator passes. Installs call it first. Call it on launch.
+- `ArtifactDescriptor` gains `version: String?` (default nil).
+- New `ArtifactError` cases: `missingExpectedDigest`, `missingRequiredFile`, `invalidRequiredFilePath`, `postActivationValidationFailed`, `installInProgress`, `manifestUnreadable`, `recoveryMarkerUnreadable`.
+
+Source-visible for apps: add `await` to `ArtifactInstaller.install` calls. Pass `InstallOptions(allowUnverified: true)` where a nil digest was intentional. A `try ArtifactInstaller.install` inside a synchronous function must move into an async context.
+
+Verified: `swift test --no-parallel` passes (RightKitDiagnosticsTests 20 cases, RightKitArtifactsTests 24 cases, 0 warnings); `xcodebuild` for the iOS Simulator builds RightKitDiagnostics and RightKitArtifacts with BUILD SUCCEEDED.
+
 ## 0.5.0
 
 Gap ledger #63 (Pulse port). All additions are source compatible.

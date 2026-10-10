@@ -38,7 +38,7 @@ final class ScrapeRightSpikeTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: destination) }
 
         XCTAssertThrowsError(
-            try ArtifactInstaller.install(
+            try await ArtifactInstaller.install(
                 archive: downloadedArchive,
                 descriptor: ArtifactDescriptor(topLevelDirectory: "scraperight-model", expectedSHA256: String(repeating: "0", count: 64)),
                 destinationRoot: destination,
@@ -46,7 +46,7 @@ final class ScrapeRightSpikeTests: XCTestCase {
             "a mismatched checksum must be rejected",
         )
 
-        let installed = try ArtifactInstaller.install(
+        let installed = try await ArtifactInstaller.install(
             archive: downloadedArchive,
             descriptor: ArtifactDescriptor(topLevelDirectory: "scraperight-model", expectedSHA256: expectedSHA),
             destinationRoot: destination,
