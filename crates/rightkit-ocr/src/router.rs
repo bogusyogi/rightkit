@@ -7,6 +7,7 @@
 //! The result always says which backend produced it and why a fallback fired.
 
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use image::RgbImage;
 #[cfg(feature = "onnx")]
@@ -49,6 +50,20 @@ pub enum Isolation {
     Worker(WorkerCommand),
 }
 
+/// An app's model-store lease/refs registration, held for an ONNX engine's lifetime.
+///
+/// Implement it in the app (no app crate is a dependency here). `acquire_model_lease` is called
+/// before the model files are verified; `paths` are the expected `det.onnx`, `rec.onnx` and
+/// `en_dict.txt` locations. Return the guard whose `Drop` releases the lease, or an error string
+/// (for example "model is in use by another app") to refuse the load. The engine drops the guard
+/// after its sessions.
+pub trait ModelLeaseHook: Send + Sync + std::fmt::Debug {
+    fn acquire_model_lease(
+        &self,
+        paths: &[PathBuf],
+    ) -> Result<Box<dyn std::any::Any + Send>, String>;
+}
+
 /// Verified ONNX model set used by the fallback / `Onnx` preference.
 #[derive(Debug, Clone)]
 pub struct OnnxConfig {
@@ -57,6 +72,8 @@ pub struct OnnxConfig {
     /// Absolute ONNX Runtime library; `None` keeps whatever the caller already
     /// configured through `rightkit-ort` / `ORT_DYLIB_PATH`.
     pub ort_runtime: Option<PathBuf>,
+    /// Optional app model-store lease, held while the engine is loaded.
+    pub lease_hook: Option<Arc<dyn ModelLeaseHook>>,
 }
 
 impl OnnxConfig {
@@ -65,7 +82,14 @@ impl OnnxConfig {
             model_dir: model_dir.into(),
             manifest,
             ort_runtime: None,
+            lease_hook: None,
         }
+    }
+
+    /// Register a model-store lease hook (see [`ModelLeaseHook`]).
+    pub fn with_lease_hook(mut self, hook: Arc<dyn ModelLeaseHook>) -> Self {
+        self.lease_hook = Some(hook);
+        self
     }
 }
 
@@ -121,6 +145,13 @@ impl OcrResult {
     }
 }
 
+/// Newline-joined text and the backend that produced it (ScrapeRight's `OcrOutcome` shape).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OcrOutcome {
+    pub text: String,
+    pub backend: OcrBackend,
+}
+
 /// A reusable OCR handle. The ONNX engine loads lazily on first need and is
 /// then kept warm.
 pub struct Ocr {
@@ -152,6 +183,32 @@ impl Ocr {
 
     pub fn recognize(&mut self, img: &RgbImage) -> Result<OcrResult, OcrError> {
         self.recognize_inner(img, None)
+    }
+
+    /// Recognize and report only text + backend (the `OcrOutcome` ScrapeRight consumes).
+    pub fn recognize_with_provenance(&mut self, img: &RgbImage) -> Result<OcrOutcome, OcrError> {
+        self.recognize(img).map(|r| OcrOutcome {
+            text: r.text(),
+            backend: r.backend,
+        })
+    }
+
+    /// Is the native backend usable here? `true` only on a definite yes; a transient probe
+    /// failure is `false` (use [`Ocr::probe_native`] to tell them apart). Stays `false` on a
+    /// machine that would only succeed through the ONNX fallback.
+    pub fn is_available(&self) -> bool {
+        matches!(self.probe_native(), Ok(true))
+    }
+
+    /// Build and drop real ONNX sessions from the configured model set, verifying digests first.
+    /// No lease is taken: call it under the caller's own lease (migration, doctor).
+    #[cfg(feature = "onnx")]
+    pub fn validate_fallback(&self) -> Result<(), OcrError> {
+        let cfg = self.options.onnx.as_ref().ok_or_else(|| {
+            OcrError::NoFallbackConfigured("no ONNX model config to validate".into())
+        })?;
+        configure_ort_runtime(cfg)?;
+        OcrEngine::validate_sessions(&cfg.model_dir, &cfg.manifest)
     }
 
     /// Is the native backend usable here? Probes with the embedded known-text
@@ -257,13 +314,11 @@ impl Ocr {
             OcrError::NoFallbackConfigured("ONNX backend requested without model config".into())
         })?;
         if self.onnx.is_none() {
-            if let Some(rt) = &cfg.ort_runtime {
-                configure_runtime([RuntimeCandidate::new(rt.clone(), CandidateSource::Explicit)])
-                    .map_err(|e| OcrError::Runtime(format!("ONNX runtime: {e:?}")))?;
-            }
-            self.onnx = Some(OcrEngine::load_with_manifest(
+            configure_ort_runtime(&cfg)?;
+            self.onnx = Some(OcrEngine::load_with_lease(
                 &cfg.model_dir,
                 &cfg.manifest,
+                cfg.lease_hook.as_deref(),
             )?);
         }
         let lines = self.onnx.as_mut().expect("loaded above").run_lines(img)?;
@@ -273,6 +328,15 @@ impl Ocr {
             fallback_reason,
         })
     }
+}
+
+#[cfg(feature = "onnx")]
+fn configure_ort_runtime(cfg: &OnnxConfig) -> Result<(), OcrError> {
+    if let Some(rt) = &cfg.ort_runtime {
+        configure_runtime([RuntimeCandidate::new(rt.clone(), CandidateSource::Explicit)])
+            .map_err(|e| OcrError::Runtime(format!("ONNX runtime: {e:?}")))?;
+    }
+    Ok(())
 }
 
 fn native_result(lines: Vec<OcrLine>, fallback_reason: Option<String>) -> OcrResult {

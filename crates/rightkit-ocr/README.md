@@ -58,12 +58,20 @@ nothing surfaced it. CodeRight is now migrated onto v6, and
 `characterization/phase5-adoption` hashes the deployed models in both apps and
 fails closed on divergence.
 
-`OcrEngine::load` still returns `UnresolvedProvenance` before reading a model
-or constructing ORT. `load_with_manifest` becomes usable only when the signed
-artifact catalog supplies a non-empty authoritative label and source; the
-three characterized digests are still verified before session creation. No
-version label is guessed by this crate — the label above comes from the
-record, not from inference.
+`OcrArtifactManifest::pp_ocr_v6()` carries the resolved provenance (PP-OCRv6,
+the two PaddlePaddle Hugging Face repos above, Apache-2.0), and `OcrEngine::load`
+uses it. The label is tied to bytes: the Hugging Face LFS SHA-256 of
+`PP-OCRv6_medium_det_onnx/inference.onnx` and
+`PP-OCRv6_small_rec_onnx/inference.onnx` equals the det and rec digests above
+(checked 2026-10-09), and both model cards declare Apache-2.0.
+`characterized_windows_contract()` keeps the old conflict for callers that want
+the fail-closed manifest.
+
+Apps that run a model-store GC pass a `ModelLeaseHook` through
+`OnnxConfig::with_lease_hook`; it is called before verification and its guard is
+held until the engine drops. `Ocr::is_available`,
+`Ocr::recognize_with_provenance` and `Ocr::validate_fallback` cover the other
+calls ScrapeRight makes.
 
 The committed PNG fixture is test data, not a model. No ONNX model or ONNX
 Runtime binary is bundled.

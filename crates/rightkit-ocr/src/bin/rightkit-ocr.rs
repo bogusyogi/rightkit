@@ -50,13 +50,7 @@ fn run() -> Result<(), String> {
     }
     let mut options = OcrOptions::new(preference);
     if let Some(dir) = model_dir {
-        let manifest = OcrArtifactManifest::characterized_windows_contract()
-            .with_resolved_provenance(
-                "PP-OCRv6",
-                "PaddlePaddle PP-OCRv6_medium_det + PP-OCRv6_small_rec",
-                "Apache-2.0",
-            )
-            .map_err(|e| e.to_string())?;
+        let manifest = OcrArtifactManifest::pp_ocr_v6();
         let mut cfg = OnnxConfig::new(dir, manifest);
         cfg.ort_runtime = runtime;
         options = options.with_onnx(cfg);

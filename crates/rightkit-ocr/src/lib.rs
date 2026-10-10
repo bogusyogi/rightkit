@@ -23,7 +23,10 @@ pub use native::vision;
 #[cfg(all(windows, feature = "native"))]
 pub use native::win_native;
 pub use native::{canary_png, native_backend};
-pub use router::{BackendPreference, Isolation, Ocr, OcrOptions, OcrResult, OnnxConfig};
+pub use router::{
+    BackendPreference, Isolation, ModelLeaseHook, Ocr, OcrOptions, OcrOutcome, OcrResult,
+    OnnxConfig,
+};
 pub use types::{
     decode_encoded, is_backend_unavailable, OcrBackend, OcrLine, OcrRect, MACOS_VISION_UNAVAILABLE,
     MAX_PIXELS, OCR_UNSUPPORTED_PLATFORM, WINDOWS_OCR_UNAVAILABLE,
@@ -41,9 +44,7 @@ use rightkit_ort::ProviderDiagnostic;
 #[cfg(feature = "onnx")]
 use sha2::{Digest, Sha256};
 use std::fmt;
-#[cfg(feature = "onnx")]
-use std::path::Path;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 #[cfg(all(test, feature = "onnx"))]
 use support::ctc_greedy_decode;
 #[cfg(feature = "onnx")]
@@ -95,6 +96,28 @@ impl OcrArtifactManifest {
                 .to_string(),
             expected_fixture_output: "RIGHTKIT OCR 2026\nShared parity fixture".to_string(),
         }
+    }
+
+    /// The PP-OCRv6 model set ScrapeRight and CodeRight ship, with its resolved provenance.
+    ///
+    /// The three digests are the ones in `PROVENANCE.toml`. Provenance is tied to bytes, not
+    /// asserted: ScrapeRight's `scripts/fetch-ocr-assets.mjs` downloads `det.onnx` from
+    /// `PaddlePaddle/PP-OCRv6_medium_det_onnx` and `rec.onnx` from
+    /// `PaddlePaddle/PP-OCRv6_small_rec_onnx` (`inference.onnx` in each), and the Hugging Face
+    /// LFS SHA-256 of each upstream file equals the digest here (checked 2026-10-09). Both model
+    /// cards declare Apache-2.0. `en_dict.txt` is the inline `character_dict` of the recognizer's
+    /// `inference.yml` (18,708 entries). The earlier PP-OCRv5 label belonged to different
+    /// CodeRight weights that were migrated off; it does not describe these bytes.
+    pub fn pp_ocr_v6() -> Self {
+        let mut manifest = Self::characterized_windows_contract();
+        manifest.provenance = OcrProvenance::Resolved {
+            label: "PP-OCRv6".to_string(),
+            source: "https://huggingface.co/PaddlePaddle/PP-OCRv6_medium_det_onnx (det) + \
+                     https://huggingface.co/PaddlePaddle/PP-OCRv6_small_rec_onnx (rec + dict)"
+                .to_string(),
+            license: "Apache-2.0".to_string(),
+        };
+        manifest
     }
 
     /// Replace the characterized conflict only with an explicit authoritative
@@ -236,6 +259,15 @@ impl From<String> for OcrError {
     }
 }
 
+/// The three model files `model_dir` is expected to hold (unverified; for lease registration).
+#[cfg(feature = "onnx")]
+fn artifact_paths(model_dir: &Path) -> Vec<PathBuf> {
+    ["det.onnx", "rec.onnx", "en_dict.txt"]
+        .iter()
+        .map(|name| model_dir.join(name))
+        .collect()
+}
+
 #[cfg(feature = "onnx")]
 fn verify_artifact(root: &Path, name: &str, expected: &str) -> Result<PathBuf, OcrError> {
     let path = root.join(name);
@@ -291,17 +323,16 @@ pub struct OcrEngine {
     /// never reached if the model omits the space class.
     vocab: Vec<char>,
     provider_diagnostics: Vec<ProviderDiagnostic>,
+    /// Caller's model-store lease; declared last so the sessions drop before it releases.
+    _lease: Option<Box<dyn std::any::Any + Send>>,
 }
 
 #[cfg(feature = "onnx")]
 impl OcrEngine {
-    /// Load using the currently characterized manifest. This deliberately
-    /// fails closed until its conflicting model provenance label is resolved.
+    /// Load using [`OcrArtifactManifest::pp_ocr_v6`], the digest-pinned model set with
+    /// resolved provenance.
     pub fn load(model_dir: &Path) -> Result<Self, OcrError> {
-        Self::load_with_manifest(
-            model_dir,
-            &OcrArtifactManifest::characterized_windows_contract(),
-        )
+        Self::load_with_manifest(model_dir, &OcrArtifactManifest::pp_ocr_v6())
     }
 
     /// Load det + rec sessions from an explicit, verified model directory.
@@ -316,6 +347,23 @@ impl OcrEngine {
         model_dir: &Path,
         manifest: &OcrArtifactManifest,
     ) -> Result<Self, OcrError> {
+        Self::load_with_lease(model_dir, manifest, None)
+    }
+
+    /// Like [`OcrEngine::load_with_manifest`], taking a model-store lease first.
+    ///
+    /// The hook is called before any artifact is verified, so an app's model GC cannot replace
+    /// the payload between verification and session construction. The returned guard is held
+    /// until the engine is dropped (after its sessions).
+    pub fn load_with_lease(
+        model_dir: &Path,
+        manifest: &OcrArtifactManifest,
+        lease_hook: Option<&dyn ModelLeaseHook>,
+    ) -> Result<Self, OcrError> {
+        let lease = match lease_hook {
+            Some(hook) => Some(hook.acquire_model_lease(&artifact_paths(model_dir))?),
+            None => None,
+        };
         let artifacts = manifest.validate_model_dir(model_dir)?;
         let vocab = load_vocab(&artifacts.dictionary)?;
         let (det, mut provider_diagnostics) = build_session(&artifacts.detector)?;
@@ -326,7 +374,23 @@ impl OcrEngine {
             rec,
             vocab,
             provider_diagnostics,
+            _lease: lease,
         })
+    }
+
+    /// Verify `model_dir` against `manifest`, then build and drop real det + rec sessions.
+    ///
+    /// For migration and doctor checks that already hold the app's model lease, so none is
+    /// taken here. Native-only OCR callers never need this.
+    pub fn validate_sessions(
+        model_dir: &Path,
+        manifest: &OcrArtifactManifest,
+    ) -> Result<(), OcrError> {
+        let artifacts = manifest.validate_model_dir(model_dir)?;
+        load_vocab(&artifacts.dictionary)?;
+        build_session(&artifacts.detector)?;
+        build_session(&artifacts.recognizer)?;
+        Ok(())
     }
 
     pub fn provider_diagnostics(&self) -> &[ProviderDiagnostic] {
