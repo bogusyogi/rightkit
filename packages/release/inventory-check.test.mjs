@@ -218,7 +218,7 @@ test("end-to-end run on the real repo with a fully mocked registry", async () =>
     const kinds = new Set(report.findings.map((f) => f.kind));
     assert.ok(kinds.has("never-published"));
     assert.ok(kinds.has("duplicate-app-copies"), "lock-file duplicate in demo-app");
-    assert.ok(kinds.has("missing-readme"), "rightkit-review has no README");
+    // rightkit-review gained a README (6a171cb9); the missing-readme kind is covered by the fixture test below.
     const swift = report.findings.find((f) => f.subject === "swift RightKitSwift" && f.kind === "unverified");
     assert.equal(swift?.severity, INFO);
 
