@@ -1,6 +1,6 @@
 # rightkit-send — extraction brief and C surface (agreed 2026-10-10)
 
-Source: pulse/docs/scraperight-handoff.md; Pulse Mac chat (protocol authority) and scraper chat (iOS consumer) messages of 2026-10-10. RightKit owns the crate, its publication and the iOS packaging; Pulse owns the wire extensions, trust rules and hub UI; ScrapeRight owns the phone app. Status: brief agreed between the three chats; extraction starts after the 2026-10-10 crate release; Pulse re-pins and deletes its copy only after the parity gate is green and Adrian says yes.
+Source: pulse/docs/scraperight-handoff.md; Pulse Mac chat (protocol authority) and scraper chat (iOS consumer) messages of 2026-10-10. RightKit owns the crate, its publication and the iOS packaging; Pulse owns the wire extensions, trust rules and hub UI; ScrapeRight owns the phone app. Status: brief agreed between the three chats; Adrian approved the move on 2026-10-10 (relayed by the Pulse Mac chat): Pulse fully moves to the crate and deletes `core/src/localsend/`; no long-lived second copy. Extraction starts after the 2026-10-10 crate release. Pulse switches only when the parity suite passes against both engines, the crate builds on rustc 1.90.0, and the identity defect is fixed in the crate.
 
 ## Source and split
 
@@ -31,6 +31,5 @@ Parity is measured against the **Rust API**, which keeps Pulse's full trust stor
 
 ## Open for Adrian
 
-- Receive tab history (handoff open point 3): scraper proposes keeping received items for 30 days or until deleted, with "Process" beside "Open" on received links.
-- Pulse re-pin and deletion of its engine copy after parity (Pulse is asking him directly).
+- Receive tab history: decided — a scratchpad, not a history (Adrian rejected the 30-day proposal). The crate persists no received items and keeps no receive log on iOS; the app holds an item only until it is used or dismissed.
 - Catalog capability name (`device-send`) in the next trust-sync batch.
