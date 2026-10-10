@@ -3,7 +3,6 @@
 use std::path::Path;
 
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
 
 use crate::client::ServerSpec;
 
@@ -62,10 +61,9 @@ pub fn fingerprint(spec: &ServerSpec) -> String {
             "v": FINGERPRINT_VERSION, "kind": "http", "url": url
         })),
     };
-    let d = Sha256::digest(canonical.as_bytes());
     format!(
         "sha256:{}",
-        d.iter().map(|b| format!("{b:02x}")).collect::<String>()
+        rightkit_fs::digest::sha256_bytes(canonical.as_bytes())
     )
 }
 

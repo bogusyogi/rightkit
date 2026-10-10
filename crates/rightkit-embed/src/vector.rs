@@ -29,6 +29,19 @@ pub struct Nearest {
     pub vector: Vec<f32>,
 }
 
+/// Fold a bootstrap failure into the existing error type (keeps `VectorError` exhaustive
+/// for callers): SQLite errors pass through; filesystem/bootstrap errors surface as
+/// `SQLITE_CANTOPEN` with the message attached.
+fn db_error(error: rightkit_db::DbError) -> VectorError {
+    match error {
+        rightkit_db::DbError::Sqlite(e) => VectorError::Sqlite(e),
+        other => VectorError::Sqlite(rusqlite::Error::SqliteFailure(
+            rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_CANTOPEN),
+            Some(other.to_string()),
+        )),
+    }
+}
+
 pub struct VectorStore {
     conn: Connection,
     dimension: usize,
@@ -36,11 +49,15 @@ pub struct VectorStore {
 
 impl VectorStore {
     pub fn open(path: impl AsRef<Path>, dimension: usize) -> Result<Self, VectorError> {
-        Self::from_connection(Connection::open(path)?, dimension)
+        let conn = rightkit_db::DbOptions::new(path.as_ref())
+            .open_writer()
+            .map_err(db_error)?;
+        Self::from_connection(conn, dimension)
     }
 
     pub fn in_memory(dimension: usize) -> Result<Self, VectorError> {
-        Self::from_connection(Connection::open_in_memory()?, dimension)
+        let conn = rightkit_db::open_in_memory().map_err(db_error)?;
+        Self::from_connection(conn, dimension)
     }
 
     pub fn from_connection(conn: Connection, dimension: usize) -> Result<Self, VectorError> {

@@ -5,7 +5,8 @@ use std::io::{Read, Write};
 use std::path::PathBuf;
 use std::process::{Child, Command, ExitStatus, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
+use std::task::{Poll, Waker};
 
 use serde_json::Value;
 
@@ -20,7 +21,8 @@ pub struct CancellationToken {
 #[derive(Default, Debug)]
 struct CancellationState {
     cancelled: AtomicBool,
-    notify: tokio::sync::Notify,
+    /// Wakers of pending `cancelled()` futures; runtime-agnostic (no tokio needed).
+    wakers: Mutex<Vec<Waker>>,
 }
 
 impl PartialEq for CancellationToken {
@@ -38,7 +40,11 @@ impl CancellationToken {
 
     pub fn cancel(&self) {
         self.inner.cancelled.store(true, Ordering::SeqCst);
-        self.inner.notify.notify_waiters();
+        let wakers =
+            std::mem::take(&mut *self.inner.wakers.lock().unwrap_or_else(|e| e.into_inner()));
+        for waker in wakers {
+            waker.wake();
+        }
     }
 
     pub fn is_cancelled(&self) -> bool {
@@ -46,16 +52,24 @@ impl CancellationToken {
     }
 
     pub async fn cancelled(&self) {
-        loop {
-            let notified = self.inner.notify.notified();
-            tokio::pin!(notified);
-            // Register before checking, so cancel cannot fall between check & wait.
-            notified.as_mut().enable();
+        std::future::poll_fn(|cx| {
             if self.is_cancelled() {
-                return;
+                return Poll::Ready(());
             }
-            notified.await;
-        }
+            {
+                let mut wakers = self.inner.wakers.lock().unwrap_or_else(|e| e.into_inner());
+                if !wakers.iter().any(|w| w.will_wake(cx.waker())) {
+                    wakers.push(cx.waker().clone());
+                }
+            }
+            // Re-check after registering, so cancel cannot fall between check & wait.
+            if self.is_cancelled() {
+                Poll::Ready(())
+            } else {
+                Poll::Pending
+            }
+        })
+        .await
     }
 }
 

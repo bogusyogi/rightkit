@@ -7,7 +7,6 @@ use rightkit_ort::{
     configure_runtime, init_environment, CandidateSource, EnvironmentOptions, GlobalPool,
     RuntimeCandidate, SessionOptions,
 };
-use sha2::{Digest, Sha256};
 use thiserror::Error;
 use tokenizers::{EncodeInput, Tokenizer};
 
@@ -680,12 +679,9 @@ fn pipeline_fingerprint(parts: &PipelineParts<'_>) -> String {
     for (name, hash) in parts.files {
         line(&format!("file:{name}"), hash);
     }
-    let digest = Sha256::digest(text.as_bytes());
-    format!("rkpipe1-{}", hex(&digest[..16]))
-}
-
-fn hex(bytes: &[u8]) -> String {
-    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
+    // First 16 bytes of the SHA-256 = first 32 lowercase hex characters.
+    let digest = rightkit_fs::digest::sha256_bytes(text.as_bytes());
+    format!("rkpipe1-{}", &digest[..32])
 }
 
 fn sanitize(text: &str) -> String {
@@ -703,9 +699,7 @@ fn hash_file(path: &Path) -> Result<String, String> {
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok("absent".into()),
         Err(error) => return Err(format!("{}: {error}", path.display())),
     };
-    let mut hasher = Sha256::new();
-    std::io::copy(&mut file, &mut hasher).map_err(|e| format!("{}: {e}", path.display()))?;
-    Ok(hex(&hasher.finalize()))
+    rightkit_fs::digest::sha256_reader(&mut file).map_err(|e| format!("{}: {e}", path.display()))
 }
 
 /// Reads only the top-level `model_type`; nested sub-configs (audio, text,

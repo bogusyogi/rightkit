@@ -6,8 +6,9 @@
 //! an OS advisory lock plus metadata; legacy create_new holders remain
 //! conservative until their TTL expires.
 
+use rightkit_fs::{FileLock, FsError};
 use serde::{Deserialize, Serialize};
-use std::fs::{self, File, OpenOptions, TryLockError};
+use std::fs::{self, OpenOptions};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -30,13 +31,13 @@ struct LockBody {
 /// Dropping removes the lock file.
 pub struct StoreLock {
     lock_path: PathBuf,
-    guard_file: File,
+    /// Released after `drop` removes the marker (field drop follows `Drop::drop`).
+    _guard: FileLock,
 }
 
 impl Drop for StoreLock {
     fn drop(&mut self) {
         let _ = fs::remove_file(&self.lock_path);
-        let _ = self.guard_file.unlock();
     }
 }
 
@@ -83,20 +84,13 @@ fn try_acquire_file(lock_path: &Path, app: &str) -> Result<Option<StoreLock>, St
     if let Some(parent) = guard_path.parent() {
         fs::create_dir_all(parent).map_err(|e| format!("create lock dir: {e}"))?;
     }
-    let guard_file = OpenOptions::new()
-        .read(true)
-        .write(true)
-        .create(true)
-        .truncate(false)
-        .open(&guard_path)
-        .map_err(|error| format!("open advisory lock {}: {error}", guard_path.display()))?;
-    match guard_file.try_lock() {
-        Ok(()) => {}
-        Err(TryLockError::WouldBlock) => return Ok(None),
-        Err(TryLockError::Error(error)) => {
-            return Err(format!("lock {}: {error}", guard_path.display()))
-        }
-    }
+    // OS advisory lock via rightkit-fs (POSIX record lock on unix, LockFileEx on Windows,
+    // plus an in-process registry so two threads exclude each other).
+    let guard = match FileLock::try_acquire(&guard_path) {
+        Ok(guard) => guard,
+        Err(FsError::Locked { .. }) => return Ok(None),
+        Err(error) => return Err(format!("lock {}: {error}", guard_path.display())),
+    };
     let created = match OpenOptions::new()
         .write(true)
         .create_new(true)
@@ -123,7 +117,6 @@ fn try_acquire_file(lock_path: &Path, app: &str) -> Result<Option<StoreLock>, St
         == Some("advisory-v2")
         || existing.contains("\"format\":\"advisory-v2\"");
     if !created && !is_v2 && !lock_is_stale(lock_path) {
-        let _ = guard_file.unlock();
         return Ok(None);
     }
     let body = LockBody {
@@ -147,7 +140,7 @@ fn try_acquire_file(lock_path: &Path, app: &str) -> Result<Option<StoreLock>, St
         .map_err(|error| format!("sync {}: {error}", lock_path.display()))?;
     Ok(Some(StoreLock {
         lock_path: lock_path.to_path_buf(),
-        guard_file,
+        _guard: guard,
     }))
 }
 

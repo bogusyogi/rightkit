@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.2.7
+
+- The job lock uses `rightkit_fs::FileLock` (same POSIX record lock on unix, `LockFileEx` on
+  Windows, process-wide registry). The crate no longer contains `unsafe` or a direct `libc`
+  dependency. No owner side file is written (`rightkit-fs` `json` feature is not used by this
+  crate). Behaviour is unchanged.
+- New default-on feature `service` gates `DispatcherHandler` and the `rightkit-service`
+  dependency. Engines that only speak stdio/CLI can build with `default-features = false`.
+- `store::now()` formats the UTC timestamp with std; the `time` dependency is gone. Output
+  (`YYYY-MM-DDTHH:MM:SSZ`) is unchanged.
+
 ## 0.2.6
 
 - **`nix` removed.** The job lock calls `libc::fcntl(F_SETLK)` directly (same POSIX record lock), retrying on `EINTR`. Behaviour is unchanged.

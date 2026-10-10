@@ -977,27 +977,12 @@ fn file_matches(p: &Path, f: &FileRecord, mode: VerifyMode) -> bool {
     mode != VerifyMode::Full || sha256_file(p).is_ok_and(|h| h.eq_ignore_ascii_case(&f.sha256))
 }
 
-/// Durable replacement: private temp file + fsync + rename.
+/// Durable replacement: temp file beside the target, fsync, atomic rename over it (also on
+/// Windows: an existing target is replaced in one step, never deleted first), directory fsync.
 pub(crate) fn write_atomic(path: &Path, bytes: &[u8]) -> Result<()> {
-    use std::io::Write;
     let parent = path
         .parent()
         .ok_or_else(|| Error::new(ErrorCode::Io, "atomic write needs a parent"))?;
     fs::create_dir_all(parent).map_err(|e| Error::io(parent.display(), e))?;
-    let tmp = path.with_extension(format!("tmp-{}", std::process::id()));
-    let result = (|| {
-        let mut f = fs::File::create(&tmp)?;
-        f.write_all(bytes)?;
-        f.sync_all()?;
-        drop(f);
-        if cfg!(windows) && path.exists() {
-            fs::remove_file(path)?;
-        }
-        fs::rename(&tmp, path)
-    })();
-    if let Err(e) = result {
-        let _ = fs::remove_file(&tmp);
-        return Err(Error::io(path.display(), e));
-    }
-    Ok(())
+    rightkit_fs::atomic_write(path, bytes).map_err(|e| Error::io(path.display(), e))
 }

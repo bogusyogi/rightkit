@@ -712,6 +712,7 @@ impl ServerHost {
         loop {
             match read_bounded_line(&mut reader, &mut buf, max)? {
                 LineRead::Eof => break,
+                // JSON-lines framing also lives in `rightkit-framed-sidecar` (owner); see client.rs.
                 LineRead::Oversize => {
                     let reply = rpc_error(
                         &Value::Null,

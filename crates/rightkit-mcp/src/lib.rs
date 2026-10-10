@@ -7,6 +7,10 @@
 //! `EndpointOriginPolicy::allow_any_origin_insecure` explicitly opts into unrestricted HTTP(S) origins.
 //! `ElicitationContext::request_id` exposes original wire id; `cancellation` observes originating call cancellation.
 
+#[cfg(feature = "advanced-http")]
+mod advanced_http;
+#[cfg(not(feature = "advanced-http"))]
+#[path = "advanced_http_off.rs"]
 mod advanced_http;
 pub mod auth;
 pub mod client;

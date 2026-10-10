@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.5.3
+
+- New default-on feature `advanced-http` gates `tokio`, `rightkit-http[async]`, `http` and
+  `futures-util` (the `ClientExtensions` HTTP transport: streamable HTTP with extensions and
+  legacy SSE). Default builds are unchanged. Stdio-only consumers can build with
+  `default-features = false`; plain blocking HTTP (`ureq`) and the server host stay available,
+  and `McpClient::connect_with_extensions` on an `ServerSpec::Http` server returns
+  `McpError::Config` without the feature.
+- `CancellationToken` no longer uses `tokio::sync::Notify`: it is a runtime-agnostic waker list
+  built on std. API and semantics (permanent, wakes every waiter) are unchanged.
+- `auth::Secret` is now a re-export of `rightkit_http::Secret` (one redacted-secret type for the
+  net crates). `Debug` prints `Secret([redacted])`; `Display`, `PartialEq`, `Eq`,
+  `is_empty` and `From<String>` are added.
+- Fingerprints hash with `rightkit_fs::digest` instead of a direct `sha2` dependency; output is
+  unchanged.
+- Package: ship `LICENSE-MIT` / `LICENSE-APACHE` (declared `MIT OR Apache-2.0`) and `CHANGELOG.md`.
+- JSON-lines stdio framing still duplicates `rightkit-framed-sidecar`; commented, to be
+  converged on that owner crate later.
+
 ## 0.5.2
 
 - Internal: the HTTP/SSE client transport now runs on `rightkit-http` (`AsyncClient::stream_any`,

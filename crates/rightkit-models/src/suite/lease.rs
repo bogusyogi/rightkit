@@ -10,8 +10,8 @@
 //! The OS releases it when the holder exits or crashes, so no stale-file
 //! cleanup is needed. A sidecar `.holder.json` names the holder for status messages.
 
+use rightkit_fs::{FileLock, FsError};
 use serde::{Deserialize, Serialize};
-use std::fs::{File, OpenOptions, TryLockError};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -30,7 +30,7 @@ pub struct Holder {
 
 /// Held while this process has the model family loaded. Dropping releases it.
 pub struct ModelLease {
-    files: Vec<File>,
+    locks: Vec<FileLock>,
     infos: Vec<PathBuf>,
 }
 
@@ -41,9 +41,7 @@ impl Drop for ModelLease {
         for info in &self.infos {
             let _ = std::fs::remove_file(info);
         }
-        for file in &self.files {
-            let _ = file.unlock();
-        }
+        // `locks` release when the fields drop, after this body.
     }
 }
 
@@ -57,17 +55,11 @@ fn lease_path_at(root: &Path, family: &str) -> PathBuf {
         .join(format!("{family}.lock"))
 }
 
-fn open(path: &Path) -> Result<File, String> {
+fn ensure_dir(path: &Path) -> Result<(), String> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).map_err(|e| format!("create lease dir: {e}"))?;
     }
-    OpenOptions::new()
-        .read(true)
-        .write(true)
-        .create(true)
-        .truncate(false)
-        .open(path)
-        .map_err(|e| format!("open model lease: {e}"))
+    Ok(())
 }
 
 /// Who holds `family` right now, if anyone (best effort, for status text).
@@ -100,23 +92,21 @@ pub fn try_acquire_at_roots(
     let mut roots: Vec<PathBuf> = roots.iter().map(|root| root.to_path_buf()).collect();
     roots.sort();
     roots.dedup();
-    let mut files: Vec<File> = Vec::new();
+    let mut locks: Vec<FileLock> = Vec::new();
     let mut infos: Vec<PathBuf> = Vec::new();
     for root in roots {
         let path = lease_path_at(&root, family);
         let Some(mut lease) = ModelLease::try_acquire_at(&path, app)? else {
+            // Holder files go first, while the locks taken so far are still held.
             for info in &infos {
                 let _ = std::fs::remove_file(info);
             }
-            for file in &files {
-                let _ = file.unlock();
-            }
             return Ok(None);
         };
-        files.append(&mut lease.files);
+        locks.append(&mut lease.locks);
         infos.append(&mut lease.infos);
     }
-    Ok(Some(ModelLease { files, infos }))
+    Ok(Some(ModelLease { locks, infos }))
 }
 
 pub fn try_acquire_families_at_roots(
@@ -127,22 +117,20 @@ pub fn try_acquire_families_at_roots(
     let mut names = families.to_vec();
     names.sort();
     names.dedup();
-    let mut files: Vec<File> = Vec::new();
+    let mut locks: Vec<FileLock> = Vec::new();
     let mut infos: Vec<PathBuf> = Vec::new();
     for family in names {
         let Some(mut lease) = try_acquire_at_roots(roots, &family, app)? else {
+            // Holder files go first, while the locks taken so far are still held.
             for info in &infos {
                 let _ = std::fs::remove_file(info);
             }
-            for file in &files {
-                let _ = file.unlock();
-            }
             return Ok(None);
         };
-        files.append(&mut lease.files);
+        locks.append(&mut lease.locks);
         infos.append(&mut lease.infos);
     }
-    Ok(Some(ModelLease { files, infos }))
+    Ok(Some(ModelLease { locks, infos }))
 }
 
 /// Compatibility lease guarding current Orthic Labs root plus legacy root.
@@ -235,12 +223,12 @@ impl ModelLease {
     }
 
     fn try_acquire_at(path: &Path, app: &str) -> Result<Option<Self>, String> {
-        let file = open(path)?;
-        match file.try_lock() {
-            Ok(()) => {}
-            Err(TryLockError::WouldBlock) => return Ok(None),
-            Err(TryLockError::Error(e)) => return Err(format!("model lease lock: {e}")),
-        }
+        ensure_dir(path)?;
+        let lock = match FileLock::try_acquire(path) {
+            Ok(lock) => lock,
+            Err(FsError::Locked { .. }) => return Ok(None),
+            Err(e) => return Err(format!("model lease lock: {e}")),
+        };
         let body = serde_json::to_vec(&Holder {
             app: app.to_string(),
             pid: std::process::id(),
@@ -248,11 +236,10 @@ impl ModelLease {
         .map_err(|e| e.to_string())?;
         let info = info_path(path);
         if let Err(error) = std::fs::write(&info, body) {
-            let _ = file.unlock();
             return Err(format!("write model lease holder: {error}"));
         }
         Ok(Some(Self {
-            files: vec![file],
+            locks: vec![lock],
             infos: vec![info],
         }))
     }

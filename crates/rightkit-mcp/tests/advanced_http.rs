@@ -1,3 +1,4 @@
+#![cfg(feature = "advanced-http")]
 use rightkit_mcp::*;
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, HashMap};

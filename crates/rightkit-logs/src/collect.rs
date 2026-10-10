@@ -1,6 +1,5 @@
 use crate::redact::RedactionPolicy;
 use crate::store::rotated_path;
-use chrono::DateTime;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::fs::File;
@@ -258,9 +257,84 @@ fn event_timestamp(event: &Value) -> Option<i64> {
         event
             .get("timestamp")
             .and_then(Value::as_str)
-            .and_then(|timestamp| DateTime::parse_from_rfc3339(timestamp).ok())
-            .map(|timestamp| timestamp.timestamp_millis())
+            .and_then(parse_rfc3339_millis)
     })
+}
+
+/// Unix milliseconds of an RFC 3339 timestamp (`2026-10-10T12:34:56[.fff](Z|+hh:mm)`), or
+/// `None` when it is not one. Fractions past milliseconds are truncated.
+fn parse_rfc3339_millis(text: &str) -> Option<i64> {
+    let b = text.as_bytes();
+    let digits = |range: std::ops::Range<usize>| -> Option<i64> {
+        let part = b.get(range)?;
+        part.iter()
+            .all(u8::is_ascii_digit)
+            .then(|| part.iter().fold(0_i64, |n, d| n * 10 + i64::from(d - b'0')))
+    };
+    if b.len() < 20
+        || b[4] != b'-'
+        || b[7] != b'-'
+        || !matches!(b[10], b'T' | b't' | b' ')
+        || b[13] != b':'
+        || b[16] != b':'
+    {
+        return None;
+    }
+    let (year, month, day) = (digits(0..4)?, digits(5..7)?, digits(8..10)?);
+    let (hour, minute, second) = (digits(11..13)?, digits(14..16)?, digits(17..19)?);
+    let leap = (year % 4 == 0 && year % 100 != 0) || year % 400 == 0;
+    let month_days = match month {
+        1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
+        4 | 6 | 9 | 11 => 30,
+        2 if leap => 29,
+        2 => 28,
+        _ => return None,
+    };
+    if day < 1 || day > month_days || hour > 23 || minute > 59 || second > 60 {
+        return None;
+    }
+    let mut at = 19;
+    let mut millis = 0_i64;
+    if b[at] == b'.' {
+        let start = at + 1;
+        at = start;
+        while at < b.len() && b[at].is_ascii_digit() {
+            at += 1;
+        }
+        if at == start {
+            return None;
+        }
+        for (i, d) in b[start..at].iter().take(3).enumerate() {
+            millis += i64::from(d - b'0') * [100, 10, 1][i];
+        }
+    }
+    let offset_secs = match b.get(at..)? {
+        b"Z" | b"z" => 0,
+        [sign @ (b'+' | b'-'), rest @ ..] if rest.len() == 5 && rest[2] == b':' => {
+            let hh = std::str::from_utf8(&rest[..2]).ok()?.parse::<i64>().ok()?;
+            let mm = std::str::from_utf8(&rest[3..]).ok()?.parse::<i64>().ok()?;
+            if hh > 23 || mm > 59 {
+                return None;
+            }
+            let secs = hh * 3600 + mm * 60;
+            if *sign == b'-' {
+                -secs
+            } else {
+                secs
+            }
+        }
+        _ => return None,
+    };
+    // Days from civil (Howard Hinnant), proleptic Gregorian.
+    let y = year - i64::from(month <= 2);
+    let era = y.div_euclid(400);
+    let yoe = y.rem_euclid(400);
+    let mp = (month + 9) % 12;
+    let doy = (153 * mp + 2) / 5 + day - 1;
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    let days = era * 146_097 + doe - 719_468;
+    let secs = days * 86_400 + hour * 3600 + minute * 60 + second - offset_secs;
+    Some(secs * 1000 + millis)
 }
 
 fn apply_global_event_policy(sources: &mut [SourceDiagnostics], max_events: usize) {
@@ -364,4 +438,42 @@ fn oldest_source_with_events(sources: &[SourceDiagnostics]) -> Option<usize> {
         })
         .min_by_key(|(index, timestamp)| (*timestamp, *index))
         .map(|(index, _)| index)
+}
+
+#[cfg(test)]
+mod rfc3339_tests {
+    use super::parse_rfc3339_millis as parse;
+
+    #[test]
+    fn parses_utc_offsets_and_fractions() {
+        assert_eq!(parse("1970-01-01T00:00:00Z"), Some(0));
+        assert_eq!(parse("2024-02-29T12:34:56Z"), Some(1_709_210_096_000));
+        assert_eq!(
+            parse("2024-02-29T12:34:56.789123Z"),
+            Some(1_709_210_096_789)
+        );
+        assert_eq!(
+            parse("2024-02-29T14:34:56.5+02:00"),
+            Some(1_709_210_096_500)
+        );
+        assert_eq!(parse("2024-02-29T07:04:56-05:30"), Some(1_709_210_096_000));
+        assert_eq!(parse("1969-12-31T23:59:59Z"), Some(-1000));
+    }
+
+    #[test]
+    fn rejects_malformed() {
+        for bad in [
+            "",
+            "yesterday",
+            "2024-02-30T00:00:00Z",
+            "2023-02-29T00:00:00Z",
+            "2024-13-01T00:00:00Z",
+            "2024-02-29T24:00:00Z",
+            "2024-02-29T12:34:56",
+            "2024-02-29T12:34:56.Z",
+            "2024-02-29T12:34:56+0200",
+        ] {
+            assert_eq!(parse(bad), None, "{bad}");
+        }
+    }
 }

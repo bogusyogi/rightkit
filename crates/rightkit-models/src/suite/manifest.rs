@@ -221,44 +221,12 @@ pub fn write_manifest(entry_dir: &Path, manifest: &Manifest) -> Result<(), Strin
     write_atomic(&path, &json)
 }
 
-/// Durable replacement with a private temporary file for each writer.
+/// Durable replacement with a private temporary file for each writer
+/// (`rightkit_fs::atomic_write`: temp, fsync, rename, directory fsync).
 pub(crate) fn write_atomic(path: &Path, bytes: &[u8]) -> Result<(), String> {
-    use std::io::Write;
-    use std::sync::atomic::{AtomicU64, Ordering};
-    static SERIAL: AtomicU64 = AtomicU64::new(0);
     let parent = path.parent().ok_or("atomic write needs parent directory")?;
     fs::create_dir_all(parent).map_err(|e| format!("create {}: {e}", parent.display()))?;
-    let nonce = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_err(|e| e.to_string())?
-        .as_nanos();
-    let tmp = path.with_extension(format!(
-        "tmp-{}-{nonce}-{}",
-        std::process::id(),
-        SERIAL.fetch_add(1, Ordering::Relaxed)
-    ));
-    let result = (|| {
-        let mut file = fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(&tmp)
-            .map_err(|e| format!("create {}: {e}", tmp.display()))?;
-        file.write_all(bytes)
-            .map_err(|e| format!("write {}: {e}", tmp.display()))?;
-        file.sync_all()
-            .map_err(|e| format!("sync {}: {e}", tmp.display()))?;
-        drop(file);
-        fs::rename(&tmp, path).map_err(|e| format!("commit {}: {e}", path.display()))?;
-        #[cfg(unix)]
-        fs::File::open(parent)
-            .and_then(|f| f.sync_all())
-            .map_err(|e| format!("sync {}: {e}", parent.display()))?;
-        Ok(())
-    })();
-    if result.is_err() {
-        let _ = fs::remove_file(&tmp);
-    }
-    result
+    rightkit_fs::atomic_write(path, bytes).map_err(|e| format!("write {}: {e}", path.display()))
 }
 
 /// Build a manifest by hashing every file currently inside `entry_dir`

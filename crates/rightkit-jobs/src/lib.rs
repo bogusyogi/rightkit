@@ -7,6 +7,7 @@ mod contract;
 mod error;
 mod runner;
 mod sched;
+#[cfg(feature = "service")]
 mod service;
 mod store;
 mod supervisor;
@@ -25,6 +26,7 @@ pub use runner::{
     DEFAULT_MAX_ATTEMPTS,
 };
 pub use sched::{Gate, InteractiveGuard, Priority};
+#[cfg(feature = "service")]
 pub use service::DispatcherHandler;
 pub use store::{
     Adoption, Artifact, Event, Job, JobRecord, JobStore, ListFilter, NewJob, Submission,

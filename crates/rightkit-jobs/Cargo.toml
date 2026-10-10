@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-jobs"
-version = "0.2.6"
+version = "0.2.7"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Persistent job store, runner, and stdio/CLI command contract for Right Suite engines."
@@ -11,21 +11,32 @@ keywords = ["jobs", "sidecar", "sqlite", "cli"]
 categories = ["asynchronous"]
 include = ["src/**", "tests/**", "README.md", "LICENSE-MIT", "LICENSE-APACHE"]
 
+[features]
+default = ["service"]
+# `DispatcherHandler`: serve a `Dispatcher` over `rightkit-service`. Engines that only
+# speak stdio/CLI can build with `default-features = false`.
+service = ["dep:rightkit-service"]
+
 [dependencies]
-rightkit-fs = { version = "0.3", path = "../rightkit-fs", default-features = false, features = ["digest"] }
+rightkit-fs = { version = "0.3", path = "../rightkit-fs", default-features = false, features = ["digest", "lock"] }
 rightkit-db = { version = "0.3.0", path = "../rightkit-db" }
 rightkit-framed-sidecar = { version = "0.1.0", path = "../rightkit-framed-sidecar" }
 rightkit-process = { version = "0.3.0", path = "../rightkit-process" }
-rightkit-service = { version = "0.1.0", path = "../rightkit-service" }
+rightkit-service = { version = "0.1.0", path = "../rightkit-service", optional = true }
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.150"
-time = { version = "0.3", features = ["formatting", "macros"] }
 uuid = { version = "1", features = ["v4"] }
-
-[target.'cfg(unix)'.dependencies]
-libc = "0.2"
 
 [dev-dependencies]
 # Independent SHA-256 reference for tests (the crate itself hashes via rightkit-fs).
 sha2 = "0.10"
 tempfile = "3"
+time = "0.3"
+
+[[test]]
+name = "e2e"
+required-features = ["service"]
+
+[[example]]
+name = "job_engine"
+required-features = ["service"]

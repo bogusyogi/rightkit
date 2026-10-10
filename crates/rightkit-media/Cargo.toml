@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-media"
-version = "0.2.4"
+version = "0.2.5"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Verified FFmpeg artifact and lifecycle primitives for Right Suite media pipelines."
@@ -9,13 +9,23 @@ readme = "README.md"
 repository = "https://github.com/bogusyogi/rightkit"
 keywords = ["ffmpeg", "audio", "media", "process"]
 categories = ["multimedia::audio"]
-include = ["src/**", "tests/**", "catalog/**", "recipes/**", "third-party/**", "README.md", "LICENSE-MIT", "LICENSE-APACHE"]
+include = ["src/**", "tests/**", "catalog/**", "recipes/**", "third-party/**", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
+
+[features]
+default = ["native"]
+# `native` module: the suite-wide native-library catalog (`catalog/native-libraries.json`).
+# Consumed by asr/ort/vad tests; FFmpeg-only consumers can opt out.
+native = []
 
 [dependencies]
-rightkit-fs = { version = "0.3", path = "../rightkit-fs", default-features = false, features = ["digest"] }
+rightkit-fs = { version = "0.3", path = "../rightkit-fs", default-features = false, features = ["digest", "fs"] }
 rightkit-process = { path = "../rightkit-process", version = "0.3.0" }
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.150"
 
 [dev-dependencies]
 tempfile = "3"
+
+[[test]]
+name = "native_catalog_e2e"
+required-features = ["native"]

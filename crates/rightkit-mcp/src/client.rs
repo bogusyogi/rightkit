@@ -269,6 +269,9 @@ fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
     m.lock().unwrap_or_else(|e| e.into_inner())
 }
 
+// NOTE: JSON-lines stdio framing duplicates `rightkit-framed-sidecar` (the owner of bounded
+// JSON-lines transport). Kept here on purpose for now (MCP-specific prefix skipping and
+// frame limits); converge on the owner crate in a later change.
 fn read_stdio_frame(
     reader: &mut impl BufRead,
     limits: Option<ResponseLimits>,

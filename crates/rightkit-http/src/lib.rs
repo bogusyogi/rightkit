@@ -3,7 +3,7 @@
 //! - [`Client`]: timeouts, bounded bodies, retry/backoff honoring `Retry-After`,
 //!   retry-safety rules for non-idempotent methods, streaming responses.
 //! - [`sse`]: WHATWG-compliant Server-Sent Events decoding.
-//! - [`untrusted`]: tamper-evident wrapping of external text for model input.
+//! - `untrusted` (feature, default on): tamper-evident wrapping of external text for model input.
 //! - [`secret`]: redacted [`Secret`] and the [`SecretStore`] interface that
 //!   `rightkit-secrets` implements.
 //! - `async_client` (feature `async`): [`AsyncClient`], the same policy layer on
@@ -17,6 +17,7 @@ pub mod error;
 pub mod retry;
 pub mod secret;
 pub mod sse;
+#[cfg(feature = "untrusted")]
 pub mod untrusted;
 
 #[cfg(feature = "testing")]
@@ -30,6 +31,7 @@ pub use error::HttpError;
 pub use retry::{parse_retry_after, RetryPolicy};
 pub use secret::{MemorySecretStore, Secret, SecretError, SecretStore};
 pub use sse::{SseDecoder, SseEvent, SseReader};
+#[cfg(feature = "untrusted")]
 pub use untrusted::{wrap_untrusted_web_text, wrap_untrusted_web_text_with, WrapOptions};
 
 #[cfg(feature = "async")]

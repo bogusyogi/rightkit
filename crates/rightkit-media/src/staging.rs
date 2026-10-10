@@ -111,20 +111,24 @@ pub fn stage_external_bin(
     fs::create_dir_all(binaries_dir)?;
     let already = dest.is_file() && sha256_file(&dest)?.eq_ignore_ascii_case(&expected);
     if !already {
-        let tmp = binaries_dir.join(format!(
-            ".{}.staging-{}",
-            dest.file_name()
-                .map(|name| name.to_string_lossy().into_owned())
-                .unwrap_or_default(),
-            std::process::id()
-        ));
-        let copied = fs::copy(source, &tmp).and_then(|_| {
-            set_executable(&tmp)?;
-            replace_file(&tmp, &dest)
-        });
+        // Temp file in the destination directory, fsync, atomic rename (rightkit-fs); the
+        // mode is set before the rename so `dest` is never visible half-staged.
+        let copied =
+            rightkit_fs::atomic_write_with(&dest, rightkit_fs::AtomicOptions::default(), |out| {
+                let mut input = fs::File::open(source)?;
+                io::copy(&mut input, out)?;
+                #[cfg(unix)]
+                {
+                    use std::os::unix::fs::PermissionsExt;
+                    out.set_permissions(fs::Permissions::from_mode(0o755))?;
+                }
+                Ok(())
+            });
         if let Err(error) = copied {
-            let _ = fs::remove_file(&tmp);
-            return Err(error.into());
+            return Err(MediaError::StagingFailed(format!(
+                "{}: {error}",
+                dest.display()
+            )));
         }
         let staged = sha256_file(&dest)?;
         if !staged.eq_ignore_ascii_case(&expected) {
@@ -162,15 +166,6 @@ fn set_executable(path: &Path) -> io::Result<()> {
         fs::set_permissions(path, permissions)?;
     }
     Ok(())
-}
-
-fn replace_file(tmp: &Path, dest: &Path) -> io::Result<()> {
-    #[cfg(windows)]
-    if dest.exists() {
-        // rename does not replace an existing file on every Windows filesystem.
-        fs::remove_file(dest)?;
-    }
-    fs::rename(tmp, dest)
 }
 
 #[cfg(test)]
@@ -315,7 +310,7 @@ mod tests {
             let leftovers: Vec<_> = fs::read_dir(&binaries)
                 .unwrap()
                 .flatten()
-                .filter(|e| e.file_name().to_string_lossy().contains(".staging-"))
+                .filter(|e| e.file_name().to_string_lossy().contains(".rktmp-"))
                 .collect();
             assert!(leftovers.is_empty());
         }

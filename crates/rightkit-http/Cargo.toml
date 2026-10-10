@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-http"
-version = "0.2.4"
+version = "0.2.5"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Brand-neutral blocking HTTP client for Right Suite apps: timeouts, retry/backoff with Retry-After, SSE streaming, redacted secrets, and untrusted web-text wrapping."
@@ -12,7 +12,10 @@ categories = ["web-programming::http-client"]
 include = ["src/**", "tests/**", "README.md", "CHANGELOG.md", "API.md", "LICENSE-MIT", "LICENSE-APACHE"]
 
 [features]
-default = ["gzip"]
+default = ["gzip", "untrusted"]
+# `untrusted` module: tamper-evident wrapping of external text for model input. Its only
+# dependency is `rightkit-fs` (SHA-256 digest); HTTP-only consumers can opt out.
+untrusted = ["dep:rightkit-fs"]
 # Automatic gzip negotiation and transparent response decoding, matching ureq defaults.
 gzip = ["ureq/gzip", "reqwest?/gzip"]
 # Async client (reqwest + tokio, rustls only) with the same policy layer, body
@@ -22,11 +25,11 @@ async = ["dep:reqwest", "dep:tokio", "dep:futures-util", "dep:bytes"]
 testing = []
 
 [dependencies]
-rightkit-fs = { version = "0.3", path = "../rightkit-fs", default-features = false, features = ["digest"] }
+rightkit-fs = { version = "0.3", path = "../rightkit-fs", default-features = false, features = ["digest"], optional = true }
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.150"
 ureq = { version = "3.4", default-features = false, features = ["rustls"] }
-getrandom = "0.3"
+getrandom = "0.4"
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "stream"], optional = true }
 tokio = { version = "1", default-features = false, features = ["time"], optional = true }
 futures-util = { version = "0.3", default-features = false, optional = true }

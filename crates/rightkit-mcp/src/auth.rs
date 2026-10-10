@@ -1,25 +1,7 @@
-use std::fmt;
-
 use crate::error::Result;
 
-/// A secret string whose `Debug` never reveals the value. The crate never stores or logs it.
-#[derive(Clone)]
-pub struct Secret(String);
-
-impl Secret {
-    pub fn new(s: impl Into<String>) -> Self {
-        Secret(s.into())
-    }
-    pub fn expose(&self) -> &str {
-        &self.0
-    }
-}
-
-impl fmt::Debug for Secret {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str("Secret(***)")
-    }
-}
+/// Redacted secret string, shared with the other net crates (`rightkit_http::Secret`).
+pub use rightkit_http::Secret;
 
 /// OAuth / bearer hook implemented by the host app. It owns the PKCE dance and the keychain;
 /// this crate only asks for a token per request and reports 401s.

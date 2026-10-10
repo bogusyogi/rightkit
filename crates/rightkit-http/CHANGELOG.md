@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.2.5
+
+- New default-on feature `untrusted` gates the `untrusted` module and its only dependency,
+  `rightkit-fs` (SHA-256). Default builds are unchanged; HTTP-only consumers can use
+  `default-features = false, features = ["gzip"]` to drop `rightkit-fs`.
+- `getrandom` 0.3 -> 0.4 (retry jitter only), matching `rightkit-logs`/`rightkit-pdf` and the
+  newest major already in the lockfile.
+
 ## 0.2.4
 
 - Internal: rename a private helper to satisfy clippy `wrong_self_convention` (no API change).

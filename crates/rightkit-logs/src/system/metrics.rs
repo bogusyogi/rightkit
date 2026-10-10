@@ -198,7 +198,7 @@ mod platform {
 #[allow(deprecated)]
 mod platform {
     use super::{bytes_to_mb, percent_used, PlatformSnapshot};
-    use objc2_foundation::{NSProcessInfo, NSProcessInfoThermalState};
+    use std::ffi::{c_char, c_int};
     use std::mem::{size_of, zeroed};
     use std::ptr::{addr_of, null_mut};
 
@@ -221,7 +221,7 @@ mod platform {
         }
 
         let process = read_process_info();
-        let physical_memory = NSProcessInfo::processInfo().physicalMemory();
+        let physical_memory = read_physical_memory().unwrap_or(0);
         PlatformSnapshot {
             system_load_1m: read_load_average(),
             system_cpu_pct,
@@ -341,12 +341,53 @@ mod platform {
         }
     }
 
+    fn read_physical_memory() -> Option<u64> {
+        // SAFETY: sysctlbyname writes one u64 into a correctly sized output buffer.
+        unsafe {
+            let mut value = 0_u64;
+            let mut size = size_of::<u64>();
+            let status = libc::sysctlbyname(
+                c"hw.memsize".as_ptr(),
+                (&mut value as *mut u64).cast(),
+                &mut size,
+                null_mut(),
+                0,
+            );
+            (status == 0 && size == size_of::<u64>()).then_some(value)
+        }
+    }
+
+    // libnotify lives in libSystem (always linked). The kernel publishes the thermal
+    // pressure level under this name; it is the source behind
+    // `NSProcessInfo.thermalState`, and there is no sysctl key for it.
+    extern "C" {
+        fn notify_register_check(name: *const c_char, token: *mut c_int) -> u32;
+        fn notify_get_state(token: c_int, state: *mut u64) -> u32;
+        fn notify_cancel(token: c_int) -> u32;
+    }
+
     fn thermal_state() -> &'static str {
-        match NSProcessInfo::processInfo().thermalState() {
-            NSProcessInfoThermalState::Nominal => "nominal",
-            NSProcessInfoThermalState::Fair => "fair",
-            NSProcessInfoThermalState::Serious => "serious",
-            NSProcessInfoThermalState::Critical => "critical",
+        let mut token: c_int = 0;
+        let mut level = 0_u64;
+        // SAFETY: valid NUL-terminated name and out-pointers; the token is cancelled below.
+        let ok = unsafe {
+            if notify_register_check(
+                c"com.apple.system.thermalpressurelevel".as_ptr(),
+                &mut token,
+            ) != 0
+            {
+                return "unknown";
+            }
+            let status = notify_get_state(token, &mut level);
+            notify_cancel(token);
+            status == 0
+        };
+        match (ok, level) {
+            (false, _) => "unknown",
+            (true, 0) => "nominal",
+            (true, 1) => "fair",
+            (true, 2) => "serious",
+            (true, 3..=4) => "critical",
             _ => "unknown",
         }
     }

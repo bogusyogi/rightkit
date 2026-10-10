@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-mcp"
-version = "0.5.2"
+version = "0.5.3"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Shared MCP client (stdio + streamable HTTP, trust gate, pool, OAuth hook) and server host (stdio + loopback HTTP, per-tool admission) for Right Suite apps."
@@ -9,21 +9,27 @@ readme = "README.md"
 repository = "https://github.com/bogusyogi/rightkit"
 keywords = ["mcp", "agent", "tools", "json-rpc"]
 categories = ["development-tools"]
-include = ["src/**", "tests/**", "examples/**", "README.md"]
+include = ["src/**", "tests/**", "examples/**", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
 
 [dependencies]
 getrandom = "0.3"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-sha2 = "0.10"
 ureq = { version = "3.4", default-features = false, features = ["rustls"] }
-rightkit-http = { version = "0.2.3", path = "../rightkit-http", default-features = false, features = ["async"] }
-http = "1"
-tokio = { version = "1", features = ["rt-multi-thread", "time", "sync", "macros"] }
-futures-util = "0.3"
+rightkit-fs = { version = "0.3", path = "../rightkit-fs", default-features = false, features = ["digest"] }
+rightkit-http = { version = "0.2.3", path = "../rightkit-http", default-features = false }
+http = { version = "1", optional = true }
+tokio = { version = "1", features = ["rt-multi-thread", "time", "sync", "macros"], optional = true }
+futures-util = { version = "0.3", optional = true }
 url = "2"
 
 [features]
+default = ["advanced-http"]
+# Opt-in HTTP transport (streamable HTTP with extensions, legacy SSE): tokio runtime,
+# rightkit-http async client, http, futures-util. Stdio-only consumers can build with
+# `default-features = false`; `ServerSpec::Http` with `ClientExtensions` then fails with
+# `McpError::Config` and plain blocking HTTP stays available.
+advanced-http = ["dep:tokio", "dep:http", "dep:futures-util", "rightkit-http/async"]
 # Echo JSON-RPC ids with their exact numeric spelling (e.g. 1e+2, >u64 integers).
 # Off by default: serde_json arbitrary_precision is unified across the whole
 # dependency graph and changes number round-tripping for every crate.
@@ -31,6 +37,7 @@ exact-json-ids = ["serde_json/arbitrary_precision"]
 
 [dev-dependencies]
 tempfile = "3"
+tokio = { version = "1", features = ["rt-multi-thread", "time", "sync", "macros"] }
 
 [[example]]
 name = "example_server"

@@ -3,9 +3,10 @@
 //! A malformed or unreadable ref is an error. Callers that delete store
 //! entries must treat that error as "do not delete".
 
+use rightkit_fs::{FileLock, LockOptions};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
-use std::fs::{self, File, OpenOptions, TryLockError};
+use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -47,13 +48,7 @@ fn valid_model_id(model_id: &str) -> bool {
 
 /// Held across a complete ref read-modify-write or GC operation.
 pub struct RegistryGuard {
-    file: File,
-}
-
-impl Drop for RegistryGuard {
-    fn drop(&mut self) {
-        let _ = self.file.unlock();
-    }
+    _lock: FileLock,
 }
 
 /// Acquire refs registry's cross-process guard.
@@ -61,20 +56,14 @@ pub fn acquire_registry(refs_dir: &Path) -> Result<RegistryGuard, String> {
     fs::create_dir_all(refs_dir)
         .map_err(|e| format!("create refs dir {}: {e}", refs_dir.display()))?;
     let path = refs_dir.join(REGISTRY_LOCK);
-    let file = OpenOptions::new()
-        .read(true)
-        .write(true)
-        .create(true)
-        .truncate(false)
-        .open(&path)
-        .map_err(|e| format!("open refs registry lock: {e}"))?;
-    loop {
-        match file.try_lock() {
-            Ok(()) => return Ok(RegistryGuard { file }),
-            Err(TryLockError::WouldBlock) => std::thread::sleep(LOCK_POLL),
-            Err(TryLockError::Error(e)) => return Err(format!("lock refs registry: {e}")),
-        }
-    }
+    let options = LockOptions {
+        timeout: Duration::MAX,
+        poll: LOCK_POLL,
+        label: String::new(),
+    };
+    FileLock::acquire(&path, &options)
+        .map(|lock| RegistryGuard { _lock: lock })
+        .map_err(|e| format!("lock refs registry: {e}"))
 }
 
 /// Run an operation while holding registry guard.
@@ -115,36 +104,7 @@ fn write_ref_unlocked(refs_dir: &Path, app_id: &str, rf: &RefFile) -> Result<(),
     };
     fs::create_dir_all(refs_dir).map_err(|e| format!("create {}: {e}", refs_dir.display()))?;
     let json = serde_json::to_vec_pretty(rf).map_err(|e| format!("serialize refs: {e}"))?;
-    let tmp = refs_dir.join(format!(
-        ".{}.json.{}.{}.tmp",
-        app_id,
-        std::process::id(),
-        unique_suffix()
-    ));
-    let write_result = (|| {
-        let mut file = fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(&tmp)
-            .map_err(|e| format!("create {}: {e}", tmp.display()))?;
-        use std::io::Write;
-        file.write_all(&json)
-            .map_err(|e| format!("write {}: {e}", tmp.display()))?;
-        file.sync_all()
-            .map_err(|e| format!("sync {}: {e}", tmp.display()))?;
-        fs::rename(&tmp, &path).map_err(|e| format!("commit {}: {e}", path.display()))
-    })();
-    if write_result.is_err() {
-        let _ = fs::remove_file(&tmp);
-    }
-    write_result
-}
-
-fn unique_suffix() -> u128 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|duration| duration.as_nanos())
-        .unwrap_or_else(|_| std::process::id() as u128)
+    rightkit_fs::atomic_write(&path, &json).map_err(|e| format!("write {}: {e}", path.display()))
 }
 
 /// Record that `app_id` uses `model_id` (idempotent).

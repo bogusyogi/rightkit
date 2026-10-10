@@ -1,26 +1,27 @@
 [package]
 name = "rightkit-embed"
-version = "0.3.1"
+version = "0.3.2"
 edition = "2021"
 rust-version = "1.98.0"
 license = "MIT OR Apache-2.0"
 description = "Product-neutral local text embeddings and persistent cosine vector store."
 readme = "README.md"
 repository = "https://github.com/bogusyogi/rightkit"
-include = ["src/**", "tests/**", "Cargo.toml", "README.md", "LICENSE-MIT", "LICENSE-APACHE"]
+include = ["src/**", "tests/**", "Cargo.toml", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
 
 # `inference` = ONNX text embedder (ort, tokenizers, model digest checks).
 # `vector` = persistent cosine vector store (rusqlite). Default keeps both.
 [features]
 default = ["inference", "vector"]
-inference = ["dep:rightkit-ort", "dep:tokenizers", "dep:sha2", "dep:serde_json"]
-vector = ["dep:rusqlite"]
+inference = ["dep:rightkit-ort", "dep:tokenizers", "dep:rightkit-fs", "dep:serde_json"]
+vector = ["dep:rusqlite", "dep:rightkit-db"]
 
 [dependencies]
+rightkit-db = { version = "0.3", path = "../rightkit-db", default-features = false, optional = true }
+rightkit-fs = { version = "0.3", path = "../rightkit-fs", default-features = false, features = ["digest"], optional = true }
 rightkit-ort = { version = "0.2.2", path = "../rightkit-ort", optional = true }
 rusqlite = { version = "0.40.1", default-features = false, optional = true }
 serde_json = { version = "1.0.150", optional = true }
-sha2 = { version = "0.10.9", optional = true }
 thiserror = "2"
 tokenizers = { version = "0.22.2", default-features = false, features = ["onig"], optional = true }
 

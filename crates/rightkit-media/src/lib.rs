@@ -20,6 +20,7 @@ use serde::{Deserialize, Serialize};
 pub mod command;
 pub mod dev_resolve;
 pub mod loudnorm;
+#[cfg(feature = "native")]
 pub mod native;
 pub mod probe;
 pub mod quickprobe;

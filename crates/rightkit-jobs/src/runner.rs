@@ -1,11 +1,10 @@
-use std::collections::BTreeSet;
-use std::fs::{File, OpenOptions};
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use rightkit_fs::{FileLock, FsError};
 use serde_json::{json, Value};
 
 use crate::config::Ext;
@@ -31,73 +30,21 @@ pub enum AttemptPolicy {
 pub type EventSink = Arc<dyn Fn(&Event) + Send + Sync>;
 
 /// Exclusive per-job lock; released on drop or process death.
+///
+/// Backed by `rightkit_fs::FileLock`: a POSIX record lock on unix (process-owned, so a
+/// child forked by another thread cannot keep it alive) and `LockFileEx` elsewhere, with an
+/// in-process registry so a process never holds two descriptors on one lock file.
 pub struct JobLock {
-    /// Taken on drop, before the path leaves [`held_paths`].
-    file: Option<File>,
-    path: PathBuf,
+    _lock: FileLock,
 }
 
-impl Drop for JobLock {
-    fn drop(&mut self) {
-        // Close under the registry lock: no other attempt in this process can open the
-        // file while the lock is still held (see `JobLocks::try_lock`).
-        let mut held = held_paths().lock().unwrap_or_else(|p| p.into_inner());
-        drop(self.file.take());
-        held.remove(&self.path);
-    }
-}
-
-/// Lock files this process holds. Every acquire and release runs under this mutex, so a
-/// process never has two descriptors open on one lock file.
-fn held_paths() -> &'static Mutex<BTreeSet<PathBuf>> {
-    static HELD: OnceLock<Mutex<BTreeSet<PathBuf>>> = OnceLock::new();
-    HELD.get_or_init(|| Mutex::new(BTreeSet::new()))
-}
-
-/// Take a non-blocking exclusive lock on an open lock file. `Ok(false)` when held elsewhere.
-#[cfg(unix)]
-#[allow(unsafe_code)] // one `fcntl` call; see the SAFETY comment inside
-fn try_lock_file(file: &File) -> JobResult<bool> {
-    use std::os::fd::AsRawFd;
-    // POSIX record lock, not `flock`: it belongs to the process, not the open file
-    // description. A child forked by another thread inherits the descriptor until it execs,
-    // and a flock would stay held by that child, making a free job look busy.
-    let request = libc::flock {
-        l_type: libc::F_WRLCK as _,
-        l_whence: libc::SEEK_SET as _,
-        l_start: 0,
-        l_len: 0,
-        l_pid: 0,
-    };
-    loop {
-        // SAFETY: `file` is an open descriptor for the duration of the call, and `request` is
-        // a fully initialised `flock` that outlives it; `F_SETLK` only reads through the
-        // pointer.
-        let rc = unsafe {
-            libc::fcntl(
-                file.as_raw_fd(),
-                libc::F_SETLK,
-                &request as *const libc::flock,
-            )
-        };
-        if rc != -1 {
-            return Ok(true);
-        }
-        let error = std::io::Error::last_os_error();
-        match error.raw_os_error() {
-            Some(libc::EINTR) => continue,
-            Some(libc::EAGAIN) | Some(libc::EACCES) => return Ok(false),
-            _ => return Err(error.into()),
-        }
-    }
-}
-
-#[cfg(not(unix))]
-fn try_lock_file(file: &File) -> JobResult<bool> {
-    match file.try_lock() {
-        Ok(()) => Ok(true),
-        Err(std::fs::TryLockError::WouldBlock) => Ok(false),
-        Err(std::fs::TryLockError::Error(e)) => Err(e.into()),
+fn lock_error(error: FsError) -> JobError {
+    match error {
+        FsError::Io { path, source } => JobError::from(std::io::Error::new(
+            source.kind(),
+            format!("{}: {source}", path.display()),
+        )),
+        other => JobError::from(std::io::Error::other(other.to_string())),
     }
 }
 
@@ -124,23 +71,11 @@ impl JobLocks {
     pub fn try_lock(&self, job_id: &str) -> JobResult<Option<JobLock>> {
         let path = self.path(job_id)?;
         std::fs::create_dir_all(&self.dir)?;
-        let mut held = held_paths().lock().unwrap_or_else(|p| p.into_inner());
-        if held.contains(&path) {
-            return Ok(None);
+        match FileLock::try_acquire(&path) {
+            Ok(lock) => Ok(Some(JobLock { _lock: lock })),
+            Err(FsError::Locked { .. }) => Ok(None),
+            Err(error) => Err(lock_error(error)),
         }
-        let file = OpenOptions::new()
-            .create(true)
-            .truncate(false)
-            .write(true)
-            .open(&path)?;
-        if !try_lock_file(&file)? {
-            return Ok(None);
-        }
-        held.insert(path.clone());
-        Ok(Some(JobLock {
-            file: Some(file),
-            path,
-        }))
     }
 }
 

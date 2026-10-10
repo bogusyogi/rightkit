@@ -385,13 +385,11 @@ fn download_inner(
 }
 
 /// `.part` + `.meta` → final dest via atomic rename (same dir ⇒ same volume).
-/// The dest may already hold a corrupt file being repaired — rename-over-
-/// existing is platform-dependent, so remove it first. The entry lock makes
-/// the gap safe, and a crash between the two only re-triggers the repair.
+/// The dest may already hold a corrupt file being repaired. `std::fs::rename`
+/// replaces an existing file in one step on Unix (rename(2)) and Windows
+/// (MoveFileExW with MOVEFILE_REPLACE_EXISTING), so the previous file is never
+/// deleted first: if the rename fails it is still there.
 fn commit_part(part: &Path, metadata: &Path, dest: &Path) -> Result<(), String> {
-    if dest.exists() {
-        fs::remove_file(dest).map_err(|e| format!("replace {}: {e}", dest.display()))?;
-    }
     fs::rename(part, dest)
         .map_err(|e| format!("commit {} -> {}: {e}", part.display(), dest.display()))?;
     let _ = fs::remove_file(metadata);
@@ -493,7 +491,6 @@ fn write_metadata(path: &Path, metadata: &ResumeMetadata) -> Result<(), String> 
     let bytes = serde_json::to_vec(metadata)
         .map_err(|error| format!("serialize resume metadata: {error}"))?;
     fs::write(&staged, bytes).map_err(|error| format!("write resume metadata: {error}"))?;
-    let _ = fs::remove_file(path);
     fs::rename(&staged, path).map_err(|error| format!("commit resume metadata: {error}"))
 }
 
