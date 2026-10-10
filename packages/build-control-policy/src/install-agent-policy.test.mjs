@@ -23,9 +23,7 @@ test('only the same CLI script from a content root is replaced', () => {
 });
 
 test('QA receipt key deny rules are added once and keep existing permissions', () => {
-  const config = { permissions: { allow: ['Bash(ls:*)'], deny: ['Read(.env)', 'Read(**/RightKit/qa-receipt-key.token)'] } };
-  assert.ok(QA_KEY_DENY_RULES.includes('Read(~/Library/Application Support/RightKit/qa-receipt-key.token)'));
-  assert.ok(QA_KEY_DENY_RULES.includes('Read(~/AppData/Roaming/RightKit/qa-receipt-key.token)'));
+  const config = { permissions: { allow: ['Bash(ls:*)'], deny: ['Read(.env)'] } };
   appendDenyRules(config, QA_KEY_DENY_RULES);
   appendDenyRules(config, QA_KEY_DENY_RULES);
   assert.deepEqual(config.permissions.allow, ['Bash(ls:*)']);

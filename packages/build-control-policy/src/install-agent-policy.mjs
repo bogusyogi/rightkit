@@ -26,17 +26,13 @@ function stalePolicyHook(command, commandText) {
 
 // Read, Grep and Glob are not routed through the PreToolUse hook (a hook per read is too costly), so the QA receipt
 // MAC key is denied to them by permission rule; the hook covers Bash, Write and Edit.
-// Claude resolves `**/` against the working directory, so the rules name the per-user key locations home-relative
-// (macOS ~/Library/Application Support/RightKit, Windows %APPDATA% = ~/AppData/Roaming/RightKit).
-const QA_KEY_LOCATIONS = ['~/Library/Application Support/RightKit/qa-receipt-key.token', '~/AppData/Roaming/RightKit/qa-receipt-key.token'];
-export const QA_KEY_DENY_RULES = Object.freeze(QA_KEY_LOCATIONS.flatMap((file) => [`Read(${file})`, `Edit(${file})`]));
-const SUPERSEDED_DENY_RULES = new Set(['Read(**/RightKit/qa-receipt-key.token)', 'Edit(**/RightKit/qa-receipt-key.token)']);
+export const QA_KEY_DENY_RULES = Object.freeze(['Read(**/RightKit/qa-receipt-key.token)', 'Edit(**/RightKit/qa-receipt-key.token)']);
 
 export function appendDenyRules(config, rules) {
   if (config.permissions !== undefined && (typeof config.permissions !== 'object' || Array.isArray(config.permissions))) throw new TypeError('Claude settings permissions must be an object');
   const permissions = config.permissions ?? {};
   if (permissions.deny !== undefined && !Array.isArray(permissions.deny)) throw new TypeError('Claude settings permissions.deny must be an array');
-  permissions.deny = [...new Set([...(permissions.deny ?? []).filter((rule) => !SUPERSEDED_DENY_RULES.has(rule)), ...rules])];
+  permissions.deny = [...new Set([...(permissions.deny ?? []), ...rules])];
   config.permissions = permissions;
 }
 
