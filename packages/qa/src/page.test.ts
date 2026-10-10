@@ -25,9 +25,14 @@ describe('raw CDP', () => {
       }
     }); cleanup.push(server.close);
     const client = await CdpClient.connect(server.endpoint); cleanup.push(async () => client.close());
-    const events: number[] = []; const off = client.on('event', ({ n }) => events.push(n), 's1');
+    const events: number[] = []; const other: number[] = [];
+    // Events arrive as separate socket frames after the responses; wait for delivery instead of assuming it.
+    let delivered!: () => void; const seen = new Promise<void>((resolve) => { delivered = resolve; });
+    const off = client.on('event', ({ n }) => { events.push(n); delivered(); }, 's1');
+    const offOther = client.on('event', ({ n }) => other.push(n), 's2');
     expect(await Promise.all([client.send('one', {}, 's1'), client.send('two', {}, 's2')])).toEqual([{ value: 'first' }, { value: 'second' }]);
-    expect(events).toEqual([1]); off();
+    await seen; // the s2 event was sent before the s1 event on the same ordered socket, so both have been routed
+    expect(events).toEqual([1]); expect(other).toEqual([2]); off(); offOther();
   });
   it('times out commands, ignores late replies & rejects pending calls on disconnect', async () => {
     const server = await mockCdp(() => {}); cleanup.push(server.close);
