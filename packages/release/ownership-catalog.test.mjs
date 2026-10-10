@@ -94,7 +94,8 @@ test("availability distinguishes registry, staging & Swift owner alias", () => {
   const availability = ownershipAvailability({ package: "rightkit-qa" }, versions);
   // 0.2.14 is published on crates.io and recorded by the release feed (7dd4610df), so no staged-unverified row remains.
   assert.deepEqual(availability.map(({ version, state }) => [version, state]), [["0.2.14", "registry-recorded"]]);
-  assert.deepEqual(ownershipAvailability({ package: "RightKitSwift" }, versions).map(({ version, state }) => [version, state]), [["0.1.1", "registry-pinned"], ["0.3.1", "staged-unverified"]]);
+  // rightkit-swift 0.4.0 is tagged and recorded by the release feed (1f4b6e04); staged equals the pin, so no staged-unverified row.
+  assert.deepEqual(ownershipAvailability({ package: "RightKitSwift" }, versions).map(({ version, state }) => [version, state]), [["0.4.0", "registry-pinned"]]);
   // rightkit-asr 0.0.2 is published and recorded by the release feed (9ec3bc6df); an unlisted package has no rows.
   assert.deepEqual(ownershipAvailability({ package: "rightkit-asr" }, versions).map(({ version, state }) => [version, state]), [["0.0.2", "registry-recorded"]]);
   assert.deepEqual(ownershipAvailability({ package: "rightkit-not-a-crate" }, versions), []);
