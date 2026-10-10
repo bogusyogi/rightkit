@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "policy": {
+    "default": "auto-land",
+    "land": "commit",
+    "held": [
+      "rightkit-license",
+      "rightkit-secrets",
+      "rightkit-sandbox",
+      "@rightkit/build-control-policy",
+      "@rightkit/legal"
+    ],
+    "tier": {
+      "held": ["/^(ring|rustls|openssl|keyring)(-|$)/"]
+    }
+  },
+  "sources": [
+    { "kind": "cargo", "manifest": "Cargo.toml" },
+    { "kind": "cargo", "glob": "crates/*/Cargo.toml" },
+    { "kind": "pnpm", "manifest": "package.json" },
+    { "kind": "pnpm", "glob": "packages/*/package.json" }
+  ],
+  "gates": [
+    { "name": "update-tests", "command": ["pnpm", "--dir", "packages/update", "test"] }
+  ]
+}

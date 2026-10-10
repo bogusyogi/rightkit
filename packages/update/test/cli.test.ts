@@ -58,26 +58,29 @@ describe("right-update CLI", () => {
     expect(report.errors[0]).toMatch(/unknown kind "gem"/);
   });
 
-  it("apply, gate and land exit 2 as not implemented", async () => {
-    for (const command of ["apply", "gate", "land"]) {
-      const { cli, err } = io();
-      expect(await runCli([command], cli)).toBe(2);
-      expect(err()).toMatch(new RegExp(`'${command}' is not implemented yet`));
-    }
-  });
-
   it("rejects unknown commands and flags with exit 2", async () => {
     expect(await runCli(["publish"], io().cli)).toBe(2);
     expect(await runCli(["check", "--bogus"], io().cli)).toBe(2);
     expect(await runCli(["check", "--repo"], io().cli)).toBe(2);
+    for (const command of ["apply", "gate", "land", "discard", "run"]) {
+      const { cli, err } = io();
+      expect(await runCli([command, "--bogus"], cli)).toBe(2);
+      expect(err()).toMatch(/unknown argument: --bogus/);
+    }
+    // check does not take apply's flags.
+    expect(await runCli(["check", "--dry-run"], io().cli)).toBe(2);
+    expect(await runCli(["apply", "--only"], io().cli)).toBe(2);
+    expect(await runCli(["schedule", "frobnicate"], io().cli)).toBe(2);
+    expect(await runCli(["schedule", "install", "--interval", "soon"], io().cli)).toBe(2);
   });
 
   it("prints version and help", async () => {
     const version = io();
     expect(await runCli(["--version"], version.cli)).toBe(0);
-    expect(version.out()).toMatch(/^0\.1\.0\n$/);
+    expect(version.out()).toMatch(/^0\.2\.0\n$/);
     const help = io();
     expect(await runCli(["--help"], help.cli)).toBe(0);
     expect(help.out()).toMatch(/right-update check/);
+    expect(help.out()).toMatch(/right-update schedule install\|remove\|status/);
   });
 });

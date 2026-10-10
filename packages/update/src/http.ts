@@ -2,7 +2,7 @@
 
 export type FetchLike = (url: string, init?: { headers?: Record<string, string>; signal?: AbortSignal }) => Promise<Response>;
 
-export const USER_AGENT = "right-update/0.1.0 (+https://github.com/bogusyogi/rightkit)";
+export const USER_AGENT = "right-update/0.2.0 (+https://github.com/bogusyogi/rightkit)";
 export const FETCH_TIMEOUT_MS = 20_000;
 export const MAX_RESPONSE_BYTES = 1024 * 1024;
 
@@ -19,7 +19,24 @@ export class HttpError extends Error {
  */
 export async function fetchText(
   url: string,
-  options: { fetch?: FetchLike; accept?: string; maxBytes?: number; timeoutMs?: number } = {},
+  options: { fetch?: FetchLike; accept?: string; maxBytes?: number; timeoutMs?: number; sleep?: (ms: number) => Promise<void> } = {},
+): Promise<string> {
+  // Registries answer bursts with 429 or a transient 5xx; retry a few times before reporting a failure.
+  const sleep = options.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await fetchTextOnce(url, options);
+    } catch (error) {
+      const retryable = error instanceof HttpError && /returned HTTP (429|502|503|504)$/.test(error.message);
+      if (!retryable || attempt >= 4) throw error;
+      await sleep(Math.min(1000 * 2 ** (attempt - 1), 8000));
+    }
+  }
+}
+
+async function fetchTextOnce(
+  url: string,
+  options: { fetch?: FetchLike; accept?: string; maxBytes?: number; timeoutMs?: number },
 ): Promise<string> {
   const doFetch = options.fetch ?? (globalThis.fetch as unknown as FetchLike);
   const maxBytes = options.maxBytes ?? MAX_RESPONSE_BYTES;

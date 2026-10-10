@@ -10,6 +10,7 @@ import { driftCommand } from "@rightkit/git/drift.mjs";
 import { RIGHTKIT_VERSIONS_DEFAULT } from "./manifest.js";
 import { compareVersions, isRegistryVersion, parseLatest, resolvePolicy } from "./compare.js";
 import { fetchJson, fetchText, mapLimit, type FetchLike } from "./http.js";
+import { sourceManifests } from "./glob.js";
 import {
   SCHEMA_VERSION,
   type CheckEntry,
@@ -33,6 +34,12 @@ export interface DriftResult {
   errors: string[];
 }
 export type DriftFn = (repoPath: string) => Promise<DriftResult>;
+
+/** Registry answers shared across every manifest in one check run. */
+export interface LookupCache {
+  crates: Map<string, Promise<string | null>>;
+  npm: Map<string, Promise<string | null>>;
+}
 
 export interface CheckDeps {
   fetch?: FetchLike;
@@ -59,6 +66,9 @@ const defaultDrift: DriftFn = async (repoPath) => {
 };
 
 const CONCURRENCY = 4;
+const MANIFEST_CONCURRENCY = 4;
+/** crates.io returns every version of a large crate (windows exceeds 1 MiB), so crate lookups get a larger cap. */
+const CRATES_MAX_BYTES = 16 * 1024 * 1024;
 
 function errorText(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -132,10 +142,11 @@ export function cargoDependencies(doc: Record<string, unknown>): CargoDep[] {
         out.push({ name: key, spec: value });
       } else if (isObject(value)) {
         const name = typeof value.package === "string" ? value.package : key;
-        if (typeof value.version === "string") {
-          out.push({ name, spec: value.version });
-        } else if (value.path !== undefined || value.git !== undefined) {
+        if (value.path !== undefined || value.git !== undefined) {
+          // A version next to a path is the publish-time requirement, owned by the release tooling.
           out.push({ name, spec: null, reason: "path or git dependency" });
+        } else if (typeof value.version === "string") {
+          out.push({ name, spec: value.version });
         } else {
           out.push({ name, spec: null, reason: "no version requirement" });
         }
@@ -145,7 +156,7 @@ export function cargoDependencies(doc: Record<string, unknown>): CargoDep[] {
   return out;
 }
 
-async function checkCargo(repo: string, source: Extract<Source, { kind: "cargo" }>, config: UpdateManifest["policy"], deps: { fetch?: FetchLike }): Promise<CheckEntry[]> {
+async function checkCargo(repo: string, source: Extract<Source, { kind: "cargo" }> & { manifest: string }, config: UpdateManifest["policy"], deps: { fetch?: FetchLike; cache: LookupCache }): Promise<CheckEntry[]> {
   const file = path.join(repo, source.manifest);
   const doc = parseToml(fs.readFileSync(file, "utf8")) as Record<string, unknown>;
   const unique = new Map<string, CargoDep>();
@@ -153,17 +164,16 @@ async function checkCargo(repo: string, source: Extract<Source, { kind: "cargo" 
     const key = `${dep.name}\u0000${dep.spec ?? ""}`;
     if (!unique.has(key)) unique.set(key, dep);
   }
-  const latestByName = new Map<string, Promise<string | null>>();
   const lookup = (name: string) => {
-    let pending = latestByName.get(name);
+    let pending = deps.cache.crates.get(name);
     if (!pending) {
       pending = (async () => {
-        const body = (await fetchJson(`https://crates.io/api/v1/crates/${encodeURIComponent(name)}`, { fetch: deps.fetch })) as {
+        const body = (await fetchJson(`https://crates.io/api/v1/crates/${encodeURIComponent(name)}`, { fetch: deps.fetch, maxBytes: CRATES_MAX_BYTES })) as {
           crate?: { max_stable_version?: string; max_version?: string };
         };
         return body.crate?.max_stable_version ?? body.crate?.max_version ?? null;
       })();
-      latestByName.set(name, pending);
+      deps.cache.crates.set(name, pending);
     }
     return pending;
   };
@@ -188,6 +198,18 @@ async function checkCargo(repo: string, source: Extract<Source, { kind: "cargo" 
 
 // ---------------------------------------------------------------- pnpm
 
+function npmLatest(name: string, cache: LookupCache, fetchFn?: FetchLike): Promise<string | null> {
+  let pending = cache.npm.get(name);
+  if (!pending) {
+    pending = (async () => {
+      const body = (await fetchJson(`https://registry.npmjs.org/${encodeURIComponent(name)}/latest`, { fetch: fetchFn })) as { version?: string };
+      return body.version ?? null;
+    })();
+    cache.npm.set(name, pending);
+  }
+  return pending;
+}
+
 export function pnpmDependencies(pkg: Record<string, unknown>): Array<{ name: string; spec: string }> {
   const out = new Map<string, string>();
   for (const section of ["dependencies", "devDependencies", "optionalDependencies"]) {
@@ -200,7 +222,7 @@ export function pnpmDependencies(pkg: Record<string, unknown>): Array<{ name: st
   return [...out].map(([name, spec]) => ({ name, spec }));
 }
 
-async function checkPnpm(repo: string, source: Extract<Source, { kind: "pnpm" }>, config: UpdateManifest["policy"], deps: { fetch?: FetchLike; exec: ExecFn }): Promise<CheckEntry[]> {
+async function checkPnpm(repo: string, source: Extract<Source, { kind: "pnpm" }> & { manifest: string }, config: UpdateManifest["policy"], deps: { fetch?: FetchLike; exec: ExecFn; cache: LookupCache }): Promise<CheckEntry[]> {
   const file = path.join(repo, source.manifest);
   const dir = path.dirname(file);
   const pkg = readJsonFile(file);
@@ -227,10 +249,7 @@ async function checkPnpm(repo: string, source: Extract<Source, { kind: "pnpm" }>
       return entry(base, config, source.policy, { pinned: spec, reason: "non-registry version requirement" });
     }
     try {
-      const latest =
-        outdatedLatest.get(name) ??
-        ((await fetchJson(`https://registry.npmjs.org/${encodeURIComponent(name)}/latest`, { fetch: deps.fetch })) as { version?: string }).version ??
-        null;
+      const latest = outdatedLatest.get(name) ?? (await npmLatest(name, deps.cache, deps.fetch));
       return entry(base, config, source.policy, { pinned: spec, ...judge(spec, latest) });
     } catch (error) {
       return entry(base, config, source.policy, { pinned: spec, error: `npm registry lookup failed: ${errorText(error)}` });
@@ -477,16 +496,33 @@ async function checkTool(source: Extract<Source, { kind: "tool" }>, config: Upda
 export async function checkSources(repo: string, manifest: UpdateManifest, deps: CheckDeps = {}): Promise<CheckEntry[]> {
   const exec = deps.exec ?? defaultExec;
   const fetchFn = deps.fetch;
+  const cache: LookupCache = { crates: new Map(), npm: new Map() };
   const out: CheckEntry[] = [];
   for (const source of manifest.sources) {
+    const label =
+      source.kind === "tool"
+        ? `tool:${source.name}`
+        : ("manifest" in source && source.manifest) || ("glob" in source && source.glob) || source.kind;
     try {
       switch (source.kind) {
         case "cargo":
-          out.push(...(await checkCargo(repo, source, manifest.policy, { fetch: fetchFn })));
+        case "pnpm": {
+          const manifests = sourceManifests(repo, source);
+          if (manifests.length === 0) throw new Error(`glob ${source.glob} matched no files`);
+          // `pnpm outdated` per package dominates the run time, so manifests are checked a few at a time.
+          const perManifest = await mapLimit(manifests, MANIFEST_CONCURRENCY, async (rel) => {
+            try {
+              if (source.kind === "cargo") {
+                return await checkCargo(repo, { ...source, manifest: rel }, manifest.policy, { fetch: fetchFn, cache });
+              }
+              return await checkPnpm(repo, { ...source, manifest: rel }, manifest.policy, { fetch: fetchFn, exec, cache });
+            } catch (error) {
+              return [entry({ name: rel, kind: source.kind, source: rel }, manifest.policy, source.policy, { error: errorText(error) })];
+            }
+          });
+          for (const rows of perManifest) out.push(...rows);
           break;
-        case "pnpm":
-          out.push(...(await checkPnpm(repo, source, manifest.policy, { fetch: fetchFn, exec })));
-          break;
+        }
         case "swiftpm":
           out.push(...(await checkSwiftpm(repo, source, manifest.policy, { fetch: fetchFn })));
           break;
@@ -498,7 +534,6 @@ export async function checkSources(repo: string, manifest: UpdateManifest, deps:
           break;
       }
     } catch (error) {
-      const label = source.kind === "tool" ? `tool:${source.name}` : (source as { manifest?: string }).manifest ?? source.kind;
       out.push(
         entry({ name: label, kind: source.kind, source: label }, manifest.policy, source.policy, {
           error: errorText(error),

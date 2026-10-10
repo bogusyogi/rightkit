@@ -1,7 +1,7 @@
 {
   "name": "@rightkit/update",
-  "version": "0.1.0",
-  "description": "Per-repo dependency updater: compares every pinned dependency with its upstream latest (right-update check). apply, gate and land are not implemented yet.",
+  "version": "0.2.0",
+  "description": "Per-repo dependency updater: check, apply, gate and land for cargo, pnpm, swiftpm and external-tool pins, plus a scheduled run (launchd, Task Scheduler).",
   "license": "MIT OR Apache-2.0",
   "packageManager": "pnpm@11.24.0",
   "private": false,

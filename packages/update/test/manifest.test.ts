@@ -154,3 +154,52 @@ describe("version comparison", () => {
     expect(compareVersions("beta-build", "1.0.0").status).toBe("unknown");
   });
 });
+
+describe("manifest: 0.2 fields", () => {
+  it("accepts glob on cargo and pnpm sources, and rejects both, neither, or an unsafe glob", () => {
+    const good = validateManifest(manifest([{ kind: "cargo", glob: "crates/*/Cargo.toml" }, { kind: "pnpm", glob: "packages/*/package.json" }]));
+    expect(good.errors).toEqual([]);
+    const both = validateManifest(manifest([{ kind: "cargo", manifest: "Cargo.toml", glob: "crates/*/Cargo.toml" }]));
+    expect(both.errors.join("\n")).toMatch(/exactly one of manifest and glob/);
+    const neither = validateManifest(manifest([{ kind: "pnpm" }]));
+    expect(neither.errors.join("\n")).toMatch(/exactly one of manifest and glob/);
+    for (const glob of ["**/Cargo.toml", "crates/*/lib.rs", "../x/Cargo.toml", "/abs/*/Cargo.toml", "crates/?/Cargo.toml", "crates/{a,b}/Cargo.toml"]) {
+      expect(validateManifest(manifest([{ kind: "cargo", glob }])).valid, glob).toBe(false);
+    }
+    // A pnpm glob must end in package.json, not Cargo.toml.
+    expect(validateManifest(manifest([{ kind: "pnpm", glob: "crates/*/Cargo.toml" }])).valid).toBe(false);
+  });
+
+  it("validates gates", () => {
+    const ok = validateManifest({ ...manifest([]), gates: [{ name: "tests", command: ["pnpm", "test"], cwd: "packages/x", timeoutSec: 60 }] });
+    expect(ok.errors).toEqual([]);
+    const cases: Array<[unknown, RegExp]> = [
+      [[{ name: "x", command: [] }], /command must be a non-empty array/],
+      [[{ name: "x", command: ["a"], timeoutSec: 0 }], /timeoutSec/],
+      [[{ name: "x", command: ["a"], cwd: "../up" }], /cwd must be a relative path/],
+      [[{ name: "bad name", command: ["a"] }], /name must match/],
+      [[{ name: "x", command: ["a"] }, { name: "x", command: ["b"] }], /duplicates x/],
+      [[{ name: "x", command: ["a"], shell: true }], /unknown field shell/],
+      ["nope", /gates must be an array/],
+    ];
+    for (const [gates, pattern] of cases) {
+      const result = validateManifest({ ...manifest([]), gates });
+      expect(result.valid).toBe(false);
+      expect(result.errors.join("\n")).toMatch(pattern);
+    }
+  });
+
+  it("validates policy.land, journey.model, journey.timeoutSec and asset maxBytes", () => {
+    expect(validateManifest(manifest([], { default: "auto-land", land: "push" })).valid).toBe(true);
+    expect(validateManifest(manifest([], { default: "auto-land", land: "pr" })).errors.join("\n")).toMatch(/policy\.land/);
+    const withJourney = (journey: Record<string, unknown>) =>
+      validateManifest(manifest([validToolSource({ journey: { command: ["x"], report: "{out}/r.json", ...journey } })]));
+    expect(withJourney({ model: "whisper-large-v3", timeoutSec: 600 }).errors).toEqual([]);
+    expect(withJourney({ model: "bad model!" }).errors.join("\n")).toMatch(/journey\.model/);
+    expect(withJourney({ timeoutSec: 99999999 }).errors.join("\n")).toMatch(/journey\.timeoutSec/);
+    const asset = (maxBytes: unknown) =>
+      validateManifest(manifest([validToolSource({ assets: { "macos-arm64": { asset: "a", checksum: SHA, maxBytes } } })]));
+    expect(asset(1024).errors).toEqual([]);
+    expect(asset(0).errors.join("\n")).toMatch(/maxBytes/);
+  });
+});

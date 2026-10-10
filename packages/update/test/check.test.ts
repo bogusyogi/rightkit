@@ -254,3 +254,85 @@ describe("runCheck and exit codes", () => {
   });
 });
 
+
+describe("glob sources and shared lookups", () => {
+  const crate = (deps: string) => `[package]\nname = "x"\n\n[dependencies]\n${deps}`;
+
+  it("expands a cargo glob, skips hidden directories, and looks each crate up once", async () => {
+    const repo = mkRepo({
+      "crates/a/Cargo.toml": crate('serde = "1.0.100"\nanyhow = "1"\n'),
+      "crates/b/Cargo.toml": crate('serde = "1.0.100"\ninternal = { path = "../a", version = "0.1.0" }\n'),
+      "crates/.audit/Cargo.toml": crate('hidden = "1.0.0"\n'),
+      "crates/c/not-a-manifest.txt": "x",
+    });
+    const { fetch, calls } = mockFetch({
+      "https://crates.io/api/v1/crates/serde": { crate: { max_stable_version: "1.0.200" } },
+      "https://crates.io/api/v1/crates/anyhow": { crate: { max_stable_version: "1.0.5" } },
+    });
+    const m = manifest([{ kind: "cargo", glob: "crates/*/Cargo.toml" }]) as never;
+    const entries = await checkSources(repo, m, { fetch, exec: noExec });
+    expect(entries.map((e) => `${e.source}:${e.name}:${e.status}`)).toEqual([
+      "crates/a/Cargo.toml:serde:outdated",
+      "crates/a/Cargo.toml:anyhow:current",
+      "crates/b/Cargo.toml:serde:outdated",
+      "crates/b/Cargo.toml:internal:unknown",
+    ]);
+    // A path dependency with a version is the release tooling's business, not a registry lookup.
+    expect(entries.find((e) => e.name === "internal")?.reason).toBe("path or git dependency");
+    expect(calls.filter((u) => u.endsWith("/serde"))).toHaveLength(1);
+    expect(calls.some((u) => u.includes("hidden") || u.includes("internal"))).toBe(false);
+  });
+
+  it("expands a pnpm glob and shares npm registry answers across manifests", async () => {
+    const repo = mkRepo({
+      "packages/one/package.json": { name: "one", dependencies: { ms: "^2.0.0" } },
+      "packages/two/package.json": { name: "two", devDependencies: { ms: "^2.0.0" } },
+    });
+    const { fetch, calls } = mockFetch({ "https://registry.npmjs.org/ms/latest": { version: "2.1.3" } });
+    const entries = await checkSources(repo, manifest([{ kind: "pnpm", glob: "packages/*/package.json" }]) as never, { fetch, exec: noExec });
+    expect(entries.map((e) => `${e.source}:${e.name}:${e.status}`)).toEqual(["packages/one/package.json:ms:outdated", "packages/two/package.json:ms:outdated"]);
+    expect(calls.filter((u) => u.endsWith("/ms/latest"))).toHaveLength(1);
+  });
+
+  it("a glob that matches nothing is an error entry, not silence", async () => {
+    const repo = mkRepo({ "README.md": "x" });
+    const entries = await checkSources(repo, manifest([{ kind: "cargo", glob: "crates/*/Cargo.toml" }]) as never, { fetch: mockFetch({}).fetch, exec: noExec });
+    expect(entries[0].error).toMatch(/glob crates\/\*\/Cargo\.toml matched no files/);
+    expect(exitCodeFor(entries)).toBe(2);
+  });
+
+  it("one unreadable manifest in a glob does not hide the others", async () => {
+    const repo = mkRepo({
+      "crates/a/Cargo.toml": crate('serde = "1.0.100"\n'),
+      "crates/b/Cargo.toml": "[dependencies\nbroken",
+    });
+    const { fetch } = mockFetch({ "https://crates.io/api/v1/crates/serde": { crate: { max_stable_version: "1.0.200" } } });
+    const entries = await checkSources(repo, manifest([{ kind: "cargo", glob: "crates/*/Cargo.toml" }]) as never, { fetch, exec: noExec });
+    expect(entries.find((e) => e.name === "serde")?.status).toBe("outdated");
+    expect(entries.find((e) => e.source === "crates/b/Cargo.toml")?.error).toBeTruthy();
+  });
+});
+
+describe("http retries", () => {
+  it("retries a 429 and then succeeds, and gives up after four attempts", async () => {
+    let n = 0;
+    const flaky = async () => (++n < 3 ? new Response("slow down", { status: 429 }) : new Response("ok", { status: 200 }));
+    const slept: number[] = [];
+    const text = await fetchText("https://example.com/x", { fetch: flaky as never, sleep: async (ms) => void slept.push(ms) });
+    expect(text).toBe("ok");
+    expect(n).toBe(3);
+    expect(slept).toEqual([1000, 2000]);
+
+    let m = 0;
+    const down = async () => (m++, new Response("down", { status: 503 }));
+    await expect(fetchText("https://example.com/x", { fetch: down as never, sleep: async () => undefined })).rejects.toThrow(/HTTP 503/);
+    expect(m).toBe(4);
+  });
+
+  it("does not retry a 404", async () => {
+    let n = 0;
+    const missing = async () => (n++, new Response("no", { status: 404 }));
+    await expect(fetchText("https://example.com/x", { fetch: missing as never, sleep: async () => undefined })).rejects.toThrow(/HTTP 404/);
+    expect(n).toBe(1);
+  });
+});
