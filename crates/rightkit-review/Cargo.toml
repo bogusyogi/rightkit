@@ -1,9 +1,9 @@
 [package]
 name = "rightkit-review"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 rust-version = "1.98.0"
-description = "Shared review capability for the content pipeline: deterministic checks over a media or brief description, declared holds, a capped repair loop, an advisory judge interface, and versioned verdict records."
+description = "Shared review capability for the content pipeline: deterministic checks over a media or text description, declared holds, a capped repair loop, an advisory judge interface, and versioned verdict records."
 license = "MIT OR Apache-2.0"
 readme = "README.md"
 repository = "https://github.com/bogusyogi/rightkit"

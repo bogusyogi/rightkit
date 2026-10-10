@@ -9,10 +9,10 @@ readme = "README.md"
 repository = "https://github.com/bogusyogi/rightkit"
 keywords = ["license", "ed25519", "offline", "entitlement"]
 categories = ["authentication", "cryptography"]
-include = ["src/**", "tests/**", "test-vectors/**", "README.md", "LICENSE-MIT", "LICENSE-APACHE"]
+include = ["src/**", "tests/**", "test-vectors/**", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
 
 [dependencies]
-ed25519-dalek = "2"
-base64 = "0.22"
+ed25519-dalek = "3"
+base64 = "0.23"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

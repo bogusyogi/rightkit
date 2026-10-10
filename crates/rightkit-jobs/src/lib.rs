@@ -12,13 +12,19 @@ mod service;
 mod store;
 mod supervisor;
 
-pub use client::{ClientOptions, EngineClient, DEFAULT_HELLO_TIMEOUT};
+pub use client::{
+    ClientOptions, ContractRequirement, EngineClient, EventFrame, OnEventFrame, ProtocolError,
+    ProtocolErrorSink, DEFAULT_HELLO_TIMEOUT,
+};
 pub use config::{ArtifactNames, ColumnType, Ext, ExtColumn, StatusModel, StoreConfig, StoreHook};
 pub use contract::{
     parse_flags, run_cli, serve, CommandSet, Dispatcher, DoctorFn, Flags, JobCommands, Outcome,
     PayloadMapper, Sink, CONTRACT_VERSION, DEFAULT_FRAME_LIMIT, JOB_METHODS,
 };
-pub use error::{JobError, JobResult, HOST_HANDOFF, STALE_ATTEMPT, STALLED};
+pub use error::{
+    ErrorOrigin, JobError, JobResult, CONTRACT_VERSION_MISMATCH, HOST_HANDOFF, STALE_ATTEMPT,
+    STALLED,
+};
 /// The `rusqlite` this crate links (via `rightkit-db`); hooks receive its `Connection`.
 pub use rightkit_db::rusqlite;
 pub use runner::{
@@ -34,6 +40,8 @@ pub use store::{
     SUBMISSIONS_TABLE,
 };
 pub use supervisor::{
-    CallOptions, EngineSupervisor, ExitReason, HealthCheck, Lifecycle, LifecycleEvent,
-    SupervisorConfig, SupervisorStatus,
+    CallOptions, EngineSupervisor, ExitReason, HealthCheck, InitialFailure, Lifecycle,
+    LifecycleEvent, Readiness, SupervisorConfig, SupervisorStatus, Terminal,
 };
+// Re-exported so a host that only depends on rightkit-jobs can build the policy and spawn command.
+pub use rightkit_process::{JobAssignmentMode, OwnedCommand, RestartMode, RestartPolicy};

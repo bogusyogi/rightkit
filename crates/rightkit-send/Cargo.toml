@@ -1,0 +1,33 @@
+[package]
+name = "rightkit-send"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.90"
+description = "Nearby file and text sharing over the open LocalSend v2 protocol, with Pulse extensions: TLS identity pinning, per-device trust, and macOS Bonjour discovery. Product-neutral; the host supplies identity, paths and policy."
+license = "MIT OR Apache-2.0"
+readme = "README.md"
+repository = "https://github.com/bogusyogi/rightkit"
+publish = false
+keywords = ["localsend", "file-sharing", "tls", "bonjour", "mdns"]
+categories = ["network-programming"]
+include = ["src/**", "tests/**", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
+
+[features]
+default = []
+# UDP multicast discovery and HTTP register/sweep for LocalSend peers. Off on Apple targets:
+# consumers enable it only where multicast is the discovery path (see README).
+# Never compiled into iOS builds: the crate opens no multicast socket there.
+multicast = ["dep:sysinfo"]
+# macOS dns_sd advertise and browse of `_pulse-send._tcp`. A no-op on other targets.
+bonjour = []
+
+[dependencies]
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+rcgen = "0.13"
+sha2 = "0.10"
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.150"
+sysinfo = { version = "=0.37.2", optional = true }
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2.177"

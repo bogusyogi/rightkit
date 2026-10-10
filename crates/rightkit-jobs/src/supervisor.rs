@@ -48,9 +48,12 @@ use rightkit_process::{
 use serde::Serialize;
 use serde_json::{json, Value};
 
-use crate::client::{ClientOptions, EngineClient, DEFAULT_HELLO_TIMEOUT};
+use crate::client::{
+    merge_event_callbacks, ClientOptions, ContractRequirement, EngineClient, EventFrame,
+    OnEventFrame, ProtocolErrorSink, DEFAULT_HELLO_TIMEOUT,
+};
 use crate::contract::DEFAULT_FRAME_LIMIT;
-use crate::error::{JobError, JobResult};
+use crate::error::{JobError, JobResult, CONTRACT_VERSION_MISMATCH};
 
 type SpawnFn = dyn Fn() -> io::Result<OwnedCommand> + Send + Sync;
 type Redactor = dyn Fn(&str) -> Option<String> + Send + Sync;
@@ -67,6 +70,29 @@ pub enum Lifecycle {
     Ready,
     Recovering,
     Down,
+}
+
+/// Why a `Down` supervisor will not restart by itself. Read it through
+/// [`SupervisorStatus::terminal`]; `lifecycle()` stays `Down` for both variants.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Terminal {
+    /// Boot or restart failed and the policy will not try again: a first
+    /// `start()` that failed, a spent restart budget, or a crash with restarts
+    /// disabled. `reason` is the lifecycle message that ended the run.
+    Failed { reason: String },
+    /// Stopped on purpose by [`EngineSupervisor::shutdown`] (or by dropping it).
+    Stopped,
+}
+
+/// What a failed first boot (spawn, hello, handshake) does. `Retry` (default)
+/// treats it like any crash: restart budget is spent and the engine is booted
+/// again, so `start()` returns once the engine is `Ready` or the boot is
+/// `Down`. `Terminal` gives up at once. A contract mismatch is always terminal.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum InitialFailure {
+    #[default]
+    Retry,
+    Terminal,
 }
 
 /// Why a generation ended; feeds `last_exit_reason`.
@@ -134,6 +160,13 @@ pub struct SupervisorStatus {
     pub pid: Option<u32>,
     pub hello: Option<Value>,
     pub restarts_in_window: u32,
+    /// Restarts scheduled since the supervisor was created: each time the restart
+    /// policy allowed another boot, including retries of a failed first boot.
+    /// Not reset by `start()`.
+    pub restarts: u32,
+    /// Set while the supervisor is `Down` and will not restart by itself.
+    /// `None` while running, while recoverable (`OnDemand`), or before any start.
+    pub terminal: Option<Terminal>,
     pub last_exit_code: Option<i32>,
     pub last_exit_reason: Option<String>,
 }
@@ -183,6 +216,10 @@ pub struct SupervisorConfig {
     pub stderr_tail_bytes: usize,
     redact: Option<Arc<Redactor>>,
     on_stderr: Option<Arc<LineSink>>,
+    contract_version: Option<ContractRequirement>,
+    initial_failure: InitialFailure,
+    protocol_error_sink: Option<ProtocolErrorSink>,
+    fallback_error_code: String,
 }
 
 impl SupervisorConfig {
@@ -206,7 +243,36 @@ impl SupervisorConfig {
             stderr_tail_bytes: 16 * 1024,
             redact: None,
             on_stderr: None,
+            contract_version: None,
+            initial_failure: InitialFailure::Retry,
+            protocol_error_sink: None,
+            fallback_error_code: "engine_error".into(),
         }
+    }
+    /// What a failed first boot does; default [`InitialFailure::Retry`].
+    pub fn with_initial_failure(mut self, policy: InitialFailure) -> Self {
+        self.initial_failure = policy;
+        self
+    }
+    /// Receives each malformed stdout line of every generation (on the reader thread).
+    pub fn with_protocol_error_sink(
+        mut self,
+        f: impl Fn(&crate::client::ProtocolError) + Send + Sync + 'static,
+    ) -> Self {
+        self.protocol_error_sink = Some(ProtocolErrorSink::new(f));
+        self
+    }
+    /// Code for an engine error reply that carries none. Default `engine_error`.
+    pub fn with_fallback_error_code(mut self, code: impl Into<String>) -> Self {
+        self.fallback_error_code = code.into();
+        self
+    }
+    /// Refuse an engine whose hello frame does not advertise `version`
+    /// (`contract_version`). The boot fails with `contract_version_mismatch`
+    /// (not retryable); during a restart that failure spends restart budget.
+    pub fn require_contract_version(mut self, version: impl Into<ContractRequirement>) -> Self {
+        self.contract_version = Some(version.into());
+        self
     }
     pub fn with_restart(mut self, restart: RestartPolicy) -> Self {
         self.restart = restart;
@@ -271,6 +337,10 @@ struct State {
     last_exit: Option<LastExit>,
     recovery_from: Option<Instant>,
     on_demand_pending: bool,
+    restarts: u32,
+    terminal: Option<Terminal>,
+    /// Why the most recent first boot failed; what `start()` returns when it ends `Down`.
+    last_start_error: Option<JobError>,
 }
 
 struct Shared {
@@ -327,6 +397,9 @@ pub struct CallOptions {
     pub timeout: Option<Duration>,
     /// Progress events of this call (run on the calling thread).
     pub on_event: Option<OnEvent>,
+    /// Like `on_event`, but each event also carries the request id it belongs
+    /// to. Both callbacks may be set; each receives every event.
+    pub on_frame: Option<OnEventFrame>,
     /// Keep the engine alive when this call times out. By default a timeout
     /// kills the engine as wedged (ScrapeRight's rule); set this for a call
     /// that is legitimately slow and only the *wait* should be abandoned.
@@ -352,6 +425,9 @@ impl EngineSupervisor {
                 last_exit: None,
                 recovery_from: None,
                 on_demand_pending: false,
+                restarts: 0,
+                terminal: None,
+                last_start_error: None,
             }),
             cv: Condvar::new(),
             lifecycle_subs: Mutex::default(),
@@ -364,24 +440,27 @@ impl EngineSupervisor {
     /// Boot the engine and return once it is `Ready` (hello received and every
     /// snapshot replayed). No-op when already `Ready`; waits when a boot is in
     /// flight; from `Down` it starts a fresh run with a fresh restart budget.
+    /// A failed first boot is retried within the budget unless the config says
+    /// [`InitialFailure::Terminal`]; this returns once the boot is `Ready` or `Down`.
     pub fn start(&self) -> JobResult<()> {
-        {
-            let mut g = self.sh.lock();
-            match g.lifecycle {
-                Lifecycle::Ready => return Ok(()),
-                Lifecycle::Booting | Lifecycle::Recovering => {
-                    drop(g);
-                    return self.ready_client().map(|_| ());
-                }
-                Lifecycle::Down => {
-                    g.shutting_down = false;
-                    g.tracker.reset_budget();
-                    g.on_demand_pending = false;
-                    g.lifecycle = Lifecycle::Booting;
-                }
-            }
+        run_start(&self.sh, begin_start(&self.sh))
+    }
+
+    /// As [`Self::start`], but returns at once. The lifecycle is already
+    /// `Booting` when this returns; the boot runs on a background thread and the
+    /// [`Readiness`] handle reports how it ended.
+    pub fn start_background(&self) -> Readiness {
+        let plan = begin_start(&self.sh);
+        let readiness = Readiness::default();
+        let (sh, slot) = (Arc::clone(&self.sh), readiness.clone());
+        let spawned = thread::Builder::new()
+            .name(format!("{}-start", self.sh.cfg.name))
+            .spawn(move || slot.finish(run_start(&sh, plan)));
+        if spawned.is_err() {
+            // No thread to run the boot on: run it here so the state never sticks at `Booting`.
+            readiness.finish(run_start(&self.sh, plan));
         }
-        boot(&self.sh, true)
+        readiness
     }
 
     /// Call an engine method with the default timeout. Waits (bounded by
@@ -394,12 +473,13 @@ impl EngineSupervisor {
     pub fn call_with(&self, method: &str, params: Value, options: CallOptions) -> JobResult<Value> {
         let (client, generation) = self.ready_client()?;
         let timeout = options.timeout.unwrap_or(self.sh.cfg.rpc_timeout);
-        match client.call_timeout(method, params, options.on_event, timeout) {
+        let on_frame = merge_event_callbacks(options.on_event, options.on_frame);
+        match client.call_timeout_frames(method, params, on_frame, timeout) {
             Err(e) if e.code == "timeout" => {
                 if !options.keep_alive_on_timeout {
                     kill_wedged(&self.sh, generation, &client, ExitReason::RpcTimeoutKill);
                 }
-                Err(JobError::retryable(
+                Err(JobError::supervisor_retryable(
                     "timeout",
                     format!(
                         "engine did not answer {method} within {timeout:?}{}",
@@ -413,7 +493,7 @@ impl EngineSupervisor {
             }
             // The engine went away under this call; a restart (if the policy allows) makes a retry meaningful.
             Err(e) if e.code == "engine_exited" || e.code == "engine_write" => {
-                Err(JobError::retryable(e.code, e.message))
+                Err(JobError::supervisor_retryable(e.code, e.message))
             }
             other => other,
         }
@@ -478,6 +558,8 @@ impl EngineSupervisor {
             pid: g.client.as_ref().and_then(|c| c.child_id()),
             hello: g.hello.clone(),
             restarts_in_window: g.tracker.restarts_in_window(self.sh.now()),
+            restarts: g.restarts,
+            terminal: g.terminal.clone(),
             last_exit_code: g.last_exit.as_ref().and_then(|l| l.code),
             last_exit_reason: g.last_exit.as_ref().map(|l| l.reason.clone()),
         }
@@ -523,72 +605,200 @@ impl EngineSupervisor {
         }
         let mut g = self.sh.lock();
         g.lifecycle = Lifecycle::Down;
+        g.terminal = Some(Terminal::Stopped);
         self.sh.emit(&g, "engine shut down", None);
         drop(g);
         self.sh.cv.notify_all();
     }
 
     fn ready_client(&self) -> JobResult<(Arc<EngineClient>, u64)> {
-        let deadline = Instant::now() + self.sh.cfg.ready_wait;
-        let mut g = self.sh.lock();
-        loop {
-            match g.lifecycle {
-                Lifecycle::Ready => {
-                    if let Some(c) = g.client.clone() {
-                        return Ok((c, g.generation));
-                    }
-                }
-                Lifecycle::Down => {
-                    if g.shutting_down {
-                        return Err(JobError::new("down", "engine is shut down"));
-                    }
-                    if self.sh.cfg.restart.mode() == RestartMode::OnDemand && g.on_demand_pending {
-                        let now = self.sh.now();
-                        match g.tracker.request_restart(now) {
-                            RestartOutcome::Restart(permit) => {
-                                g.on_demand_pending = false;
-                                g.lifecycle = Lifecycle::Recovering;
-                                self.sh.emit(&g, "restarting on demand", None);
-                                schedule_restart(&self.sh, permit);
-                                continue;
-                            }
-                            _ => {
-                                return Err(JobError::new(
-                                    "down",
-                                    "engine is down and its restart budget is spent",
-                                ))
-                            }
-                        }
-                    }
-                    let why = g
-                        .last_exit
-                        .as_ref()
-                        .map(|l| format!(" (last exit: {})", l.reason))
-                        .unwrap_or_default();
-                    return Err(JobError::new("down", format!("engine is down{why}")));
-                }
-                Lifecycle::Booting | Lifecycle::Recovering => {}
-            }
-            let left = deadline.saturating_duration_since(Instant::now());
-            if left.is_zero() {
-                return Err(JobError::retryable(
-                    "not_ready",
-                    "engine did not become ready in time",
-                ));
-            }
-            g = self
-                .sh
-                .cv
-                .wait_timeout(g, left)
-                .unwrap_or_else(|e| e.into_inner())
-                .0;
-        }
+        ready_shared(&self.sh)
     }
 }
 
 impl Drop for EngineSupervisor {
     fn drop(&mut self) {
         self.shutdown();
+    }
+}
+
+/// What `start` decided under the lock: nothing to do, wait on a boot in flight, or boot.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum StartPlan {
+    Ready,
+    Wait,
+    Boot,
+}
+
+/// Moves `Down` to `Booting` (fresh budget) and reports what the caller must do.
+fn begin_start(sh: &Arc<Shared>) -> StartPlan {
+    let mut g = sh.lock();
+    match g.lifecycle {
+        Lifecycle::Ready => StartPlan::Ready,
+        Lifecycle::Booting | Lifecycle::Recovering => StartPlan::Wait,
+        Lifecycle::Down => {
+            g.shutting_down = false;
+            g.tracker.reset_budget();
+            g.on_demand_pending = false;
+            g.terminal = None;
+            g.last_start_error = None;
+            g.lifecycle = Lifecycle::Booting;
+            StartPlan::Boot
+        }
+    }
+}
+
+fn run_start(sh: &Arc<Shared>, plan: StartPlan) -> JobResult<()> {
+    match plan {
+        StartPlan::Ready => Ok(()),
+        StartPlan::Wait => ready_shared(sh).map(|_| ()),
+        StartPlan::Boot => match boot(sh, true) {
+            Ok(()) => Ok(()),
+            Err(_) => settle(sh),
+        },
+    }
+}
+
+/// Waits out a boot still in progress, retries of a failed first boot included,
+/// and reports where it ended: `Ready`, or `Down` with the error that ended it.
+fn settle(sh: &Arc<Shared>) -> JobResult<()> {
+    let mut g = sh.lock();
+    loop {
+        match g.lifecycle {
+            Lifecycle::Ready => return Ok(()),
+            Lifecycle::Down => {
+                return Err(g
+                    .last_start_error
+                    .clone()
+                    .unwrap_or_else(|| JobError::supervisor("down", "engine is down")))
+            }
+            Lifecycle::Booting | Lifecycle::Recovering => {}
+        }
+        g = sh
+            .cv
+            .wait_timeout(g, Duration::from_millis(200))
+            .unwrap_or_else(|e| e.into_inner())
+            .0;
+    }
+}
+
+/// Outcome of a boot started by [`EngineSupervisor::start_background`]. Cheap to
+/// clone; every clone reports the same result.
+#[derive(Debug, Clone, Default)]
+pub struct Readiness {
+    slot: Arc<ReadySlot>,
+}
+
+#[derive(Debug, Default)]
+struct ReadySlot {
+    result: Mutex<Option<JobResult<()>>>,
+    done: Condvar,
+}
+
+impl Readiness {
+    /// Block until the boot ends: `Ok` once the engine is `Ready`, otherwise the
+    /// error that `start()` would have returned.
+    pub fn ready(&self) -> JobResult<()> {
+        let mut g = self.slot.result.lock().unwrap_or_else(|e| e.into_inner());
+        loop {
+            if let Some(r) = g.as_ref() {
+                return r.clone();
+            }
+            g = self.slot.done.wait(g).unwrap_or_else(|e| e.into_inner());
+        }
+    }
+
+    /// As [`Self::ready`], but gives up after `timeout` with `None`.
+    pub fn wait_timeout(&self, timeout: Duration) -> Option<JobResult<()>> {
+        let deadline = Instant::now() + timeout;
+        let mut g = self.slot.result.lock().unwrap_or_else(|e| e.into_inner());
+        loop {
+            if let Some(r) = g.as_ref() {
+                return Some(r.clone());
+            }
+            let left = deadline.saturating_duration_since(Instant::now());
+            if left.is_zero() {
+                return None;
+            }
+            g = self
+                .slot
+                .done
+                .wait_timeout(g, left)
+                .unwrap_or_else(|e| e.into_inner())
+                .0;
+        }
+    }
+
+    /// The outcome if the boot has ended, without waiting.
+    pub fn try_ready(&self) -> Option<JobResult<()>> {
+        self.slot
+            .result
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
+    }
+
+    fn finish(&self, result: JobResult<()>) {
+        *self.slot.result.lock().unwrap_or_else(|e| e.into_inner()) = Some(result);
+        self.slot.done.notify_all();
+    }
+}
+
+fn ready_shared(sh: &Arc<Shared>) -> JobResult<(Arc<EngineClient>, u64)> {
+    let deadline = Instant::now() + sh.cfg.ready_wait;
+    let mut g = sh.lock();
+    loop {
+        match g.lifecycle {
+            Lifecycle::Ready => {
+                if let Some(c) = g.client.clone() {
+                    return Ok((c, g.generation));
+                }
+            }
+            Lifecycle::Down => {
+                if g.shutting_down {
+                    return Err(JobError::supervisor("down", "engine is shut down"));
+                }
+                if sh.cfg.restart.mode() == RestartMode::OnDemand && g.on_demand_pending {
+                    let now = sh.now();
+                    match g.tracker.request_restart(now) {
+                        RestartOutcome::Restart(permit) => {
+                            g.on_demand_pending = false;
+                            g.restarts = g.restarts.saturating_add(1);
+                            g.lifecycle = Lifecycle::Recovering;
+                            sh.emit(&g, "restarting on demand", None);
+                            schedule_restart(sh, permit);
+                            continue;
+                        }
+                        _ => {
+                            let text = "engine is down and its restart budget is spent";
+                            g.terminal = Some(Terminal::Failed {
+                                reason: text.to_string(),
+                            });
+                            return Err(JobError::supervisor("down", text));
+                        }
+                    }
+                }
+                let why = g
+                    .last_exit
+                    .as_ref()
+                    .map(|l| format!(" (last exit: {})", l.reason))
+                    .unwrap_or_default();
+                return Err(JobError::supervisor("down", format!("engine is down{why}")));
+            }
+            Lifecycle::Booting | Lifecycle::Recovering => {}
+        }
+        let left = deadline.saturating_duration_since(Instant::now());
+        if left.is_zero() {
+            return Err(JobError::supervisor_retryable(
+                "not_ready",
+                "engine did not become ready in time",
+            ));
+        }
+        g = sh
+            .cv
+            .wait_timeout(g, left)
+            .unwrap_or_else(|e| e.into_inner())
+            .0;
     }
 }
 
@@ -600,8 +810,9 @@ fn boot(sh: &Arc<Shared>, initial: bool) -> JobResult<()> {
         let mut g = sh.lock();
         if g.shutting_down {
             g.lifecycle = Lifecycle::Down;
+            g.terminal = Some(Terminal::Stopped);
             sh.cv.notify_all();
-            return Err(JobError::new("down", "engine is shut down"));
+            return Err(JobError::supervisor("down", "engine is shut down"));
         }
         g.generation += 1;
         g.attempt += 1;
@@ -616,8 +827,25 @@ fn boot(sh: &Arc<Shared>, initial: bool) -> JobResult<()> {
     };
 
     let fail = |reason: ExitReason, code: &str, message: String, stderr: String| -> JobResult<()> {
+        let err = JobError::supervisor(code, message);
+        // A contract mismatch is terminal on any boot; a first failure is terminal
+        // only under `InitialFailure::Terminal`. Anything else spends restart budget.
+        let terminal = code == CONTRACT_VERSION_MISMATCH
+            || (initial && sh.cfg.initial_failure == InitialFailure::Terminal);
+        if !terminal {
+            if initial {
+                sh.lock().last_start_error = Some(err.clone());
+            }
+            on_end(sh, generation, reason, None, stderr);
+            return Err(err);
+        }
         let mut g = sh.lock();
-        if initial {
+        if g.generation == generation && !g.shutting_down {
+            let text = if initial {
+                format!("engine failed to start: {err}")
+            } else {
+                format!("engine replacement refused: {err}")
+            };
             g.last_exit = Some(LastExit {
                 code: None,
                 reason: reason.to_string(),
@@ -625,14 +853,17 @@ fn boot(sh: &Arc<Shared>, initial: bool) -> JobResult<()> {
             });
             g.token = None;
             g.lifecycle = Lifecycle::Down;
-            sh.emit(&g, format!("engine failed to start: {message}"), None);
-            drop(g);
-            sh.cv.notify_all();
-        } else {
-            drop(g);
-            on_end(sh, generation, reason, None, stderr);
+            g.terminal = Some(Terminal::Failed {
+                reason: text.clone(),
+            });
+            if initial {
+                g.last_start_error = Some(err.clone());
+            }
+            sh.emit(&g, text, None);
         }
-        Err(JobError::new(code, message))
+        drop(g);
+        sh.cv.notify_all();
+        Err(err)
     };
 
     let mut command = match (sh.cfg.spawn)() {
@@ -691,6 +922,9 @@ fn boot(sh: &Arc<Shared>, initial: bool) -> JobResult<()> {
     let opts = ClientOptions {
         hello_timeout: sh.cfg.hello_timeout,
         frame_limit: sh.cfg.frame_limit,
+        contract_version: sh.cfg.contract_version.clone(),
+        fallback_error_code: sh.cfg.fallback_error_code.clone(),
+        protocol_error_sink: sh.cfg.protocol_error_sink.clone(),
     };
     let client = match EngineClient::connect_opts(BufReader::new(stdout), stdin, opts) {
         Ok(c) => Arc::new(c),
@@ -727,11 +961,13 @@ fn boot(sh: &Arc<Shared>, initial: bool) -> JobResult<()> {
     if g.generation != generation || g.shutting_down {
         drop(g);
         client.kill(sh.cfg.shutdown_grace);
-        return Err(JobError::new("down", "engine was shut down while starting"));
+        return Err(JobError::supervisor("down", "engine was shut down while starting"));
     }
     g.hello = Some(client.hello().clone());
     g.client = Some(Arc::clone(&client));
     g.lifecycle = Lifecycle::Ready;
+    g.terminal = None;
+    g.last_start_error = None;
     g.on_demand_pending = false;
     let recovery_ms = g
         .recovery_from
@@ -861,6 +1097,7 @@ fn on_end(
     });
     if g.shutting_down {
         g.lifecycle = Lifecycle::Down;
+        g.terminal = Some(Terminal::Stopped);
         drop(g);
         sh.cv.notify_all();
         return;
@@ -874,6 +1111,8 @@ fn on_end(
     match g.tracker.exited(token, now) {
         RestartOutcome::Restart(permit) => {
             g.lifecycle = Lifecycle::Recovering;
+            g.terminal = None;
+            g.restarts = g.restarts.saturating_add(1);
             g.recovery_from.get_or_insert_with(Instant::now);
             sh.emit(
                 &g,
@@ -885,6 +1124,7 @@ fn on_end(
         }
         RestartOutcome::AwaitingDemand => {
             g.lifecycle = Lifecycle::Down;
+            g.terminal = None;
             g.on_demand_pending = true;
             sh.emit(
                 &g,
@@ -896,16 +1136,20 @@ fn on_end(
         RestartOutcome::Exhausted => {
             g.lifecycle = Lifecycle::Down;
             let n = g.tracker.restarts_in_window(now);
-            sh.emit(
-                &g,
-                format!("{exit_msg}; restart budget exhausted ({n} restarts in the window)"),
-                None,
-            );
+            let text = format!("{exit_msg}; restart budget exhausted ({n} restarts in the window)");
+            g.terminal = Some(Terminal::Failed {
+                reason: text.clone(),
+            });
+            sh.emit(&g, text, None);
             drop(g);
         }
         RestartOutcome::Stopped | RestartOutcome::IgnoredStale => {
             g.lifecycle = Lifecycle::Down;
-            sh.emit(&g, format!("{exit_msg}; restart disabled"), None);
+            let text = format!("{exit_msg}; restart disabled");
+            g.terminal = Some(Terminal::Failed {
+                reason: text.clone(),
+            });
+            sh.emit(&g, text, None);
             drop(g);
         }
     }

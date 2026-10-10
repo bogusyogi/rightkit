@@ -7,10 +7,12 @@
 //!
 //! Modes: `ok`, `slow_hello:<ms>`, `no_hello`, `crash:<ms>` (exit 9 shortly after
 //! hello), `crash_on_call` (exit 9 on method `work`), `wedge:<ms>` (stops reading
-//! after the delay; the process stays alive), `reject_set` (refuses `set_*`).
+//! after the delay; the process stays alive), `reject_set` (refuses `set_*`), `wrong_contract` (advertises contract_version 2).
 //! Methods: `ping`, `echo`, `pid`, `gen`, `set_*` (remembered), `get_state`,
-//! `big` (3 MiB result), `notify{n}` (n unsolicited events), `sleep{ms}`,
-//! `hang` (never answered), `work`, `shutdown`.
+//! `big` (3 MiB result), `notify{n}` (n unsolicited events), `progress{n}`
+//! (n events tagged with the request id; result `{"id"}`), `sleep{ms}`,
+//! `hang` (never answered), `work`, `junk` (writes a non-JSON stdout line, then
+//! answers), `bare_error` (error reply with neither code nor message), `shutdown`.
 use serde_json::{json, Map, Value};
 use std::io::{BufRead, Write};
 use std::time::{Duration, Instant};
@@ -46,7 +48,8 @@ fn main() {
         "slow_hello" => std::thread::sleep(Duration::from_millis(arg)),
         _ => {}
     }
-    put(json!({"type":"hello","engine":"fixture","version":"1.0","contract_version":1}));
+    let contract = if name == "wrong_contract" { 2 } else { 1 };
+    put(json!({"type":"hello","engine":"fixture","version":"1.0","contract_version":contract}));
     let started = Instant::now();
     if name == "crash" {
         std::thread::sleep(Duration::from_millis(arg));
@@ -109,6 +112,21 @@ fn main() {
                 std::thread::sleep(Duration::from_millis(params["ms"].as_u64().unwrap_or(0)));
                 ok(json!({}))
             }
+            "progress" => {
+                for i in 0..params["n"].as_u64().unwrap_or(1) {
+                    put(json!({"type":"event","id":id,"event":{"i": i}}));
+                }
+                ok(json!({"id": id}))
+            }
+            "junk" => {
+                {
+                    let mut o = stdout.lock();
+                    writeln!(o, "not json {{").unwrap();
+                    o.flush().unwrap();
+                }
+                ok(json!({"after": true}))
+            }
+            "bare_error" => json!({"type":"response","id":id,"ok":false,"error":{}}),
             "hang" => continue,
             "work" => {
                 if name == "crash_on_call" {

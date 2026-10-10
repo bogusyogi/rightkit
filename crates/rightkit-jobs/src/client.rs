@@ -12,14 +12,27 @@ use rightkit_process::{OwnedChild, OwnedCommand, ReapOutcome};
 use serde_json::{json, Value};
 
 use crate::contract::DEFAULT_FRAME_LIMIT;
-use crate::error::{JobError, JobResult};
+use crate::error::{ErrorOrigin, JobError, JobResult};
 
 type OnEvent = Box<dyn Fn(&Value) + Send>;
+
+/// One progress event of a call as the engine framed it: the request `id` the
+/// frame carries, and its `event` payload. A host that needs the whole frame
+/// (`{"id", "event"}`) rebuilds it from these two fields.
+#[derive(Debug, Clone, Copy)]
+pub struct EventFrame<'a> {
+    pub id: u64,
+    pub event: &'a Value,
+}
+
+/// Progress callback that also receives the request id of each event. Runs on
+/// the calling thread, like the payload-only callback it complements.
+pub type OnEventFrame = Box<dyn for<'a> Fn(&EventFrame<'a>) + Send>;
 
 /// What the reader thread hands a waiting caller. Callbacks run on the
 /// caller's own thread, never on the reader and never under a lock.
 enum Msg {
-    Event(Value),
+    Event(u64, Value),
     Done(JobResult<Value>),
 }
 struct Pending {
@@ -28,14 +41,91 @@ struct Pending {
 }
 type PendingMap = Arc<Mutex<HashMap<u64, Pending>>>;
 
+/// Engine contract version a shell requires, checked against the hello frame's
+/// `contract_version`. Matching is by JSON text, so `1u32` and `"1"` both accept
+/// an engine that advertises the integer `1`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ContractRequirement(String);
+
+impl ContractRequirement {
+    fn accepts(&self, hello: &Value) -> bool {
+        match &hello["contract_version"] {
+            Value::Number(n) => n.to_string() == self.0,
+            Value::String(s) => *s == self.0,
+            _ => false,
+        }
+    }
+}
+
+impl From<u32> for ContractRequirement {
+    fn from(version: u32) -> Self {
+        Self(version.to_string())
+    }
+}
+
+impl From<&str> for ContractRequirement {
+    fn from(version: &str) -> Self {
+        Self(version.to_string())
+    }
+}
+
+impl From<String> for ContractRequirement {
+    fn from(version: String) -> Self {
+        Self(version)
+    }
+}
+
+/// Code given to an engine error reply that carries no `code`, unless the host
+/// sets another with [`ClientOptions::with_fallback_error_code`].
+const ENGINE_ERROR: &str = "engine_error";
+/// Message of an engine error reply that carries no usable message.
+const NO_DETAIL: &str = "engine reported failure without detail";
+
+/// A stdout line the engine sent that is not a JSON frame. The reader drops it
+/// and resynchronises on the next line; a sink sees it first.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProtocolError {
+    /// The malformed line, lossily decoded, without its terminator.
+    pub line: String,
+    /// Why it was rejected.
+    pub message: String,
+}
+
+/// Host callback for [`ProtocolError`]s. Runs on the connection's reader
+/// thread, so keep it quick (push to a channel, do not block).
+#[derive(Clone)]
+pub struct ProtocolErrorSink(Arc<dyn Fn(&ProtocolError) + Send + Sync>);
+
+impl ProtocolErrorSink {
+    pub fn new(f: impl Fn(&ProtocolError) + Send + Sync + 'static) -> Self {
+        Self(Arc::new(f))
+    }
+    fn report(&self, error: &ProtocolError) {
+        (self.0)(error)
+    }
+}
+
+impl std::fmt::Debug for ProtocolErrorSink {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("ProtocolErrorSink")
+    }
+}
+
 /// Connection tuning for [`EngineClient::connect_opts`].
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct ClientOptions {
     /// How long to wait for the engine's hello frame.
     pub hello_timeout: Duration,
     /// Largest frame accepted in either direction. A larger *response* answers
     /// the call it belongs to with `frame_too_large` instead of ending the session.
     pub frame_limit: usize,
+    /// When set, a hello frame that does not advertise this contract version
+    /// fails the connect with `contract_version_mismatch`.
+    pub contract_version: Option<ContractRequirement>,
+    /// Code for an engine error reply that has none. Default `engine_error`.
+    pub fallback_error_code: String,
+    /// Receives each malformed stdout line. Default: dropped silently.
+    pub protocol_error_sink: Option<ProtocolErrorSink>,
 }
 
 impl Default for ClientOptions {
@@ -43,7 +133,31 @@ impl Default for ClientOptions {
         Self {
             hello_timeout: DEFAULT_HELLO_TIMEOUT,
             frame_limit: DEFAULT_FRAME_LIMIT,
+            contract_version: None,
+            fallback_error_code: ENGINE_ERROR.to_string(),
+            protocol_error_sink: None,
         }
+    }
+}
+
+impl ClientOptions {
+    /// Refuse an engine whose hello frame does not advertise `version`.
+    pub fn require_contract_version(mut self, version: impl Into<ContractRequirement>) -> Self {
+        self.contract_version = Some(version.into());
+        self
+    }
+    /// Code for an engine error reply that carries none.
+    pub fn with_fallback_error_code(mut self, code: impl Into<String>) -> Self {
+        self.fallback_error_code = code.into();
+        self
+    }
+    /// Receives each malformed stdout line instead of dropping it silently.
+    pub fn with_protocol_error_sink(
+        mut self,
+        f: impl Fn(&ProtocolError) + Send + Sync + 'static,
+    ) -> Self {
+        self.protocol_error_sink = Some(ProtocolErrorSink::new(f));
+        self
     }
 }
 
@@ -119,6 +233,9 @@ impl EngineClient {
         let ClientOptions {
             hello_timeout,
             frame_limit,
+            contract_version,
+            fallback_error_code,
+            protocol_error_sink,
         } = options;
         let mut reader = reader;
         let pending: PendingMap = Arc::default();
@@ -128,6 +245,9 @@ impl EngineClient {
         let subscribers: Subscribers = Arc::default();
         let subs = Arc::clone(&subscribers);
         let (hello_tx, hello_rx) = channel::<JobResult<Value>>();
+        let required = contract_version;
+        let fallback = fallback_error_code;
+        let sink = protocol_error_sink;
         std::thread::spawn(move || {
             let mut buf = Vec::new();
             let limits = ReadLimits::default();
@@ -137,7 +257,7 @@ impl EngineClient {
             impl Drop for OnExit {
                 fn drop(&mut self) {
                     for (_, p) in self.1.lock().unwrap_or_else(|e| e.into_inner()).drain() {
-                        let _ = p.tx.send(Msg::Done(Err(JobError::new(
+                        let _ = p.tx.send(Msg::Done(Err(JobError::supervisor(
                             "engine_exited",
                             "engine closed the connection",
                         ))));
@@ -151,17 +271,26 @@ impl EngineClient {
             let first =
                 read_json_line_or_oversized::<_, Value>(&mut reader, &mut buf, frame_limit, limits);
             let hello = match first {
-                Ok(Some(Incoming::Frame(h))) if h["type"] == "hello" => Ok(h),
-                Ok(Some(Incoming::Frame(_))) => Err(JobError::new(
+                Ok(Some(Incoming::Frame(h))) if h["type"] == "hello" => match &required {
+                    Some(req) if !req.accepts(&h) => Err(JobError::contract_mismatch(
+                        &h["contract_version"],
+                        &req.0,
+                    )),
+                    _ => Ok(h),
+                },
+                Ok(Some(Incoming::Frame(_))) => Err(JobError::supervisor(
                     "engine_protocol",
                     "first frame was not hello",
                 )),
-                Ok(Some(Incoming::Oversized(_))) => Err(JobError::new(
+                Ok(Some(Incoming::Oversized(_))) => Err(JobError::supervisor(
                     "engine_protocol",
                     "hello frame exceeded the frame limit",
                 )),
-                Ok(None) => Err(JobError::new("engine_exited", "engine closed before hello")),
-                Err(e) => Err(JobError::new("engine_protocol", e.to_string())),
+                Ok(None) => Err(JobError::supervisor("engine_exited", "engine closed before hello")),
+                Err(e) => {
+                    report_protocol(&sink, &buf, &e);
+                    Err(JobError::supervisor("engine_protocol", e.to_string()))
+                }
             };
             let ok = hello.is_ok();
             let _ = hello_tx.send(hello);
@@ -175,13 +304,13 @@ impl EngineClient {
                     frame_limit,
                     limits,
                 ) {
-                    Ok(Some(Incoming::Frame(v))) => dispatch(&map, &subs, &v),
+                    Ok(Some(Incoming::Frame(v))) => dispatch(&map, &subs, &v, &fallback),
                     Ok(Some(Incoming::Oversized(over))) => {
                         // Answer the call this frame belongs to; the child is healthy.
                         if let Some(id) = over.id() {
                             let removed = map.lock().unwrap_or_else(|e| e.into_inner()).remove(&id);
                             if let Some(p) = removed {
-                                let _ = p.tx.send(Msg::Done(Err(JobError::new(
+                                let _ = p.tx.send(Msg::Done(Err(JobError::supervisor(
                                     "frame_too_large",
                                     format!("engine frame of {} bytes exceeded the {frame_limit}-byte limit", over.bytes),
                                 ))));
@@ -189,14 +318,15 @@ impl EngineClient {
                         }
                     }
                     Ok(None) | Err(FrameError::Io(_)) => break,
-                    Err(_) => continue, // malformed line: resynchronised on the next frame
+                    // Malformed line: the reader resynchronises on the next frame.
+                    Err(e) => report_protocol(&sink, &buf, &e),
                 }
             }
         });
         let hello = match hello_rx.recv_timeout(hello_timeout) {
             Ok(r) => r?,
             Err(_) => {
-                return Err(JobError::new(
+                return Err(JobError::supervisor(
                     "hello_timeout",
                     format!("engine sent no hello within {hello_timeout:?}"),
                 ));
@@ -332,10 +462,10 @@ impl EngineClient {
         let mut child = cmd.spawn()?;
         let stdin = child
             .take_stdin()
-            .ok_or_else(|| JobError::new("io", "no child stdin"))?;
+            .ok_or_else(|| JobError::supervisor("io", "no child stdin"))?;
         let stdout = child
             .take_stdout()
-            .ok_or_else(|| JobError::new("io", "no child stdout"))?;
+            .ok_or_else(|| JobError::supervisor("io", "no child stdout"))?;
         match Self::connect_with(BufReader::new(stdout), stdin, hello_timeout) {
             Ok(client) => {
                 *client.core.child.lock().unwrap_or_else(|e| e.into_inner()) = Some(child);
@@ -362,7 +492,17 @@ impl EngineClient {
         params: Value,
         on_event: Option<OnEvent>,
     ) -> JobResult<Value> {
-        self.core.call(method, params, on_event, None)
+        self.core.call(method, params, frame_callback(on_event), None)
+    }
+
+    /// As [`Self::call_with_events`], with each event's request id.
+    pub fn call_with_frames(
+        &self,
+        method: &str,
+        params: Value,
+        on_frame: Option<OnEventFrame>,
+    ) -> JobResult<Value> {
+        self.core.call(method, params, on_frame, None)
     }
 
     /// As [`Self::call_with_events`] but gives up after `timeout` with a
@@ -375,7 +515,19 @@ impl EngineClient {
         on_event: Option<OnEvent>,
         timeout: Duration,
     ) -> JobResult<Value> {
-        self.core.call(method, params, on_event, Some(timeout))
+        self.core
+            .call(method, params, frame_callback(on_event), Some(timeout))
+    }
+
+    /// As [`Self::call_timeout`], with each event's request id.
+    pub fn call_timeout_frames(
+        &self,
+        method: &str,
+        params: Value,
+        on_frame: Option<OnEventFrame>,
+        timeout: Duration,
+    ) -> JobResult<Value> {
+        self.core.call(method, params, on_frame, Some(timeout))
     }
 
     /// Ask the engine to stop, then terminate an owned child that outlives
@@ -408,7 +560,7 @@ impl Core {
         &self,
         method: &str,
         params: Value,
-        on_event: Option<OnEvent>,
+        on_event: Option<OnEventFrame>,
         timeout: Option<Duration>,
     ) -> JobResult<Value> {
         let deadline = timeout.map(|t| Instant::now() + t);
@@ -431,7 +583,7 @@ impl Core {
                 .lock()
                 .unwrap_or_else(|e| e.into_inner())
                 .remove(&id);
-            return Err(JobError::new("engine_write", e.to_string()));
+            return Err(JobError::supervisor("engine_write", e.to_string()));
         }
         let (rtx, rrx) = channel();
         let queued = self
@@ -441,7 +593,7 @@ impl Core {
             .send((bytes, rtx))
             .is_ok();
         let written = if !queued {
-            Err(JobError::new("engine_write", "writer stopped"))
+            Err(JobError::supervisor("engine_write", "writer stopped"))
         } else {
             let r = match deadline {
                 None => rrx.recv().map_err(|_| ()),
@@ -451,7 +603,7 @@ impl Core {
             };
             match r {
                 Ok(Ok(())) => Ok(()),
-                Ok(Err(e)) => Err(JobError::from(e)),
+                Ok(Err(e)) => Err(JobError::from(e).with_origin(ErrorOrigin::Supervisor)),
                 Err(()) => {
                     // Pipe full / engine not reading: kill the owned child so the
                     // blocked write fails and the writer thread exits.
@@ -459,7 +611,7 @@ impl Core {
                     {
                         let _ = c.terminate_tree();
                     }
-                    Err(JobError::new(
+                    Err(JobError::supervisor(
                         "timeout",
                         format!(
                             "engine did not accept {method} within {:?}",
@@ -484,9 +636,9 @@ impl Core {
                 Some(d) => rx.recv_timeout(d.saturating_duration_since(Instant::now())),
             };
             match msg {
-                Ok(Msg::Event(ev)) => {
+                Ok(Msg::Event(id, event)) => {
                     if let Some(cb) = &on_event {
-                        cb(&ev);
+                        cb(&EventFrame { id, event: &event });
                     }
                 }
                 Ok(Msg::Done(r)) => return r,
@@ -495,7 +647,7 @@ impl Core {
                         .lock()
                         .unwrap_or_else(|e| e.into_inner())
                         .remove(&id);
-                    return Err(JobError::new(
+                    return Err(JobError::supervisor(
                         "timeout",
                         format!(
                             "engine did not answer {method} within {:?}",
@@ -504,7 +656,7 @@ impl Core {
                     ));
                 }
                 Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
-                    return Err(JobError::new(
+                    return Err(JobError::supervisor(
                         "engine_exited",
                         "engine closed the connection",
                     ));
@@ -514,7 +666,38 @@ impl Core {
     }
 }
 
-fn dispatch(map: &PendingMap, subs: &Subscribers, v: &Value) {
+/// Adapts a payload-only callback to the frame form every call runs.
+pub(crate) fn frame_callback(on_event: Option<OnEvent>) -> Option<OnEventFrame> {
+    on_event.map(|cb| -> OnEventFrame { Box::new(move |frame: &EventFrame<'_>| cb(frame.event)) })
+}
+
+/// One callback for a call that may have both a payload and a frame callback.
+pub(crate) fn merge_event_callbacks(
+    on_event: Option<OnEvent>,
+    on_frame: Option<OnEventFrame>,
+) -> Option<OnEventFrame> {
+    match (on_event, on_frame) {
+        (None, frame) => frame,
+        (Some(cb), None) => frame_callback(Some(cb)),
+        (Some(cb), Some(frame)) => Some(Box::new(move |f: &EventFrame<'_>| {
+            cb(f.event);
+            frame(f);
+        })),
+    }
+}
+
+/// Hands a malformed stdout line to the host's sink, if one is set. The line is
+/// whatever the frame reader left buffered when it rejected the frame.
+fn report_protocol(sink: &Option<ProtocolErrorSink>, buf: &[u8], err: &FrameError) {
+    if let Some(sink) = sink {
+        sink.report(&ProtocolError {
+            line: String::from_utf8_lossy(buf).into_owned(),
+            message: err.to_string(),
+        });
+    }
+}
+
+fn dispatch(map: &PendingMap, subs: &Subscribers, v: &Value, fallback_code: &str) {
     let Some(id) = v["id"].as_u64() else {
         if v["type"] == "event" {
             let mut list = subs.lock().unwrap_or_else(|e| e.into_inner());
@@ -530,7 +713,7 @@ fn dispatch(map: &PendingMap, subs: &Subscribers, v: &Value) {
                 m.get(&id).filter(|p| p.wants_events).map(|p| p.tx.clone())
             };
             if let Some(tx) = tx {
-                let _ = tx.send(Msg::Event(v["event"].clone()));
+                let _ = tx.send(Msg::Event(id, v["event"].clone()));
             }
         }
         Some("response") => {
@@ -539,10 +722,16 @@ fn dispatch(map: &PendingMap, subs: &Subscribers, v: &Value) {
                 let r = if v["ok"] == true {
                     Ok(v["result"].clone())
                 } else {
-                    let mut e = JobError::new(
-                        v["error"]["code"].as_str().unwrap_or("error"),
-                        v["error"]["message"].as_str().unwrap_or(""),
-                    );
+                    // An error reply without a usable code or message still answers the call.
+                    let code = v["error"]["code"]
+                        .as_str()
+                        .filter(|c| !c.is_empty())
+                        .unwrap_or(fallback_code);
+                    let message = v["error"]["message"]
+                        .as_str()
+                        .filter(|m| !m.is_empty())
+                        .unwrap_or(NO_DETAIL);
+                    let mut e = JobError::new(code, message);
                     e.retryable = v["error"]["retryable"].as_bool().unwrap_or(false);
                     Err(e)
                 };

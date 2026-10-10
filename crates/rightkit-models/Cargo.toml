@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-models"
-version = "0.2.8"
+version = "0.2.9"
 edition = "2021"
 rust-version = "1.98.0"
 license = "MIT OR Apache-2.0"
@@ -21,6 +21,8 @@ rightapps = ["dep:ed25519-dalek", "dep:base64", "dep:url", "dep:chrono"]
 
 [dependencies]
 rightkit-fs = { version = "0.3", path = "../rightkit-fs", default-features = false, features = ["digest", "fs", "lock"] }
+# Every outbound request goes through rightkit-http: address policy, per-hop redirect vetting.
+rightkit-http = { version = "0.3.0", path = "../rightkit-http", default-features = false }
 ed25519-dalek = { version = "2", optional = true }
 base64 = { version = "0.22", optional = true }
 url = { version = "2", optional = true }

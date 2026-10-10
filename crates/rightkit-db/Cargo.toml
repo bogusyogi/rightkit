@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-db"
-version = "0.3.2"
+version = "0.4.0"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Correct-by-default SQLite and SQLCipher connection bootstrap for Right Suite apps."
@@ -12,8 +12,10 @@ categories = ["database"]
 include = ["src/**", "tests/**", "README.md", "LICENSE-MIT", "LICENSE-APACHE"]
 
 [features]
-default = ["bundled"]
+default = ["bundled", "statement-cache"]
 bundled = ["rusqlite/bundled"]
+# Prepared-statement cache (`prepare_cached`) through the rusqlite re-export. On by default.
+statement-cache = ["rusqlite/cache"]
 # SQLCipher with vendored OpenSSL (the same crypto provider on every OS).
 sqlcipher = ["cipher", "rusqlite/bundled-sqlcipher-vendored-openssl"]
 # SQLCipher with the system crypto provider (CommonCrypto on Apple, libcrypto elsewhere).

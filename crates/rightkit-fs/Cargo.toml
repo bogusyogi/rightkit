@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-fs"
-version = "0.3.3"
+version = "0.3.4"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Safe state directories, atomic writes, cross-process locks, owner-only files, and stable file identity for Right Suite apps."
@@ -41,6 +41,12 @@ required-features = ["fs"]
 name = "lock_spawn"
 path = "tests/lock_spawn.rs"
 required-features = ["lock"]
+
+# Owner record shapes and `probe_owner`; the owner record needs `json`.
+[[test]]
+name = "lock_owner"
+path = "tests/lock_owner.rs"
+required-features = ["json"]
 
 [features]
 default = ["fs", "lock", "json", "digest"]

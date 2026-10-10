@@ -1,9 +1,9 @@
 [package]
 name = "rightkit-llm"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 rust-version = "1.98.0"
-description = "Brand-neutral BYOK LLM clients: Anthropic Messages and OpenAI-compatible chat, streaming, tool use, route failover with circuit breaker, pricing, and prompt-cache discipline."
+description = "Brand-neutral BYOK LLM clients: Anthropic Messages and OpenAI-compatible chat, streaming, tool use, route failover with circuit breaker, pricing, and prompt-cache discipline, plus an opt-in provider for installed command-line assistants."
 license = "MIT OR Apache-2.0"
 readme = "README.md"
 repository = "https://github.com/bogusyogi/rightkit"
@@ -11,10 +11,16 @@ keywords = ["llm", "anthropic", "openai", "streaming"]
 categories = ["api-bindings"]
 include = ["src/**", "tests/**", "assets/**", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
 
+[features]
+default = []
+# Provider that drives an installed, signed-in CLI assistant as a bounded child process.
+cli = ["dep:rightkit-process"]
+
 [dependencies]
-rightkit-http = { version = "0.2.0", path = "../rightkit-http" }
+rightkit-http = { version = "0.3.0", path = "../rightkit-http" }
+rightkit-process = { version = "0.3.0", path = "../rightkit-process", optional = true }
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.150"
 
 [dev-dependencies]
-rightkit-http = { version = "0.2.0", path = "../rightkit-http", features = ["testing"] }
+rightkit-http = { version = "0.3.0", path = "../rightkit-http", features = ["testing"] }

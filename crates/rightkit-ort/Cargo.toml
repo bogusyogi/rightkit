@@ -1,13 +1,13 @@
 [package]
 name = "rightkit-ort"
-version = "0.2.2"
+version = "0.2.3"
 edition = "2021"
 rust-version = "1.98.0"
 license = "MIT OR Apache-2.0"
 description = "Product-neutral ONNX Runtime dynamic-library resolution, environment, execution-provider and session setup (single suite ort pin)"
 readme = "README.md"
 repository = "https://github.com/bogusyogi/rightkit"
-include = ["src/**", "tests/**", "Cargo.toml", "README.md", "LICENSE-MIT", "LICENSE-APACHE"]
+include = ["src/**", "tests/**", "Cargo.toml", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
 
 [features]
 # `session` pulls in the pinned `ort` crate (load-dynamic only: no download, no
@@ -57,6 +57,10 @@ ndarray = { version = "0.17", optional = true }
 # SUITE PIN: every Right Suite crate and app uses exactly this ort version.
 # See README.md "Version policy".
 ort = { version = "=2.0.0-rc.13", optional = true, default-features = false, features = ["std", "api-24", "load-dynamic"] }
+# Runtime bundle manifests (`verify_runtime_manifest`): JSON parsing and streaming SHA-256.
+serde.workspace = true
+serde_json.workspace = true
+sha2 = "0.10"
 
 # Platform accelerators. ort rc.13 compiles an execution provider only when its
 # Cargo feature is on, so each OS enables its own EP on the same pinned dep:
@@ -71,4 +75,3 @@ windows-sys = { version = "0.61.2", features = ["Win32_System_SystemInformation"
 [dev-dependencies]
 # E2E checks the real runtime file against the approved native-library catalog.
 rightkit-media = { path = "../rightkit-media", version = "0.2.3" }
-sha2 = "0.10"

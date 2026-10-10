@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-watch"
-version = "0.3.2"
+version = "0.3.3"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Filesystem watching for Right Suite apps: ref-counted async subscribers, debounced file-set and directory watchers, and rename-storm coalescing."
@@ -9,7 +9,7 @@ readme = "README.md"
 repository = "https://github.com/bogusyogi/rightkit"
 keywords = ["watcher", "notify", "filesystem", "debounce"]
 categories = ["filesystem"]
-include = ["src/**", "tests/**", "README.md", "LICENSE-MIT", "LICENSE-APACHE"]
+include = ["src/**", "tests/**", "benches/*.rs", "README.md", "LICENSE-MIT", "LICENSE-APACHE"]
 
 [features]
 default = ["async"]
@@ -25,3 +25,7 @@ tracing = "0.1"
 [dev-dependencies]
 tempfile = "3"
 tokio = { version = "1.53.0", features = ["rt-multi-thread", "macros", "time", "sync"] }
+
+[[bench]]
+name = "budget"
+harness = false

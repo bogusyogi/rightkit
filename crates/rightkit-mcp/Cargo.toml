@@ -17,7 +17,7 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 ureq = { version = "3.4", default-features = false, features = ["rustls"] }
 rightkit-fs = { version = "0.3", path = "../rightkit-fs", default-features = false, features = ["digest"] }
-rightkit-http = { version = "0.2.3", path = "../rightkit-http", default-features = false }
+rightkit-http = { version = "0.3.0", path = "../rightkit-http", default-features = false }
 http = { version = "1", optional = true }
 tokio = { version = "1", features = ["rt-multi-thread", "time", "sync", "macros"], optional = true }
 futures-util = { version = "0.3", optional = true }

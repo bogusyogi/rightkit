@@ -349,6 +349,13 @@ where
                 &format!("frame exceeded {limit} bytes"),
             )),
             Err(FrameError::Json(e)) => emit(err(0, "bad_request", &format!("bad frame: {e}"))),
+            Err(FrameError::InvalidUtf8 { len }) => emit(err(
+                0,
+                "bad_request",
+                &format!("bad frame: {len} bytes are not valid UTF-8"),
+            )),
+            // The blocking reader never times out; a deadline reader ends the session.
+            Err(FrameError::TimedOut { .. }) => break,
         }
     }
     // The client is gone (EOF) or asked to shut down: cancel jobs tied to this connection first.

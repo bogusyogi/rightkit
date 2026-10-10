@@ -478,3 +478,88 @@ fn call_timeout_covers_a_write_blocked_on_a_full_pipe() {
     }
     panic!("deaf engine {pid} survived");
 }
+
+/// Frame callbacks receive the request id each event was tagged with, so two
+/// calls on one connection stay apart.
+#[test]
+fn call_with_frames_delivers_each_requests_id() {
+    let e = env();
+    let d = Arc::new(
+        Dispatcher::new("test-engine", "1.0.0").with(Arc::new(JobCommands::new(e.runner.clone()))),
+    );
+    let (req_r, req_w) = std::io::pipe().unwrap();
+    let (res_r, res_w) = std::io::pipe().unwrap();
+    let dd = d.clone();
+    let server =
+        std::thread::spawn(move || serve(dd, BufReader::new(req_r), res_w, false).unwrap());
+    let client = EngineClient::connect(BufReader::new(res_r), req_w).unwrap();
+    let call = |client: &EngineClient| -> Vec<u64> {
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let sink = seen.clone();
+        let r = client
+            .call_with_frames(
+                "job.submit",
+                json!({"kind": "t", "run": true}),
+                Some(Box::new(move |f: &EventFrame<'_>| {
+                    sink.lock().unwrap().push(f.id)
+                })),
+            )
+            .unwrap();
+        assert_eq!(r["status"], COMPLETE);
+        let ids = seen.lock().unwrap().clone();
+        ids
+    };
+    let first = call(&client);
+    let second = call(&client);
+    assert!(first.len() >= 2 && first.iter().all(|id| *id == first[0]), "{first:?}");
+    assert!(second.len() >= 2 && second.iter().all(|id| *id == second[0]), "{second:?}");
+    assert_ne!(first[0], second[0]);
+    client.shutdown(std::time::Duration::from_secs(1));
+    server.join().unwrap();
+}
+
+/// The hello gate runs before any call: a mismatch is a typed error; an
+/// integer or its text matches; a hello without the field cannot satisfy it.
+#[test]
+fn hello_gate_refuses_a_mismatched_contract_version() {
+    let hello = b"{\"type\":\"hello\",\"engine\":\"fixture\",\"version\":\"1.0\",\"contract_version\":1}\n";
+    let connect = |opts: ClientOptions| {
+        EngineClient::connect_opts(Cursor::new(hello.to_vec()), Vec::<u8>::new(), opts)
+    };
+    let err = connect(ClientOptions::default().require_contract_version(2u32))
+        .err()
+        .expect("a mismatched contract_version must fail the connect");
+    assert_eq!(err.code, CONTRACT_VERSION_MISMATCH);
+    assert!(!err.retryable);
+    assert!(err.message.contains("requires 2"), "{}", err.message);
+    assert!(connect(ClientOptions::default().require_contract_version(1u32)).is_ok());
+    assert!(connect(ClientOptions::default().require_contract_version("1")).is_ok());
+
+    let bare = b"{\"type\":\"hello\",\"engine\":\"fixture\"}\n";
+    let connect_bare = |opts: ClientOptions| {
+        EngineClient::connect_opts(Cursor::new(bare.to_vec()), Vec::<u8>::new(), opts)
+    };
+    let err = connect_bare(ClientOptions::default().require_contract_version(1u32))
+        .err()
+        .expect("a hello without contract_version cannot satisfy a requirement");
+    assert_eq!(err.code, CONTRACT_VERSION_MISMATCH);
+    // Without a requirement the gate is off.
+    assert!(connect_bare(ClientOptions::default()).is_ok());
+}
+
+/// A malformed stdout line reaches the sink on the reader thread; the
+/// connection keeps going.
+#[test]
+fn malformed_stdout_lines_reach_the_protocol_sink() {
+    let (tx, rx) = std::sync::mpsc::channel();
+    let input = b"{\"type\":\"hello\",\"engine\":\"x\",\"version\":\"1\",\"contract_version\":1}\nnot json\n";
+    let opts = ClientOptions::default().with_protocol_error_sink(move |e: &ProtocolError| {
+        let _ = tx.send(e.clone());
+    });
+    let _client =
+        EngineClient::connect_opts(Cursor::new(input.to_vec()), Vec::<u8>::new(), opts).unwrap();
+    let e = rx
+        .recv_timeout(std::time::Duration::from_secs(5))
+        .expect("the sink saw the malformed line");
+    assert_eq!(e.line, "not json");
+}

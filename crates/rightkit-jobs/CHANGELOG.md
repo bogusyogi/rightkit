@@ -1,5 +1,45 @@
 # Changelog
 
+## 0.2.8
+
+- **Progress events carry the request id.** `EngineClient::call_with_frames` and
+  `call_timeout_frames` take an `OnEventFrame` callback that receives an `EventFrame { id, event }`
+  for each event, so a host can rebuild the engine's `{id, event}` frame. `CallOptions::on_frame`
+  is the supervisor form. The payload-only `on_event` API is unchanged, and one call may set both.
+- **Contract version gate.** `ClientOptions::require_contract_version` and
+  `SupervisorConfig::require_contract_version` take a `u32` or a `&str`. A hello that does not
+  advertise the required version fails the connect with `CONTRACT_VERSION_MISMATCH`
+  (`contract_version_mismatch`, not retryable); during a restart it spends restart budget.
+  `ClientOptions` is no longer `Copy`, because it can hold the requirement and the sink.
+- **Status: restarts and terminal state.** `SupervisorStatus` gains `restarts: u32` (restarts the
+  policy scheduled since the supervisor was created, retries of a failed first boot included) and
+  `terminal: Option<Terminal>`.
+  `Terminal::Failed { reason }` marks a `Down` that will not restart by itself: a failed first
+  `start()`, a spent restart budget, a crash with restarts disabled, or a spent on-demand budget.
+  `Terminal::Stopped` marks an explicit `shutdown`. `Lifecycle` and `lifecycle()` are unchanged, so
+  both terminal states still read as `Down`.
+- **Non-blocking start.** `EngineSupervisor::start_background()` moves the supervisor to `Booting`
+  and returns a `Readiness` handle at once. `ready()` waits for the outcome, `wait_timeout()` bounds
+  the wait, and `try_ready()` polls. `start()` still blocks until `Ready`.
+- **First-boot failures retry by default.** A failed first boot (spawn, hello, handshake) spends
+  restart budget like a crash. `start()` and `Readiness` resolve once the engine is `Ready` or the
+  supervisor is `Down`, and `Down` carries the last boot error. `SupervisorConfig::with_initial_failure(InitialFailure::Terminal)`
+  restores the old give-up-at-once behaviour. A contract mismatch is terminal on every boot.
+- **Errors say where they arose.** `JobError` gains `origin: ErrorOrigin` (`Engine` for errors the
+  engine answered with, `Supervisor` for errors the shell raised: `down`, `not_ready`, `timeout`,
+  `engine_exited`, `engine_write`, `io`, `frame_too_large`, `hello_timeout`, `engine_protocol`,
+  `contract_version_mismatch`). Set `JobError::supervisor` and `with_origin` to build one. Struct
+  literals of `JobError` need the new field.
+- **Engine error replies always carry a message.** A reply with no `code` uses the fallback code
+  (`engine_error`, or `ClientOptions::with_fallback_error_code` / `SupervisorConfig::with_fallback_error_code`).
+  A reply with no usable `message` reads `engine reported failure without detail`.
+- **Malformed stdout lines are reported.** `ClientOptions::with_protocol_error_sink` and
+  `SupervisorConfig::with_protocol_error_sink` receive a `ProtocolError { line, message }` for each
+  line that is not a JSON frame. The reader still drops the line and resynchronises.
+- **Re-exports.** `OwnedCommand`, `RestartMode`, `RestartPolicy` and `JobAssignmentMode` from
+  `rightkit-process` are re-exported, so a host needs no direct `rightkit-process` pin to build a
+  supervisor or set a job-assignment mode (CutRight uses `BestEffort`).
+
 ## 0.2.7
 
 - The job lock uses `rightkit_fs::FileLock` (same POSIX record lock on unix, `LockFileEx` on

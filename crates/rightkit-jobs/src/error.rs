@@ -1,5 +1,16 @@
 use std::fmt;
 
+/// Where a [`JobError`] arose.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ErrorOrigin {
+    /// The engine answered with it (its handler, or its dispatcher).
+    #[default]
+    Engine,
+    /// The shell raised it on its own side of the connection: `down`,
+    /// `not_ready`, `timeout`, a dead connection, a rejected hello.
+    Supervisor,
+}
+
 /// Typed engine error: `code` is the stable wire identifier. `retryable`
 /// errors pause a running job (it stays recoverable) instead of failing it.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -7,6 +18,7 @@ pub struct JobError {
     pub code: String,
     pub message: String,
     pub retryable: bool,
+    pub origin: ErrorOrigin,
 }
 
 /// Stable wire code for [`JobError::handoff`].
@@ -15,6 +27,8 @@ pub const HOST_HANDOFF: &str = "host_handoff";
 pub const STALLED: &str = "stalled";
 /// Stable wire code for [`JobError::stale_attempt`].
 pub const STALE_ATTEMPT: &str = "stale_attempt";
+/// Stable wire code for [`JobError::contract_mismatch`].
+pub const CONTRACT_VERSION_MISMATCH: &str = "contract_version_mismatch";
 
 pub type JobResult<T> = Result<T, JobError>;
 
@@ -24,6 +38,7 @@ impl JobError {
             code: code.into(),
             message: message.into(),
             retryable: false,
+            origin: ErrorOrigin::Engine,
         }
     }
     pub fn retryable(code: impl Into<String>, message: impl Into<String>) -> Self {
@@ -31,7 +46,21 @@ impl JobError {
             code: code.into(),
             message: message.into(),
             retryable: true,
+            origin: ErrorOrigin::Engine,
         }
+    }
+    /// An error the shell raised itself, not relayed from an engine reply.
+    pub fn supervisor(code: impl Into<String>, message: impl Into<String>) -> Self {
+        Self::new(code, message).with_origin(ErrorOrigin::Supervisor)
+    }
+    /// As [`Self::supervisor`], retryable.
+    pub fn supervisor_retryable(code: impl Into<String>, message: impl Into<String>) -> Self {
+        Self::retryable(code, message).with_origin(ErrorOrigin::Supervisor)
+    }
+    /// Records where the error arose.
+    pub fn with_origin(mut self, origin: ErrorOrigin) -> Self {
+        self.origin = origin;
+        self
     }
     /// The host is handing the service to a higher-ranked host. Retryable: the
     /// job pauses (still recoverable) without spending an attempt, and the
@@ -53,6 +82,14 @@ impl JobError {
         Self::new(
             STALE_ATTEMPT,
             format!("job {job_id}: write from a superseded attempt was rejected"),
+        )
+    }
+    /// The engine's hello advertises a contract version the shell does not
+    /// require. Not retryable: the engine binary has to change.
+    pub fn contract_mismatch(advertised: impl fmt::Display, required: &str) -> Self {
+        Self::supervisor(
+            CONTRACT_VERSION_MISMATCH,
+            format!("engine speaks contract_version {advertised}; this shell requires {required}"),
         )
     }
     pub fn cancelled() -> Self {
