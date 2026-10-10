@@ -326,13 +326,13 @@
   "swift": {
     "rightkit-swift": {
       "url": "https://github.com/bogusyogi/rightkit-swift.git",
-      "version": "0.1.1"
+      "version": "0.4.0"
     }
   },
   "stagedSwift": {
     "rightkit-swift": {
       "url": "https://github.com/bogusyogi/rightkit-swift.git",
-      "version": "0.3.1"
+      "version": "0.4.0"
     }
   },
   "registry": {
