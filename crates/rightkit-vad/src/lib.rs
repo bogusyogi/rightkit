@@ -6,7 +6,7 @@
 //! or command policy: callers decide what a span means.
 //!
 //! Layers, each usable alone:
-//! - [`FrameScorer`]: any per-frame speech-probability source ([`Silero`] or a test double).
+//! - [`FrameScorer`]: any per-frame speech-probability source (`Silero` (feature `silero`) or a test double).
 //! - [`scores_to_spans`]: Silero `get_speech_timestamps`-shaped hysteresis
 //!   (`threshold` start, `neg_threshold` end, `min_speech`, `min_silence`,
 //!   `pad`, merge).
@@ -17,10 +17,12 @@
 //!   dropped, because Silero is recurrent. A scorer failure yields `None`
 //!   ("unknown"), never silence.
 
+#[cfg(feature = "silero")]
 mod silero;
 mod spans;
 mod stream;
 
+#[cfg(feature = "silero")]
 pub use silero::{Silero, SileroOptions};
 pub use spans::{
     chunk_spans, detect, energy_scores, scores_to_spans, ChunkConfig, Span, VadConfig,

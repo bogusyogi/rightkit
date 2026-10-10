@@ -113,7 +113,7 @@ fn env_is_scrubbed_but_explicit_values_pass() {
     assert!(text.contains("RK_VISIBLE=yes"), "{text}");
 }
 
-#[cfg(unix)]
+#[cfg(all(unix, feature = "pty"))]
 #[test]
 fn pty_echo_with_lease_epoch_fencing_rejects_stale_epoch() {
     let pty = expanded()
@@ -164,7 +164,7 @@ fn pty_echo_with_lease_epoch_fencing_rejects_stale_epoch() {
     assert!(!all.contains("STALE-BYTES"), "stale input leaked: {all}");
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(all(target_os = "macos", feature = "pty"))]
 #[test]
 fn sandboxed_pty_child_is_denied_outside_write() {
     let root = scratch("pty-sbx");
@@ -256,6 +256,7 @@ fn strict_profile_denies_spawn_before_any_process_exists_and_slots_release() {
     assert!(strict
         .spawn_supervised(sh(&script), &EnvPolicy::default())
         .is_err());
+    #[cfg(feature = "pty")]
     assert!(strict
         .spawn_pty(None, sh(&script), PtySize::default())
         .is_err());

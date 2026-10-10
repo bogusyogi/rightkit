@@ -1,7 +1,7 @@
 //! `rightkit-watch`: one filesystem-watching foundation for every Right Suite app.
 //!
 //! Three layers, all on `notify`:
-//! * [`subscribe`] — async multi-subscriber watcher (CodeRight donor): reference-counted OS
+//! * `subscribe` (feature `async`, default) — async multi-subscriber watcher (CodeRight donor): reference-counted OS
 //!   watches, canonical-path matching, missing-path fallback, throttled/debounced receivers.
 //! * [`sync`] — thread-based debounced watchers (ViewRight donor): a grant-gated file-set watcher
 //!   that watches parent directories (so rename-over-original saves surface) and a capped,
@@ -10,6 +10,7 @@
 
 pub mod coalesce;
 pub mod options;
+#[cfg(feature = "async")]
 pub mod subscribe;
 pub mod sync;
 pub mod typed;
@@ -18,6 +19,7 @@ pub use coalesce::{ChangeBatch, ChangeCoalescer, Rename};
 /// Backend types use exactly this crate's `notify` dependency.
 pub use notify;
 pub use options::{EventFilter, FileSetReceiver, WatchEventKind, WatchEventRecord, WatchOptions};
+#[cfg(feature = "async")]
 pub use subscribe::{
     DebouncedWatchReceiver, FileWatcher, FileWatcherEvent, FileWatcherSubscriber, Receiver,
     ThrottledWatchReceiver, WatchPath, WatchRegistration,

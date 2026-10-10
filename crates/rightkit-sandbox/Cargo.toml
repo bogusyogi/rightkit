@@ -11,7 +11,13 @@ include = ["src/**", "tests/**", "README.md", "LICENSE-MIT", "LICENSE-APACHE"]
 
 [dependencies]
 rightkit-process = { version = "0.3.3", path = "../rightkit-process" }
-portable-pty = "0.9"
+portable-pty = { version = "0.9", optional = true }
+
+[features]
+default = ["pty"]
+# PTY sessions with lease-epoch input fencing (`Sandbox::spawn_pty`, `PtySession`). Off removes
+# `portable-pty`; the confinement, process-tree and resource APIs do not need it.
+pty = ["dep:portable-pty"]
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"

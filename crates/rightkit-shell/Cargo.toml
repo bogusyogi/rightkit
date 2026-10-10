@@ -1,23 +1,24 @@
 [package]
 name = "rightkit-shell"
-version = "0.1.4"
+version = "0.2.0"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Shared Tauri desktop shell for Right Suite apps: webview hardening, window state, native menu, tray, single instance, deep links, autostart, rich clipboard, watchdog and engine wiring."
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/bogusyogi/rightkit"
 readme = "README.md"
-include = ["src/**", "tests/**", "README.md", "LICENSE-MIT", "LICENSE-APACHE"]
+include = ["src/**", "tests/**", "README.md", "LICENSE-MIT", "LICENSE-APACHE", "CHANGELOG.md"]
 
 [features]
-default = ["engine", "wv2-0_38"]
+default = ["wv2-0_38"]
 # Windows: which `windows` + `webview2-com` generation the app's Tauri resolves, so types cross the
 # boundary (Tauri 2.11: 0.61/0.38, the default, which every Right Suite app locks; Tauri 2.12: 0.62/0.39).
-# An app on Tauri 2.12 uses default-features = false, features = ["engine", "wv2-0_39"].
+# An app on Tauri 2.12 uses default-features = false, features = ["wv2-0_39"] (add "engine" for the sidecar).
 # Enabling both selects 0.39.
 wv2-0_38 = ["dep:windows_061", "dep:webview2_com_038"]
 wv2-0_39 = ["dep:windows_062", "dep:webview2_com_039"]
-# Engine sidecar wiring over rightkit-jobs EngineClient + rightkit-process.
+# Engine sidecar wiring over rightkit-jobs EngineClient + rightkit-process. Off by default: it pulls
+# rightkit-jobs (db, time, uuid); apps that run an engine sidecar opt in.
 engine = ["dep:rightkit-jobs", "dep:rightkit-process"]
 # Lets `Devtools::On` / `DebugBuilds` open the inspector in release builds. Off in production.
 devtools = ["tauri/devtools"]

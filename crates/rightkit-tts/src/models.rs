@@ -5,8 +5,6 @@
 //! manifest-verified by exact size always and by SHA-256 once per file
 //! version (cached in `.verified.json`).
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
-use std::io::Read;
 use std::path::{Path, PathBuf};
 
 pub const MODEL_ID: &str = "qwen3-tts-0.6b-q8_0";
@@ -37,6 +35,51 @@ pub const HF_REPO: &str = "dsh0416/Qwen3-TTS-12Hz-0.6B-Base-QTS";
 /// Total download size of the two model files.
 pub const DOWNLOAD_BYTES: u64 = 1_325_190_016 + 459_514_304;
 
+/// The data root could not be named: no override, no per-user base, or a relative path.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DataRootError(pub String);
+
+impl std::fmt::Display for DataRootError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "cannot resolve the RightKit data root: {}", self.0)
+    }
+}
+
+impl std::error::Error for DataRootError {}
+
+fn env_nonempty(k: &str) -> Option<PathBuf> {
+    std::env::var_os(k)
+        .filter(|v| !v.is_empty())
+        .map(PathBuf::from)
+}
+
+/// The RightKit data root, failing closed: `RIGHTKIT_DATA_ROOT` (legacy `GENRIGHT_DATA_ROOT`) or
+/// the per-user base (`%LOCALAPPDATA%` / `$HOME`) plus `Orthic Labs/RightKit`. An unset or
+/// relative base is an error; this never guesses a temp directory.
+pub fn try_data_root() -> Result<PathBuf, DataRootError> {
+    let root = if let Some(root) =
+        env_nonempty("RIGHTKIT_DATA_ROOT").or_else(|| env_nonempty("GENRIGHT_DATA_ROOT"))
+    {
+        root
+    } else {
+        let var = if cfg!(windows) {
+            "LOCALAPPDATA"
+        } else {
+            "HOME"
+        };
+        env_nonempty(var)
+            .ok_or_else(|| DataRootError(format!("{var} is not set")))?
+            .join("Orthic Labs")
+            .join("RightKit")
+    };
+    if !root.is_absolute() {
+        return Err(DataRootError(format!("{} is not absolute", root.display())));
+    }
+    Ok(root)
+}
+
+/// As [`try_data_root`], but falls back to the OS temp directory when no base is set, and accepts
+/// a relative override. Kept for compatibility; prefer [`try_data_root`], which fails closed.
 pub fn data_root() -> PathBuf {
     if let Some(root) = std::env::var_os("RIGHTKIT_DATA_ROOT").filter(|v| !v.is_empty()) {
         return PathBuf::from(root);
@@ -55,7 +98,23 @@ pub fn data_root() -> PathBuf {
     .join("RightKit")
 }
 
-/// `RIGHTKIT_TTS_MODEL_DIR` (legacy `GENRIGHT_QTS_MODEL_DIR`) or `<data>/models/qts`.
+/// Fail-closed [`model_dir`]: `RIGHTKIT_TTS_MODEL_DIR` (legacy `GENRIGHT_QTS_MODEL_DIR`) or
+/// `<data>/models/qts`, erroring when the data root cannot be named.
+pub fn try_model_dir() -> Result<PathBuf, DataRootError> {
+    match env_nonempty("RIGHTKIT_TTS_MODEL_DIR").or_else(|| env_nonempty("GENRIGHT_QTS_MODEL_DIR"))
+    {
+        Some(p) => Ok(p),
+        None => Ok(try_data_root()?.join("models").join("qts")),
+    }
+}
+
+/// Fail-closed [`voices_dir`].
+pub fn try_voices_dir() -> Result<PathBuf, DataRootError> {
+    Ok(try_data_root()?.join("voices").join("local"))
+}
+
+/// `RIGHTKIT_TTS_MODEL_DIR` (legacy `GENRIGHT_QTS_MODEL_DIR`) or `<data>/models/qts`. Falls back
+/// like [`data_root`]; prefer [`try_model_dir`].
 pub fn model_dir() -> PathBuf {
     match std::env::var_os("RIGHTKIT_TTS_MODEL_DIR")
         .filter(|v| !v.is_empty())
@@ -101,17 +160,7 @@ fn mtime_ns(path: &Path) -> u128 {
 }
 
 pub fn sha256_file(path: &Path) -> std::io::Result<String> {
-    let mut f = std::fs::File::open(path)?;
-    let mut h = Sha256::new();
-    let mut buf = vec![0u8; 1 << 20];
-    loop {
-        let n = f.read(&mut buf)?;
-        if n == 0 {
-            break;
-        }
-        h.update(&buf[..n]);
-    }
-    Ok(h.finalize().iter().map(|b| format!("{b:02x}")).collect())
+    rightkit_fs::digest::sha256_file(path)
 }
 
 /// Verify the model folder against the manifest. Sizes are always checked; a
@@ -164,10 +213,12 @@ pub fn runtime_lib_name() -> &'static str {
 /// `<model_dir>/../runtime`, `<data>/runtime/qts`.
 pub fn find_onnxruntime() -> Option<PathBuf> {
     let mut dirs: Vec<PathBuf> = Vec::new();
-    if let Some(parent) = model_dir().parent() {
+    if let Some(parent) = try_model_dir().ok().as_deref().and_then(Path::parent) {
         dirs.push(parent.join("runtime"));
     }
-    dirs.push(data_root().join("runtime").join("qts"));
+    if let Ok(root) = try_data_root() {
+        dirs.push(root.join("runtime").join("qts"));
+    }
     rightkit_ort::discover_runtime(dirs)
 }
 

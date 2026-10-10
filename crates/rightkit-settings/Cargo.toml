@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-settings"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Versioned per-app settings persistence: migrations, typed defaults, atomic writes, corruption recovery, change events."
@@ -9,12 +9,13 @@ readme = "README.md"
 repository = "https://github.com/bogusyogi/rightkit"
 keywords = ["settings", "preferences", "migration", "atomic"]
 categories = ["config"]
-include = ["src/**", "tests/**", "README.md", "LICENSE-MIT", "LICENSE-APACHE"]
+include = ["src/**", "tests/**", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
 
 [dependencies]
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.150"
 thiserror = "2"
+rightkit-fs = { version = "0.3.3", path = "../rightkit-fs", default-features = false, features = ["fs"] }
 
 [dev-dependencies]
 tempfile = "3"

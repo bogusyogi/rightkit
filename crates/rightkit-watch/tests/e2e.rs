@@ -9,10 +9,9 @@ use std::sync::mpsc;
 use std::sync::Arc;
 use std::time::Duration;
 
-use rightkit_watch::{
-    ChangeBatch, DebouncedWatchReceiver, DirWatchSet, FileChange, FileChangeKind, FileSetWatcher,
-    FileWatcher, WatchPath,
-};
+use rightkit_watch::{ChangeBatch, DirWatchSet, FileChange, FileChangeKind, FileSetWatcher};
+#[cfg(feature = "async")]
+use rightkit_watch::{DebouncedWatchReceiver, FileWatcher, WatchPath};
 use tempfile::TempDir;
 
 const WAIT: Duration = Duration::from_secs(10);
@@ -258,138 +257,145 @@ fn dir_watch_set_caps_evicts_oldest_and_unwatches() {
     assert_eq!(set.len(), 2);
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn async_subscriber_scopes_and_requested_namespace() {
-    let dir = TempDir::new().unwrap();
-    // tempdir is /var/... on macOS but backends report /private/var/...; subscribers must see the
-    // spelling they asked for.
-    let root = dir.path().to_path_buf();
-    fs::create_dir_all(root.join("a/deep")).unwrap();
-    let watcher = Arc::new(FileWatcher::new().unwrap());
-    let (sub, mut rx) = watcher.add_subscriber();
-    let _flat = sub.register_paths(vec![WatchPath {
-        path: root.join("a"),
-        recursive: false,
-    }]);
-    settle();
+#[cfg(feature = "async")]
+mod async_subscribe {
+    use super::*;
 
-    fs::write(root.join("a/deep/nested.txt"), "n").unwrap();
-    fs::write(root.join("a/top.txt"), "t").unwrap();
-    let mut seen = std::collections::BTreeSet::new();
-    let deadline = tokio::time::Instant::now() + WAIT;
-    while !seen.contains(&root.join("a/top.txt")) && tokio::time::Instant::now() < deadline {
-        if let Ok(Some(ev)) = tokio::time::timeout(Duration::from_millis(500), rx.recv()).await {
-            seen.extend(ev.paths);
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn async_subscriber_scopes_and_requested_namespace() {
+        let dir = TempDir::new().unwrap();
+        // tempdir is /var/... on macOS but backends report /private/var/...; subscribers must see the
+        // spelling they asked for.
+        let root = dir.path().to_path_buf();
+        fs::create_dir_all(root.join("a/deep")).unwrap();
+        let watcher = Arc::new(FileWatcher::new().unwrap());
+        let (sub, mut rx) = watcher.add_subscriber();
+        let _flat = sub.register_paths(vec![WatchPath {
+            path: root.join("a"),
+            recursive: false,
+        }]);
+        settle();
+
+        fs::write(root.join("a/deep/nested.txt"), "n").unwrap();
+        fs::write(root.join("a/top.txt"), "t").unwrap();
+        let mut seen = std::collections::BTreeSet::new();
+        let deadline = tokio::time::Instant::now() + WAIT;
+        while !seen.contains(&root.join("a/top.txt")) && tokio::time::Instant::now() < deadline {
+            if let Ok(Some(ev)) = tokio::time::timeout(Duration::from_millis(500), rx.recv()).await
+            {
+                seen.extend(ev.paths);
+            }
         }
+        assert!(
+            seen.contains(&root.join("a/top.txt")),
+            "missing top-level event: {seen:?}"
+        );
+        assert!(
+            !seen.iter().any(|p| p.ends_with("nested.txt")),
+            "non-recursive watch leaked nested event: {seen:?}"
+        );
     }
-    assert!(
-        seen.contains(&root.join("a/top.txt")),
-        "missing top-level event: {seen:?}"
-    );
-    assert!(
-        !seen.iter().any(|p| p.ends_with("nested.txt")),
-        "non-recursive watch leaked nested event: {seen:?}"
-    );
-}
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn async_missing_path_fallback_follows_creation_and_drop_unregisters() {
-    let dir = TempDir::new().unwrap();
-    let root = dir.path().to_path_buf();
-    let target = root.join("later/deeper/file.txt");
-    let watcher = Arc::new(FileWatcher::new().unwrap());
-    let (sub, mut rx) = watcher.add_subscriber();
-    let reg = sub.register_path(target.clone(), false);
-    settle();
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn async_missing_path_fallback_follows_creation_and_drop_unregisters() {
+        let dir = TempDir::new().unwrap();
+        let root = dir.path().to_path_buf();
+        let target = root.join("later/deeper/file.txt");
+        let watcher = Arc::new(FileWatcher::new().unwrap());
+        let (sub, mut rx) = watcher.add_subscriber();
+        let reg = sub.register_path(target.clone(), false);
+        settle();
 
-    fs::create_dir_all(target.parent().unwrap()).unwrap();
-    std::thread::sleep(Duration::from_millis(300));
-    fs::write(&target, "hello").unwrap();
-    let mut seen = Vec::new();
-    let deadline = tokio::time::Instant::now() + WAIT;
-    while !seen.contains(&target) && tokio::time::Instant::now() < deadline {
-        if let Ok(Some(ev)) = tokio::time::timeout(Duration::from_millis(500), rx.recv()).await {
-            seen.extend(ev.paths);
+        fs::create_dir_all(target.parent().unwrap()).unwrap();
+        std::thread::sleep(Duration::from_millis(300));
+        fs::write(&target, "hello").unwrap();
+        let mut seen = Vec::new();
+        let deadline = tokio::time::Instant::now() + WAIT;
+        while !seen.contains(&target) && tokio::time::Instant::now() < deadline {
+            if let Ok(Some(ev)) = tokio::time::timeout(Duration::from_millis(500), rx.recv()).await
+            {
+                seen.extend(ev.paths);
+            }
         }
+        assert!(
+            seen.contains(&target),
+            "event for target never delivered: {seen:?}"
+        );
+
+        drop(reg);
+        settle();
+        while tokio::time::timeout(Duration::from_millis(300), rx.recv())
+            .await
+            .is_ok()
+        {}
+        fs::write(&target, "after unregister").unwrap();
+        let late = tokio::time::timeout(Duration::from_millis(1500), rx.recv()).await;
+        assert!(
+            late.is_err(),
+            "event delivered after registration dropped: {late:?}"
+        );
     }
-    assert!(
-        seen.contains(&target),
-        "event for target never delivered: {seen:?}"
-    );
 
-    drop(reg);
-    settle();
-    while tokio::time::timeout(Duration::from_millis(300), rx.recv())
-        .await
-        .is_ok()
-    {}
-    fs::write(&target, "after unregister").unwrap();
-    let late = tokio::time::timeout(Duration::from_millis(1500), rx.recv()).await;
-    assert!(
-        late.is_err(),
-        "event delivered after registration dropped: {late:?}"
-    );
-}
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn async_ref_counting_keeps_watch_until_last_subscriber_leaves() {
+        let dir = TempDir::new().unwrap();
+        let root = dir.path().to_path_buf();
+        let watcher = Arc::new(FileWatcher::new().unwrap());
+        let (sub_a, rx_a) = watcher.add_subscriber();
+        let (sub_b, mut rx_b) = watcher.add_subscriber();
+        let _ra = sub_a.register_path(root.clone(), true);
+        let _rb = sub_b.register_path(root.clone(), true);
+        drop(rx_a);
+        drop(sub_a); // removes subscriber A and decrements the shared OS watch
+        settle();
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn async_ref_counting_keeps_watch_until_last_subscriber_leaves() {
-    let dir = TempDir::new().unwrap();
-    let root = dir.path().to_path_buf();
-    let watcher = Arc::new(FileWatcher::new().unwrap());
-    let (sub_a, rx_a) = watcher.add_subscriber();
-    let (sub_b, mut rx_b) = watcher.add_subscriber();
-    let _ra = sub_a.register_path(root.clone(), true);
-    let _rb = sub_b.register_path(root.clone(), true);
-    drop(rx_a);
-    drop(sub_a); // removes subscriber A and decrements the shared OS watch
-    settle();
-
-    fs::write(root.join("still.txt"), "alive").unwrap();
-    let ev = tokio::time::timeout(WAIT, rx_b.recv())
-        .await
-        .expect("B lost its watch")
-        .unwrap();
-    assert!(ev.paths.iter().any(|p| p.ends_with("still.txt")));
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn debounced_receiver_collapses_a_write_burst() {
-    let dir = TempDir::new().unwrap();
-    let root = dir.path().to_path_buf();
-    let watcher = Arc::new(FileWatcher::new().unwrap());
-    let (sub, rx) = watcher.add_subscriber();
-    let _reg = sub.register_path(root.clone(), true);
-    let mut debounced = DebouncedWatchReceiver::new(rx, Duration::from_millis(300));
-    settle();
-
-    for i in 0..40 {
-        fs::write(root.join(format!("burst-{}.txt", i % 8)), format!("{i}")).unwrap();
+        fs::write(root.join("still.txt"), "alive").unwrap();
+        let ev = tokio::time::timeout(WAIT, rx_b.recv())
+            .await
+            .expect("B lost its watch")
+            .unwrap();
+        assert!(ev.paths.iter().any(|p| p.ends_with("still.txt")));
     }
-    let first = tokio::time::timeout(WAIT, debounced.recv())
-        .await
-        .unwrap()
-        .unwrap();
-    // 8 distinct files, one batch, sorted and de-duplicated.
-    let mut names: Vec<_> = first
-        .paths
-        .iter()
-        .filter_map(|p| p.file_name().map(|n| n.to_string_lossy().into_owned()))
-        .collect();
-    let sorted = {
-        let mut s = names.clone();
-        s.sort();
-        s.dedup();
-        s
-    };
-    names.dedup();
-    assert_eq!(
-        first.paths.len(),
-        sorted.len(),
-        "duplicates in batch: {:?}",
-        first.paths
-    );
-    assert!(
-        sorted.len() >= 6,
-        "burst files missing from batch: {sorted:?}"
-    );
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn debounced_receiver_collapses_a_write_burst() {
+        let dir = TempDir::new().unwrap();
+        let root = dir.path().to_path_buf();
+        let watcher = Arc::new(FileWatcher::new().unwrap());
+        let (sub, rx) = watcher.add_subscriber();
+        let _reg = sub.register_path(root.clone(), true);
+        let mut debounced = DebouncedWatchReceiver::new(rx, Duration::from_millis(300));
+        settle();
+
+        for i in 0..40 {
+            fs::write(root.join(format!("burst-{}.txt", i % 8)), format!("{i}")).unwrap();
+        }
+        let first = tokio::time::timeout(WAIT, debounced.recv())
+            .await
+            .unwrap()
+            .unwrap();
+        // 8 distinct files, one batch, sorted and de-duplicated.
+        let mut names: Vec<_> = first
+            .paths
+            .iter()
+            .filter_map(|p| p.file_name().map(|n| n.to_string_lossy().into_owned()))
+            .collect();
+        let sorted = {
+            let mut s = names.clone();
+            s.sort();
+            s.dedup();
+            s
+        };
+        names.dedup();
+        assert_eq!(
+            first.paths.len(),
+            sorted.len(),
+            "duplicates in batch: {:?}",
+            first.paths
+        );
+        assert!(
+            sorted.len() >= 6,
+            "burst files missing from batch: {sorted:?}"
+        );
+    }
 }

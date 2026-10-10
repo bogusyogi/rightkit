@@ -10,9 +10,9 @@ Shared Tauri desktop shell for Right Suite applications. It owns hardened webvie
 
 | Feature | Default | Pulls in | Effect |
 |---|---|---|---|
-| `engine` | on | `rightkit-jobs`, `rightkit-process` | Engine sidecar wiring over `rightkit-jobs` `EngineClient`. |
+| `engine` | off | `rightkit-jobs`, `rightkit-process` | Engine sidecar wiring over `rightkit-jobs` `EngineClient`. Opt in; it pulls `rightkit-jobs` (db, time, uuid). |
 | `wv2-0_38` | on | `windows` 0.61, `webview2-com` 0.38 | Windows types for Tauri 2.11 (the default). Must match the app's Tauri. |
-| `wv2-0_39` | off | `windows` 0.62, `webview2-com` 0.39 | Windows types for Tauri 2.12. With `default-features = false`, enable `engine` and `wv2-0_39`. Enabling both selects 0.39. |
+| `wv2-0_39` | off | `windows` 0.62, `webview2-com` 0.39 | Windows types for Tauri 2.12. With `default-features = false`, enable `wv2-0_39` (plus `engine` if used). Enabling both selects 0.39. |
 | `devtools` | off | `tauri/devtools` | Lets `Devtools::On` and `DebugBuilds` open the inspector in release builds. Keep it off in production. |
 
 Mismatched `wv2` features put two copies of `windows` or `webview2-com` beside Tauri's, and `cast()` then fails. With `default-features = false`, enable exactly the feature that matches the app's Tauri version.
@@ -23,7 +23,7 @@ Mismatched `wv2` features put two copies of `windows` or `webview2-com` beside T
 - Windows: WebView2 types through the `wv2` features; native toasts through `tauri-winrt-notification`; `cfg(windows)` in `src/`.
 - Linux: this README does not describe Linux-specific behavior. Open-URL delivery on Linux depends on the `.desktop` MIME entry (see Standalone open-URL hook).
 
-Published version: see `INDEX.md` at the repository root. This crate has no `CHANGELOG.md`; the version sections below record additions by version.
+Published version: see `INDEX.md` at the repository root. See `CHANGELOG.md`; the version sections below record additions by version.
 
 ## Example
 
@@ -31,7 +31,7 @@ Illustrative; not compiled as a doctest. The compiled references are `tests/poli
 
 ## Windows
 
-- Generation: `src/lib.rs` re-exports one `windows` and `webview2-com` pair as `crate::winapi`. `wv2-0_38` selects windows 0.61 and webview2-com 0.38 (default). `wv2-0_39` selects 0.62 and 0.39. Enabling both picks 0.39. With neither, the crate fails with `compile_error!`. Tauri 2.12 apps use `default-features = false, features = ["engine", "wv2-0_39"]`.
+- Generation: `src/lib.rs` re-exports one `windows` and `webview2-com` pair as `crate::winapi`. `wv2-0_38` selects windows 0.61 and webview2-com 0.38 (default). `wv2-0_39` selects 0.62 and 0.39. Enabling both picks 0.39. With neither, the crate fails with `compile_error!`. Tauri 2.12 apps use `default-features = false, features = ["wv2-0_39"]` (add `"engine"` for the sidecar).
 - The Cargo.toml comment ties 0.38 to Tauri 2.11 and 0.39 to Tauri 2.12. The Tauri lock versions are not checked here: the example app's `Cargo.lock` is stale and records rightkit-shell 0.1.0.
 - WebView2 hardening (`src/harden.rs`, `windows_impl`): sets devtools, status bar, zoom control, pinch zoom, swipe navigation and browser accelerator keys (F5, Ctrl+R, Alt+Left, F12). It registers `ContextMenuRequested` through `ICoreWebView2_11`. That handler suppresses the menu unless the target is editable and `allow_editable_menu` is set.
 - Idle (`src/idle.rs`): `ICoreWebView2_3::TrySuspend` and `SetIsVisible` on the controller.

@@ -23,8 +23,8 @@ path = "src/lib.rs"
 # client (process spawn, chunking, model manifest verification). `engine` = vendored
 # Qwen3-TTS worker, which implies `client`. Default keeps both pre-existing surfaces.
 default = ["system", "client"]
-system = ["dep:rightkit-transcript"]
-client = ["dep:rightkit-ort", "dep:rightkit-process", "dep:sha2", "dep:serde", "dep:serde_json"]
+system = ["dep:rightkit-transcript", "dep:thiserror"]
+client = ["dep:rightkit-ort", "dep:rightkit-process", "dep:rightkit-fs", "dep:serde", "dep:serde_json"]
 engine = ["client", "dep:qts", "dep:libc"]
 metal = ["engine", "qts/metal"]
 vulkan = ["engine", "qts/vulkan"]
@@ -32,11 +32,11 @@ vulkan = ["engine", "qts/vulkan"]
 [dependencies]
 serde = { version = "1.0.228", features = ["derive"], optional = true }
 serde_json = { version = "1.0.150", optional = true }
-sha2 = { version = "0.10", optional = true }
-thiserror = "2"
+thiserror = { version = "2", optional = true }
+rightkit-fs = { version = "0.3.3", path = "../rightkit-fs", default-features = false, features = ["digest"], optional = true }
 rightkit-ort = { version = "0.2.2", path = "../rightkit-ort", default-features = false, optional = true }
 rightkit-process = { version = "0.3.0", path = "../rightkit-process", optional = true }
-rightkit-transcript = { version = "0.1.0", path = "../rightkit-transcript", optional = true }
+rightkit-transcript = { version = "0.2.0", path = "../rightkit-transcript", optional = true }
 qts = { package = "rightkit-qts", version = "0.2.0", path = "../rightkit-qts", optional = true }
 
 [target.'cfg(unix)'.dependencies]

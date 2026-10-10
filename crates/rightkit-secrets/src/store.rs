@@ -2,9 +2,32 @@ use crate::backend::{system_backend, Backend, Interaction, MemoryBackend};
 use crate::error::{Error, Result};
 use crate::namespace::{check_account, Namespace};
 use crate::secret::Secret;
-use base64::Engine as _;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
+
+/// Standard padded base64 (RFC 4648) of `bytes`. The only encoder this crate needs, for minted keys.
+fn base64_standard(bytes: &[u8]) -> String {
+    const T: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
+    for c in bytes.chunks(3) {
+        let n = (u32::from(c[0]) << 16)
+            | (u32::from(*c.get(1).unwrap_or(&0)) << 8)
+            | u32::from(*c.get(2).unwrap_or(&0));
+        out.push(T[(n >> 18) as usize & 63] as char);
+        out.push(T[(n >> 12) as usize & 63] as char);
+        out.push(if c.len() > 1 {
+            T[(n >> 6) as usize & 63] as char
+        } else {
+            '='
+        });
+        out.push(if c.len() > 2 {
+            T[n as usize & 63] as char
+        } else {
+            '='
+        });
+    }
+    out
+}
 
 /// Universal guard variable honoured by every app (in addition to the app's own variables).
 pub const UNIVERSAL_GUARD_ENV: &str = "RIGHTKIT_NO_KEYCHAIN";
@@ -291,7 +314,7 @@ impl Store {
         }
         let mut raw = zeroize::Zeroizing::new(vec![0u8; bytes]);
         getrandom::fill(&mut raw).map_err(|_| Error::Unavailable("OS CSPRNG failed".into()))?;
-        let fresh = Secret::from_string(base64::engine::general_purpose::STANDARD.encode(&*raw));
+        let fresh = Secret::from_string(base64_standard(&raw));
         if self.add_if_absent(account, &fresh)? {
             return Ok((fresh, true));
         }
@@ -316,6 +339,27 @@ impl rightkit_settings::SecretProbe for Store {
             Ok(true) => Presence::Present,
             Ok(false) => Presence::Absent,
             Err(_) => Presence::Unknown,
+        }
+    }
+}
+
+#[cfg(test)]
+mod base64_tests {
+    use super::base64_standard;
+
+    #[test]
+    fn matches_rfc4648_vectors() {
+        for (raw, want) in [
+            (&b""[..], ""),
+            (b"f", "Zg=="),
+            (b"fo", "Zm8="),
+            (b"foo", "Zm9v"),
+            (b"foob", "Zm9vYg=="),
+            (b"fooba", "Zm9vYmE="),
+            (b"foobar", "Zm9vYmFy"),
+            (&[0xfb, 0xff, 0xbf], "+/+/"),
+        ] {
+            assert_eq!(base64_standard(raw), want);
         }
     }
 }

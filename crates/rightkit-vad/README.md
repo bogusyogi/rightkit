@@ -21,13 +21,13 @@ Each layer is usable alone:
 
 | Feature | Default | Pulls in | Effect |
 |---|---|---|---|
-| `default` | on | `ort/tracing` | ONNX Runtime tracing only. The crate fetches, copies and links no runtime. The consumer supplies ONNX Runtime. |
-| `load-dynamic` | off | `ort/load-dynamic` | Loads ONNX Runtime at run time from a library path. Use it with `default-features = false`, and bind the approved runtime through `rightkit-ort`. |
+| `default` | on | `silero` | The default set. |
+| `silero` | on | `rightkit-ort`, `ort/tracing` | The `Silero` scorer and `SileroOptions`. ONNX Runtime tracing only: the crate fetches, copies and links no runtime. The consumer supplies ONNX Runtime through `rightkit-ort`. With `default-features = false` no ONNX Runtime is compiled and only the policy layers remain. |
 | `download-binaries` | off | `ort/download-binaries` | Opt-in: fetches prebuilt ONNX Runtime during the build. |
 | `tls-native` | off | `ort/tls-native` | Opt-in: native TLS backend for `download-binaries`. |
 | `copy-dylibs` | off | `ort/copy-dylibs` | Opt-in: copies the ONNX Runtime dylibs next to the build output. |
 
-Unreleased change: the default no longer enables `ort/ndarray` or the build-time download (`download-binaries`, `tls-native`, `copy-dylibs`). The `ort-defaults` feature is removed. To keep the old build-time download, opt in with `features = ["download-binaries", "tls-native", "copy-dylibs"]` (with `default-features` left on), or use `load-dynamic` with `default-features = false`.
+Unreleased change: the default no longer enables `ort/ndarray` or the build-time download (`download-binaries`, `tls-native`, `copy-dylibs`). The `ort-defaults` feature is removed. To keep the old build-time download, opt in with `features = ["download-binaries", "tls-native", "copy-dylibs"]` (with `default-features` left on), or use `default-features = false` and bind the approved runtime through `rightkit-ort`. The empty `load-dynamic` feature is removed.
 
 The `ort` dependency is pinned to `=2.0.0-rc.13` in `Cargo.toml`, with `std` and API level 24 set in `[dependencies]`. rc.13's own `default` raises the API floor to ORT 1.27, which the suite's 1.24.4 runtime cannot serve. Do not use `ort/default`.
 

@@ -1,4 +1,5 @@
 use crate::process_tree;
+#[cfg(feature = "pty")]
 use crate::pty::{PtyError, PtySession, PtySize};
 use crate::{
     classify_denial, DenialSignature, DenialSource, EnvPolicy, Reservation, ResourceAuthority,
@@ -203,6 +204,7 @@ impl Sandbox {
         finish(cmd, reservation, DenialSource::Unknown)
     }
 
+    #[cfg(feature = "pty")]
     /// Spawn under a PTY with lease-epoch input fencing. With `policy`, the child is
     /// confined (macOS only today; other platforms fail closed). Reserves a
     /// `BackgroundProcess` slot for the session's lifetime.

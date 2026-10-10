@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-watch"
-version = "0.3.1"
+version = "0.3.2"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Filesystem watching for Right Suite apps: ref-counted async subscribers, debounced file-set and directory watchers, and rename-storm coalescing."
@@ -11,9 +11,15 @@ keywords = ["watcher", "notify", "filesystem", "debounce"]
 categories = ["filesystem"]
 include = ["src/**", "tests/**", "README.md", "LICENSE-MIT", "LICENSE-APACHE"]
 
+[features]
+default = ["async"]
+# The async multi-subscriber watcher (`subscribe`, `FileWatcher`, ...) over tokio. Off leaves the
+# runtime-free `sync`, `typed`, `options` and `coalesce` layers with no tokio dependency.
+async = ["dep:tokio"]
+
 [dependencies]
 notify = "8.2.0"
-tokio = { version = "1.53.0", features = ["rt", "sync", "time", "macros"] }
+tokio = { version = "1.53.0", features = ["rt", "sync", "time", "macros"], optional = true }
 tracing = "0.1"
 
 [dev-dependencies]

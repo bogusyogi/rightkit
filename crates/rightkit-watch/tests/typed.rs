@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, RecvTimeoutError};
 use std::time::{Duration, Instant};
 
-use rightkit_watch::{ChangeBatch, DirWatchSet, FileWatcher, TypedWatcher, WatchEvent};
+use rightkit_watch::{ChangeBatch, DirWatchSet, TypedWatcher, WatchEvent};
 
 const WAIT: Duration = Duration::from_secs(20);
 const POLL: Duration = Duration::from_millis(100);
@@ -92,7 +92,7 @@ fn quiet(watcher: &TypedWatcher) {
 fn typed_recursive_stream_observes_create_modify_rename_delete() {
     let dir = tempfile::tempdir().unwrap();
     // Register through the original spelling to exercise macOS temp-dir aliases.
-    let watcher = FileWatcher::watch_typed(dir.path()).unwrap();
+    let watcher = TypedWatcher::watch(dir.path()).unwrap();
     let root = dir.path().canonicalize().unwrap();
     let from = root.join("source.txt");
     let to = root.join("destination.txt");
@@ -140,7 +140,7 @@ fn typed_recursive_stream_observes_nested_file() {
     let dir = tempfile::tempdir().unwrap();
     let nested = dir.path().join("nested").join("deeper");
     fs::create_dir_all(&nested).unwrap();
-    let watcher = FileWatcher::watch_typed(dir.path()).unwrap();
+    let watcher = TypedWatcher::watch(dir.path()).unwrap();
     quiet(&watcher);
     let target = nested.join("child.txt");
     fs::write(&target, "nested").unwrap();
@@ -206,5 +206,13 @@ fn recursive_directory_set_observes_existing_and_new_nested_directories() {
 #[test]
 fn typed_start_returns_failure_for_unavailable_root() {
     let dir = tempfile::tempdir().unwrap();
-    assert!(FileWatcher::watch_typed(dir.path().join("missing")).is_err());
+    assert!(TypedWatcher::watch(dir.path().join("missing")).is_err());
+}
+
+#[cfg(feature = "async")]
+#[test]
+fn file_watcher_watch_typed_delegates_to_typed_watcher() {
+    let dir = tempfile::tempdir().unwrap();
+    assert!(rightkit_watch::FileWatcher::watch_typed(dir.path()).is_ok());
+    assert!(rightkit_watch::FileWatcher::watch_typed(dir.path().join("missing")).is_err());
 }

@@ -8,7 +8,7 @@ use std::sync::mpsc::RecvTimeoutError;
 use std::time::{Duration, Instant};
 
 use rightkit_watch::{
-    EventFilter, FileSetReceiver, FileSetWatcher, FileWatcher, WatchEvent, WatchEventKind,
+    EventFilter, FileSetReceiver, FileSetWatcher, TypedWatcher, WatchEvent, WatchEventKind,
     WatchEventRecord, WatchOptions,
 };
 
@@ -244,7 +244,7 @@ fn native_uncoalesced_stream_observes_each_staged_target() {
 fn typed_record_api_preserves_backend_kind() {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().canonicalize().unwrap();
-    let watch = FileWatcher::watch_typed(&root).unwrap();
+    let watch = TypedWatcher::watch(&root).unwrap();
     // Drain FSEvents registration history with a generous quiet window.
     let settle_deadline = Instant::now() + WAIT;
     loop {

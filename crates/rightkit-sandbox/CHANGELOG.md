@@ -1,7 +1,10 @@
 # Changelog
 
-## 0.3.3
+## 0.3.3 (staged, unpublished)
 
+- New default-on `pty` feature gates `Sandbox::spawn_pty`, `PtySession`, `PtySize`, `PtyError`,
+  `PtyLeaseSnapshot`, `UnacknowledgedInputDecision` and the `portable-pty` dependency. Default
+  builds are unchanged; `default-features = false` drops `portable-pty`.
 - Requires `rightkit-process` 0.3.3. No source change.
 
 ## 0.3.0 — staged, unpublished

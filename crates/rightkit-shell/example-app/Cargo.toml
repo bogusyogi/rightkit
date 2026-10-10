@@ -20,6 +20,4 @@ rightkit-framed-sidecar = { path = "../../rightkit-framed-sidecar" }
 
 [dev-dependencies]
 rightkit-qa = { path = "../../rightkit-qa" }
-rightkit-control = { path = "../../rightkit-control", features = ["tauri-plugin"] }
-rightkit-service = { path = "../../rightkit-service" }
 serde_json = "1.0.150"

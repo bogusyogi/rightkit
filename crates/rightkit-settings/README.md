@@ -24,13 +24,13 @@ Single-process writer: concurrent processes are not coordinated.
 
 ## Features
 
-None. The crate has no Cargo features. Dependencies: `serde`, `serde_json`, `thiserror`.
+None. The crate has no Cargo features. Dependencies: `serde`, `serde_json`, `thiserror`, and `rightkit-fs` (`fs` feature only).
 
 ## Platform support
 
-Atomic replacement uses `ReplaceFileW` on Windows (`src/atomic.rs`, `cfg(windows)`). The `cfg(windows)` gate is the only platform branch in `src/`.
+The crate has no platform-specific code in `src/`. Atomic replacement (`atomic_write`) goes through `rightkit_fs::atomic_write`, which owns the per-platform replace and directory sync.
 
-Published version: see `INDEX.md` at the repository root. This crate has no `CHANGELOG.md`.
+Published version: see `INDEX.md` at the repository root. See `CHANGELOG.md`.
 
 ## Example
 

@@ -69,10 +69,16 @@ pub fn run(model_dir: &Path, backend: &str) -> ! {
     }
     // Binds ORT_DYLIB_PATH and PATH to the discovered runtime unless the parent already set it.
     let mut dirs: Vec<PathBuf> = Vec::new();
-    if let Some(parent) = models::model_dir().parent() {
+    if let Some(parent) = models::try_model_dir()
+        .ok()
+        .as_deref()
+        .and_then(Path::parent)
+    {
         dirs.push(parent.join("runtime"));
     }
-    dirs.push(models::data_root().join("runtime").join("qts"));
+    if let Ok(root) = models::try_data_root() {
+        dirs.push(root.join("runtime").join("qts"));
+    }
     rightkit_ort::export_discovered_runtime(dirs);
 
     let t = Instant::now();

@@ -118,48 +118,25 @@ pub fn clear_takeover_if_owner(suite: &Suite, service: &str, pid: u32) {
     }
 }
 
-/// Temp file + rename in the same directory, owner-only.
+/// Atomic, durable, owner-only replace (`rightkit_fs::atomic_write_private`: unique temp file in
+/// the same directory, `fsync`, rename, directory `fsync`). The parent directory must exist.
 pub fn write_atomic(path: &Path, body: &[u8]) -> std::io::Result<()> {
-    use std::io::Write;
-    let tmp = path.with_extension(format!("tmp{}", std::process::id()));
-    {
-        #[cfg(unix)]
-        let mut f = {
-            use std::os::unix::fs::OpenOptionsExt;
-            std::fs::OpenOptions::new()
-                .write(true)
-                .create(true)
-                .truncate(true)
-                .mode(0o600)
-                .open(&tmp)?
-        };
-        #[cfg(not(unix))]
-        let mut f = std::fs::File::create(&tmp)?;
-        f.write_all(body)?;
-        f.sync_all()?;
-    }
-    replace_with_retry(&tmp, path)
-}
-
-/// Windows refuses to rename over a file another process has open without delete sharing (the
-/// incumbent host and clients poll these records), failing transiently with "Access is denied".
-/// Retry briefly; elsewhere rename never fails that way.
-fn replace_with_retry(tmp: &Path, path: &Path) -> std::io::Result<()> {
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
     loop {
-        match std::fs::rename(tmp, path) {
+        match rightkit_fs::atomic_write_private(path, body) {
+            Ok(()) => return Ok(()),
+            // Windows refuses to rename over a file another process has open without delete
+            // sharing (the incumbent host and clients poll these records), failing transiently
+            // with "Access is denied". Retry briefly; elsewhere rename never fails that way.
             Err(e)
                 if cfg!(windows)
-                    && e.kind() == std::io::ErrorKind::PermissionDenied
+                    && e.kind() == Some(std::io::ErrorKind::PermissionDenied)
                     && std::time::Instant::now() < deadline =>
             {
                 std::thread::sleep(std::time::Duration::from_millis(10));
             }
-            Err(e) => {
-                let _ = std::fs::remove_file(tmp);
-                return Err(e);
-            }
-            Ok(()) => return Ok(()),
+            Err(rightkit_fs::FsError::Io { source, .. }) => return Err(source),
+            Err(e) => return Err(std::io::Error::other(e)),
         }
     }
 }

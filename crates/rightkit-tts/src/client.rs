@@ -166,7 +166,9 @@ pub fn worker_exe() -> Result<PathBuf, QtsError> {
             dirs.push(p.to_path_buf());
         }
     }
-    dirs.push(models::data_root().join("runtime").join("qts"));
+    if let Ok(root) = models::try_data_root() {
+        dirs.push(root.join("runtime").join("qts"));
+    }
     dirs.into_iter()
         .flat_map(|d| names.iter().map(move |n| d.join(n)))
         .find(|p| p.is_file())
@@ -262,7 +264,8 @@ fn with_worker<T>(
     backend: &str,
     f: impl FnOnce(&mut Worker) -> Result<T, QtsError>,
 ) -> Result<T, QtsError> {
-    let dir = models::model_dir();
+    let dir =
+        models::try_model_dir().map_err(|e| QtsError::new("models_missing", e.to_string()))?;
     if !models::files_present(&dir) {
         return Err(QtsError::new(
             "models_missing",
@@ -568,16 +571,17 @@ pub fn clone_into_library(wav_path: &Path, voice_id: &str) -> Result<PathBuf, Qt
             "voice id must be [A-Za-z0-9_-]+",
         ));
     }
-    clone_from_wav(
-        wav_path,
-        &models::voices_dir().join(format!("{voice_id}.xvector.pb")),
-    )
+    let voices =
+        models::try_voices_dir().map_err(|e| QtsError::new("voice_missing", e.to_string()))?;
+    clone_from_wav(wav_path, &voices.join(format!("{voice_id}.xvector.pb")))
 }
 
 /// A voice record path is acceptable only inside the voices folder (the
 /// provider param must not read arbitrary files). Returns the canonical path.
 pub fn resolve_voice_record(path: &str) -> Result<PathBuf, QtsError> {
-    resolve_voice_record_in(&models::voices_dir(), path)
+    let voices =
+        models::try_voices_dir().map_err(|e| QtsError::new("voice_missing", e.to_string()))?;
+    resolve_voice_record_in(&voices, path)
 }
 
 pub fn resolve_voice_record_in(root: &Path, path: &str) -> Result<PathBuf, QtsError> {

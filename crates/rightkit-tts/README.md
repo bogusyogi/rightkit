@@ -15,8 +15,8 @@ Both return PCM WAV plus a word-timed manifest that can be passed to `rightkit-t
 
 | Feature | Default | Pulls in | Effect |
 |---|---|---|---|
-| `system` | on | `rightkit-transcript` | The OS voice backend (`say`/`afconvert` on macOS, SAPI on Windows) and the word-timed transcript. |
-| `client` | on | `rightkit-process`, `sha2`, `serde`, `serde_json` | QTS worker client (`QtsClient`, chunking, model manifest checks). |
+| `system` | on | `rightkit-transcript`, `thiserror` | The OS voice backend (`say`/`afconvert` on macOS, SAPI on Windows) and the word-timed transcript. |
+| `client` | on | `rightkit-process`, `rightkit-fs` (`digest`), `serde`, `serde_json` | QTS worker client (`QtsClient`, chunking, model manifest checks). |
 | `engine` | off | `client`, `qts` (`rightkit-qts`), `libc` on Unix | The Qwen3-TTS QTS worker backend and the `rightkit-tts-worker` binary. |
 | `metal` | off | `engine`, `qts/metal` | QTS with the Metal backend (Apple). |
 | `vulkan` | off | `engine`, `qts/vulkan` | QTS with the Vulkan backend. |

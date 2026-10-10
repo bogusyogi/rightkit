@@ -12,7 +12,7 @@ Filesystem watching for Right Suite apps. It is built on `notify` and has three 
 
 ## Features
 
-None. The crate has no Cargo features. Dependencies: `notify` (8.2), `tokio` (`rt`, `sync`, `time`, `macros`), and `tracing`. The crate re-exports `notify`.
+`async` (default): the `subscribe` module (`FileWatcher`, `FileWatcherSubscriber`, receivers) over `tokio` (`rt`, `sync`, `time`, `macros`). With `default-features = false`, `tokio` is not compiled and `sync`, `typed`, `options`, and `coalesce` remain. Other dependencies: `notify` (8.2) and `tracing`. The crate re-exports `notify`.
 
 ## Platform support
 

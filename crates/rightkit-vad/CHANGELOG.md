@@ -3,7 +3,13 @@
 All notable changes to `rightkit-vad`. Versions follow Cargo semver; while the
 version is `0.x`, a minor bump may carry breaking changes.
 
-## 0.0.2
+## 0.0.2 (staged, unpublished)
+
+- New default-on `silero` feature gates the `Silero` scorer, `SileroOptions`, and the
+  `rightkit-ort` dependency. `default-features = false` now removes ONNX Runtime from the
+  build and keeps `scores_to_spans`, `chunk_spans`, `detect`, `FrameStream`, `FrameScorer`.
+- Removed the empty `load-dynamic = []` feature; it enabled nothing. Bind a runtime through
+  `rightkit-ort` directly. `download-binaries`, `tls-native`, and `copy-dylibs` now imply `silero`.
 
 First crates.io release line. Ships the Silero voice-activity scorer, the
 hysteresis, padding, and chunking policy, and streaming frame carry. ONNX Runtime

@@ -70,6 +70,13 @@ pub struct TypedWatcher {
 }
 
 impl TypedWatcher {
+    /// Starts a recursive, typed event stream without an async runtime (and without the `async`
+    /// feature). Backend creation and root registration failures are returned to the caller.
+    /// Keep the returned watcher alive; dropping it stops the backend and worker.
+    pub fn watch(path: impl AsRef<Path>) -> Result<Self, WatchError> {
+        Self::start(path.as_ref())
+    }
+
     pub(crate) fn start(path: &Path) -> Result<Self, WatchError> {
         let root = path.canonicalize().map_err(|error| WatchError::Backend {
             message: error.to_string(),

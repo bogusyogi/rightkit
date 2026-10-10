@@ -303,25 +303,19 @@ impl SpawnClaim {
 /// Open `path` and take a non-blocking exclusive lock. `Ok(None)` = held elsewhere.
 #[cfg(unix)]
 pub(crate) fn try_lock_exclusive(path: &Path) -> io::Result<Option<std::fs::File>> {
+    use std::fs::TryLockError;
     use std::io::Write;
-    use std::os::unix::io::AsRawFd;
     let mut f = std::fs::OpenOptions::new()
         .read(true)
         .write(true)
         .create(true)
         .truncate(false)
         .open(path)?;
-    loop {
-        // SAFETY: valid open fd; flock has no memory effects.
-        if unsafe { libc::flock(f.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } == 0 {
-            break;
-        }
-        let e = io::Error::last_os_error();
-        match e.raw_os_error() {
-            Some(c) if c == libc::EWOULDBLOCK || c == libc::EAGAIN => return Ok(None),
-            Some(c) if c == libc::EINTR => continue,
-            _ => return Err(e),
-        }
+    // std's `File::try_lock` is a non-blocking `flock(LOCK_EX | LOCK_NB)` on Unix.
+    match f.try_lock() {
+        Ok(()) => {}
+        Err(TryLockError::WouldBlock) => return Ok(None),
+        Err(TryLockError::Error(e)) => return Err(e),
     }
     // Informational only (we hold the lock, so the write is ours).
     let _ = f.set_len(0);
