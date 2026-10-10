@@ -330,10 +330,10 @@
     "rightkit-qts-ggml": "0.1.2",
     "rightkit-qts-ggml-sys": "0.1.2",
     "rightkit-review": "0.1.0",
-    "rightkit-sandbox": "0.3.3",
+    "rightkit-sandbox": "0.3.4",
     "rightkit-scenario": "0.1.0",
     "rightkit-search": "0.2.0",
-    "rightkit-secrets": "0.1.2",
+    "rightkit-secrets": "0.1.3",
     "rightkit-service": "0.1.4",
     "rightkit-settings": "0.1.1",
     "rightkit-shell": "0.2.0",
@@ -341,8 +341,8 @@
     "rightkit-sync": "0.1.0",
     "rightkit-tauri": "0.1.2",
     "rightkit-transcript": "0.2.0",
-    "rightkit-tts": "0.1.0",
-    "rightkit-vad": "0.0.2",
+    "rightkit-tts": "0.1.1",
+    "rightkit-vad": "0.0.3",
     "rightkit-watch": "0.3.2"
   },
   "swift": {
@@ -521,7 +521,8 @@
       "0.2.4",
       "0.3.0",
       "0.3.1",
-      "0.3.2"
+      "0.3.2",
+      "0.3.3"
     ],
     "rightkit-shell": [
       "0.1.0",
@@ -553,7 +554,8 @@
     ],
     "rightkit-secrets": [
       "0.1.0",
-      "0.1.1"
+      "0.1.1",
+      "0.1.2"
     ],
     "rightkit-http": [
       "0.1.0",
@@ -618,6 +620,12 @@
       "0.1.0"
     ],
     "rightkit-transcript": [
+      "0.1.0"
+    ],
+    "rightkit-vad": [
+      "0.0.2"
+    ],
+    "rightkit-tts": [
       "0.1.0"
     ]
   }

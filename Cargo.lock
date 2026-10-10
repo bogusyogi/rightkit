@@ -5610,7 +5610,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-sandbox"
-version = "0.3.3"
+version = "0.3.4"
 dependencies = [
  "libc",
  "portable-pty",
@@ -5638,7 +5638,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-secrets"
-version = "0.1.2"
+version = "0.1.3"
 dependencies = [
  "getrandom 0.3.4",
  "keyring-core",
@@ -5739,7 +5739,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-tts"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "libc",
  "rightkit-fs",
@@ -5754,7 +5754,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-vad"
-version = "0.0.2"
+version = "0.0.3"
 dependencies = [
  "hound",
  "rightkit-media",

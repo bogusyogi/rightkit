@@ -3,7 +3,9 @@
 All notable changes to `rightkit-vad`. Versions follow Cargo semver; while the
 version is `0.x`, a minor bump may carry breaking changes.
 
-## 0.0.2 (staged, unpublished)
+## 0.0.3
+
+(0.0.2 was already on crates.io; the entries below ship as 0.0.3.)
 
 - New default-on `silero` feature gates the `Silero` scorer, `SileroOptions`, and the
   `rightkit-ort` dependency. `default-features = false` now removes ONNX Runtime from the

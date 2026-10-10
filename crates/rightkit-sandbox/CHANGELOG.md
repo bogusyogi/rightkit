@@ -1,6 +1,8 @@
 # Changelog
 
-## 0.3.3 (staged, unpublished)
+## 0.3.4
+
+(0.3.3 was already on crates.io; the entries below ship as 0.3.4.)
 
 - New default-on `pty` feature gates `Sandbox::spawn_pty`, `PtySession`, `PtySize`, `PtyError`,
   `PtyLeaseSnapshot`, `UnacknowledgedInputDecision` and the `portable-pty` dependency. Default

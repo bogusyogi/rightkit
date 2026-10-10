@@ -3,7 +3,9 @@
 All notable changes to `rightkit-tts`. Versions follow Cargo semver; while the
 version is `0.x`, a minor bump may carry breaking changes.
 
-## 0.1.0 (staged, unpublished)
+## 0.1.1
+
+(0.1.0 was already on crates.io; the entries below ship as 0.1.1.)
 
 After the first-release feature list below, before publication:
 

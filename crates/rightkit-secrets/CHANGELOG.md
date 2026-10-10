@@ -1,6 +1,8 @@
 # Changelog
 
-## 0.1.2 (staged, unpublished)
+## 0.1.3
+
+(0.1.2 was already on crates.io; the entries below ship as 0.1.3.)
 
 - Dropped the `base64` dependency: minted DB keys (`get_or_create_key`) are encoded by a 15-line
   in-crate standard-base64 helper with RFC 4648 vector tests. Output is unchanged.
