@@ -15,6 +15,8 @@ act       ->  kill switch -> allowlist -> lease fence -> freshness -> secure/cre
 |---|---|
 | macOS AX tree walk, focus, native write, per-pid events, per-window capture | `src/macos/` (zero third-party dependencies) |
 | Windows UIA tree walk, Invoke/Toggle/Select/Expand/Value/Scroll/Text patterns, window messages, SendInput, PrintWindow, clipboard | `src/win/` |
+| macOS system-wide AX element, hit test at a point, per-call AX timeout | `macos::ax` (`system_wide`, `element_at_position`, `AxOptions`) |
+| Windows raw `SendInput` batch (any VK incl. `0xE8`, scan codes, extended bit, Unicode, mouse, `dwExtraInfo` tag), modifier snapshot and restore | `win::input` (`send_input_batch`, `RawInput`, `ModifierSnapshot`) |
 | Engine: ids, freshness guard, ladder, receipts | `src/engine.rs` |
 | Control lease, epoch fencing, acknowledged input sequence | `src/lease.rs` |
 | Admission pre-action hook | `src/admission.rs` |
@@ -77,14 +79,14 @@ Published version: not published. See [INDEX.md](../../INDEX.md). Changes are li
 
 ## Windows
 
-- Status: `src/win/` compiles on Windows against the declared `windows` 0.61 (`rightkit cargo check -p rightkit-automation`, 2026-10-08). `tests/e2e_win.rs` has not passed on Windows: the Notepad end-to-end run fails with "foreground changed: tier 1" and depends on desktop focus.
-- Version: `Cargo.toml` declares `windows` 0.61 with 15 features. A staged, unapplied cleanup (`tasks/handoffs/2026-10-08/inventory/windows-0.62.patch`) moves it and process, sandbox, qa, service and speech-client to 0.62 with no source changes.
+- Status: `src/win/` compiled on Windows against `windows` 0.61 (`rightkit cargo check -p rightkit-automation`, 2026-10-08); the crate now declares 0.62, which that check does not cover. `tests/e2e_win.rs` has not passed on Windows: the Notepad end-to-end run fails with "foreground changed: tier 1" and depends on desktop focus.
+- Version: `Cargo.toml` declares `windows` 0.62 with 15 features.
 - Tree and patterns: UI Automation via `CoCreateInstance` (in-process, multithreaded COM). Reads Invoke, Toggle, SelectionItem, ExpandCollapse, Value, Scroll and Text patterns (`src/win/uia.rs`).
 - Tier 3 (targeted): `PostMessageW` of `WM_CHAR` or key messages to the focused child window. Modifier chords are refused as `Unsupported` and need tier 4.
 - Tier 4 (foreground, explicit opt-in): `SendInput` for keys and Unicode text. Clicks move the cursor with `SetCursorPos` and restore it afterwards. Held modifiers are released first. `SendInput` has no window target, so the intended app must already be foreground.
 - Activation: `SetForegroundWindow`, with `AttachThreadInput` to the foreground thread as the fallback. Capture: `PrintWindow` with `PW_RENDERFULLCONTENT` (2) into a compatible bitmap. Clipboard: Win32 `DataExchange`, unicode text read and write, with snapshot and restore.
 - Launch: `CreateProcessW` suspended with `SW_SHOWNOACTIVATE`, assigned to a kill-on-close job with an optional `ActiveProcessLimit`, then resumed. A window is adopted only if its pid is the started pid, or a new process with the same app id inside the job. If no window appears within 5 s, the call returns an error and the launched tree is torn down.
 - Limits: `status()` reports UIPI. A non-elevated process cannot drive an elevated app unless UIAccess signing is used. The code does not check session or desktop state before `SendInput`.
-- Dependency: `windows` 0.61 under `cfg(windows)`, with features Foundation, Graphics_Gdi, Storage_FileSystem, Storage_Xps, System_Com, System_DataExchange, System_JobObjects, System_Memory, System_Ole, System_Threading, System_Variant, UI_Accessibility, UI_HiDpi, UI_Input_KeyboardAndMouse and UI_WindowsAndMessaging. Consumers enable no Windows features. Construction sets per-monitor DPI awareness v2.
+- Dependency: `windows` 0.62 under `cfg(windows)`, with features Foundation, Graphics_Gdi, Storage_FileSystem, Storage_Xps, System_Com, System_DataExchange, System_JobObjects, System_Memory, System_Ole, System_Threading, System_Variant, UI_Accessibility, UI_HiDpi, UI_Input_KeyboardAndMouse and UI_WindowsAndMessaging. Consumers enable no Windows features. `WinPlatform::new()` sets per-monitor DPI awareness v2 and joins the COM MTA on the calling thread; `WinPlatform::new_minimal()` does neither (see its doc comment for what that leaves to the host). 
 - Run on a Windows host: `rightkit cargo test -p rightkit-automation --test e2e_win -- --nocapture`. The test header says it has not been run on Windows.
-
+- Raw input (`win::input`): `send_input_batch(&[RawInput])` is one `SendInput` call from typed key, Unicode and mouse items, with an optional `dwExtraInfo` tag (`SendOptions`). `ModifierSnapshot` records held modifiers so a caller that releases them can restore them. No policy, focus or receipt checks: it is for hosts that own their own policy. Unit tests build the `INPUT` array without injecting.

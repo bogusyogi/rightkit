@@ -12,6 +12,7 @@ Changed:
 
 Fixed:
 - The native-load fallback also covers a `platform()` call that throws outside Tauri.
+- `prepack` runs the build, so `pnpm pack` and publish always ship a fresh `dist`, as `@rightkit/app-shell` does.
 
 Unchanged: every existing export, its signature and its results. `formatChord` from the root entry still defaults to the detected platform.
 
