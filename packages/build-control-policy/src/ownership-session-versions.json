@@ -396,7 +396,7 @@
       "rightkit-shell": "0.1.4",
       "rightkit-speech-client": "0.3.2",
       "rightkit-tauri": "0.1.2",
-      "rightkit-transcript": "0.1.0",
+      "rightkit-transcript": "0.2.0",
       "rightkit-tts": "0.1.0",
       "rightkit-vad": "0.0.2",
       "rightkit-watch": "0.3.1"
