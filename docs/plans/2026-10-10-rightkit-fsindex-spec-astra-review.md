@@ -57,3 +57,62 @@ Model: gpt-6-astra, reasoning high, read-only sandbox via Codex CLI 0.161.0; inp
 5. Make adversarial platform/consumer qualification measurable release gates.
 
 **Verdict: do not ship as written.** Architecture direction is viable, but normative claims currently permit false freshness, incorrect accounting, incomplete reconciliation & privacy regressions. Rewrite these contracts first, then qualify Windows enumeration independently before authorizing scanner retirement or workspace adoption.
+
+
+---
+
+# Pass 2 (on spec v2)
+
+1. **RESOLVED** — Current API inventory corrects `Item`, search limits, basename scope, & ordering. [v2 §4](/Volumes/D/claude/rightkit/docs/plans/2026-10-10-rightkit-fsindex-spec.md:54)
+2. **RESOLVED** — ASCII matching, byte thresholds, token limits, & invalid queries are explicit. [v2 §8](/Volumes/D/claude/rightkit/docs/plans/2026-10-10-rightkit-fsindex-spec.md:133)
+3. **PARTLY** — Attribution is honest; final accounting choice & macOS clone-estimate labeling remain unsettled. [v2 §8](/Volumes/D/claude/rightkit/docs/plans/2026-10-10-rightkit-fsindex-spec.md:134)
+4. **RESOLVED** — Linear reopen, compaction thresholds, footprint provenance, & root limit corrected; original silent-root-loss claim was wrong. [v2 §5](/Volumes/D/claude/rightkit/docs/plans/2026-10-10-rightkit-fsindex-spec.md:75)
+5. **PARTLY** — Lock relocates during swap; range checks miss cycles; RAM-only `write_failed` cannot guarantee rejection after restart. [v2 §5](/Volumes/D/claude/rightkit/docs/plans/2026-10-10-rightkit-fsindex-spec.md:81)
+6. **PARTLY** — Wider identity & rebuild migration specified; complete format layout, volume incarnation, & coordinated release timing remain ambiguous. [v2 §6.1](/Volumes/D/claude/rightkit/docs/plans/2026-10-10-rightkit-fsindex-spec.md:93)
+7. **RESOLVED** — Supported platforms, enumeration fallbacks, missing identity, & restart behavior specified. [v2 §6.2](/Volumes/D/claude/rightkit/docs/plans/2026-10-10-rightkit-fsindex-spec.md:101)
+8. **PARTLY** — First-occurrence tracking added; replacement/identity-reuse handling & credible memory accounting remain missing. [v2 §6.2](/Volumes/D/claude/rightkit/docs/plans/2026-10-10-rightkit-fsindex-spec.md:103)
+9. **PARTLY** — Lossless storage specified; filesystem-equivalent normalization, alias handling, & unpaired-surrogate search behavior remain undefined. [v2 §6.1](/Volumes/D/claude/rightkit/docs/plans/2026-10-10-rightkit-fsindex-spec.md:94)
+10. **PARTLY** — Recall flags acknowledged; pinned traversal & race-safe content eligibility absent, while cloud-directory premise is false. [v2 §6.2](/Volumes/D/claude/rightkit/docs/plans/2026-10-10-rightkit-fsindex-spec.md:104)
+11. **PARTLY** — Stream coverage & Windows uniqueness estimates clarified; resident metadata overhead remains unstated. [v2 §6.2](/Volumes/D/claude/rightkit/docs/plans/2026-10-10-rightkit-fsindex-spec.md:105)
+12. **PARTLY** — Both overflow signals handled; rescan queue bounds & repeated-overflow recovery missing. [v2 §6.2](/Volumes/D/claude/rightkit/docs/plans/2026-10-10-rightkit-fsindex-spec.md:106)
+13. **PARTLY** — Per-volume checkpoints added; atomic applied-checkpoint commits, replay boundary, & `watch=false` reopen rules missing. [v2 §6.2](/Volumes/D/claude/rightkit/docs/plans/2026-10-10-rightkit-fsindex-spec.md:107)
+14. **PARTLY** — Cursor identity & replay envelopes added; snapshot/subscription handshake, restart durability, & per-subscriber gap semantics missing. [v2 §7](/Volumes/D/claude/rightkit/docs/plans/2026-10-10-rightkit-fsindex-spec.md:125)
+15. **PARTLY** — Subtree invalidations & finer timestamps added; remove→create/replacement coalescing algebra & persisted change-time representation missing. [v2 §7](/Volumes/D/claude/rightkit/docs/plans/2026-10-10-rightkit-fsindex-spec.md:127)
+16. **RESOLVED** — Fallible applied-cursor barrier preserves Blueprint’s separate publication/freshness responsibility. [v2 §7](/Volumes/D/claude/rightkit/docs/plans/2026-10-10-rightkit-fsindex-spec.md:129)
+17. **PARTLY** — Adapters replace enum; policy observation lifecycle, failure behavior, & cross-interface policy binding remain undefined. [v2 §9.1](/Volumes/D/claude/rightkit/docs/plans/2026-10-10-rightkit-fsindex-spec.md:141)
+18. **PARTLY** — Coverage & pagination added; cancellation, page/query binding, & generation-to-cursor relationship unspecified. [v2 §4](/Volumes/D/claude/rightkit/docs/plans/2026-10-10-rightkit-fsindex-spec.md:69)
+19. **PARTLY** — Blueprint inconsistency acknowledged but deferred; promised target path is absent from disposition schema. [v2 §9.2](/Volumes/D/claude/rightkit/docs/plans/2026-10-10-rightkit-fsindex-spec.md:145)
+20. **RESOLVED** — Pulse retains accounting/history/presentation; scanner retirement requires parity. [v2 §2](/Volumes/D/claude/rightkit/docs/plans/2026-10-10-rightkit-fsindex-spec.md:24)
+21. **RESOLVED** — Consumer roles narrowed; repo-map claim removed; filename-module retirement conditional. [v2 §2](/Volumes/D/claude/rightkit/docs/plans/2026-10-10-rightkit-fsindex-spec.md:26)
+22. **PARTLY** — Private stores & tri-state access added; home-discovery premise wrong, descendant revocation & retained-data deletion unspecified. [v2 §10](/Volumes/D/claude/rightkit/docs/plans/2026-10-10-rightkit-fsindex-spec.md:153)
+23. **PARTLY** — Matrix & peak measurements improved; enforceable regression budgets, provider-backed recall scenarios, & interrupted-migration qualification missing. [v2 §12](/Volumes/D/claude/rightkit/docs/plans/2026-10-10-rightkit-fsindex-spec.md:172)
+
+New defects introduced by v2:
+
+- **P1 — Lock ownership breaks during replacement.** Renaming `index` moves its locked `index/lock` into `index.old`; replacement `index/lock` is another file. Another process can acquire it while original owner remains active. Put lock outside swapped directories, acquire before recovery/creation, & retain throughout migration. [v2 §5](/Volumes/D/claude/rightkit/docs/plans/2026-10-10-rightkit-fsindex-spec.md:81)
+
+- **P1 — Privacy default can weaken Pulse protection.** `home_dirs` discovers exclusion locations, not indexed roots: [source](/Volumes/D/claude/rightkit/crates/rightkit-fsindex/src/index.rs:403). Pulse explicitly indexes mount roots & relies on those exclusions: [caller](/Volumes/D/claude/pulse/hub/src-tauri/src/disk_index.rs:198). Simply disabling discovery leaves other users’ homes inside indexed volumes while removing protected-folder exclusions. Define home authorization separately from exclusion discovery. [v2 §10](/Volumes/D/claude/rightkit/docs/plans/2026-10-10-rightkit-fsindex-spec.md:154)
+
+- **P1 — Revocation purge misses actual access boundaries.** Losing access to `/Users/me/Library/Mail` does not make root `/` unreadable. Root-only purge therefore preserves sensitive entries; deleting live entries also says nothing about names arenas, retained batches, or `index.old`. Specify subtree access revalidation & deletion across every retained representation. [v2 §10](/Volumes/D/claude/rightkit/docs/plans/2026-10-10-rightkit-fsindex-spec.md:156)
+
+- **P1 — Cloud-directory exception defeats “never hydrate.”** “Directories are not placeholders” is false: Windows explicitly documents recall attributes for directories; enumeration itself can fetch remote contents. Successful handle opening does not establish safe enumeration. Require provider-aware no-recall traversal or report incomplete coverage. [v2 §6.2](/Volumes/D/claude/rightkit/docs/plans/2026-10-10-rightkit-fsindex-spec.md:104), [Microsoft attribute contract](https://learn.microsoft.com/en-us/windows/win32/fileio/file-attribute-constants).
+
+- **P1 — Replay-before-open has no bounded completion contract.** “To completion” lacks captured upper USN, cancellation, notification-buffer limits, & overflow recovery during replay. Continuous churn can extend startup indefinitely; 0.2.0 offers no observable catching-up handle, despite Pulse’s 200-ms cancellation gate. “Zero-length read” also needs correction: distinguish `BytesToWaitFor=0` from zero-sized buffers; successful output still contains next USN. Specify valid probe, bounded replay frontier, atomic checkpoint publication, & cancellation. [v2 §6.2](/Volumes/D/claude/rightkit/docs/plans/2026-10-10-rightkit-fsindex-spec.md:107), [Microsoft USN contract](https://learn.microsoft.com/en-us/windows/win32/api/winioctl/ns-winioctl-read_usn_journal_data_v0).
+
+- **P1 — Retention is a minimum, not a memory bound.** “4096 batches or 15 minutes, whichever is larger” retains every burst inside 15 minutes & potentially ancient batches when idle. At 1024 paths/batch, 4096 full batches with 100-byte paths consume roughly **400 MiB in path bytes alone**. Add byte ceiling, eviction semantics, & explicit `NeedsRelist` boundaries. [v2 §7](/Volumes/D/claude/rightkit/docs/plans/2026-10-10-rightkit-fsindex-spec.md:126)
+
+- **P2 — Identity-map budget excludes its value.** Full `(u64,u128)` key already occupies 24 packed bytes; slot adds four before alignment, occupancy, or allocator overhead. A compact indirect representation could meet budget, but none is specified. Budget actual representation, rehash peak, reopen reconstruction, & simultaneous old/new stores. [v2 §6.2](/Volumes/D/claude/rightkit/docs/plans/2026-10-10-rightkit-fsindex-spec.md:103)
+
+- **P1 — Adapter digests do not establish consistent views.** Only `list()` accepts per-call adapter; search/subscription/replay lack equivalent selection despite “one index serves all three.” Digests cover files already read, without rules for newly created policies, external global ignores, or policy changes between pages. Current Ledger explicitly records missing policies & revalidates observations. Bind views/pages/feed cursors to immutable policy snapshots; define invalidation & malformed-policy errors. [v2 §9.1](/Volumes/D/claude/rightkit/docs/plans/2026-10-10-rightkit-fsindex-spec.md:141), [Ledger source](/Volumes/D/claude/coderight/context/engine/crates/membrane-runtime/src/ledger/policy.rs:121)
+
+- **P1 — Migration/version contracts disagree.** 0.2.0 introduces `RKFSIX03`, while §7 assigns widened mtime to 0.3.0 but still calls it `RKFSIX03`; layout reservation or another version is required. `FileKey` alignment lands “same release” in §6.1 but 0.3.0 in §11. §4’s “only” two API additions contradict new config/status/size fields elsewhere. Freeze complete schema & version matrix, then specify staged rebuild, interrupted-upgrade recovery, & cursor identity preservation/reset. [v2 §5](/Volumes/D/claude/rightkit/docs/plans/2026-10-10-rightkit-fsindex-spec.md:87), [§7](/Volumes/D/claude/rightkit/docs/plans/2026-10-10-rightkit-fsindex-spec.md:128), [§11](/Volumes/D/claude/rightkit/docs/plans/2026-10-10-rightkit-fsindex-spec.md:166)
+
+Remaining changes, ranked:
+
+1. Fix home authorization, subtree revocation, retained-data purge, & cloud no-recall guarantees.
+2. Specify stable locking, durable failure handling, complete schema, & crash-safe migration.
+3. Define cancellable replay, atomic checkpoints, cursor durability, & listing/subscription handshake.
+4. Bind adapters, pages, search, & feeds to consistent policy snapshots.
+5. Bound all memory; settle accounting semantics & enforce adversarial qualification budgets.
+
+**Verdict: do not ship.**

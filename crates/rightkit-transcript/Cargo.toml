@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-transcript"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 rust-version = "1.98.0"
 publish = true
@@ -18,21 +18,7 @@ include = ["src/**", "tests/**", "Cargo.toml", "README.md", "CHANGELOG.md", "LIC
 name = "rightkit_transcript"
 path = "src/lib.rs"
 
-[features]
-# Test-only: enables the engine-backed round trip in tests/asr_roundtrip.rs.
-# Off by default so ordinary `cargo test` does not build rightkit-asr.
-asr-roundtrip = ["dep:rightkit-asr"]
-
 [dependencies]
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.150"
 thiserror = "2"
-rightkit-asr = { version = "0.0.2", path = "../rightkit-asr", optional = true }
-
-[dev-dependencies]
-hound = "3.5"
-
-[[test]]
-name = "asr_roundtrip"
-path = "tests/asr_roundtrip.rs"
-required-features = ["asr-roundtrip"]

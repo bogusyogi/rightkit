@@ -18,6 +18,9 @@
 
 use crate::error::{Error, Result};
 use crate::parakeet_core::{TimedToken, TranscriptionResult};
+use rightkit_transcript::{
+    cues_from_spans, group_words, to_srt, to_timing_json, to_vtt, GroupRules, Newline,
+};
 use std::borrow::Cow;
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -84,13 +87,9 @@ pub struct LongFormProgress {
     pub samples_total: usize,
 }
 
-/// A word (one or more pieces joined) with its timing.
-#[derive(Debug, Clone, PartialEq)]
-pub struct TimedWord {
-    pub text: String,
-    pub start: f32,
-    pub end: f32,
-}
+/// A word (one or more pieces joined) with its timing, in milliseconds. The
+/// suite-wide type, owned by `rightkit-transcript`.
+pub use rightkit_transcript::TimedWord;
 
 pub fn ms_to_samples(ms: u64) -> usize {
     (SAMPLE_RATE as u64).saturating_mul(ms).saturating_div(1_000) as usize
@@ -416,7 +415,8 @@ where
 /// durations with two clamps only: never shorter than one 80 ms frame, and
 /// never past the next word's start. Real pauses are preserved.
 pub fn timed_pieces_to_words(pieces: &[TimedToken]) -> Vec<TimedWord> {
-    let mut words: Vec<TimedWord> = Vec::new();
+    // (text, start_s, end_s): clamped in engine seconds, then converted to ms.
+    let mut words: Vec<(String, f32, f32)> = Vec::new();
     let mut pending_boundary = false;
     for piece in pieces {
         let starts_word =
@@ -428,110 +428,49 @@ pub fn timed_pieces_to_words(pieces: &[TimedToken]) -> Vec<TimedWord> {
         }
         pending_boundary = false;
         if starts_word || words.is_empty() {
-            words.push(TimedWord {
-                text: clean.to_string(),
-                start: piece.start,
-                end: piece.end,
-            });
+            words.push((clean.to_string(), piece.start, piece.end));
         } else if let Some(last) = words.last_mut() {
-            last.text.push_str(clean);
-            last.end = piece.end;
+            last.0.push_str(clean);
+            last.2 = piece.end;
         }
     }
     for i in 0..words.len() {
-        let floor = words[i].start + 0.08;
-        let mut end = words[i].end.max(floor);
+        let floor = words[i].1 + 0.08;
+        let mut end = words[i].2.max(floor);
         if let Some(next) = words.get(i + 1) {
-            end = end.min(next.start.max(floor));
+            end = end.min(next.1.max(floor));
         }
-        words[i].end = end;
+        words[i].2 = end;
     }
     words
+        .into_iter()
+        .map(|(text, start, end)| TimedWord::from_seconds(text, start, end))
+        .collect()
 }
 
-/// Group words into subtitle cues. A cue closes on sentence-final punctuation
-/// (after >= 3 words), after 12 words, after 7 s, or on a > 1 s gap.
+/// Group words into subtitle cues (one [`TimedWord`] span per cue). A cue
+/// closes on sentence-final punctuation (after >= 3 words), after 12 words,
+/// after 7 s, or on a > 1 s gap. The grouping lives in
+/// `rightkit_transcript::group_words`.
 pub fn group_cues(words: &[TimedWord]) -> Vec<TimedWord> {
-    let mut cues = Vec::new();
-    let mut current: Option<TimedWord> = None;
-    let mut count = 0usize;
-    for word in words {
-        if let Some(cue) = current.as_mut() {
-            let gap = word.start - cue.end;
-            if gap > 1.0 || count >= 12 || cue.end - cue.start >= 7.0 {
-                cues.push(cue.clone());
-                current = Some(word.clone());
-                count = 1;
-            } else {
-                cue.text.push(' ');
-                cue.text.push_str(&word.text);
-                cue.end = word.end;
-                count += 1;
-            }
-        } else {
-            current = Some(word.clone());
-            count = 1;
-        }
-        if current
-            .as_ref()
-            .is_some_and(|c| c.text.ends_with(['.', '?', '!']) && count >= 3)
-        {
-            cues.push(current.take().expect("cue present"));
-            count = 0;
-        }
-    }
-    if let Some(cue) = current {
-        cues.push(cue);
-    }
-    cues
-}
-
-fn subtitle_timestamp(seconds: f32, separator: char) -> String {
-    let total_ms = (seconds.max(0.0) * 1_000.0).round() as u64;
-    format!(
-        "{:02}:{:02}:{:02}{}{:03}",
-        total_ms / 3_600_000,
-        (total_ms % 3_600_000) / 60_000,
-        (total_ms % 60_000) / 1_000,
-        separator,
-        total_ms % 1_000
-    )
+    group_words(words, &GroupRules::default())
+        .into_iter()
+        .map(|c| TimedWord::new(c.lines.join(" "), c.start_ms, c.end_ms))
+        .collect()
 }
 
 /// `(srt, vtt)` text for the cues. Zero-width cues are widened to one frame.
 pub fn render_subtitles(cues: &[TimedWord]) -> (String, String) {
-    let mut srt = String::new();
-    let mut vtt = String::from("WEBVTT\n\n");
-    for (index, cue) in cues.iter().enumerate() {
-        let end = cue.end.max(cue.start + 0.08);
-        srt.push_str(&format!(
-            "{}\n{} --> {}\n{}\n\n",
-            index + 1,
-            subtitle_timestamp(cue.start, ','),
-            subtitle_timestamp(end, ','),
-            cue.text.trim()
-        ));
-        vtt.push_str(&format!(
-            "{} --> {}\n{}\n\n",
-            subtitle_timestamp(cue.start, '.'),
-            subtitle_timestamp(end, '.'),
-            cue.text.trim()
-        ));
-    }
-    (srt, vtt)
+    let cues = cues_from_spans(cues, GroupRules::default().min_cue_ms);
+    (to_srt(&cues, Newline::Lf), to_vtt(&cues, Newline::Lf))
 }
 
 /// Timing JSON shared by every consumer: `segments` are the subtitle cues,
-/// `words` the word-level timings (for seeking / playback highlight).
+/// `words` the word-level timings (for seeking / playback highlight), times in
+/// seconds.
 pub fn render_timing_json(cues: &[TimedWord], words: &[TimedWord]) -> Option<String> {
-    let values = |items: &[TimedWord]| -> Vec<serde_json::Value> {
-        items
-            .iter()
-            .map(|w| serde_json::json!({ "text": w.text, "start": w.start, "end": w.end }))
-            .collect()
-    };
-    serde_json::to_string(&serde_json::json!({ "segments": values(cues), "words": values(words) }))
-        .ok()
+    let cues = cues_from_spans(cues, GroupRules::default().min_cue_ms);
+    Some(to_timing_json(&cues, words))
 }
 
 /// SRT, VTT and timing JSON from a decoded transcript. All `None` when there
@@ -548,12 +487,11 @@ pub fn timed_exports(pieces: &[TimedToken]) -> TimedExports {
     if words.is_empty() {
         return TimedExports::default();
     }
-    let cues = group_cues(&words);
-    let (srt, vtt) = render_subtitles(&cues);
+    let cues = group_words(&words, &GroupRules::default());
     let nonempty = |v: String| (!v.trim().is_empty() && v.trim() != "WEBVTT").then_some(v);
     TimedExports {
-        srt: nonempty(srt),
-        vtt: nonempty(vtt),
-        json: render_timing_json(&cues, &words),
+        srt: nonempty(to_srt(&cues, Newline::Lf)),
+        vtt: nonempty(to_vtt(&cues, Newline::Lf)),
+        json: Some(to_timing_json(&cues, &words)),
     }
 }

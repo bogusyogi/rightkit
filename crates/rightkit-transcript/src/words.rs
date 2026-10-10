@@ -23,6 +23,37 @@ impl TimedWord {
             end_ms,
         }
     }
+
+    /// From engine seconds. Negative or non-finite times clamp to 0; rounding
+    /// is to the nearest millisecond (the same rule as [`words_from_seconds`]).
+    pub fn from_seconds(text: impl Into<String>, start_s: f32, end_s: f32) -> Self {
+        Self::new(text, seconds_to_ms(start_s), seconds_to_ms(end_s))
+    }
+
+    /// Start in seconds.
+    pub fn start_secs(&self) -> f64 {
+        self.start_ms as f64 / 1000.0
+    }
+
+    /// End in seconds.
+    pub fn end_secs(&self) -> f64 {
+        self.end_ms as f64 / 1000.0
+    }
+}
+
+impl<T: Into<String>> From<(T, u64, u64)> for TimedWord {
+    /// `(text, start_ms, end_ms)`.
+    fn from((text, start_ms, end_ms): (T, u64, u64)) -> Self {
+        Self::new(text, start_ms, end_ms)
+    }
+}
+
+fn seconds_to_ms(s: f32) -> u64 {
+    if s.is_finite() && s > 0.0 {
+        (s as f64 * 1000.0).round() as u64
+    } else {
+        0
+    }
 }
 
 /// Engine adapter: `(text, start_seconds, end_seconds)` -> milliseconds.
@@ -31,16 +62,9 @@ impl TimedWord {
 pub fn words_from_seconds<'a>(
     items: impl IntoIterator<Item = (&'a str, f32, f32)>,
 ) -> Vec<TimedWord> {
-    let ms = |s: f32| {
-        if s.is_finite() && s > 0.0 {
-            (s as f64 * 1000.0).round() as u64
-        } else {
-            0
-        }
-    };
     items
         .into_iter()
-        .map(|(t, s, e)| TimedWord::new(t, ms(s), ms(e)))
+        .map(|(t, s, e)| TimedWord::from_seconds(t, s, e))
         .collect()
 }
 

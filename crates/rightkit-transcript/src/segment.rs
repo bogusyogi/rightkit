@@ -312,6 +312,120 @@ fn break_lines(group: &[TimedWord], cfg: &CaptionConfig) -> Vec<String> {
     }
 }
 
+/// Rules for [`group_words`], the lightweight cue grouper for engines whose
+/// words are already clean (no line breaking, no reading-speed limits). Use
+/// [`build_cues`] for caption-grade segmentation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GroupRules {
+    /// A cue closes once it holds this many words.
+    pub max_words: usize,
+    /// A cue closes once its span reaches this length.
+    pub max_span_ms: u64,
+    /// A gap larger than this between words starts a new cue.
+    pub max_gap_ms: u64,
+    /// Sentence-final punctuation (`.`, `?`, `!`) closes a cue holding at
+    /// least this many words.
+    pub sentence_min_words: usize,
+    /// Cues shorter than this are widened to it (zero-width cues never export).
+    pub min_cue_ms: u64,
+}
+
+impl Default for GroupRules {
+    /// The engine-side defaults `rightkit-asr` has always used: 12 words, 7 s,
+    /// 1 s gap, sentence close from 3 words, 80 ms floor (one encoder frame).
+    fn default() -> Self {
+        Self {
+            max_words: 12,
+            max_span_ms: 7_000,
+            max_gap_ms: 1_000,
+            sentence_min_words: 3,
+            min_cue_ms: 80,
+        }
+    }
+}
+
+fn single_line_cue(
+    text: &str,
+    start_ms: u64,
+    end_ms: u64,
+    first: usize,
+    last: usize,
+    min_cue_ms: u64,
+) -> Cue {
+    Cue {
+        start_ms,
+        end_ms: end_ms.max(start_ms + min_cue_ms),
+        lines: vec![text.trim().to_string()],
+        first_word: first,
+        last_word: last,
+    }
+}
+
+/// Groups words (in order, not re-normalised) into single-line cues by
+/// [`GroupRules`]. `first_word`/`last_word` index the input slice. A cue closes
+/// on sentence-final punctuation (after `sentence_min_words` words), at
+/// `max_words`, at `max_span_ms`, or on a gap over `max_gap_ms`.
+pub fn group_words(words: &[TimedWord], rules: &GroupRules) -> Vec<Cue> {
+    struct Open {
+        text: String,
+        start: u64,
+        end: u64,
+        first: usize,
+        last: usize,
+        count: usize,
+    }
+    let close =
+        |o: &Open| single_line_cue(&o.text, o.start, o.end, o.first, o.last, rules.min_cue_ms);
+    let open = |i: usize, w: &TimedWord| Open {
+        text: w.text.clone(),
+        start: w.start_ms,
+        end: w.end_ms,
+        first: i,
+        last: i,
+        count: 1,
+    };
+    let mut cues = Vec::new();
+    let mut current: Option<Open> = None;
+    for (i, word) in words.iter().enumerate() {
+        match current.as_mut() {
+            Some(c) => {
+                let gap_over = word.start_ms > c.end && word.start_ms - c.end > rules.max_gap_ms;
+                if gap_over || c.count >= rules.max_words || c.end - c.start >= rules.max_span_ms {
+                    cues.push(close(c));
+                    current = Some(open(i, word));
+                } else {
+                    c.text.push(' ');
+                    c.text.push_str(&word.text);
+                    c.end = word.end_ms;
+                    c.last = i;
+                    c.count += 1;
+                }
+            }
+            None => current = Some(open(i, word)),
+        }
+        if current.as_ref().is_some_and(|c| {
+            c.text.ends_with(['.', '?', '!']) && c.count >= rules.sentence_min_words
+        }) {
+            cues.push(close(&current.take().expect("cue present")));
+        }
+    }
+    if let Some(c) = current {
+        cues.push(close(&c));
+    }
+    cues
+}
+
+/// One single-line cue per span, in order (`first_word == last_word ==` the
+/// span's index), widened to `min_cue_ms`. For callers that already hold cues
+/// as [`TimedWord`] spans (text = cue text) and only need export.
+pub fn cues_from_spans(spans: &[TimedWord], min_cue_ms: u64) -> Vec<Cue> {
+    spans
+        .iter()
+        .enumerate()
+        .map(|(i, s)| single_line_cue(&s.text, s.start_ms, s.end_ms, i, i, min_cue_ms))
+        .collect()
+}
+
 /// Builds non-overlapping cues from output-time words.
 ///
 /// Every cue starts at a word start and ends at a word end, except that a cue

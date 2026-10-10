@@ -209,12 +209,9 @@ fn suite_root_tag(root: &Path) -> String {
     format!("{hash:08x}")
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct TimedWord {
-    pub text: String,
-    pub start_ms: i64,
-    pub end_ms: i64,
-}
+/// One word with its timing in milliseconds: the suite-wide type owned by
+/// `rightkit-transcript` (wire fields `text`, `start_ms`, `end_ms`, unchanged).
+pub use rightkit_transcript::TimedWord;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FileTranscript {

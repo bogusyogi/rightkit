@@ -2,6 +2,9 @@
 //! audio) flows through the contract, segmentation, SRT/VTT/JSON export and
 //! back through the importers. Content-validated, no mocks.
 //!
+//! Lives in `rightkit-asr` (not `rightkit-transcript`) because the engine
+//! depends on the contract crate.
+//!
 //! Gate: the CoreML Parakeet bundle (`RIGHTKIT_PARAKEET_COREML_DIR`, or the
 //! shared-store / HeardRight default). Missing gate FAILS unless
 //! `RIGHTKIT_ALLOW_MISSING_MODELS` is set (then SKIP is printed).
@@ -31,7 +34,7 @@ mod asr {
 
     fn audio(name: &str) -> (Vec<f32>, u64) {
         let p = Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../rightkit-asr/tests/fixtures")
+            .join("tests/fixtures")
             .join(name);
         let mut r = hound::WavReader::open(p).unwrap();
         assert_eq!((r.spec().sample_rate, r.spec().channels), (16_000, 1));
@@ -66,7 +69,7 @@ mod asr {
         );
 
         // Engine -> contract.
-        let timed = words_from_seconds(asr_words.iter().map(|w| (w.text.as_str(), w.start, w.end)));
+        let timed = asr_words.clone();
         let tr = Transcript::from_words(
             &timed,
             "en",

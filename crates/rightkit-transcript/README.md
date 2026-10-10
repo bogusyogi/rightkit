@@ -9,15 +9,15 @@ Product-neutral word-timed transcript contract for Right Suite applications. It 
 ## Public surface
 
 - Contract: `Transcript`, `Word`, `Span`, `ModelRef`, `EndSource`, `TranscriptError`, `SCHEMA`, `LEGACY_SCHEMA`.
-- Words: `words_from_seconds`, `words_from_transcript`, `TimedWord`, `MAP_DURATION_TOLERANCE_MS`.
-- Segmentation: `normalize_words`, `build_cues`, `CaptionConfig`, `Cue`, `Profile`.
+- Words: `words_from_seconds`, `words_from_transcript`, `TimedWord` (`new`, `from_seconds`, `start_secs`, `end_secs`, `From<(text, start_ms, end_ms)>`), `MAP_DURATION_TOLERANCE_MS`.
+- Segmentation: `normalize_words`, `build_cues`, `CaptionConfig`, `Cue`, `Profile`; lightweight engine-side grouping `group_words`, `GroupRules`, `cues_from_spans`.
 - Alignment: `check_alignment`, `AlignmentIssue`, `ALIGNMENT_TOLERANCE_MS`.
 - Export: `to_srt`, `to_vtt`, `to_plain_text`, `to_timing_json`, `Newline`.
 - Parsing: `parse_srt`, `parse_vtt`, `parse_timing_json`, `words_from_cues`, `ParsedCue`, `ParseError`.
 
 ## Features
 
-One test-only feature, `asr-roundtrip`, which enables the engine-backed end-to-end test in `tests/asr_roundtrip.rs` (pulls `rightkit-asr`). It is off by default. Dependencies: `serde`, `serde_json`, `thiserror`.
+No features. Dependencies: `serde`, `serde_json`, `thiserror`.
 
 ## Platform support
 
@@ -27,7 +27,7 @@ Release notes: see `CHANGELOG.md` in this crate. The crate is published to crate
 
 ## Example
 
-Illustrative; not compiled as a doctest. For compiled round trips, see `tests/roundtrip.rs`; the engine-backed round trip is `tests/asr_roundtrip.rs` (run with `--features asr-roundtrip`).
+Illustrative; not compiled as a doctest. For compiled round trips, see `tests/roundtrip.rs`; the engine-backed round trip lives in `rightkit-asr` (`tests/transcript_roundtrip.rs`), because `rightkit-asr` depends on this crate.
 
 ```rust,ignore
 use rightkit_transcript::{build_cues, parse_srt, to_srt, words_from_seconds, CaptionConfig, Newline};

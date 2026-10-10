@@ -63,10 +63,10 @@ fn rightkit_asr_matches_installed_heardright() {
             .unwrap();
         let ours_words: Vec<(String, i64, i64)> = longform::timed_pieces_to_words(&ours.tokens)
             .into_iter()
-            .map(|w| (w.text.trim().to_string(), (w.start * 1000.0).round() as i64, (w.end * 1000.0).round() as i64))
+            .map(|w| (w.text.trim().to_string(), w.start_ms as i64, w.end_ms as i64))
             .collect();
         let theirs_words: Vec<(String, i64, i64)> =
-            theirs.words.iter().map(|w| (w.text.trim().to_string(), w.start_ms, w.end_ms)).collect();
+            theirs.words.iter().map(|w| (w.text.trim().to_string(), w.start_ms as i64, w.end_ms as i64)).collect();
         // HeardRight's file text is polished after decoding (digits, line breaks); the word
         // list is the decoder's own output, so words + timings are the decoder parity check.
         let norm = |t: &str| t.split_whitespace().collect::<Vec<_>>().join(" ");

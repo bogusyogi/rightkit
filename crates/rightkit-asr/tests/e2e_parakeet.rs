@@ -320,7 +320,7 @@ mod coreml {
         assert_keywords(&srt, SHORT);
         assert!(srt.contains(" --> ") && ex.vtt.unwrap().starts_with("WEBVTT"));
         let words = longform::timed_pieces_to_words(&r.tokens);
-        assert!(words.windows(2).all(|p| p[0].end <= p[1].start + 1e-4), "word ends are clamped to the next start");
+        assert!(words.windows(2).all(|p| p[0].end_ms <= p[1].start_ms), "word ends are clamped to the next start");
     }
 
     #[test]
@@ -565,7 +565,7 @@ mod coreml {
             longform::timed_pieces_to_words(&r.tokens)
                 .into_iter()
                 .filter(|w| !matches!(w.text.trim().trim_matches(|c: char| !c.is_alphanumeric()).to_lowercase().as_str(), "um" | "uh"))
-                .map(|w| (w.start * 1000.0).round() as i64)
+                .map(|w| w.start_ms as i64)
                 .collect::<Vec<_>>()
         };
         assert_eq!(timed(&raw), timed(&clean), "non-filler word starts are the model's in both modes");

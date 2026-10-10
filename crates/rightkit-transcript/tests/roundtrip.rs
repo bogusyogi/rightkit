@@ -1,6 +1,6 @@
 //! Subtitle and transcript contract round trips that need no ASR engine.
-//! The engine-backed end-to-end test lives in `asr_roundtrip.rs` and runs only
-//! with `--features asr-roundtrip`.
+//! The engine-backed end-to-end test lives in `rightkit-asr`
+//! (`tests/transcript_roundtrip.rs`).
 use rightkit_transcript::*;
 
 #[test]
