@@ -17,7 +17,7 @@ inference = ["dep:rightkit-ort", "dep:tokenizers", "dep:rightkit-fs", "dep:serde
 vector = ["dep:rusqlite", "dep:rightkit-db"]
 
 [dependencies]
-rightkit-db = { version = "0.3", path = "../rightkit-db", default-features = false, optional = true }
+rightkit-db = { version = "0.4", path = "../rightkit-db", default-features = false, optional = true }
 rightkit-fs = { version = "0.3", path = "../rightkit-fs", default-features = false, features = ["digest"], optional = true }
 rightkit-ort = { version = "0.2.2", path = "../rightkit-ort", optional = true }
 rusqlite = { version = "0.40.1", default-features = false, optional = true }

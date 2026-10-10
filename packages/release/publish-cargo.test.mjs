@@ -24,6 +24,7 @@ test("cargo publish plan always runs local safety gates before upload", () => {
   const plan = buildCargoPublishPlan({ crate: "rightkit-license", crateDir: "C:/rightkit/crates/rightkit-license", dryRun: false });
   assert.deepEqual(plan.map((step) => step.label), [
     "secret scan",
+    "runtime budget",
     "format",
     "tests",
     "clippy",
@@ -99,6 +100,40 @@ test("Cargo publisher packages, checks evidence hash, publishes through same run
   const result = await runCargoPublish(fx.options, fx.execute, fx.deps);
   assert.deepEqual(fx.events, ["package", "hash check", "publish", "readback"]);
   assert.deepEqual(result, { name: fx.name, version: fx.version, sha256: fx.evidence.artifactSha256 });
+});
+
+test("runtime-budget crate without a budget section is refused before packaging or upload", async (t) => {
+  const fx = fixture(t);
+  const crateDir = path.join(fx.root, "crates", fx.name);
+  writeFileSync(path.join(crateDir, "Cargo.toml"), `[package]\nname = "${fx.name}"\nversion = "${fx.version}"\n[package.metadata.rightkit]\nruntime_budget = true\n`);
+  writeFileSync(path.join(crateDir, "README.md"), "# fixture\n\n## Runtime budget\n\n- Resident memory: 40 MB per 1,000 entries\n");
+  await assert.rejects(runCargoPublish(fx.options, fx.execute, fx.deps), (error) => {
+    assert.equal(error.code, "RUNTIME_BUDGET_MISSING");
+    assert.match(error.message, /runtime budget refused/);
+    assert.match(error.message, /has no CPU line/);
+    assert.match(error.message, /has no "Measured" line/);
+    return true;
+  });
+  assert.deepEqual(fx.events, []);
+});
+
+test("runtime-budget crate dry-run reports the failing check and still validates", async (t) => {
+  const fx = fixture(t);
+  const crateDir = path.join(fx.root, "crates", fx.name);
+  writeFileSync(path.join(crateDir, "Cargo.toml"), `[package]\nname = "${fx.name}"\nversion = "${fx.version}"\n[package.metadata.rightkit]\nruntime_budget = true\n`);
+  writeFileSync(path.join(crateDir, "README.md"), "# fixture\n");
+  const lines = [];
+  const write = process.stdout.write.bind(process.stdout);
+  process.stdout.write = (chunk) => { lines.push(String(chunk)); return true; };
+  let result;
+  try {
+    result = await runCargoPublish({ ...fx.options, dryRun: true }, fx.execute, fx.deps);
+  } finally {
+    process.stdout.write = write;
+  }
+  assert.deepEqual(result, { name: fx.name, version: fx.version, dryRun: true });
+  assert.match(lines.join(""), /\[FAIL\] runtime-budget: rightkit-fixture: .*"## Runtime budget"/);
+  assert.deepEqual(fx.events, []);
 });
 
 test("archive hash mismatch refuses publication before Cargo upload or readback", async (t) => {

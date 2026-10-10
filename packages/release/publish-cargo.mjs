@@ -7,6 +7,8 @@ import { runCargoSync } from "./managed-cargo.mjs";
 import { readVerifiedArtifact, assertArtifactUnchanged } from "./publication-artifacts.mjs";
 import { verifyCargoRegistry } from "./cargo-registry-readback.mjs";
 import { recordPublished } from "./rightkit-sync.mjs";
+import { runtimeBudgetCheck, RUNTIME_BUDGET_CODE } from "./runtime-budgets.mjs";
+import { formatPreflight, PREFLIGHT_FAIL } from "./preflight.mjs";
 
 const FORBIDDEN_PACKAGE_PATH = /(^|\/)(?:\.env(?:\.[^/]*)?|target(?:\/.*)?|node_modules(?:\/.*)?|[^/]+\.(?:p8|p12|pem|key))$/i;
 const SECRET_PATTERNS = [
@@ -46,6 +48,9 @@ export function buildCargoPublishPlan({ crate, crateDir, dryRun, allowDirty = fa
   if (allowDirty) packageArgs.push("--allow-dirty");
   const plan = [
     { label: "secret scan", internal: "secret-scan", crateDir },
+    // Runtime-budget crates (runtime-budgets.mjs) must declare their budget in README.md. Dry-run
+    // reports the check; a real publish refuses it.
+    { label: "runtime budget", internal: "runtime-budget", crate, crateDir },
     { label: "format", command: "cargo", args: ["fmt", "-p", crate, "--check"] },
     { label: "tests", command: "cargo", args: ["test", "-p", crate, "--", "--test-threads=1"] },
     { label: "clippy", command: "cargo", args: ["clippy", "-p", crate, "--all-targets", "--", "-D", "warnings"] },
@@ -108,6 +113,16 @@ export async function runCargoPublish(options, execute = (_command, args, settin
     if (step.internal === "secret-scan") {
       const violations = scanCrateForSecrets(crateDir);
       if (violations.length) throw new Error(`secret scan rejected: ${violations.join(", ")}`);
+      continue;
+    }
+    if (step.internal === "runtime-budget") {
+      const check = runtimeBudgetCheck({ crate: options.crate, crateDir });
+      if (check) process.stdout.write(`${formatPreflight([check])}\n`);
+      if (check?.status === PREFLIGHT_FAIL && !options.dryRun) {
+        const error = new Error(`runtime budget refused: ${check.detail}. Fix: ${check.fix}`);
+        error.code = RUNTIME_BUDGET_CODE;
+        throw error;
+      }
       continue;
     }
     if (step.internal === "verify-archive") {

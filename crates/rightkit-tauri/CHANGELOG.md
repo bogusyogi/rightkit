@@ -2,7 +2,11 @@
 
 Version dates are the dates of the version-bump commits. Publication dates are not recorded in git.
 
-## Unreleased
+## 0.1.3 — unreleased
+
+- Requires `rightkit-logs` 0.2.2 (tracing feature release); no API change.
+
+### Earlier unreleased notes
 
 Changed:
 - Ownership declaration gains fingerprints for declaration-only capabilities, at the advise tier (`bbd385ed`). `rightkit-ownership.json` only; crate code is unchanged.
