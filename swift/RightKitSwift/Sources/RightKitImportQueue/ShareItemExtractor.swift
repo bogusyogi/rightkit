@@ -115,24 +115,59 @@ public struct ShareItemExtractor {
         }
     }
 
+    /// Copies `url` into the staging directory under a hard byte cap. The pre-copy size is only a
+    /// fast reject: it can be missing or wrong (pipes, providers, a file that grows), so the cap is
+    /// enforced on the bytes actually copied. Bytes go to a unique partial file that is removed on
+    /// any failure and published with an atomic rename, so no oversized or partial item survives.
     nonisolated static func stageExternalFile(from url: URL, fileExtension: String, configuration: ShareIntakeConfiguration) throws -> URL {
         let scoped = url.startAccessingSecurityScopedResource()
         defer { if scoped { url.stopAccessingSecurityScopedResource() } }
-        // A missing size (a non-file URL) is allowed: the copy still bounds container use and a
-        // failed copy cleans up.
         if let size = try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize, size > configuration.maxFileBytes {
             throw CocoaError(.fileReadTooLarge)
         }
         let root = configuration.containerRoot ?? FileManager.default.temporaryDirectory
         let directory = root.appendingPathComponent(configuration.stagingDirectoryName, isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        let destination = directory.appendingPathComponent("\(UUID().uuidString).\(fileExtension)")
+        let name = UUID().uuidString
+        let partial = directory.appendingPathComponent(".\(name).partial")
+        let destination = directory.appendingPathComponent("\(name).\(fileExtension)")
         do {
-            try FileManager.default.copyItem(at: url, to: destination)
+            try boundedCopy(from: url, to: partial, maxBytes: configuration.maxFileBytes)
+            // rename(2) publishes the complete file in one atomic step.
+            guard rename(partial.path, destination.path) == 0 else { throw CocoaError(.fileWriteUnknown) }
             return destination
         } catch {
-            try? FileManager.default.removeItem(at: destination)
+            try? FileManager.default.removeItem(at: partial)
             throw error
         }
+    }
+
+    /// Streams `source` into a new file at `destination`, never writing more than `maxBytes + 1`
+    /// bytes before failing with `.fileReadTooLarge`.
+    nonisolated static func boundedCopy(from source: URL, to destination: URL, maxBytes: Int) throws {
+        let input = try FileHandle(forReadingFrom: source)
+        defer { try? input.close() }
+        let fd = open(destination.path, O_WRONLY | O_CREAT | O_EXCL, 0o600)
+        guard fd >= 0 else { throw CocoaError(.fileWriteUnknown) }
+        defer { close(fd) }
+        let chunk = 64 * 1024
+        var total = 0
+        while true {
+            // Never ask for more than one byte past the cap: reaching it proves the source is over.
+            let want = min(chunk, maxBytes - total + 1)
+            guard let data = try input.read(upToCount: max(want, 1)), !data.isEmpty else { break }
+            total += data.count
+            if total > maxBytes { throw CocoaError(.fileReadTooLarge) }
+            try data.withUnsafeBytes { raw in
+                var offset = 0
+                while offset < raw.count {
+                    let n = write(fd, raw.baseAddress! + offset, raw.count - offset)
+                    if n < 0 && errno == EINTR { continue }
+                    guard n > 0 else { throw CocoaError(.fileWriteUnknown) }
+                    offset += n
+                }
+            }
+        }
+        guard fsync(fd) == 0 else { throw CocoaError(.fileWriteUnknown) }
     }
 }

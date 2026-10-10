@@ -99,3 +99,43 @@ private func config(legacyKey: String? = nil, maxFileBytes: Int = 1_000) -> Shar
     queue.faultInjection = nil
     #expect(try queue.pending().map(\.id) == [good.id])
 }
+
+private func stagedEntries(_ cfg: ShareIntakeConfiguration) -> [String] {
+    let dir = cfg.rootOverride!.appendingPathComponent(cfg.stagingDirectoryName)
+    return ((try? FileManager.default.contentsOfDirectory(atPath: dir.path)) ?? []).sorted()
+}
+
+@Test func stagingEnforcesTheCapOnCopiedBytesWhenThePreCopySizeIsUnknown() throws {
+    let cfg = config(maxFileBytes: 1_000)
+    // A FIFO reports size 0 up front, so only the byte-counted copy can notice it is over the cap.
+    let fifo = FileManager.default.temporaryDirectory.appendingPathComponent("rk-fifo-\(UUID().uuidString)")
+    #expect(mkfifo(fifo.path, 0o600) == 0)
+    defer { try? FileManager.default.removeItem(at: fifo) }
+    signal(SIGPIPE, SIG_IGN)  // the copy stops reading at the cap, closing the pipe under the writer
+    let writer = Thread {
+        guard let handle = FileHandle(forWritingAtPath: fifo.path) else { return }
+        try? handle.write(contentsOf: Data(repeating: 9, count: 10_000))
+        try? handle.close()
+    }
+    writer.start()
+    #expect(throws: CocoaError.self) {
+        try ShareItemExtractor.stageExternalFile(from: fifo, fileExtension: "bin", configuration: cfg)
+    }
+    #expect(stagedEntries(cfg).isEmpty, "an over-cap stream must leave no staged or partial file")
+}
+
+@Test func stagingLeavesNothingBehindWhenTheCopyFailsAndStillStagesOrdinaryFiles() throws {
+    let cfg = config(maxFileBytes: 1_000)
+    let missing = FileManager.default.temporaryDirectory.appendingPathComponent("rk-missing-\(UUID().uuidString)")
+    #expect(throws: (any Error).self) {
+        try ShareItemExtractor.stageExternalFile(from: missing, fileExtension: "bin", configuration: cfg)
+    }
+    #expect(stagedEntries(cfg).isEmpty)
+
+    let exact = FileManager.default.temporaryDirectory.appendingPathComponent("rk-exact-\(UUID().uuidString)")
+    try Data(repeating: 1, count: 1_000).write(to: exact)
+    defer { try? FileManager.default.removeItem(at: exact) }
+    let staged = try ShareItemExtractor.stageExternalFile(from: exact, fileExtension: "bin", configuration: cfg)
+    #expect(try Data(contentsOf: staged).count == 1_000, "a file exactly at the cap stages intact")
+    #expect(stagedEntries(cfg) == [staged.lastPathComponent], "only the published file remains")
+}

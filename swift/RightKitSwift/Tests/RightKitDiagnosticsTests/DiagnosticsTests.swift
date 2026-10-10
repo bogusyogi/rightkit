@@ -90,3 +90,53 @@ private func scratchURL() -> URL {
     #expect(lines.count == 2)
     #expect(lines.allSatisfy { $0.contains("\"event\"") })
 }
+
+/// Runs `body(index)` on `count` concurrent threads and waits for all of them.
+private func concurrently(_ count: Int, _ body: @escaping @Sendable (Int) -> Void) {
+    let group = DispatchGroup()
+    for index in 0..<count {
+        group.enter()
+        Thread { body(index); group.leave() }.start()
+    }
+    group.wait()
+}
+
+@Test func concurrentWritersOnOnePathLoseNoRecords() {
+    let url = scratchURL()
+    // Separate store values on one path model separate writers (extension, app, helper).
+    concurrently(8) { writer in
+        let store = JSONLDiagnosticStore(fileURL: url, now: { Date(timeIntervalSince1970: 0) })
+        for index in 0..<40 { store.record(DiagnosticEvent(name: "w\(writer)", fields: ["i": String(index)])) }
+    }
+    let lines = JSONLDiagnosticStore(fileURL: url).validLines()
+    #expect(lines.count == 8 * 40, "every committed record survives concurrent appends")
+}
+
+@Test func concurrentWritersWithForcedTrimsLeaveOnlyReadableCommittedLines() throws {
+    let url = scratchURL()
+    // 512-byte cap forces many trims while eight writers append.
+    concurrently(8) { writer in
+        let store = JSONLDiagnosticStore(fileURL: url, maxBytes: 512, now: { Date(timeIntervalSince1970: 0) })
+        for index in 0..<60 { store.record(DiagnosticEvent(name: "w\(writer)", fields: ["i": String(index)])) }
+    }
+    let raw = try String(contentsOf: url, encoding: .utf8).split(separator: "\n", omittingEmptySubsequences: true)
+    let store = JSONLDiagnosticStore(fileURL: url, maxBytes: 512)
+    #expect(!raw.isEmpty)
+    #expect(raw.count == store.validLines().count, "a trim or interleaved write left a fragment")
+    let size = try #require((try? FileManager.default.attributesOfItem(atPath: url.path))?[.size] as? NSNumber)
+    #expect(size.intValue <= 512 * 2)
+}
+
+@Test func aRecordAfterAnInterruptedWriterIsNotGluedToTheFragment() throws {
+    let url = scratchURL()
+    let store = JSONLDiagnosticStore(fileURL: url, now: { Date(timeIntervalSince1970: 0) })
+    store.record(DiagnosticEvent(name: "first"))
+    let handle = try FileHandle(forWritingTo: url)
+    try handle.seekToEnd()
+    try handle.write(contentsOf: Data("{\"event\":\"tor".utf8))
+    try handle.close()
+    store.record(DiagnosticEvent(name: "second"))
+    let events = store.validLines()
+    #expect(events.count == 2 && events.last?.contains("\"event\":\"second\"") == true,
+            "the committed record after a torn write stays recoverable")
+}

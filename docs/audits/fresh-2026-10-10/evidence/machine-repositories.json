@@ -1,0 +1,236 @@
+{
+  "roots": [
+    "/Volumes/D",
+    "/Users/adrdsouza/claude",
+    "/Users/adrdsouza/Documents",
+    "/Users/adrdsouza/Desktop",
+    "/Users/adrdsouza/sync",
+    "/Users/adrdsouza/CodeBuddy",
+    "/Users/adrdsouza/Hyperframes"
+  ],
+  "excluded_directory_names": [
+    ".build",
+    ".git",
+    ".venv",
+    "Claude-review-trash",
+    "Downloads",
+    "Keychains-backup-20261001",
+    "Library",
+    "Recovery",
+    "adrdsouza-cargo-home-20260726",
+    "adrdsouza-home-cache-20260726",
+    "adrdsouza-npm-cache-20260726",
+    "apple-skill-sources",
+    "archive",
+    "build",
+    "dist",
+    "node_modules",
+    "repos",
+    "target",
+    "tart-home",
+    "tmp",
+    "transcripts",
+    "vendor"
+  ],
+  "depth_limit": 4,
+  "repos": [
+    {
+      "root": "/Volumes/D/rightkit-publish/claude",
+      "realpath": "/Volumes/D/rightkit-publish/claude",
+      "origin": "git@github.com:bogusyogi/claude.git",
+      "head": "0985ea43cdb57219ac77ace18d136fbd75b6abe3"
+    },
+    {
+      "root": "/Volumes/D/rightkit-publish/claude/rightkit",
+      "realpath": "/Volumes/D/rightkit-publish/claude/rightkit",
+      "origin": "git@github.com:bogusyogi/rightkit.git",
+      "head": "08252a681d9f9dc2911962a49fa0026a4c345dff"
+    },
+    {
+      "root": "/Volumes/D/claude",
+      "realpath": "/Volumes/D/claude",
+      "origin": "git@github.com:bogusyogi/claude.git",
+      "head": "0a4916a649c72a9951d3ee96a251a468efbed2a1"
+    },
+    {
+      "root": "/Volumes/D/claude/cutright",
+      "realpath": "/Volumes/D/claude/cutright",
+      "origin": "git@github.com:bogusyogi/CutRight.git",
+      "head": "532fadfcc56c6d42c0a7c318438f4a345de0deda"
+    },
+    {
+      "root": "/Volumes/D/claude/postright",
+      "realpath": "/Volumes/D/claude/postright",
+      "origin": "git@github.com:bogusyogi/postright.git",
+      "head": "db0276f062d2ba9e2fa72522e0faec654b5a67b9"
+    },
+    {
+      "root": "/Volumes/D/claude/genright",
+      "realpath": "/Volumes/D/claude/genright",
+      "origin": "git@github.com:bogusyogi/genright.git",
+      "head": "8463e35e6e77402cb35ab0d23e027d6f3c832518"
+    },
+    {
+      "root": "/Volumes/D/claude/sellright",
+      "realpath": "/Volumes/D/claude/sellright",
+      "origin": "git@github.com:Orthic-Labs/sellright.git",
+      "head": "8774314134ade8f6197e9791d112382ea13078e2"
+    },
+    {
+      "root": "/Volumes/D/claude/voiceright",
+      "realpath": "/Volumes/D/claude/voiceright",
+      "origin": "git@github.com:bogusyogi/voiceright.git",
+      "head": "c42cf611f04355e666523ae7d3e6c2a9210a4cea"
+    },
+    {
+      "root": "/Volumes/D/claude/scraperight",
+      "realpath": "/Volumes/D/claude/scraperight",
+      "origin": "git@github.com:bogusyogi/scraperight.git",
+      "head": "4dc55e40d9c0d4ca612f26e9eb5ba2995a81c3ab"
+    },
+    {
+      "root": "/Volumes/D/claude/rustright",
+      "realpath": "/Volumes/D/claude/rustright",
+      "origin": "git@github.com:bogusyogi/rustright.git",
+      "head": "d18cc9c8ab6f6b9d8c5385bdb8904f7807db6b86"
+    },
+    {
+      "root": "/Volumes/D/claude/pulse",
+      "realpath": "/Volumes/D/claude/pulse",
+      "origin": "https://github.com/Orthic-Labs/pulse.git",
+      "head": "42280b3c8eb7c28a5a6fe36274c2e1a1a11db552"
+    },
+    {
+      "root": "/Volumes/D/claude/workflows",
+      "realpath": "/Volumes/D/claude/workflows",
+      "origin": "https://github.com/bogusyogi/workflows.git",
+      "head": "0cc72e7ae028bdb4cf53690814ed1e033a1b96e6"
+    },
+    {
+      "root": "/Volumes/D/claude/workflows/lightcraft",
+      "realpath": "/Volumes/D/claude/workflows/lightcraft",
+      "origin": "git@github.com:Orthic-Labs/lightcraft.git",
+      "head": "fd6a998949072a5343e982cb99bdbe5815433cc5"
+    },
+    {
+      "root": "/Volumes/D/claude/workflows/freecad",
+      "realpath": "/Volumes/D/claude/workflows/freecad",
+      "origin": "git@github.com:bogusyogi/FreeCAD.git",
+      "head": "fe1bdd2aa0f72b31a1f1dd97211dfd6e587fb1d3"
+    },
+    {
+      "root": "/Volumes/D/claude/workflows/seo",
+      "realpath": "/Volumes/D/claude/workflows/seo",
+      "origin": "git@github.com:bogusyogi/SEO.git",
+      "head": "be14bf9b23f56e96c3b170b91436f12effacaa3a"
+    },
+    {
+      "root": "/Volumes/D/claude/rightkit",
+      "realpath": "/Volumes/D/claude/rightkit",
+      "origin": "git@github.com:bogusyogi/rightkit.git",
+      "head": "08252a681d9f9dc2911962a49fa0026a4c345dff"
+    },
+    {
+      "root": "/Volumes/D/claude/mailright",
+      "realpath": "/Volumes/D/claude/mailright",
+      "origin": "git@github.com:bogusyogi/mailright.git",
+      "head": "4deba6349d33cb8e6309ad943517a4c0fde518b5"
+    },
+    {
+      "root": "/Volumes/D/claude/workright",
+      "realpath": "/Volumes/D/claude/workright",
+      "origin": "git@github.com:bogusyogi/workright.git",
+      "head": "f4a27f8099456893aa74e7ec87a13f68c6765065"
+    },
+    {
+      "root": "/Volumes/D/claude/xtool",
+      "realpath": "/Volumes/D/claude/xtool",
+      "origin": "git@github.com:bogusyogi/xtool.git",
+      "head": "17dcc15c67b43464850ed24f5d36b096ebdc9f4f"
+    },
+    {
+      "root": "/Volumes/D/claude/viewright",
+      "realpath": "/Volumes/D/claude/viewright",
+      "origin": "git@github.com:bogusyogi/viewright.git",
+      "head": "27249b78b0402563549c12de13f1f7ef5ce38089"
+    },
+    {
+      "root": "/Volumes/D/claude/rightsites",
+      "realpath": "/Volumes/D/claude/rightsites",
+      "origin": "git@github.com:bogusyogi/rightsites.git",
+      "head": "6612d4de5b09509cb0a37c1a6f1118533ed2aa96"
+    },
+    {
+      "root": "/Volumes/D/claude/coderight",
+      "realpath": "/Volumes/D/claude/coderight",
+      "origin": "git@github.com:bogusyogi/coderight.git",
+      "head": "f96b73921ea67326df71f42954db9e88f5c673cf"
+    },
+    {
+      "root": "/Volumes/D/claude/legion",
+      "realpath": "/Volumes/D/claude/legion",
+      "origin": "git@github.com:Orthic-Labs/legion.git",
+      "head": "c8a899cf2edfd123c7299fcebab724832cd85082"
+    },
+    {
+      "root": "/Volumes/D/claude/swiftright",
+      "realpath": "/Volumes/D/claude/swiftright",
+      "origin": "git@github.com:bogusyogi/swiftright.git",
+      "head": "820eb26c7bebe78e5253ffada6c2e7451701e489"
+    },
+    {
+      "root": "/Volumes/D/claude/heardright",
+      "realpath": "/Volumes/D/claude/heardright",
+      "origin": "git@github.com:bogusyogi/heardright.git",
+      "head": "c87afb5ed3af9f9730b50e8b725d305aa386f6d9"
+    },
+    {
+      "root": "/Volumes/D/claude/heardright-release-0.1.167",
+      "realpath": "/Volumes/D/claude/heardright-release-0.1.167",
+      "origin": "/Volumes/D/claude/heardright",
+      "head": "f5ee55ee303634be10b8f68dd8cf4cf4b9bfec00"
+    },
+    {
+      "root": "/Volumes/D/worktrees/membrane-main-f602-baseline",
+      "realpath": "/Volumes/D/worktrees/membrane-main-f602-baseline",
+      "origin": "",
+      "head": ""
+    },
+    {
+      "root": "/Volumes/D/worktrees/membrane-blueprint-findings",
+      "realpath": "/Volumes/D/worktrees/membrane-blueprint-findings",
+      "origin": "",
+      "head": ""
+    },
+    {
+      "root": "/Volumes/D/worktrees/membrane-live-diagnostics-phase1-repair",
+      "realpath": "/Volumes/D/worktrees/membrane-live-diagnostics-phase1-repair",
+      "origin": "",
+      "head": ""
+    },
+    {
+      "root": "/Volumes/D/sr0-build/r3-final-011",
+      "realpath": "/Volumes/D/sr0-build/r3-final-011",
+      "origin": "https://github.com/bogusyogi/swiftright",
+      "head": "c946d1d432b02faaa5d3851d20a19a4fa75a0142"
+    },
+    {
+      "root": "/Volumes/D/sr0-build/r3-final",
+      "realpath": "/Volumes/D/sr0-build/r3-final",
+      "origin": "git@github.com:bogusyogi/swiftright.git",
+      "head": "4496474d652aee1ed211a882a6a4c775e413088b"
+    },
+    {
+      "root": "/Users/adrdsouza/Documents/Codex/2026-10-07/https-github-com-storytold-lightcraft-can/source",
+      "realpath": "/Users/adrdsouza/Documents/Codex/2026-10-07/https-github-com-storytold-lightcraft-can/source",
+      "origin": "https://github.com/storytold/lightcraft.git",
+      "head": "2fef37a4c466acd8c0ae88a1ac5a1d0e1218dbc0"
+    },
+    {
+      "root": "/Users/adrdsouza/Documents/Codex/2026-10-07/https-github-com-storytold-lightcraft-can/craft-fonts",
+      "realpath": "/Users/adrdsouza/Documents/Codex/2026-10-07/https-github-com-storytold-lightcraft-can/craft-fonts",
+      "origin": "https://github.com/storytold/craft-fonts.git",
+      "head": "8dcdacd5153e64560d109541a47d806f26f048c0"
+    }
+  ]
+}

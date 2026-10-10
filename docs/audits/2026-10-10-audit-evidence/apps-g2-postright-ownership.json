@@ -1,0 +1,650 @@
+{
+  "ok": true,
+  "rows": [
+    {
+      "capability": "agent-room",
+      "owner": "agent-room-core",
+      "owners": [
+        "agent-room-core",
+        "@rightkit/agent-room-mcp"
+      ],
+      "uses": false,
+      "status": "not-detected",
+      "count": 0,
+      "root": "."
+    },
+    {
+      "capability": "agent-tools",
+      "owner": "rightkit-agent-tools",
+      "uses": false,
+      "status": "not-detected",
+      "count": 0,
+      "root": "."
+    },
+    {
+      "capability": "script-alignment",
+      "owner": "rightkit-align",
+      "uses": false,
+      "status": "not-detected",
+      "count": 0,
+      "root": "."
+    },
+    {
+      "capability": "speech-recognition",
+      "owner": "rightkit-asr",
+      "uses": false,
+      "status": "not-detected",
+      "count": 0,
+      "root": "."
+    },
+    {
+      "capability": "audio",
+      "owner": "rightkit-audio",
+      "uses": false,
+      "status": "not-detected",
+      "count": 0,
+      "root": "."
+    },
+    {
+      "capability": "desktop-automation",
+      "owner": "rightkit-automation",
+      "uses": false,
+      "status": "not-detected",
+      "count": 0,
+      "root": "."
+    },
+    {
+      "capability": "browser-automation",
+      "owner": "rightkit-browser",
+      "uses": false,
+      "status": "not-detected",
+      "count": 0,
+      "root": "."
+    },
+    {
+      "capability": "disk-cache",
+      "owner": "rightkit-cache",
+      "uses": false,
+      "status": "not-detected",
+      "count": 0,
+      "root": "."
+    },
+    {
+      "capability": "channel-memory",
+      "owner": "rightkit-channel-memory",
+      "uses": false,
+      "status": "not-detected",
+      "count": 0,
+      "root": "."
+    },
+    {
+      "capability": "composition-model",
+      "owner": "rightkit-compose",
+      "uses": false,
+      "status": "not-detected",
+      "count": 0,
+      "root": "."
+    },
+    {
+      "capability": "content-contracts",
+      "owner": "rightkit-contracts",
+      "uses": false,
+      "status": "not-detected",
+      "count": 0,
+      "root": "."
+    },
+    {
+      "capability": "desktop-control",
+      "owner": "rightkit-control",
+      "uses": false,
+      "status": "not-detected",
+      "count": 0,
+      "root": "."
+    },
+    {
+      "capability": "crash-reporting",
+      "owner": "rightkit-crash",
+      "uses": false,
+      "status": "not-detected",
+      "count": 0,
+      "root": "."
+    },
+    {
+      "capability": "daemon-host",
+      "owner": "rightkit-daemon",
+      "uses": false,
+      "status": "not-detected",
+      "count": 0,
+      "root": "."
+    },
+    {
+      "capability": "sqlite-storage",
+      "owner": "rightkit-db",
+      "uses": false,
+      "status": "not-detected",
+      "count": 0,
+      "root": "."
+    },
+    {
+      "capability": "embeddings",
+      "owner": "rightkit-embed",
+      "uses": false,
+      "status": "not-detected",
+      "count": 0,
+      "root": "."
+    },
+    {
+      "capability": "framed-sidecar",
+      "owner": "rightkit-framed-sidecar",
+      "uses": false,
+      "status": "not-detected",
+      "count": 0,
+      "root": "."
+    },
+    {
+      "capability": "safe-filesystem",
+      "owner": "rightkit-fs",
+      "uses": false,
+      "status": "not-detected",
+      "count": 0,
+      "root": "."
+    },
+    {
+      "capability": "file-index",
+      "owner": "rightkit-fsindex",
+      "uses": false,
+      "status": "not-detected",
+      "count": 0,
+      "root": "."
+    },
+    {
+      "capability": "global-hotkeys",
+      "owner": "rightkit-hotkeys",
+      "uses": false,
+      "status": "not-detected",
+      "count": 0,
+      "root": "."
+    },
+    {
+      "capability": "http-client",
+      "owner": "rightkit-http",
+      "uses": false,
+      "status": "not-detected",
+      "count": 0,
+      "root": "."
+    },
+    {
+      "capability": "persistent-jobs",
+      "owner": "rightkit-jobs",
+      "uses": false,
+      "status": "not-detected",
+      "count": 0,
+      "root": "."
+    },
+    {
+      "capability": "licensing",
+      "owner": "rightkit-license",
+      "owners": [
+        "rightkit-license",
+        "@rightkit/license"
+      ],
+      "uses": false,
+      "status": "not-detected",
+      "count": 0,
+      "root": "."
+    },
+    {
+      "capability": "llm-providers",
+      "owner": "rightkit-llm",
+      "uses": false,
+      "status": "not-detected",
+      "count": 0,
+      "root": "."
+    },
+    {
+      "capability": "structured-logging",
+      "owner": "rightkit-logs",
+      "owners": [
+        "rightkit-logs",
+        "@rightkit/logs"
+      ],
+      "uses": false,
+      "status": "not-detected",
+      "count": 0,
+      "root": "."
+    },
+    {
+      "capability": "mcp",
+      "owner": "rightkit-mcp",
+      "uses": false,
+      "status": "not-detected",
+      "count": 0,
+      "root": "."
+    },
+    {
+      "capability": "media-pipelines",
+      "owner": "rightkit-media",
+      "uses": false,
+      "status": "not-detected",
+      "count": 0,
+      "root": "."
+    },
+    {
+      "capability": "model-installation",
+      "owner": "rightkit-models",
+      "uses": false,
+      "status": "not-detected",
+      "count": 0,
+      "root": "."
+    },
+    {
+      "capability": "oauth-sign-in",
+      "owner": "rightkit-oauth",
+      "uses": false,
+      "status": "not-detected",
+      "count": 0,
+      "root": "."
+    },
+    {
+      "capability": "ocr",
+      "owner": "rightkit-ocr",
+      "uses": false,
+      "status": "not-detected",
+      "count": 0,
+      "root": "."
+    },
+    {
+      "capability": "onnx-runtime",
+      "owner": "rightkit-ort",
+      "uses": false,
+      "status": "not-detected",
+      "count": 0,
+      "root": "."
+    },
+    {
+      "capability": "desktop-overlay",
+      "owner": "rightkit-overlay",
+      "uses": false,
+      "status": "not-detected",
+      "count": 0,
+      "root": "."
+    },
+    {
+      "capability": "ownership-scanner",
+      "owner": "rightkit-ownership",
+      "uses": false,
+      "status": "not-detected",
+      "count": 0,
+      "root": "."
+    },
+    {
+      "capability": "pdf-engine",
+      "owner": "rightkit-pdf",
+      "uses": false,
+      "status": "not-detected",
+      "count": 0,
+      "root": "."
+    },
+    {
+      "capability": "media-playback",
+      "owner": "rightkit-playback",
+      "uses": false,
+      "status": "not-detected",
+      "count": 0,
+      "root": "."
+    },
+    {
+      "capability": "owned-processes",
+      "owner": "rightkit-process",
+      "uses": false,
+      "status": "not-detected",
+      "count": 0,
+      "root": "."
+    },
+    {
+      "capability": "desktop-qa",
+      "owner": "rightkit-qa",
+      "uses": false,
+      "status": "not-detected",
+      "count": 0,
+      "root": "."
+    },
+    {
+      "capability": "text-to-speech",
+      "owner": "rightkit-qts",
+      "owners": [
+        "rightkit-qts",
+        "rightkit-qts-ggml",
+        "rightkit-qts-ggml-sys",
+        "rightkit-tts"
+      ],
+      "uses": false,
+      "status": "not-detected",
+      "count": 0,
+      "root": "."
+    },
+    {
+      "capability": "screen-recording",
+      "owner": "rightkit-record",
+      "uses": false,
+      "status": "not-detected",
+      "count": 0,
+      "root": "."
+    },
+    {
+      "capability": "content-review",
+      "owner": "rightkit-review",
+      "uses": false,
+      "status": "not-detected",
+      "count": 0,
+      "root": "."
+    },
+    {
+      "capability": "os-sandbox",
+      "owner": "rightkit-sandbox",
+      "uses": false,
+      "status": "not-detected",
+      "count": 0,
+      "root": "."
+    },
+    {
+      "capability": "scenario-runtime",
+      "owner": "rightkit-scenario",
+      "uses": false,
+      "status": "not-detected",
+      "count": 0,
+      "root": "."
+    },
+    {
+      "capability": "search",
+      "owner": "rightkit-search",
+      "uses": false,
+      "status": "not-detected",
+      "count": 0,
+      "root": "."
+    },
+    {
+      "capability": "os-credential-store",
+      "owner": "rightkit-secrets",
+      "owners": [
+        "rightkit-secrets",
+        "RightKitSwift"
+      ],
+      "uses": false,
+      "status": "not-detected",
+      "count": 0,
+      "root": "."
+    },
+    {
+      "capability": "local-services",
+      "owner": "rightkit-service",
+      "uses": false,
+      "status": "not-detected",
+      "count": 0,
+      "root": "."
+    },
+    {
+      "capability": "settings-persistence",
+      "owner": "rightkit-settings",
+      "uses": false,
+      "status": "not-detected",
+      "count": 0,
+      "root": "."
+    },
+    {
+      "capability": "desktop-shell",
+      "owner": "rightkit-shell",
+      "owners": [
+        "rightkit-shell",
+        "@rightkit/shell"
+      ],
+      "uses": false,
+      "status": "not-detected",
+      "count": 0,
+      "root": "."
+    },
+    {
+      "capability": "shared-speech-service",
+      "owner": "rightkit-speech-client",
+      "uses": false,
+      "status": "not-detected",
+      "count": 0,
+      "root": "."
+    },
+    {
+      "capability": "cloud-sync",
+      "owner": "rightkit-sync",
+      "uses": false,
+      "status": "not-detected",
+      "count": 0,
+      "root": "."
+    },
+    {
+      "capability": "tauri-host-adapters",
+      "owner": "rightkit-tauri",
+      "owners": [
+        "rightkit-tauri",
+        "@rightkit/tauri"
+      ],
+      "uses": false,
+      "status": "not-detected",
+      "count": 0,
+      "root": "."
+    },
+    {
+      "capability": "timed-transcripts",
+      "owner": "rightkit-transcript",
+      "uses": false,
+      "status": "not-detected",
+      "count": 0,
+      "root": "."
+    },
+    {
+      "capability": "voice-activity-detection",
+      "owner": "rightkit-vad",
+      "uses": false,
+      "status": "not-detected",
+      "count": 0,
+      "root": "."
+    },
+    {
+      "capability": "file-watching",
+      "owner": "rightkit-watch",
+      "uses": false,
+      "status": "not-detected",
+      "count": 0,
+      "root": "."
+    },
+    {
+      "capability": "app-shell-ui",
+      "owner": "@rightkit/app-shell",
+      "uses": false,
+      "status": "not-detected",
+      "count": 0,
+      "root": "."
+    },
+    {
+      "capability": "agent-experience-gates",
+      "owner": "@rightkit/ax",
+      "uses": false,
+      "status": "not-detected",
+      "count": 0,
+      "root": "."
+    },
+    {
+      "capability": "document-rendering",
+      "owner": "@rightkit/doc-render",
+      "uses": false,
+      "status": "not-detected",
+      "count": 0,
+      "root": "."
+    },
+    {
+      "capability": "github-workflows",
+      "owner": "@rightkit/git",
+      "uses": false,
+      "status": "not-detected",
+      "count": 0,
+      "root": "."
+    },
+    {
+      "capability": "lifecycle-hooks",
+      "owner": "@rightkit/hooks",
+      "uses": false,
+      "status": "not-detected",
+      "count": 0,
+      "root": "."
+    },
+    {
+      "capability": "localization",
+      "owner": "@rightkit/i18n",
+      "uses": false,
+      "status": "not-detected",
+      "count": 0,
+      "root": "."
+    },
+    {
+      "capability": "legal-assent",
+      "owner": "@rightkit/legal",
+      "uses": false,
+      "status": "not-detected",
+      "count": 0,
+      "root": "."
+    },
+    {
+      "capability": "legal-ui",
+      "owner": "@rightkit/legal-ui",
+      "uses": false,
+      "status": "not-detected",
+      "count": 0,
+      "root": "."
+    },
+    {
+      "capability": "media-ui",
+      "owner": "@rightkit/media-ui",
+      "uses": false,
+      "status": "not-detected",
+      "count": 0,
+      "root": "."
+    },
+    {
+      "capability": "onboarding-ui",
+      "owner": "@rightkit/onboarding",
+      "uses": false,
+      "status": "not-detected",
+      "count": 0,
+      "root": "."
+    },
+    {
+      "capability": "pdf-ui",
+      "owner": "@rightkit/pdf-ui",
+      "uses": false,
+      "status": "not-detected",
+      "count": 0,
+      "root": "."
+    },
+    {
+      "capability": "platform-ui",
+      "owner": "@rightkit/platform-ui",
+      "uses": false,
+      "status": "not-detected",
+      "count": 0,
+      "root": "."
+    },
+    {
+      "capability": "qa-evidence",
+      "owner": "@rightkit/qa",
+      "uses": false,
+      "status": "not-detected",
+      "count": 0,
+      "root": "."
+    },
+    {
+      "capability": "browser-qa",
+      "owner": "@rightkit/qa-chrome",
+      "uses": false,
+      "status": "not-detected",
+      "count": 0,
+      "root": "."
+    },
+    {
+      "capability": "release-tooling",
+      "owner": "@rightkit/release",
+      "uses": false,
+      "status": "not-detected",
+      "count": 0,
+      "root": "."
+    },
+    {
+      "capability": "settings-ui",
+      "owner": "@rightkit/settings-ui",
+      "uses": false,
+      "status": "not-detected",
+      "count": 0,
+      "root": "."
+    },
+    {
+      "capability": "theme-ui",
+      "owner": "@rightkit/theme",
+      "uses": false,
+      "status": "not-detected",
+      "count": 0,
+      "root": "."
+    },
+    {
+      "capability": "update-policy",
+      "owner": "@rightkit/updates",
+      "uses": false,
+      "status": "not-detected",
+      "count": 0,
+      "root": "."
+    }
+  ],
+  "violations": [],
+  "covered": [],
+  "problems": [],
+  "coverage": [],
+  "metadata": {
+    "repositoryIdentity": "https://github.com/bogusyogi/postright",
+    "commit": "db0276f062d2ba9e2fa72522e0faec654b5a67b9",
+    "tree": "abfcce2f18e2c00a11ae9db556a74f9af9bff371",
+    "catalogDigest": "a7121f96d42457024f465e7da5f41d83f12971eff2988a9752ea557209317f84",
+    "contentDigests": [],
+    "coverage": [],
+    "pathBase": "repository",
+    "pathPrefix": "",
+    "roots": [
+      {
+        "root": ".",
+        "metadata": {
+          "repositoryIdentity": "https://github.com/bogusyogi/postright",
+          "commit": "db0276f062d2ba9e2fa72522e0faec654b5a67b9",
+          "tree": "abfcce2f18e2c00a11ae9db556a74f9af9bff371",
+          "host": "Adrians-Mac-Mini.local/darwin",
+          "scannedAt": "2026-10-10T06:31:13.789Z",
+          "catalogDigest": "a7121f96d42457024f465e7da5f41d83f12971eff2988a9752ea557209317f84",
+          "catalogVersion": "3.0.0",
+          "scannerVersion": "2.6.0",
+          "contentDigests": [],
+          "coverage": [],
+          "pathBase": "repository",
+          "pathPrefix": "",
+          "provenance": [],
+          "exceptionDigest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+          "source": "committed-git-tree",
+          "keyLogDigest": "0966be0b99f9cc36037d3427cdeb32017a2b37886cc58754206dbfb05e033ef4",
+          "keyCheckpoint": {
+            "sequence": 1,
+            "head": "1eedf843bd026f99140c277a19d66cb31763ec72889bbb6d5f9f17718a55af85"
+          },
+          "rootFingerprint": "932f0049acb4902f0bd0b49164b78826ba5b8974cbc3c15ef0be0c4501cb3f3d",
+          "keyAuthority": {
+            "repositoryIdentity": "https://github.com/bogusyogi/claude",
+            "commit": "0a4916a649c72a9951d3ee96a251a468efbed2a1",
+            "tree": "e4394814849149dbcc168c7587ae17f1772032d9"
+          }
+        }
+      }
+    ]
+  }
+}

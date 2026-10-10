@@ -138,7 +138,10 @@ export function runSwiftPublish(options, execute = spawnSync) {
   const prefix = git(["rev-parse", "--show-prefix"], packageDir, execute).replace(/\/$/, "");
   const sourceCommit = gate.evidence?.commit ?? "HEAD";
   const tree = git(["rev-parse", prefix ? `${sourceCommit}:${prefix}` : `${sourceCommit}^{tree}`], packageDir, execute);
-  const archive = execute("git", ["archive", "--format=tar", "--mtime=1970-01-01T00:00:00Z", tree], { cwd: packageDir, windowsHide: true, maxBuffer: 128 * 1024 * 1024 });
+  // `git archive` filters by the current subdirectory, so archiving the package
+  // subtree from inside the package yields an empty tar; run it at the toplevel.
+  const toplevel = git(["rev-parse", "--show-toplevel"], packageDir, execute) || packageDir;
+  const archive = execute("git", ["archive", "--format=tar", "--mtime=1970-01-01T00:00:00Z", tree], { cwd: toplevel, windowsHide: true, maxBuffer: 128 * 1024 * 1024 });
   if (archive.error || archive.status !== 0 || !archive.stdout?.length) throw new Error("Swift source archive creation failed");
   const bytes = Buffer.from(archive.stdout);
   if (gate.ok || !options.dryRun) verifySwiftSourceArchive(bytes, gate.evidence);

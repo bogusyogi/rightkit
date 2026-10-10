@@ -28,7 +28,10 @@ public enum LiveActivityStartError: Error, LocalizedError {
 /// widget extension (see the app template).
 /// Not actor-bound: async methods run on the caller's actor (`#isolation`), so a `@MainActor`
 /// controller keeps ActivityKit calls and fence updates serialised without sending state across actors.
-public final class LiveActivityHost<Attributes: ActivityAttributes> where Attributes.ContentState: Sendable {
+/// `Attributes` must be `Sendable` (any value-type attribute struct is; a `public` one needs the
+/// explicit conformance): ActivityKit's async calls run off the caller's actor, so the attributes
+/// conformance must not be actor-isolated.
+public final class LiveActivityHost<Attributes: ActivityAttributes & Sendable> where Attributes.ContentState: Sendable {
     public enum StartOutcome { case adopted, started }
 
     public private(set) var activity: Activity<Attributes>?

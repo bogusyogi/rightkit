@@ -706,40 +706,61 @@ public actor CloudSyncEngine<Adapter: CloudSyncAdapter>: CloudSyncRunning {
         subscriptionTerminal = false
     }
 
+    /// The retry task holds the engine only inside short isolated hops (`await self?.…`), never
+    /// across `ensureSubscription()` or the backoff sleep, so a retry in flight cannot keep the
+    /// engine alive after its owner released it. `deinit` cancels the task, and cancellation reaches
+    /// both the transport call and the sleep.
     private func startSubscriptionIfNeeded() {
         guard isEnabled, !subscriptionPrepared, !subscriptionTerminal, subscriptionTask == nil else { return }
         let job = UUID()
         let gen = generation
-        subscriptionJob = job
-        subscriptionTask = Task { [weak self] in await self?.runSubscription(job: job, gen: gen) }
-    }
-
-    private func runSubscription(job: UUID, gen: UInt64) async {
+        let transport = self.transport
+        let sleep = config.sleep
         let delays = config.subscriptionRetryDelays
-        for attempt in 0...delays.count {
-            guard isEnabled, generation == gen, subscriptionJob == job, !Task.isCancelled else { return }
-            do {
-                try await transport.ensureSubscription()
-                guard generation == gen, subscriptionJob == job else { return }
-                subscriptionPrepared = true
-                subscriptionTask = nil
-                subscriptionJob = nil
-                events.record("sync_subscription_ready", fields: [:])
-                subscriptionReady?()
-                return
-            } catch {
-                guard isEnabled, generation == gen, subscriptionJob == job, !Task.isCancelled else { return }
-                events.record("sync_subscription_failed", fields: ["attempt": String(attempt)])
-                let retryable = (error as? SyncTransportError)?.isRetryable ?? false
-                guard retryable, attempt < delays.count else {
-                    subscriptionTerminal = !retryable
-                    subscriptionTask = nil
-                    subscriptionJob = nil
+        subscriptionJob = job
+        subscriptionTask = Task { [weak self] in
+            for attempt in 0...delays.count {
+                guard await self?.subscriptionAttemptIsCurrent(job: job, gen: gen) == true else { return }
+                do {
+                    try await transport.ensureSubscription()
+                    await self?.subscriptionDidSucceed(job: job, gen: gen)
                     return
+                } catch {
+                    guard let delay = await self?.subscriptionDidFail(error, attempt: attempt, job: job, gen: gen) else { return }
+                    do { try await sleep(delay) } catch { return }
                 }
-                let hint = (error as? SyncTransportError)?.retryDelay ?? 0
-                do { try await config.sleep(max(hint, delays[attempt])) } catch { return }
             }
         }
+    }
+
+    deinit { subscriptionTask?.cancel() }
+
+    private func subscriptionAttemptIsCurrent(job: UUID, gen: UInt64) -> Bool {
+        isEnabled && generation == gen && subscriptionJob == job && !Task.isCancelled
+    }
+
+    private func subscriptionDidSucceed(job: UUID, gen: UInt64) {
+        guard generation == gen, subscriptionJob == job else { return }
+        subscriptionPrepared = true
+        subscriptionTask = nil
+        subscriptionJob = nil
+        events.record("sync_subscription_ready", fields: [:])
+        subscriptionReady?()
+    }
+
+    /// The delay before the next attempt, or `nil` when the retry loop must end (superseded, not
+    /// retryable, or out of attempts).
+    private func subscriptionDidFail(_ error: Error, attempt: Int, job: UUID, gen: UInt64) -> TimeInterval? {
+        guard subscriptionAttemptIsCurrent(job: job, gen: gen) else { return nil }
+        events.record("sync_subscription_failed", fields: ["attempt": String(attempt)])
+        let delays = config.subscriptionRetryDelays
+        let retryable = (error as? SyncTransportError)?.isRetryable ?? false
+        guard retryable, attempt < delays.count else {
+            subscriptionTerminal = !retryable
+            subscriptionTask = nil
+            subscriptionJob = nil
+            return nil
+        }
+        return max((error as? SyncTransportError)?.retryDelay ?? 0, delays[attempt])
     }
 }

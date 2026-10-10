@@ -56,29 +56,27 @@ public struct AppleSpeechEngine: SpeechTranscribing {
             SFSpeechRecognizer.requestAuthorization { continuation.resume(returning: $0) }
         }
         guard status == .authorized else { throw SpeechError.permissionDenied("Speech Recognition") }
+        try Task.checkCancellation()
         guard let recognizer = SFSpeechRecognizer(locale: locale), recognizer.isAvailable else {
             throw SpeechError.engineUnavailable("no speech recognizer for \(locale.identifier)")
         }
         let request = SFSpeechURLRecognitionRequest(url: fileURL)
         request.shouldReportPartialResults = false
         request.addsPunctuation = true
-        if recognizer.supportsOnDeviceRecognition { request.requiresOnDeviceRecognition = true }
-        return try await withCheckedThrowingContinuation { continuation in
-            let gate = ResumeOnce()
-            recognizer.recognitionTask(with: request) { result, error in
+        // Local-only: never create a task a network-capable recognizer could serve.
+        try LegacySpeechPolicy.configure(request, supportsOnDevice: recognizer.supportsOnDeviceRecognition, locale: locale)
+        nonisolated(unsafe) let unsafeRecognizer = recognizer
+        nonisolated(unsafe) let unsafeRequest = request
+        return try await CancellableRecognition().run { complete in
+            let task = unsafeRecognizer.recognitionTask(with: unsafeRequest) { result, error in
                 if let error {
-                    if gate.fire() { continuation.resume(throwing: SpeechError.decodeFailed(error.localizedDescription)) }
+                    complete(.failure(SpeechError.decodeFailed(error.localizedDescription)))
                 } else if let result, result.isFinal {
-                    let text = result.bestTranscription.formattedString
-                    if gate.fire() { continuation.resume(returning: text) }
+                    complete(.success(result.bestTranscription.formattedString))
                 }
             }
+            nonisolated(unsafe) let unsafeTask = task
+            return { unsafeTask.cancel() }
         }
     }
-}
-
-private final class ResumeOnce: @unchecked Sendable {
-    private let lock = NSLock()
-    private var done = false
-    func fire() -> Bool { lock.withLock { if done { return false }; done = true; return true } }
 }

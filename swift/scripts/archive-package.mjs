@@ -15,22 +15,44 @@ import fs from "node:fs";
 import path from "node:path";
 
 const SWIFT_DIR = path.resolve(import.meta.dirname, "..");
-const PACKAGE_PREFIX = "swift/RightKitSwift";
-const REPO = path.resolve(SWIFT_DIR, "../../..");
+const PACKAGE_DIR = path.join(SWIFT_DIR, "RightKitSwift");
+// Fixed entry timestamp, as in the canonical publisher (packages/release/publish-swift.mjs): the
+// archive bytes depend on the package tree alone, never on the wall clock.
+const ARCHIVE_MTIME = "1970-01-01T00:00:00Z";
+
+function git(args, options = {}) {
+  return execFileSync("git", ["-C", PACKAGE_DIR, ...args], { encoding: "utf8", ...options }).trim();
+}
 
 export function packageVersion() {
-  const version = fs.readFileSync(path.join(SWIFT_DIR, "RightKitSwift/VERSION"), "utf8").trim();
+  const version = fs.readFileSync(path.join(PACKAGE_DIR, "VERSION"), "utf8").trim();
   if (!/^\d+\.\d+\.\d+$/.test(version)) throw new Error(`VERSION must be semver, got "${version}"`);
   return version;
 }
 
-/** The archive is cut from a commit, never the working tree: a release must not contain scratch edits. */
+/**
+ * The tree object of the package at `treeish`, derived the way the canonical publisher derives it:
+ * the package's own prefix inside whatever repository contains it. No assumption about where the
+ * repository root sits relative to this script.
+ */
+export function packageTree(treeish = "HEAD") {
+  const prefix = git(["rev-parse", "--show-prefix"]).replace(/\/$/, "");
+  return git(["rev-parse", prefix ? `${treeish}:${prefix}` : `${treeish}^{tree}`]);
+}
+
+/**
+ * The archive is cut from a commit, never the working tree: a release must not contain scratch edits.
+ * `git archive` resolves the current directory inside the tree it is given, so a bare package tree
+ * run from the package subdirectory archives nothing; it runs from the repository top level instead.
+ */
 export function buildArchive(treeish = "HEAD") {
-  return execFileSync(
+  const archive = execFileSync(
     "git",
-    ["-C", REPO, "archive", "--format=zip", `--prefix=RightKitSwift/`, `${treeish}:rightkit/${PACKAGE_PREFIX}`],
+    ["-C", git(["rev-parse", "--show-toplevel"]), "archive", "--format=zip", `--mtime=${ARCHIVE_MTIME}`, "--prefix=RightKitSwift/", packageTree(treeish)],
     { maxBuffer: 256 * 1024 * 1024 },
   );
+  if (archive.length < 1024 || !archive.includes("Package.swift")) throw new Error("Swift source archive is empty or incomplete");
+  return archive;
 }
 
 export function checksum(archive) {

@@ -83,6 +83,20 @@ final class AppleCredentialTests: XCTestCase {
         }
     }
 
+    func testEveryQueryIsNonInteractiveThroughAnAuthenticationContextNotTheDeprecatedKey() {
+        let backend = SecurityAppleCredentialBackend(accessGroup: "test.group")
+        let queries = [
+            backend.base("s", "a"),
+            backend.scoped("s", "a", .synced),
+            backend.scoped("s", "a", .device),
+            backend.deletionQuery("s", "a", .dataProtection),
+        ]
+        for query in queries {
+            XCTAssertNotNil(query[kSecUseAuthenticationContext as String] as? LAContext)
+            XCTAssertNil(query[kSecUseAuthenticationUI as String])
+        }
+    }
+
     func testBroadDeletionAttemptsEveryLocationAfterFailure() {
         let backend = SecurityAppleCredentialBackend(accessGroup: "test.group")
         var queries: [[String: Any]] = []
@@ -111,7 +125,7 @@ final class AppleCredentialTests: XCTestCase {
             XCTAssertEqual(query[kSecAttrService as String] as? String, "test.service")
             XCTAssertEqual(query[kSecAttrAccount as String] as? String, "test.account")
             XCTAssertNotNil(query[kSecUseAuthenticationContext as String] as? LAContext)
-            XCTAssertEqual(query[kSecUseAuthenticationUI as String] as? String, kSecUseAuthenticationUIFail as String)
+            XCTAssertNil(query[kSecUseAuthenticationUI as String], "the deprecated UI-fail key is replaced by the non-interactive LAContext")
             XCTAssertNil(query[kSecMatchLimit as String], "deletion must remove all matching items")
             XCTAssertNil(query[kSecReturnData as String])
         }

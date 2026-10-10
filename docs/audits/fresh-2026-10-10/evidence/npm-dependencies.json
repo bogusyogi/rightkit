@@ -1,0 +1,1541 @@
+[
+  {
+    "owner": "@rightkit/app-shell",
+    "manifest": "/Volumes/D/claude/rightkit/packages/app-shell/package.json",
+    "line": 34,
+    "scope": "peerDependencies",
+    "dependency": "@rightkit/platform-ui",
+    "spec": ">=0.1.1 <1",
+    "optional_peer": false
+  },
+  {
+    "owner": "@rightkit/app-shell",
+    "manifest": "/Volumes/D/claude/rightkit/packages/app-shell/package.json",
+    "line": 35,
+    "scope": "peerDependencies",
+    "dependency": "react",
+    "spec": ">=18 <21",
+    "optional_peer": false
+  },
+  {
+    "owner": "@rightkit/app-shell",
+    "manifest": "/Volumes/D/claude/rightkit/packages/app-shell/package.json",
+    "line": 38,
+    "scope": "devDependencies",
+    "dependency": "@rightkit/platform-ui",
+    "spec": "workspace:*",
+    "optional_peer": false
+  },
+  {
+    "owner": "@rightkit/app-shell",
+    "manifest": "/Volumes/D/claude/rightkit/packages/app-shell/package.json",
+    "line": 39,
+    "scope": "devDependencies",
+    "dependency": "@rightkit/qa",
+    "spec": "workspace:*",
+    "optional_peer": false
+  },
+  {
+    "owner": "@rightkit/app-shell",
+    "manifest": "/Volumes/D/claude/rightkit/packages/app-shell/package.json",
+    "line": 40,
+    "scope": "devDependencies",
+    "dependency": "@types/react",
+    "spec": "^19.0.0",
+    "optional_peer": false
+  },
+  {
+    "owner": "@rightkit/app-shell",
+    "manifest": "/Volumes/D/claude/rightkit/packages/app-shell/package.json",
+    "line": 41,
+    "scope": "devDependencies",
+    "dependency": "@types/react-dom",
+    "spec": "^19.0.0",
+    "optional_peer": false
+  },
+  {
+    "owner": "@rightkit/app-shell",
+    "manifest": "/Volumes/D/claude/rightkit/packages/app-shell/package.json",
+    "line": 42,
+    "scope": "devDependencies",
+    "dependency": "react",
+    "spec": "^19.0.0",
+    "optional_peer": false
+  },
+  {
+    "owner": "@rightkit/app-shell",
+    "manifest": "/Volumes/D/claude/rightkit/packages/app-shell/package.json",
+    "line": 43,
+    "scope": "devDependencies",
+    "dependency": "react-dom",
+    "spec": "^19.0.0",
+    "optional_peer": false
+  },
+  {
+    "owner": "@rightkit/app-shell",
+    "manifest": "/Volumes/D/claude/rightkit/packages/app-shell/package.json",
+    "line": 44,
+    "scope": "devDependencies",
+    "dependency": "typescript",
+    "spec": "^5.7.0",
+    "optional_peer": false
+  },
+  {
+    "owner": "@rightkit/app-shell",
+    "manifest": "/Volumes/D/claude/rightkit/packages/app-shell/package.json",
+    "line": 45,
+    "scope": "devDependencies",
+    "dependency": "vite",
+    "spec": "^6.0.0",
+    "optional_peer": false
+  },
+  {
+    "owner": "@rightkit/app-shell",
+    "manifest": "/Volumes/D/claude/rightkit/packages/app-shell/package.json",
+    "line": 46,
+    "scope": "devDependencies",
+    "dependency": "vitest",
+    "spec": "^2.1.8",
+    "optional_peer": false
+  },
+  {
+    "owner": "@rightkit/doc-render",
+    "manifest": "/Volumes/D/claude/rightkit/packages/doc-render/package.json",
+    "line": 31,
+    "scope": "dependencies",
+    "dependency": "@types/mdast",
+    "spec": "^4.0.4",
+    "optional_peer": false
+  },
+  {
+    "owner": "@rightkit/doc-render",
+    "manifest": "/Volumes/D/claude/rightkit/packages/doc-render/package.json",
+    "line": 32,
+    "scope": "dependencies",
+    "dependency": "dompurify",
+    "spec": "^3.4.16",
+    "optional_peer": false
+  },
+  {
+    "owner": "@rightkit/doc-render",
+    "manifest": "/Volumes/D/claude/rightkit/packages/doc-render/package.json",
+    "line": 33,
+    "scope": "dependencies",
+    "dependency": "github-slugger",
+    "spec": "^2.0.0",
+    "optional_peer": false
+  },
+  {
+    "owner": "@rightkit/doc-render",
+    "manifest": "/Volumes/D/claude/rightkit/packages/doc-render/package.json",
+    "line": 34,
+    "scope": "dependencies",
+    "dependency": "remark-frontmatter",
+    "spec": "^5.0.0",
+    "optional_peer": false
+  },
+  {
+    "owner": "@rightkit/doc-render",
+    "manifest": "/Volumes/D/claude/rightkit/packages/doc-render/package.json",
+    "line": 35,
+    "scope": "dependencies",
+    "dependency": "remark-gfm",
+    "spec": "^4.0.1",
+    "optional_peer": false
+  },
+  {
+    "owner": "@rightkit/doc-render",
+    "manifest": "/Volumes/D/claude/rightkit/packages/doc-render/package.json",
+    "line": 36,
+    "scope": "dependencies",
+    "dependency": "remark-math",
+    "spec": "^6.0.0",
+    "optional_peer": false
+  },
+  {
+    "owner": "@rightkit/doc-render",
+    "manifest": "/Volumes/D/claude/rightkit/packages/doc-render/package.json",
+    "line": 37,
+    "scope": "dependencies",
+    "dependency": "remark-parse",
+    "spec": "^11.0.0",
+    "optional_peer": false
+  },
+  {
+    "owner": "@rightkit/doc-render",
+    "manifest": "/Volumes/D/claude/rightkit/packages/doc-render/package.json",
+    "line": 38,
+    "scope": "dependencies",
+    "dependency": "remark-smartypants",
+    "spec": "^3.0.3",
+    "optional_peer": false
+  },
+  {
+    "owner": "@rightkit/doc-render",
+    "manifest": "/Volumes/D/claude/rightkit/packages/doc-render/package.json",
+    "line": 39,
+    "scope": "dependencies",
+    "dependency": "shiki",
+    "spec": "^4.4.3",
+    "optional_peer": false
+  },
+  {
+    "owner": "@rightkit/doc-render",
+    "manifest": "/Volumes/D/claude/rightkit/packages/doc-render/package.json",
+    "line": 40,
+    "scope": "dependencies",
+    "dependency": "unified",
+    "spec": "^11.0.5",
+    "optional_peer": false
+  },
+  {
+    "owner": "@rightkit/doc-render",
+    "manifest": "/Volumes/D/claude/rightkit/packages/doc-render/package.json",
+    "line": 28,
+    "scope": "peerDependencies",
+    "dependency": "react",
+    "spec": ">=18 <21",
+    "optional_peer": false
+  },
+  {
+    "owner": "@rightkit/doc-render",
+    "manifest": "/Volumes/D/claude/rightkit/packages/doc-render/package.json",
+    "line": 43,
+    "scope": "devDependencies",
+    "dependency": "@rightkit/qa",
+    "spec": "workspace:*",
+    "optional_peer": false
+  },
+  {
+    "owner": "@rightkit/doc-render",
+    "manifest": "/Volumes/D/claude/rightkit/packages/doc-render/package.json",
+    "line": 44,
+    "scope": "devDependencies",
+    "dependency": "@types/react",
+    "spec": "^19.0.0",
+    "optional_peer": false
+  },
+  {
+    "owner": "@rightkit/doc-render",
+    "manifest": "/Volumes/D/claude/rightkit/packages/doc-render/package.json",
+    "line": 45,
+    "scope": "devDependencies",
+    "dependency": "@types/react-dom",
+    "spec": "^19.0.0",
+    "optional_peer": false
+  },
+  {
+    "owner": "@rightkit/doc-render",
+    "manifest": "/Volumes/D/claude/rightkit/packages/doc-render/package.json",
+    "line": 46,
+    "scope": "devDependencies",
+    "dependency": "esbuild",
+    "spec": "^0.28.1",
+    "optional_peer": false
+  },
+  {
+    "owner": "@rightkit/doc-render",
+    "manifest": "/Volumes/D/claude/rightkit/packages/doc-render/package.json",
+    "line": 47,
+    "scope": "devDependencies",
+    "dependency": "react",
+    "spec": "^19.0.0",
+    "optional_peer": false
+  },
+  {
+    "owner": "@rightkit/doc-render",
+    "manifest": "/Volumes/D/claude/rightkit/packages/doc-render/package.json",
+    "line": 48,
+    "scope": "devDependencies",
+    "dependency": "react-dom",
+    "spec": "^19.0.0",
+    "optional_peer": false
+  },
+  {
+    "owner": "@rightkit/doc-render",
+    "manifest": "/Volumes/D/claude/rightkit/packages/doc-render/package.json",
+    "line": 49,
+    "scope": "devDependencies",
+    "dependency": "typescript",
+    "spec": "^5.7.0",
+    "optional_peer": false
+  },
+  {
+    "owner": "@rightkit/doc-render",
+    "manifest": "/Volumes/D/claude/rightkit/packages/doc-render/package.json",
+    "line": 50,
+    "scope": "devDependencies",
+    "dependency": "vitest",
+    "spec": "^2.1.8",
+    "optional_peer": false
+  },
+  {
+    "owner": "@rightkit/i18n",
+    "manifest": "/Volumes/D/claude/rightkit/packages/i18n/package.json",
+    "line": 12,
+    "scope": "peerDependencies",
+    "dependency": "react",
+    "spec": ">=18 <21",
+    "optional_peer": false
+  },
+  {
+    "owner": "@rightkit/i18n",
+    "manifest": "/Volumes/D/claude/rightkit/packages/i18n/package.json",
+    "line": 14,
+    "scope": "devDependencies",
+    "dependency": "@testing-library/jest-dom",
+    "spec": "^6.6.3",
+    "optional_peer": false
+  },
+  {
+    "owner": "@rightkit/i18n",
+    "manifest": "/Volumes/D/claude/rightkit/packages/i18n/package.json",
+    "line": 15,
+    "scope": "devDependencies",
+    "dependency": "@testing-library/react",
+    "spec": "^16.1.0",
+    "optional_peer": false
+  },
+  {
+    "owner": "@rightkit/i18n",
+    "manifest": "/Volumes/D/claude/rightkit/packages/i18n/package.json",
+    "line": 16,
+    "scope": "devDependencies",
+    "dependency": "@types/react",
+    "spec": "^19.0.0",
+    "optional_peer": false
+  },
+  {
+    "owner": "@rightkit/i18n",
+    "manifest": "/Volumes/D/claude/rightkit/packages/i18n/package.json",
+    "line": 17,
+    "scope": "devDependencies",
+    "dependency": "@types/react-dom",
+    "spec": "^19.0.0",
+    "optional_peer": false
+  },
+  {
+    "owner": "@rightkit/i18n",
+    "manifest": "/Volumes/D/claude/rightkit/packages/i18n/package.json",
+    "line": 18,
+    "scope": "devDependencies",
+    "dependency": "jsdom",
+    "spec": "^25.0.1",
+    "optional_peer": false
+  },
+  {
+    "owner": "@rightkit/i18n",
+    "manifest": "/Volumes/D/claude/rightkit/packages/i18n/package.json",
+    "line": 19,
+    "scope": "devDependencies",
+    "dependency": "react",
+    "spec": "^19.0.0",
+    "optional_peer": false
+  },
+  {
+    "owner": "@rightkit/i18n",
+    "manifest": "/Volumes/D/claude/rightkit/packages/i18n/package.json",
+    "line": 20,
+    "scope": "devDependencies",
+    "dependency": "typescript",
+    "spec": "^5.7.0",
+    "optional_peer": false
+  },
+  {
+    "owner": "@rightkit/i18n",
+    "manifest": "/Volumes/D/claude/rightkit/packages/i18n/package.json",
+    "line": 21,
+    "scope": "devDependencies",
+    "dependency": "vitest",
+    "spec": "^2.1.8",
+    "optional_peer": false
+  },
+  {
+    "owner": "@rightkit/legal",
+    "manifest": "/Volumes/D/claude/rightkit/packages/legal/package.json",
+    "line": 21,
+    "scope": "devDependencies",
+    "dependency": "@types/node",
+    "spec": "^22.10.0",
+    "optional_peer": false
+  },
+  {
+    "owner": "@rightkit/legal",
+    "manifest": "/Volumes/D/claude/rightkit/packages/legal/package.json",
+    "line": 22,
+    "scope": "devDependencies",
+    "dependency": "typescript",
+    "spec": "^5.7.0",
+    "optional_peer": false
+  },
+  {
+    "owner": "@rightkit/legal",
+    "manifest": "/Volumes/D/claude/rightkit/packages/legal/package.json",
+    "line": 23,
+    "scope": "devDependencies",
+    "dependency": "vitest",
+    "spec": "^2.1.8",
+    "optional_peer": false
+  },
+  {
+    "owner": "@rightkit/legal-ui",
+    "manifest": "/Volumes/D/claude/rightkit/packages/legal-ui/package.json",
+    "line": 28,
+    "scope": "peerDependencies",
+    "dependency": "react",
+    "spec": ">=18 <21",
+    "optional_peer": false
+  },
+  {
+    "owner": "@rightkit/legal-ui",
+    "manifest": "/Volumes/D/claude/rightkit/packages/legal-ui/package.json",
+    "line": 31,
+    "scope": "devDependencies",
+    "dependency": "@testing-library/jest-dom",
+    "spec": "^6.6.3",
+    "optional_peer": false
+  },
+  {
+    "owner": "@rightkit/legal-ui",
+    "manifest": "/Volumes/D/claude/rightkit/packages/legal-ui/package.json",
+    "line": 32,
+    "scope": "devDependencies",
+    "dependency": "@testing-library/react",
+    "spec": "^16.1.0",
+    "optional_peer": false
+  },
+  {
+    "owner": "@rightkit/legal-ui",
+    "manifest": "/Volumes/D/claude/rightkit/packages/legal-ui/package.json",
+    "line": 33,
+    "scope": "devDependencies",
+    "dependency": "@testing-library/user-event",
+    "spec": "^14.5.2",
+    "optional_peer": false
+  },
+  {
+    "owner": "@rightkit/legal-ui",
+    "manifest": "/Volumes/D/claude/rightkit/packages/legal-ui/package.json",
+    "line": 34,
+    "scope": "devDependencies",
+    "dependency": "@types/react",
+    "spec": "^19.0.0",
+    "optional_peer": false
+  },
+  {
+    "owner": "@rightkit/legal-ui",
+    "manifest": "/Volumes/D/claude/rightkit/packages/legal-ui/package.json",
+    "line": 35,
+    "scope": "devDependencies",
+    "dependency": "@types/react-dom",
+    "spec": "^19.0.0",
+    "optional_peer": false
+  },
+  {
+    "owner": "@rightkit/legal-ui",
+    "manifest": "/Volumes/D/claude/rightkit/packages/legal-ui/package.json",
+    "line": 36,
+    "scope": "devDependencies",
+    "dependency": "axe-core",
+    "spec": "4.12.1",
+    "optional_peer": false
+  },
+  {
+    "owner": "@rightkit/legal-ui",
+    "manifest": "/Volumes/D/claude/rightkit/packages/legal-ui/package.json",
+    "line": 37,
+    "scope": "devDependencies",
+    "dependency": "esbuild",
+    "spec": "^0.28.1",
+    "optional_peer": false
+  },
+  {
+    "owner": "@rightkit/legal-ui",
+    "manifest": "/Volumes/D/claude/rightkit/packages/legal-ui/package.json",
+    "line": 38,
+    "scope": "devDependencies",
+    "dependency": "jsdom",
+    "spec": "^25.0.1",
+    "optional_peer": false
+  },
+  {
+    "owner": "@rightkit/legal-ui",
+    "manifest": "/Volumes/D/claude/rightkit/packages/legal-ui/package.json",
+    "line": 39,
+    "scope": "devDependencies",
+    "dependency": "react",
+    "spec": "^19.0.0",
+    "optional_peer": false
+  },
+  {
+    "owner": "@rightkit/legal-ui",
+    "manifest": "/Volumes/D/claude/rightkit/packages/legal-ui/package.json",
+    "line": 40,
+    "scope": "devDependencies",
+    "dependency": "react-dom",
+    "spec": "^19.0.0",
+    "optional_peer": false
+  },
+  {
+    "owner": "@rightkit/legal-ui",
+    "manifest": "/Volumes/D/claude/rightkit/packages/legal-ui/package.json",
+    "line": 41,
+    "scope": "devDependencies",
+    "dependency": "typescript",
+    "spec": "^5.7.0",
+    "optional_peer": false
+  },
+  {
+    "owner": "@rightkit/legal-ui",
+    "manifest": "/Volumes/D/claude/rightkit/packages/legal-ui/package.json",
+    "line": 42,
+    "scope": "devDependencies",
+    "dependency": "vitest",
+    "spec": "^2.1.8",
+    "optional_peer": false
+  },
+  {
+    "owner": "@rightkit/license",
+    "manifest": "/Volumes/D/claude/rightkit/packages/license/package.json",
+    "line": 27,
+    "scope": "peerDependencies",
+    "dependency": "@tauri-apps/plugin-http",
+    "spec": "^2",
+    "optional_peer": true
+  },
+  {
+    "owner": "@rightkit/license",
+    "manifest": "/Volumes/D/claude/rightkit/packages/license/package.json",
+    "line": 21,
+    "scope": "devDependencies",
+    "dependency": "@tauri-apps/plugin-http",
+    "spec": "^2",
+    "optional_peer": false
+  },
+  {
+    "owner": "@rightkit/license",
+    "manifest": "/Volumes/D/claude/rightkit/packages/license/package.json",
+    "line": 22,
+    "scope": "devDependencies",
+    "dependency": "@types/node",
+    "spec": "^22.10.0",
+    "optional_peer": false
+  },
+  {
+    "owner": "@rightkit/license",
+    "manifest": "/Volumes/D/claude/rightkit/packages/license/package.json",
+    "line": 23,
+    "scope": "devDependencies",
+    "dependency": "typescript",
+    "spec": "^5.7.0",
+    "optional_peer": false
+  },
+  {
+    "owner": "@rightkit/license",
+    "manifest": "/Volumes/D/claude/rightkit/packages/license/package.json",
+    "line": 24,
+    "scope": "devDependencies",
+    "dependency": "vitest",
+    "spec": "^2.1.8",
+    "optional_peer": false
+  },
+  {
+    "owner": "@rightkit/logs",
+    "manifest": "/Volumes/D/claude/rightkit/packages/logs/package.json",
+    "line": 24,
+    "scope": "devDependencies",
+    "dependency": "typescript",
+    "spec": "^5.7.0",
+    "optional_peer": false
+  },
+  {
+    "owner": "@rightkit/logs",
+    "manifest": "/Volumes/D/claude/rightkit/packages/logs/package.json",
+    "line": 25,
+    "scope": "devDependencies",
+    "dependency": "vitest",
+    "spec": "^2.1.8",
+    "optional_peer": false
+  },
+  {
+    "owner": "@rightkit/media-ui",
+    "manifest": "/Volumes/D/claude/rightkit/packages/media-ui/package.json",
+    "line": 32,
+    "scope": "peerDependencies",
+    "dependency": "fabric",
+    "spec": "^7.4.0",
+    "optional_peer": true
+  },
+  {
+    "owner": "@rightkit/media-ui",
+    "manifest": "/Volumes/D/claude/rightkit/packages/media-ui/package.json",
+    "line": 33,
+    "scope": "peerDependencies",
+    "dependency": "react",
+    "spec": ">=18 <21",
+    "optional_peer": false
+  },
+  {
+    "owner": "@rightkit/media-ui",
+    "manifest": "/Volumes/D/claude/rightkit/packages/media-ui/package.json",
+    "line": 34,
+    "scope": "peerDependencies",
+    "dependency": "react-dom",
+    "spec": ">=18 <21",
+    "optional_peer": false
+  },
+  {
+    "owner": "@rightkit/media-ui",
+    "manifest": "/Volumes/D/claude/rightkit/packages/media-ui/package.json",
+    "line": 35,
+    "scope": "peerDependencies",
+    "dependency": "react-image-crop",
+    "spec": "^11.1.2",
+    "optional_peer": true
+  },
+  {
+    "owner": "@rightkit/media-ui",
+    "manifest": "/Volumes/D/claude/rightkit/packages/media-ui/package.json",
+    "line": 46,
+    "scope": "devDependencies",
+    "dependency": "@rightkit/qa",
+    "spec": "workspace:*",
+    "optional_peer": false
+  },
+  {
+    "owner": "@rightkit/media-ui",
+    "manifest": "/Volumes/D/claude/rightkit/packages/media-ui/package.json",
+    "line": 47,
+    "scope": "devDependencies",
+    "dependency": "@testing-library/dom",
+    "spec": "^10.4.0",
+    "optional_peer": false
+  },
+  {
+    "owner": "@rightkit/media-ui",
+    "manifest": "/Volumes/D/claude/rightkit/packages/media-ui/package.json",
+    "line": 48,
+    "scope": "devDependencies",
+    "dependency": "@testing-library/react",
+    "spec": "^16.1.0",
+    "optional_peer": false
+  },
+  {
+    "owner": "@rightkit/media-ui",
+    "manifest": "/Volumes/D/claude/rightkit/packages/media-ui/package.json",
+    "line": 49,
+    "scope": "devDependencies",
+    "dependency": "@types/react",
+    "spec": "^19.0.0",
+    "optional_peer": false
+  },
+  {
+    "owner": "@rightkit/media-ui",
+    "manifest": "/Volumes/D/claude/rightkit/packages/media-ui/package.json",
+    "line": 50,
+    "scope": "devDependencies",
+    "dependency": "@types/react-dom",
+    "spec": "^19.0.0",
+    "optional_peer": false
+  },
+  {
+    "owner": "@rightkit/media-ui",
+    "manifest": "/Volumes/D/claude/rightkit/packages/media-ui/package.json",
+    "line": 51,
+    "scope": "devDependencies",
+    "dependency": "esbuild",
+    "spec": "^0.28.1",
+    "optional_peer": false
+  },
+  {
+    "owner": "@rightkit/media-ui",
+    "manifest": "/Volumes/D/claude/rightkit/packages/media-ui/package.json",
+    "line": 52,
+    "scope": "devDependencies",
+    "dependency": "fabric",
+    "spec": "^7.4.0",
+    "optional_peer": false
+  },
+  {
+    "owner": "@rightkit/media-ui",
+    "manifest": "/Volumes/D/claude/rightkit/packages/media-ui/package.json",
+    "line": 53,
+    "scope": "devDependencies",
+    "dependency": "jsdom",
+    "spec": "^25.0.1",
+    "optional_peer": false
+  },
+  {
+    "owner": "@rightkit/media-ui",
+    "manifest": "/Volumes/D/claude/rightkit/packages/media-ui/package.json",
+    "line": 54,
+    "scope": "devDependencies",
+    "dependency": "react",
+    "spec": "^19.0.0",
+    "optional_peer": false
+  },
+  {
+    "owner": "@rightkit/media-ui",
+    "manifest": "/Volumes/D/claude/rightkit/packages/media-ui/package.json",
+    "line": 55,
+    "scope": "devDependencies",
+    "dependency": "react-dom",
+    "spec": "^19.0.0",
+    "optional_peer": false
+  },
+  {
+    "owner": "@rightkit/media-ui",
+    "manifest": "/Volumes/D/claude/rightkit/packages/media-ui/package.json",
+    "line": 56,
+    "scope": "devDependencies",
+    "dependency": "react-image-crop",
+    "spec": "^11.1.2",
+    "optional_peer": false
+  },
+  {
+    "owner": "@rightkit/media-ui",
+    "manifest": "/Volumes/D/claude/rightkit/packages/media-ui/package.json",
+    "line": 57,
+    "scope": "devDependencies",
+    "dependency": "typescript",
+    "spec": "^5.7.0",
+    "optional_peer": false
+  },
+  {
+    "owner": "@rightkit/media-ui",
+    "manifest": "/Volumes/D/claude/rightkit/packages/media-ui/package.json",
+    "line": 58,
+    "scope": "devDependencies",
+    "dependency": "vitest",
+    "spec": "^2.1.8",
+    "optional_peer": false
+  },
+  {
+    "owner": "@rightkit/onboarding",
+    "manifest": "/Volumes/D/claude/rightkit/packages/onboarding/package.json",
+    "line": 27,
+    "scope": "peerDependencies",
+    "dependency": "@rightkit/app-shell",
+    "spec": ">=0.2.0 <1",
+    "optional_peer": false
+  },
+  {
+    "owner": "@rightkit/onboarding",
+    "manifest": "/Volumes/D/claude/rightkit/packages/onboarding/package.json",
+    "line": 28,
+    "scope": "peerDependencies",
+    "dependency": "@rightkit/legal-ui",
+    "spec": ">=0.1.2 <1",
+    "optional_peer": false
+  },
+  {
+    "owner": "@rightkit/onboarding",
+    "manifest": "/Volumes/D/claude/rightkit/packages/onboarding/package.json",
+    "line": 29,
+    "scope": "peerDependencies",
+    "dependency": "react",
+    "spec": ">=18 <21",
+    "optional_peer": false
+  },
+  {
+    "owner": "@rightkit/onboarding",
+    "manifest": "/Volumes/D/claude/rightkit/packages/onboarding/package.json",
+    "line": 32,
+    "scope": "devDependencies",
+    "dependency": "@rightkit/app-shell",
+    "spec": "workspace:*",
+    "optional_peer": false
+  },
+  {
+    "owner": "@rightkit/onboarding",
+    "manifest": "/Volumes/D/claude/rightkit/packages/onboarding/package.json",
+    "line": 33,
+    "scope": "devDependencies",
+    "dependency": "@rightkit/legal-ui",
+    "spec": "workspace:*",
+    "optional_peer": false
+  },
+  {
+    "owner": "@rightkit/onboarding",
+    "manifest": "/Volumes/D/claude/rightkit/packages/onboarding/package.json",
+    "line": 34,
+    "scope": "devDependencies",
+    "dependency": "@rightkit/qa",
+    "spec": "workspace:*",
+    "optional_peer": false
+  },
+  {
+    "owner": "@rightkit/onboarding",
+    "manifest": "/Volumes/D/claude/rightkit/packages/onboarding/package.json",
+    "line": 35,
+    "scope": "devDependencies",
+    "dependency": "@testing-library/jest-dom",
+    "spec": "^6.6.3",
+    "optional_peer": false
+  },
+  {
+    "owner": "@rightkit/onboarding",
+    "manifest": "/Volumes/D/claude/rightkit/packages/onboarding/package.json",
+    "line": 36,
+    "scope": "devDependencies",
+    "dependency": "@testing-library/react",
+    "spec": "^16.1.0",
+    "optional_peer": false
+  },
+  {
+    "owner": "@rightkit/onboarding",
+    "manifest": "/Volumes/D/claude/rightkit/packages/onboarding/package.json",
+    "line": 37,
+    "scope": "devDependencies",
+    "dependency": "@testing-library/user-event",
+    "spec": "^14.5.2",
+    "optional_peer": false
+  },
+  {
+    "owner": "@rightkit/onboarding",
+    "manifest": "/Volumes/D/claude/rightkit/packages/onboarding/package.json",
+    "line": 38,
+    "scope": "devDependencies",
+    "dependency": "@types/react",
+    "spec": "^19.0.0",
+    "optional_peer": false
+  },
+  {
+    "owner": "@rightkit/onboarding",
+    "manifest": "/Volumes/D/claude/rightkit/packages/onboarding/package.json",
+    "line": 39,
+    "scope": "devDependencies",
+    "dependency": "@types/react-dom",
+    "spec": "^19.0.0",
+    "optional_peer": false
+  },
+  {
+    "owner": "@rightkit/onboarding",
+    "manifest": "/Volumes/D/claude/rightkit/packages/onboarding/package.json",
+    "line": 40,
+    "scope": "devDependencies",
+    "dependency": "jsdom",
+    "spec": "^25.0.1",
+    "optional_peer": false
+  },
+  {
+    "owner": "@rightkit/onboarding",
+    "manifest": "/Volumes/D/claude/rightkit/packages/onboarding/package.json",
+    "line": 41,
+    "scope": "devDependencies",
+    "dependency": "react",
+    "spec": "^19.0.0",
+    "optional_peer": false
+  },
+  {
+    "owner": "@rightkit/onboarding",
+    "manifest": "/Volumes/D/claude/rightkit/packages/onboarding/package.json",
+    "line": 42,
+    "scope": "devDependencies",
+    "dependency": "react-dom",
+    "spec": "^19.0.0",
+    "optional_peer": false
+  },
+  {
+    "owner": "@rightkit/onboarding",
+    "manifest": "/Volumes/D/claude/rightkit/packages/onboarding/package.json",
+    "line": 43,
+    "scope": "devDependencies",
+    "dependency": "typescript",
+    "spec": "^5.7.0",
+    "optional_peer": false
+  },
+  {
+    "owner": "@rightkit/onboarding",
+    "manifest": "/Volumes/D/claude/rightkit/packages/onboarding/package.json",
+    "line": 44,
+    "scope": "devDependencies",
+    "dependency": "vite",
+    "spec": "^6.0.0",
+    "optional_peer": false
+  },
+  {
+    "owner": "@rightkit/onboarding",
+    "manifest": "/Volumes/D/claude/rightkit/packages/onboarding/package.json",
+    "line": 45,
+    "scope": "devDependencies",
+    "dependency": "vitest",
+    "spec": "^2.1.8",
+    "optional_peer": false
+  },
+  {
+    "owner": "@rightkit/pdf-ui",
+    "manifest": "/Volumes/D/claude/rightkit/packages/pdf-ui/package.json",
+    "line": 31,
+    "scope": "dependencies",
+    "dependency": "pdfjs-dist",
+    "spec": "^6.3.289",
+    "optional_peer": false
+  },
+  {
+    "owner": "@rightkit/pdf-ui",
+    "manifest": "/Volumes/D/claude/rightkit/packages/pdf-ui/package.json",
+    "line": 28,
+    "scope": "peerDependencies",
+    "dependency": "react",
+    "spec": ">=18 <21",
+    "optional_peer": false
+  },
+  {
+    "owner": "@rightkit/pdf-ui",
+    "manifest": "/Volumes/D/claude/rightkit/packages/pdf-ui/package.json",
+    "line": 34,
+    "scope": "devDependencies",
+    "dependency": "@rightkit/qa",
+    "spec": "workspace:*",
+    "optional_peer": false
+  },
+  {
+    "owner": "@rightkit/pdf-ui",
+    "manifest": "/Volumes/D/claude/rightkit/packages/pdf-ui/package.json",
+    "line": 35,
+    "scope": "devDependencies",
+    "dependency": "@types/react",
+    "spec": "^19.0.0",
+    "optional_peer": false
+  },
+  {
+    "owner": "@rightkit/pdf-ui",
+    "manifest": "/Volumes/D/claude/rightkit/packages/pdf-ui/package.json",
+    "line": 36,
+    "scope": "devDependencies",
+    "dependency": "@types/react-dom",
+    "spec": "^19.0.0",
+    "optional_peer": false
+  },
+  {
+    "owner": "@rightkit/pdf-ui",
+    "manifest": "/Volumes/D/claude/rightkit/packages/pdf-ui/package.json",
+    "line": 37,
+    "scope": "devDependencies",
+    "dependency": "esbuild",
+    "spec": "^0.28.1",
+    "optional_peer": false
+  },
+  {
+    "owner": "@rightkit/pdf-ui",
+    "manifest": "/Volumes/D/claude/rightkit/packages/pdf-ui/package.json",
+    "line": 38,
+    "scope": "devDependencies",
+    "dependency": "react",
+    "spec": "^19.0.0",
+    "optional_peer": false
+  },
+  {
+    "owner": "@rightkit/pdf-ui",
+    "manifest": "/Volumes/D/claude/rightkit/packages/pdf-ui/package.json",
+    "line": 39,
+    "scope": "devDependencies",
+    "dependency": "react-dom",
+    "spec": "^19.0.0",
+    "optional_peer": false
+  },
+  {
+    "owner": "@rightkit/pdf-ui",
+    "manifest": "/Volumes/D/claude/rightkit/packages/pdf-ui/package.json",
+    "line": 40,
+    "scope": "devDependencies",
+    "dependency": "typescript",
+    "spec": "^5.7.0",
+    "optional_peer": false
+  },
+  {
+    "owner": "@rightkit/pdf-ui",
+    "manifest": "/Volumes/D/claude/rightkit/packages/pdf-ui/package.json",
+    "line": 41,
+    "scope": "devDependencies",
+    "dependency": "vitest",
+    "spec": "^2.1.8",
+    "optional_peer": false
+  },
+  {
+    "owner": "@rightkit/platform-ui",
+    "manifest": "/Volumes/D/claude/rightkit/packages/platform-ui/package.json",
+    "line": 27,
+    "scope": "peerDependencies",
+    "dependency": "@tauri-apps/plugin-os",
+    "spec": ">=2 <3",
+    "optional_peer": false
+  },
+  {
+    "owner": "@rightkit/platform-ui",
+    "manifest": "/Volumes/D/claude/rightkit/packages/platform-ui/package.json",
+    "line": 28,
+    "scope": "peerDependencies",
+    "dependency": "react",
+    "spec": ">=18 <21",
+    "optional_peer": false
+  },
+  {
+    "owner": "@rightkit/platform-ui",
+    "manifest": "/Volumes/D/claude/rightkit/packages/platform-ui/package.json",
+    "line": 31,
+    "scope": "devDependencies",
+    "dependency": "@tauri-apps/plugin-os",
+    "spec": "^2.3.2",
+    "optional_peer": false
+  },
+  {
+    "owner": "@rightkit/platform-ui",
+    "manifest": "/Volumes/D/claude/rightkit/packages/platform-ui/package.json",
+    "line": 32,
+    "scope": "devDependencies",
+    "dependency": "@types/react",
+    "spec": "^19.0.0",
+    "optional_peer": false
+  },
+  {
+    "owner": "@rightkit/platform-ui",
+    "manifest": "/Volumes/D/claude/rightkit/packages/platform-ui/package.json",
+    "line": 33,
+    "scope": "devDependencies",
+    "dependency": "react",
+    "spec": "^19.0.0",
+    "optional_peer": false
+  },
+  {
+    "owner": "@rightkit/platform-ui",
+    "manifest": "/Volumes/D/claude/rightkit/packages/platform-ui/package.json",
+    "line": 34,
+    "scope": "devDependencies",
+    "dependency": "typescript",
+    "spec": "^5.7.0",
+    "optional_peer": false
+  },
+  {
+    "owner": "@rightkit/platform-ui",
+    "manifest": "/Volumes/D/claude/rightkit/packages/platform-ui/package.json",
+    "line": 35,
+    "scope": "devDependencies",
+    "dependency": "vitest",
+    "spec": "^2.1.8",
+    "optional_peer": false
+  },
+  {
+    "owner": "@rightkit/qa",
+    "manifest": "/Volumes/D/claude/rightkit/packages/qa/package.json",
+    "line": 33,
+    "scope": "dependencies",
+    "dependency": "@rightkit/qa-chrome",
+    "spec": "workspace:*",
+    "optional_peer": false
+  },
+  {
+    "owner": "@rightkit/qa",
+    "manifest": "/Volumes/D/claude/rightkit/packages/qa/package.json",
+    "line": 36,
+    "scope": "devDependencies",
+    "dependency": "@types/node",
+    "spec": "^24.0.0",
+    "optional_peer": false
+  },
+  {
+    "owner": "@rightkit/qa",
+    "manifest": "/Volumes/D/claude/rightkit/packages/qa/package.json",
+    "line": 37,
+    "scope": "devDependencies",
+    "dependency": "typescript",
+    "spec": "^5.7.0",
+    "optional_peer": false
+  },
+  {
+    "owner": "@rightkit/qa",
+    "manifest": "/Volumes/D/claude/rightkit/packages/qa/package.json",
+    "line": 38,
+    "scope": "devDependencies",
+    "dependency": "vitest",
+    "spec": "^2.1.8",
+    "optional_peer": false
+  },
+  {
+    "owner": "@rightkit/qa-chrome",
+    "manifest": "/Volumes/D/claude/rightkit/packages/qa-chrome/package.json",
+    "line": 29,
+    "scope": "devDependencies",
+    "dependency": "@types/node",
+    "spec": "^24.0.0",
+    "optional_peer": false
+  },
+  {
+    "owner": "@rightkit/qa-chrome",
+    "manifest": "/Volumes/D/claude/rightkit/packages/qa-chrome/package.json",
+    "line": 30,
+    "scope": "devDependencies",
+    "dependency": "typescript",
+    "spec": "^5.7.0",
+    "optional_peer": false
+  },
+  {
+    "owner": "@rightkit/qa-chrome",
+    "manifest": "/Volumes/D/claude/rightkit/packages/qa-chrome/package.json",
+    "line": 31,
+    "scope": "devDependencies",
+    "dependency": "vitest",
+    "spec": "^2.1.8",
+    "optional_peer": false
+  },
+  {
+    "owner": "@rightkit/release",
+    "manifest": "/Volumes/D/claude/rightkit/packages/release/package.json",
+    "line": 39,
+    "scope": "dependencies",
+    "dependency": "smol-toml",
+    "spec": "1.7.0",
+    "optional_peer": false
+  },
+  {
+    "owner": "@rightkit/settings-ui",
+    "manifest": "/Volumes/D/claude/rightkit/packages/settings-ui/package.json",
+    "line": 28,
+    "scope": "peerDependencies",
+    "dependency": "@rightkit/app-shell",
+    "spec": ">=0.2.0 <1",
+    "optional_peer": false
+  },
+  {
+    "owner": "@rightkit/settings-ui",
+    "manifest": "/Volumes/D/claude/rightkit/packages/settings-ui/package.json",
+    "line": 29,
+    "scope": "peerDependencies",
+    "dependency": "@rightkit/shell",
+    "spec": ">=0.1.0 <1",
+    "optional_peer": false
+  },
+  {
+    "owner": "@rightkit/settings-ui",
+    "manifest": "/Volumes/D/claude/rightkit/packages/settings-ui/package.json",
+    "line": 30,
+    "scope": "peerDependencies",
+    "dependency": "@rightkit/license",
+    "spec": ">=0.1.0",
+    "optional_peer": false
+  },
+  {
+    "owner": "@rightkit/settings-ui",
+    "manifest": "/Volumes/D/claude/rightkit/packages/settings-ui/package.json",
+    "line": 31,
+    "scope": "peerDependencies",
+    "dependency": "@rightkit/logs",
+    "spec": ">=0.1.0",
+    "optional_peer": false
+  },
+  {
+    "owner": "@rightkit/settings-ui",
+    "manifest": "/Volumes/D/claude/rightkit/packages/settings-ui/package.json",
+    "line": 32,
+    "scope": "peerDependencies",
+    "dependency": "@rightkit/theme",
+    "spec": ">=0.2.0 <1",
+    "optional_peer": false
+  },
+  {
+    "owner": "@rightkit/settings-ui",
+    "manifest": "/Volumes/D/claude/rightkit/packages/settings-ui/package.json",
+    "line": 33,
+    "scope": "peerDependencies",
+    "dependency": "@rightkit/updates",
+    "spec": ">=0.2.0",
+    "optional_peer": false
+  },
+  {
+    "owner": "@rightkit/settings-ui",
+    "manifest": "/Volumes/D/claude/rightkit/packages/settings-ui/package.json",
+    "line": 34,
+    "scope": "peerDependencies",
+    "dependency": "react",
+    "spec": ">=18 <21",
+    "optional_peer": false
+  },
+  {
+    "owner": "@rightkit/settings-ui",
+    "manifest": "/Volumes/D/claude/rightkit/packages/settings-ui/package.json",
+    "line": 37,
+    "scope": "devDependencies",
+    "dependency": "@rightkit/qa",
+    "spec": "workspace:*",
+    "optional_peer": false
+  },
+  {
+    "owner": "@rightkit/settings-ui",
+    "manifest": "/Volumes/D/claude/rightkit/packages/settings-ui/package.json",
+    "line": 38,
+    "scope": "devDependencies",
+    "dependency": "@rightkit/shell",
+    "spec": "workspace:*",
+    "optional_peer": false
+  },
+  {
+    "owner": "@rightkit/settings-ui",
+    "manifest": "/Volumes/D/claude/rightkit/packages/settings-ui/package.json",
+    "line": 39,
+    "scope": "devDependencies",
+    "dependency": "@testing-library/jest-dom",
+    "spec": "^6.6.3",
+    "optional_peer": false
+  },
+  {
+    "owner": "@rightkit/settings-ui",
+    "manifest": "/Volumes/D/claude/rightkit/packages/settings-ui/package.json",
+    "line": 40,
+    "scope": "devDependencies",
+    "dependency": "@testing-library/react",
+    "spec": "^16.1.0",
+    "optional_peer": false
+  },
+  {
+    "owner": "@rightkit/settings-ui",
+    "manifest": "/Volumes/D/claude/rightkit/packages/settings-ui/package.json",
+    "line": 41,
+    "scope": "devDependencies",
+    "dependency": "@testing-library/user-event",
+    "spec": "^14.5.2",
+    "optional_peer": false
+  },
+  {
+    "owner": "@rightkit/settings-ui",
+    "manifest": "/Volumes/D/claude/rightkit/packages/settings-ui/package.json",
+    "line": 42,
+    "scope": "devDependencies",
+    "dependency": "@types/react",
+    "spec": "^19.0.0",
+    "optional_peer": false
+  },
+  {
+    "owner": "@rightkit/settings-ui",
+    "manifest": "/Volumes/D/claude/rightkit/packages/settings-ui/package.json",
+    "line": 43,
+    "scope": "devDependencies",
+    "dependency": "@types/react-dom",
+    "spec": "^19.0.0",
+    "optional_peer": false
+  },
+  {
+    "owner": "@rightkit/settings-ui",
+    "manifest": "/Volumes/D/claude/rightkit/packages/settings-ui/package.json",
+    "line": 44,
+    "scope": "devDependencies",
+    "dependency": "jsdom",
+    "spec": "^25.0.1",
+    "optional_peer": false
+  },
+  {
+    "owner": "@rightkit/settings-ui",
+    "manifest": "/Volumes/D/claude/rightkit/packages/settings-ui/package.json",
+    "line": 45,
+    "scope": "devDependencies",
+    "dependency": "react",
+    "spec": "^19.0.0",
+    "optional_peer": false
+  },
+  {
+    "owner": "@rightkit/settings-ui",
+    "manifest": "/Volumes/D/claude/rightkit/packages/settings-ui/package.json",
+    "line": 46,
+    "scope": "devDependencies",
+    "dependency": "react-dom",
+    "spec": "^19.0.0",
+    "optional_peer": false
+  },
+  {
+    "owner": "@rightkit/settings-ui",
+    "manifest": "/Volumes/D/claude/rightkit/packages/settings-ui/package.json",
+    "line": 47,
+    "scope": "devDependencies",
+    "dependency": "typescript",
+    "spec": "^5.7.0",
+    "optional_peer": false
+  },
+  {
+    "owner": "@rightkit/settings-ui",
+    "manifest": "/Volumes/D/claude/rightkit/packages/settings-ui/package.json",
+    "line": 48,
+    "scope": "devDependencies",
+    "dependency": "vite",
+    "spec": "^6.0.0",
+    "optional_peer": false
+  },
+  {
+    "owner": "@rightkit/settings-ui",
+    "manifest": "/Volumes/D/claude/rightkit/packages/settings-ui/package.json",
+    "line": 49,
+    "scope": "devDependencies",
+    "dependency": "vitest",
+    "spec": "^2.1.8",
+    "optional_peer": false
+  },
+  {
+    "owner": "@rightkit/shell",
+    "manifest": "/Volumes/D/claude/rightkit/packages/shell/package.json",
+    "line": 23,
+    "scope": "devDependencies",
+    "dependency": "typescript",
+    "spec": "^5.7.0",
+    "optional_peer": false
+  },
+  {
+    "owner": "@rightkit/tauri",
+    "manifest": "/Volumes/D/claude/rightkit/packages/tauri/package.json",
+    "line": 19,
+    "scope": "dependencies",
+    "dependency": "@rightkit/logs",
+    "spec": "^0.1.4",
+    "optional_peer": false
+  },
+  {
+    "owner": "@rightkit/tauri",
+    "manifest": "/Volumes/D/claude/rightkit/packages/tauri/package.json",
+    "line": 22,
+    "scope": "peerDependencies",
+    "dependency": "@rightkit/updates",
+    "spec": "^0.2.5",
+    "optional_peer": false
+  },
+  {
+    "owner": "@rightkit/tauri",
+    "manifest": "/Volumes/D/claude/rightkit/packages/tauri/package.json",
+    "line": 31,
+    "scope": "devDependencies",
+    "dependency": "typescript",
+    "spec": "^5.7.0",
+    "optional_peer": false
+  },
+  {
+    "owner": "@rightkit/tauri",
+    "manifest": "/Volumes/D/claude/rightkit/packages/tauri/package.json",
+    "line": 32,
+    "scope": "devDependencies",
+    "dependency": "vitest",
+    "spec": "^2.1.8",
+    "optional_peer": false
+  },
+  {
+    "owner": "@rightkit/theme",
+    "manifest": "/Volumes/D/claude/rightkit/packages/theme/package.json",
+    "line": 32,
+    "scope": "devDependencies",
+    "dependency": "@rightkit/qa",
+    "spec": "workspace:*",
+    "optional_peer": false
+  },
+  {
+    "owner": "@rightkit/theme",
+    "manifest": "/Volumes/D/claude/rightkit/packages/theme/package.json",
+    "line": 33,
+    "scope": "devDependencies",
+    "dependency": "@types/node",
+    "spec": "^24.0.0",
+    "optional_peer": false
+  },
+  {
+    "owner": "@rightkit/theme",
+    "manifest": "/Volumes/D/claude/rightkit/packages/theme/package.json",
+    "line": 34,
+    "scope": "devDependencies",
+    "dependency": "typescript",
+    "spec": "^5.7.0",
+    "optional_peer": false
+  },
+  {
+    "owner": "@rightkit/theme",
+    "manifest": "/Volumes/D/claude/rightkit/packages/theme/package.json",
+    "line": 35,
+    "scope": "devDependencies",
+    "dependency": "vitest",
+    "spec": "^2.1.8",
+    "optional_peer": false
+  },
+  {
+    "owner": "@rightkit/updates",
+    "manifest": "/Volumes/D/claude/rightkit/packages/updates/package.json",
+    "line": 24,
+    "scope": "devDependencies",
+    "dependency": "typescript",
+    "spec": "^5.7.0",
+    "optional_peer": false
+  },
+  {
+    "owner": "@rightkit/updates",
+    "manifest": "/Volumes/D/claude/rightkit/packages/updates/package.json",
+    "line": 25,
+    "scope": "devDependencies",
+    "dependency": "vitest",
+    "spec": "^2.1.8",
+    "optional_peer": false
+  },
+  {
+    "owner": "rightapp",
+    "manifest": "/Volumes/D/claude/rightkit/desktop-app-template/package.json",
+    "line": 41,
+    "scope": "dependencies",
+    "dependency": "@rightkit/logs",
+    "spec": "0.1.4",
+    "optional_peer": false
+  },
+  {
+    "owner": "rightapp",
+    "manifest": "/Volumes/D/claude/rightkit/desktop-app-template/package.json",
+    "line": 42,
+    "scope": "dependencies",
+    "dependency": "@rightkit/platform-ui",
+    "spec": "0.1.2",
+    "optional_peer": false
+  },
+  {
+    "owner": "rightapp",
+    "manifest": "/Volumes/D/claude/rightkit/desktop-app-template/package.json",
+    "line": 43,
+    "scope": "dependencies",
+    "dependency": "@rightkit/tauri",
+    "spec": "0.1.1",
+    "optional_peer": false
+  },
+  {
+    "owner": "rightapp",
+    "manifest": "/Volumes/D/claude/rightkit/desktop-app-template/package.json",
+    "line": 44,
+    "scope": "dependencies",
+    "dependency": "@rightkit/updates",
+    "spec": "0.2.4",
+    "optional_peer": false
+  },
+  {
+    "owner": "rightapp",
+    "manifest": "/Volumes/D/claude/rightkit/desktop-app-template/package.json",
+    "line": 45,
+    "scope": "dependencies",
+    "dependency": "@tauri-apps/api",
+    "spec": "^2.11.1",
+    "optional_peer": false
+  },
+  {
+    "owner": "rightapp",
+    "manifest": "/Volumes/D/claude/rightkit/desktop-app-template/package.json",
+    "line": 46,
+    "scope": "dependencies",
+    "dependency": "@tauri-apps/plugin-os",
+    "spec": "^2.3.2",
+    "optional_peer": false
+  },
+  {
+    "owner": "rightapp",
+    "manifest": "/Volumes/D/claude/rightkit/desktop-app-template/package.json",
+    "line": 47,
+    "scope": "dependencies",
+    "dependency": "@tauri-apps/plugin-process",
+    "spec": "2.3.1",
+    "optional_peer": false
+  },
+  {
+    "owner": "rightapp",
+    "manifest": "/Volumes/D/claude/rightkit/desktop-app-template/package.json",
+    "line": 48,
+    "scope": "dependencies",
+    "dependency": "@tauri-apps/plugin-updater",
+    "spec": "2.10.1",
+    "optional_peer": false
+  },
+  {
+    "owner": "rightapp",
+    "manifest": "/Volumes/D/claude/rightkit/desktop-app-template/package.json",
+    "line": 49,
+    "scope": "dependencies",
+    "dependency": "react",
+    "spec": "^19.2.8",
+    "optional_peer": false
+  },
+  {
+    "owner": "rightapp",
+    "manifest": "/Volumes/D/claude/rightkit/desktop-app-template/package.json",
+    "line": 50,
+    "scope": "dependencies",
+    "dependency": "react-dom",
+    "spec": "^19.2.8",
+    "optional_peer": false
+  },
+  {
+    "owner": "rightapp",
+    "manifest": "/Volumes/D/claude/rightkit/desktop-app-template/package.json",
+    "line": 53,
+    "scope": "devDependencies",
+    "dependency": "@rightkit/release",
+    "spec": "0.2.119",
+    "optional_peer": false
+  },
+  {
+    "owner": "rightapp",
+    "manifest": "/Volumes/D/claude/rightkit/desktop-app-template/package.json",
+    "line": 54,
+    "scope": "devDependencies",
+    "dependency": "@tailwindcss/vite",
+    "spec": "^4.3.3",
+    "optional_peer": false
+  },
+  {
+    "owner": "rightapp",
+    "manifest": "/Volumes/D/claude/rightkit/desktop-app-template/package.json",
+    "line": 55,
+    "scope": "devDependencies",
+    "dependency": "@tauri-apps/cli",
+    "spec": "^2.11.4",
+    "optional_peer": false
+  },
+  {
+    "owner": "rightapp",
+    "manifest": "/Volumes/D/claude/rightkit/desktop-app-template/package.json",
+    "line": 56,
+    "scope": "devDependencies",
+    "dependency": "@types/react",
+    "spec": "^19.2.18",
+    "optional_peer": false
+  },
+  {
+    "owner": "rightapp",
+    "manifest": "/Volumes/D/claude/rightkit/desktop-app-template/package.json",
+    "line": 57,
+    "scope": "devDependencies",
+    "dependency": "@types/react-dom",
+    "spec": "^19.2.5",
+    "optional_peer": false
+  },
+  {
+    "owner": "rightapp",
+    "manifest": "/Volumes/D/claude/rightkit/desktop-app-template/package.json",
+    "line": 58,
+    "scope": "devDependencies",
+    "dependency": "@vitejs/plugin-react",
+    "spec": "^6.1.0",
+    "optional_peer": false
+  },
+  {
+    "owner": "rightapp",
+    "manifest": "/Volumes/D/claude/rightkit/desktop-app-template/package.json",
+    "line": 59,
+    "scope": "devDependencies",
+    "dependency": "tailwindcss",
+    "spec": "^4.3.3",
+    "optional_peer": false
+  },
+  {
+    "owner": "rightapp",
+    "manifest": "/Volumes/D/claude/rightkit/desktop-app-template/package.json",
+    "line": 60,
+    "scope": "devDependencies",
+    "dependency": "typescript",
+    "spec": "^6.0.3",
+    "optional_peer": false
+  },
+  {
+    "owner": "rightapp",
+    "manifest": "/Volumes/D/claude/rightkit/desktop-app-template/package.json",
+    "line": 61,
+    "scope": "devDependencies",
+    "dependency": "vite",
+    "spec": "^8.2.2",
+    "optional_peer": false
+  }
+]

@@ -1,0 +1,172 @@
+owner,manifest,line,scope,dependency,spec,optional_peer
+@rightkit/app-shell,/Volumes/D/claude/rightkit/packages/app-shell/package.json,34,peerDependencies,@rightkit/platform-ui,>=0.1.1 <1,False
+@rightkit/app-shell,/Volumes/D/claude/rightkit/packages/app-shell/package.json,35,peerDependencies,react,>=18 <21,False
+@rightkit/app-shell,/Volumes/D/claude/rightkit/packages/app-shell/package.json,38,devDependencies,@rightkit/platform-ui,workspace:*,False
+@rightkit/app-shell,/Volumes/D/claude/rightkit/packages/app-shell/package.json,39,devDependencies,@rightkit/qa,workspace:*,False
+@rightkit/app-shell,/Volumes/D/claude/rightkit/packages/app-shell/package.json,40,devDependencies,@types/react,^19.0.0,False
+@rightkit/app-shell,/Volumes/D/claude/rightkit/packages/app-shell/package.json,41,devDependencies,@types/react-dom,^19.0.0,False
+@rightkit/app-shell,/Volumes/D/claude/rightkit/packages/app-shell/package.json,42,devDependencies,react,^19.0.0,False
+@rightkit/app-shell,/Volumes/D/claude/rightkit/packages/app-shell/package.json,43,devDependencies,react-dom,^19.0.0,False
+@rightkit/app-shell,/Volumes/D/claude/rightkit/packages/app-shell/package.json,44,devDependencies,typescript,^5.7.0,False
+@rightkit/app-shell,/Volumes/D/claude/rightkit/packages/app-shell/package.json,45,devDependencies,vite,^6.0.0,False
+@rightkit/app-shell,/Volumes/D/claude/rightkit/packages/app-shell/package.json,46,devDependencies,vitest,^2.1.8,False
+@rightkit/doc-render,/Volumes/D/claude/rightkit/packages/doc-render/package.json,31,dependencies,@types/mdast,^4.0.4,False
+@rightkit/doc-render,/Volumes/D/claude/rightkit/packages/doc-render/package.json,32,dependencies,dompurify,^3.4.16,False
+@rightkit/doc-render,/Volumes/D/claude/rightkit/packages/doc-render/package.json,33,dependencies,github-slugger,^2.0.0,False
+@rightkit/doc-render,/Volumes/D/claude/rightkit/packages/doc-render/package.json,34,dependencies,remark-frontmatter,^5.0.0,False
+@rightkit/doc-render,/Volumes/D/claude/rightkit/packages/doc-render/package.json,35,dependencies,remark-gfm,^4.0.1,False
+@rightkit/doc-render,/Volumes/D/claude/rightkit/packages/doc-render/package.json,36,dependencies,remark-math,^6.0.0,False
+@rightkit/doc-render,/Volumes/D/claude/rightkit/packages/doc-render/package.json,37,dependencies,remark-parse,^11.0.0,False
+@rightkit/doc-render,/Volumes/D/claude/rightkit/packages/doc-render/package.json,38,dependencies,remark-smartypants,^3.0.3,False
+@rightkit/doc-render,/Volumes/D/claude/rightkit/packages/doc-render/package.json,39,dependencies,shiki,^4.4.3,False
+@rightkit/doc-render,/Volumes/D/claude/rightkit/packages/doc-render/package.json,40,dependencies,unified,^11.0.5,False
+@rightkit/doc-render,/Volumes/D/claude/rightkit/packages/doc-render/package.json,28,peerDependencies,react,>=18 <21,False
+@rightkit/doc-render,/Volumes/D/claude/rightkit/packages/doc-render/package.json,43,devDependencies,@rightkit/qa,workspace:*,False
+@rightkit/doc-render,/Volumes/D/claude/rightkit/packages/doc-render/package.json,44,devDependencies,@types/react,^19.0.0,False
+@rightkit/doc-render,/Volumes/D/claude/rightkit/packages/doc-render/package.json,45,devDependencies,@types/react-dom,^19.0.0,False
+@rightkit/doc-render,/Volumes/D/claude/rightkit/packages/doc-render/package.json,46,devDependencies,esbuild,^0.28.1,False
+@rightkit/doc-render,/Volumes/D/claude/rightkit/packages/doc-render/package.json,47,devDependencies,react,^19.0.0,False
+@rightkit/doc-render,/Volumes/D/claude/rightkit/packages/doc-render/package.json,48,devDependencies,react-dom,^19.0.0,False
+@rightkit/doc-render,/Volumes/D/claude/rightkit/packages/doc-render/package.json,49,devDependencies,typescript,^5.7.0,False
+@rightkit/doc-render,/Volumes/D/claude/rightkit/packages/doc-render/package.json,50,devDependencies,vitest,^2.1.8,False
+@rightkit/i18n,/Volumes/D/claude/rightkit/packages/i18n/package.json,12,peerDependencies,react,>=18 <21,False
+@rightkit/i18n,/Volumes/D/claude/rightkit/packages/i18n/package.json,14,devDependencies,@testing-library/jest-dom,^6.6.3,False
+@rightkit/i18n,/Volumes/D/claude/rightkit/packages/i18n/package.json,15,devDependencies,@testing-library/react,^16.1.0,False
+@rightkit/i18n,/Volumes/D/claude/rightkit/packages/i18n/package.json,16,devDependencies,@types/react,^19.0.0,False
+@rightkit/i18n,/Volumes/D/claude/rightkit/packages/i18n/package.json,17,devDependencies,@types/react-dom,^19.0.0,False
+@rightkit/i18n,/Volumes/D/claude/rightkit/packages/i18n/package.json,18,devDependencies,jsdom,^25.0.1,False
+@rightkit/i18n,/Volumes/D/claude/rightkit/packages/i18n/package.json,19,devDependencies,react,^19.0.0,False
+@rightkit/i18n,/Volumes/D/claude/rightkit/packages/i18n/package.json,20,devDependencies,typescript,^5.7.0,False
+@rightkit/i18n,/Volumes/D/claude/rightkit/packages/i18n/package.json,21,devDependencies,vitest,^2.1.8,False
+@rightkit/legal,/Volumes/D/claude/rightkit/packages/legal/package.json,21,devDependencies,@types/node,^22.10.0,False
+@rightkit/legal,/Volumes/D/claude/rightkit/packages/legal/package.json,22,devDependencies,typescript,^5.7.0,False
+@rightkit/legal,/Volumes/D/claude/rightkit/packages/legal/package.json,23,devDependencies,vitest,^2.1.8,False
+@rightkit/legal-ui,/Volumes/D/claude/rightkit/packages/legal-ui/package.json,28,peerDependencies,react,>=18 <21,False
+@rightkit/legal-ui,/Volumes/D/claude/rightkit/packages/legal-ui/package.json,31,devDependencies,@testing-library/jest-dom,^6.6.3,False
+@rightkit/legal-ui,/Volumes/D/claude/rightkit/packages/legal-ui/package.json,32,devDependencies,@testing-library/react,^16.1.0,False
+@rightkit/legal-ui,/Volumes/D/claude/rightkit/packages/legal-ui/package.json,33,devDependencies,@testing-library/user-event,^14.5.2,False
+@rightkit/legal-ui,/Volumes/D/claude/rightkit/packages/legal-ui/package.json,34,devDependencies,@types/react,^19.0.0,False
+@rightkit/legal-ui,/Volumes/D/claude/rightkit/packages/legal-ui/package.json,35,devDependencies,@types/react-dom,^19.0.0,False
+@rightkit/legal-ui,/Volumes/D/claude/rightkit/packages/legal-ui/package.json,36,devDependencies,axe-core,4.12.1,False
+@rightkit/legal-ui,/Volumes/D/claude/rightkit/packages/legal-ui/package.json,37,devDependencies,esbuild,^0.28.1,False
+@rightkit/legal-ui,/Volumes/D/claude/rightkit/packages/legal-ui/package.json,38,devDependencies,jsdom,^25.0.1,False
+@rightkit/legal-ui,/Volumes/D/claude/rightkit/packages/legal-ui/package.json,39,devDependencies,react,^19.0.0,False
+@rightkit/legal-ui,/Volumes/D/claude/rightkit/packages/legal-ui/package.json,40,devDependencies,react-dom,^19.0.0,False
+@rightkit/legal-ui,/Volumes/D/claude/rightkit/packages/legal-ui/package.json,41,devDependencies,typescript,^5.7.0,False
+@rightkit/legal-ui,/Volumes/D/claude/rightkit/packages/legal-ui/package.json,42,devDependencies,vitest,^2.1.8,False
+@rightkit/license,/Volumes/D/claude/rightkit/packages/license/package.json,27,peerDependencies,@tauri-apps/plugin-http,^2,True
+@rightkit/license,/Volumes/D/claude/rightkit/packages/license/package.json,21,devDependencies,@tauri-apps/plugin-http,^2,False
+@rightkit/license,/Volumes/D/claude/rightkit/packages/license/package.json,22,devDependencies,@types/node,^22.10.0,False
+@rightkit/license,/Volumes/D/claude/rightkit/packages/license/package.json,23,devDependencies,typescript,^5.7.0,False
+@rightkit/license,/Volumes/D/claude/rightkit/packages/license/package.json,24,devDependencies,vitest,^2.1.8,False
+@rightkit/logs,/Volumes/D/claude/rightkit/packages/logs/package.json,24,devDependencies,typescript,^5.7.0,False
+@rightkit/logs,/Volumes/D/claude/rightkit/packages/logs/package.json,25,devDependencies,vitest,^2.1.8,False
+@rightkit/media-ui,/Volumes/D/claude/rightkit/packages/media-ui/package.json,32,peerDependencies,fabric,^7.4.0,True
+@rightkit/media-ui,/Volumes/D/claude/rightkit/packages/media-ui/package.json,33,peerDependencies,react,>=18 <21,False
+@rightkit/media-ui,/Volumes/D/claude/rightkit/packages/media-ui/package.json,34,peerDependencies,react-dom,>=18 <21,False
+@rightkit/media-ui,/Volumes/D/claude/rightkit/packages/media-ui/package.json,35,peerDependencies,react-image-crop,^11.1.2,True
+@rightkit/media-ui,/Volumes/D/claude/rightkit/packages/media-ui/package.json,46,devDependencies,@rightkit/qa,workspace:*,False
+@rightkit/media-ui,/Volumes/D/claude/rightkit/packages/media-ui/package.json,47,devDependencies,@testing-library/dom,^10.4.0,False
+@rightkit/media-ui,/Volumes/D/claude/rightkit/packages/media-ui/package.json,48,devDependencies,@testing-library/react,^16.1.0,False
+@rightkit/media-ui,/Volumes/D/claude/rightkit/packages/media-ui/package.json,49,devDependencies,@types/react,^19.0.0,False
+@rightkit/media-ui,/Volumes/D/claude/rightkit/packages/media-ui/package.json,50,devDependencies,@types/react-dom,^19.0.0,False
+@rightkit/media-ui,/Volumes/D/claude/rightkit/packages/media-ui/package.json,51,devDependencies,esbuild,^0.28.1,False
+@rightkit/media-ui,/Volumes/D/claude/rightkit/packages/media-ui/package.json,52,devDependencies,fabric,^7.4.0,False
+@rightkit/media-ui,/Volumes/D/claude/rightkit/packages/media-ui/package.json,53,devDependencies,jsdom,^25.0.1,False
+@rightkit/media-ui,/Volumes/D/claude/rightkit/packages/media-ui/package.json,54,devDependencies,react,^19.0.0,False
+@rightkit/media-ui,/Volumes/D/claude/rightkit/packages/media-ui/package.json,55,devDependencies,react-dom,^19.0.0,False
+@rightkit/media-ui,/Volumes/D/claude/rightkit/packages/media-ui/package.json,56,devDependencies,react-image-crop,^11.1.2,False
+@rightkit/media-ui,/Volumes/D/claude/rightkit/packages/media-ui/package.json,57,devDependencies,typescript,^5.7.0,False
+@rightkit/media-ui,/Volumes/D/claude/rightkit/packages/media-ui/package.json,58,devDependencies,vitest,^2.1.8,False
+@rightkit/onboarding,/Volumes/D/claude/rightkit/packages/onboarding/package.json,27,peerDependencies,@rightkit/app-shell,>=0.2.0 <1,False
+@rightkit/onboarding,/Volumes/D/claude/rightkit/packages/onboarding/package.json,28,peerDependencies,@rightkit/legal-ui,>=0.1.2 <1,False
+@rightkit/onboarding,/Volumes/D/claude/rightkit/packages/onboarding/package.json,29,peerDependencies,react,>=18 <21,False
+@rightkit/onboarding,/Volumes/D/claude/rightkit/packages/onboarding/package.json,32,devDependencies,@rightkit/app-shell,workspace:*,False
+@rightkit/onboarding,/Volumes/D/claude/rightkit/packages/onboarding/package.json,33,devDependencies,@rightkit/legal-ui,workspace:*,False
+@rightkit/onboarding,/Volumes/D/claude/rightkit/packages/onboarding/package.json,34,devDependencies,@rightkit/qa,workspace:*,False
+@rightkit/onboarding,/Volumes/D/claude/rightkit/packages/onboarding/package.json,35,devDependencies,@testing-library/jest-dom,^6.6.3,False
+@rightkit/onboarding,/Volumes/D/claude/rightkit/packages/onboarding/package.json,36,devDependencies,@testing-library/react,^16.1.0,False
+@rightkit/onboarding,/Volumes/D/claude/rightkit/packages/onboarding/package.json,37,devDependencies,@testing-library/user-event,^14.5.2,False
+@rightkit/onboarding,/Volumes/D/claude/rightkit/packages/onboarding/package.json,38,devDependencies,@types/react,^19.0.0,False
+@rightkit/onboarding,/Volumes/D/claude/rightkit/packages/onboarding/package.json,39,devDependencies,@types/react-dom,^19.0.0,False
+@rightkit/onboarding,/Volumes/D/claude/rightkit/packages/onboarding/package.json,40,devDependencies,jsdom,^25.0.1,False
+@rightkit/onboarding,/Volumes/D/claude/rightkit/packages/onboarding/package.json,41,devDependencies,react,^19.0.0,False
+@rightkit/onboarding,/Volumes/D/claude/rightkit/packages/onboarding/package.json,42,devDependencies,react-dom,^19.0.0,False
+@rightkit/onboarding,/Volumes/D/claude/rightkit/packages/onboarding/package.json,43,devDependencies,typescript,^5.7.0,False
+@rightkit/onboarding,/Volumes/D/claude/rightkit/packages/onboarding/package.json,44,devDependencies,vite,^6.0.0,False
+@rightkit/onboarding,/Volumes/D/claude/rightkit/packages/onboarding/package.json,45,devDependencies,vitest,^2.1.8,False
+@rightkit/pdf-ui,/Volumes/D/claude/rightkit/packages/pdf-ui/package.json,31,dependencies,pdfjs-dist,^6.3.289,False
+@rightkit/pdf-ui,/Volumes/D/claude/rightkit/packages/pdf-ui/package.json,28,peerDependencies,react,>=18 <21,False
+@rightkit/pdf-ui,/Volumes/D/claude/rightkit/packages/pdf-ui/package.json,34,devDependencies,@rightkit/qa,workspace:*,False
+@rightkit/pdf-ui,/Volumes/D/claude/rightkit/packages/pdf-ui/package.json,35,devDependencies,@types/react,^19.0.0,False
+@rightkit/pdf-ui,/Volumes/D/claude/rightkit/packages/pdf-ui/package.json,36,devDependencies,@types/react-dom,^19.0.0,False
+@rightkit/pdf-ui,/Volumes/D/claude/rightkit/packages/pdf-ui/package.json,37,devDependencies,esbuild,^0.28.1,False
+@rightkit/pdf-ui,/Volumes/D/claude/rightkit/packages/pdf-ui/package.json,38,devDependencies,react,^19.0.0,False
+@rightkit/pdf-ui,/Volumes/D/claude/rightkit/packages/pdf-ui/package.json,39,devDependencies,react-dom,^19.0.0,False
+@rightkit/pdf-ui,/Volumes/D/claude/rightkit/packages/pdf-ui/package.json,40,devDependencies,typescript,^5.7.0,False
+@rightkit/pdf-ui,/Volumes/D/claude/rightkit/packages/pdf-ui/package.json,41,devDependencies,vitest,^2.1.8,False
+@rightkit/platform-ui,/Volumes/D/claude/rightkit/packages/platform-ui/package.json,27,peerDependencies,@tauri-apps/plugin-os,>=2 <3,False
+@rightkit/platform-ui,/Volumes/D/claude/rightkit/packages/platform-ui/package.json,28,peerDependencies,react,>=18 <21,False
+@rightkit/platform-ui,/Volumes/D/claude/rightkit/packages/platform-ui/package.json,31,devDependencies,@tauri-apps/plugin-os,^2.3.2,False
+@rightkit/platform-ui,/Volumes/D/claude/rightkit/packages/platform-ui/package.json,32,devDependencies,@types/react,^19.0.0,False
+@rightkit/platform-ui,/Volumes/D/claude/rightkit/packages/platform-ui/package.json,33,devDependencies,react,^19.0.0,False
+@rightkit/platform-ui,/Volumes/D/claude/rightkit/packages/platform-ui/package.json,34,devDependencies,typescript,^5.7.0,False
+@rightkit/platform-ui,/Volumes/D/claude/rightkit/packages/platform-ui/package.json,35,devDependencies,vitest,^2.1.8,False
+@rightkit/qa,/Volumes/D/claude/rightkit/packages/qa/package.json,33,dependencies,@rightkit/qa-chrome,workspace:*,False
+@rightkit/qa,/Volumes/D/claude/rightkit/packages/qa/package.json,36,devDependencies,@types/node,^24.0.0,False
+@rightkit/qa,/Volumes/D/claude/rightkit/packages/qa/package.json,37,devDependencies,typescript,^5.7.0,False
+@rightkit/qa,/Volumes/D/claude/rightkit/packages/qa/package.json,38,devDependencies,vitest,^2.1.8,False
+@rightkit/qa-chrome,/Volumes/D/claude/rightkit/packages/qa-chrome/package.json,29,devDependencies,@types/node,^24.0.0,False
+@rightkit/qa-chrome,/Volumes/D/claude/rightkit/packages/qa-chrome/package.json,30,devDependencies,typescript,^5.7.0,False
+@rightkit/qa-chrome,/Volumes/D/claude/rightkit/packages/qa-chrome/package.json,31,devDependencies,vitest,^2.1.8,False
+@rightkit/release,/Volumes/D/claude/rightkit/packages/release/package.json,39,dependencies,smol-toml,1.7.0,False
+@rightkit/settings-ui,/Volumes/D/claude/rightkit/packages/settings-ui/package.json,28,peerDependencies,@rightkit/app-shell,>=0.2.0 <1,False
+@rightkit/settings-ui,/Volumes/D/claude/rightkit/packages/settings-ui/package.json,29,peerDependencies,@rightkit/shell,>=0.1.0 <1,False
+@rightkit/settings-ui,/Volumes/D/claude/rightkit/packages/settings-ui/package.json,30,peerDependencies,@rightkit/license,>=0.1.0,False
+@rightkit/settings-ui,/Volumes/D/claude/rightkit/packages/settings-ui/package.json,31,peerDependencies,@rightkit/logs,>=0.1.0,False
+@rightkit/settings-ui,/Volumes/D/claude/rightkit/packages/settings-ui/package.json,32,peerDependencies,@rightkit/theme,>=0.2.0 <1,False
+@rightkit/settings-ui,/Volumes/D/claude/rightkit/packages/settings-ui/package.json,33,peerDependencies,@rightkit/updates,>=0.2.0,False
+@rightkit/settings-ui,/Volumes/D/claude/rightkit/packages/settings-ui/package.json,34,peerDependencies,react,>=18 <21,False
+@rightkit/settings-ui,/Volumes/D/claude/rightkit/packages/settings-ui/package.json,37,devDependencies,@rightkit/qa,workspace:*,False
+@rightkit/settings-ui,/Volumes/D/claude/rightkit/packages/settings-ui/package.json,38,devDependencies,@rightkit/shell,workspace:*,False
+@rightkit/settings-ui,/Volumes/D/claude/rightkit/packages/settings-ui/package.json,39,devDependencies,@testing-library/jest-dom,^6.6.3,False
+@rightkit/settings-ui,/Volumes/D/claude/rightkit/packages/settings-ui/package.json,40,devDependencies,@testing-library/react,^16.1.0,False
+@rightkit/settings-ui,/Volumes/D/claude/rightkit/packages/settings-ui/package.json,41,devDependencies,@testing-library/user-event,^14.5.2,False
+@rightkit/settings-ui,/Volumes/D/claude/rightkit/packages/settings-ui/package.json,42,devDependencies,@types/react,^19.0.0,False
+@rightkit/settings-ui,/Volumes/D/claude/rightkit/packages/settings-ui/package.json,43,devDependencies,@types/react-dom,^19.0.0,False
+@rightkit/settings-ui,/Volumes/D/claude/rightkit/packages/settings-ui/package.json,44,devDependencies,jsdom,^25.0.1,False
+@rightkit/settings-ui,/Volumes/D/claude/rightkit/packages/settings-ui/package.json,45,devDependencies,react,^19.0.0,False
+@rightkit/settings-ui,/Volumes/D/claude/rightkit/packages/settings-ui/package.json,46,devDependencies,react-dom,^19.0.0,False
+@rightkit/settings-ui,/Volumes/D/claude/rightkit/packages/settings-ui/package.json,47,devDependencies,typescript,^5.7.0,False
+@rightkit/settings-ui,/Volumes/D/claude/rightkit/packages/settings-ui/package.json,48,devDependencies,vite,^6.0.0,False
+@rightkit/settings-ui,/Volumes/D/claude/rightkit/packages/settings-ui/package.json,49,devDependencies,vitest,^2.1.8,False
+@rightkit/shell,/Volumes/D/claude/rightkit/packages/shell/package.json,23,devDependencies,typescript,^5.7.0,False
+@rightkit/tauri,/Volumes/D/claude/rightkit/packages/tauri/package.json,19,dependencies,@rightkit/logs,^0.1.4,False
+@rightkit/tauri,/Volumes/D/claude/rightkit/packages/tauri/package.json,22,peerDependencies,@rightkit/updates,^0.2.5,False
+@rightkit/tauri,/Volumes/D/claude/rightkit/packages/tauri/package.json,31,devDependencies,typescript,^5.7.0,False
+@rightkit/tauri,/Volumes/D/claude/rightkit/packages/tauri/package.json,32,devDependencies,vitest,^2.1.8,False
+@rightkit/theme,/Volumes/D/claude/rightkit/packages/theme/package.json,32,devDependencies,@rightkit/qa,workspace:*,False
+@rightkit/theme,/Volumes/D/claude/rightkit/packages/theme/package.json,33,devDependencies,@types/node,^24.0.0,False
+@rightkit/theme,/Volumes/D/claude/rightkit/packages/theme/package.json,34,devDependencies,typescript,^5.7.0,False
+@rightkit/theme,/Volumes/D/claude/rightkit/packages/theme/package.json,35,devDependencies,vitest,^2.1.8,False
+@rightkit/updates,/Volumes/D/claude/rightkit/packages/updates/package.json,24,devDependencies,typescript,^5.7.0,False
+@rightkit/updates,/Volumes/D/claude/rightkit/packages/updates/package.json,25,devDependencies,vitest,^2.1.8,False
+rightapp,/Volumes/D/claude/rightkit/desktop-app-template/package.json,41,dependencies,@rightkit/logs,0.1.4,False
+rightapp,/Volumes/D/claude/rightkit/desktop-app-template/package.json,42,dependencies,@rightkit/platform-ui,0.1.2,False
+rightapp,/Volumes/D/claude/rightkit/desktop-app-template/package.json,43,dependencies,@rightkit/tauri,0.1.1,False
+rightapp,/Volumes/D/claude/rightkit/desktop-app-template/package.json,44,dependencies,@rightkit/updates,0.2.4,False
+rightapp,/Volumes/D/claude/rightkit/desktop-app-template/package.json,45,dependencies,@tauri-apps/api,^2.11.1,False
+rightapp,/Volumes/D/claude/rightkit/desktop-app-template/package.json,46,dependencies,@tauri-apps/plugin-os,^2.3.2,False
+rightapp,/Volumes/D/claude/rightkit/desktop-app-template/package.json,47,dependencies,@tauri-apps/plugin-process,2.3.1,False
+rightapp,/Volumes/D/claude/rightkit/desktop-app-template/package.json,48,dependencies,@tauri-apps/plugin-updater,2.10.1,False
+rightapp,/Volumes/D/claude/rightkit/desktop-app-template/package.json,49,dependencies,react,^19.2.8,False
+rightapp,/Volumes/D/claude/rightkit/desktop-app-template/package.json,50,dependencies,react-dom,^19.2.8,False
+rightapp,/Volumes/D/claude/rightkit/desktop-app-template/package.json,53,devDependencies,@rightkit/release,0.2.119,False
+rightapp,/Volumes/D/claude/rightkit/desktop-app-template/package.json,54,devDependencies,@tailwindcss/vite,^4.3.3,False
+rightapp,/Volumes/D/claude/rightkit/desktop-app-template/package.json,55,devDependencies,@tauri-apps/cli,^2.11.4,False
+rightapp,/Volumes/D/claude/rightkit/desktop-app-template/package.json,56,devDependencies,@types/react,^19.2.18,False
+rightapp,/Volumes/D/claude/rightkit/desktop-app-template/package.json,57,devDependencies,@types/react-dom,^19.2.5,False
+rightapp,/Volumes/D/claude/rightkit/desktop-app-template/package.json,58,devDependencies,@vitejs/plugin-react,^6.1.0,False
+rightapp,/Volumes/D/claude/rightkit/desktop-app-template/package.json,59,devDependencies,tailwindcss,^4.3.3,False
+rightapp,/Volumes/D/claude/rightkit/desktop-app-template/package.json,60,devDependencies,typescript,^6.0.3,False
+rightapp,/Volumes/D/claude/rightkit/desktop-app-template/package.json,61,devDependencies,vite,^8.2.2,False

@@ -35,6 +35,8 @@ public final class LiveDictationSession: @unchecked Sendable {
     private var task: SFSpeechRecognitionTask?
     private var modern: AnyObject?
     private var startTask: Task<Void, Never>?
+    /// Test seam: the most recent start's task, kept after `stop()` so tests can await it.
+    private(set) var lastStartTask: Task<Void, Never>?
 
     public init(
         localeCandidates: [Locale] = Dictation.localeCandidates(),
@@ -69,7 +71,7 @@ public final class LiveDictationSession: @unchecked Sendable {
             guard let self else { return }
             await self.run(generation: current, onEvent: onEvent)
         }
-        lock.withLock { startTask = task }
+        lock.withLock { startTask = task; lastStartTask = task }
     }
 
     public func stop() {
@@ -81,15 +83,20 @@ public final class LiveDictationSession: @unchecked Sendable {
     private func isCurrent(_ value: Int) -> Bool { lock.withLock { generation == value } }
 
     private func run(generation value: Int, onEvent: @escaping @Sendable (Event) -> Void) async {
-        guard await speechAuthorization() else {
+        // Permission prompts can outlive the start that asked for them. Recheck after each await so a
+        // canceled or replaced start never reports a stale failure to the current owner.
+        let speechGranted = await speechAuthorization()
+        guard isCurrent(value), !Task.isCancelled else { return }
+        guard speechGranted else {
             onEvent(.failed("Dictation needs Speech Recognition access."))
             return
         }
-        guard await microphonePermission() else {
+        let microphoneGranted = await microphonePermission()
+        guard isCurrent(value), !Task.isCancelled else { return }
+        guard microphoneGranted else {
             onEvent(.failed("Dictation needs Microphone access."))
             return
         }
-        guard isCurrent(value), !Task.isCancelled else { return }
         do {
             #if os(iOS)
             let session = AVAudioSession.sharedInstance()
@@ -119,15 +126,18 @@ public final class LiveDictationSession: @unchecked Sendable {
     }
 
     private func beginLegacy(generation value: Int, onEvent: @escaping @Sendable (Event) -> Void) throws {
-        guard let recognizer = localeCandidates.compactMap({ SFSpeechRecognizer(locale: $0) }).first(where: { $0.isAvailable }) else {
-            throw SpeechError.engineUnavailable("Dictation isn't available for this language.")
-        }
+        // Local-only: pick only a recognizer that recognizes on-device, otherwise fail closed.
+        let recognizer = try LegacySpeechPolicy.select(
+            from: localeCandidates.compactMap { SFSpeechRecognizer(locale: $0) },
+            isAvailable: { $0.isAvailable },
+            supportsOnDevice: { $0.supportsOnDeviceRecognition }
+        )
         let engine = AVAudioEngine()
         let request = SFSpeechAudioBufferRecognitionRequest()
         request.shouldReportPartialResults = true
         request.addsPunctuation = true
         request.taskHint = .dictation
-        if recognizer.supportsOnDeviceRecognition { request.requiresOnDeviceRecognition = true }
+        try LegacySpeechPolicy.configure(request, supportsOnDevice: recognizer.supportsOnDeviceRecognition)
         let input = engine.inputNode
         let format = input.outputFormat(forBus: 0)
         guard format.channelCount > 0 else { throw SpeechError.engineUnavailable("no audio input") }

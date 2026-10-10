@@ -80,3 +80,28 @@ private final class FakeTransport: WatchMessageTransport {
     log.remember("y"); log.remember("z")
     #expect(log.all == ["z", "y"])
 }
+
+@Test func concurrentInsertIfNewAdmitsEachValueExactlyOnceAndStillPrunes() {
+    let suite = "rk-bridge-\(UUID().uuidString)"
+    let defaults = UserDefaults(suiteName: suite)!
+    let accepted = NSLock()
+    nonisolated(unsafe) var wins: [String] = []
+    let group = DispatchGroup()
+    for _ in 0..<16 {
+        group.enter()
+        Thread {
+            // Separate log values and defaults handles for one key: the supported multi-instance model.
+            let log = BoundedStringLog(defaults: UserDefaults(suiteName: suite)!, key: "dedupe", limit: 100)
+            for receipt in 0..<50 where log.insertIfNew("receipt-\(receipt)") {
+                accepted.withLock { wins.append("receipt-\(receipt)") }
+            }
+            group.leave()
+        }.start()
+    }
+    group.wait()
+    #expect(wins.count == 50 && Set(wins).count == 50, "each receipt is accepted exactly once")
+
+    let bounded = BoundedStringLog(defaults: defaults, key: "bounded", limit: 3)
+    for index in 0..<10 { bounded.remember("v\(index)") }
+    #expect(bounded.all == ["v9", "v8", "v7"], "history still prunes to the limit")
+}

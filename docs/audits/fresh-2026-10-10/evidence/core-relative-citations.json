@@ -1,0 +1,6 @@
+{
+  "checked": 200,
+  "unresolved": [],
+  "method": "Relative citation file suffix matching inside section app root; only unique matches checked for line bounds. Contextual correctness requires body review.",
+  "manual_correction": "Telemetry source rechecked at line 5; stale line 234 removed."
+}
