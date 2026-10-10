@@ -16,7 +16,10 @@ import { scanCrateForSecrets } from "./publish-cargo.mjs";
 import { enforcePublicationGate, defaultEvidencePath } from "./publication-gate.mjs";
 
 export const DEFAULT_SWIFT_GIT_URL = "https://github.com/bogusyogi/rightkit-swift.git";
-const MIRROR_EXCLUDES = new Set([".build", ".swiftpm", ".git", "Package.resolved", ".DS_Store"]);
+// The mirror must reproduce the verified git subtree exactly (its tree id is
+// compared), so only untracked build state is excluded. Tracked Xcode scheme
+// metadata under .swiftpm ships with the package; SwiftPM consumers ignore it.
+const MIRROR_EXCLUDES = new Set([".build", ".git", "Package.resolved", ".DS_Store"]);
 
 export function parseSwiftPublishArgs(argv, env = process.env) {
   const allowed = new Set(["--repo", "--dry-run", "--allow-dirty", "--evidence", "--workspace"]);
