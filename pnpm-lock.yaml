@@ -483,8 +483,8 @@ importers:
   packages/update:
     dependencies:
       '@rightkit/git':
-        specifier: 0.2.37
-        version: 0.2.37
+        specifier: workspace:^
+        version: link:../git
       smol-toml:
         specifier: 1.7.0
         version: 1.7.0
@@ -1083,10 +1083,6 @@ packages:
   '@napi-rs/canvas@1.0.10':
     resolution: {integrity: sha512-V+qptzsGnPMFxEbhwc6eDNMe5eDrfiBIp8qGpuRjAVIX4Kn2zxvwQ1Xco6Fwe+3tYIe3iLW8LM9D+SvjyJhqbQ==}
     engines: {node: '>= 10'}
-
-  '@rightkit/git@0.2.37':
-    resolution: {integrity: sha512-l8LDvBw/okgrOr5xn7a6k8HsbOMJ+h2g9Q9na6bE3Jc3OwD3+pgGxRywBWgGKEk6QQNkn+HABACXgCIV6lXPgQ==}
-    hasBin: true
 
   '@rollup/rollup-android-arm-eabi@4.62.2':
     resolution: {integrity: sha512-6o7ZLZK+BeenkZCFNDXqpbjw9bD6nuWonvS/lwQJp7NoVVxm6p3qE7qQ5jGuBjiFsgvqjD8mZAU5oWxTmbOeOg==}
@@ -2721,8 +2717,6 @@ snapshots:
       '@napi-rs/canvas-win32-arm64-msvc': 1.0.10
       '@napi-rs/canvas-win32-x64-msvc': 1.0.10
     optional: true
-
-  '@rightkit/git@0.2.37': {}
 
   '@rollup/rollup-android-arm-eabi@4.62.2':
     optional: true
