@@ -7,7 +7,6 @@ pub use provider::{ClientIdParameter, ServerProvider};
 pub use store::{SealedFileTokenStore, TokenStore, TokenStoreGuard};
 
 use crate::TokenSet;
-use base64::Engine as _;
 use rightkit_http::{percent_encode, Client, Request, RetryPolicy, Secret};
 use sensitive::{SensitiveJson, SensitiveRequest, SensitiveResponse};
 use sha2::{Digest, Sha256};
@@ -15,8 +14,30 @@ use std::collections::HashMap;
 use std::fmt;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime};
-use subtle::ConstantTimeEq;
 use zeroize::{Zeroize, Zeroizing};
+
+/// Constant-time equality of two strings. Both sides are MACed under a fixed key and the tags are
+/// compared by `ring::hmac::verify` (ring's public constant-time comparison; the key is not a
+/// secret, it only maps both inputs to fixed-length digests, so lengths do not leak either).
+fn ct_eq(a: &str, b: &str) -> bool {
+    let key = ring::hmac::Key::new(ring::hmac::HMAC_SHA256, &[0x5a; 32]);
+    let tag = ring::hmac::sign(&key, b.as_bytes());
+    ring::hmac::verify(&key, a.as_bytes(), tag.as_ref()).is_ok()
+}
+
+#[cfg(test)]
+mod ct_eq_tests {
+    use super::ct_eq;
+
+    #[test]
+    fn compares_by_value() {
+        assert!(ct_eq("", ""));
+        assert!(ct_eq("state-123", "state-123"));
+        assert!(!ct_eq("state-123", "state-124"));
+        assert!(!ct_eq("state-123", "state-1234"));
+        assert!(!ct_eq("", "x"));
+    }
+}
 
 /// Errors carry no callback/provider text or HTTP bodies, even when providers echo secrets.
 #[non_exhaustive]
@@ -413,21 +434,19 @@ impl ServerAuthFlow {
             .pending
             .take(&digest(state))?
             .ok_or(ServerAuthError::StateMismatch)?;
-        if !bool::from(pending.state.as_bytes().ct_eq(state.as_bytes())) {
+        if !ct_eq(&pending.state, state) {
             return Err(ServerAuthError::StateMismatch);
         }
         if self.clock.now() >= pending.expires_at {
             return Err(ServerAuthError::StateExpired);
         }
         if let Some((provider, account)) = expected {
-            if !bool::from(pending.provider.as_bytes().ct_eq(provider.as_bytes()))
-                || !bool::from(pending.account_hint.as_bytes().ct_eq(account.as_bytes()))
-            {
+            if !ct_eq(&pending.provider, provider) || !ct_eq(&pending.account_hint, account) {
                 return Err(ServerAuthError::StateMismatch);
             }
         }
         let p = self.provider(&pending.provider)?;
-        if !bool::from(pending.binding.as_bytes().ct_eq(binding(p).as_bytes())) {
+        if !ct_eq(&pending.binding, &binding(p)) {
             return Err(ServerAuthError::StateMismatch);
         }
         if query.error.is_some() {
@@ -551,9 +570,7 @@ impl ServerAuthFlow {
                     percent_encode(&p.config.client_id),
                     *encoded_secret
                 ));
-                let encoded = Zeroizing::new(
-                    base64::engine::general_purpose::STANDARD.encode(credentials.as_bytes()),
-                );
+                let encoded = Zeroizing::new(crate::base64_standard(credentials.as_bytes()));
                 request = request.header("Authorization", format!("Basic {}", *encoded));
             }
             ClientAuth::SecretPost => {

@@ -15,11 +15,8 @@ use std::fmt;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
-use std::sync::{Arc, OnceLock};
+use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
 use std::time::{Duration, Instant, SystemTime};
-
-use parking_lot::Mutex;
-use sha2::{Digest, Sha256};
 
 use rightkit_media::CancellationToken;
 use rightkit_process::{OwnedCommand, WaitOutcome};
@@ -161,6 +158,12 @@ impl PlaybackRegistry {
         Self::default()
     }
 
+    /// The state is only mutated in single, non-panicking steps, so a poisoned
+    /// lock still holds consistent data and is recovered rather than propagated.
+    fn lock_state(&self) -> MutexGuard<'_, RegistryState> {
+        self.state.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
     /// Process-wide registry for apps that keep playback state in statics.
     pub fn shared() -> &'static Arc<Self> {
         static SHARED: OnceLock<Arc<PlaybackRegistry>> = OnceLock::new();
@@ -177,7 +180,7 @@ impl PlaybackRegistry {
         if !Self::valid_request_id(request_id) {
             return;
         }
-        let mut state = self.state.lock();
+        let mut state = self.lock_state();
         if let Some(token) = state.active.get(request_id) {
             token.cancel();
         } else {
@@ -195,7 +198,7 @@ impl PlaybackRegistry {
         }
         let token = CancellationToken::new();
         {
-            let mut state = self.state.lock();
+            let mut state = self.lock_state();
             if let Some(i) = state.pre_cancelled.iter().position(|id| id == request_id) {
                 state.pre_cancelled.remove(i);
                 return Err(PlaybackError::Cancelled);
@@ -229,7 +232,7 @@ impl ActiveRequest {
 
 impl Drop for ActiveRequest {
     fn drop(&mut self) {
-        self.registry.state.lock().active.remove(&self.request_id);
+        self.registry.lock_state().active.remove(&self.request_id);
     }
 }
 
@@ -238,21 +241,26 @@ fn fingerprint(source: &Path, video: bool) -> Result<String, PlaybackError> {
     if !meta.is_file() || meta.len() == 0 {
         return Err(PlaybackError::Empty);
     }
-    let mut hash = Sha256::new();
-    hash.update(source.as_os_str().to_string_lossy().as_bytes());
-    hash.update(meta.len().to_le_bytes());
     let modified = meta
         .modified()
         .map_err(|e| PlaybackError::Runtime(e.to_string()))?
         .duration_since(SystemTime::UNIX_EPOCH)
         .map_err(|e| PlaybackError::Runtime(e.to_string()))?;
-    hash.update(modified.as_nanos().to_le_bytes());
-    hash.update([u8::from(video)]);
-    Ok(hash
-        .finalize()
-        .iter()
-        .map(|byte| format!("{byte:02x}"))
-        .collect())
+    Ok(fingerprint_of(
+        &source.as_os_str().to_string_lossy(),
+        meta.len(),
+        modified.as_nanos(),
+        video,
+    ))
+}
+
+fn fingerprint_of(path: &str, len: u64, modified_nanos: u128, video: bool) -> String {
+    let mut material = Vec::with_capacity(path.len() + 8 + 16 + 1);
+    material.extend_from_slice(path.as_bytes());
+    material.extend_from_slice(&len.to_le_bytes());
+    material.extend_from_slice(&modified_nanos.to_le_bytes());
+    material.push(u8::from(video));
+    rightkit_fs::digest::sha256_bytes(&material)
 }
 
 /// Remux to a webview-safe container: video bytes are copied (`-c:v copy`),
@@ -492,5 +500,20 @@ pub mod tauri_commands {
         .map_err(|e| e.to_string())?;
         state.host.allow_asset(&path)?;
         Ok(path.to_string_lossy().into_owned())
+    }
+}
+
+#[cfg(test)]
+mod fingerprint_tests {
+    use super::fingerprint_of;
+
+    #[test]
+    fn fingerprint_matches_the_prior_sha256_layout() {
+        // SHA-256 of path bytes || len (u64 LE) || mtime nanos (u128 LE) || video flag,
+        // computed independently of this crate.
+        assert_eq!(
+            fingerprint_of("/a/b.mp4", 1234, 1_700_000_000_123_456_789, true),
+            "39fa9637f8b9e7a278274cbd221931765587b7125f626096470edbc04611e5af"
+        );
     }
 }

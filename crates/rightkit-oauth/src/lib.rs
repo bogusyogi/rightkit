@@ -747,22 +747,78 @@ fn random_urlsafe(bytes: usize) -> Result<String, OAuthError> {
 }
 
 fn base64url(bytes: &[u8]) -> String {
-    const TABLE: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
-    let mut out = String::with_capacity((bytes.len() * 4).div_ceil(3));
+    base64_encode(
+        bytes,
+        b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_",
+        false,
+    )
+}
+
+/// Standard alphabet with `=` padding (RFC 4648 section 4), for HTTP Basic credentials.
+#[cfg(feature = "server")]
+fn base64_standard(bytes: &[u8]) -> String {
+    base64_encode(
+        bytes,
+        b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/",
+        true,
+    )
+}
+
+fn base64_encode(bytes: &[u8], table: &[u8; 64], pad: bool) -> String {
+    // Padded length is the upper bound, so the buffer never reallocates (a reallocation
+    // would leave an unwiped copy of encoded credentials behind).
+    let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
     let mut i = 0;
     while i < bytes.len() {
         let a = bytes[i] as u32;
         let b = bytes.get(i + 1).copied().unwrap_or(0) as u32;
         let c = bytes.get(i + 2).copied().unwrap_or(0) as u32;
-        out.push(TABLE[((a >> 2) & 63) as usize] as char);
-        out.push(TABLE[(((a & 3) << 4) | (b >> 4)) as usize] as char);
+        out.push(table[((a >> 2) & 63) as usize] as char);
+        out.push(table[(((a & 3) << 4) | (b >> 4)) as usize] as char);
         if i + 1 < bytes.len() {
-            out.push(TABLE[(((b & 15) << 2) | (c >> 6)) as usize] as char);
+            out.push(table[(((b & 15) << 2) | (c >> 6)) as usize] as char);
+        } else if pad {
+            out.push('=');
         }
         if i + 2 < bytes.len() {
-            out.push(TABLE[(c & 63) as usize] as char);
+            out.push(table[(c & 63) as usize] as char);
+        } else if pad {
+            out.push('=');
         }
         i += 3;
     }
     out
+}
+
+#[cfg(test)]
+mod base64_tests {
+    use super::*;
+    use base64::Engine as _;
+
+    #[test]
+    fn encoders_match_the_base64_crate_for_every_tail_length() {
+        let data: Vec<u8> = (0..=255u8).cycle().skip(7).take(300).collect();
+        for len in 0..data.len().min(70) {
+            let slice = &data[..len];
+            assert_eq!(
+                base64url(slice),
+                base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(slice),
+                "url-safe len {len}"
+            );
+            #[cfg(feature = "server")]
+            assert_eq!(
+                base64_standard(slice),
+                base64::engine::general_purpose::STANDARD.encode(slice),
+                "standard len {len}"
+            );
+        }
+        assert_eq!(base64url(&[0xfb, 0xff, 0xfe]), "-__-");
+        #[cfg(feature = "server")]
+        {
+            assert_eq!(base64_standard(&[0xfb, 0xff, 0xfe]), "+//+");
+            assert_eq!(base64_standard(b"id:secret"), "aWQ6c2VjcmV0");
+            assert_eq!(base64_standard(b"fo"), "Zm8=");
+            assert_eq!(base64_standard(b"f"), "Zg==");
+        }
+    }
 }

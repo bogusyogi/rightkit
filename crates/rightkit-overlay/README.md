@@ -1,8 +1,8 @@
 # rightkit-overlay
 
-Platform-neutral overlay state and placement policy for Right Suite apps. It owns serializable overlay state, finite-geometry checks, work-area clamping, delayed hover collapse (`HoverGate`), hit testing, and the HR TOPMOST and status-level contract (`HR_STATUS_WINDOW_LEVEL`). On Windows, it also provides the `windows` module, which applies `WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW` styles to an `HWND` and repairs actual `HWND_TOPMOST` z-order drift.
+Platform-neutral overlay state and placement policy for Right Suite apps. It owns serializable overlay state, finite-geometry checks, work-area clamping, delayed hover collapse (`HoverGate`), hit testing, and the TOPMOST and status-level contract (`HR_STATUS_WINDOW_LEVEL`). On Windows, it also provides the `windows` module, which applies `WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW` styles to an `HWND` and repairs actual `HWND_TOPMOST` z-order drift.
 
-**Use it** in a native overlay host (HeardRight's pill and Cockpit's notch) to share state, placement, and hover policy across React and native pills.
+**Use it** in a native overlay host (a floating pill or a docked notch) to share state, placement, and hover policy across React and native pills.
 
 **Do not use it** to create windows, render, or manage the app's event loop. The crate's docs say native hosts keep window creation and rendering. It also does not call AppKit; `HR_STATUS_WINDOW_LEVEL` is a constant that the host applies.
 
@@ -15,7 +15,7 @@ None. The crate has no Cargo features and no dependencies beyond `serde` (and `w
 - `windows` module: real implementation under `cfg(windows)`. It takes an `HWND` as `isize`, and it must be called before first show (`make_noactivate`), then from the host's visible-overlay watchdog (`reassert_if_needed`).
 - Other targets: the `windows` module compiles to stubs that return `false`. The rest of the crate (state, geometry, hover, hit test) is portable.
 
-Published version: see `INDEX.md` at the repository root. This crate has no `CHANGELOG.md`.
+Published version: see `INDEX.md` at the repository root. Release history is in [CHANGELOG.md](CHANGELOG.md).
 
 ## Example
 

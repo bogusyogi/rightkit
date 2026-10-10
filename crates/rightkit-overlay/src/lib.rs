@@ -1,8 +1,8 @@
 //! Platform-neutral overlay state and placement policy.
 //!
 //! Native hosts are responsible for creating windows. This crate keeps the policy identical for
-//! the React pill, native pill, and Cockpit notch: finite geometry, work-area clamping, delayed
-//! hover collapse, and the HR TOPMOST/status level contract.
+//! the web-rendered pill, the native pill, and the docked notch: finite geometry, work-area
+//! clamping, delayed hover collapse, and the TOPMOST/status level contract.
 
 use serde::{Deserialize, Serialize};
 
@@ -14,11 +14,21 @@ pub const HOVER_LEAVE_TICKS: u32 = 3;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub enum OverlayKind { HeardRightPill, CockpitNotch }
+pub enum OverlayKind {
+    HeardRightPill,
+    CockpitNotch,
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub enum PillMode { Idle, Starting, Recording, Processing, Status, Error }
+pub enum PillMode {
+    Idle,
+    Starting,
+    Recording,
+    Processing,
+    Status,
+    Error,
+}
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
@@ -47,22 +57,39 @@ impl OverlayEvent {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
-pub struct Rect { pub x: f64, pub y: f64, pub width: f64, pub height: f64 }
+pub struct Rect {
+    pub x: f64,
+    pub y: f64,
+    pub width: f64,
+    pub height: f64,
+}
 
 impl Rect {
     pub fn finite(self) -> bool {
-        [self.x, self.y, self.width, self.height].into_iter().all(f64::is_finite)
-            && self.width >= 0.0 && self.height >= 0.0
+        [self.x, self.y, self.width, self.height]
+            .into_iter()
+            .all(f64::is_finite)
+            && self.width >= 0.0
+            && self.height >= 0.0
     }
     pub fn contains(self, x: f64, y: f64) -> bool {
-        self.finite() && x.is_finite() && y.is_finite()
-            && x >= self.x && x <= self.x + self.width
-            && y >= self.y && y <= self.y + self.height
+        self.finite()
+            && x.is_finite()
+            && y.is_finite()
+            && x >= self.x
+            && x <= self.x + self.width
+            && y >= self.y
+            && y <= self.y + self.height
     }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
-pub struct WorkArea { pub left: f64, pub top: f64, pub right: f64, pub bottom: f64 }
+pub struct WorkArea {
+    pub left: f64,
+    pub top: f64,
+    pub right: f64,
+    pub bottom: f64,
+}
 
 /// A watchdog calls this after foreground/z-order notifications. Reassert only when either the
 /// style bit or observed band is lost; preserving focus is the caller's responsibility.
@@ -70,8 +97,7 @@ pub fn should_reassert_windows_topmost(style_topmost: bool, in_topmost_band: boo
     !style_topmost || !in_topmost_band
 }
 
-/// Windows-native overlay operations, ported from HeardRight's mature overlay host at
-/// `/Volumes/D/claude/heardright/tauri-app-next/src-tauri/src/pill/state.rs`. Hosts pass the raw
+/// Windows-native overlay operations, ported from a mature native pill host. Hosts pass the raw
 /// `HWND` value as an `isize` so the crate stays independent of a Tauri/WebView window type while
 /// still owning the locked no-activation and TOPMOST behavior. Hosts must install the WNDPROC
 /// guard on the thread that owns the HWND, before that window receives UI messages.
@@ -84,10 +110,9 @@ pub mod windows {
     use windows_sys::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
     use windows_sys::Win32::UI::WindowsAndMessaging::{
         CallWindowProcW, DefWindowProcW, EnumWindows, GetWindowLongPtrW, IsWindowVisible,
-        SetWindowLongPtrW, SetWindowPos, GWL_EXSTYLE, GWLP_WNDPROC, HWND_TOPMOST,
-        MA_NOACTIVATE, SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER,
-        WM_MOUSEACTIVATE, WM_NCDESTROY, WNDPROC, WS_EX_APPWINDOW, WS_EX_NOACTIVATE,
-        WS_EX_TOOLWINDOW, WS_EX_TOPMOST,
+        SetWindowLongPtrW, SetWindowPos, GWLP_WNDPROC, GWL_EXSTYLE, HWND_TOPMOST, MA_NOACTIVATE,
+        SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, WM_MOUSEACTIVATE,
+        WM_NCDESTROY, WNDPROC, WS_EX_APPWINDOW, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TOPMOST,
     };
 
     static ORIGINAL_WNDPROCS: OnceLock<Mutex<HashMap<isize, isize>>> = OnceLock::new();
@@ -147,7 +172,8 @@ pub mod windows {
             return false;
         }
         let hwnd = hwnd as HWND;
-        let original = SetWindowLongPtrW(hwnd, GWLP_WNDPROC, noactivate_wndproc as *const () as isize);
+        let original =
+            SetWindowLongPtrW(hwnd, GWLP_WNDPROC, noactivate_wndproc as *const () as isize);
         if original == 0 {
             return false;
         }
@@ -218,7 +244,11 @@ pub mod windows {
                 1
             }
 
-            let mut state = State { target: hwnd as isize, found: false, band_broken: false };
+            let mut state = State {
+                target: hwnd as isize,
+                found: false,
+                band_broken: false,
+            };
             let _ = EnumWindows(Some(callback), &mut state as *mut _ as LPARAM);
             !state.found || state.band_broken
         }
@@ -244,41 +274,75 @@ pub mod windows {
 
     /// Reasserts only after the observed style or z-band has drifted.
     pub fn reassert_if_needed(hwnd: isize) -> bool {
-        if is_out_of_topmost_band(hwnd) { reassert_topmost(hwnd) } else { false }
+        if is_out_of_topmost_band(hwnd) {
+            reassert_topmost(hwnd)
+        } else {
+            false
+        }
     }
 }
 
 #[cfg(not(windows))]
 pub mod windows {
     /// Windows-native operations are unavailable on non-Windows hosts.
-    pub fn is_out_of_topmost_band(_hwnd: isize) -> bool { false }
-    pub fn make_noactivate(_hwnd: isize) -> bool { false }
-    pub fn reassert_topmost(_hwnd: isize) -> bool { false }
-    pub fn reassert_if_needed(_hwnd: isize) -> bool { false }
+    pub fn is_out_of_topmost_band(_hwnd: isize) -> bool {
+        false
+    }
+    pub fn make_noactivate(_hwnd: isize) -> bool {
+        false
+    }
+    pub fn reassert_topmost(_hwnd: isize) -> bool {
+        false
+    }
+    pub fn reassert_if_needed(_hwnd: isize) -> bool {
+        false
+    }
 }
 
 impl WorkArea {
     pub fn clamp(self, frame: Rect) -> Rect {
-        if !frame.finite() { return frame; }
+        if !frame.finite() {
+            return frame;
+        }
         let max_x = (self.right - frame.width).max(self.left);
         let max_y = (self.bottom - frame.height).max(self.top);
-        Rect { x: frame.x.clamp(self.left, max_x), y: frame.y.clamp(self.top, max_y), ..frame }
+        Rect {
+            x: frame.x.clamp(self.left, max_x),
+            y: frame.y.clamp(self.top, max_y),
+            ..frame
+        }
     }
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct HoverGate { inside_ticks: u32, outside_ticks: u32, hovering: bool }
+pub struct HoverGate {
+    inside_ticks: u32,
+    outside_ticks: u32,
+    hovering: bool,
+}
 
 impl HoverGate {
     pub fn update(&mut self, inside: bool) -> bool {
-        if inside { self.inside_ticks = self.inside_ticks.saturating_add(1); self.outside_ticks = 0; }
-        else { self.outside_ticks = self.outside_ticks.saturating_add(1); self.inside_ticks = 0; }
-        self.hovering = if self.hovering { self.outside_ticks < HOVER_LEAVE_TICKS }
-            else { inside && self.inside_ticks >= HOVER_ENTER_TICKS };
+        if inside {
+            self.inside_ticks = self.inside_ticks.saturating_add(1);
+            self.outside_ticks = 0;
+        } else {
+            self.outside_ticks = self.outside_ticks.saturating_add(1);
+            self.inside_ticks = 0;
+        }
+        self.hovering = if self.hovering {
+            self.outside_ticks < HOVER_LEAVE_TICKS
+        } else {
+            inside && self.inside_ticks >= HOVER_ENTER_TICKS
+        };
         self.hovering
     }
-    pub fn reset(&mut self) { *self = Self::default(); }
-    pub fn is_hovering(&self) -> bool { self.hovering }
+    pub fn reset(&mut self) {
+        *self = Self::default();
+    }
+    pub fn is_hovering(&self) -> bool {
+        self.hovering
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -292,14 +356,24 @@ pub struct OverlayModel {
 
 impl OverlayModel {
     pub fn new(kind: OverlayKind, frame: Rect) -> Self {
-        Self { kind, visible: false, mode: None, frame, hitbox: None }
+        Self {
+            kind,
+            visible: false,
+            mode: None,
+            frame,
+            hitbox: None,
+        }
     }
     pub fn apply(&mut self, event: OverlayEvent) {
         self.mode = event.mode();
         self.visible = self.mode.is_some();
-        if self.hitbox.is_none() { self.hitbox = Some(self.frame); }
+        if self.hitbox.is_none() {
+            self.hitbox = Some(self.frame);
+        }
     }
-    pub fn place(&mut self, work: WorkArea) { self.frame = work.clamp(self.frame); }
+    pub fn place(&mut self, work: WorkArea) {
+        self.frame = work.clamp(self.frame);
+    }
     pub fn hit_test(&self, x: f64, y: f64) -> bool {
         self.visible && self.hitbox.unwrap_or(self.frame).contains(x, y)
     }

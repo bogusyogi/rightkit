@@ -163,19 +163,19 @@ pub fn frontmost() -> Option<String> {
     }
     #[cfg(windows)]
     {
-        use windows::Win32::UI::WindowsAndMessaging::{
+        use windows_sys::Win32::UI::WindowsAndMessaging::{
             GetForegroundWindow, GetWindowThreadProcessId,
         };
         unsafe {
             let h = GetForegroundWindow();
-            if h.0.is_null() {
+            if h.is_null() {
                 return None;
             }
             let mut pid = 0u32;
-            if GetWindowThreadProcessId(h, Some(&mut pid)) == 0 || pid == 0 {
+            if GetWindowThreadProcessId(h, &mut pid) == 0 || pid == 0 {
                 return None;
             }
-            Some(format!("{pid}:{:x}", h.0 as usize))
+            Some(format!("{pid}:{:x}", h as usize))
         }
     }
     #[cfg(not(any(target_os = "macos", windows)))]

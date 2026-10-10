@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-oauth"
-version = "0.3.0"
+version = "0.3.1"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Shared OAuth 2.0 sign-in for Right Suite apps: loopback PKCE, RFC 8628 device flow, provider presets, encrypted daemon persistence, and stored, refreshing credentials."
@@ -19,7 +19,7 @@ secrets = ["dep:rightkit-secrets"]
 system-sources = ["dep:rightkit-process"]
 
 # Framework-agnostic daemon flow plus encrypted file persistence (no desktop dependencies).
-server = ["dep:base64", "dep:ring", "dep:subtle", "dep:url", "dep:zeroize", "dep:serde", "dep:libc"]
+server = ["dep:ring", "dep:url", "dep:zeroize", "dep:serde", "dep:libc"]
 # Axum route example; no HTTP listener is included in the library.
 server-example = ["server", "dep:axum", "dep:tokio"]
 
@@ -43,16 +43,19 @@ getrandom = "0.3"
 serde_json = "1.0.150"
 sha2 = "0.10.9"
 
-base64 = { version = "0.22", optional = true }
 ring = { version = "0.17", optional = true }
-subtle = { version = "2.6", optional = true }
 url = { version = "2.5", optional = true }
 zeroize = { version = "1.8", optional = true }
 serde = { version = "1.0.228", features = ["derive"], optional = true }
-libc = { version = "0.2", optional = true }
 axum = { version = "0.8", optional = true }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "net"], optional = true }
 
+[target.'cfg(unix)'.dependencies]
+# Sealed token store: euid and O_NOFOLLOW opens. Only the `server` feature enables it.
+libc = { version = "0.2", optional = true }
+
 [dev-dependencies]
+# Independent reference for the in-crate base64 encoders.
+base64 = "0.22"
 rightkit-http = { path = "../rightkit-http", version = "0.2.0", features = ["testing"] }
 tempfile = "3"

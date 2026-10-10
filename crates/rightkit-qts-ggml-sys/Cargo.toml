@@ -1,14 +1,15 @@
 [package]
 name = "rightkit-qts-ggml-sys"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2021"
 license = "Apache-2.0 AND MIT"
-repository = "https://github.com/adrdsouza/claude"
+rust-version = "1.98.0"
+repository = "https://github.com/bogusyogi/rightkit"
 description = "Low-level FFI bindings to ggml (CPU, Metal, Vulkan, BLAS) for rightkit-qts, vendored from yet-another-ai/qts v0.2.0"
 readme = "README.md"
 links = "rightkit_ggml"
 build = "build.rs"
-include = ["src/**", "build.rs", "bindings_stamp.rs", "wrapper.h", "bindings-*.rs", "vendor/**", "Cargo.toml", "README.md", "VERSIONS.md", "LICENSE", "NOTICE", "PINNED.md"]
+include = ["src/**", "build.rs", "CHANGELOG.md", "bindings_stamp.rs", "wrapper.h", "bindings-*.rs", "vendor/**", "Cargo.toml", "README.md", "VERSIONS.md", "LICENSE", "NOTICE", "PINNED.md"]
 
 [lib]
 name = "ggml_sys"

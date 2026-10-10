@@ -3,8 +3,47 @@ use prost::Message;
 
 pub const VOICE_CLONE_PROMPT_V2_SCHEMA_VERSION: u32 = 2;
 
+/// Hand-written prost messages for `proto/voice_clone_prompt.proto`
+/// (package `qwen3tts.prompt`). Field tags and wire types are the schema's;
+/// `proto/voice_clone_prompt.proto` stays in the package as the reference.
 pub mod proto {
-    include!(concat!(env!("OUT_DIR"), "/qwen3tts.prompt.rs"));
+    #[derive(Clone, PartialEq, ::prost::Message)]
+    pub struct TensorI32 {
+        #[prost(uint32, repeated, tag = "1")]
+        pub shape: ::prost::alloc::vec::Vec<u32>,
+        #[prost(sint32, repeated, tag = "2")]
+        pub values: ::prost::alloc::vec::Vec<i32>,
+    }
+
+    #[derive(Clone, PartialEq, ::prost::Message)]
+    pub struct TensorF32 {
+        #[prost(uint32, repeated, tag = "1")]
+        pub shape: ::prost::alloc::vec::Vec<u32>,
+        #[prost(float, repeated, tag = "2")]
+        pub values: ::prost::alloc::vec::Vec<f32>,
+    }
+
+    #[derive(Clone, PartialEq, ::prost::Message)]
+    pub struct VoiceClonePromptV2 {
+        #[prost(uint32, tag = "1")]
+        pub schema_version: u32,
+        #[prost(string, tag = "2")]
+        pub source: ::prost::alloc::string::String,
+        #[prost(string, tag = "3")]
+        pub model_id: ::prost::alloc::string::String,
+        #[prost(uint32, tag = "4")]
+        pub speaker_encoder_sample_rate_hz: u32,
+        #[prost(bool, tag = "5")]
+        pub x_vector_only_mode: bool,
+        #[prost(bool, tag = "6")]
+        pub icl_mode: bool,
+        #[prost(string, tag = "7")]
+        pub ref_text: ::prost::alloc::string::String,
+        #[prost(message, optional, tag = "8")]
+        pub ref_code: ::core::option::Option<TensorI32>,
+        #[prost(message, optional, tag = "9")]
+        pub ref_spk_embedding: ::core::option::Option<TensorF32>,
+    }
 }
 
 pub use proto::{TensorF32, TensorI32, VoiceClonePromptV2};
@@ -262,6 +301,70 @@ mod tests {
         assert_eq!(
             prompt.ref_code_values().map(|values| values.len()),
             Some(105 * 16)
+        );
+    }
+
+    #[test]
+    fn fixtures_round_trip_semantically() {
+        for name in [
+            "sample1.xvector.voice-clone-prompt.pb",
+            "sample1.icl.voice-clone-prompt.pb",
+        ] {
+            let pb = load_fixture(name);
+            let prompt = VoiceClonePromptV2::from_protobuf_bytes(&pb).unwrap();
+            let reencoded = prompt.to_protobuf_vec().unwrap();
+            assert_eq!(
+                VoiceClonePromptV2::from_protobuf_bytes(&reencoded).unwrap(),
+                prompt,
+                "{name}: decode(encode(x)) != x"
+            );
+            // The fixtures come from another encoder that writes empty proto3 scalars
+            // (e.g. `ref_text`), so bytes are not compared; the re-encoding is canonical.
+            assert!(
+                reencoded.len() <= pb.len(),
+                "{name}: canonical encoding is not larger"
+            );
+        }
+    }
+
+    #[test]
+    fn wire_layout_matches_proto_schema() {
+        use prost::Message;
+        // Field tags per proto/voice_clone_prompt.proto; packed repeated scalars.
+        let prompt = VoiceClonePromptV2 {
+            schema_version: 2,
+            source: "s".into(),
+            model_id: "m".into(),
+            speaker_encoder_sample_rate_hz: 24_000,
+            x_vector_only_mode: true,
+            icl_mode: false,
+            ref_text: String::new(),
+            ref_code: None,
+            ref_spk_embedding: Some(TensorF32 {
+                shape: vec![1],
+                values: vec![1.0],
+            }),
+        };
+        let expected: Vec<u8> = vec![
+            0x08, 0x02, // 1: schema_version = 2
+            0x12, 0x01, b's', // 2: source
+            0x1a, 0x01, b'm', // 3: model_id
+            0x20, 0xc0, 0xbb, 0x01, // 4: 24000 varint
+            0x28, 0x01, // 5: x_vector_only_mode
+            0x4a, 0x09, // 9: ref_spk_embedding, len 9
+            0x0a, 0x01, 0x01, // 1: shape packed [1]
+            0x12, 0x04, 0x00, 0x00, 0x80, 0x3f, // 2: values packed [1.0f32]
+        ];
+        assert_eq!(prompt.encode_to_vec(), expected);
+
+        let tensor = TensorI32 {
+            shape: vec![3],
+            values: vec![-1, 2, -3],
+        };
+        // sint32 zigzag: -1 -> 1, 2 -> 4, -3 -> 5
+        assert_eq!(
+            tensor.encode_to_vec(),
+            vec![0x0a, 0x01, 0x03, 0x12, 0x03, 0x01, 0x04, 0x05]
         );
     }
 }

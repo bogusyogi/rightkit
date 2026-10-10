@@ -660,36 +660,13 @@ fn is_inside(root: &Path, candidate: &Path) -> bool {
         .unwrap_or(false)
 }
 fn pid_live(pid: u32) -> bool {
-    if pid == 0 {
+    let Some(pid) = std::num::NonZeroU32::new(pid) else {
         return false;
-    }
-    #[cfg(unix)]
-    {
-        let result = unsafe { libc::kill(pid as i32, 0) };
-        result == 0 || std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM)
-    }
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        let output = std::process::Command::new("tasklist")
-            .args(["/FI", &format!("PID eq {pid}")])
-            .creation_flags(0x0800_0000)
-            .output();
-        match output {
-            Ok(x) if x.status.success() => {
-                let wanted = pid.to_string();
-                !String::from_utf8_lossy(&x.stdout)
-                    .lines()
-                    .skip(1)
-                    .all(|line| line.split_whitespace().next() != Some(wanted.as_str()))
-            }
-            _ => true,
-        }
-    }
-    #[cfg(not(any(unix, windows)))]
-    {
-        true
-    }
+    };
+    // An unmeasurable process counts as live: a sweep must never reap a run it cannot prove dead.
+    rightkit_process::AdoptedProcess::new(pid)
+        .is_running()
+        .unwrap_or(true)
 }
 
 #[cfg(test)]

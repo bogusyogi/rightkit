@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.1 - 2026-10-10
+
+- Drop the `base64` and `subtle` dependencies from the `server` feature. HTTP Basic credentials use an in-crate padded standard-alphabet encoder next to the existing `base64url` helper (one shared encoder, sized so it never reallocates), and state/provider/account/binding comparisons use `ring::hmac::verify` over fixed-key HMAC-SHA256 tags (`ring` is already a `server` dependency; `ring::constant_time` is deprecated in ring 0.17, so the public HMAC verify is the constant-time comparison). `base64` stays as a dev-dependency, the independent reference for tests.
+- Move `libc` to a `cfg(unix)` target dependency (still optional, still enabled by `server`); Windows builds no longer resolve it.
+- No public API changes.
+
 ## 0.3.0 — staged, unpublished
 
 - Add opt-in `server` feature for framework-agnostic daemon OAuth, public HTTPS callbacks,

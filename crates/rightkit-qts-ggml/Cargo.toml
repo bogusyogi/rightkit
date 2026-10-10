@@ -1,10 +1,11 @@
 [package]
 name = "rightkit-qts-ggml"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2021"
 license = "Apache-2.0"
-repository = "https://github.com/adrdsouza/claude"
-description = "Thin safe wrappers over rightkit-qts-ggml-sys for rightkit-qts, vendored from yet-another-ai/qts v0.2.0"
+rust-version = "1.98.0"
+repository = "https://github.com/bogusyogi/rightkit"
+description = "DEPRECATED: use rightkit-qts-ggml-sys directly. Thin safe wrappers over rightkit-qts-ggml-sys for rightkit-qts, vendored from yet-another-ai/qts v0.2.0"
 readme = "README.md"
 include = ["src/**", "Cargo.toml", "README.md", "CHANGELOG.md", "LICENSE", "NOTICE", "PINNED.md"]
 

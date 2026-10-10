@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.2.5 - 2026-10-10
+
+- Hand-write the three `qwen3tts.prompt` protobuf messages (`TensorI32`, `TensorF32`, `VoiceClonePromptV2`) with `#[derive(prost::Message)]`. Field tags and wire types are unchanged; `proto/voice_clone_prompt.proto` stays as the schema reference. This removes `build.rs`, the `prost-build` and `protoc-bin-vendored` build dependencies, and the prost 0.13 build-time copy. New tests round-trip both checked-in fixtures (decode, encode, decode compares equal; the fixtures were written by another encoder that emits empty proto3 scalars, so their bytes are not compared) and pin the wire layout byte for byte.
+- Replace the `rand` dependency with `getrandom`: the single sampling draw is now a uniform 24-bit `f32` in `[0, 1)` from the OS random source (same distribution as before). A random-source failure returns `Qwen3TtsError::InvalidInput` instead of panicking.
+- Set `repository` to `https://github.com/bogusyogi/rightkit` and add `rust-version = "1.98.0"`, matching the other RightKit crates. `license` stays `Apache-2.0` because this crate is vendored from Apache-2.0 upstream.
+- The 21 forwarded `ort`/ggml features are unchanged.
+
 ## 0.2.3 — 2026-10-09
 
 - Depend on `rightkit-qts-ggml-sys` directly instead of the `rightkit-qts-ggml` facade. The `metal`, `vulkan`, `blas` and `native` features forward to `rightkit-qts-ggml-sys`. Public API is unchanged. The `rightkit-qts-ggml` crate is deprecated and no longer used by this crate.

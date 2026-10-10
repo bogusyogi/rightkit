@@ -5,7 +5,6 @@ use std::ptr::NonNull;
 use std::time::{Duration, Instant};
 
 use ggml_sys as sys;
-use rand::RngExt;
 
 use super::backend::{
     execute_graph, ggml_soft_max_ext_with_diag_mask_cache, graph_metadata_mem_size, slice_as_bytes,
@@ -5112,6 +5111,15 @@ fn load_optional_tensor_into_context(
     }
 }
 
+/// Uniform sample in `[0, 1)` with 24 bits of precision (the full `f32`
+/// mantissa), drawn from the operating system's random source.
+fn random_unit_f32() -> Result<f32, Qwen3TtsError> {
+    let mut bytes = [0u8; 4];
+    getrandom::fill(&mut bytes)
+        .map_err(|err| Qwen3TtsError::InvalidInput(format!("random source failed: {err}")))?;
+    Ok((u32::from_le_bytes(bytes) >> 8) as f32 * (1.0 / (1u32 << 24) as f32))
+}
+
 fn select_token(
     logits: &[f32],
     repetition_penalty: f32,
@@ -5256,7 +5264,7 @@ fn select_token(
             "invalid probability mass during sampling".into(),
         ));
     }
-    let mut target = rand::rng().random::<f32>() * total;
+    let mut target = random_unit_f32()? * total;
     for ((idx, _), prob) in ranked.into_iter().zip(probs) {
         target -= prob;
         if target <= 0.0 {

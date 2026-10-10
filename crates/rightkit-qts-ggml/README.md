@@ -2,9 +2,9 @@
 
 > **Deprecated.** Depend on [`rightkit-qts-ggml-sys`](../rightkit-qts-ggml-sys) directly instead. `rightkit-qts` already does. This crate stays published for existing consumers, gets no new API, and receives only compatibility fixes.
 
-Thin safe wrappers over `rightkit-qts-ggml-sys` for `rightkit-qts`. It is vendored from QTS v0.2.0 (see [PINNED.md](PINNED.md)). The library name is `qts_ggml`. The crate exposes only the wrapper surface the TTS stack needs, and its crate docs say it grows as that stack needs more of ggml. It is consumed through `rightkit-qts` and `rightkit-tts`. Apps should not depend on it directly.
+Thin safe wrappers over `rightkit-qts-ggml-sys` for `rightkit-qts`. It is vendored from QTS v0.2.0 (see [PINNED.md](PINNED.md)). The library name is `qts_ggml`. The crate exposes only the wrapper surface the TTS stack needs, and its crate docs say it grows as that stack needs more of ggml. No RightKit crate depends on it any more. Apps should not depend on it.
 
-**Use it** only as a dependency of `rightkit-qts`.
+**Use it** only to keep an existing consumer building. New code depends on `rightkit-qts-ggml-sys`.
 
 **Do not use it** for general ggml work. The API covers the TTS stack's needs, not all of ggml.
 
@@ -27,4 +27,4 @@ Published version: see `INDEX.md` at the repository root. Release history is in 
 
 ## Example
 
-Not an app-facing API. Use it through `rightkit-qts`. The crate has no tests or examples of its own.
+Deprecated and not app-facing. The crate has one unit test and no examples.

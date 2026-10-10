@@ -1,13 +1,13 @@
 [package]
 name = "rightkit-compose"
-version = "0.0.0"
+version = "0.0.1"
 edition = "2021"
 rust-version = "1.98.0"
 publish = false
-license = "MIT"
+license = "MIT OR Apache-2.0"
 description = "Product-neutral evaluated composition model: layered video, stills, cursor sprites, backgrounds, clipping, shadows, motion blur, overlays and keyframed tracks, with one pure per-frame evaluation shared by preview and export"
-repository = "https://github.com/adrdsouza/claude"
-include = ["src/**", "tests/**", "Cargo.toml"]
+repository = "https://github.com/bogusyogi/rightkit"
+include = ["src/**", "tests/**", "Cargo.toml", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
 
 [lib]
 name = "rightkit_compose"
