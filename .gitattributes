@@ -1,0 +1,2 @@
+# Published RightKitSwift archives exclude Xcode scheme metadata; publish-swift mirrors exclude .swiftpm too.
+swift/RightKitSwift/.swiftpm/** export-ignore
