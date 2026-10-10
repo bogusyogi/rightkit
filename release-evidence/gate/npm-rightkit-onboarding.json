@@ -2,9 +2,9 @@
   "schema": 1,
   "kind": "npm",
   "name": "@rightkit/onboarding",
-  "version": "0.3.1",
-  "commit": "dbc5a0c3cd98d5d9f1ec8c97c4f841ec872e39a5",
-  "artifactSha256": "c5465db4389a72e530e2029445043796747206eb32658a3a00ded4f718fe6824",
+  "version": "0.3.2",
+  "commit": "394cf408adb0d49c64d5ea0158efe7887f880581",
+  "artifactSha256": "948307d3ba33b2656e59514913c8a931636b7940e0f4a120faf1b12428990d26",
   "hostPolicy": "darwin-only",
   "hostPolicyReason": "Adrian 2026-10-07: apps validate on macOS first, Windows later",
   "runs": [
@@ -13,13 +13,13 @@
         "os": "darwin",
         "arch": "arm64"
       },
-      "commit": "dbc5a0c3cd98d5d9f1ec8c97c4f841ec872e39a5",
+      "commit": "394cf408adb0d49c64d5ea0158efe7887f880581",
       "command": "pnpm --dir packages/$D test",
       "features": [
         "default"
       ],
       "operator": "claude-fable-5.1 (RightKit lead) for adrdsouza",
-      "timestamp": "2026-10-10T14:45:40Z",
+      "timestamp": "2026-10-10T18:56:43Z",
       "passed": 41,
       "failed": 0
     }
