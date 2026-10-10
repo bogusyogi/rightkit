@@ -1,0 +1,5782 @@
+{
+  "npm": [
+    {
+      "path": "/Volumes/D/claude/rightkit/packages/agent-room-mcp/package.json",
+      "name": "@rightkit/agent-room-mcp",
+      "version": "0.1.0",
+      "private": true,
+      "manifest": {
+        "name": "@rightkit/agent-room-mcp",
+        "version": "0.1.0",
+        "private": true,
+        "license": "UNLICENSED",
+        "packageManager": "pnpm@11.24.0",
+        "type": "module",
+        "scripts": {
+          "test": "node --test src/index.test.ts"
+        }
+      }
+    },
+    {
+      "path": "/Volumes/D/claude/rightkit/packages/app-shell/package.json",
+      "name": "@rightkit/app-shell",
+      "version": "0.3.0",
+      "private": false,
+      "manifest": {
+        "name": "@rightkit/app-shell",
+        "version": "0.3.0",
+        "description": "Brand-neutral React frame for Right Suite desktop apps: optional fused sidebar+titlebar layout with slots, command palette, shortcut registry/help, toasts, modals, context menus, ui kit, theme hooks.",
+        "license": "MIT OR Apache-2.0",
+        "type": "module",
+        "main": "dist/index.js",
+        "types": "dist/index.d.ts",
+        "exports": {
+          ".": {
+            "types": "./dist/index.d.ts",
+            "import": "./dist/index.js"
+          },
+          "./react": {
+            "types": "./dist/react.d.ts",
+            "import": "./dist/react.js"
+          },
+          "./shell.css": "./shell.css",
+          "./suite-aliases.css": "./suite-aliases.css"
+        },
+        "files": [
+          "dist",
+          "shell.css",
+          "suite-aliases.css",
+          "README.md",
+          "LICENSE-MIT",
+          "LICENSE-APACHE",
+          "CHANGELOG.md"
+        ],
+        "sideEffects": [
+          "*.css"
+        ],
+        "peerDependencies": {
+          "@rightkit/platform-ui": ">=0.1.1 <1",
+          "react": ">=18 <21"
+        },
+        "devDependencies": {
+          "@rightkit/platform-ui": "workspace:*",
+          "@rightkit/qa": "workspace:*",
+          "@types/react": "^19.0.0",
+          "@types/react-dom": "^19.0.0",
+          "react": "^19.0.0",
+          "react-dom": "^19.0.0",
+          "typescript": "^5.7.0",
+          "vite": "^6.0.0",
+          "vitest": "^2.1.8"
+        },
+        "scripts": {
+          "build": "tsc -p tsconfig.json",
+          "typecheck": "tsc -p tsconfig.json --noEmit",
+          "pretest": "pnpm --filter \"@rightkit/app-shell^...\" run build",
+          "test": "vitest run"
+        },
+        "publishConfig": {
+          "registry": "https://registry.npmjs.org",
+          "access": "public"
+        },
+        "repository": {
+          "type": "git",
+          "url": "git+https://github.com/bogusyogi/rightkit.git",
+          "directory": "packages/app-shell"
+        },
+        "packageManager": "pnpm@11.24.0"
+      }
+    },
+    {
+      "path": "/Volumes/D/claude/rightkit/packages/ax/package.json",
+      "name": "@rightkit/ax",
+      "version": "0.2.4",
+      "private": false,
+      "manifest": {
+        "name": "@rightkit/ax",
+        "version": "0.2.4",
+        "description": "Suite-wide agent-experience (AX) + agent-plugins.org conformance layer: plugin scaffolding/validation and AXA-1 static/conformance/behavioral gates over one product's MCP/CLI surface.",
+        "license": "MIT OR Apache-2.0",
+        "type": "module",
+        "bin": {
+          "right-ax": "cli/right-ax.mjs"
+        },
+        "exports": {
+          "./manifest": "./manifest.mjs",
+          "./ax/static": "./ax/static.mjs",
+          "./ax/conformance": "./ax/conformance.mjs",
+          "./ax/behavioral": "./ax/behavioral.mjs",
+          "./ax/adversarial": "./ax/adversarial.mjs",
+          "./ax/ownership-review": "./ax/ownership-review.mjs",
+          "./ax/report": "./ax/report.mjs",
+          "./plugin/scaffold": "./plugin/scaffold.mjs",
+          "./plugin/validate": "./plugin/validate.mjs",
+          "./plugin/portable-core": "./plugin/portable-core.mjs"
+        },
+        "files": [
+          "cli",
+          "plugin",
+          "ax",
+          "lib",
+          "adopt.mjs",
+          "manifest.mjs",
+          "manifest.schema.json"
+        ],
+        "sideEffects": false,
+        "scripts": {
+          "test": "node --test --test-concurrency=1 *.test.mjs"
+        },
+        "publishConfig": {
+          "registry": "https://registry.npmjs.org/",
+          "access": "public"
+        },
+        "repository": {
+          "type": "git",
+          "url": "git+https://github.com/bogusyogi/rightkit.git",
+          "directory": "packages/ax"
+        },
+        "packageManager": "pnpm@11.24.0"
+      }
+    },
+    {
+      "path": "/Volumes/D/claude/rightkit/packages/build-control-policy/package.json",
+      "name": "@rightkit/build-control-policy",
+      "version": "0.1.0-phase1",
+      "private": true,
+      "manifest": {
+        "name": "@rightkit/build-control-policy",
+        "private": true,
+        "version": "0.1.0-phase1",
+        "type": "module",
+        "scripts": {
+          "test": "node --test src/*.test.mjs"
+        }
+      }
+    },
+    {
+      "path": "/Volumes/D/claude/rightkit/packages/doc-render/package.json",
+      "name": "@rightkit/doc-render",
+      "version": "0.1.4",
+      "private": false,
+      "manifest": {
+        "name": "@rightkit/doc-render",
+        "version": "0.1.4",
+        "description": "Brand-neutral, read-only document renderer (Markdown, sanitized HTML, safe email frame) for Right Suite readers.",
+        "license": "MIT OR Apache-2.0",
+        "type": "module",
+        "main": "dist/index.js",
+        "types": "dist/index.d.ts",
+        "exports": {
+          ".": {
+            "types": "./dist/index.d.ts",
+            "import": "./dist/index.js"
+          },
+          "./styles.css": "./styles.css"
+        },
+        "files": [
+          "dist",
+          "styles.css",
+          "README.md",
+          "LICENSE-MIT",
+          "LICENSE-APACHE",
+          "CHANGELOG.md"
+        ],
+        "sideEffects": [
+          "*.css"
+        ],
+        "peerDependencies": {
+          "react": ">=18 <21"
+        },
+        "dependencies": {
+          "@types/mdast": "^4.0.4",
+          "dompurify": "^3.4.16",
+          "github-slugger": "^2.0.0",
+          "remark-frontmatter": "^5.0.0",
+          "remark-gfm": "^4.0.1",
+          "remark-math": "^6.0.0",
+          "remark-parse": "^11.0.0",
+          "remark-smartypants": "^3.0.3",
+          "shiki": "^4.4.3",
+          "unified": "^11.0.5"
+        },
+        "devDependencies": {
+          "@rightkit/qa": "workspace:*",
+          "@types/react": "^19.0.0",
+          "@types/react-dom": "^19.0.0",
+          "esbuild": "^0.28.1",
+          "react": "^19.0.0",
+          "react-dom": "^19.0.0",
+          "typescript": "^5.7.0",
+          "vitest": "^2.1.8"
+        },
+        "scripts": {
+          "build": "tsc -p tsconfig.json && cp src/styles.css styles.css",
+          "typecheck": "tsc -p tsconfig.json --noEmit",
+          "test": "vitest run",
+          "test:browser": "pnpm --filter @rightkit/qa run build && node test/browser-e2e.mjs"
+        },
+        "publishConfig": {
+          "registry": "https://registry.npmjs.org",
+          "access": "public"
+        },
+        "repository": {
+          "type": "git",
+          "url": "git+https://github.com/bogusyogi/rightkit.git",
+          "directory": "packages/doc-render"
+        },
+        "packageManager": "pnpm@11.24.0"
+      }
+    },
+    {
+      "path": "/Volumes/D/claude/rightkit/packages/git/package.json",
+      "name": "@rightkit/git",
+      "version": "0.2.33",
+      "private": false,
+      "manifest": {
+        "name": "@rightkit/git",
+        "version": "0.2.33",
+        "description": "Public-repo-only GitHub Actions workflow layer: templates, visibility gate, sync/drift/adopt/uninstall for right-git.",
+        "license": "MIT OR Apache-2.0",
+        "type": "module",
+        "bin": {
+          "right-git": "cli/right-git.mjs"
+        },
+        "files": [
+          "cli",
+          "policy",
+          "templates",
+          "*.mjs",
+          "*.json"
+        ],
+        "sideEffects": false,
+        "scripts": {
+          "test": "node --test *.test.mjs"
+        },
+        "publishConfig": {
+          "registry": "https://registry.npmjs.org/",
+          "access": "public"
+        },
+        "repository": {
+          "type": "git",
+          "url": "git+https://github.com/bogusyogi/rightkit.git",
+          "directory": "packages/git"
+        },
+        "packageManager": "pnpm@11.24.0"
+      }
+    },
+    {
+      "path": "/Volumes/D/claude/rightkit/packages/hooks/package.json",
+      "name": "@rightkit/hooks",
+      "version": "0.1.2",
+      "private": false,
+      "manifest": {
+        "name": "@rightkit/hooks",
+        "version": "0.1.2",
+        "description": "Neutral lifecycle runtime shared by independently installable agent systems.",
+        "license": "MIT OR Apache-2.0",
+        "type": "module",
+        "main": "lib/runtime.mjs",
+        "exports": {
+          ".": "./lib/runtime.mjs"
+        },
+        "bin": {
+          "rightkit-hooks": "./bin/rightkit-hooks.mjs"
+        },
+        "files": [
+          "bin",
+          "lib",
+          "README.md"
+        ],
+        "sideEffects": false,
+        "scripts": {
+          "test": "node --test tests/*.test.mjs"
+        },
+        "publishConfig": {
+          "registry": "https://registry.npmjs.org/",
+          "access": "public"
+        },
+        "repository": {
+          "type": "git",
+          "url": "git+https://github.com/bogusyogi/rightkit.git",
+          "directory": "packages/hooks"
+        },
+        "packageManager": "pnpm@11.24.0"
+      }
+    },
+    {
+      "path": "/Volumes/D/claude/rightkit/packages/i18n/package.json",
+      "name": "@rightkit/i18n",
+      "version": "0.1.0",
+      "private": false,
+      "manifest": {
+        "name": "@rightkit/i18n",
+        "version": "0.1.0",
+        "description": "Shared locale catalog and React provider for Right Suite apps.",
+        "license": "MIT OR Apache-2.0",
+        "type": "module",
+        "main": "dist/index.js",
+        "types": "dist/index.d.ts",
+        "exports": {
+          ".": {
+            "types": "./dist/index.d.ts",
+            "import": "./dist/index.js"
+          }
+        },
+        "files": [
+          "dist",
+          "README.md",
+          "LICENSE-MIT",
+          "LICENSE-APACHE"
+        ],
+        "sideEffects": false,
+        "peerDependencies": {
+          "react": ">=18 <21"
+        },
+        "devDependencies": {
+          "@testing-library/jest-dom": "^6.6.3",
+          "@testing-library/react": "^16.1.0",
+          "@types/react": "^19.0.0",
+          "@types/react-dom": "^19.0.0",
+          "jsdom": "^25.0.1",
+          "react": "^19.0.0",
+          "typescript": "^5.7.0",
+          "vitest": "^2.1.8"
+        },
+        "scripts": {
+          "build": "tsc -p tsconfig.json",
+          "typecheck": "tsc -p tsconfig.json --noEmit",
+          "test": "vitest run"
+        },
+        "publishConfig": {
+          "registry": "https://registry.npmjs.org",
+          "access": "public"
+        },
+        "packageManager": "pnpm@11.24.0"
+      }
+    },
+    {
+      "path": "/Volumes/D/claude/rightkit/packages/legal/package.json",
+      "name": "@rightkit/legal",
+      "version": "0.3.1",
+      "private": false,
+      "manifest": {
+        "name": "@rightkit/legal",
+        "version": "0.3.1",
+        "packageManager": "pnpm@11.24.0",
+        "description": "Legal manifest, assent receipt, and release-contract primitives for proprietary Right Suite desktop apps.",
+        "license": "MIT OR Apache-2.0",
+        "type": "module",
+        "main": "dist/index.js",
+        "types": "dist/index.d.ts",
+        "exports": {
+          ".": {
+            "types": "./dist/index.d.ts",
+            "import": "./dist/index.js"
+          }
+        },
+        "files": [
+          "dist",
+          "README.md"
+        ],
+        "sideEffects": false,
+        "scripts": {
+          "build": "tsc",
+          "typecheck": "tsc --noEmit",
+          "test": "vitest run"
+        },
+        "devDependencies": {
+          "@types/node": "^22.10.0",
+          "typescript": "^5.7.0",
+          "vitest": "^2.1.8"
+        },
+        "publishConfig": {
+          "registry": "https://registry.npmjs.org/",
+          "access": "public"
+        },
+        "repository": {
+          "type": "git",
+          "url": "git+https://github.com/bogusyogi/rightkit.git",
+          "directory": "packages/legal"
+        }
+      }
+    },
+    {
+      "path": "/Volumes/D/claude/rightkit/packages/legal-ui/package.json",
+      "name": "@rightkit/legal-ui",
+      "version": "0.2.0",
+      "private": false,
+      "manifest": {
+        "name": "@rightkit/legal-ui",
+        "version": "0.2.0",
+        "description": "The one first-run / re-acceptance legal gate screen for Right Suite desktop apps.",
+        "license": "MIT OR Apache-2.0",
+        "type": "module",
+        "main": "dist/index.js",
+        "types": "dist/index.d.ts",
+        "exports": {
+          ".": {
+            "types": "./dist/index.d.ts",
+            "import": "./dist/index.js"
+          },
+          "./legal-ui.css": "./legal-ui.css"
+        },
+        "files": [
+          "dist",
+          "README.md",
+          "LICENSE-MIT",
+          "LICENSE-APACHE",
+          "CHANGELOG.md",
+          "legal-ui.css"
+        ],
+        "sideEffects": [
+          "*.css"
+        ],
+        "peerDependencies": {
+          "react": ">=18 <21"
+        },
+        "devDependencies": {
+          "@testing-library/jest-dom": "^6.6.3",
+          "@testing-library/react": "^16.1.0",
+          "@testing-library/user-event": "^14.5.2",
+          "@types/react": "^19.0.0",
+          "@types/react-dom": "^19.0.0",
+          "axe-core": "4.12.1",
+          "esbuild": "^0.28.1",
+          "jsdom": "^25.0.1",
+          "react": "^19.0.0",
+          "react-dom": "^19.0.0",
+          "typescript": "^5.7.0",
+          "vitest": "^2.1.8"
+        },
+        "scripts": {
+          "build": "tsc -p tsconfig.json",
+          "typecheck": "tsc -p tsconfig.json --noEmit",
+          "test": "vitest run",
+          "preview:build": "node preview/build.mjs",
+          "preview:verify": "pnpm run build && pnpm run preview:build && node preview/verify.mjs"
+        },
+        "publishConfig": {
+          "registry": "https://registry.npmjs.org",
+          "access": "public"
+        },
+        "repository": {
+          "type": "git",
+          "url": "git+https://github.com/bogusyogi/rightkit.git",
+          "directory": "packages/legal-ui"
+        },
+        "packageManager": "pnpm@11.24.0"
+      }
+    },
+    {
+      "path": "/Volumes/D/claude/rightkit/packages/license/package.json",
+      "name": "@rightkit/license",
+      "version": "0.1.8",
+      "private": false,
+      "manifest": {
+        "name": "@rightkit/license",
+        "version": "0.1.8",
+        "packageManager": "pnpm@11.24.0",
+        "description": "The one license client for every Right Suite app (online token-exchange against the unified RightApps backend, with per-kind offline grace).",
+        "license": "MIT OR Apache-2.0",
+        "type": "module",
+        "main": "dist/index.js",
+        "types": "dist/index.d.ts",
+        "exports": {
+          ".": {
+            "types": "./dist/index.d.ts",
+            "import": "./dist/index.js"
+          }
+        },
+        "files": [
+          "dist"
+        ],
+        "sideEffects": false,
+        "scripts": {
+          "build": "tsc",
+          "typecheck": "tsc --noEmit",
+          "test": "vitest run"
+        },
+        "devDependencies": {
+          "@tauri-apps/plugin-http": "^2",
+          "@types/node": "^22.10.0",
+          "typescript": "^5.7.0",
+          "vitest": "^2.1.8"
+        },
+        "peerDependencies": {
+          "@tauri-apps/plugin-http": "^2"
+        },
+        "peerDependenciesMeta": {
+          "@tauri-apps/plugin-http": {
+            "optional": true
+          }
+        },
+        "publishConfig": {
+          "registry": "https://registry.npmjs.org/",
+          "access": "public"
+        },
+        "repository": {
+          "type": "git",
+          "url": "git+https://github.com/bogusyogi/rightkit.git",
+          "directory": "packages/license"
+        }
+      }
+    },
+    {
+      "path": "/Volumes/D/claude/rightkit/packages/logs/package.json",
+      "name": "@rightkit/logs",
+      "version": "0.1.4",
+      "private": false,
+      "manifest": {
+        "name": "@rightkit/logs",
+        "version": "0.1.4",
+        "description": "Local-only structured logging and diagnostics client for Right Suite apps.",
+        "license": "MIT OR Apache-2.0",
+        "packageManager": "pnpm@11.24.0",
+        "type": "module",
+        "main": "dist/index.js",
+        "types": "dist/index.d.ts",
+        "exports": {
+          ".": {
+            "types": "./dist/index.d.ts",
+            "import": "./dist/index.js"
+          }
+        },
+        "files": [
+          "dist",
+          "README.md"
+        ],
+        "sideEffects": false,
+        "scripts": {
+          "build": "tsc -p tsconfig.json",
+          "typecheck": "tsc -p tsconfig.json --noEmit",
+          "test": "vitest run"
+        },
+        "devDependencies": {
+          "typescript": "^5.7.0",
+          "vitest": "^2.1.8"
+        },
+        "publishConfig": {
+          "registry": "https://registry.npmjs.org",
+          "access": "public"
+        },
+        "repository": {
+          "type": "git",
+          "url": "git+https://github.com/bogusyogi/rightkit.git",
+          "directory": "packages/logs"
+        }
+      }
+    },
+    {
+      "path": "/Volumes/D/claude/rightkit/packages/media-ui/package.json",
+      "name": "@rightkit/media-ui",
+      "version": "0.3.0",
+      "private": false,
+      "manifest": {
+        "name": "@rightkit/media-ui",
+        "version": "0.3.0",
+        "description": "Brand-neutral media player and image viewer/editor for Right Suite apps.",
+        "license": "MIT OR Apache-2.0",
+        "type": "module",
+        "main": "dist/index.js",
+        "types": "dist/index.d.ts",
+        "exports": {
+          ".": {
+            "types": "./dist/index.d.ts",
+            "import": "./dist/index.js"
+          },
+          "./image": {
+            "types": "./dist/image.d.ts",
+            "import": "./dist/image.js"
+          },
+          "./styles.css": "./styles.css"
+        },
+        "files": [
+          "dist",
+          "styles.css",
+          "README.md",
+          "CHANGELOG.md",
+          "LICENSE-MIT",
+          "LICENSE-APACHE"
+        ],
+        "sideEffects": [
+          "*.css"
+        ],
+        "peerDependencies": {
+          "fabric": "^7.4.0",
+          "react": ">=18 <21",
+          "react-dom": ">=18 <21",
+          "react-image-crop": "^11.1.2"
+        },
+        "peerDependenciesMeta": {
+          "fabric": {
+            "optional": true
+          },
+          "react-image-crop": {
+            "optional": true
+          }
+        },
+        "devDependencies": {
+          "@rightkit/qa": "workspace:*",
+          "@testing-library/dom": "^10.4.0",
+          "@testing-library/react": "^16.1.0",
+          "@types/react": "^19.0.0",
+          "@types/react-dom": "^19.0.0",
+          "esbuild": "^0.28.1",
+          "fabric": "^7.4.0",
+          "jsdom": "^25.0.1",
+          "react": "^19.0.0",
+          "react-dom": "^19.0.0",
+          "react-image-crop": "^11.1.2",
+          "typescript": "^5.7.0",
+          "vitest": "^2.1.8"
+        },
+        "scripts": {
+          "build": "tsc -p tsconfig.json",
+          "typecheck": "tsc -p tsconfig.json --noEmit",
+          "test": "vitest run",
+          "test:browser": "pnpm --filter @rightkit/qa run build && node test/browser-e2e.mjs"
+        },
+        "publishConfig": {
+          "registry": "https://registry.npmjs.org",
+          "access": "public"
+        },
+        "repository": {
+          "type": "git",
+          "url": "git+https://github.com/bogusyogi/rightkit.git",
+          "directory": "packages/media-ui"
+        },
+        "packageManager": "pnpm@11.24.0"
+      }
+    },
+    {
+      "path": "/Volumes/D/claude/rightkit/packages/onboarding/package.json",
+      "name": "@rightkit/onboarding",
+      "version": "0.3.0",
+      "private": false,
+      "manifest": {
+        "name": "@rightkit/onboarding",
+        "version": "0.3.0",
+        "description": "First-run onboarding framework: ordered steps, progress, skip/resume, legal gate first, permissions, model download and licence/trial steps.",
+        "license": "MIT OR Apache-2.0",
+        "type": "module",
+        "main": "dist/index.js",
+        "types": "dist/index.d.ts",
+        "exports": {
+          ".": {
+            "types": "./dist/index.d.ts",
+            "import": "./dist/index.js"
+          },
+          "./onboarding.css": "./onboarding.css"
+        },
+        "files": [
+          "dist",
+          "onboarding.css",
+          "README.md",
+          "LICENSE-MIT",
+          "LICENSE-APACHE"
+        ],
+        "sideEffects": [
+          "*.css"
+        ],
+        "peerDependencies": {
+          "@rightkit/app-shell": ">=0.2.0 <1",
+          "@rightkit/legal-ui": ">=0.1.2 <1",
+          "react": ">=18 <21"
+        },
+        "devDependencies": {
+          "@rightkit/app-shell": "workspace:*",
+          "@rightkit/legal-ui": "workspace:*",
+          "@rightkit/qa": "workspace:*",
+          "@testing-library/jest-dom": "^6.6.3",
+          "@testing-library/react": "^16.1.0",
+          "@testing-library/user-event": "^14.5.2",
+          "@types/react": "^19.0.0",
+          "@types/react-dom": "^19.0.0",
+          "jsdom": "^25.0.1",
+          "react": "^19.0.0",
+          "react-dom": "^19.0.0",
+          "typescript": "^5.7.0",
+          "vite": "^6.0.0",
+          "vitest": "^2.1.8"
+        },
+        "scripts": {
+          "build": "tsc -p tsconfig.json",
+          "typecheck": "tsc -p tsconfig.json --noEmit",
+          "pretest": "pnpm --filter \"@rightkit/onboarding^...\" run build",
+          "test": "vitest run"
+        },
+        "publishConfig": {
+          "registry": "https://registry.npmjs.org",
+          "access": "public"
+        },
+        "repository": {
+          "type": "git",
+          "url": "git+https://github.com/bogusyogi/rightkit.git",
+          "directory": "packages/onboarding"
+        },
+        "packageManager": "pnpm@11.24.0"
+      }
+    },
+    {
+      "path": "/Volumes/D/claude/rightkit/packages/pdf-ui/package.json",
+      "name": "@rightkit/pdf-ui",
+      "version": "0.1.2",
+      "private": false,
+      "manifest": {
+        "name": "@rightkit/pdf-ui",
+        "version": "0.1.2",
+        "description": "Brand-neutral read-only PDF viewer (pdf.js) for Right Suite apps.",
+        "license": "MIT OR Apache-2.0",
+        "type": "module",
+        "main": "dist/index.js",
+        "types": "dist/index.d.ts",
+        "exports": {
+          ".": {
+            "types": "./dist/index.d.ts",
+            "import": "./dist/index.js"
+          },
+          "./styles.css": "./styles.css"
+        },
+        "files": [
+          "dist",
+          "styles.css",
+          "README.md",
+          "LICENSE-MIT",
+          "LICENSE-APACHE",
+          "CHANGELOG.md"
+        ],
+        "sideEffects": [
+          "*.css"
+        ],
+        "peerDependencies": {
+          "react": ">=18 <21"
+        },
+        "dependencies": {
+          "pdfjs-dist": "^6.3.289"
+        },
+        "devDependencies": {
+          "@rightkit/qa": "workspace:*",
+          "@types/react": "^19.0.0",
+          "@types/react-dom": "^19.0.0",
+          "esbuild": "^0.28.1",
+          "react": "^19.0.0",
+          "react-dom": "^19.0.0",
+          "typescript": "^5.7.0",
+          "vitest": "^2.1.8"
+        },
+        "scripts": {
+          "build": "tsc -p tsconfig.json && cp src/styles.css styles.css && mkdir -p dist && cp src/styles.css dist/styles.css",
+          "typecheck": "tsc -p tsconfig.json --noEmit",
+          "test": "vitest run",
+          "test:browser": "pnpm --filter @rightkit/qa run build && node test/browser-e2e.mjs"
+        },
+        "publishConfig": {
+          "registry": "https://registry.npmjs.org",
+          "access": "public"
+        },
+        "repository": {
+          "type": "git",
+          "url": "git+https://github.com/bogusyogi/rightkit.git",
+          "directory": "packages/pdf-ui"
+        },
+        "packageManager": "pnpm@11.24.0"
+      }
+    },
+    {
+      "path": "/Volumes/D/claude/rightkit/packages/platform-ui/package.json",
+      "name": "@rightkit/platform-ui",
+      "version": "0.2.0",
+      "private": false,
+      "manifest": {
+        "name": "@rightkit/platform-ui",
+        "version": "0.2.0",
+        "description": "Brand-neutral platform, shortcut, and window-control primitives for Right Suite apps.",
+        "license": "MIT OR Apache-2.0",
+        "type": "module",
+        "main": "dist/index.js",
+        "types": "dist/index.d.ts",
+        "exports": {
+          ".": {
+            "types": "./dist/index.d.ts",
+            "import": "./dist/index.js"
+          },
+          "./react": {
+            "types": "./dist/react.d.ts",
+            "import": "./dist/react.js"
+          }
+        },
+        "files": [
+          "dist",
+          "README.md",
+          "LICENSE-MIT",
+          "LICENSE-APACHE"
+        ],
+        "sideEffects": false,
+        "peerDependencies": {
+          "@tauri-apps/plugin-os": ">=2 <3",
+          "react": ">=18 <21"
+        },
+        "devDependencies": {
+          "@tauri-apps/plugin-os": "^2.3.2",
+          "@types/react": "^19.0.0",
+          "react": "^19.0.0",
+          "typescript": "^5.7.0",
+          "vitest": "^2.1.8"
+        },
+        "scripts": {
+          "build": "tsc -p tsconfig.json",
+          "typecheck": "tsc -p tsconfig.json --noEmit",
+          "test": "vitest run"
+        },
+        "publishConfig": {
+          "registry": "https://registry.npmjs.org",
+          "access": "public"
+        },
+        "repository": {
+          "type": "git",
+          "url": "git+https://github.com/bogusyogi/rightkit.git",
+          "directory": "packages/platform-ui"
+        },
+        "packageManager": "pnpm@11.24.0"
+      }
+    },
+    {
+      "path": "/Volumes/D/claude/rightkit/packages/qa/package.json",
+      "name": "@rightkit/qa",
+      "version": "0.4.0",
+      "private": false,
+      "manifest": {
+        "name": "@rightkit/qa",
+        "version": "0.4.0",
+        "description": "Shared QA evidence, ownership, browser helpers, and release-backdoor guards for Right Suite apps.",
+        "license": "MIT OR Apache-2.0",
+        "packageManager": "pnpm@11.24.0",
+        "type": "module",
+        "main": "dist/index.js",
+        "types": "dist/index.d.ts",
+        "exports": {
+          ".": {
+            "types": "./dist/index.d.ts",
+            "import": "./dist/index.js"
+          },
+          "./chrome": {
+            "types": "./dist/chrome.d.ts",
+            "import": "./dist/chrome.js"
+          }
+        },
+        "files": [
+          "dist",
+          "README.md",
+          "LICENSE-MIT",
+          "LICENSE-APACHE"
+        ],
+        "sideEffects": false,
+        "scripts": {
+          "build": "tsc -p tsconfig.json",
+          "typecheck": "tsc -p tsconfig.json --noEmit",
+          "test": "vitest run && node --test public-storage.test.mjs"
+        },
+        "dependencies": {
+          "@rightkit/qa-chrome": "workspace:*"
+        },
+        "devDependencies": {
+          "@types/node": "^24.0.0",
+          "typescript": "^5.7.0",
+          "vitest": "^2.1.8"
+        },
+        "publishConfig": {
+          "registry": "https://registry.npmjs.org",
+          "access": "public"
+        },
+        "repository": {
+          "type": "git",
+          "url": "git+https://github.com/bogusyogi/rightkit.git",
+          "directory": "packages/qa"
+        }
+      }
+    },
+    {
+      "path": "/Volumes/D/claude/rightkit/packages/qa-chrome/package.json",
+      "name": "@rightkit/qa-chrome",
+      "version": "0.1.3",
+      "private": false,
+      "manifest": {
+        "name": "@rightkit/qa-chrome",
+        "version": "0.1.3",
+        "description": "Zero-dependency Chrome for Testing resolver, launcher and graceful close for Right Suite QA harnesses.",
+        "license": "MIT OR Apache-2.0",
+        "packageManager": "pnpm@11.24.0",
+        "type": "module",
+        "main": "dist/index.js",
+        "types": "dist/index.d.ts",
+        "exports": {
+          ".": {
+            "types": "./dist/index.d.ts",
+            "import": "./dist/index.js"
+          }
+        },
+        "files": [
+          "dist",
+          "README.md",
+          "LICENSE-MIT",
+          "LICENSE-APACHE"
+        ],
+        "sideEffects": false,
+        "scripts": {
+          "build": "tsc -p tsconfig.json",
+          "typecheck": "tsc -p tsconfig.json --noEmit",
+          "test": "vitest run"
+        },
+        "devDependencies": {
+          "@types/node": "^24.0.0",
+          "typescript": "^5.7.0",
+          "vitest": "^2.1.8"
+        },
+        "publishConfig": {
+          "registry": "https://registry.npmjs.org",
+          "access": "public"
+        },
+        "repository": {
+          "type": "git",
+          "url": "git+https://github.com/bogusyogi/rightkit.git",
+          "directory": "packages/qa-chrome"
+        },
+        "bin": {
+          "rightkit-qa-chrome": "dist/cli.js"
+        }
+      }
+    },
+    {
+      "path": "/Volumes/D/claude/rightkit/packages/release/package.json",
+      "name": "@rightkit/release",
+      "version": "0.2.147",
+      "private": false,
+      "manifest": {
+        "name": "@rightkit/release",
+        "version": "0.2.147",
+        "description": "Portable release CLI/SDK with fail-closed public GitHub Releases and private R2 + RightApps distribution.",
+        "license": "MIT OR Apache-2.0",
+        "type": "module",
+        "bin": {
+          "right-release": "cli/right-release.mjs"
+        },
+        "files": [
+          "cli",
+          "*.mjs",
+          "*.json",
+          "*.sh",
+          "*.py",
+          "!*.test.mjs",
+          "!standalone-clone-evidence.json"
+        ],
+        "sideEffects": false,
+        "scripts": {
+          "test": "node --test --test-concurrency=1 --test-force-exit *.test.mjs",
+          "test:registry-parity": "node registry-parity.mjs --allow-unpublished",
+          "test:signer:windows": "node sign-release-manifest.integration.mjs",
+          "prepublishOnly": "pnpm test && pnpm test:signer:windows && pnpm test:registry-parity",
+          "doctor:all": "node --test right-suite-contract.test.mjs",
+          "verify:standalone": "node standalone-clone-verify.mjs"
+        },
+        "publishConfig": {
+          "registry": "https://registry.npmjs.org/",
+          "access": "public"
+        },
+        "repository": {
+          "type": "git",
+          "url": "git+https://github.com/bogusyogi/rightkit.git",
+          "directory": "packages/release"
+        },
+        "packageManager": "pnpm@11.24.0",
+        "dependencies": {
+          "smol-toml": "1.7.0"
+        }
+      }
+    },
+    {
+      "path": "/Volumes/D/claude/rightkit/packages/settings-ui/package.json",
+      "name": "@rightkit/settings-ui",
+      "version": "0.3.0",
+      "private": false,
+      "manifest": {
+        "name": "@rightkit/settings-ui",
+        "version": "0.3.0",
+        "description": "Settings panel frame and standard sections (appearance, updates, license, legal, diagnostics, models, API keys, about) persisted through rightkit-settings.",
+        "license": "MIT OR Apache-2.0",
+        "type": "module",
+        "main": "dist/index.js",
+        "types": "dist/index.d.ts",
+        "exports": {
+          ".": {
+            "types": "./dist/index.d.ts",
+            "import": "./dist/index.js"
+          },
+          "./settings.css": "./settings.css"
+        },
+        "files": [
+          "dist",
+          "settings.css",
+          "README.md",
+          "CHANGELOG.md",
+          "LICENSE-MIT",
+          "LICENSE-APACHE"
+        ],
+        "sideEffects": [
+          "*.css"
+        ],
+        "peerDependencies": {
+          "@rightkit/app-shell": ">=0.2.0 <1",
+          "@rightkit/shell": ">=0.1.0 <1",
+          "@rightkit/license": ">=0.1.0",
+          "@rightkit/logs": ">=0.1.0",
+          "@rightkit/theme": ">=0.2.0 <1",
+          "@rightkit/updates": ">=0.2.0",
+          "react": ">=18 <21"
+        },
+        "devDependencies": {
+          "@rightkit/qa": "workspace:*",
+          "@rightkit/shell": "workspace:*",
+          "@testing-library/jest-dom": "^6.6.3",
+          "@testing-library/react": "^16.1.0",
+          "@testing-library/user-event": "^14.5.2",
+          "@types/react": "^19.0.0",
+          "@types/react-dom": "^19.0.0",
+          "jsdom": "^25.0.1",
+          "react": "^19.0.0",
+          "react-dom": "^19.0.0",
+          "typescript": "^5.7.0",
+          "vite": "^6.0.0",
+          "vitest": "^2.1.8"
+        },
+        "scripts": {
+          "build": "tsc -p tsconfig.json",
+          "typecheck": "tsc -p tsconfig.json --noEmit",
+          "pretest": "pnpm --filter \"@rightkit/settings-ui^...\" run build",
+          "test": "vitest run"
+        },
+        "publishConfig": {
+          "registry": "https://registry.npmjs.org",
+          "access": "public"
+        },
+        "repository": {
+          "type": "git",
+          "url": "git+https://github.com/bogusyogi/rightkit.git",
+          "directory": "packages/settings-ui"
+        },
+        "packageManager": "pnpm@11.24.0"
+      }
+    },
+    {
+      "path": "/Volumes/D/claude/rightkit/packages/shell/package.json",
+      "name": "@rightkit/shell",
+      "version": "0.1.0",
+      "private": false,
+      "manifest": {
+        "name": "@rightkit/shell",
+        "version": "0.1.0",
+        "description": "Typed renderer bridge for the rightkit-shell Tauri crate: window controls, menu/tray events, deep links, autostart, rich clipboard, engine calls.",
+        "license": "MIT OR Apache-2.0",
+        "packageManager": "pnpm@11.24.0",
+        "type": "module",
+        "main": "dist/index.js",
+        "types": "dist/index.d.ts",
+        "exports": {
+          ".": {
+            "types": "./dist/index.d.ts",
+            "import": "./dist/index.js"
+          }
+        },
+        "files": [
+          "dist",
+          "README.md"
+        ],
+        "sideEffects": false,
+        "scripts": {
+          "build": "tsc -p tsconfig.json",
+          "typecheck": "tsc -p tsconfig.json --noEmit"
+        },
+        "devDependencies": {
+          "typescript": "^5.7.0"
+        },
+        "repository": {
+          "type": "git",
+          "url": "git+https://github.com/bogusyogi/rightkit.git",
+          "directory": "packages/shell"
+        }
+      }
+    },
+    {
+      "path": "/Volumes/D/claude/rightkit/packages/tauri/package.json",
+      "name": "@rightkit/tauri",
+      "version": "0.2.0",
+      "private": false,
+      "manifest": {
+        "name": "@rightkit/tauri",
+        "version": "0.2.0",
+        "description": "Typed host adapters for shared Right Suite Tauri commands.",
+        "license": "MIT OR Apache-2.0",
+        "packageManager": "pnpm@11.24.0",
+        "type": "module",
+        "main": "dist/index.js",
+        "types": "dist/index.d.ts",
+        "exports": {
+          ".": {
+            "types": "./dist/index.d.ts",
+            "import": "./dist/index.js"
+          }
+        },
+        "files": [
+          "dist",
+          "README.md",
+          "LICENSE"
+        ],
+        "sideEffects": false,
+        "dependencies": {
+          "@rightkit/logs": "^0.1.4"
+        },
+        "peerDependencies": {
+          "@rightkit/updates": "^0.2.5"
+        },
+        "scripts": {
+          "build": "tsc -p tsconfig.json",
+          "typecheck": "tsc -p tsconfig.json --noEmit",
+          "typecheck:contracts": "tsc --noEmit --strict --target ES2022 --module NodeNext --moduleResolution NodeNext type-tests/contract.ts",
+          "test": "vitest run"
+        },
+        "devDependencies": {
+          "typescript": "^5.7.0",
+          "vitest": "^2.1.8"
+        },
+        "publishConfig": {
+          "registry": "https://registry.npmjs.org",
+          "access": "public"
+        },
+        "repository": {
+          "type": "git",
+          "url": "git+https://github.com/bogusyogi/rightkit.git",
+          "directory": "packages/tauri"
+        }
+      }
+    },
+    {
+      "path": "/Volumes/D/claude/rightkit/packages/theme/package.json",
+      "name": "@rightkit/theme",
+      "version": "0.2.1",
+      "private": false,
+      "manifest": {
+        "name": "@rightkit/theme",
+        "version": "0.2.1",
+        "description": "Brand file to CSS tokens generator for Right Suite apps: light/dark/system, derived dark accent, WCAG contrast and hard-coded-colour checks, runtime brand application.",
+        "license": "MIT OR Apache-2.0",
+        "type": "module",
+        "main": "dist/index.js",
+        "types": "dist/index.d.ts",
+        "bin": {
+          "rightkit-theme": "bin/rightkit-theme.mjs"
+        },
+        "exports": {
+          ".": {
+            "types": "./dist/index.d.ts",
+            "import": "./dist/index.js"
+          },
+          "./node": {
+            "types": "./dist/node.d.ts",
+            "import": "./dist/node.js"
+          }
+        },
+        "files": [
+          "dist",
+          "bin",
+          "README.md",
+          "LICENSE-MIT",
+          "LICENSE-APACHE",
+          "CHANGELOG.md"
+        ],
+        "sideEffects": false,
+        "devDependencies": {
+          "@rightkit/qa": "workspace:*",
+          "@types/node": "^24.0.0",
+          "typescript": "^5.7.0",
+          "vitest": "^2.1.8"
+        },
+        "scripts": {
+          "build": "tsc -p tsconfig.json",
+          "typecheck": "tsc -p tsconfig.json --noEmit",
+          "test": "pnpm --filter \"@rightkit/theme^...\" run build && pnpm run build && vitest run"
+        },
+        "publishConfig": {
+          "registry": "https://registry.npmjs.org",
+          "access": "public"
+        },
+        "repository": {
+          "type": "git",
+          "url": "git+https://github.com/bogusyogi/rightkit.git",
+          "directory": "packages/theme"
+        },
+        "packageManager": "pnpm@11.24.0"
+      }
+    },
+    {
+      "path": "/Volumes/D/claude/rightkit/packages/updates/package.json",
+      "name": "@rightkit/updates",
+      "version": "0.2.5",
+      "private": false,
+      "manifest": {
+        "name": "@rightkit/updates",
+        "version": "0.2.5",
+        "description": "Shared runtime update policy helper for Right Suite Tauri apps.",
+        "license": "MIT OR Apache-2.0",
+        "packageManager": "pnpm@11.24.0",
+        "type": "module",
+        "main": "dist/index.js",
+        "types": "dist/index.d.ts",
+        "exports": {
+          ".": {
+            "types": "./dist/index.d.ts",
+            "import": "./dist/index.js"
+          }
+        },
+        "files": [
+          "dist",
+          "README.md"
+        ],
+        "sideEffects": false,
+        "scripts": {
+          "build": "tsc -p tsconfig.json",
+          "typecheck": "tsc -p tsconfig.json --noEmit",
+          "test": "vitest run"
+        },
+        "devDependencies": {
+          "typescript": "^5.7.0",
+          "vitest": "^2.1.8"
+        },
+        "publishConfig": {
+          "registry": "https://registry.npmjs.org",
+          "access": "public"
+        },
+        "repository": {
+          "type": "git",
+          "url": "git+https://github.com/bogusyogi/rightkit.git",
+          "directory": "packages/updates"
+        }
+      }
+    }
+  ],
+  "cargo": [
+    {
+      "path": "/Volumes/D/claude/rightkit/crates/agent-room-core/Cargo.toml",
+      "name": "agent-room-core",
+      "version": "0.3.0",
+      "publish": false,
+      "manifest": {
+        "package": {
+          "name": "agent-room-core",
+          "version": "0.3.0",
+          "edition": "2021",
+          "rust-version": "1.98.0",
+          "license": "UNLICENSED",
+          "publish": false
+        },
+        "features": {
+          "default": [
+            "http"
+          ],
+          "http": [
+            "dep:axum",
+            "dep:tokio",
+            "dep:tokio-stream"
+          ]
+        },
+        "bin": [
+          {
+            "name": "room",
+            "path": "src/bin/room.rs",
+            "required-features": [
+              "http"
+            ]
+          }
+        ],
+        "dependencies": {
+          "axum": {
+            "version": "0.8",
+            "optional": true
+          },
+          "rand": "0.9",
+          "rusqlite": {
+            "version": "0.40.1",
+            "features": [
+              "bundled"
+            ]
+          },
+          "serde": {
+            "version": "1",
+            "features": [
+              "derive"
+            ]
+          },
+          "serde_json": "1",
+          "sha2": "0.10",
+          "tokio": {
+            "version": "1",
+            "default-features": false,
+            "features": [
+              "rt-multi-thread",
+              "macros",
+              "net",
+              "sync",
+              "time"
+            ],
+            "optional": true
+          },
+          "tokio-stream": {
+            "version": "0.1",
+            "features": [
+              "sync"
+            ],
+            "optional": true
+          }
+        },
+        "dev-dependencies": {
+          "tempfile": "3",
+          "tower": {
+            "version": "0.5",
+            "features": [
+              "util"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "path": "/Volumes/D/claude/rightkit/crates/rightkit-agent-tools/Cargo.toml",
+      "name": "rightkit-agent-tools",
+      "version": "0.1.2",
+      "publish": false,
+      "manifest": {
+        "package": {
+          "name": "rightkit-agent-tools",
+          "version": "0.1.2",
+          "edition": "2021",
+          "rust-version": "1.98.0",
+          "description": "One typed tool interface for agents over rightkit-automation, rightkit-control, rightkit-browser and each app's engine commands (via rightkit-service), plus the `right-ctl <app> <command>` CLI.",
+          "license": "MIT OR Apache-2.0",
+          "repository": "https://github.com/bogusyogi/rightkit",
+          "publish": false
+        },
+        "features": {
+          "default": [
+            "automation",
+            "browser",
+            "speech"
+          ],
+          "automation": [
+            "dep:rightkit-automation"
+          ],
+          "browser": [
+            "dep:rightkit-browser",
+            "dep:tokio"
+          ],
+          "speech": [
+            "dep:rightkit-speech-client"
+          ],
+          "mcp": [
+            "dep:rightkit-mcp"
+          ]
+        },
+        "dependencies": {
+          "rightkit-service": {
+            "version": "0.1.0",
+            "path": "../rightkit-service"
+          },
+          "rightkit-automation": {
+            "version": "0.1.0",
+            "path": "../rightkit-automation",
+            "optional": true
+          },
+          "rightkit-browser": {
+            "version": "0.2.2",
+            "path": "../rightkit-browser",
+            "optional": true
+          },
+          "rightkit-speech-client": {
+            "version": "0.3.0",
+            "path": "../rightkit-speech-client",
+            "optional": true
+          },
+          "rightkit-mcp": {
+            "version": "0.5.0",
+            "path": "../rightkit-mcp",
+            "optional": true
+          },
+          "serde": {
+            "workspace": true
+          },
+          "serde_json": {
+            "workspace": true
+          },
+          "tokio": {
+            "version": "1",
+            "features": [
+              "rt-multi-thread",
+              "time"
+            ],
+            "optional": true
+          }
+        },
+        "dev-dependencies": {
+          "tempfile": "3"
+        },
+        "test": [
+          {
+            "name": "e2e",
+            "path": "tests/e2e.rs",
+            "required-features": [
+              "mcp"
+            ]
+          }
+        ],
+        "bin": [
+          {
+            "name": "right-ctl",
+            "path": "src/bin/right-ctl.rs"
+          }
+        ]
+      }
+    },
+    {
+      "path": "/Volumes/D/claude/rightkit/crates/rightkit-align/Cargo.toml",
+      "name": "rightkit-align",
+      "version": "0.0.0",
+      "publish": false,
+      "manifest": {
+        "package": {
+          "name": "rightkit-align",
+          "version": "0.0.0",
+          "edition": "2021",
+          "rust-version": "1.98.0",
+          "publish": false,
+          "license": "MIT",
+          "description": "Product-neutral script-to-ASR word alignment: pronunciation normalisation, edit-distance alignment with lexical and timing confidence, ambiguity and mismatch rejection, and control-name coverage",
+          "repository": "https://github.com/adrdsouza/claude",
+          "include": [
+            "src/**",
+            "tests/**",
+            "Cargo.toml"
+          ]
+        },
+        "lib": {
+          "name": "rightkit_align",
+          "path": "src/lib.rs"
+        },
+        "dependencies": {
+          "rightkit-transcript": {
+            "path": "../rightkit-transcript"
+          },
+          "serde": {
+            "version": "1.0.228",
+            "features": [
+              "derive"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "path": "/Volumes/D/claude/rightkit/crates/rightkit-asr/Cargo.toml",
+      "name": "rightkit-asr",
+      "version": "0.0.2",
+      "publish": true,
+      "manifest": {
+        "package": {
+          "name": "rightkit-asr",
+          "version": "0.0.2",
+          "edition": "2021",
+          "rust-version": "1.98.0",
+          "publish": true,
+          "license": "MIT",
+          "description": "Parakeet ONNX + Whisper (CoreML / whisper.cpp) speech decoding runtime for Right Suite applications",
+          "readme": "README.md",
+          "repository": "https://github.com/bogusyogi/rightkit",
+          "homepage": "https://github.com/bogusyogi/rightkit/tree/main/crates/rightkit-asr",
+          "documentation": "https://docs.rs/rightkit-asr",
+          "keywords": [
+            "speech-recognition",
+            "asr",
+            "parakeet",
+            "whisper",
+            "onnx"
+          ],
+          "categories": [
+            "multimedia::audio"
+          ],
+          "include": [
+            "src/**",
+            "tests/*.rs",
+            "Cargo.toml",
+            "README.md",
+            "LICENSE",
+            "THIRD_PARTY_NOTICES.md",
+            "UPSTREAM.toml",
+            "PATCHES.md",
+            "CHANGELOG.md"
+          ]
+        },
+        "lib": {
+          "name": "rightkit_asr",
+          "path": "src/lib.rs"
+        },
+        "dependencies": {
+          "half": "2",
+          "hound": "3.5",
+          "ndarray": "0.17",
+          "realfft": "3",
+          "serde": {
+            "version": "1.0",
+            "features": [
+              "derive"
+            ]
+          },
+          "serde_json": "1.0",
+          "libloading": "0.9",
+          "rightkit-ort": {
+            "path": "../rightkit-ort",
+            "version": "0.2.2",
+            "features": [
+              "ndarray",
+              "half"
+            ]
+          },
+          "rightkit-vad": {
+            "version": "0.0.2",
+            "path": "../rightkit-vad",
+            "default-features": false
+          },
+          "tokenizers": {
+            "version": "0.22.2",
+            "default-features": false,
+            "features": [
+              "onig"
+            ]
+          }
+        },
+        "target": {
+          "cfg(target_os = \"macos\")": {
+            "dependencies": {
+              "objc2": {
+                "version": "0.6",
+                "features": [
+                  "exception"
+                ]
+              },
+              "objc2-core-ml": "0.3",
+              "objc2-foundation": "0.3"
+            }
+          }
+        },
+        "dev-dependencies": {
+          "rightkit-media": {
+            "path": "../rightkit-media",
+            "version": "0.2.3"
+          },
+          "rightkit-speech-client": {
+            "path": "../rightkit-speech-client",
+            "version": "0.3.0"
+          }
+        },
+        "features": {
+          "default": [
+            "cpu",
+            "ort-defaults"
+          ],
+          "cpu": [],
+          "ort-defaults": [
+            "rightkit-ort/tracing"
+          ],
+          "ort-download": [
+            "rightkit-ort/download-binaries",
+            "rightkit-ort/tls-native",
+            "rightkit-ort/copy-dylibs"
+          ],
+          "cuda": [
+            "rightkit-ort/cuda"
+          ],
+          "tensorrt": [
+            "rightkit-ort/tensorrt"
+          ],
+          "coreml": [
+            "rightkit-ort/coreml"
+          ],
+          "directml": [
+            "rightkit-ort/directml"
+          ],
+          "migraphx": [
+            "rightkit-ort/migraphx"
+          ],
+          "openvino": [
+            "rightkit-ort/openvino"
+          ],
+          "webgpu": [
+            "rightkit-ort/webgpu"
+          ],
+          "nnapi": [
+            "rightkit-ort/nnapi"
+          ],
+          "sortformer": [],
+          "multitalker": [
+            "sortformer"
+          ],
+          "cohere": [],
+          "load-dynamic": [],
+          "preload-dylibs": [
+            "rightkit-ort/preload-dylibs"
+          ]
+        }
+      }
+    },
+    {
+      "path": "/Volumes/D/claude/rightkit/crates/rightkit-audio/Cargo.toml",
+      "name": "rightkit-audio",
+      "version": "0.2.0",
+      "publish": true,
+      "manifest": {
+        "package": {
+          "name": "rightkit-audio",
+          "version": "0.2.0",
+          "edition": "2021",
+          "rust-version": "1.98.0",
+          "description": "Shared audio for Right Suite apps: typed FFmpeg filter graphs, loudness gates, room tone, ducking, WAV I/O, and cpal capture with resample/downmix/recovery.",
+          "license": "MIT OR Apache-2.0",
+          "repository": "https://github.com/bogusyogi/rightkit",
+          "keywords": [
+            "audio",
+            "ffmpeg",
+            "capture",
+            "loudness"
+          ],
+          "categories": [
+            "multimedia::audio"
+          ],
+          "readme": "README.md",
+          "include": [
+            "src/**",
+            "tests/**",
+            "presets/**",
+            "README.md",
+            "LICENSE-MIT",
+            "LICENSE-APACHE"
+          ]
+        },
+        "features": {
+          "default": [
+            "capture"
+          ],
+          "capture": [
+            "dep:cpal",
+            "dep:rubato",
+            "dep:ringbuf",
+            "dep:objc2-core-audio",
+            "dep:objc2-core-foundation",
+            "dep:windows",
+            "dep:windows-core"
+          ]
+        },
+        "dependencies": {
+          "rightkit-media": {
+            "path": "../rightkit-media",
+            "version": "0.2.3"
+          },
+          "serde": {
+            "version": "1.0.228",
+            "features": [
+              "derive"
+            ]
+          },
+          "serde_json": "1.0.150",
+          "thiserror": "2",
+          "hound": "3",
+          "cpal": {
+            "version": "0.18.2",
+            "optional": true
+          },
+          "rubato": {
+            "version": "5.0.0",
+            "optional": true
+          },
+          "ringbuf": {
+            "version": "0.5",
+            "optional": true
+          },
+          "tracing": "0.1"
+        },
+        "target": {
+          "cfg(target_os = \"macos\")": {
+            "dependencies": {
+              "objc2-core-audio": {
+                "version": "0.3.2",
+                "optional": true
+              },
+              "objc2-core-foundation": {
+                "version": "0.3.2",
+                "optional": true
+              }
+            }
+          },
+          "cfg(windows)": {
+            "dependencies": {
+              "windows": {
+                "version": "0.62.2",
+                "optional": true,
+                "features": [
+                  "Win32_Foundation",
+                  "Win32_Media_Audio",
+                  "Win32_System_Com",
+                  "Win32_System_Com_StructuredStorage",
+                  "Win32_System_Power",
+                  "Win32_UI_WindowsAndMessaging"
+                ]
+              },
+              "windows-core": {
+                "version": "0.62.2",
+                "optional": true
+              }
+            }
+          }
+        },
+        "dev-dependencies": {
+          "tempfile": "3"
+        }
+      }
+    },
+    {
+      "path": "/Volumes/D/claude/rightkit/crates/rightkit-automation/Cargo.toml",
+      "name": "rightkit-automation",
+      "version": "0.1.0",
+      "publish": false,
+      "manifest": {
+        "package": {
+          "name": "rightkit-automation",
+          "version": "0.1.0",
+          "edition": "2021",
+          "rust-version": "1.98.0",
+          "description": "Brand-neutral desktop automation: observe and act on any app (macOS AX, Windows UIA) through a four-tier input ladder with safety, focus guard, and evidence receipts.",
+          "license": "MIT OR Apache-2.0",
+          "publish": false
+        },
+        "dependencies": {
+          "rightkit-service": {
+            "version": "0.1.0",
+            "path": "../rightkit-service"
+          },
+          "serde_json": "1.0.150"
+        },
+        "dev-dependencies": {
+          "tempfile": "3"
+        },
+        "target": {
+          "cfg(windows)": {
+            "dependencies": {
+              "windows": {
+                "version": "0.62",
+                "features": [
+                  "Win32_Foundation",
+                  "Win32_Graphics_Gdi",
+                  "Win32_Storage_FileSystem",
+                  "Win32_Storage_Xps",
+                  "Win32_System_JobObjects",
+                  "Win32_System_Com",
+                  "Win32_System_DataExchange",
+                  "Win32_System_Memory",
+                  "Win32_System_Ole",
+                  "Win32_System_Threading",
+                  "Win32_System_Variant",
+                  "Win32_UI_Accessibility",
+                  "Win32_UI_HiDpi",
+                  "Win32_UI_Input_KeyboardAndMouse",
+                  "Win32_UI_WindowsAndMessaging"
+                ]
+              }
+            }
+          }
+        },
+        "test": [
+          {
+            "name": "e2e_mac",
+            "harness": false
+          }
+        ]
+      }
+    },
+    {
+      "path": "/Volumes/D/claude/rightkit/crates/rightkit-browser/Cargo.toml",
+      "name": "rightkit-browser",
+      "version": "0.2.3",
+      "publish": true,
+      "manifest": {
+        "package": {
+          "name": "rightkit-browser",
+          "version": "0.2.3",
+          "edition": "2021",
+          "rust-version": "1.98.0",
+          "description": "Shared Chrome DevTools Protocol browser runtime for Right Suite: multi-page sessions, named profiles, real CDP input, observations with stale-ref checks.",
+          "license": "MIT OR Apache-2.0",
+          "readme": "README.md",
+          "repository": "https://github.com/bogusyogi/rightkit",
+          "keywords": [
+            "browser",
+            "cdp",
+            "chrome",
+            "automation",
+            "qa"
+          ],
+          "categories": [
+            "development-tools::testing"
+          ],
+          "include": [
+            "src/**",
+            "tests/**",
+            "README.md",
+            "CHANGELOG.md",
+            "LICENSE-MIT",
+            "LICENSE-APACHE"
+          ]
+        },
+        "dependencies": {
+          "chromiumoxide": "0.9",
+          "futures": "0.3",
+          "serde": {
+            "version": "1",
+            "features": [
+              "derive"
+            ]
+          },
+          "serde_json": "1",
+          "tempfile": "3",
+          "thiserror": "2",
+          "tokio": {
+            "version": "1",
+            "features": [
+              "rt-multi-thread",
+              "macros",
+              "sync",
+              "time",
+              "fs",
+              "net",
+              "io-util"
+            ]
+          },
+          "url": "2",
+          "rightkit-process": {
+            "path": "../rightkit-process",
+            "version": "0.3.0"
+          }
+        }
+      }
+    },
+    {
+      "path": "/Volumes/D/claude/rightkit/crates/rightkit-cache/Cargo.toml",
+      "name": "rightkit-cache",
+      "version": "0.1.0",
+      "publish": true,
+      "manifest": {
+        "package": {
+          "name": "rightkit-cache",
+          "version": "0.1.0",
+          "edition": "2021",
+          "rust-version": "1.98.0",
+          "license": "MIT OR Apache-2.0",
+          "description": "Disk cache primitive with a hard size cap, LRU eviction that survives restarts, atomic writes and group invalidation, plus stable-prefix prompt-cache keys.",
+          "readme": "README.md",
+          "repository": "https://github.com/bogusyogi/rightkit",
+          "include": [
+            "src/**",
+            "tests/**",
+            "Cargo.toml",
+            "README.md",
+            "LICENSE-MIT",
+            "LICENSE-APACHE"
+          ]
+        },
+        "dependencies": {
+          "sha2": "0.11"
+        },
+        "dev-dependencies": {
+          "tempfile": "3"
+        }
+      }
+    },
+    {
+      "path": "/Volumes/D/claude/rightkit/crates/rightkit-channel-memory/Cargo.toml",
+      "name": "rightkit-channel-memory",
+      "version": "0.1.0",
+      "publish": false,
+      "manifest": {
+        "package": {
+          "name": "rightkit-channel-memory",
+          "version": "0.1.0",
+          "edition": "2021",
+          "rust-version": "1.98.0",
+          "description": "Channel memory for the content pipeline: the channel-memory.v1 schema with serde types, validation, version gate, proof citation rules, and scope checks for PostRight P3 and GenRight G7.",
+          "license": "MIT OR Apache-2.0",
+          "repository": "https://github.com/bogusyogi/rightkit",
+          "publish": false
+        },
+        "lib": {
+          "path": "src/lib.rs"
+        },
+        "dependencies": {
+          "serde": {
+            "version": "1.0.228",
+            "features": [
+              "derive"
+            ]
+          },
+          "serde_json": "1.0.150",
+          "jsonschema": {
+            "version": "0.58.6",
+            "default-features": false
+          }
+        }
+      }
+    },
+    {
+      "path": "/Volumes/D/claude/rightkit/crates/rightkit-compose/Cargo.toml",
+      "name": "rightkit-compose",
+      "version": "0.0.0",
+      "publish": false,
+      "manifest": {
+        "package": {
+          "name": "rightkit-compose",
+          "version": "0.0.0",
+          "edition": "2021",
+          "rust-version": "1.98.0",
+          "publish": false,
+          "license": "MIT",
+          "description": "Product-neutral evaluated composition model: layered video, stills, cursor sprites, backgrounds, clipping, shadows, motion blur, overlays and keyframed tracks, with one pure per-frame evaluation shared by preview and export",
+          "repository": "https://github.com/adrdsouza/claude",
+          "include": [
+            "src/**",
+            "tests/**",
+            "Cargo.toml"
+          ]
+        },
+        "lib": {
+          "name": "rightkit_compose",
+          "path": "src/lib.rs"
+        },
+        "dependencies": {
+          "serde": {
+            "version": "1.0.228",
+            "features": [
+              "derive"
+            ]
+          },
+          "thiserror": "2"
+        },
+        "dev-dependencies": {
+          "serde_json": "1.0.150"
+        }
+      }
+    },
+    {
+      "path": "/Volumes/D/claude/rightkit/crates/rightkit-contracts/Cargo.toml",
+      "name": "rightkit-contracts",
+      "version": "0.1.2",
+      "publish": false,
+      "manifest": {
+        "package": {
+          "name": "rightkit-contracts",
+          "version": "0.1.2",
+          "edition": "2021",
+          "rust-version": "1.98.0",
+          "description": "Versioned content-pipeline contracts for the Right Suite: content brief, delivery envelope, record session and event, demo plan and daemon API. JSON Schema validation, serde types, and major-version negotiation.",
+          "license": "MIT OR Apache-2.0",
+          "repository": "https://github.com/bogusyogi/rightkit",
+          "publish": false
+        },
+        "lib": {
+          "path": "src/lib.rs"
+        },
+        "bin": [
+          {
+            "name": "rightkit-contracts",
+            "path": "src/main.rs"
+          }
+        ],
+        "dependencies": {
+          "serde": {
+            "version": "1.0.228",
+            "features": [
+              "derive"
+            ]
+          },
+          "serde_json": "1.0.150",
+          "jsonschema": {
+            "version": "0.58.6",
+            "default-features": false
+          }
+        }
+      }
+    },
+    {
+      "path": "/Volumes/D/claude/rightkit/crates/rightkit-control/Cargo.toml",
+      "name": "rightkit-control",
+      "version": "0.1.11",
+      "publish": true,
+      "manifest": {
+        "package": {
+          "name": "rightkit-control",
+          "version": "0.1.11",
+          "edition": "2021",
+          "rust-version": "1.98.0",
+          "description": "Background native input, accessibility reads, and a WebDriver bridge for driving real desktop apps without stealing focus.",
+          "license": "MIT OR Apache-2.0",
+          "repository": "https://github.com/bogusyogi/rightkit",
+          "readme": "README.md",
+          "include": [
+            "src/**",
+            "tests/**",
+            "README.md",
+            "LICENSE-MIT",
+            "LICENSE-APACHE"
+          ]
+        },
+        "features": {
+          "default": [
+            "wv2-0_38"
+          ],
+          "tauri-plugin": [
+            "dep:tauri",
+            "dep:rightkit-service",
+            "dep:serde_json"
+          ],
+          "offscreen-private-spi": [],
+          "wv2-0_38": [
+            "dep:windows_061",
+            "dep:webview2_com_038"
+          ],
+          "wv2-0_39": [
+            "dep:windows_062",
+            "dep:webview2_com_039"
+          ]
+        },
+        "dependencies": {
+          "tauri": {
+            "version": "2",
+            "optional": true
+          },
+          "rightkit-service": {
+            "version": "0.1.0",
+            "path": "../rightkit-service",
+            "optional": true
+          },
+          "serde_json": {
+            "version": "1.0.150",
+            "optional": true
+          }
+        },
+        "target": {
+          "cfg(windows)": {
+            "dependencies": {
+              "windows_061": {
+                "package": "windows",
+                "version": "0.61",
+                "optional": true
+              },
+              "webview2_com_038": {
+                "package": "webview2-com",
+                "version": "0.38",
+                "optional": true
+              },
+              "windows_062": {
+                "package": "windows",
+                "version": "0.62",
+                "optional": true
+              },
+              "webview2_com_039": {
+                "package": "webview2-com",
+                "version": "0.39",
+                "optional": true
+              }
+            }
+          }
+        },
+        "lib": {
+          "name": "rightkit_control",
+          "path": "src/lib.rs"
+        },
+        "example": [
+          {
+            "name": "offscreen_fixture_win",
+            "required-features": [
+              "wv2-0_38"
+            ]
+          }
+        ],
+        "bin": [
+          {
+            "name": "rightkit-control",
+            "path": "src/bin/rightkit-control.rs"
+          }
+        ]
+      }
+    },
+    {
+      "path": "/Volumes/D/claude/rightkit/crates/rightkit-crash/Cargo.toml",
+      "name": "rightkit-crash",
+      "version": "0.2.0",
+      "publish": true,
+      "manifest": {
+        "package": {
+          "name": "rightkit-crash",
+          "version": "0.2.0",
+          "edition": "2021",
+          "rust-version": "1.98.0",
+          "description": "Privacy-first panic capture, redacted crash reports, native dumps and support bundles for Right Suite apps.",
+          "license": "MIT OR Apache-2.0",
+          "readme": "README.md",
+          "repository": "https://github.com/bogusyogi/rightkit",
+          "keywords": [
+            "crash",
+            "panic",
+            "diagnostics",
+            "privacy"
+          ],
+          "categories": [
+            "development-tools::debugging"
+          ],
+          "include": [
+            "src/**",
+            "tests/**",
+            "README.md",
+            "LICENSE-MIT",
+            "LICENSE-APACHE"
+          ]
+        },
+        "lib": {
+          "name": "rightkit_crash",
+          "path": "src/lib.rs"
+        },
+        "bin": [
+          {
+            "name": "rightkit-dump-helper",
+            "path": "src/bin/rightkit-dump-helper.rs"
+          }
+        ],
+        "dependencies": {
+          "rightkit-logs": {
+            "version": "0.2.0",
+            "path": "../rightkit-logs",
+            "default-features": false
+          },
+          "serde": {
+            "version": "1",
+            "features": [
+              "derive"
+            ]
+          },
+          "serde_json": "1",
+          "zip": {
+            "version": "2",
+            "default-features": false,
+            "features": [
+              "deflate"
+            ]
+          }
+        },
+        "target": {
+          "cfg(target_os = \"windows\")": {
+            "dependencies": {
+              "windows-sys": {
+                "version": "0.61.2",
+                "features": [
+                  "Win32_Foundation",
+                  "Win32_Storage_FileSystem",
+                  "Win32_System_Diagnostics_Debug",
+                  "Win32_System_Kernel",
+                  "Win32_System_Memory",
+                  "Win32_System_Threading"
+                ]
+              }
+            }
+          }
+        },
+        "dev-dependencies": {
+          "rightkit-logs": {
+            "version": "0.2.0",
+            "path": "../rightkit-logs",
+            "features": [
+              "testing"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "path": "/Volumes/D/claude/rightkit/crates/rightkit-daemon/Cargo.toml",
+      "name": "rightkit-daemon",
+      "version": "0.1.0",
+      "publish": false,
+      "manifest": {
+        "package": {
+          "name": "rightkit-daemon",
+          "version": "0.1.0",
+          "edition": "2021",
+          "rust-version": "1.98.0",
+          "description": "Daemon host capability for the Right Suite: HTTPS listener, device enrolment and signed requests, OAuth callback and signed webhook route classes, bounded blake3-keyed resumable uploads, compare-and-swap mutations, durable state and lifecycle events.",
+          "license": "MIT OR Apache-2.0",
+          "repository": "https://github.com/bogusyogi/rightkit",
+          "publish": false
+        },
+        "features": {
+          "default": [
+            "oauth"
+          ],
+          "oauth": [
+            "dep:rightkit-oauth"
+          ]
+        },
+        "dependencies": {
+          "rightkit-contracts": {
+            "path": "../rightkit-contracts",
+            "version": "0.1.0"
+          },
+          "rightkit-oauth": {
+            "path": "../rightkit-oauth",
+            "version": "0.3.0",
+            "default-features": false,
+            "features": [
+              "server"
+            ],
+            "optional": true
+          },
+          "serde": {
+            "version": "1.0.228",
+            "features": [
+              "derive"
+            ]
+          },
+          "serde_json": "1.0.150",
+          "axum": {
+            "version": "0.8",
+            "default-features": false,
+            "features": [
+              "http1",
+              "tokio"
+            ]
+          },
+          "tokio": {
+            "version": "1",
+            "features": [
+              "rt-multi-thread",
+              "macros",
+              "net",
+              "sync",
+              "time",
+              "io-util"
+            ]
+          },
+          "tokio-rustls": {
+            "version": "0.26",
+            "default-features": false,
+            "features": [
+              "ring",
+              "tls12"
+            ]
+          },
+          "rustls": {
+            "version": "0.23",
+            "default-features": false,
+            "features": [
+              "ring",
+              "std",
+              "tls12"
+            ]
+          },
+          "hyper": {
+            "version": "1",
+            "features": [
+              "http1",
+              "server"
+            ]
+          },
+          "hyper-util": {
+            "version": "0.1",
+            "features": [
+              "tokio",
+              "service",
+              "server-graceful"
+            ]
+          },
+          "ring": "0.17",
+          "blake3": "1",
+          "base64": "0.22",
+          "rustls-pki-types": {
+            "version": "1",
+            "features": [
+              "std"
+            ]
+          },
+          "url": "2.5",
+          "subtle": "2.6"
+        },
+        "dev-dependencies": {
+          "rightkit-http": {
+            "path": "../rightkit-http",
+            "version": "0.2.0",
+            "features": [
+              "testing"
+            ]
+          },
+          "rightkit-oauth": {
+            "path": "../rightkit-oauth",
+            "version": "0.3.0",
+            "default-features": false,
+            "features": [
+              "server"
+            ]
+          },
+          "tempfile": "3",
+          "tower": {
+            "version": "0.5",
+            "features": [
+              "util"
+            ]
+          },
+          "rcgen": "0.13"
+        }
+      }
+    },
+    {
+      "path": "/Volumes/D/claude/rightkit/crates/rightkit-db/Cargo.toml",
+      "name": "rightkit-db",
+      "version": "0.3.2",
+      "publish": true,
+      "manifest": {
+        "package": {
+          "name": "rightkit-db",
+          "version": "0.3.2",
+          "edition": "2021",
+          "rust-version": "1.98.0",
+          "description": "Correct-by-default SQLite and SQLCipher connection bootstrap for Right Suite apps.",
+          "license": "MIT OR Apache-2.0",
+          "readme": "README.md",
+          "repository": "https://github.com/bogusyogi/rightkit",
+          "keywords": [
+            "sqlite",
+            "sqlcipher",
+            "wal",
+            "database"
+          ],
+          "categories": [
+            "database"
+          ],
+          "include": [
+            "src/**",
+            "tests/**",
+            "README.md",
+            "LICENSE-MIT",
+            "LICENSE-APACHE"
+          ]
+        },
+        "features": {
+          "default": [
+            "bundled"
+          ],
+          "bundled": [
+            "rusqlite/bundled"
+          ],
+          "sqlcipher": [
+            "cipher",
+            "rusqlite/bundled-sqlcipher-vendored-openssl"
+          ],
+          "sqlcipher-system": [
+            "cipher",
+            "rusqlite/bundled-sqlcipher"
+          ],
+          "cipher": [],
+          "hooks": [
+            "rusqlite/hooks"
+          ]
+        },
+        "dependencies": {
+          "rusqlite": {
+            "version": "0.40.1",
+            "default-features": false,
+            "features": [
+              "backup"
+            ]
+          },
+          "rightkit-fs": {
+            "version": "0.3.0",
+            "path": "../rightkit-fs",
+            "default-features": false,
+            "features": [
+              "fs"
+            ]
+          },
+          "thiserror": "2",
+          "zeroize": "1.8"
+        },
+        "target": {
+          "cfg(unix)": {
+            "dependencies": {
+              "libc": "0.2"
+            }
+          }
+        },
+        "dev-dependencies": {
+          "tempfile": "3"
+        }
+      }
+    },
+    {
+      "path": "/Volumes/D/claude/rightkit/crates/rightkit-embed/Cargo.toml",
+      "name": "rightkit-embed",
+      "version": "0.3.1",
+      "publish": true,
+      "manifest": {
+        "package": {
+          "name": "rightkit-embed",
+          "version": "0.3.1",
+          "edition": "2021",
+          "rust-version": "1.98.0",
+          "license": "MIT OR Apache-2.0",
+          "description": "Product-neutral local text embeddings and persistent cosine vector store.",
+          "readme": "README.md",
+          "repository": "https://github.com/bogusyogi/rightkit",
+          "include": [
+            "src/**",
+            "tests/**",
+            "Cargo.toml",
+            "README.md",
+            "LICENSE-MIT",
+            "LICENSE-APACHE"
+          ]
+        },
+        "features": {
+          "default": [
+            "inference",
+            "vector"
+          ],
+          "inference": [
+            "dep:rightkit-ort",
+            "dep:tokenizers",
+            "dep:sha2",
+            "dep:serde_json"
+          ],
+          "vector": [
+            "dep:rusqlite"
+          ]
+        },
+        "dependencies": {
+          "rightkit-ort": {
+            "version": "0.2.2",
+            "path": "../rightkit-ort",
+            "optional": true
+          },
+          "rusqlite": {
+            "version": "0.40.1",
+            "default-features": false,
+            "optional": true
+          },
+          "serde_json": {
+            "version": "1.0.150",
+            "optional": true
+          },
+          "sha2": {
+            "version": "0.10.9",
+            "optional": true
+          },
+          "thiserror": "2",
+          "tokenizers": {
+            "version": "0.22.2",
+            "default-features": false,
+            "features": [
+              "onig"
+            ],
+            "optional": true
+          }
+        },
+        "dev-dependencies": {
+          "rusqlite": {
+            "version": "0.40.1",
+            "features": [
+              "bundled"
+            ]
+          },
+          "tempfile": "3"
+        }
+      }
+    },
+    {
+      "path": "/Volumes/D/claude/rightkit/crates/rightkit-framed-sidecar/Cargo.toml",
+      "name": "rightkit-framed-sidecar",
+      "version": "0.1.0",
+      "publish": true,
+      "manifest": {
+        "package": {
+          "name": "rightkit-framed-sidecar",
+          "version": "0.1.0",
+          "edition": "2021",
+          "rust-version": "1.98.0",
+          "description": "Bounded JSON-lines transport primitives for Right Suite sidecars.",
+          "license": "MIT OR Apache-2.0",
+          "readme": "README.md",
+          "repository": "https://github.com/bogusyogi/rightkit",
+          "keywords": [
+            "sidecar",
+            "ipc",
+            "jsonl",
+            "stdio"
+          ],
+          "categories": [
+            "encoding"
+          ],
+          "include": [
+            "src/**",
+            "tests/**",
+            "README.md",
+            "LICENSE-MIT",
+            "LICENSE-APACHE"
+          ]
+        },
+        "dependencies": {
+          "serde": {
+            "version": "1.0.228",
+            "features": [
+              "derive"
+            ]
+          },
+          "serde_json": "1.0.150"
+        }
+      }
+    },
+    {
+      "path": "/Volumes/D/claude/rightkit/crates/rightkit-fs/Cargo.toml",
+      "name": "rightkit-fs",
+      "version": "0.3.3",
+      "publish": true,
+      "manifest": {
+        "package": {
+          "name": "rightkit-fs",
+          "version": "0.3.3",
+          "edition": "2021",
+          "rust-version": "1.98.0",
+          "description": "Safe state directories, atomic writes, cross-process locks, owner-only files, and stable file identity for Right Suite apps.",
+          "license": "MIT OR Apache-2.0",
+          "readme": "README.md",
+          "repository": "https://github.com/bogusyogi/rightkit",
+          "keywords": [
+            "filesystem",
+            "atomic-write",
+            "file-lock",
+            "symlink",
+            "permissions"
+          ],
+          "categories": [
+            "filesystem"
+          ],
+          "include": [
+            "src/**",
+            "tests/**",
+            "README.md",
+            "LICENSE-MIT",
+            "LICENSE-APACHE"
+          ]
+        },
+        "bin": [
+          {
+            "name": "rightkit-clonefile",
+            "path": "src/bin/rightkit-clonefile.rs",
+            "required-features": [
+              "json"
+            ]
+          },
+          {
+            "name": "rightkit-swap",
+            "path": "src/bin/rightkit-swap.rs",
+            "required-features": [
+              "fs"
+            ]
+          }
+        ],
+        "test": [
+          {
+            "name": "e2e",
+            "path": "tests/e2e.rs",
+            "required-features": [
+              "json"
+            ]
+          },
+          {
+            "name": "clone",
+            "path": "tests/clone.rs",
+            "required-features": [
+              "fs"
+            ]
+          },
+          {
+            "name": "swap",
+            "path": "tests/swap.rs",
+            "required-features": [
+              "fs"
+            ]
+          },
+          {
+            "name": "lock_spawn",
+            "path": "tests/lock_spawn.rs",
+            "required-features": [
+              "lock"
+            ]
+          }
+        ],
+        "features": {
+          "default": [
+            "fs",
+            "lock",
+            "json",
+            "digest"
+          ],
+          "fs": [
+            "dep:libc",
+            "dep:thiserror"
+          ],
+          "lock": [
+            "fs"
+          ],
+          "json": [
+            "lock",
+            "dep:serde",
+            "dep:serde_json"
+          ],
+          "digest": [
+            "dep:sha2"
+          ]
+        },
+        "dependencies": {
+          "serde": {
+            "version": "1",
+            "features": [
+              "derive"
+            ],
+            "optional": true
+          },
+          "serde_json": {
+            "version": "1",
+            "optional": true
+          },
+          "sha2": {
+            "version": "0.11",
+            "optional": true
+          },
+          "thiserror": {
+            "version": "2",
+            "optional": true
+          }
+        },
+        "target": {
+          "cfg(unix)": {
+            "dependencies": {
+              "libc": {
+                "version": "0.2",
+                "optional": true
+              }
+            }
+          }
+        },
+        "dev-dependencies": {
+          "tempfile": "3"
+        }
+      }
+    },
+    {
+      "path": "/Volumes/D/claude/rightkit/crates/rightkit-fsindex/Cargo.toml",
+      "name": "rightkit-fsindex",
+      "version": "0.1.0",
+      "publish": true,
+      "manifest": {
+        "package": {
+          "name": "rightkit-fsindex",
+          "version": "0.1.0",
+          "edition": "2021",
+          "rust-version": "1.98.0",
+          "publish": true,
+          "license": "MIT",
+          "description": "Live whole-disk file index: fuzzy name search plus clone- and hard-link-aware folder size rollups on memory-mapped columns",
+          "readme": "README.md",
+          "repository": "https://github.com/bogusyogi/claude",
+          "homepage": "https://github.com/bogusyogi/claude/tree/main/rightkit/crates/rightkit-fsindex",
+          "documentation": "https://docs.rs/rightkit-fsindex",
+          "keywords": [
+            "filesystem",
+            "file-index",
+            "fsevents",
+            "disk-usage",
+            "search"
+          ],
+          "categories": [
+            "filesystem",
+            "os::macos-apis"
+          ],
+          "include": [
+            "src/**",
+            "tests/*.rs",
+            "tests/common/*.rs",
+            "benches/*.rs",
+            "Cargo.toml",
+            "README.md",
+            "CHANGELOG.md",
+            "LICENSE",
+            "THIRD-PARTY-NOTICES"
+          ]
+        },
+        "lib": {
+          "name": "rightkit_fsindex",
+          "path": "src/lib.rs"
+        },
+        "dependencies": {
+          "memchr": "2",
+          "memmap2": "0.9"
+        },
+        "target": {
+          "cfg(unix)": {
+            "dependencies": {
+              "libc": "0.2"
+            }
+          }
+        },
+        "dev-dependencies": {
+          "tempfile": "3"
+        },
+        "features": {
+          "default": [],
+          "content": []
+        },
+        "bench": [
+          {
+            "name": "crawl",
+            "harness": false
+          },
+          {
+            "name": "footprint",
+            "harness": false
+          }
+        ]
+      }
+    },
+    {
+      "path": "/Volumes/D/claude/rightkit/crates/rightkit-hotkeys/Cargo.toml",
+      "name": "rightkit-hotkeys",
+      "version": "0.1.0",
+      "publish": true,
+      "manifest": {
+        "package": {
+          "name": "rightkit-hotkeys",
+          "version": "0.1.0",
+          "edition": "2021",
+          "rust-version": "1.98.0",
+          "description": "Global shortcuts and low-level input hooks for Right Suite apps: chord parsing, conflict detection, CGEventTap/WH_KEYBOARD_LL primitives, push-to-talk state.",
+          "license": "MIT OR Apache-2.0",
+          "readme": "README.md",
+          "repository": "https://github.com/bogusyogi/rightkit",
+          "keywords": [
+            "hotkey",
+            "shortcut",
+            "eventtap",
+            "push-to-talk"
+          ],
+          "categories": [
+            "os"
+          ],
+          "include": [
+            "src/**",
+            "tests/**",
+            "README.md",
+            "LICENSE-MIT",
+            "LICENSE-APACHE"
+          ]
+        },
+        "dependencies": {},
+        "target": {
+          "cfg(windows)": {
+            "dependencies": {
+              "windows-sys": {
+                "version": "0.61.2",
+                "features": [
+                  "Win32_Foundation",
+                  "Win32_System_LibraryLoader",
+                  "Win32_System_Threading",
+                  "Win32_UI_Input_KeyboardAndMouse",
+                  "Win32_UI_WindowsAndMessaging"
+                ]
+              }
+            }
+          }
+        },
+        "test": [
+          {
+            "name": "macos_e2e",
+            "path": "tests/macos_e2e.rs",
+            "harness": false
+          }
+        ]
+      }
+    },
+    {
+      "path": "/Volumes/D/claude/rightkit/crates/rightkit-http/Cargo.toml",
+      "name": "rightkit-http",
+      "version": "0.2.4",
+      "publish": true,
+      "manifest": {
+        "package": {
+          "name": "rightkit-http",
+          "version": "0.2.4",
+          "edition": "2021",
+          "rust-version": "1.98.0",
+          "description": "Brand-neutral blocking HTTP client for Right Suite apps: timeouts, retry/backoff with Retry-After, SSE streaming, redacted secrets, and untrusted web-text wrapping.",
+          "license": "MIT OR Apache-2.0",
+          "readme": "README.md",
+          "repository": "https://github.com/bogusyogi/rightkit",
+          "keywords": [
+            "http",
+            "retry",
+            "sse",
+            "streaming"
+          ],
+          "categories": [
+            "web-programming::http-client"
+          ],
+          "include": [
+            "src/**",
+            "tests/**",
+            "README.md",
+            "CHANGELOG.md",
+            "API.md",
+            "LICENSE-MIT",
+            "LICENSE-APACHE"
+          ]
+        },
+        "features": {
+          "default": [
+            "gzip"
+          ],
+          "gzip": [
+            "ureq/gzip",
+            "reqwest?/gzip"
+          ],
+          "async": [
+            "dep:reqwest",
+            "dep:tokio",
+            "dep:futures-util",
+            "dep:bytes"
+          ],
+          "testing": []
+        },
+        "dependencies": {
+          "rightkit-fs": {
+            "version": "0.3",
+            "path": "../rightkit-fs",
+            "default-features": false,
+            "features": [
+              "digest"
+            ]
+          },
+          "serde": {
+            "version": "1.0.228",
+            "features": [
+              "derive"
+            ]
+          },
+          "serde_json": "1.0.150",
+          "ureq": {
+            "version": "3.4",
+            "default-features": false,
+            "features": [
+              "rustls"
+            ]
+          },
+          "getrandom": "0.3",
+          "reqwest": {
+            "version": "0.12",
+            "default-features": false,
+            "features": [
+              "rustls-tls",
+              "stream"
+            ],
+            "optional": true
+          },
+          "tokio": {
+            "version": "1",
+            "default-features": false,
+            "features": [
+              "time"
+            ],
+            "optional": true
+          },
+          "futures-util": {
+            "version": "0.3",
+            "default-features": false,
+            "optional": true
+          },
+          "bytes": {
+            "version": "1",
+            "optional": true
+          }
+        },
+        "dev-dependencies": {
+          "tokio": {
+            "version": "1",
+            "features": [
+              "rt",
+              "macros",
+              "time"
+            ]
+          },
+          "rightkit-http": {
+            "path": ".",
+            "default-features": false,
+            "features": [
+              "testing"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "path": "/Volumes/D/claude/rightkit/crates/rightkit-jobs/Cargo.toml",
+      "name": "rightkit-jobs",
+      "version": "0.2.6",
+      "publish": true,
+      "manifest": {
+        "package": {
+          "name": "rightkit-jobs",
+          "version": "0.2.6",
+          "edition": "2021",
+          "rust-version": "1.98.0",
+          "description": "Persistent job store, runner, and stdio/CLI command contract for Right Suite engines.",
+          "license": "MIT OR Apache-2.0",
+          "readme": "README.md",
+          "repository": "https://github.com/bogusyogi/rightkit",
+          "keywords": [
+            "jobs",
+            "sidecar",
+            "sqlite",
+            "cli"
+          ],
+          "categories": [
+            "asynchronous"
+          ],
+          "include": [
+            "src/**",
+            "tests/**",
+            "README.md",
+            "LICENSE-MIT",
+            "LICENSE-APACHE"
+          ]
+        },
+        "dependencies": {
+          "rightkit-fs": {
+            "version": "0.3",
+            "path": "../rightkit-fs",
+            "default-features": false,
+            "features": [
+              "digest"
+            ]
+          },
+          "rightkit-db": {
+            "version": "0.3.0",
+            "path": "../rightkit-db"
+          },
+          "rightkit-framed-sidecar": {
+            "version": "0.1.0",
+            "path": "../rightkit-framed-sidecar"
+          },
+          "rightkit-process": {
+            "version": "0.3.0",
+            "path": "../rightkit-process"
+          },
+          "rightkit-service": {
+            "version": "0.1.0",
+            "path": "../rightkit-service"
+          },
+          "serde": {
+            "version": "1.0.228",
+            "features": [
+              "derive"
+            ]
+          },
+          "serde_json": "1.0.150",
+          "time": {
+            "version": "0.3",
+            "features": [
+              "formatting",
+              "macros"
+            ]
+          },
+          "uuid": {
+            "version": "1",
+            "features": [
+              "v4"
+            ]
+          }
+        },
+        "target": {
+          "cfg(unix)": {
+            "dependencies": {
+              "libc": "0.2"
+            }
+          }
+        },
+        "dev-dependencies": {
+          "sha2": "0.10",
+          "tempfile": "3"
+        }
+      }
+    },
+    {
+      "path": "/Volumes/D/claude/rightkit/crates/rightkit-license/Cargo.toml",
+      "name": "rightkit-license",
+      "version": "0.1.3",
+      "publish": true,
+      "manifest": {
+        "package": {
+          "name": "rightkit-license",
+          "version": "0.1.3",
+          "edition": "2021",
+          "rust-version": "1.98.0",
+          "description": "Right Suite license enforcement primitive \u2014 offline verification of server-signed Ed25519 entitlement tokens. The Rust (security) half of @rightkit/license.",
+          "license": "MIT OR Apache-2.0",
+          "readme": "README.md",
+          "repository": "https://github.com/bogusyogi/rightkit",
+          "keywords": [
+            "license",
+            "ed25519",
+            "offline",
+            "entitlement"
+          ],
+          "categories": [
+            "authentication",
+            "cryptography"
+          ],
+          "include": [
+            "src/**",
+            "tests/**",
+            "test-vectors/**",
+            "README.md",
+            "LICENSE-MIT",
+            "LICENSE-APACHE"
+          ]
+        },
+        "dependencies": {
+          "ed25519-dalek": "2",
+          "base64": "0.22",
+          "serde": {
+            "version": "1",
+            "features": [
+              "derive"
+            ]
+          },
+          "serde_json": "1"
+        }
+      }
+    },
+    {
+      "path": "/Volumes/D/claude/rightkit/crates/rightkit-llm/Cargo.toml",
+      "name": "rightkit-llm",
+      "version": "0.1.0",
+      "publish": true,
+      "manifest": {
+        "package": {
+          "name": "rightkit-llm",
+          "version": "0.1.0",
+          "edition": "2021",
+          "rust-version": "1.98.0",
+          "description": "Brand-neutral BYOK LLM clients: Anthropic Messages and OpenAI-compatible chat, streaming, tool use, route failover with circuit breaker, pricing, and prompt-cache discipline.",
+          "license": "MIT OR Apache-2.0",
+          "readme": "README.md",
+          "repository": "https://github.com/bogusyogi/rightkit",
+          "keywords": [
+            "llm",
+            "anthropic",
+            "openai",
+            "streaming"
+          ],
+          "categories": [
+            "api-bindings"
+          ],
+          "include": [
+            "src/**",
+            "tests/**",
+            "assets/**",
+            "README.md",
+            "LICENSE-MIT",
+            "LICENSE-APACHE"
+          ]
+        },
+        "dependencies": {
+          "rightkit-http": {
+            "version": "0.2.0",
+            "path": "../rightkit-http"
+          },
+          "serde": {
+            "version": "1.0.228",
+            "features": [
+              "derive"
+            ]
+          },
+          "serde_json": "1.0.150"
+        },
+        "dev-dependencies": {
+          "rightkit-http": {
+            "version": "0.2.0",
+            "path": "../rightkit-http",
+            "features": [
+              "testing"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "path": "/Volumes/D/claude/rightkit/crates/rightkit-logs/Cargo.toml",
+      "name": "rightkit-logs",
+      "version": "0.2.0",
+      "publish": true,
+      "manifest": {
+        "package": {
+          "name": "rightkit-logs",
+          "version": "0.2.0",
+          "edition": "2021",
+          "rust-version": "1.98.0",
+          "description": "Privacy-safe local JSONL logging and diagnostics for Right Suite desktop apps.",
+          "license": "MIT OR Apache-2.0",
+          "readme": "README.md",
+          "repository": "https://github.com/bogusyogi/rightkit",
+          "keywords": [
+            "logging",
+            "diagnostics",
+            "privacy",
+            "jsonl"
+          ],
+          "categories": [
+            "development-tools::debugging"
+          ],
+          "include": [
+            "src/**",
+            "tests/**",
+            "README.md",
+            "LICENSE-MIT",
+            "LICENSE-APACHE"
+          ]
+        },
+        "features": {
+          "default": [
+            "http"
+          ],
+          "http": [
+            "dep:ureq"
+          ],
+          "testing": []
+        },
+        "dependencies": {
+          "chrono": {
+            "version": "0.4",
+            "default-features": false,
+            "features": [
+              "std"
+            ]
+          },
+          "serde": {
+            "version": "1",
+            "features": [
+              "derive"
+            ]
+          },
+          "serde_json": "1",
+          "ureq": {
+            "version": "3.4",
+            "default-features": false,
+            "features": [
+              "rustls"
+            ],
+            "optional": true
+          },
+          "getrandom": "0.4"
+        },
+        "target": {
+          "cfg(target_os = \"macos\")": {
+            "dependencies": {
+              "objc2-foundation": "0.3",
+              "libc": "0.2"
+            }
+          },
+          "cfg(target_os = \"windows\")": {
+            "dependencies": {
+              "windows-sys": {
+                "version": "0.61.2",
+                "features": [
+                  "Win32_Foundation",
+                  "Win32_System_ProcessStatus",
+                  "Win32_System_Registry",
+                  "Win32_System_SystemInformation",
+                  "Win32_System_Threading"
+                ]
+              }
+            }
+          }
+        },
+        "dev-dependencies": {
+          "rightkit-logs": {
+            "path": ".",
+            "features": [
+              "testing"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "path": "/Volumes/D/claude/rightkit/crates/rightkit-mcp/Cargo.toml",
+      "name": "rightkit-mcp",
+      "version": "0.5.2",
+      "publish": true,
+      "manifest": {
+        "package": {
+          "name": "rightkit-mcp",
+          "version": "0.5.2",
+          "edition": "2021",
+          "rust-version": "1.98.0",
+          "description": "Shared MCP client (stdio + streamable HTTP, trust gate, pool, OAuth hook) and server host (stdio + loopback HTTP, per-tool admission) for Right Suite apps.",
+          "license": "MIT OR Apache-2.0",
+          "readme": "README.md",
+          "repository": "https://github.com/bogusyogi/rightkit",
+          "keywords": [
+            "mcp",
+            "agent",
+            "tools",
+            "json-rpc"
+          ],
+          "categories": [
+            "development-tools"
+          ],
+          "include": [
+            "src/**",
+            "tests/**",
+            "examples/**",
+            "README.md"
+          ]
+        },
+        "dependencies": {
+          "getrandom": "0.3",
+          "serde": {
+            "version": "1",
+            "features": [
+              "derive"
+            ]
+          },
+          "serde_json": "1",
+          "sha2": "0.10",
+          "ureq": {
+            "version": "3.4",
+            "default-features": false,
+            "features": [
+              "rustls"
+            ]
+          },
+          "rightkit-http": {
+            "version": "0.2.3",
+            "path": "../rightkit-http",
+            "default-features": false,
+            "features": [
+              "async"
+            ]
+          },
+          "http": "1",
+          "tokio": {
+            "version": "1",
+            "features": [
+              "rt-multi-thread",
+              "time",
+              "sync",
+              "macros"
+            ]
+          },
+          "futures-util": "0.3",
+          "url": "2"
+        },
+        "features": {
+          "exact-json-ids": [
+            "serde_json/arbitrary_precision"
+          ]
+        },
+        "dev-dependencies": {
+          "tempfile": "3"
+        },
+        "example": [
+          {
+            "name": "example_server"
+          }
+        ]
+      }
+    },
+    {
+      "path": "/Volumes/D/claude/rightkit/crates/rightkit-media/Cargo.toml",
+      "name": "rightkit-media",
+      "version": "0.2.4",
+      "publish": true,
+      "manifest": {
+        "package": {
+          "name": "rightkit-media",
+          "version": "0.2.4",
+          "edition": "2021",
+          "rust-version": "1.98.0",
+          "description": "Verified FFmpeg artifact and lifecycle primitives for Right Suite media pipelines.",
+          "license": "MIT OR Apache-2.0",
+          "readme": "README.md",
+          "repository": "https://github.com/bogusyogi/rightkit",
+          "keywords": [
+            "ffmpeg",
+            "audio",
+            "media",
+            "process"
+          ],
+          "categories": [
+            "multimedia::audio"
+          ],
+          "include": [
+            "src/**",
+            "tests/**",
+            "catalog/**",
+            "recipes/**",
+            "third-party/**",
+            "README.md",
+            "LICENSE-MIT",
+            "LICENSE-APACHE"
+          ]
+        },
+        "dependencies": {
+          "rightkit-fs": {
+            "version": "0.3",
+            "path": "../rightkit-fs",
+            "default-features": false,
+            "features": [
+              "digest"
+            ]
+          },
+          "rightkit-process": {
+            "path": "../rightkit-process",
+            "version": "0.3.0"
+          },
+          "serde": {
+            "version": "1.0.228",
+            "features": [
+              "derive"
+            ]
+          },
+          "serde_json": "1.0.150"
+        },
+        "dev-dependencies": {
+          "tempfile": "3"
+        }
+      }
+    },
+    {
+      "path": "/Volumes/D/claude/rightkit/crates/rightkit-models/Cargo.toml",
+      "name": "rightkit-models",
+      "version": "0.2.7",
+      "publish": true,
+      "manifest": {
+        "package": {
+          "name": "rightkit-models",
+          "version": "0.2.7",
+          "edition": "2021",
+          "rust-version": "1.98.0",
+          "license": "MIT OR Apache-2.0",
+          "readme": "README.md",
+          "repository": "https://github.com/bogusyogi/rightkit",
+          "description": "Shared local-model manifest and installer for Right Suite apps: revisions and quantizations, resumable verified downloads, archive extraction, atomic activation, rollback, and hardware fit.",
+          "keywords": [
+            "models",
+            "installer",
+            "download",
+            "onnx"
+          ],
+          "categories": [
+            "filesystem"
+          ],
+          "include": [
+            "src/**",
+            "tests/**",
+            "README.md",
+            "LICENSE-MIT",
+            "LICENSE-APACHE"
+          ]
+        },
+        "lib": {
+          "name": "rightkit_models",
+          "path": "src/lib.rs"
+        },
+        "features": {
+          "default": [],
+          "rightapps": [
+            "dep:ed25519-dalek",
+            "dep:base64",
+            "dep:url",
+            "dep:chrono"
+          ]
+        },
+        "dependencies": {
+          "rightkit-fs": {
+            "version": "0.3",
+            "path": "../rightkit-fs",
+            "default-features": false,
+            "features": [
+              "digest"
+            ]
+          },
+          "ed25519-dalek": {
+            "version": "2",
+            "optional": true
+          },
+          "base64": {
+            "version": "0.22",
+            "optional": true
+          },
+          "url": {
+            "version": "2",
+            "optional": true
+          },
+          "chrono": {
+            "version": "0.4",
+            "default-features": false,
+            "features": [
+              "std"
+            ],
+            "optional": true
+          },
+          "serde": {
+            "version": "1",
+            "features": [
+              "derive"
+            ]
+          },
+          "serde_json": "1",
+          "ureq": {
+            "version": "3.4",
+            "default-features": false,
+            "features": [
+              "rustls"
+            ]
+          },
+          "tar": "0.4",
+          "flate2": "1",
+          "dirs": "7",
+          "getrandom": "0.3",
+          "zip": {
+            "version": "2",
+            "default-features": false,
+            "features": [
+              "deflate"
+            ]
+          }
+        },
+        "dev-dependencies": {
+          "sha2": "0.11",
+          "tempfile": "3",
+          "rightkit-qa": {
+            "version": "0.2.8",
+            "path": "../rightkit-qa"
+          }
+        }
+      }
+    },
+    {
+      "path": "/Volumes/D/claude/rightkit/crates/rightkit-oauth/Cargo.toml",
+      "name": "rightkit-oauth",
+      "version": "0.3.0",
+      "publish": true,
+      "manifest": {
+        "package": {
+          "name": "rightkit-oauth",
+          "version": "0.3.0",
+          "edition": "2021",
+          "rust-version": "1.98.0",
+          "description": "Shared OAuth 2.0 sign-in for Right Suite apps: loopback PKCE, RFC 8628 device flow, provider presets, encrypted daemon persistence, and stored, refreshing credentials.",
+          "license": "MIT OR Apache-2.0",
+          "readme": "README.md",
+          "repository": "https://github.com/bogusyogi/rightkit",
+          "keywords": [
+            "oauth",
+            "pkce",
+            "loopback"
+          ],
+          "categories": [
+            "authentication"
+          ],
+          "include": [
+            "src/**",
+            "tests/**",
+            "examples/**",
+            "README.md",
+            "CHANGELOG.md",
+            "LICENSE-MIT",
+            "LICENSE-APACHE"
+          ]
+        },
+        "features": {
+          "default": [
+            "secrets",
+            "system-sources"
+          ],
+          "secrets": [
+            "dep:rightkit-secrets"
+          ],
+          "system-sources": [
+            "dep:rightkit-process"
+          ],
+          "server": [
+            "dep:base64",
+            "dep:ring",
+            "dep:subtle",
+            "dep:url",
+            "dep:zeroize",
+            "dep:serde",
+            "dep:libc"
+          ],
+          "server-example": [
+            "server",
+            "dep:axum",
+            "dep:tokio"
+          ]
+        },
+        "example": [
+          {
+            "name": "server_axum",
+            "required-features": [
+              "server-example"
+            ]
+          }
+        ],
+        "test": [
+          {
+            "name": "signin",
+            "required-features": [
+              "secrets"
+            ]
+          },
+          {
+            "name": "system_sources",
+            "required-features": [
+              "system-sources"
+            ]
+          }
+        ],
+        "dependencies": {
+          "rightkit-http": {
+            "path": "../rightkit-http",
+            "version": "0.2.0"
+          },
+          "rightkit-secrets": {
+            "path": "../rightkit-secrets",
+            "version": "0.1.0",
+            "optional": true
+          },
+          "rightkit-process": {
+            "path": "../rightkit-process",
+            "version": "0.3.0",
+            "optional": true
+          },
+          "getrandom": "0.3",
+          "serde_json": "1.0.150",
+          "sha2": "0.10.9",
+          "base64": {
+            "version": "0.22",
+            "optional": true
+          },
+          "ring": {
+            "version": "0.17",
+            "optional": true
+          },
+          "subtle": {
+            "version": "2.6",
+            "optional": true
+          },
+          "url": {
+            "version": "2.5",
+            "optional": true
+          },
+          "zeroize": {
+            "version": "1.8",
+            "optional": true
+          },
+          "serde": {
+            "version": "1.0.228",
+            "features": [
+              "derive"
+            ],
+            "optional": true
+          },
+          "libc": {
+            "version": "0.2",
+            "optional": true
+          },
+          "axum": {
+            "version": "0.8",
+            "optional": true
+          },
+          "tokio": {
+            "version": "1",
+            "features": [
+              "rt-multi-thread",
+              "macros",
+              "net"
+            ],
+            "optional": true
+          }
+        },
+        "dev-dependencies": {
+          "rightkit-http": {
+            "path": "../rightkit-http",
+            "version": "0.2.0",
+            "features": [
+              "testing"
+            ]
+          },
+          "tempfile": "3"
+        }
+      }
+    },
+    {
+      "path": "/Volumes/D/claude/rightkit/crates/rightkit-ocr/Cargo.toml",
+      "name": "rightkit-ocr",
+      "version": "0.2.0",
+      "publish": true,
+      "manifest": {
+        "package": {
+          "name": "rightkit-ocr",
+          "version": "0.2.0",
+          "edition": "2021",
+          "rust-version": "1.98.0",
+          "publish": true,
+          "license": "MIT OR Apache-2.0",
+          "description": "Product-neutral OCR: Apple Vision / Windows.Media.Ocr native backends with per-line geometry, isolated worker, and verified two-stage ONNX fallback",
+          "readme": "README.md",
+          "repository": "https://github.com/bogusyogi/rightkit",
+          "homepage": "https://github.com/bogusyogi/rightkit/tree/main/crates/rightkit-ocr",
+          "documentation": "https://docs.rs/rightkit-ocr",
+          "keywords": [
+            "ocr",
+            "onnx",
+            "text-recognition",
+            "apple-vision",
+            "windows-ocr"
+          ],
+          "categories": [
+            "multimedia::images",
+            "text-processing"
+          ],
+          "include": [
+            "src/**",
+            "tests/**",
+            "Cargo.toml",
+            "README.md",
+            "CHANGELOG.md",
+            "LICENSE-MIT",
+            "LICENSE-APACHE",
+            "PROVENANCE.toml"
+          ]
+        },
+        "dependencies": {
+          "image": {
+            "version": "0.25",
+            "default-features": false,
+            "features": [
+              "png",
+              "jpeg"
+            ]
+          },
+          "rightkit-ort": {
+            "version": "0.2.2",
+            "path": "../rightkit-ort",
+            "optional": true
+          },
+          "sha2": {
+            "version": "0.10",
+            "optional": true
+          },
+          "serde": {
+            "version": "1",
+            "features": [
+              "derive"
+            ]
+          },
+          "serde_json": "1"
+        },
+        "bin": [
+          {
+            "name": "rightkit-ocr",
+            "path": "src/bin/rightkit-ocr.rs"
+          }
+        ],
+        "features": {
+          "default": [
+            "native",
+            "onnx"
+          ],
+          "native": [
+            "dep:objc2",
+            "dep:objc2-foundation",
+            "dep:objc2-core-graphics",
+            "dep:objc2-vision",
+            "dep:objc2-core-foundation",
+            "dep:windows"
+          ],
+          "onnx": [
+            "dep:rightkit-ort",
+            "dep:sha2"
+          ]
+        },
+        "target": {
+          "cfg(target_os = \"macos\")": {
+            "dependencies": {
+              "objc2": {
+                "version": "0.6",
+                "optional": true
+              },
+              "objc2-foundation": {
+                "version": "0.3",
+                "optional": true,
+                "features": [
+                  "NSString",
+                  "NSArray",
+                  "NSError",
+                  "NSDictionary",
+                  "NSValue",
+                  "NSGeometry"
+                ]
+              },
+              "objc2-core-graphics": {
+                "version": "0.3",
+                "optional": true,
+                "features": [
+                  "CGImage",
+                  "CGColorSpace",
+                  "CGDataProvider"
+                ]
+              },
+              "objc2-vision": {
+                "version": "0.3",
+                "optional": true,
+                "default-features": false,
+                "features": [
+                  "std",
+                  "objc2-core-foundation",
+                  "objc2-core-graphics",
+                  "VNRequest",
+                  "VNRequestHandler",
+                  "VNRecognizeTextRequest",
+                  "VNObservation",
+                  "VNTypes",
+                  "VNError"
+                ]
+              },
+              "objc2-core-foundation": {
+                "version": "0.3",
+                "optional": true,
+                "features": [
+                  "CFCGTypes"
+                ]
+              }
+            }
+          },
+          "cfg(windows)": {
+            "dependencies": {
+              "windows": {
+                "version": "0.62",
+                "optional": true,
+                "features": [
+                  "Foundation",
+                  "Foundation_Collections",
+                  "Globalization",
+                  "Graphics_Imaging",
+                  "Media_Ocr",
+                  "Security_Cryptography",
+                  "Storage_Streams"
+                ]
+              }
+            }
+          }
+        },
+        "dev-dependencies": {
+          "base64": "0.22"
+        }
+      }
+    },
+    {
+      "path": "/Volumes/D/claude/rightkit/crates/rightkit-ort/Cargo.toml",
+      "name": "rightkit-ort",
+      "version": "0.2.2",
+      "publish": true,
+      "manifest": {
+        "package": {
+          "name": "rightkit-ort",
+          "version": "0.2.2",
+          "edition": "2021",
+          "rust-version": "1.98.0",
+          "license": "MIT OR Apache-2.0",
+          "description": "Product-neutral ONNX Runtime dynamic-library resolution, environment, execution-provider and session setup (single suite ort pin)",
+          "readme": "README.md",
+          "repository": "https://github.com/bogusyogi/rightkit",
+          "include": [
+            "src/**",
+            "tests/**",
+            "Cargo.toml",
+            "README.md",
+            "LICENSE-MIT",
+            "LICENSE-APACHE"
+          ]
+        },
+        "features": {
+          "default": [
+            "session"
+          ],
+          "session": [
+            "dep:ort"
+          ],
+          "coreml": [
+            "session",
+            "ort/coreml"
+          ],
+          "directml": [
+            "session",
+            "ort/directml"
+          ],
+          "half": [
+            "session",
+            "ort/half",
+            "dep:half"
+          ],
+          "ndarray": [
+            "session",
+            "ort/ndarray",
+            "dep:ndarray"
+          ],
+          "tracing": [
+            "session",
+            "ort/tracing"
+          ],
+          "download-binaries": [
+            "session",
+            "ort/download-binaries"
+          ],
+          "tls-native": [
+            "session",
+            "ort/tls-native"
+          ],
+          "copy-dylibs": [
+            "session",
+            "ort/copy-dylibs"
+          ],
+          "preload-dylibs": [
+            "session",
+            "ort/preload-dylibs"
+          ],
+          "acl": [
+            "session",
+            "ort/acl"
+          ],
+          "armnn": [
+            "session",
+            "ort/armnn"
+          ],
+          "azure": [
+            "session",
+            "ort/azure"
+          ],
+          "cann": [
+            "session",
+            "ort/cann"
+          ],
+          "cuda": [
+            "session",
+            "ort/cuda"
+          ],
+          "migraphx": [
+            "session",
+            "ort/migraphx"
+          ],
+          "nnapi": [
+            "session",
+            "ort/nnapi"
+          ],
+          "nvrtx": [
+            "session",
+            "ort/nvrtx"
+          ],
+          "onednn": [
+            "session",
+            "ort/onednn"
+          ],
+          "openvino": [
+            "session",
+            "ort/openvino"
+          ],
+          "qnn": [
+            "session",
+            "ort/qnn"
+          ],
+          "rknpu": [
+            "session",
+            "ort/rknpu"
+          ],
+          "tensorrt": [
+            "session",
+            "ort/tensorrt"
+          ],
+          "tvm": [
+            "session",
+            "ort/tvm"
+          ],
+          "vitis": [
+            "session",
+            "ort/vitis"
+          ],
+          "webgpu": [
+            "session",
+            "ort/webgpu"
+          ],
+          "xnnpack": [
+            "session",
+            "ort/xnnpack"
+          ]
+        },
+        "dependencies": {
+          "half": {
+            "version": "2",
+            "optional": true
+          },
+          "ndarray": {
+            "version": "0.17",
+            "optional": true
+          },
+          "ort": {
+            "version": "=2.0.0-rc.13",
+            "optional": true,
+            "default-features": false,
+            "features": [
+              "std",
+              "api-24",
+              "load-dynamic"
+            ]
+          }
+        },
+        "target": {
+          "cfg(target_vendor = \"apple\")": {
+            "dependencies": {
+              "ort": {
+                "version": "=2.0.0-rc.13",
+                "optional": true,
+                "default-features": false,
+                "features": [
+                  "std",
+                  "api-24",
+                  "load-dynamic",
+                  "coreml"
+                ]
+              }
+            }
+          },
+          "cfg(target_os = \"windows\")": {
+            "dependencies": {
+              "ort": {
+                "version": "=2.0.0-rc.13",
+                "optional": true,
+                "default-features": false,
+                "features": [
+                  "std",
+                  "api-24",
+                  "load-dynamic",
+                  "directml"
+                ]
+              },
+              "windows-sys": {
+                "version": "0.61.2",
+                "features": [
+                  "Win32_System_SystemInformation"
+                ]
+              }
+            }
+          }
+        },
+        "dev-dependencies": {
+          "rightkit-media": {
+            "path": "../rightkit-media",
+            "version": "0.2.3"
+          },
+          "sha2": "0.10"
+        }
+      }
+    },
+    {
+      "path": "/Volumes/D/claude/rightkit/crates/rightkit-overlay/Cargo.toml",
+      "name": "rightkit-overlay",
+      "version": "0.1.0",
+      "publish": true,
+      "manifest": {
+        "package": {
+          "name": "rightkit-overlay",
+          "version": "0.1.0",
+          "edition": "2021",
+          "description": "Shared overlay state, hit testing, and placement policy for Right Suite apps",
+          "license": "MIT OR Apache-2.0",
+          "readme": "README.md"
+        },
+        "dependencies": {
+          "serde": {
+            "workspace": true
+          }
+        },
+        "target": {
+          "cfg(windows)": {
+            "dependencies": {
+              "windows-sys": {
+                "version": "0.61.2",
+                "features": [
+                  "Win32_Foundation",
+                  "Win32_UI_WindowsAndMessaging"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "path": "/Volumes/D/claude/rightkit/crates/rightkit-ownership/Cargo.toml",
+      "name": "rightkit-ownership",
+      "version": "0.2.1",
+      "publish": true,
+      "manifest": {
+        "package": {
+          "name": "rightkit-ownership",
+          "version": "0.2.1",
+          "edition": "2021",
+          "rust-version": "1.98.0",
+          "description": "RightKit ownership scanner, verdict and admission: the single Rust implementation the RustRight broker links.",
+          "license": "MIT OR Apache-2.0",
+          "readme": "README.md",
+          "repository": "https://github.com/bogusyogi/rightkit",
+          "publish": true,
+          "include": [
+            "src/**",
+            "tests/**",
+            "README.md",
+            "rightkit-ownership.json",
+            "catalog/**"
+          ]
+        },
+        "dependencies": {
+          "serde_json": {
+            "version": "1",
+            "features": [
+              "preserve_order"
+            ]
+          },
+          "sha2": "0.10",
+          "hex": "0.4",
+          "url": "2",
+          "sha1": "0.10",
+          "fancy-regex": "0.19",
+          "toml": {
+            "version": "0.9",
+            "default-features": false,
+            "features": [
+              "parse",
+              "serde",
+              "std",
+              "preserve_order"
+            ]
+          },
+          "p256": {
+            "version": "0.13",
+            "default-features": false,
+            "features": [
+              "ecdsa",
+              "pem",
+              "std"
+            ]
+          },
+          "rsa": {
+            "version": "0.9",
+            "default-features": false,
+            "features": [
+              "std",
+              "pem",
+              "sha2"
+            ]
+          },
+          "base64": "0.22",
+          "spki": {
+            "version": "0.7",
+            "features": [
+              "pem",
+              "std"
+            ]
+          }
+        },
+        "dev-dependencies": {
+          "tempfile": "3"
+        }
+      }
+    },
+    {
+      "path": "/Volumes/D/claude/rightkit/crates/rightkit-pdf/Cargo.toml",
+      "name": "rightkit-pdf",
+      "version": "0.2.0",
+      "publish": true,
+      "manifest": {
+        "package": {
+          "name": "rightkit-pdf",
+          "version": "0.2.0",
+          "edition": "2021",
+          "rust-version": "1.98.0",
+          "license": "MIT OR Apache-2.0",
+          "description": "Product-neutral PDF engine: inspect, compose (source-text replace / add text / OCR correction), font subsetting, staged atomic save, plus optional page merge/select and text extraction",
+          "readme": "README.md",
+          "repository": "https://github.com/bogusyogi/rightkit",
+          "include": [
+            "src/**",
+            "assets/**",
+            "tests/**",
+            "Cargo.toml",
+            "README.md",
+            "LICENSE-MIT",
+            "LICENSE-APACHE"
+          ]
+        },
+        "features": {
+          "default": [
+            "merge",
+            "edit",
+            "fonts"
+          ],
+          "fonts": [
+            "dep:fontdb",
+            "dep:ttf-parser",
+            "dep:subsetter",
+            "dep:wuff"
+          ],
+          "edit": [
+            "fonts",
+            "dep:getrandom"
+          ],
+          "merge": [],
+          "extract": [
+            "dep:pdf-extract"
+          ]
+        },
+        "dependencies": {
+          "lopdf": {
+            "version": "0.44.0",
+            "default-features": false,
+            "features": [
+              "rayon"
+            ]
+          },
+          "thiserror": "2.0.20",
+          "fontdb": {
+            "version": "0.24.0",
+            "optional": true
+          },
+          "ttf-parser": {
+            "version": "0.25.1",
+            "optional": true
+          },
+          "subsetter": {
+            "version": "0.2.6",
+            "optional": true
+          },
+          "wuff": {
+            "version": "0.2.8",
+            "optional": true
+          },
+          "serde": {
+            "workspace": true
+          },
+          "sha2": "0.11.0",
+          "getrandom": {
+            "version": "0.4.3",
+            "optional": true
+          },
+          "pdf-extract": {
+            "version": "0.12",
+            "optional": true
+          }
+        },
+        "dev-dependencies": {
+          "serde_json": {
+            "workspace": true
+          },
+          "image": {
+            "version": "0.25",
+            "default-features": false,
+            "features": [
+              "png"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "path": "/Volumes/D/claude/rightkit/crates/rightkit-playback/Cargo.toml",
+      "name": "rightkit-playback",
+      "version": "0.1.1",
+      "publish": true,
+      "manifest": {
+        "package": {
+          "name": "rightkit-playback",
+          "version": "0.1.1",
+          "edition": "2021",
+          "rust-version": "1.98.0",
+          "description": "Source-preserving FFmpeg compatibility playback preparation for Right Suite media apps.",
+          "license": "MIT OR Apache-2.0",
+          "readme": "README.md",
+          "repository": "https://github.com/bogusyogi/rightkit",
+          "keywords": [
+            "ffmpeg",
+            "playback",
+            "media",
+            "remux"
+          ],
+          "categories": [
+            "multimedia::video"
+          ],
+          "include": [
+            "src/**",
+            "README.md",
+            "LICENSE-MIT",
+            "LICENSE-APACHE"
+          ]
+        },
+        "features": {
+          "default": [],
+          "tauri": [
+            "dep:tauri"
+          ]
+        },
+        "dependencies": {
+          "rightkit-media": {
+            "path": "../rightkit-media",
+            "version": "0.2.3"
+          },
+          "rightkit-process": {
+            "path": "../rightkit-process",
+            "version": "0.3.0"
+          },
+          "parking_lot": "=0.12.5",
+          "sha2": "=0.10.9",
+          "tauri": {
+            "version": "2",
+            "optional": true,
+            "default-features": false
+          }
+        }
+      }
+    },
+    {
+      "path": "/Volumes/D/claude/rightkit/crates/rightkit-process/Cargo.toml",
+      "name": "rightkit-process",
+      "version": "0.3.3",
+      "publish": true,
+      "manifest": {
+        "package": {
+          "name": "rightkit-process",
+          "version": "0.3.3",
+          "edition": "2021",
+          "rust-version": "1.98.0",
+          "description": "Ownership-safe child lifecycle, restart, and health primitives for Right Suite apps.",
+          "license": "MIT OR Apache-2.0",
+          "readme": "README.md",
+          "repository": "https://github.com/bogusyogi/rightkit",
+          "keywords": [
+            "process",
+            "supervisor",
+            "lifecycle",
+            "sidecar"
+          ],
+          "categories": [
+            "os"
+          ],
+          "include": [
+            "src/**",
+            "tests/**",
+            "README.md",
+            "LICENSE-MIT",
+            "LICENSE-APACHE"
+          ]
+        },
+        "target": {
+          "cfg(unix)": {
+            "dependencies": {
+              "libc": "0.2"
+            }
+          },
+          "cfg(windows)": {
+            "dependencies": {
+              "windows": {
+                "version": "0.62",
+                "features": [
+                  "Win32_Foundation",
+                  "Win32_Security",
+                  "Win32_System_Diagnostics_ToolHelp",
+                  "Win32_System_JobObjects",
+                  "Win32_System_Threading"
+                ]
+              }
+            }
+          }
+        },
+        "dev-dependencies": {
+          "trybuild": "=1.0.116"
+        }
+      }
+    },
+    {
+      "path": "/Volumes/D/claude/rightkit/crates/rightkit-qa/Cargo.toml",
+      "name": "rightkit-qa",
+      "version": "0.2.14",
+      "publish": true,
+      "manifest": {
+        "package": {
+          "name": "rightkit-qa",
+          "version": "0.2.14",
+          "edition": "2021",
+          "rust-version": "1.98.0",
+          "description": "Rust QA harness for Right Suite apps: engine black-box scenarios, hidden native UI driving through rightkit-control, Rust-test scenario wrapper, dynamic paid-provider mocks, loudness/WAV/PNG/frame validators, run lock, orphan sweep, hashed evidence.",
+          "license": "MIT OR Apache-2.0",
+          "repository": "https://github.com/bogusyogi/rightkit",
+          "readme": "README.md",
+          "include": [
+            "src/**",
+            "tests/**",
+            "README.md",
+            "LICENSE-MIT",
+            "LICENSE-APACHE"
+          ]
+        },
+        "features": {
+          "default": [],
+          "browser": [
+            "dep:rightkit-browser",
+            "dep:tokio"
+          ]
+        },
+        "dependencies": {
+          "rightkit-fs": {
+            "version": "0.3",
+            "path": "../rightkit-fs",
+            "default-features": false,
+            "features": [
+              "digest"
+            ]
+          },
+          "rightkit-control": {
+            "version": "0.1.8",
+            "path": "../rightkit-control"
+          },
+          "rightkit-framed-sidecar": {
+            "version": "0.1.0",
+            "path": "../rightkit-framed-sidecar"
+          },
+          "rightkit-service": {
+            "version": "0.1.0",
+            "path": "../rightkit-service"
+          },
+          "rightkit-process": {
+            "version": "0.3.0",
+            "path": "../rightkit-process"
+          },
+          "rightkit-browser": {
+            "version": "0.2.2",
+            "path": "../rightkit-browser",
+            "optional": true
+          },
+          "tokio": {
+            "version": "1",
+            "features": [
+              "rt",
+              "time"
+            ],
+            "optional": true
+          },
+          "png": "0.18",
+          "serde": {
+            "version": "1.0.228",
+            "features": [
+              "derive"
+            ]
+          },
+          "serde_json": "1.0.150",
+          "libc": "0.2",
+          "time": {
+            "version": "0.3",
+            "features": [
+              "formatting"
+            ]
+          },
+          "toml": "0.8",
+          "uuid": {
+            "version": "1",
+            "features": [
+              "v4"
+            ]
+          }
+        },
+        "lib": {
+          "name": "rightkit_qa",
+          "path": "src/lib.rs"
+        },
+        "bin": [
+          {
+            "name": "rightkit-qa",
+            "path": "src/bin/rightkit-qa.rs"
+          }
+        ],
+        "target": {
+          "cfg(windows)": {
+            "dependencies": {
+              "windows": {
+                "version": "0.62",
+                "features": [
+                  "Win32_Foundation",
+                  "Win32_UI_WindowsAndMessaging"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "path": "/Volumes/D/claude/rightkit/crates/rightkit-qts/Cargo.toml",
+      "name": "rightkit-qts",
+      "version": "0.2.4",
+      "publish": true,
+      "manifest": {
+        "package": {
+          "name": "rightkit-qts",
+          "version": "0.2.4",
+          "edition": "2021",
+          "license": "Apache-2.0",
+          "repository": "https://github.com/adrdsouza/claude",
+          "description": "Qwen3 TTS inference (GGUF + GGML), vendored from yet-another-ai/qts v0.2.0 for RightKit",
+          "readme": "README.md",
+          "include": [
+            "src/**",
+            "proto/**",
+            "build.rs",
+            "Cargo.toml",
+            "README.md",
+            "LICENSE",
+            "NOTICE",
+            "PINNED.md",
+            "CHANGELOG.md",
+            "testdata/**"
+          ]
+        },
+        "lib": {
+          "name": "qts"
+        },
+        "features": {
+          "default": [],
+          "metal": [
+            "rightkit-qts-ggml-sys/metal"
+          ],
+          "vulkan": [
+            "rightkit-qts-ggml-sys/vulkan"
+          ],
+          "blas": [
+            "rightkit-qts-ggml-sys/blas"
+          ],
+          "native": [
+            "rightkit-qts-ggml-sys/native"
+          ],
+          "acl": [
+            "rightkit-ort/acl"
+          ],
+          "armnn": [
+            "rightkit-ort/armnn"
+          ],
+          "azure": [
+            "rightkit-ort/azure"
+          ],
+          "cann": [
+            "rightkit-ort/cann"
+          ],
+          "coreml": [
+            "rightkit-ort/coreml"
+          ],
+          "cuda": [
+            "rightkit-ort/cuda"
+          ],
+          "directml": [
+            "rightkit-ort/directml"
+          ],
+          "migraphx": [
+            "rightkit-ort/migraphx"
+          ],
+          "nnapi": [
+            "rightkit-ort/nnapi"
+          ],
+          "nvrtx": [
+            "rightkit-ort/nvrtx"
+          ],
+          "onednn": [
+            "rightkit-ort/onednn"
+          ],
+          "openvino": [
+            "rightkit-ort/openvino"
+          ],
+          "qnn": [
+            "rightkit-ort/qnn"
+          ],
+          "rknpu": [
+            "rightkit-ort/rknpu"
+          ],
+          "tensorrt": [
+            "rightkit-ort/tensorrt"
+          ],
+          "tvm": [
+            "rightkit-ort/tvm"
+          ],
+          "vitis": [
+            "rightkit-ort/vitis"
+          ],
+          "webgpu": [
+            "rightkit-ort/webgpu"
+          ],
+          "xnnpack": [
+            "rightkit-ort/xnnpack"
+          ]
+        },
+        "dependencies": {
+          "rightkit-qts-ggml-sys": {
+            "path": "../rightkit-qts-ggml-sys",
+            "version": "0.1.0",
+            "default-features": false
+          },
+          "thiserror": "2",
+          "rand": "0.10",
+          "hound": "3.5.1",
+          "rustfft": "6.4.1",
+          "prost": "0.14",
+          "rightkit-ort": {
+            "path": "../rightkit-ort",
+            "version": "0.2.2",
+            "features": [
+              "tracing"
+            ]
+          }
+        },
+        "build-dependencies": {
+          "prost-build": "0.13",
+          "protoc-bin-vendored": "3"
+        }
+      }
+    },
+    {
+      "path": "/Volumes/D/claude/rightkit/crates/rightkit-qts-ggml/Cargo.toml",
+      "name": "rightkit-qts-ggml",
+      "version": "0.1.1",
+      "publish": true,
+      "manifest": {
+        "package": {
+          "name": "rightkit-qts-ggml",
+          "version": "0.1.1",
+          "edition": "2021",
+          "license": "Apache-2.0",
+          "repository": "https://github.com/adrdsouza/claude",
+          "description": "Thin safe wrappers over rightkit-qts-ggml-sys for rightkit-qts, vendored from yet-another-ai/qts v0.2.0",
+          "readme": "README.md",
+          "include": [
+            "src/**",
+            "Cargo.toml",
+            "README.md",
+            "CHANGELOG.md",
+            "LICENSE",
+            "NOTICE",
+            "PINNED.md"
+          ]
+        },
+        "lib": {
+          "name": "qts_ggml"
+        },
+        "features": {
+          "default": [],
+          "metal": [
+            "rightkit-qts-ggml-sys/metal"
+          ],
+          "vulkan": [
+            "rightkit-qts-ggml-sys/vulkan"
+          ],
+          "blas": [
+            "rightkit-qts-ggml-sys/blas"
+          ],
+          "native": [
+            "rightkit-qts-ggml-sys/native"
+          ]
+        },
+        "dependencies": {
+          "rightkit-qts-ggml-sys": {
+            "path": "../rightkit-qts-ggml-sys",
+            "version": "0.1.0",
+            "default-features": false
+          }
+        }
+      }
+    },
+    {
+      "path": "/Volumes/D/claude/rightkit/crates/rightkit-qts-ggml-sys/Cargo.toml",
+      "name": "rightkit-qts-ggml-sys",
+      "version": "0.1.1",
+      "publish": true,
+      "manifest": {
+        "package": {
+          "name": "rightkit-qts-ggml-sys",
+          "version": "0.1.1",
+          "edition": "2021",
+          "license": "Apache-2.0 AND MIT",
+          "repository": "https://github.com/adrdsouza/claude",
+          "description": "Low-level FFI bindings to ggml (CPU, Metal, Vulkan, BLAS) for rightkit-qts, vendored from yet-another-ai/qts v0.2.0",
+          "readme": "README.md",
+          "links": "rightkit_ggml",
+          "build": "build.rs",
+          "include": [
+            "src/**",
+            "build.rs",
+            "bindings_stamp.rs",
+            "wrapper.h",
+            "bindings-*.rs",
+            "vendor/**",
+            "Cargo.toml",
+            "README.md",
+            "VERSIONS.md",
+            "LICENSE",
+            "NOTICE",
+            "PINNED.md"
+          ]
+        },
+        "lib": {
+          "name": "ggml_sys"
+        },
+        "features": {
+          "default": [],
+          "metal": [],
+          "vulkan": [],
+          "blas": [],
+          "native": [],
+          "regenerate-bindings": [
+            "dep:bindgen"
+          ]
+        },
+        "build-dependencies": {
+          "bindgen": {
+            "version": "0.72",
+            "optional": true
+          },
+          "cmake": "0.1"
+        }
+      }
+    },
+    {
+      "path": "/Volumes/D/claude/rightkit/crates/rightkit-record/Cargo.toml",
+      "name": "rightkit-record",
+      "version": "0.1.1",
+      "publish": false,
+      "manifest": {
+        "package": {
+          "name": "rightkit-record",
+          "version": "0.1.1",
+          "edition": "2021",
+          "rust-version": "1.98.0",
+          "publish": false,
+          "license": "MIT OR Apache-2.0",
+          "description": "Platform-neutral core of the RightKit recorder (RK3): record lifecycle, quarantine and recovery, session bundle writer, per-field redaction, bundle verification and frame reader. OS capture lives in per-platform helpers behind the Backend trait.",
+          "repository": "https://github.com/bogusyogi/rightkit",
+          "include": [
+            "src/**",
+            "tests/**",
+            "Cargo.toml",
+            "rightkit-ownership.json"
+          ]
+        },
+        "lib": {
+          "name": "rightkit_record",
+          "path": "src/lib.rs"
+        },
+        "bin": [
+          {
+            "name": "rightkit-record-helper",
+            "path": "src/bin/rightkit-record-helper/main.rs"
+          }
+        ],
+        "dependencies": {
+          "rightkit-contracts": {
+            "path": "../rightkit-contracts"
+          },
+          "rightkit-framed-sidecar": {
+            "path": "../rightkit-framed-sidecar"
+          },
+          "serde": {
+            "version": "1.0.228",
+            "features": [
+              "derive"
+            ]
+          },
+          "serde_json": "1.0.150",
+          "blake3": "1.8",
+          "hmac-sha256": "1.1.14",
+          "rightkit-secrets": {
+            "path": "../rightkit-secrets"
+          }
+        },
+        "target": {
+          "cfg(target_os = \"macos\")": {
+            "dependencies": {
+              "rightkit-process": {
+                "path": "../rightkit-process"
+              }
+            }
+          },
+          "cfg(windows)": {
+            "dependencies": {
+              "windows": {
+                "version": "0.62",
+                "features": [
+                  "Foundation",
+                  "Foundation_Metadata",
+                  "Security_Authorization_AppCapabilityAccess",
+                  "Graphics_Capture",
+                  "Graphics_DirectX",
+                  "Graphics_DirectX_Direct3D11",
+                  "Win32_Foundation",
+                  "Win32_Graphics_Direct3D",
+                  "Win32_Graphics_Direct3D11",
+                  "Win32_Graphics_Dxgi",
+                  "Win32_Graphics_Dxgi_Common",
+                  "Win32_Graphics_Gdi",
+                  "Win32_Media_MediaFoundation",
+                  "Win32_System_Com",
+                  "Win32_System_Performance",
+                  "Win32_System_Registry",
+                  "Win32_System_WinRT",
+                  "Win32_System_WinRT_Direct3D11",
+                  "Win32_System_WinRT_Graphics_Capture",
+                  "Win32_UI_HiDpi",
+                  "Win32_UI_WindowsAndMessaging"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "path": "/Volumes/D/claude/rightkit/crates/rightkit-review/Cargo.toml",
+      "name": "rightkit-review",
+      "version": "0.1.0",
+      "publish": false,
+      "manifest": {
+        "package": {
+          "name": "rightkit-review",
+          "version": "0.1.0",
+          "edition": "2021",
+          "rust-version": "1.98.0",
+          "description": "Shared review capability for the content pipeline: deterministic checks over a media or brief description, declared holds, a capped repair loop, an advisory judge interface, and versioned verdict records.",
+          "license": "MIT OR Apache-2.0",
+          "repository": "https://github.com/bogusyogi/rightkit",
+          "publish": false
+        },
+        "lib": {
+          "path": "src/lib.rs"
+        },
+        "dependencies": {
+          "serde": {
+            "version": "1.0.228",
+            "features": [
+              "derive"
+            ]
+          },
+          "serde_json": "1.0.150"
+        }
+      }
+    },
+    {
+      "path": "/Volumes/D/claude/rightkit/crates/rightkit-sandbox/Cargo.toml",
+      "name": "rightkit-sandbox",
+      "version": "0.3.3",
+      "publish": true,
+      "manifest": {
+        "package": {
+          "name": "rightkit-sandbox",
+          "version": "0.3.3",
+          "edition": "2021",
+          "rust-version": "1.98.0",
+          "description": "Shared OS sandbox, PTY lease, process-tree, and reserve-before-spawn resource authority for Right Suite apps.",
+          "license": "MIT OR Apache-2.0",
+          "readme": "README.md",
+          "repository": "https://github.com/bogusyogi/rightkit",
+          "include": [
+            "src/**",
+            "tests/**",
+            "README.md",
+            "LICENSE-MIT",
+            "LICENSE-APACHE"
+          ]
+        },
+        "dependencies": {
+          "rightkit-process": {
+            "version": "0.3.3",
+            "path": "../rightkit-process"
+          },
+          "portable-pty": "0.9"
+        },
+        "target": {
+          "cfg(unix)": {
+            "dependencies": {
+              "libc": "0.2"
+            }
+          },
+          "cfg(windows)": {
+            "dependencies": {
+              "windows": {
+                "version": "0.62",
+                "features": [
+                  "Win32_Foundation",
+                  "Win32_System_Threading",
+                  "Win32_System_JobObjects",
+                  "Win32_Security"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "path": "/Volumes/D/claude/rightkit/crates/rightkit-scenario/Cargo.toml",
+      "name": "rightkit-scenario",
+      "version": "0.0.0",
+      "publish": false,
+      "manifest": {
+        "package": {
+          "name": "rightkit-scenario",
+          "version": "0.0.0",
+          "edition": "2021",
+          "rust-version": "1.98.0",
+          "publish": false,
+          "license": "MIT OR Apache-2.0",
+          "description": "Shared scenario interpreter and durable state machine for the RightKit scenario runtime (RK8): perform separated from observe_until, idempotency keys, append-only fsync journal, leases with fencing tokens, cooperative cancellation, retake replay, and a remote worker transport trait boundary",
+          "repository": "https://github.com/bogusyogi/rightkit",
+          "include": [
+            "src/**",
+            "tests/**",
+            "Cargo.toml"
+          ]
+        },
+        "lib": {
+          "name": "rightkit_scenario",
+          "path": "src/lib.rs"
+        },
+        "dependencies": {
+          "blake3": "1.8.7",
+          "getrandom": "0.3",
+          "serde": {
+            "version": "1.0.228",
+            "features": [
+              "derive"
+            ]
+          },
+          "serde_json": "1.0.150"
+        }
+      }
+    },
+    {
+      "path": "/Volumes/D/claude/rightkit/crates/rightkit-search/Cargo.toml",
+      "name": "rightkit-search",
+      "version": "0.2.0",
+      "publish": true,
+      "manifest": {
+        "package": {
+          "name": "rightkit-search",
+          "version": "0.2.0",
+          "edition": "2021",
+          "rust-version": "1.98.0",
+          "license": "MIT OR Apache-2.0",
+          "description": "Product-neutral search query language: lexer, AST, operator values, SQL/FTS5 predicate compiler, snippets, and an in-memory filename index.",
+          "readme": "README.md",
+          "repository": "https://github.com/bogusyogi/rightkit",
+          "include": [
+            "src/**",
+            "tests/**",
+            "Cargo.toml",
+            "README.md",
+            "LICENSE-MIT",
+            "LICENSE-APACHE"
+          ]
+        },
+        "features": {
+          "default": [
+            "sqlite"
+          ],
+          "sqlite": [
+            "dep:rusqlite"
+          ],
+          "filename-index": []
+        },
+        "dependencies": {
+          "rusqlite": {
+            "version": "0.40.1",
+            "default-features": false,
+            "optional": true
+          }
+        },
+        "dev-dependencies": {
+          "rusqlite": {
+            "version": "0.40.1",
+            "features": [
+              "bundled"
+            ]
+          },
+          "tempfile": "3"
+        }
+      }
+    },
+    {
+      "path": "/Volumes/D/claude/rightkit/crates/rightkit-secrets/Cargo.toml",
+      "name": "rightkit-secrets",
+      "version": "0.1.2",
+      "publish": true,
+      "manifest": {
+        "package": {
+          "name": "rightkit-secrets",
+          "version": "0.1.2",
+          "edition": "2021",
+          "rust-version": "1.98.0",
+          "description": "Per-app OS credential storage for Right Suite apps: Keychain / Credential Manager, passive presence checks, non-interactive mode, test guards, DB-key provisioning, and migration.",
+          "license": "MIT OR Apache-2.0",
+          "readme": "README.md",
+          "repository": "https://github.com/bogusyogi/rightkit",
+          "keywords": [
+            "keychain",
+            "credentials",
+            "secrets",
+            "credential-manager"
+          ],
+          "categories": [
+            "os",
+            "authentication"
+          ],
+          "include": [
+            "src/**",
+            "tests/**",
+            "README.md",
+            "LICENSE-MIT",
+            "LICENSE-APACHE"
+          ]
+        },
+        "features": {
+          "settings-probe": [
+            "dep:rightkit-settings"
+          ]
+        },
+        "bin": [
+          {
+            "name": "rightkit-secrets",
+            "path": "src/bin/rightkit-secrets.rs"
+          }
+        ],
+        "dependencies": {
+          "serde": {
+            "version": "1.0.228",
+            "features": [
+              "derive"
+            ]
+          },
+          "serde_json": "1.0.150",
+          "thiserror": "2",
+          "getrandom": "0.3",
+          "base64": "0.22",
+          "zeroize": "1.8",
+          "rightkit-settings": {
+            "version": "0.1.0",
+            "path": "../rightkit-settings",
+            "optional": true
+          }
+        },
+        "target": {
+          "cfg(windows)": {
+            "dependencies": {
+              "windows-sys": {
+                "version": "0.61",
+                "features": [
+                  "Win32_Foundation",
+                  "Win32_Security_Credentials",
+                  "Win32_Security_Cryptography",
+                  "Win32_System_Threading"
+                ]
+              }
+            },
+            "dev-dependencies": {
+              "keyring-core": "1",
+              "windows-native-keyring-store": "1.1.0"
+            }
+          }
+        },
+        "dev-dependencies": {
+          "tempfile": "3"
+        }
+      }
+    },
+    {
+      "path": "/Volumes/D/claude/rightkit/crates/rightkit-service/Cargo.toml",
+      "name": "rightkit-service",
+      "version": "0.1.3",
+      "publish": true,
+      "manifest": {
+        "package": {
+          "name": "rightkit-service",
+          "version": "0.1.3",
+          "edition": "2021",
+          "rust-version": "1.98.0",
+          "description": "One discovery/auth convention for Right Suite local services: service.json, ranking and takeover, current-user-only Unix socket / named pipe, per-app request allowlist.",
+          "license": "MIT OR Apache-2.0",
+          "repository": "https://github.com/bogusyogi/rightkit",
+          "readme": "README.md",
+          "include": [
+            "src/**",
+            "tests/**",
+            "README.md",
+            "LICENSE-MIT",
+            "LICENSE-APACHE"
+          ]
+        },
+        "dependencies": {
+          "rightkit-framed-sidecar": {
+            "version": "0.1.0",
+            "path": "../rightkit-framed-sidecar"
+          },
+          "serde": {
+            "version": "1.0.228",
+            "features": [
+              "derive"
+            ]
+          },
+          "serde_json": "1.0.150"
+        },
+        "target": {
+          "cfg(unix)": {
+            "dependencies": {
+              "libc": "0.2"
+            }
+          },
+          "cfg(windows)": {
+            "dependencies": {
+              "windows": {
+                "version": "0.62",
+                "features": [
+                  "Win32_Foundation",
+                  "Win32_Security",
+                  "Win32_Security_Authorization",
+                  "Win32_Storage_FileSystem",
+                  "Win32_System_IO",
+                  "Win32_System_Pipes",
+                  "Win32_System_Threading"
+                ]
+              }
+            }
+          }
+        },
+        "dev-dependencies": {
+          "tempfile": "3"
+        }
+      }
+    },
+    {
+      "path": "/Volumes/D/claude/rightkit/crates/rightkit-settings/Cargo.toml",
+      "name": "rightkit-settings",
+      "version": "0.1.0",
+      "publish": true,
+      "manifest": {
+        "package": {
+          "name": "rightkit-settings",
+          "version": "0.1.0",
+          "edition": "2021",
+          "rust-version": "1.98.0",
+          "description": "Versioned per-app settings persistence: migrations, typed defaults, atomic writes, corruption recovery, change events.",
+          "license": "MIT OR Apache-2.0",
+          "readme": "README.md",
+          "repository": "https://github.com/bogusyogi/rightkit",
+          "keywords": [
+            "settings",
+            "preferences",
+            "migration",
+            "atomic"
+          ],
+          "categories": [
+            "config"
+          ],
+          "include": [
+            "src/**",
+            "tests/**",
+            "README.md",
+            "LICENSE-MIT",
+            "LICENSE-APACHE"
+          ]
+        },
+        "dependencies": {
+          "serde": {
+            "version": "1.0.228",
+            "features": [
+              "derive"
+            ]
+          },
+          "serde_json": "1.0.150",
+          "thiserror": "2"
+        },
+        "dev-dependencies": {
+          "tempfile": "3"
+        }
+      }
+    },
+    {
+      "path": "/Volumes/D/claude/rightkit/crates/rightkit-shell/Cargo.toml",
+      "name": "rightkit-shell",
+      "version": "0.1.4",
+      "publish": true,
+      "manifest": {
+        "package": {
+          "name": "rightkit-shell",
+          "version": "0.1.4",
+          "edition": "2021",
+          "rust-version": "1.98.0",
+          "description": "Shared Tauri desktop shell for Right Suite apps: webview hardening, window state, native menu, tray, single instance, deep links, autostart, rich clipboard, watchdog and engine wiring.",
+          "license": "MIT OR Apache-2.0",
+          "repository": "https://github.com/bogusyogi/rightkit",
+          "readme": "README.md",
+          "include": [
+            "src/**",
+            "tests/**",
+            "README.md",
+            "LICENSE-MIT",
+            "LICENSE-APACHE"
+          ]
+        },
+        "features": {
+          "default": [
+            "engine",
+            "wv2-0_38"
+          ],
+          "wv2-0_38": [
+            "dep:windows_061",
+            "dep:webview2_com_038"
+          ],
+          "wv2-0_39": [
+            "dep:windows_062",
+            "dep:webview2_com_039"
+          ],
+          "engine": [
+            "dep:rightkit-jobs",
+            "dep:rightkit-process"
+          ],
+          "devtools": [
+            "tauri/devtools"
+          ]
+        },
+        "dependencies": {
+          "tauri": {
+            "version": "2",
+            "features": [
+              "tray-icon",
+              "image-png"
+            ]
+          },
+          "rightkit-service": {
+            "version": "0.1.0",
+            "path": "../rightkit-service"
+          },
+          "rightkit-jobs": {
+            "version": "0.2.2",
+            "path": "../rightkit-jobs",
+            "optional": true
+          },
+          "rightkit-process": {
+            "version": "0.3.0",
+            "path": "../rightkit-process",
+            "optional": true
+          },
+          "serde": {
+            "version": "1.0.228",
+            "features": [
+              "derive"
+            ]
+          },
+          "serde_json": "1.0.150"
+        },
+        "target": {
+          "cfg(target_os = \"macos\")": {
+            "dependencies": {
+              "objc2": "0.6",
+              "objc2-foundation": {
+                "version": "0.3",
+                "features": [
+                  "NSArray",
+                  "NSData",
+                  "NSString",
+                  "NSURL",
+                  "NSValue",
+                  "NSGeometry",
+                  "NSObject",
+                  "NSBundle",
+                  "NSDictionary",
+                  "NSError"
+                ]
+              },
+              "objc2-user-notifications": "0.3",
+              "block2": "0.6",
+              "objc2-app-kit": {
+                "version": "0.3",
+                "features": [
+                  "NSWindow",
+                  "NSButton",
+                  "NSControl",
+                  "NSView",
+                  "NSResponder",
+                  "NSPasteboard",
+                  "NSPasteboardItem"
+                ]
+              }
+            }
+          },
+          "cfg(windows)": {
+            "dependencies": {
+              "tauri-winrt-notification": "0.7",
+              "windows_061": {
+                "package": "windows",
+                "version": "0.61",
+                "optional": true,
+                "features": [
+                  "Win32_Foundation",
+                  "Win32_System_Com",
+                  "Win32_System_DataExchange",
+                  "Win32_System_Memory",
+                  "Win32_System_Ole",
+                  "Win32_UI_Shell"
+                ]
+              },
+              "webview2_com_038": {
+                "package": "webview2-com",
+                "version": "0.38",
+                "optional": true
+              },
+              "windows_062": {
+                "package": "windows",
+                "version": "0.62",
+                "optional": true,
+                "features": [
+                  "Win32_Foundation",
+                  "Win32_System_Com",
+                  "Win32_System_DataExchange",
+                  "Win32_System_Memory",
+                  "Win32_System_Ole",
+                  "Win32_UI_Shell"
+                ]
+              },
+              "webview2_com_039": {
+                "package": "webview2-com",
+                "version": "0.39",
+                "optional": true
+              }
+            }
+          }
+        },
+        "dev-dependencies": {
+          "tempfile": "3"
+        }
+      }
+    },
+    {
+      "path": "/Volumes/D/claude/rightkit/crates/rightkit-speech-client/Cargo.toml",
+      "name": "rightkit-speech-client",
+      "version": "0.3.2",
+      "publish": true,
+      "manifest": {
+        "package": {
+          "name": "rightkit-speech-client",
+          "version": "0.3.2",
+          "edition": "2021",
+          "rust-version": "1.98.0",
+          "description": "Client and contract for the Orthic Labs shared speech service (one resident engine per machine), built on rightkit-service. Wire-compatible with HeardRight's v1 host.",
+          "license": "MIT OR Apache-2.0",
+          "repository": "https://github.com/bogusyogi/rightkit",
+          "readme": "README.md",
+          "include": [
+            "src/**",
+            "tests/**",
+            "README.md",
+            "LICENSE-MIT",
+            "LICENSE-APACHE"
+          ]
+        },
+        "dependencies": {
+          "rightkit-service": {
+            "version": "0.1.3",
+            "path": "../rightkit-service"
+          },
+          "rightkit-framed-sidecar": {
+            "version": "0.1.0",
+            "path": "../rightkit-framed-sidecar"
+          },
+          "serde": {
+            "version": "1.0.228",
+            "features": [
+              "derive"
+            ]
+          },
+          "serde_json": "1.0.150"
+        },
+        "dev-dependencies": {
+          "tempfile": "3"
+        },
+        "target": {
+          "cfg(windows)": {
+            "dev-dependencies": {
+              "windows": {
+                "version": "0.62",
+                "features": [
+                  "Win32_Foundation",
+                  "Win32_Security",
+                  "Win32_Storage_FileSystem",
+                  "Win32_System_Pipes"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "path": "/Volumes/D/claude/rightkit/crates/rightkit-sync/Cargo.toml",
+      "name": "rightkit-sync",
+      "version": "0.1.0",
+      "publish": true,
+      "manifest": {
+        "package": {
+          "name": "rightkit-sync",
+          "version": "0.1.0",
+          "edition": "2021",
+          "rust-version": "1.98.0",
+          "description": "Brand-neutral desktop/mobile cloud sync engine: change tokens, tombstones, last-writer-wins conflicts, resumable batches, offline queue, retry/backoff.",
+          "license": "MIT OR Apache-2.0",
+          "readme": "README.md",
+          "repository": "https://github.com/bogusyogi/rightkit",
+          "keywords": [
+            "sync",
+            "cloudkit",
+            "tombstone",
+            "offline"
+          ],
+          "categories": [
+            "data-structures"
+          ],
+          "include": [
+            "src/**",
+            "tests/**",
+            "README.md",
+            "API.md",
+            "LICENSE-MIT",
+            "LICENSE-APACHE"
+          ]
+        },
+        "dependencies": {
+          "serde": {
+            "version": "1.0.228",
+            "features": [
+              "derive"
+            ]
+          },
+          "serde_json": "1.0.150"
+        }
+      }
+    },
+    {
+      "path": "/Volumes/D/claude/rightkit/crates/rightkit-tauri/Cargo.toml",
+      "name": "rightkit-tauri",
+      "version": "0.1.2",
+      "publish": true,
+      "manifest": {
+        "package": {
+          "name": "rightkit-tauri",
+          "version": "0.1.2",
+          "edition": "2021",
+          "rust-version": "1.98.0",
+          "description": "Native host services for Right Suite Tauri license and device adapters.",
+          "license": "MIT OR Apache-2.0",
+          "readme": "README.md",
+          "repository": "https://github.com/bogusyogi/rightkit",
+          "include": [
+            "src/**",
+            "tests/**",
+            "README.md",
+            "LICENSE-MIT",
+            "LICENSE-APACHE"
+          ]
+        },
+        "dependencies": {
+          "getrandom": "0.3",
+          "rightkit-license": {
+            "version": "0.1.3",
+            "path": "../rightkit-license"
+          }
+        }
+      }
+    },
+    {
+      "path": "/Volumes/D/claude/rightkit/crates/rightkit-transcript/Cargo.toml",
+      "name": "rightkit-transcript",
+      "version": "0.1.0",
+      "publish": true,
+      "manifest": {
+        "package": {
+          "name": "rightkit-transcript",
+          "version": "0.1.0",
+          "edition": "2021",
+          "rust-version": "1.98.0",
+          "publish": true,
+          "license": "MIT",
+          "description": "Product-neutral word-timed transcript contract, cue segmentation, and SRT/VTT/JSON import and export for Right Suite applications",
+          "readme": "README.md",
+          "repository": "https://github.com/bogusyogi/rightkit",
+          "homepage": "https://github.com/bogusyogi/rightkit/tree/main/crates/rightkit-transcript",
+          "documentation": "https://docs.rs/rightkit-transcript",
+          "keywords": [
+            "transcript",
+            "captions",
+            "subtitles",
+            "srt",
+            "webvtt"
+          ],
+          "categories": [
+            "multimedia",
+            "text-processing"
+          ],
+          "include": [
+            "src/**",
+            "tests/**",
+            "Cargo.toml",
+            "README.md",
+            "CHANGELOG.md",
+            "LICENSE"
+          ]
+        },
+        "lib": {
+          "name": "rightkit_transcript",
+          "path": "src/lib.rs"
+        },
+        "features": {
+          "asr-roundtrip": [
+            "dep:rightkit-asr"
+          ]
+        },
+        "dependencies": {
+          "serde": {
+            "version": "1.0.228",
+            "features": [
+              "derive"
+            ]
+          },
+          "serde_json": "1.0.150",
+          "thiserror": "2",
+          "rightkit-asr": {
+            "version": "0.0.2",
+            "path": "../rightkit-asr",
+            "optional": true
+          }
+        },
+        "dev-dependencies": {
+          "hound": "3.5"
+        },
+        "test": [
+          {
+            "name": "asr_roundtrip",
+            "path": "tests/asr_roundtrip.rs",
+            "required-features": [
+              "asr-roundtrip"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "path": "/Volumes/D/claude/rightkit/crates/rightkit-tts/Cargo.toml",
+      "name": "rightkit-tts",
+      "version": "0.1.0",
+      "publish": true,
+      "manifest": {
+        "package": {
+          "name": "rightkit-tts",
+          "version": "0.1.0",
+          "edition": "2021",
+          "rust-version": "1.98.0",
+          "publish": true,
+          "license": "MIT OR Apache-2.0",
+          "description": "Shared local text-to-speech for Right Suite apps: OS voices (say / SAPI) and a Qwen3-TTS QTS worker client",
+          "readme": "README.md",
+          "repository": "https://github.com/bogusyogi/rightkit",
+          "homepage": "https://github.com/bogusyogi/rightkit/tree/main/crates/rightkit-tts",
+          "documentation": "https://docs.rs/rightkit-tts",
+          "keywords": [
+            "tts",
+            "text-to-speech",
+            "speech",
+            "qwen3",
+            "sapi"
+          ],
+          "categories": [
+            "multimedia::audio",
+            "os"
+          ],
+          "include": [
+            "src/**",
+            "tests/**",
+            "Cargo.toml",
+            "README.md",
+            "CHANGELOG.md"
+          ]
+        },
+        "lib": {
+          "name": "rightkit_tts",
+          "path": "src/lib.rs"
+        },
+        "features": {
+          "default": [
+            "system",
+            "client"
+          ],
+          "system": [
+            "dep:rightkit-transcript"
+          ],
+          "client": [
+            "dep:rightkit-ort",
+            "dep:rightkit-process",
+            "dep:sha2",
+            "dep:serde",
+            "dep:serde_json"
+          ],
+          "engine": [
+            "client",
+            "dep:qts",
+            "dep:libc"
+          ],
+          "metal": [
+            "engine",
+            "qts/metal"
+          ],
+          "vulkan": [
+            "engine",
+            "qts/vulkan"
+          ]
+        },
+        "dependencies": {
+          "serde": {
+            "version": "1.0.228",
+            "features": [
+              "derive"
+            ],
+            "optional": true
+          },
+          "serde_json": {
+            "version": "1.0.150",
+            "optional": true
+          },
+          "sha2": {
+            "version": "0.10",
+            "optional": true
+          },
+          "thiserror": "2",
+          "rightkit-ort": {
+            "version": "0.2.2",
+            "path": "../rightkit-ort",
+            "default-features": false,
+            "optional": true
+          },
+          "rightkit-process": {
+            "version": "0.3.0",
+            "path": "../rightkit-process",
+            "optional": true
+          },
+          "rightkit-transcript": {
+            "version": "0.1.0",
+            "path": "../rightkit-transcript",
+            "optional": true
+          },
+          "qts": {
+            "package": "rightkit-qts",
+            "version": "0.2.0",
+            "path": "../rightkit-qts",
+            "optional": true
+          }
+        },
+        "target": {
+          "cfg(unix)": {
+            "dependencies": {
+              "libc": {
+                "version": "0.2",
+                "optional": true
+              }
+            }
+          }
+        },
+        "bin": [
+          {
+            "name": "rightkit-tts-worker",
+            "path": "src/bin/rightkit-tts-worker.rs",
+            "required-features": [
+              "engine"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "path": "/Volumes/D/claude/rightkit/crates/rightkit-vad/Cargo.toml",
+      "name": "rightkit-vad",
+      "version": "0.0.2",
+      "publish": true,
+      "manifest": {
+        "package": {
+          "name": "rightkit-vad",
+          "version": "0.0.2",
+          "edition": "2021",
+          "rust-version": "1.98.0",
+          "publish": true,
+          "license": "MIT",
+          "description": "Product-neutral voice activity detection: Silero scorer, hysteresis/padding/chunking policy, streaming frame carry",
+          "readme": "README.md",
+          "repository": "https://github.com/bogusyogi/rightkit",
+          "homepage": "https://github.com/bogusyogi/rightkit/tree/main/crates/rightkit-vad",
+          "documentation": "https://docs.rs/rightkit-vad",
+          "keywords": [
+            "vad",
+            "voice-activity",
+            "silero",
+            "onnx",
+            "audio"
+          ],
+          "categories": [
+            "multimedia::audio"
+          ],
+          "include": [
+            "src/**",
+            "tests/*.rs",
+            "Cargo.toml",
+            "README.md",
+            "CHANGELOG.md",
+            "LICENSE"
+          ]
+        },
+        "lib": {
+          "name": "rightkit_vad",
+          "path": "src/lib.rs"
+        },
+        "dependencies": {
+          "rightkit-ort": {
+            "path": "../rightkit-ort",
+            "version": "0.2.2"
+          }
+        },
+        "dev-dependencies": {
+          "hound": "3.5",
+          "rightkit-media": {
+            "path": "../rightkit-media",
+            "version": "0.2.3"
+          }
+        },
+        "features": {
+          "default": [
+            "rightkit-ort/tracing"
+          ],
+          "download-binaries": [
+            "rightkit-ort/download-binaries"
+          ],
+          "tls-native": [
+            "rightkit-ort/tls-native"
+          ],
+          "copy-dylibs": [
+            "rightkit-ort/copy-dylibs"
+          ],
+          "load-dynamic": []
+        }
+      }
+    },
+    {
+      "path": "/Volumes/D/claude/rightkit/crates/rightkit-watch/Cargo.toml",
+      "name": "rightkit-watch",
+      "version": "0.3.1",
+      "publish": true,
+      "manifest": {
+        "package": {
+          "name": "rightkit-watch",
+          "version": "0.3.1",
+          "edition": "2021",
+          "rust-version": "1.98.0",
+          "description": "Filesystem watching for Right Suite apps: ref-counted async subscribers, debounced file-set and directory watchers, and rename-storm coalescing.",
+          "license": "MIT OR Apache-2.0",
+          "readme": "README.md",
+          "repository": "https://github.com/bogusyogi/rightkit",
+          "keywords": [
+            "watcher",
+            "notify",
+            "filesystem",
+            "debounce"
+          ],
+          "categories": [
+            "filesystem"
+          ],
+          "include": [
+            "src/**",
+            "tests/**",
+            "README.md",
+            "LICENSE-MIT",
+            "LICENSE-APACHE"
+          ]
+        },
+        "dependencies": {
+          "notify": "8.2.0",
+          "tokio": {
+            "version": "1.53.0",
+            "features": [
+              "rt",
+              "sync",
+              "time",
+              "macros"
+            ]
+          },
+          "tracing": "0.1"
+        },
+        "dev-dependencies": {
+          "tempfile": "3",
+          "tokio": {
+            "version": "1.53.0",
+            "features": [
+              "rt-multi-thread",
+              "macros",
+              "time",
+              "sync"
+            ]
+          }
+        }
+      }
+    }
+  ]
+}

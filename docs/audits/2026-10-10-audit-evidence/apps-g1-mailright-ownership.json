@@ -1,0 +1,3784 @@
+{
+  "ok": false,
+  "error": {
+    "type": "ownership-coverage",
+    "message": "1 ownership coverage gap(s)"
+  },
+  "rows": [
+    {
+      "capability": "agent-room",
+      "owner": "agent-room-core",
+      "owners": [
+        "agent-room-core",
+        "@rightkit/agent-room-mcp"
+      ],
+      "uses": false,
+      "status": "unscanned",
+      "count": 0,
+      "root": "."
+    },
+    {
+      "capability": "agent-tools",
+      "owner": "rightkit-agent-tools",
+      "uses": false,
+      "status": "unscanned",
+      "count": 0,
+      "root": "."
+    },
+    {
+      "capability": "script-alignment",
+      "owner": "rightkit-align",
+      "uses": false,
+      "status": "unscanned",
+      "count": 0,
+      "root": "."
+    },
+    {
+      "capability": "speech-recognition",
+      "owner": "rightkit-asr",
+      "uses": false,
+      "status": "unscanned",
+      "count": 0,
+      "root": "."
+    },
+    {
+      "capability": "audio",
+      "owner": "rightkit-audio",
+      "uses": false,
+      "status": "unscanned",
+      "count": 0,
+      "root": "."
+    },
+    {
+      "capability": "desktop-automation",
+      "owner": "rightkit-automation",
+      "uses": false,
+      "status": "unscanned",
+      "count": 0,
+      "root": "."
+    },
+    {
+      "capability": "browser-automation",
+      "owner": "rightkit-browser",
+      "uses": false,
+      "status": "unscanned",
+      "count": 0,
+      "root": "."
+    },
+    {
+      "capability": "disk-cache",
+      "owner": "rightkit-cache",
+      "uses": true,
+      "status": "declared-dependency",
+      "count": 0,
+      "root": "."
+    },
+    {
+      "capability": "channel-memory",
+      "owner": "rightkit-channel-memory",
+      "uses": false,
+      "status": "unscanned",
+      "count": 0,
+      "root": "."
+    },
+    {
+      "capability": "composition-model",
+      "owner": "rightkit-compose",
+      "uses": false,
+      "status": "unscanned",
+      "count": 0,
+      "root": "."
+    },
+    {
+      "capability": "content-contracts",
+      "owner": "rightkit-contracts",
+      "uses": false,
+      "status": "unscanned",
+      "count": 0,
+      "root": "."
+    },
+    {
+      "capability": "desktop-control",
+      "owner": "rightkit-control",
+      "uses": false,
+      "status": "unscanned",
+      "count": 0,
+      "root": "."
+    },
+    {
+      "capability": "crash-reporting",
+      "owner": "rightkit-crash",
+      "uses": false,
+      "status": "unscanned",
+      "count": 0,
+      "root": "."
+    },
+    {
+      "capability": "daemon-host",
+      "owner": "rightkit-daemon",
+      "uses": false,
+      "status": "unscanned",
+      "count": 0,
+      "root": "."
+    },
+    {
+      "capability": "sqlite-storage",
+      "owner": "rightkit-db",
+      "uses": true,
+      "status": "declared-dependency",
+      "count": 0,
+      "root": "."
+    },
+    {
+      "capability": "embeddings",
+      "owner": "rightkit-embed",
+      "uses": true,
+      "status": "declared-dependency",
+      "count": 0,
+      "root": "."
+    },
+    {
+      "capability": "framed-sidecar",
+      "owner": "rightkit-framed-sidecar",
+      "uses": false,
+      "status": "unscanned",
+      "count": 0,
+      "root": "."
+    },
+    {
+      "capability": "safe-filesystem",
+      "owner": "rightkit-fs",
+      "uses": false,
+      "status": "unscanned",
+      "count": 0,
+      "root": "."
+    },
+    {
+      "capability": "file-index",
+      "owner": "rightkit-fsindex",
+      "uses": false,
+      "status": "unscanned",
+      "count": 0,
+      "root": "."
+    },
+    {
+      "capability": "global-hotkeys",
+      "owner": "rightkit-hotkeys",
+      "uses": false,
+      "status": "unscanned",
+      "count": 0,
+      "root": "."
+    },
+    {
+      "capability": "http-client",
+      "owner": "rightkit-http",
+      "uses": true,
+      "status": "blocked",
+      "count": 1,
+      "root": "."
+    },
+    {
+      "capability": "persistent-jobs",
+      "owner": "rightkit-jobs",
+      "uses": false,
+      "status": "unscanned",
+      "count": 0,
+      "root": "."
+    },
+    {
+      "capability": "licensing",
+      "owner": "rightkit-license",
+      "owners": [
+        "rightkit-license",
+        "@rightkit/license"
+      ],
+      "uses": true,
+      "status": "declared-dependency",
+      "count": 0,
+      "root": "."
+    },
+    {
+      "capability": "llm-providers",
+      "owner": "rightkit-llm",
+      "uses": false,
+      "status": "unscanned",
+      "count": 0,
+      "root": "."
+    },
+    {
+      "capability": "structured-logging",
+      "owner": "rightkit-logs",
+      "owners": [
+        "rightkit-logs",
+        "@rightkit/logs"
+      ],
+      "uses": true,
+      "status": "declared-dependency",
+      "count": 0,
+      "root": "."
+    },
+    {
+      "capability": "mcp",
+      "owner": "rightkit-mcp",
+      "uses": false,
+      "status": "unscanned",
+      "count": 0,
+      "root": "."
+    },
+    {
+      "capability": "media-pipelines",
+      "owner": "rightkit-media",
+      "uses": false,
+      "status": "unscanned",
+      "count": 0,
+      "root": "."
+    },
+    {
+      "capability": "model-installation",
+      "owner": "rightkit-models",
+      "uses": false,
+      "status": "unscanned",
+      "count": 0,
+      "root": "."
+    },
+    {
+      "capability": "oauth-sign-in",
+      "owner": "rightkit-oauth",
+      "uses": true,
+      "status": "declared-dependency",
+      "count": 0,
+      "root": "."
+    },
+    {
+      "capability": "ocr",
+      "owner": "rightkit-ocr",
+      "uses": false,
+      "status": "unscanned",
+      "count": 0,
+      "root": "."
+    },
+    {
+      "capability": "onnx-runtime",
+      "owner": "rightkit-ort",
+      "uses": false,
+      "status": "unscanned",
+      "count": 0,
+      "root": "."
+    },
+    {
+      "capability": "desktop-overlay",
+      "owner": "rightkit-overlay",
+      "uses": false,
+      "status": "unscanned",
+      "count": 0,
+      "root": "."
+    },
+    {
+      "capability": "ownership-scanner",
+      "owner": "rightkit-ownership",
+      "uses": false,
+      "status": "unscanned",
+      "count": 0,
+      "root": "."
+    },
+    {
+      "capability": "pdf-engine",
+      "owner": "rightkit-pdf",
+      "uses": false,
+      "status": "unscanned",
+      "count": 0,
+      "root": "."
+    },
+    {
+      "capability": "media-playback",
+      "owner": "rightkit-playback",
+      "uses": false,
+      "status": "unscanned",
+      "count": 0,
+      "root": "."
+    },
+    {
+      "capability": "owned-processes",
+      "owner": "rightkit-process",
+      "uses": false,
+      "status": "unscanned",
+      "count": 0,
+      "root": "."
+    },
+    {
+      "capability": "desktop-qa",
+      "owner": "rightkit-qa",
+      "uses": false,
+      "status": "unscanned",
+      "count": 0,
+      "root": "."
+    },
+    {
+      "capability": "text-to-speech",
+      "owner": "rightkit-qts",
+      "owners": [
+        "rightkit-qts",
+        "rightkit-qts-ggml",
+        "rightkit-qts-ggml-sys",
+        "rightkit-tts"
+      ],
+      "uses": false,
+      "status": "unscanned",
+      "count": 0,
+      "root": "."
+    },
+    {
+      "capability": "screen-recording",
+      "owner": "rightkit-record",
+      "uses": false,
+      "status": "unscanned",
+      "count": 0,
+      "root": "."
+    },
+    {
+      "capability": "content-review",
+      "owner": "rightkit-review",
+      "uses": false,
+      "status": "unscanned",
+      "count": 0,
+      "root": "."
+    },
+    {
+      "capability": "os-sandbox",
+      "owner": "rightkit-sandbox",
+      "uses": false,
+      "status": "unscanned",
+      "count": 0,
+      "root": "."
+    },
+    {
+      "capability": "scenario-runtime",
+      "owner": "rightkit-scenario",
+      "uses": false,
+      "status": "unscanned",
+      "count": 0,
+      "root": "."
+    },
+    {
+      "capability": "search",
+      "owner": "rightkit-search",
+      "uses": false,
+      "status": "unscanned",
+      "count": 0,
+      "root": "."
+    },
+    {
+      "capability": "os-credential-store",
+      "owner": "rightkit-secrets",
+      "owners": [
+        "rightkit-secrets",
+        "RightKitSwift"
+      ],
+      "uses": true,
+      "status": "declared-dependency",
+      "count": 0,
+      "root": "."
+    },
+    {
+      "capability": "local-services",
+      "owner": "rightkit-service",
+      "uses": false,
+      "status": "unscanned",
+      "count": 0,
+      "root": "."
+    },
+    {
+      "capability": "settings-persistence",
+      "owner": "rightkit-settings",
+      "uses": false,
+      "status": "unscanned",
+      "count": 0,
+      "root": "."
+    },
+    {
+      "capability": "desktop-shell",
+      "owner": "rightkit-shell",
+      "owners": [
+        "rightkit-shell",
+        "@rightkit/shell"
+      ],
+      "uses": true,
+      "status": "declared-dependency",
+      "count": 0,
+      "root": "."
+    },
+    {
+      "capability": "shared-speech-service",
+      "owner": "rightkit-speech-client",
+      "uses": false,
+      "status": "unscanned",
+      "count": 0,
+      "root": "."
+    },
+    {
+      "capability": "cloud-sync",
+      "owner": "rightkit-sync",
+      "uses": false,
+      "status": "unscanned",
+      "count": 0,
+      "root": "."
+    },
+    {
+      "capability": "tauri-host-adapters",
+      "owner": "rightkit-tauri",
+      "owners": [
+        "rightkit-tauri",
+        "@rightkit/tauri"
+      ],
+      "uses": true,
+      "status": "blocked",
+      "count": 1,
+      "root": "."
+    },
+    {
+      "capability": "timed-transcripts",
+      "owner": "rightkit-transcript",
+      "uses": false,
+      "status": "unscanned",
+      "count": 0,
+      "root": "."
+    },
+    {
+      "capability": "voice-activity-detection",
+      "owner": "rightkit-vad",
+      "uses": false,
+      "status": "unscanned",
+      "count": 0,
+      "root": "."
+    },
+    {
+      "capability": "file-watching",
+      "owner": "rightkit-watch",
+      "uses": false,
+      "status": "unscanned",
+      "count": 0,
+      "root": "."
+    },
+    {
+      "capability": "app-shell-ui",
+      "owner": "@rightkit/app-shell",
+      "uses": false,
+      "status": "blocked",
+      "count": 2,
+      "root": "."
+    },
+    {
+      "capability": "agent-experience-gates",
+      "owner": "@rightkit/ax",
+      "uses": false,
+      "status": "unscanned",
+      "count": 0,
+      "root": "."
+    },
+    {
+      "capability": "document-rendering",
+      "owner": "@rightkit/doc-render",
+      "uses": false,
+      "status": "unscanned",
+      "count": 0,
+      "root": "."
+    },
+    {
+      "capability": "github-workflows",
+      "owner": "@rightkit/git",
+      "uses": false,
+      "status": "unscanned",
+      "count": 0,
+      "root": "."
+    },
+    {
+      "capability": "lifecycle-hooks",
+      "owner": "@rightkit/hooks",
+      "uses": false,
+      "status": "unscanned",
+      "count": 0,
+      "root": "."
+    },
+    {
+      "capability": "localization",
+      "owner": "@rightkit/i18n",
+      "uses": false,
+      "status": "unscanned",
+      "count": 0,
+      "root": "."
+    },
+    {
+      "capability": "legal-assent",
+      "owner": "@rightkit/legal",
+      "uses": true,
+      "status": "declared-dependency",
+      "count": 0,
+      "root": "."
+    },
+    {
+      "capability": "legal-ui",
+      "owner": "@rightkit/legal-ui",
+      "uses": false,
+      "status": "unscanned",
+      "count": 0,
+      "root": "."
+    },
+    {
+      "capability": "media-ui",
+      "owner": "@rightkit/media-ui",
+      "uses": false,
+      "status": "unscanned",
+      "count": 0,
+      "root": "."
+    },
+    {
+      "capability": "onboarding-ui",
+      "owner": "@rightkit/onboarding",
+      "uses": false,
+      "status": "unscanned",
+      "count": 0,
+      "root": "."
+    },
+    {
+      "capability": "pdf-ui",
+      "owner": "@rightkit/pdf-ui",
+      "uses": false,
+      "status": "blocked",
+      "count": 1,
+      "root": "."
+    },
+    {
+      "capability": "platform-ui",
+      "owner": "@rightkit/platform-ui",
+      "uses": false,
+      "status": "unscanned",
+      "count": 0,
+      "root": "."
+    },
+    {
+      "capability": "qa-evidence",
+      "owner": "@rightkit/qa",
+      "uses": false,
+      "status": "unscanned",
+      "count": 0,
+      "root": "."
+    },
+    {
+      "capability": "browser-qa",
+      "owner": "@rightkit/qa-chrome",
+      "uses": false,
+      "status": "unscanned",
+      "count": 0,
+      "root": "."
+    },
+    {
+      "capability": "release-tooling",
+      "owner": "@rightkit/release",
+      "uses": true,
+      "status": "declared-dependency",
+      "count": 0,
+      "root": "."
+    },
+    {
+      "capability": "settings-ui",
+      "owner": "@rightkit/settings-ui",
+      "uses": false,
+      "status": "unscanned",
+      "count": 0,
+      "root": "."
+    },
+    {
+      "capability": "theme-ui",
+      "owner": "@rightkit/theme",
+      "uses": false,
+      "status": "blocked",
+      "count": 3,
+      "root": "."
+    },
+    {
+      "capability": "update-policy",
+      "owner": "@rightkit/updates",
+      "uses": true,
+      "status": "declared-dependency",
+      "count": 0,
+      "root": "."
+    }
+  ],
+  "violations": [
+    {
+      "fingerprint": "http.cargo.reqwest",
+      "capability": "http-client",
+      "package": "rightkit-http",
+      "tier": "advise",
+      "file": "src-tauri/Cargo.toml",
+      "line": 0,
+      "kind": "dependency",
+      "ecosystem": "cargo",
+      "name": "reqwest",
+      "alias": null,
+      "section": "dependencies",
+      "requirement": "0.13",
+      "features": [
+        "charset",
+        "form",
+        "http2",
+        "json",
+        "query",
+        "rustls",
+        "system-proxy"
+      ],
+      "defaultFeatures": false,
+      "local": false,
+      "source": "registry",
+      "resolvedVersion": "0.13.4",
+      "text": "cargo dependency reqwest",
+      "provenance": "registry",
+      "occurrenceHash": "04ee320284d88ea71c67616250db858fda23879fde8fbf19a6403c7bd9381a05"
+    },
+    {
+      "fingerprint": "pdf-ui.npm.pdfjs-dist",
+      "capability": "pdf-ui",
+      "package": "@rightkit/pdf-ui",
+      "tier": "advise",
+      "file": "package.json",
+      "line": 0,
+      "kind": "dependency",
+      "ecosystem": "npm",
+      "name": "pdfjs-dist",
+      "alias": null,
+      "section": "dependencies",
+      "requirement": "^6.1.200",
+      "features": [],
+      "defaultFeatures": null,
+      "local": false,
+      "source": "registry",
+      "resolvedVersion": "6.1.200",
+      "text": "npm dependency pdfjs-dist",
+      "provenance": "registry",
+      "occurrenceHash": "469d5cabce56dfbd4eee1c3feedca5c216dab408c824ae51f51151089299f42f"
+    },
+    {
+      "fingerprint": "theme.math.relative-luminance",
+      "capability": "theme-ui",
+      "package": "@rightkit/theme",
+      "tier": "advise",
+      "kind": "source",
+      "line": 16,
+      "lineText": "    0.2126 * channel((n >> 16) & 255) +",
+      "ordinal": 0,
+      "text": "0.2126 * channel((n >> 16) & 255) +",
+      "file": "scripts/check-theme-contrast.ts",
+      "occurrenceHash": "9ae2cb3215d94eadc46df07ad1c52970613745e66ce9c871b8d708318a248509"
+    },
+    {
+      "fingerprint": "tauri.rs.standard-command-fn",
+      "capability": "tauri-host-adapters",
+      "package": "rightkit-tauri",
+      "tier": "advise",
+      "kind": "source",
+      "line": 240,
+      "lineText": "pub fn secure_device_id_get_or_create() -> Result<DeviceId, String> {",
+      "ordinal": 0,
+      "text": "pub fn secure_device_id_get_or_create() -> Result<DeviceId, String> {",
+      "file": "src-tauri/src/commands/license.rs",
+      "occurrenceHash": "43e4693ed2b0e2a5f8e27c7267d7f71eb428c5d06481e1f6f6b69d71d9232bbb"
+    },
+    {
+      "fingerprint": "app-shell.jsx.drag-region",
+      "capability": "app-shell-ui",
+      "package": "@rightkit/app-shell",
+      "tier": "advise",
+      "kind": "source",
+      "line": 60,
+      "lineText": "    <div className={`titlebar${IS_MACOS ? \" titlebar--mac\" : \"\"}`} data-tauri-drag-region>",
+      "ordinal": 0,
+      "text": "<div className={`titlebar${IS_MACOS ? \" titlebar--mac\" : \"\"}`} data-tauri-drag-region>",
+      "file": "src/components/TitleBar.tsx",
+      "occurrenceHash": "355e30c725792d7b8df5a3533ae47e3dbe03f29c4db87fb7001be51175bb3ef9"
+    },
+    {
+      "fingerprint": "app-shell.jsx.drag-region",
+      "capability": "app-shell-ui",
+      "package": "@rightkit/app-shell",
+      "tier": "advise",
+      "kind": "source",
+      "line": 77,
+      "lineText": "      <div className=\"tb-spacer\" data-tauri-drag-region />",
+      "ordinal": 0,
+      "text": "<div className=\"tb-spacer\" data-tauri-drag-region />",
+      "file": "src/components/TitleBar.tsx",
+      "occurrenceHash": "c8487cb0ab6d56c0acde8aa6f1fc4b785ed054bf67ae894c9dce0b8a21857958"
+    },
+    {
+      "fingerprint": "theme.math.relative-luminance",
+      "capability": "theme-ui",
+      "package": "@rightkit/theme",
+      "tier": "advise",
+      "kind": "source",
+      "line": 176,
+      "lineText": "    0.2126 * channel((n >> 16) & 255) +",
+      "ordinal": 0,
+      "text": "0.2126 * channel((n >> 16) & 255) +",
+      "file": "src/lib/theme.ts",
+      "occurrenceHash": "fd855f0398e6a602bb55242da7ecdc1849bed64fc63531aa02227da7351580d1"
+    },
+    {
+      "fingerprint": "theme.runtime.prefers-dark",
+      "capability": "theme-ui",
+      "package": "@rightkit/theme",
+      "tier": "advise",
+      "kind": "source",
+      "line": 202,
+      "lineText": "      window.matchMedia(\"(prefers-color-scheme: dark)\").matches;",
+      "ordinal": 0,
+      "text": "window.matchMedia(\"(prefers-color-scheme: dark)\").matches;",
+      "file": "src/lib/theme.ts",
+      "occurrenceHash": "1a695dc80ce675a056dbbe49e114ebc5b36e48736e27a822d0b619db582aaf9f"
+    }
+  ],
+  "covered": [],
+  "problems": [],
+  "coverage": [
+    {
+      "path": "pnpm-lock.yaml",
+      "status": "unscanned",
+      "reason": "lockfile-root-unresolved",
+      "detail": "workers/waitlist/package.json"
+    }
+  ],
+  "metadata": {
+    "repositoryIdentity": "https://github.com/bogusyogi/mailright",
+    "commit": "4deba6349d33cb8e6309ad943517a4c0fde518b5",
+    "tree": "42b462b62a2300ed26cb33f45c9f07aadbbd7289",
+    "catalogDigest": "a7121f96d42457024f465e7da5f41d83f12971eff2988a9752ea557209317f84",
+    "contentDigests": [
+      {
+        "path": "eslint.config.js",
+        "digest": "git:f8c6b61e09840ff1639b570e38e142f89d6f87ef"
+      },
+      {
+        "path": "package.json",
+        "digest": "git:d169935292d504b02cd18b67e6117bcb6095eb0f"
+      },
+      {
+        "path": "pnpm-lock.yaml",
+        "digest": "8454d4730a6618d5e025b81823c9adcae1bd660575416d726b819d54819e1321"
+      },
+      {
+        "path": "qa/native/smoke.e2e.mjs",
+        "digest": "git:1bd80c3036c72cd20943d840ca82e9adeb07d04e"
+      },
+      {
+        "path": "right-qa.config.mjs",
+        "digest": "git:da1e1dc5159ada841917087249e51076d185857f"
+      },
+      {
+        "path": "right-release.config.mjs",
+        "digest": "git:a51e44d3e056fa0b5a85bbde7ee7f7162f954916"
+      },
+      {
+        "path": "scripts/assert-mac-release-contract.mjs",
+        "digest": "git:a4a0a8c6d0674acf7c17050f17bcf7aa981cfaf5"
+      },
+      {
+        "path": "scripts/check-tailwind-probe.ts",
+        "digest": "git:85908d30255bd3e78fb252c334df99c19d698ae7"
+      },
+      {
+        "path": "scripts/check-theme-contrast.ts",
+        "digest": "git:597d184a0cbc75c219c5501bf841b521e7b1180a"
+      },
+      {
+        "path": "scripts/check-token-colors.ts",
+        "digest": "git:49ee48c641e02d4c93e8bbbd7c8ef2eb65270265"
+      },
+      {
+        "path": "scripts/css-owner-inventory.ts",
+        "digest": "git:b454a8a24bf646f82a87abb3bb52cb46f55fb64e"
+      },
+      {
+        "path": "scripts/fetch-embed-model.mjs",
+        "digest": "git:2a79bf247debe4d3c44f2393a2d66e8c178cfd4a"
+      },
+      {
+        "path": "scripts/generate-macos-dmg-background.mjs",
+        "digest": "git:d931fa0b385737994147f6d697cc70138f58fde9"
+      },
+      {
+        "path": "scripts/generate-macos-dmg-background.py",
+        "digest": "git:1e0c9b169df32b5738f577815990bd8224442217"
+      },
+      {
+        "path": "scripts/generate-mailright-icons.mjs",
+        "digest": "git:893b45736c7aca8944b4327fcca7f9a4919bf492"
+      },
+      {
+        "path": "scripts/generate-mailright-icons.py",
+        "digest": "git:e4b69e0164f09fd7622e3aa4144be3a0e6ea2281"
+      },
+      {
+        "path": "scripts/generate-npm-license-appendix.mjs",
+        "digest": "git:ee26073b5ec508771c362c1da3f51989ec8afc99"
+      },
+      {
+        "path": "scripts/lib/branded-dmg.mjs",
+        "digest": "git:af22f2018d035a6c9e0cf995ef4c28d9ab6b1fc1"
+      },
+      {
+        "path": "scripts/lib/target-root.mjs",
+        "digest": "git:00f89ba6578d7949d17e2a9c355c30e6e433f3e8"
+      },
+      {
+        "path": "scripts/mac-dmg.mjs",
+        "digest": "git:d5d03184fbc8363c0efdbe80e2943ce00b867d1b"
+      },
+      {
+        "path": "scripts/qa-browser-stop.mjs",
+        "digest": "git:878dfa03f574c0cc0b818be0db014b51b19bb028"
+      },
+      {
+        "path": "scripts/qa-browser.mjs",
+        "digest": "git:7ab7362a1344136303c06aae3672602e741ea5ff"
+      },
+      {
+        "path": "scripts/test-legal-acceptance-contract.mjs",
+        "digest": "git:d3f74e94b52454e56b42e7e30374bcb1a7230684"
+      },
+      {
+        "path": "scripts/test-legal-release-gate.mjs",
+        "digest": "git:c8f75950b5ba89e565da338f6b93a88e3d0feab3"
+      },
+      {
+        "path": "scripts/verify-aggregate-contract.test.mjs",
+        "digest": "git:f71589d2eab69ff183370dc8cf55de02b6795be5"
+      },
+      {
+        "path": "src-tauri/build.rs",
+        "digest": "git:3d03fe5d01c6d9cc64ad1138980621f6c493e7cc"
+      },
+      {
+        "path": "src-tauri/Cargo.lock",
+        "digest": "a430df0aec6ef83d61db9d8b31dca135f26320dc5634358beb5cf5dfc820b479"
+      },
+      {
+        "path": "src-tauri/Cargo.toml",
+        "digest": "git:c5dbbd6e88368ae7c93e2c5fa6ae43b479381dd1"
+      },
+      {
+        "path": "src-tauri/src/ai.rs",
+        "digest": "git:a07e1be6c524494820a10e874f54b14154ae10dc"
+      },
+      {
+        "path": "src-tauri/src/app_lock.rs",
+        "digest": "git:c4c0f242db2340b6318f92fc93c9ef8e0e39479e"
+      },
+      {
+        "path": "src-tauri/src/app_lock/tests.rs",
+        "digest": "git:8f508ffae055d7da541625a1136af27bce08deaf"
+      },
+      {
+        "path": "src-tauri/src/attach_cache.rs",
+        "digest": "git:478d807869ad855afc13db167a9a531e6c4072f2"
+      },
+      {
+        "path": "src-tauri/src/attach_cache/tests.rs",
+        "digest": "git:2dd493282c54f0bdce82fb614d6b7112637d7336"
+      },
+      {
+        "path": "src-tauri/src/attachments.rs",
+        "digest": "git:116f41494b1d7ffbe3522850bbda3b9366493781"
+      },
+      {
+        "path": "src-tauri/src/benchmarks.rs",
+        "digest": "git:8f0b7508c29468b84c33b127490a5510fc3a69ee"
+      },
+      {
+        "path": "src-tauri/src/beta_creds_export.rs",
+        "digest": "git:c5d2de0c00454af1baa062703ecd89ae9f916574"
+      },
+      {
+        "path": "src-tauri/src/bin/load_driver.rs",
+        "digest": "git:44d87d180fc5ff489e7d349aca5c84d541d7cbad"
+      },
+      {
+        "path": "src-tauri/src/calendar.rs",
+        "digest": "git:ef0e178bb3dc229c0237df381bc271e199a352f2"
+      },
+      {
+        "path": "src-tauri/src/calendar/mutations.rs",
+        "digest": "git:a65bb1d2aaf2c6211cc6f225a8527e2ce514ec6b"
+      },
+      {
+        "path": "src-tauri/src/calendar/tests.rs",
+        "digest": "git:f6ab2566608562a5df0dcc965e93a31a31c55400"
+      },
+      {
+        "path": "src-tauri/src/commands/db_access.rs",
+        "digest": "git:9dd664a395930acf7f4504e9d5644271f450615d"
+      },
+      {
+        "path": "src-tauri/src/commands/db_health.rs",
+        "digest": "git:a367db62611acd1d2eb9c9c574199729cc2df698"
+      },
+      {
+        "path": "src-tauri/src/commands/legal.rs",
+        "digest": "git:82e3d2c31ebed95848d19223b2118ed14035c76f"
+      },
+      {
+        "path": "src-tauri/src/commands/license_tests.rs",
+        "digest": "git:e51fb62685fd70db1bc155ff8e39566e40fb6855"
+      },
+      {
+        "path": "src-tauri/src/commands/license.rs",
+        "digest": "git:055f92a0d5be5055c76d0f345d421a30656cb8e1"
+      },
+      {
+        "path": "src-tauri/src/commands/mail.rs",
+        "digest": "git:7323f85a659cec7e24d81b01629d338647e1e3eb"
+      },
+      {
+        "path": "src-tauri/src/commands/mail/archive_status.rs",
+        "digest": "git:08c866a7ca4b20bffb0539702677a271419a8df9"
+      },
+      {
+        "path": "src-tauri/src/commands/mail/bulk.rs",
+        "digest": "git:4f8f1d68a4065858191166148724699f83826099"
+      },
+      {
+        "path": "src-tauri/src/commands/mail/compose_assets.rs",
+        "digest": "git:4cb8ce4d188aad78956c7110d4e208bca4396c45"
+      },
+      {
+        "path": "src-tauri/src/commands/mail/compose_assets/send_req.rs",
+        "digest": "git:65ca73814d00b9d9c4a721fd580b011060827e55"
+      },
+      {
+        "path": "src-tauri/src/commands/mail/drafts_commands.rs",
+        "digest": "git:abb4a811d79e085909c1fec75da6c21161e2ae15"
+      },
+      {
+        "path": "src-tauri/src/commands/mail/sync_commands.rs",
+        "digest": "git:aa49e9797b51fd25cdff25f81d215483620213dd"
+      },
+      {
+        "path": "src-tauri/src/commands/mod_tests.rs",
+        "digest": "git:6a05ab21ff864392fc874cb2689bdb0094a2dcb9"
+      },
+      {
+        "path": "src-tauri/src/commands/mod.rs",
+        "digest": "git:71af4402c7acf93f56079df58c866e191c5ac31c"
+      },
+      {
+        "path": "src-tauri/src/commands/people.rs",
+        "digest": "git:c3c8766a22cadf1493ea184f515dd37f0f1e4c80"
+      },
+      {
+        "path": "src-tauri/src/commands/pro.rs",
+        "digest": "git:07fb4e75802f058a01e89aab1757766892ee8dbe"
+      },
+      {
+        "path": "src-tauri/src/commands/runtime_health.rs",
+        "digest": "git:247f5c4ffbd04c28ed4252253373b0461d011326"
+      },
+      {
+        "path": "src-tauri/src/commands/semantic.rs",
+        "digest": "git:d4b24e48dfde28c3ebdb721528750ac66ae28129"
+      },
+      {
+        "path": "src-tauri/src/commands/settings.rs",
+        "digest": "git:eab6787441d389f1f89fa472401eaf0dfbaa69a2"
+      },
+      {
+        "path": "src-tauri/src/commands/settings/filters.rs",
+        "digest": "git:842c11fb6ee333a2eda31b8c7a3205c23c273839"
+      },
+      {
+        "path": "src-tauri/src/commands/settings/gmail_labels.rs",
+        "digest": "git:ce8b03e9b9b73ada9870d17909eae21dcb3dc9b4"
+      },
+      {
+        "path": "src-tauri/src/commands/settings/mail_prefs.rs",
+        "digest": "git:94979dd52c0ef2bd5c05d1803135446ad75eabd6"
+      },
+      {
+        "path": "src-tauri/src/commands/settings/mail_settings.rs",
+        "digest": "git:c9b602605d8bd0e34e895976562f1b158b460b3f"
+      },
+      {
+        "path": "src-tauri/src/commands/telemetry.rs",
+        "digest": "git:2e86c7402cf2bdf5ba771632d4b50ebcabb071b2"
+      },
+      {
+        "path": "src-tauri/src/commands/workspace.rs",
+        "digest": "git:26ec47eef9b6256054d6b21a8e56ce91dd3ac7a1"
+      },
+      {
+        "path": "src-tauri/src/commands/workspace/drive.rs",
+        "digest": "git:b159abedf671927b3fecde8dacfd296d3bbb4a7f"
+      },
+      {
+        "path": "src-tauri/src/credential_store.rs",
+        "digest": "git:ce5b41c807f4248679067a1c41e5cc3df92dfd77"
+      },
+      {
+        "path": "src-tauri/src/db_schema.rs",
+        "digest": "git:be87920a7d30851a426075b79772ed681cf1850f"
+      },
+      {
+        "path": "src-tauri/src/db_sync_apply.rs",
+        "digest": "git:5b0a1e1c240aa664f7fbd8aecc2f1e3a9202c901"
+      },
+      {
+        "path": "src-tauri/src/db_sync_apply/health.rs",
+        "digest": "git:7fdde0dca20f70e435f63daeb4cb1585e73ccc96"
+      },
+      {
+        "path": "src-tauri/src/db.rs",
+        "digest": "git:acc50dfaed31dcbec4ac2f45e823e84dd84f1c8f"
+      },
+      {
+        "path": "src-tauri/src/db/accounts_labels.rs",
+        "digest": "git:5c3d5804ac5d6aa5fd9977b3335992987909b5f2"
+      },
+      {
+        "path": "src-tauri/src/db/accounts_labels/account_removal.rs",
+        "digest": "git:e2ad44a85e5491aea8f1d092452d56d33218066b"
+      },
+      {
+        "path": "src-tauri/src/db/accounts_labels/sync_apply.rs",
+        "digest": "git:c7340acb362eeeb1ba832e22192e40be7c62a7d2"
+      },
+      {
+        "path": "src-tauri/src/db/migrations.rs",
+        "digest": "git:7d8c25014c9b9554eabcc5a725db4e0c0b932d3c"
+      },
+      {
+        "path": "src-tauri/src/db/outbox_contacts.rs",
+        "digest": "git:48c5ec65c4000fd68d5cc0f41eeeaa71587212f8"
+      },
+      {
+        "path": "src-tauri/src/db/pending_ops.rs",
+        "digest": "git:43dc0a56c540466838a3dc96af75b8523e8f5a69"
+      },
+      {
+        "path": "src-tauri/src/db/pragma_optimize.rs",
+        "digest": "git:26c15fa402e48cf347c9cb02b17eb02c62eaee9a"
+      },
+      {
+        "path": "src-tauri/src/db/recipients.rs",
+        "digest": "git:f2d7cf7485a52ab68b47a73e255bf107cd6139df"
+      },
+      {
+        "path": "src-tauri/src/db/search.rs",
+        "digest": "git:47ba279c398d97f19a12a0ee0563d770cfd6b92a"
+      },
+      {
+        "path": "src-tauri/src/db/search/ast_tests.rs",
+        "digest": "git:27628db4f99761001c55eadf4ba6e9321145ef5f"
+      },
+      {
+        "path": "src-tauri/src/db/search/ast.rs",
+        "digest": "git:74fbfcd800da62f383ea9caada22c6c4d2128c3d"
+      },
+      {
+        "path": "src-tauri/src/db/search/attachment_path.rs",
+        "digest": "git:ed4c67eddc6406af2d01f06d6ec9cdc3a2ad3f1d"
+      },
+      {
+        "path": "src-tauri/src/db/search/candidates.rs",
+        "digest": "git:1fde200c735ec9bcc93e951475905140fc71e9b3"
+      },
+      {
+        "path": "src-tauri/src/db/search/enrich.rs",
+        "digest": "git:29806c52fc3fa8c4301a91520f6cd3619f17f895"
+      },
+      {
+        "path": "src-tauri/src/db/search/lexer.rs",
+        "digest": "git:7a9217d6af7a61f01557ea8583ad4a0b93822554"
+      },
+      {
+        "path": "src-tauri/src/db/search/operator_parse.rs",
+        "digest": "git:cc675cdfeb493e7cb2bbbb806b5307e5267b8243"
+      },
+      {
+        "path": "src-tauri/src/db/search/predicates.rs",
+        "digest": "git:28c2d8344f6be2167586f7219dab354aa6eb67bd"
+      },
+      {
+        "path": "src-tauri/src/db/search/query.rs",
+        "digest": "git:46aa4e8ce3615dac1846f0b3ad863ba88092875d"
+      },
+      {
+        "path": "src-tauri/src/db/search/recipient_match.rs",
+        "digest": "git:e613ee2265c58bdd85204edfaac57d88fe48b7fb"
+      },
+      {
+        "path": "src-tauri/src/db/search/scope.rs",
+        "digest": "git:29d6619efff3bf61e22684021bb9c6f01a8b3179"
+      },
+      {
+        "path": "src-tauri/src/db/search/search_terms.rs",
+        "digest": "git:59f61b20a9042189c5c2b54dfc30f85be01261b3"
+      },
+      {
+        "path": "src-tauri/src/db/search/snippet.rs",
+        "digest": "git:e3ab93fd3aed6cab29b30d1c3153e7e1ca5fbbb0"
+      },
+      {
+        "path": "src-tauri/src/db/semantic/embedder.rs",
+        "digest": "git:84e27a81848598106bfcf9da5af71d8f6d465236"
+      },
+      {
+        "path": "src-tauri/src/db/semantic/index.rs",
+        "digest": "git:8a4315f6047fd714821199610bcbfb4ced1806d4"
+      },
+      {
+        "path": "src-tauri/src/db/semantic/mod.rs",
+        "digest": "git:46af435883f6d12f4a38509fc39d95a033c18264"
+      },
+      {
+        "path": "src-tauri/src/db/semantic/query.rs",
+        "digest": "git:e2ba42f48c4d37d6f61f55672e7c2e6dc3e03c7e"
+      },
+      {
+        "path": "src-tauri/src/db/semantic/resolve.rs",
+        "digest": "git:9125a1f4290408023ca9beefaf0d1236a6c56f7c"
+      },
+      {
+        "path": "src-tauri/src/db/semantic/storage.rs",
+        "digest": "git:575ca4c553e66a470135770f29e60942ae91650a"
+      },
+      {
+        "path": "src-tauri/src/db/semantic/vec_ext.rs",
+        "digest": "git:529579212053eca8f1f72f76880ad2273e89616f"
+      },
+      {
+        "path": "src-tauri/src/db/tests.rs",
+        "digest": "git:b7a1aee296d66f467331fd0447845dde9af28ae7"
+      },
+      {
+        "path": "src-tauri/src/db/tests/account_lifecycle_tests.rs",
+        "digest": "git:3fa3b1cf7ab364096b5e2bf4710f52c4a64492bf"
+      },
+      {
+        "path": "src-tauri/src/db/tests/apply_messages_incremental_tests.rs",
+        "digest": "git:d563a43202c23c6f4715cefcceed7a464374a362"
+      },
+      {
+        "path": "src-tauri/src/db/tests/checkpoint_cadence_tests.rs",
+        "digest": "git:c25d243dfc09a4f183bae43a30ce03c79618b43d"
+      },
+      {
+        "path": "src-tauri/src/db/tests/db_tuning_tests.rs",
+        "digest": "git:1e35017127e41b7209a8e59d59d0001684998dd5"
+      },
+      {
+        "path": "src-tauri/src/db/tests/dev_db_dump.rs",
+        "digest": "git:dd7eae27c0717a47ab0e5e1795341e02a4549a58"
+      },
+      {
+        "path": "src-tauri/src/db/tests/fts_rowid_tests.rs",
+        "digest": "git:75b6fde6be69ec04dd91bcea0a3bddc976a5d2ca"
+      },
+      {
+        "path": "src-tauri/src/db/tests/label_sync_tests.rs",
+        "digest": "git:23215aba2eddd1be35101b7bfa77dbef07f85944"
+      },
+      {
+        "path": "src-tauri/src/db/tests/label_sync_tests/delta_tests.rs",
+        "digest": "git:990538a42caa019092a9bea305634ee208c51589"
+      },
+      {
+        "path": "src-tauri/src/db/tests/label_sync_tests/folder_catalog_tests.rs",
+        "digest": "git:12ddea1fa97e7276952dacc03fcb155c61da6a9f"
+      },
+      {
+        "path": "src-tauri/src/db/tests/label_sync_tests/label_catalog_tests.rs",
+        "digest": "git:8d9c0260bd3c5c21b8bd7f0e0fd8e6d290819196"
+      },
+      {
+        "path": "src-tauri/src/db/tests/label_sync_tests/search_attachment_tests.rs",
+        "digest": "git:4aeda54e8a26262604b362462532e2ee37c32fde"
+      },
+      {
+        "path": "src-tauri/src/db/tests/label_sync_tests/search_basic_tests.rs",
+        "digest": "git:0ccf654e6e7cad9356c65526bf2fef4dc3fdec2d"
+      },
+      {
+        "path": "src-tauri/src/db/tests/label_sync_tests/search_operator_tests.rs",
+        "digest": "git:847f868ff486d5e5972b2a207f2b79f3344e6979"
+      },
+      {
+        "path": "src-tauri/src/db/tests/live_diagnostics_tests.rs",
+        "digest": "git:cc45a12f074716b750f795410f6f5b0cdd1fc903"
+      },
+      {
+        "path": "src-tauri/src/db/tests/live_dogfood_helpers.rs",
+        "digest": "git:15dffc6a94ecafdc4f13322063c085fb71dd1893"
+      },
+      {
+        "path": "src-tauri/src/db/tests/live_dogfood_tests.rs",
+        "digest": "git:93151cae613dc8ea2a1ae3432d4595229a358384"
+      },
+      {
+        "path": "src-tauri/src/db/tests/metadata_contact_tests.rs",
+        "digest": "git:38977d06844e62c24fe0521bd5e12f1ae65e4900"
+      },
+      {
+        "path": "src-tauri/src/db/tests/outbox_dump.rs",
+        "digest": "git:318175ca06585570478de80bd9b8c4ad61081b14"
+      },
+      {
+        "path": "src-tauri/src/db/tests/search_data_layer_tests.rs",
+        "digest": "git:3bcfa72884528df73ab599ff73136d1341e81a18"
+      },
+      {
+        "path": "src-tauri/src/db/tests/search_parser_tests.rs",
+        "digest": "git:6a47608f9122a759267d9a76b69844dedcb26372"
+      },
+      {
+        "path": "src-tauri/src/db/tests/sync_lease_tests.rs",
+        "digest": "git:4cd7e57ba4c2a4545534d751ec4aeab8f306cc23"
+      },
+      {
+        "path": "src-tauri/src/db/tests/thread_rollup_tests.rs",
+        "digest": "git:5a6d9f5de343d361c6947ca8d00798bd3afa910c"
+      },
+      {
+        "path": "src-tauri/src/db/threads.rs",
+        "digest": "git:c3f5fe98ca3e92081386fc91113042bcfc82b764"
+      },
+      {
+        "path": "src-tauri/src/db/threads/listing.rs",
+        "digest": "git:464eab85b1503ed4e0e407b8d1d6d6b0ab5c8471"
+      },
+      {
+        "path": "src-tauri/src/db/util.rs",
+        "digest": "git:e667135ac87c8df8e74e783c15915dd5f9277fd6"
+      },
+      {
+        "path": "src-tauri/src/desktop.rs",
+        "digest": "git:f6ff9e225b2aa1169dd7a61f07d6069ee05e3958"
+      },
+      {
+        "path": "src-tauri/src/diag.rs",
+        "digest": "git:fd6ddd043e5911235de3caf0cb2ce95931aca933"
+      },
+      {
+        "path": "src-tauri/src/drafts.rs",
+        "digest": "git:e4fbb7aaacc40d33360996d58fd051380ca17b5d"
+      },
+      {
+        "path": "src-tauri/src/drive.rs",
+        "digest": "git:1b75153dc76bf9d23e6533ffac1614ecbe98b035"
+      },
+      {
+        "path": "src-tauri/src/drive/tests.rs",
+        "digest": "git:7eb620902d329f31d47058308f291cba80baa9ee"
+      },
+      {
+        "path": "src-tauri/src/drive/write.rs",
+        "digest": "git:4ddfd61e64ce7dbf91adb83596a54bcaa4d47394"
+      },
+      {
+        "path": "src-tauri/src/filters.rs",
+        "digest": "git:afc43e7de0ce6b6a7a179bbaff7cbc66d969ff3e"
+      },
+      {
+        "path": "src-tauri/src/gmail.rs",
+        "digest": "git:0e79389577bc5905f85d60777b45ad9af2d85349"
+      },
+      {
+        "path": "src-tauri/src/gmail/batch_fetch.rs",
+        "digest": "git:952f976e6e9f72f07a3a745ef763355a3c57b963"
+      },
+      {
+        "path": "src-tauri/src/gmail/compose_api.rs",
+        "digest": "git:0f0e150724fef6600b245d0acadd4294bf3ae377"
+      },
+      {
+        "path": "src-tauri/src/gmail/history.rs",
+        "digest": "git:281cccea4fccabb4a298a7aa765f2003c232b984"
+      },
+      {
+        "path": "src-tauri/src/gmail/message_fetch.rs",
+        "digest": "git:e48bd6c0cae0b5d210f025484843c4bebef90dca"
+      },
+      {
+        "path": "src-tauri/src/gmail/mime.rs",
+        "digest": "git:5361468b58ce1443ae06faad482957dc0698c676"
+      },
+      {
+        "path": "src-tauri/src/gmail/sync_full.rs",
+        "digest": "git:6d3333d1c6f4d174a16a849a7c287b3bc7244c09"
+      },
+      {
+        "path": "src-tauri/src/gmail/tests.rs",
+        "digest": "git:ce86a47911c559be871670ceeb26ed9490a94bd7"
+      },
+      {
+        "path": "src-tauri/src/gmail/types.rs",
+        "digest": "git:d74e28ffe132936178f0b606919ee47251c56746"
+      },
+      {
+        "path": "src-tauri/src/google.rs",
+        "digest": "git:8bba95bad5cfb93b898dbd1a9bf3efa4e1797023"
+      },
+      {
+        "path": "src-tauri/src/google/backoff.rs",
+        "digest": "git:e5a8bf081cec9071a80f635e66be9af1153ffb4f"
+      },
+      {
+        "path": "src-tauri/src/labels.rs",
+        "digest": "git:7e4ec748f057d77383eab98fa73cebd8b960951d"
+      },
+      {
+        "path": "src-tauri/src/lib.rs",
+        "digest": "git:8b562162720227a79a802e39110db9d3ce512c4a"
+      },
+      {
+        "path": "src-tauri/src/logs.rs",
+        "digest": "git:0263f9b86a56b7553710ad3b44a705b5a48fb8a7"
+      },
+      {
+        "path": "src-tauri/src/mail_settings.rs",
+        "digest": "git:ce1f8358888357cbc11298cab39cd72c711753e3"
+      },
+      {
+        "path": "src-tauri/src/main.rs",
+        "digest": "git:551735370879aacdd51b3793c01d4d43be4b2ce9"
+      },
+      {
+        "path": "src-tauri/src/mcp.rs",
+        "digest": "git:1234f369a5595826e6fd189263a2524a3e033848"
+      },
+      {
+        "path": "src-tauri/src/meet.rs",
+        "digest": "git:2e66b70ca3072e7674f3a5d257d00a41eec569ce"
+      },
+      {
+        "path": "src-tauri/src/oauth.rs",
+        "digest": "git:9f4e99f59ad26cea1b156573a03f2bcb7d8ae1d8"
+      },
+      {
+        "path": "src-tauri/src/people.rs",
+        "digest": "git:44d8040e9b094a9b8732a115a0804456aa59a44f"
+      },
+      {
+        "path": "src-tauri/src/people/contacts.rs",
+        "digest": "git:a20f6e752c8a869ddedca0a83b50d818d8253fac"
+      },
+      {
+        "path": "src-tauri/src/people/groups.rs",
+        "digest": "git:7210d74fe8b0d4e2411e84969b76566e36b9a29a"
+      },
+      {
+        "path": "src-tauri/src/people/recipient_tests.rs",
+        "digest": "git:17c0673e93fc2f4201284d1fa5f0ef05261ef18f"
+      },
+      {
+        "path": "src-tauri/src/people/recipients.rs",
+        "digest": "git:1a0ed8c784498878abd2018dd813b0a70b773074"
+      },
+      {
+        "path": "src-tauri/src/people/tests.rs",
+        "digest": "git:51ed3aef5a2e083a7cd640cca7702a4abc4e5c2a"
+      },
+      {
+        "path": "src-tauri/src/perf_proof/explain.rs",
+        "digest": "git:87c0f6a9ec03bdeda2cfb1f8839fa0a6cf2b944c"
+      },
+      {
+        "path": "src-tauri/src/perf_proof/mod.rs",
+        "digest": "git:de91b9685d1450bcb7da09f7f8b3c86a5fac80e8"
+      },
+      {
+        "path": "src-tauri/src/perf_proof/rekey.rs",
+        "digest": "git:fba8dc3a3231118781feaef5b832ef8014196ed6"
+      },
+      {
+        "path": "src-tauri/src/perf_proof/seed.rs",
+        "digest": "git:94e17d3e236d56e26aad2f5573d0c3c1f218b5ed"
+      },
+      {
+        "path": "src-tauri/src/runtime/bridge_impl.rs",
+        "digest": "git:5606bb8e774a53e64bb8131c04b94c0ba0542faf"
+      },
+      {
+        "path": "src-tauri/src/runtime/bridge.rs",
+        "digest": "git:01cd6d28e98db839c108120696723ee62a63f0fa"
+      },
+      {
+        "path": "src-tauri/src/runtime/events.rs",
+        "digest": "git:58b524b48164a2d28c13cbbde838e143c21ae3f3"
+      },
+      {
+        "path": "src-tauri/src/runtime/health.rs",
+        "digest": "git:3318b43edbee0cd6bed511b1d7d30ead17188a7e"
+      },
+      {
+        "path": "src-tauri/src/runtime/host.rs",
+        "digest": "git:e7ae209d106ce29ac9d00e0ae643f6b53ec8be3b"
+      },
+      {
+        "path": "src-tauri/src/runtime/lock_budget.rs",
+        "digest": "git:0d190e59216fd5a80113c42354ee27a295d636c5"
+      },
+      {
+        "path": "src-tauri/src/runtime/mod.rs",
+        "digest": "git:e828b91c0c34773b5abb6ff47a452c125a27aacc"
+      },
+      {
+        "path": "src-tauri/src/runtime/repos/mod.rs",
+        "digest": "git:3e5122b7e74891487e5114b6854a1a1839a262d8"
+      },
+      {
+        "path": "src-tauri/src/runtime/repos/sqlite.rs",
+        "digest": "git:405d696fe4fe43099856a484bff20fedbd099e05"
+      },
+      {
+        "path": "src-tauri/src/runtime/repos/sqlite/auxiliary.rs",
+        "digest": "git:bb511fea161ec30af5caf9b5213d1c74a11b2bcc"
+      },
+      {
+        "path": "src-tauri/src/runtime/repos/sqlite/lock_holdouts.rs",
+        "digest": "git:38e992a75bafb1ac0b473887107f0d4401369dde"
+      },
+      {
+        "path": "src-tauri/src/runtime/repos/sqlite/read_deadlock_tests.rs",
+        "digest": "git:f8b6a6c1a91ee6255cb9d0666c40c78f248f3652"
+      },
+      {
+        "path": "src-tauri/src/runtime/repos/sqlite/read.rs",
+        "digest": "git:7fad1befed0fce0a3e97d482b294a575679d3caa"
+      },
+      {
+        "path": "src-tauri/src/runtime/service.rs",
+        "digest": "git:4323f30d9edb4d8294dbd87cfdc36cd5f2e412af"
+      },
+      {
+        "path": "src-tauri/src/runtime/services/app_lock.rs",
+        "digest": "git:b507fccec59de0d0651037707e082f5a984b4d0c"
+      },
+      {
+        "path": "src-tauri/src/runtime/services/mod.rs",
+        "digest": "git:beac80613f223ce61c58b5f6ba5d850c54c2102d"
+      },
+      {
+        "path": "src-tauri/src/runtime/services/outbox.rs",
+        "digest": "git:a73c21798c3a031d945bf29cb1ea25ce7e0c61a5"
+      },
+      {
+        "path": "src-tauri/src/runtime/services/sync.rs",
+        "digest": "git:425d89dcd3ca90b37197a3dc5a0a377e9a3c9086"
+      },
+      {
+        "path": "src-tauri/src/runtime/tests.rs",
+        "digest": "git:b3add114c13e5fe14c812e8398973cc7c9ac14ea"
+      },
+      {
+        "path": "src-tauri/src/runtime/timing.rs",
+        "digest": "git:dcda9ee6d0e17ac75ab44e2dca32c7faaf00519f"
+      },
+      {
+        "path": "src-tauri/src/safety.rs",
+        "digest": "git:7704d82b4f8acb045ec2f6e86a50eb1056cff4a6"
+      },
+      {
+        "path": "src-tauri/src/setup.rs",
+        "digest": "git:edcc6e5f3b7f1d84128431c4471a30790bdb75fb"
+      },
+      {
+        "path": "src-tauri/src/sync.rs",
+        "digest": "git:fe7d0eaf8eae3b781fccf4eace3225f50edb7a19"
+      },
+      {
+        "path": "src-tauri/src/sync/backfill.rs",
+        "digest": "git:f54c81c6db3bc965a6dd1175d68811eb4a8a769b"
+      },
+      {
+        "path": "src-tauri/src/sync/outbox.rs",
+        "digest": "git:eaaa3a6cd98822745f249919b4ba150f0c277297"
+      },
+      {
+        "path": "src-tauri/src/tasks.rs",
+        "digest": "git:b76edcf2d6930497cd959581e72c001dd9db6111"
+      },
+      {
+        "path": "src-tauri/src/tauri_run.rs",
+        "digest": "git:88aaaf7dcae93170e9715a584febb52b53d91ddb"
+      },
+      {
+        "path": "src-tauri/src/translate.rs",
+        "digest": "git:f0e03ea0f92cc71aad43844a6e9e8f2cad4eb6cc"
+      },
+      {
+        "path": "src-tauri/src/trust.rs",
+        "digest": "git:81e9f29744e3e81bb570251eb579f41b4b11c40c"
+      },
+      {
+        "path": "src-tauri/src/trust/tests.rs",
+        "digest": "git:a8a0d1c3c97251af0ab52e9ae8cf442392176eb6"
+      },
+      {
+        "path": "src-tauri/src/webimg.rs",
+        "digest": "git:b0aeca5a52a32e6d2d086e404896867026661e35"
+      },
+      {
+        "path": "src-tauri/src/webimg/dimensions.rs",
+        "digest": "git:56e97f154703935daa4cd474d932f90dae88df90"
+      },
+      {
+        "path": "src-tauri/src/webimg/placeholder.rs",
+        "digest": "git:ffabf462be5ba792c7b58cafdd0693efbd45bc2a"
+      },
+      {
+        "path": "src-tauri/src/webimg/tests.rs",
+        "digest": "git:51c0caf4e325b25ea12b73aa1ee052f0743bd883"
+      },
+      {
+        "path": "src-tauri/src/webimg/trackers.rs",
+        "digest": "git:2d872b91c454b64bf7ee2ec5aa5024f27b77efd8"
+      },
+      {
+        "path": "src-tauri/src/webimg/validate.rs",
+        "digest": "git:76739d48e0dcc7897083afec4bebde2e9d4bb121"
+      },
+      {
+        "path": "src-tauri/src/webview_idle.rs",
+        "digest": "git:964452500450c7a178bfdacc1bc23749cefd66d7"
+      },
+      {
+        "path": "src-tauri/src/windows_security.rs",
+        "digest": "git:0f3baf50550d2153f69481e7d39e03bc071afd0c"
+      },
+      {
+        "path": "src-tauri/tests/logs_contract.rs",
+        "digest": "git:dbbb5d17763b1d91bb79804a459b97244d3ae68f"
+      },
+      {
+        "path": "src/App.tsx",
+        "digest": "git:91dbccedf6843c2f7e2e918305eda084d9c0086f"
+      },
+      {
+        "path": "src/AppLazyViews.tsx",
+        "digest": "git:a87ad3f65f9d770db043d0cfb0d3cad03916208d"
+      },
+      {
+        "path": "src/AppMainContent.tsx",
+        "digest": "git:23ca3c7d56d8a948d6bd6af6b89c4f69019622e6"
+      },
+      {
+        "path": "src/components/AccountSwitcher.tsx",
+        "digest": "git:19659907935ebe712b77e07b27bf7cc3d0e583c3"
+      },
+      {
+        "path": "src/components/AppLockOverlay.tsx",
+        "digest": "git:e39bc2c3c02049e2cfcf5074d87e8f51b71eed75"
+      },
+      {
+        "path": "src/components/AppOverlays.tsx",
+        "digest": "git:4030c230ea8428f21a980da6c65b408b61a7dbec"
+      },
+      {
+        "path": "src/components/AppSearchTopbar.tsx",
+        "digest": "git:e1e2bc2956e367556477cf4d9252ac45c14e9b54"
+      },
+      {
+        "path": "src/components/AttachmentPdfPreview.tsx",
+        "digest": "git:e9e3de12443f692671375b0e9e2bf3770e001f35"
+      },
+      {
+        "path": "src/components/AttachmentPreviewModal.tsx",
+        "digest": "git:833e6c42fccbb0734e968deb545d7ab81a00657c"
+      },
+      {
+        "path": "src/components/AttachmentTypeIcon.tsx",
+        "digest": "git:f12458406bb98e3494dcd97262725141dfafb2a9"
+      },
+      {
+        "path": "src/components/ComposeEditor.tsx",
+        "digest": "git:ea044e20506159fcd1965d4ca57a5601c1188570"
+      },
+      {
+        "path": "src/components/EmailFrame.tsx",
+        "digest": "git:6513109a3bb1bd1121760c750f4995946340b5ce"
+      },
+      {
+        "path": "src/components/ErrorBoundary.tsx",
+        "digest": "git:c99c0fd6f211acf7f83f91e6439c88c124ac316f"
+      },
+      {
+        "path": "src/components/FindBar.tsx",
+        "digest": "git:fbd16e1f7b8f132041e2bcd7195dbc03a242940b"
+      },
+      {
+        "path": "src/components/Icons.tsx",
+        "digest": "git:d1f0244ce900992d596c4e83b84f936189053a05"
+      },
+      {
+        "path": "src/components/LegalAcceptance.tsx",
+        "digest": "git:2575c9e4f33013d7cef36b145fd16118e8bf09d6"
+      },
+      {
+        "path": "src/components/LegalGate.tsx",
+        "digest": "git:ff6608cc46fa8b6eeb80334c0aac0f21c399e37d"
+      },
+      {
+        "path": "src/components/RecipientField.tsx",
+        "digest": "git:96ea886562fef9b4b1bd2e5c0d3be8e728574576"
+      },
+      {
+        "path": "src/components/ShortcutHelpOverlay.tsx",
+        "digest": "git:2cfe2fe7abd1682ad2250f251ea2a1a3e7684127"
+      },
+      {
+        "path": "src/components/Skeleton.tsx",
+        "digest": "git:3ed382aad389a7d982137ff8cc205522c29ea45e"
+      },
+      {
+        "path": "src/components/TitleBar.tsx",
+        "digest": "git:94cbab26672651613320d6750edca5f3e2971ec5"
+      },
+      {
+        "path": "src/hooks/dialog.ts",
+        "digest": "git:237b8d45158d3885a5a2cca30f111c0f3fa8dfc8"
+      },
+      {
+        "path": "src/hooks/useAppDataEffects.ts",
+        "digest": "git:4b8b25ed2a34e97a68a28150109bac166d4d6e63"
+      },
+      {
+        "path": "src/hooks/useAppEventBindings.ts",
+        "digest": "git:7683a976cd4b5118b529058569b88191052fe2b5"
+      },
+      {
+        "path": "src/hooks/useAppSwitcherShortcuts.tsx",
+        "digest": "git:8644b47f0ae7a3004fa868d7c877974b92fd1267"
+      },
+      {
+        "path": "src/hooks/useCompose.tsx",
+        "digest": "git:e7bf35bfaa7e12ac2ffc67604d9630678190eb6a"
+      },
+      {
+        "path": "src/hooks/useDialog.tsx",
+        "digest": "git:4213ba2ddc845fce2e6502603c305dbb1253a9ed"
+      },
+      {
+        "path": "src/hooks/useDrive.tsx",
+        "digest": "git:e42e7d4e238da436c0dc7c4fa43fcf12f4ae4eff"
+      },
+      {
+        "path": "src/hooks/useImageTrust.ts",
+        "digest": "git:6c9fd08e2a8776d78ec579131aba73656e978627"
+      },
+      {
+        "path": "src/hooks/useInboxAttachmentPreview.ts",
+        "digest": "git:16b13de0ba2aaff8050a9a4390621f6edd6e51eb"
+      },
+      {
+        "path": "src/hooks/useKeyboardShortcuts.tsx",
+        "digest": "git:fedd19da376fc4e924a659fcb57b97a3fd98bf64"
+      },
+      {
+        "path": "src/hooks/useLabelActions.tsx",
+        "digest": "git:ceb6916f17d1c36a004f87a2a1ba1376280cf570"
+      },
+      {
+        "path": "src/hooks/useNewMailPoll.tsx",
+        "digest": "git:55e30a18bd4bfff437f1b337da2d5577b485da70"
+      },
+      {
+        "path": "src/hooks/useReaderFindProvider.ts",
+        "digest": "git:83c97ab5746514a15b05990efa8acd95f3f73bbe"
+      },
+      {
+        "path": "src/hooks/useRemoteImages.tsx",
+        "digest": "git:14616eb901ee6327692cf4a6eed74350217733d0"
+      },
+      {
+        "path": "src/hooks/useSearchCoverage.tsx",
+        "digest": "git:f887f4a5434ea7796e0752575817395d13e255f0"
+      },
+      {
+        "path": "src/hooks/useSearchRouting.tsx",
+        "digest": "git:e04b894c6f6f930c90cc3d9df19786c730b20f4c"
+      },
+      {
+        "path": "src/hooks/useSend.tsx",
+        "digest": "git:3899267cfb286d3e01ce4b21a587c080d2d35f5c"
+      },
+      {
+        "path": "src/hooks/useSettings.tsx",
+        "digest": "git:afcead94a5a3422fe7cc73e9c45cef6837c29f1b"
+      },
+      {
+        "path": "src/hooks/useThreadView.tsx",
+        "digest": "git:eaa70587c451bca66ad7885403b72808d0002377"
+      },
+      {
+        "path": "src/lib/a11y.ts",
+        "digest": "git:e61d11d4aea54d4b100e9bb19c017d45704e2de3"
+      },
+      {
+        "path": "src/lib/attachmentTypes.ts",
+        "digest": "git:3cd7e4016eb95adf4189fd1548c32220c1d8d8c1"
+      },
+      {
+        "path": "src/lib/auth.ts",
+        "digest": "git:2f65efa042bffb0fbf048148f3d0bd1b110cad7e"
+      },
+      {
+        "path": "src/lib/calendarUtils.ts",
+        "digest": "git:3c9e54e8d32de2654c45e942f4cdb8f72412943b"
+      },
+      {
+        "path": "src/lib/debounce.ts",
+        "digest": "git:2b6be6551c8107c1d67977b4c135dec5b3fc89d2"
+      },
+      {
+        "path": "src/lib/deferredRefresh.ts",
+        "digest": "git:eb7b3da55f76bd739fa87f1ea06fdee338b8e644"
+      },
+      {
+        "path": "src/lib/folderActions.ts",
+        "digest": "git:3a8df38a9f6c5452cf184ac536bc1b9820290c0a"
+      },
+      {
+        "path": "src/lib/highlightSnippet.ts",
+        "digest": "git:fcfecd633a714d8a4c8e466c14fe6589d8f6c576"
+      },
+      {
+        "path": "src/lib/html.ts",
+        "digest": "git:02bd89c04e4c4831f5cac8c3289cf552ccbd4af9"
+      },
+      {
+        "path": "src/lib/imageTrust.ts",
+        "digest": "git:18c29c597c7a56cd230611e98a4a51853fde0a64"
+      },
+      {
+        "path": "src/lib/ipc.ts",
+        "digest": "git:f608d12189c7abf79a99d47680217c15a47aa370"
+      },
+      {
+        "path": "src/lib/ipc/attachments.ts",
+        "digest": "git:9fe8efd2cafc602d3280c2a1619fbb2d39da20eb"
+      },
+      {
+        "path": "src/lib/ipc/compose.ts",
+        "digest": "git:0481a82db5de096bf56d4771919dc147ada46a6a"
+      },
+      {
+        "path": "src/lib/ipc/invoke.ts",
+        "digest": "git:4384169e3ec9c21ac23357d877103bafabc0edf3"
+      },
+      {
+        "path": "src/lib/ipc/legal.ts",
+        "digest": "git:f962bd107915775dfd6d015d9bf9deb623a407b6"
+      },
+      {
+        "path": "src/lib/ipc/mail.ts",
+        "digest": "git:df7dee7291f1cea19dd2f33589115e8c74b25f40"
+      },
+      {
+        "path": "src/lib/ipc/people.ts",
+        "digest": "git:8a4bfdb39fc8602e2a33e40a000eab7afe59f23f"
+      },
+      {
+        "path": "src/lib/ipc/pro.ts",
+        "digest": "git:3f21e1caee185a07287adfb1300690e75daceb71"
+      },
+      {
+        "path": "src/lib/ipc/qaGate.ts",
+        "digest": "git:4af97200b04aaa5fc0ee9fd2389fc6332ccaf8ab"
+      },
+      {
+        "path": "src/lib/ipc/qaMock.ts",
+        "digest": "git:696bbd87bfae4698f0ec17c7cfc5a0b40fcd268c"
+      },
+      {
+        "path": "src/lib/ipc/qaMockData.ts",
+        "digest": "git:93e363a08d2b1e531412ca271bd0ae7358be0039"
+      },
+      {
+        "path": "src/lib/ipc/qaMockMail.ts",
+        "digest": "git:551dcb046d42207d1e9580c8c7e221ac51253a34"
+      },
+      {
+        "path": "src/lib/ipc/qaMockTypes.ts",
+        "digest": "git:6a4d266a18634f0435f26fde00eadfd199438521"
+      },
+      {
+        "path": "src/lib/ipc/qaMockWorkspace.ts",
+        "digest": "git:ac961c49603d8eceb3910c4fe6ae7fc6db25933c"
+      },
+      {
+        "path": "src/lib/ipc/secure.ts",
+        "digest": "git:cf8aba4e922576b9e8f2740640aecb04008b25dd"
+      },
+      {
+        "path": "src/lib/ipc/system.ts",
+        "digest": "git:eae9de62b2a20aafed75ca987769c7241722098a"
+      },
+      {
+        "path": "src/lib/ipc/workspace.ts",
+        "digest": "git:dca4982ef2c288f1bfe736d2c84ac3d122392c6c"
+      },
+      {
+        "path": "src/lib/legal.ts",
+        "digest": "git:bf5d2d99d5a59323aeb77dbc68d51d47ee808f22"
+      },
+      {
+        "path": "src/lib/license.ts",
+        "digest": "git:269999b8db05f358137119208f1a2f2673d0c94b"
+      },
+      {
+        "path": "src/lib/mail.ts",
+        "digest": "git:3104ef260229df948f91eff1f1bd3dab3c73993c"
+      },
+      {
+        "path": "src/lib/perfMonitor.ts",
+        "digest": "git:eb353c37d7d3b59535abfd4cbf0bb3daf3afacf9"
+      },
+      {
+        "path": "src/lib/platform.ts",
+        "digest": "git:57c8705ba288420658e9647084975fb2981680b7"
+      },
+      {
+        "path": "src/lib/preferences.ts",
+        "digest": "git:a10fba5ac8a281d545cb41d484760a17d3bda2fb"
+      },
+      {
+        "path": "src/lib/savedSearches.ts",
+        "digest": "git:45aa19012def12946494a86578eb98aa53fafd93"
+      },
+      {
+        "path": "src/lib/searchCoverage.ts",
+        "digest": "git:95ea254bd73d311228458131a0439c0fa441ed7f"
+      },
+      {
+        "path": "src/lib/searchRouting.ts",
+        "digest": "git:694cf686885832e894f5a15470ff94484aeb1940"
+      },
+      {
+        "path": "src/lib/searchUtils.ts",
+        "digest": "git:d6170dbeeb0c63083dc36e66ae0fec4384fb941c"
+      },
+      {
+        "path": "src/lib/shortcuts.ts",
+        "digest": "git:e30e170b3653566c4f8ad476f4fa1622a8f5fd66"
+      },
+      {
+        "path": "src/lib/sound.ts",
+        "digest": "git:cc746d961cd8578d5fb19cb5b640ebf5a05e7519"
+      },
+      {
+        "path": "src/lib/syncReloadGate.ts",
+        "digest": "git:2796676c34b7296f323511b17a87722ef1fa11fe"
+      },
+      {
+        "path": "src/lib/telemetry.ts",
+        "digest": "git:b6be68d44a17063aca4df15422e56e305f020dea"
+      },
+      {
+        "path": "src/lib/theme.ts",
+        "digest": "git:6011736a923ad31d5135a369087f9806354cb6a3"
+      },
+      {
+        "path": "src/lib/updateAuth.ts",
+        "digest": "git:2f5b87e95d39334739e4f72ffb10168e69a2d395"
+      },
+      {
+        "path": "src/lib/vcard.ts",
+        "digest": "git:5650a170bcbc3f6c5762090eaf910682e796b770"
+      },
+      {
+        "path": "src/main.tsx",
+        "digest": "git:05a2bb5f41839d28788e18f16f7518a07b7caa5c"
+      },
+      {
+        "path": "src/store/actions/compose.ts",
+        "digest": "git:a8029b79ce4a5fc0397a655b981c680345333bf8"
+      },
+      {
+        "path": "src/store/actions/mail.ts",
+        "digest": "git:cf9b02b4e590f447e36f572419b316c3c0b1199b"
+      },
+      {
+        "path": "src/store/actions/mail/helpers.ts",
+        "digest": "git:42bb2670f4df7dd89417d60194b483a70331d128"
+      },
+      {
+        "path": "src/store/actions/mail/openThread.ts",
+        "digest": "git:6f8035bb36ede8d291a1d59f0d74c64650dad469"
+      },
+      {
+        "path": "src/store/actions/mail/refresh.ts",
+        "digest": "git:61aef68b68ad88da663c2a0090c95e27030d1393"
+      },
+      {
+        "path": "src/store/actions/ui.ts",
+        "digest": "git:a463d3728e90906ad7e6eb377983eb15e5d4d18b"
+      },
+      {
+        "path": "src/store/fields.ts",
+        "digest": "git:1650f3e649f015bede0988dadb77eee189cb7598"
+      },
+      {
+        "path": "src/store/index.ts",
+        "digest": "git:364cc1df2ce664a22798047dea5a681f88d7e537"
+      },
+      {
+        "path": "src/store/mk.ts",
+        "digest": "git:f631109f559ce7cd7ca87dbe9055bc4d008335a7"
+      },
+      {
+        "path": "src/store/types.ts",
+        "digest": "git:58ef303c4adec4bce1d3e4744dc0c5b69be2c2f0"
+      },
+      {
+        "path": "src/views/CalendarEventFormModal.tsx",
+        "digest": "git:dd1e62ec277d582dc71c7ebb98d290752a7a6295"
+      },
+      {
+        "path": "src/views/CalendarEventPopover.tsx",
+        "digest": "git:7b9c8f70829bf6ca922b92d3122aa3cf5f68f7a0"
+      },
+      {
+        "path": "src/views/CalendarGrids.tsx",
+        "digest": "git:e546be1a1af4bc3a4db1aefdec4b4b02c4e87ffa"
+      },
+      {
+        "path": "src/views/CalendarView.tsx",
+        "digest": "git:34776a01f7a76ba7028b5e79bd5c40def67a0d43"
+      },
+      {
+        "path": "src/views/ComposeView.tsx",
+        "digest": "git:e8fe535029750f5edb2dde22fe07e7c3af8bc95f"
+      },
+      {
+        "path": "src/views/ContactsView.tsx",
+        "digest": "git:9c600d9daee814e6287440ae325dd5608fdc64eb"
+      },
+      {
+        "path": "src/views/ContactsView.types.ts",
+        "digest": "git:2c50c31c9115b951d36c0c6b51bc4925fdc9d12c"
+      },
+      {
+        "path": "src/views/driveFileGlyph.ts",
+        "digest": "git:9c42ab2b9081bc4cd117f7a7b994e6a36c2ea24d"
+      },
+      {
+        "path": "src/views/DriveFileMenu.tsx",
+        "digest": "git:97019ca6c6819b440c8abd458c2b205612eaaa60"
+      },
+      {
+        "path": "src/views/DrivePreviewModal.tsx",
+        "digest": "git:4ec4dfc1bb17ca4b8e6bede97184310564cdbd86"
+      },
+      {
+        "path": "src/views/DriveView.tsx",
+        "digest": "git:6d2f7ab5df8ac92207ab8c3b83c79f308011fe5d"
+      },
+      {
+        "path": "src/views/InboxCategoryTabs.tsx",
+        "digest": "git:820d49b2ab4cadc042f42a26eae74cf4e40893b9"
+      },
+      {
+        "path": "src/views/InboxEmptyState.tsx",
+        "digest": "git:489c0fcfdc12ab401a1a7faa236eb426a757cded"
+      },
+      {
+        "path": "src/views/InboxFolderBanner.tsx",
+        "digest": "git:a0141a6ff441bbc3ab3e9e0aebbd1f7f488d31af"
+      },
+      {
+        "path": "src/views/InboxSearchChips.tsx",
+        "digest": "git:65069468dcdd3c173f105b12b8413c0a70b3fce0"
+      },
+      {
+        "path": "src/views/InboxThreadRow.tsx",
+        "digest": "git:b45a5f10282d8fa11476958c3a8ee0c02ec1a587"
+      },
+      {
+        "path": "src/views/InboxToolbar.tsx",
+        "digest": "git:c26a80a82dcd0ef276b533632780cc50c660e921"
+      },
+      {
+        "path": "src/views/InboxView.tsx",
+        "digest": "git:e44c71d5c997d725ffc8da2539dd9eac74592da4"
+      },
+      {
+        "path": "src/views/InboxVirtualList.tsx",
+        "digest": "git:3409ccb7b9c5d93abeb797e65c04b41ef02f1f43"
+      },
+      {
+        "path": "src/views/MeetView.tsx",
+        "digest": "git:5ce2f3cdf57ab2353ab078e799f05e83d7cf155a"
+      },
+      {
+        "path": "src/views/nav/CalendarNav.tsx",
+        "digest": "git:7cd08ba2b63bd732fc599104ba4465f80555f316"
+      },
+      {
+        "path": "src/views/nav/ContactsNav.tsx",
+        "digest": "git:e913fdd2dabb5847a365e2bf3d8ab6e4618497db"
+      },
+      {
+        "path": "src/views/nav/DriveNav.tsx",
+        "digest": "git:59ee73d86340a95a6e28e89ebeefe530edd81efa"
+      },
+      {
+        "path": "src/views/nav/TasksNav.tsx",
+        "digest": "git:ae86270a52b0f54f4f02c49427aa7a1d30966eae"
+      },
+      {
+        "path": "src/views/ReaderMessage.tsx",
+        "digest": "git:666d9f2393f7b4ab6e4aac3b6888485c1e4bc2b7"
+      },
+      {
+        "path": "src/views/ReaderMoreMenu.tsx",
+        "digest": "git:491e595b8f6701749059eb0027f7e089843399c0"
+      },
+      {
+        "path": "src/views/ReaderToolbar.tsx",
+        "digest": "git:e4a1792cbcaca572675770b1e35dba38dfee0106"
+      },
+      {
+        "path": "src/views/ReaderView.tsx",
+        "digest": "git:cfff0c81ecc46fa301f6055b51765614cb9abde7"
+      },
+      {
+        "path": "src/views/SearchCoverageBanner.tsx",
+        "digest": "git:be94433878b54f1655dee58e950cc36433086d0f"
+      },
+      {
+        "path": "src/views/SettingsAccountsSection.tsx",
+        "digest": "git:93867a99d49c274745b57a2bb434318a790c591c"
+      },
+      {
+        "path": "src/views/SettingsAdvancedSection.tsx",
+        "digest": "git:2f116053240aba2bab7159d4f34082e7583fd1e4"
+      },
+      {
+        "path": "src/views/SettingsAppearanceSection.tsx",
+        "digest": "git:383acd9e5bde066521d0e9a8b430a38531a1c9c0"
+      },
+      {
+        "path": "src/views/SettingsComposeDefaultsSection.tsx",
+        "digest": "git:006b76e7a593a65e3a0a6d2be3e3d26296eaa5a9"
+      },
+      {
+        "path": "src/views/SettingsComposeExtrasSection.tsx",
+        "digest": "git:a9786ff57d2a7958c8879d938f93a8c387fe3c77"
+      },
+      {
+        "path": "src/views/SettingsCredentialsSection.tsx",
+        "digest": "git:944f401c846ba8a4a44bb5b848f1f5024bb830e0"
+      },
+      {
+        "path": "src/views/SettingsDiagnosticsSection.tsx",
+        "digest": "git:2480a8c7a9fc1aefd7d05f35d428cdd918a0880b"
+      },
+      {
+        "path": "src/views/SettingsFilterSection.tsx",
+        "digest": "git:2b575171b9f9dc79aae4c288477e5cd0d5b4f731"
+      },
+      {
+        "path": "src/views/SettingsLicenseSection.tsx",
+        "digest": "git:2522ddeac290ba69e46b4adc5e64312aa160e2f5"
+      },
+      {
+        "path": "src/views/SettingsMailSection.tsx",
+        "digest": "git:c72d4587da31271416d130d4c57bf7c2f4a170f6"
+      },
+      {
+        "path": "src/views/SettingsNotificationsSection.tsx",
+        "digest": "git:ebf0eec9f6a34a4d1245eb00747f968be9657ee5"
+      },
+      {
+        "path": "src/views/SettingsPrivacySection.tsx",
+        "digest": "git:f6d4bc537f4c6c9e3260cb49ba0afbaa011798b1"
+      },
+      {
+        "path": "src/views/SettingsShortcutsSection.tsx",
+        "digest": "git:29bf8787740bb9abbc80d9ca32138e8c67db4a3f"
+      },
+      {
+        "path": "src/views/SettingsView.tsx",
+        "digest": "git:e930ac1c3bb15af62269bbc097793562fc4fa1cd"
+      },
+      {
+        "path": "src/views/Sidebar.tsx",
+        "digest": "git:ae1013dae49cd88bec9e8008c1bbdb375d897fa3"
+      },
+      {
+        "path": "src/views/TasksView.tsx",
+        "digest": "git:c87c65d770218fdd0ee6b670d9d003c804877f5b"
+      },
+      {
+        "path": "src/vite-env.d.ts",
+        "digest": "git:11f02fe2a0061d6e6e1f271b21da95423b448b32"
+      },
+      {
+        "path": "tests/appSwitcherShortcuts.test.ts",
+        "digest": "git:6da3e8c9b844b36d22eaf61b5145fed8a02ba94e"
+      },
+      {
+        "path": "tests/architecture.test.ts",
+        "digest": "git:8146a5819ae455b30146f35603e765803704a4d9"
+      },
+      {
+        "path": "tests/attachmentTypes.test.ts",
+        "digest": "git:4ca1243cab5774256911cf42498d8911b9a2dd5d"
+      },
+      {
+        "path": "tests/auth.test.ts",
+        "digest": "git:233b0f0a625ee048c4d8b9e59bc1aff6b9b5756f"
+      },
+      {
+        "path": "tests/composeActions.test.ts",
+        "digest": "git:5d9e6ca0dfff483b8c0bcd82f0833510360a6030"
+      },
+      {
+        "path": "tests/cssOwnerInventory.test.ts",
+        "digest": "git:c86f81a8c70ec385473b346a24198538b2d0f1b9"
+      },
+      {
+        "path": "tests/debounce.test.ts",
+        "digest": "git:06cf65481e7763213bb269c2160f7bbe6f557d15"
+      },
+      {
+        "path": "tests/deferredRefresh.test.ts",
+        "digest": "git:75432db828173a01e438c953b773863a9bd81282"
+      },
+      {
+        "path": "tests/folderActions.test.ts",
+        "digest": "git:abcedb1fcf5fdcae1b6d06acdaf062810023e07d"
+      },
+      {
+        "path": "tests/highlightSnippet.test.ts",
+        "digest": "git:7506b9e9dd92fb6956342864647fa6d4063f59b1"
+      },
+      {
+        "path": "tests/imageTrust.test.ts",
+        "digest": "git:292c33139e3208fe35a857a0babee9ab3197df23"
+      },
+      {
+        "path": "tests/licenseUpdates.test.ts",
+        "digest": "git:7c48cd53eef892b4d3165c5c795fd549b86557e6"
+      },
+      {
+        "path": "tests/openThreadAction.test.ts",
+        "digest": "git:a743dece549a3717824b17b6d2d02238d1563ceb"
+      },
+      {
+        "path": "tests/perfMonitor.test.ts",
+        "digest": "git:c1830d7559c227875440fcb397b6b036aa8bd9ed"
+      },
+      {
+        "path": "tests/qaInvoke.test.ts",
+        "digest": "git:8a3c58ec1d02cc168254ea054860f74832fb9b7b"
+      },
+      {
+        "path": "tests/readerToolbarCss.test.ts",
+        "digest": "git:ad7a551bf62ac10be40b0a267125e38fac7502ba"
+      },
+      {
+        "path": "tests/refreshTail.test.ts",
+        "digest": "git:b5bed1eebbe56045df12c203ed542e1268c5ada1"
+      },
+      {
+        "path": "tests/savedSearches.test.ts",
+        "digest": "git:d3d733cc3a4340b81c82dc4e32a9b867b42b6545"
+      },
+      {
+        "path": "tests/searchCoverage.test.ts",
+        "digest": "git:4b33f39c2800931017787f6a1105698de90bacec"
+      },
+      {
+        "path": "tests/searchRouting.test.ts",
+        "digest": "git:367e1fd08c281f3e18e77fe31ae47b03ff2b5f28"
+      },
+      {
+        "path": "tests/settingsLicenseUpdates.test.ts",
+        "digest": "git:59f936d47363388c9c7052fe819e56f77387d366"
+      },
+      {
+        "path": "tests/shortcutFocusGuard.test.ts",
+        "digest": "git:c8c75f0186b1f3fb3288bd1736c9b2b4fd7a1dd1"
+      },
+      {
+        "path": "tests/shortcutHelpOverlay.test.ts",
+        "digest": "git:e23d52baab7f62bdc690c1cf56dd26fd3ce31c78"
+      },
+      {
+        "path": "tests/shortcutRegistry.test.ts",
+        "digest": "git:5e087710201c32f4018e356320ec8f4599167e2c"
+      },
+      {
+        "path": "tests/syncReloadGate.test.ts",
+        "digest": "git:8602eb459c1c41425a04a30ece420a58bb89dbf5"
+      },
+      {
+        "path": "tests/telemetry.test.ts",
+        "digest": "git:1f13995377c0c668506590546780cc85e44dedef"
+      },
+      {
+        "path": "tests/vcard.test.ts",
+        "digest": "git:ec4ee32f9d5b5952997b7151369db63ae9d550b6"
+      },
+      {
+        "path": "vite.config.ts",
+        "digest": "git:8b0f4f55d1e85351a9d75d52b323ddc5434431bc"
+      },
+      {
+        "path": "workers/waitlist/package.json",
+        "digest": "git:2c01f5792eeb3a036df99b18bbad00b3fb393ce3"
+      },
+      {
+        "path": "workers/waitlist/src/index.ts",
+        "digest": "git:922852b7562576020fb780d86073803f431083ea"
+      }
+    ],
+    "coverage": [
+      {
+        "path": "pnpm-lock.yaml",
+        "status": "unscanned",
+        "reason": "lockfile-root-unresolved",
+        "detail": "workers/waitlist/package.json"
+      }
+    ],
+    "pathBase": "repository",
+    "pathPrefix": "",
+    "roots": [
+      {
+        "root": ".",
+        "metadata": {
+          "repositoryIdentity": "https://github.com/bogusyogi/mailright",
+          "commit": "4deba6349d33cb8e6309ad943517a4c0fde518b5",
+          "tree": "42b462b62a2300ed26cb33f45c9f07aadbbd7289",
+          "host": "Adrians-Mac-Mini.local/darwin",
+          "scannedAt": "2026-10-10T06:30:57.802Z",
+          "catalogDigest": "a7121f96d42457024f465e7da5f41d83f12971eff2988a9752ea557209317f84",
+          "catalogVersion": "3.0.0",
+          "scannerVersion": "2.6.0",
+          "contentDigests": [
+            {
+              "path": "eslint.config.js",
+              "digest": "git:f8c6b61e09840ff1639b570e38e142f89d6f87ef"
+            },
+            {
+              "path": "package.json",
+              "digest": "git:d169935292d504b02cd18b67e6117bcb6095eb0f"
+            },
+            {
+              "path": "pnpm-lock.yaml",
+              "digest": "8454d4730a6618d5e025b81823c9adcae1bd660575416d726b819d54819e1321"
+            },
+            {
+              "path": "qa/native/smoke.e2e.mjs",
+              "digest": "git:1bd80c3036c72cd20943d840ca82e9adeb07d04e"
+            },
+            {
+              "path": "right-qa.config.mjs",
+              "digest": "git:da1e1dc5159ada841917087249e51076d185857f"
+            },
+            {
+              "path": "right-release.config.mjs",
+              "digest": "git:a51e44d3e056fa0b5a85bbde7ee7f7162f954916"
+            },
+            {
+              "path": "scripts/assert-mac-release-contract.mjs",
+              "digest": "git:a4a0a8c6d0674acf7c17050f17bcf7aa981cfaf5"
+            },
+            {
+              "path": "scripts/check-tailwind-probe.ts",
+              "digest": "git:85908d30255bd3e78fb252c334df99c19d698ae7"
+            },
+            {
+              "path": "scripts/check-theme-contrast.ts",
+              "digest": "git:597d184a0cbc75c219c5501bf841b521e7b1180a"
+            },
+            {
+              "path": "scripts/check-token-colors.ts",
+              "digest": "git:49ee48c641e02d4c93e8bbbd7c8ef2eb65270265"
+            },
+            {
+              "path": "scripts/css-owner-inventory.ts",
+              "digest": "git:b454a8a24bf646f82a87abb3bb52cb46f55fb64e"
+            },
+            {
+              "path": "scripts/fetch-embed-model.mjs",
+              "digest": "git:2a79bf247debe4d3c44f2393a2d66e8c178cfd4a"
+            },
+            {
+              "path": "scripts/generate-macos-dmg-background.mjs",
+              "digest": "git:d931fa0b385737994147f6d697cc70138f58fde9"
+            },
+            {
+              "path": "scripts/generate-macos-dmg-background.py",
+              "digest": "git:1e0c9b169df32b5738f577815990bd8224442217"
+            },
+            {
+              "path": "scripts/generate-mailright-icons.mjs",
+              "digest": "git:893b45736c7aca8944b4327fcca7f9a4919bf492"
+            },
+            {
+              "path": "scripts/generate-mailright-icons.py",
+              "digest": "git:e4b69e0164f09fd7622e3aa4144be3a0e6ea2281"
+            },
+            {
+              "path": "scripts/generate-npm-license-appendix.mjs",
+              "digest": "git:ee26073b5ec508771c362c1da3f51989ec8afc99"
+            },
+            {
+              "path": "scripts/lib/branded-dmg.mjs",
+              "digest": "git:af22f2018d035a6c9e0cf995ef4c28d9ab6b1fc1"
+            },
+            {
+              "path": "scripts/lib/target-root.mjs",
+              "digest": "git:00f89ba6578d7949d17e2a9c355c30e6e433f3e8"
+            },
+            {
+              "path": "scripts/mac-dmg.mjs",
+              "digest": "git:d5d03184fbc8363c0efdbe80e2943ce00b867d1b"
+            },
+            {
+              "path": "scripts/qa-browser-stop.mjs",
+              "digest": "git:878dfa03f574c0cc0b818be0db014b51b19bb028"
+            },
+            {
+              "path": "scripts/qa-browser.mjs",
+              "digest": "git:7ab7362a1344136303c06aae3672602e741ea5ff"
+            },
+            {
+              "path": "scripts/test-legal-acceptance-contract.mjs",
+              "digest": "git:d3f74e94b52454e56b42e7e30374bcb1a7230684"
+            },
+            {
+              "path": "scripts/test-legal-release-gate.mjs",
+              "digest": "git:c8f75950b5ba89e565da338f6b93a88e3d0feab3"
+            },
+            {
+              "path": "scripts/verify-aggregate-contract.test.mjs",
+              "digest": "git:f71589d2eab69ff183370dc8cf55de02b6795be5"
+            },
+            {
+              "path": "src-tauri/build.rs",
+              "digest": "git:3d03fe5d01c6d9cc64ad1138980621f6c493e7cc"
+            },
+            {
+              "path": "src-tauri/Cargo.lock",
+              "digest": "a430df0aec6ef83d61db9d8b31dca135f26320dc5634358beb5cf5dfc820b479"
+            },
+            {
+              "path": "src-tauri/Cargo.toml",
+              "digest": "git:c5dbbd6e88368ae7c93e2c5fa6ae43b479381dd1"
+            },
+            {
+              "path": "src-tauri/src/ai.rs",
+              "digest": "git:a07e1be6c524494820a10e874f54b14154ae10dc"
+            },
+            {
+              "path": "src-tauri/src/app_lock.rs",
+              "digest": "git:c4c0f242db2340b6318f92fc93c9ef8e0e39479e"
+            },
+            {
+              "path": "src-tauri/src/app_lock/tests.rs",
+              "digest": "git:8f508ffae055d7da541625a1136af27bce08deaf"
+            },
+            {
+              "path": "src-tauri/src/attach_cache.rs",
+              "digest": "git:478d807869ad855afc13db167a9a531e6c4072f2"
+            },
+            {
+              "path": "src-tauri/src/attach_cache/tests.rs",
+              "digest": "git:2dd493282c54f0bdce82fb614d6b7112637d7336"
+            },
+            {
+              "path": "src-tauri/src/attachments.rs",
+              "digest": "git:116f41494b1d7ffbe3522850bbda3b9366493781"
+            },
+            {
+              "path": "src-tauri/src/benchmarks.rs",
+              "digest": "git:8f0b7508c29468b84c33b127490a5510fc3a69ee"
+            },
+            {
+              "path": "src-tauri/src/beta_creds_export.rs",
+              "digest": "git:c5d2de0c00454af1baa062703ecd89ae9f916574"
+            },
+            {
+              "path": "src-tauri/src/bin/load_driver.rs",
+              "digest": "git:44d87d180fc5ff489e7d349aca5c84d541d7cbad"
+            },
+            {
+              "path": "src-tauri/src/calendar.rs",
+              "digest": "git:ef0e178bb3dc229c0237df381bc271e199a352f2"
+            },
+            {
+              "path": "src-tauri/src/calendar/mutations.rs",
+              "digest": "git:a65bb1d2aaf2c6211cc6f225a8527e2ce514ec6b"
+            },
+            {
+              "path": "src-tauri/src/calendar/tests.rs",
+              "digest": "git:f6ab2566608562a5df0dcc965e93a31a31c55400"
+            },
+            {
+              "path": "src-tauri/src/commands/db_access.rs",
+              "digest": "git:9dd664a395930acf7f4504e9d5644271f450615d"
+            },
+            {
+              "path": "src-tauri/src/commands/db_health.rs",
+              "digest": "git:a367db62611acd1d2eb9c9c574199729cc2df698"
+            },
+            {
+              "path": "src-tauri/src/commands/legal.rs",
+              "digest": "git:82e3d2c31ebed95848d19223b2118ed14035c76f"
+            },
+            {
+              "path": "src-tauri/src/commands/license_tests.rs",
+              "digest": "git:e51fb62685fd70db1bc155ff8e39566e40fb6855"
+            },
+            {
+              "path": "src-tauri/src/commands/license.rs",
+              "digest": "git:055f92a0d5be5055c76d0f345d421a30656cb8e1"
+            },
+            {
+              "path": "src-tauri/src/commands/mail.rs",
+              "digest": "git:7323f85a659cec7e24d81b01629d338647e1e3eb"
+            },
+            {
+              "path": "src-tauri/src/commands/mail/archive_status.rs",
+              "digest": "git:08c866a7ca4b20bffb0539702677a271419a8df9"
+            },
+            {
+              "path": "src-tauri/src/commands/mail/bulk.rs",
+              "digest": "git:4f8f1d68a4065858191166148724699f83826099"
+            },
+            {
+              "path": "src-tauri/src/commands/mail/compose_assets.rs",
+              "digest": "git:4cb8ce4d188aad78956c7110d4e208bca4396c45"
+            },
+            {
+              "path": "src-tauri/src/commands/mail/compose_assets/send_req.rs",
+              "digest": "git:65ca73814d00b9d9c4a721fd580b011060827e55"
+            },
+            {
+              "path": "src-tauri/src/commands/mail/drafts_commands.rs",
+              "digest": "git:abb4a811d79e085909c1fec75da6c21161e2ae15"
+            },
+            {
+              "path": "src-tauri/src/commands/mail/sync_commands.rs",
+              "digest": "git:aa49e9797b51fd25cdff25f81d215483620213dd"
+            },
+            {
+              "path": "src-tauri/src/commands/mod_tests.rs",
+              "digest": "git:6a05ab21ff864392fc874cb2689bdb0094a2dcb9"
+            },
+            {
+              "path": "src-tauri/src/commands/mod.rs",
+              "digest": "git:71af4402c7acf93f56079df58c866e191c5ac31c"
+            },
+            {
+              "path": "src-tauri/src/commands/people.rs",
+              "digest": "git:c3c8766a22cadf1493ea184f515dd37f0f1e4c80"
+            },
+            {
+              "path": "src-tauri/src/commands/pro.rs",
+              "digest": "git:07fb4e75802f058a01e89aab1757766892ee8dbe"
+            },
+            {
+              "path": "src-tauri/src/commands/runtime_health.rs",
+              "digest": "git:247f5c4ffbd04c28ed4252253373b0461d011326"
+            },
+            {
+              "path": "src-tauri/src/commands/semantic.rs",
+              "digest": "git:d4b24e48dfde28c3ebdb721528750ac66ae28129"
+            },
+            {
+              "path": "src-tauri/src/commands/settings.rs",
+              "digest": "git:eab6787441d389f1f89fa472401eaf0dfbaa69a2"
+            },
+            {
+              "path": "src-tauri/src/commands/settings/filters.rs",
+              "digest": "git:842c11fb6ee333a2eda31b8c7a3205c23c273839"
+            },
+            {
+              "path": "src-tauri/src/commands/settings/gmail_labels.rs",
+              "digest": "git:ce8b03e9b9b73ada9870d17909eae21dcb3dc9b4"
+            },
+            {
+              "path": "src-tauri/src/commands/settings/mail_prefs.rs",
+              "digest": "git:94979dd52c0ef2bd5c05d1803135446ad75eabd6"
+            },
+            {
+              "path": "src-tauri/src/commands/settings/mail_settings.rs",
+              "digest": "git:c9b602605d8bd0e34e895976562f1b158b460b3f"
+            },
+            {
+              "path": "src-tauri/src/commands/telemetry.rs",
+              "digest": "git:2e86c7402cf2bdf5ba771632d4b50ebcabb071b2"
+            },
+            {
+              "path": "src-tauri/src/commands/workspace.rs",
+              "digest": "git:26ec47eef9b6256054d6b21a8e56ce91dd3ac7a1"
+            },
+            {
+              "path": "src-tauri/src/commands/workspace/drive.rs",
+              "digest": "git:b159abedf671927b3fecde8dacfd296d3bbb4a7f"
+            },
+            {
+              "path": "src-tauri/src/credential_store.rs",
+              "digest": "git:ce5b41c807f4248679067a1c41e5cc3df92dfd77"
+            },
+            {
+              "path": "src-tauri/src/db_schema.rs",
+              "digest": "git:be87920a7d30851a426075b79772ed681cf1850f"
+            },
+            {
+              "path": "src-tauri/src/db_sync_apply.rs",
+              "digest": "git:5b0a1e1c240aa664f7fbd8aecc2f1e3a9202c901"
+            },
+            {
+              "path": "src-tauri/src/db_sync_apply/health.rs",
+              "digest": "git:7fdde0dca20f70e435f63daeb4cb1585e73ccc96"
+            },
+            {
+              "path": "src-tauri/src/db.rs",
+              "digest": "git:acc50dfaed31dcbec4ac2f45e823e84dd84f1c8f"
+            },
+            {
+              "path": "src-tauri/src/db/accounts_labels.rs",
+              "digest": "git:5c3d5804ac5d6aa5fd9977b3335992987909b5f2"
+            },
+            {
+              "path": "src-tauri/src/db/accounts_labels/account_removal.rs",
+              "digest": "git:e2ad44a85e5491aea8f1d092452d56d33218066b"
+            },
+            {
+              "path": "src-tauri/src/db/accounts_labels/sync_apply.rs",
+              "digest": "git:c7340acb362eeeb1ba832e22192e40be7c62a7d2"
+            },
+            {
+              "path": "src-tauri/src/db/migrations.rs",
+              "digest": "git:7d8c25014c9b9554eabcc5a725db4e0c0b932d3c"
+            },
+            {
+              "path": "src-tauri/src/db/outbox_contacts.rs",
+              "digest": "git:48c5ec65c4000fd68d5cc0f41eeeaa71587212f8"
+            },
+            {
+              "path": "src-tauri/src/db/pending_ops.rs",
+              "digest": "git:43dc0a56c540466838a3dc96af75b8523e8f5a69"
+            },
+            {
+              "path": "src-tauri/src/db/pragma_optimize.rs",
+              "digest": "git:26c15fa402e48cf347c9cb02b17eb02c62eaee9a"
+            },
+            {
+              "path": "src-tauri/src/db/recipients.rs",
+              "digest": "git:f2d7cf7485a52ab68b47a73e255bf107cd6139df"
+            },
+            {
+              "path": "src-tauri/src/db/search.rs",
+              "digest": "git:47ba279c398d97f19a12a0ee0563d770cfd6b92a"
+            },
+            {
+              "path": "src-tauri/src/db/search/ast_tests.rs",
+              "digest": "git:27628db4f99761001c55eadf4ba6e9321145ef5f"
+            },
+            {
+              "path": "src-tauri/src/db/search/ast.rs",
+              "digest": "git:74fbfcd800da62f383ea9caada22c6c4d2128c3d"
+            },
+            {
+              "path": "src-tauri/src/db/search/attachment_path.rs",
+              "digest": "git:ed4c67eddc6406af2d01f06d6ec9cdc3a2ad3f1d"
+            },
+            {
+              "path": "src-tauri/src/db/search/candidates.rs",
+              "digest": "git:1fde200c735ec9bcc93e951475905140fc71e9b3"
+            },
+            {
+              "path": "src-tauri/src/db/search/enrich.rs",
+              "digest": "git:29806c52fc3fa8c4301a91520f6cd3619f17f895"
+            },
+            {
+              "path": "src-tauri/src/db/search/lexer.rs",
+              "digest": "git:7a9217d6af7a61f01557ea8583ad4a0b93822554"
+            },
+            {
+              "path": "src-tauri/src/db/search/operator_parse.rs",
+              "digest": "git:cc675cdfeb493e7cb2bbbb806b5307e5267b8243"
+            },
+            {
+              "path": "src-tauri/src/db/search/predicates.rs",
+              "digest": "git:28c2d8344f6be2167586f7219dab354aa6eb67bd"
+            },
+            {
+              "path": "src-tauri/src/db/search/query.rs",
+              "digest": "git:46aa4e8ce3615dac1846f0b3ad863ba88092875d"
+            },
+            {
+              "path": "src-tauri/src/db/search/recipient_match.rs",
+              "digest": "git:e613ee2265c58bdd85204edfaac57d88fe48b7fb"
+            },
+            {
+              "path": "src-tauri/src/db/search/scope.rs",
+              "digest": "git:29d6619efff3bf61e22684021bb9c6f01a8b3179"
+            },
+            {
+              "path": "src-tauri/src/db/search/search_terms.rs",
+              "digest": "git:59f61b20a9042189c5c2b54dfc30f85be01261b3"
+            },
+            {
+              "path": "src-tauri/src/db/search/snippet.rs",
+              "digest": "git:e3ab93fd3aed6cab29b30d1c3153e7e1ca5fbbb0"
+            },
+            {
+              "path": "src-tauri/src/db/semantic/embedder.rs",
+              "digest": "git:84e27a81848598106bfcf9da5af71d8f6d465236"
+            },
+            {
+              "path": "src-tauri/src/db/semantic/index.rs",
+              "digest": "git:8a4315f6047fd714821199610bcbfb4ced1806d4"
+            },
+            {
+              "path": "src-tauri/src/db/semantic/mod.rs",
+              "digest": "git:46af435883f6d12f4a38509fc39d95a033c18264"
+            },
+            {
+              "path": "src-tauri/src/db/semantic/query.rs",
+              "digest": "git:e2ba42f48c4d37d6f61f55672e7c2e6dc3e03c7e"
+            },
+            {
+              "path": "src-tauri/src/db/semantic/resolve.rs",
+              "digest": "git:9125a1f4290408023ca9beefaf0d1236a6c56f7c"
+            },
+            {
+              "path": "src-tauri/src/db/semantic/storage.rs",
+              "digest": "git:575ca4c553e66a470135770f29e60942ae91650a"
+            },
+            {
+              "path": "src-tauri/src/db/semantic/vec_ext.rs",
+              "digest": "git:529579212053eca8f1f72f76880ad2273e89616f"
+            },
+            {
+              "path": "src-tauri/src/db/tests.rs",
+              "digest": "git:b7a1aee296d66f467331fd0447845dde9af28ae7"
+            },
+            {
+              "path": "src-tauri/src/db/tests/account_lifecycle_tests.rs",
+              "digest": "git:3fa3b1cf7ab364096b5e2bf4710f52c4a64492bf"
+            },
+            {
+              "path": "src-tauri/src/db/tests/apply_messages_incremental_tests.rs",
+              "digest": "git:d563a43202c23c6f4715cefcceed7a464374a362"
+            },
+            {
+              "path": "src-tauri/src/db/tests/checkpoint_cadence_tests.rs",
+              "digest": "git:c25d243dfc09a4f183bae43a30ce03c79618b43d"
+            },
+            {
+              "path": "src-tauri/src/db/tests/db_tuning_tests.rs",
+              "digest": "git:1e35017127e41b7209a8e59d59d0001684998dd5"
+            },
+            {
+              "path": "src-tauri/src/db/tests/dev_db_dump.rs",
+              "digest": "git:dd7eae27c0717a47ab0e5e1795341e02a4549a58"
+            },
+            {
+              "path": "src-tauri/src/db/tests/fts_rowid_tests.rs",
+              "digest": "git:75b6fde6be69ec04dd91bcea0a3bddc976a5d2ca"
+            },
+            {
+              "path": "src-tauri/src/db/tests/label_sync_tests.rs",
+              "digest": "git:23215aba2eddd1be35101b7bfa77dbef07f85944"
+            },
+            {
+              "path": "src-tauri/src/db/tests/label_sync_tests/delta_tests.rs",
+              "digest": "git:990538a42caa019092a9bea305634ee208c51589"
+            },
+            {
+              "path": "src-tauri/src/db/tests/label_sync_tests/folder_catalog_tests.rs",
+              "digest": "git:12ddea1fa97e7276952dacc03fcb155c61da6a9f"
+            },
+            {
+              "path": "src-tauri/src/db/tests/label_sync_tests/label_catalog_tests.rs",
+              "digest": "git:8d9c0260bd3c5c21b8bd7f0e0fd8e6d290819196"
+            },
+            {
+              "path": "src-tauri/src/db/tests/label_sync_tests/search_attachment_tests.rs",
+              "digest": "git:4aeda54e8a26262604b362462532e2ee37c32fde"
+            },
+            {
+              "path": "src-tauri/src/db/tests/label_sync_tests/search_basic_tests.rs",
+              "digest": "git:0ccf654e6e7cad9356c65526bf2fef4dc3fdec2d"
+            },
+            {
+              "path": "src-tauri/src/db/tests/label_sync_tests/search_operator_tests.rs",
+              "digest": "git:847f868ff486d5e5972b2a207f2b79f3344e6979"
+            },
+            {
+              "path": "src-tauri/src/db/tests/live_diagnostics_tests.rs",
+              "digest": "git:cc45a12f074716b750f795410f6f5b0cdd1fc903"
+            },
+            {
+              "path": "src-tauri/src/db/tests/live_dogfood_helpers.rs",
+              "digest": "git:15dffc6a94ecafdc4f13322063c085fb71dd1893"
+            },
+            {
+              "path": "src-tauri/src/db/tests/live_dogfood_tests.rs",
+              "digest": "git:93151cae613dc8ea2a1ae3432d4595229a358384"
+            },
+            {
+              "path": "src-tauri/src/db/tests/metadata_contact_tests.rs",
+              "digest": "git:38977d06844e62c24fe0521bd5e12f1ae65e4900"
+            },
+            {
+              "path": "src-tauri/src/db/tests/outbox_dump.rs",
+              "digest": "git:318175ca06585570478de80bd9b8c4ad61081b14"
+            },
+            {
+              "path": "src-tauri/src/db/tests/search_data_layer_tests.rs",
+              "digest": "git:3bcfa72884528df73ab599ff73136d1341e81a18"
+            },
+            {
+              "path": "src-tauri/src/db/tests/search_parser_tests.rs",
+              "digest": "git:6a47608f9122a759267d9a76b69844dedcb26372"
+            },
+            {
+              "path": "src-tauri/src/db/tests/sync_lease_tests.rs",
+              "digest": "git:4cd7e57ba4c2a4545534d751ec4aeab8f306cc23"
+            },
+            {
+              "path": "src-tauri/src/db/tests/thread_rollup_tests.rs",
+              "digest": "git:5a6d9f5de343d361c6947ca8d00798bd3afa910c"
+            },
+            {
+              "path": "src-tauri/src/db/threads.rs",
+              "digest": "git:c3f5fe98ca3e92081386fc91113042bcfc82b764"
+            },
+            {
+              "path": "src-tauri/src/db/threads/listing.rs",
+              "digest": "git:464eab85b1503ed4e0e407b8d1d6d6b0ab5c8471"
+            },
+            {
+              "path": "src-tauri/src/db/util.rs",
+              "digest": "git:e667135ac87c8df8e74e783c15915dd5f9277fd6"
+            },
+            {
+              "path": "src-tauri/src/desktop.rs",
+              "digest": "git:f6ff9e225b2aa1169dd7a61f07d6069ee05e3958"
+            },
+            {
+              "path": "src-tauri/src/diag.rs",
+              "digest": "git:fd6ddd043e5911235de3caf0cb2ce95931aca933"
+            },
+            {
+              "path": "src-tauri/src/drafts.rs",
+              "digest": "git:e4fbb7aaacc40d33360996d58fd051380ca17b5d"
+            },
+            {
+              "path": "src-tauri/src/drive.rs",
+              "digest": "git:1b75153dc76bf9d23e6533ffac1614ecbe98b035"
+            },
+            {
+              "path": "src-tauri/src/drive/tests.rs",
+              "digest": "git:7eb620902d329f31d47058308f291cba80baa9ee"
+            },
+            {
+              "path": "src-tauri/src/drive/write.rs",
+              "digest": "git:4ddfd61e64ce7dbf91adb83596a54bcaa4d47394"
+            },
+            {
+              "path": "src-tauri/src/filters.rs",
+              "digest": "git:afc43e7de0ce6b6a7a179bbaff7cbc66d969ff3e"
+            },
+            {
+              "path": "src-tauri/src/gmail.rs",
+              "digest": "git:0e79389577bc5905f85d60777b45ad9af2d85349"
+            },
+            {
+              "path": "src-tauri/src/gmail/batch_fetch.rs",
+              "digest": "git:952f976e6e9f72f07a3a745ef763355a3c57b963"
+            },
+            {
+              "path": "src-tauri/src/gmail/compose_api.rs",
+              "digest": "git:0f0e150724fef6600b245d0acadd4294bf3ae377"
+            },
+            {
+              "path": "src-tauri/src/gmail/history.rs",
+              "digest": "git:281cccea4fccabb4a298a7aa765f2003c232b984"
+            },
+            {
+              "path": "src-tauri/src/gmail/message_fetch.rs",
+              "digest": "git:e48bd6c0cae0b5d210f025484843c4bebef90dca"
+            },
+            {
+              "path": "src-tauri/src/gmail/mime.rs",
+              "digest": "git:5361468b58ce1443ae06faad482957dc0698c676"
+            },
+            {
+              "path": "src-tauri/src/gmail/sync_full.rs",
+              "digest": "git:6d3333d1c6f4d174a16a849a7c287b3bc7244c09"
+            },
+            {
+              "path": "src-tauri/src/gmail/tests.rs",
+              "digest": "git:ce86a47911c559be871670ceeb26ed9490a94bd7"
+            },
+            {
+              "path": "src-tauri/src/gmail/types.rs",
+              "digest": "git:d74e28ffe132936178f0b606919ee47251c56746"
+            },
+            {
+              "path": "src-tauri/src/google.rs",
+              "digest": "git:8bba95bad5cfb93b898dbd1a9bf3efa4e1797023"
+            },
+            {
+              "path": "src-tauri/src/google/backoff.rs",
+              "digest": "git:e5a8bf081cec9071a80f635e66be9af1153ffb4f"
+            },
+            {
+              "path": "src-tauri/src/labels.rs",
+              "digest": "git:7e4ec748f057d77383eab98fa73cebd8b960951d"
+            },
+            {
+              "path": "src-tauri/src/lib.rs",
+              "digest": "git:8b562162720227a79a802e39110db9d3ce512c4a"
+            },
+            {
+              "path": "src-tauri/src/logs.rs",
+              "digest": "git:0263f9b86a56b7553710ad3b44a705b5a48fb8a7"
+            },
+            {
+              "path": "src-tauri/src/mail_settings.rs",
+              "digest": "git:ce1f8358888357cbc11298cab39cd72c711753e3"
+            },
+            {
+              "path": "src-tauri/src/main.rs",
+              "digest": "git:551735370879aacdd51b3793c01d4d43be4b2ce9"
+            },
+            {
+              "path": "src-tauri/src/mcp.rs",
+              "digest": "git:1234f369a5595826e6fd189263a2524a3e033848"
+            },
+            {
+              "path": "src-tauri/src/meet.rs",
+              "digest": "git:2e66b70ca3072e7674f3a5d257d00a41eec569ce"
+            },
+            {
+              "path": "src-tauri/src/oauth.rs",
+              "digest": "git:9f4e99f59ad26cea1b156573a03f2bcb7d8ae1d8"
+            },
+            {
+              "path": "src-tauri/src/people.rs",
+              "digest": "git:44d8040e9b094a9b8732a115a0804456aa59a44f"
+            },
+            {
+              "path": "src-tauri/src/people/contacts.rs",
+              "digest": "git:a20f6e752c8a869ddedca0a83b50d818d8253fac"
+            },
+            {
+              "path": "src-tauri/src/people/groups.rs",
+              "digest": "git:7210d74fe8b0d4e2411e84969b76566e36b9a29a"
+            },
+            {
+              "path": "src-tauri/src/people/recipient_tests.rs",
+              "digest": "git:17c0673e93fc2f4201284d1fa5f0ef05261ef18f"
+            },
+            {
+              "path": "src-tauri/src/people/recipients.rs",
+              "digest": "git:1a0ed8c784498878abd2018dd813b0a70b773074"
+            },
+            {
+              "path": "src-tauri/src/people/tests.rs",
+              "digest": "git:51ed3aef5a2e083a7cd640cca7702a4abc4e5c2a"
+            },
+            {
+              "path": "src-tauri/src/perf_proof/explain.rs",
+              "digest": "git:87c0f6a9ec03bdeda2cfb1f8839fa0a6cf2b944c"
+            },
+            {
+              "path": "src-tauri/src/perf_proof/mod.rs",
+              "digest": "git:de91b9685d1450bcb7da09f7f8b3c86a5fac80e8"
+            },
+            {
+              "path": "src-tauri/src/perf_proof/rekey.rs",
+              "digest": "git:fba8dc3a3231118781feaef5b832ef8014196ed6"
+            },
+            {
+              "path": "src-tauri/src/perf_proof/seed.rs",
+              "digest": "git:94e17d3e236d56e26aad2f5573d0c3c1f218b5ed"
+            },
+            {
+              "path": "src-tauri/src/runtime/bridge_impl.rs",
+              "digest": "git:5606bb8e774a53e64bb8131c04b94c0ba0542faf"
+            },
+            {
+              "path": "src-tauri/src/runtime/bridge.rs",
+              "digest": "git:01cd6d28e98db839c108120696723ee62a63f0fa"
+            },
+            {
+              "path": "src-tauri/src/runtime/events.rs",
+              "digest": "git:58b524b48164a2d28c13cbbde838e143c21ae3f3"
+            },
+            {
+              "path": "src-tauri/src/runtime/health.rs",
+              "digest": "git:3318b43edbee0cd6bed511b1d7d30ead17188a7e"
+            },
+            {
+              "path": "src-tauri/src/runtime/host.rs",
+              "digest": "git:e7ae209d106ce29ac9d00e0ae643f6b53ec8be3b"
+            },
+            {
+              "path": "src-tauri/src/runtime/lock_budget.rs",
+              "digest": "git:0d190e59216fd5a80113c42354ee27a295d636c5"
+            },
+            {
+              "path": "src-tauri/src/runtime/mod.rs",
+              "digest": "git:e828b91c0c34773b5abb6ff47a452c125a27aacc"
+            },
+            {
+              "path": "src-tauri/src/runtime/repos/mod.rs",
+              "digest": "git:3e5122b7e74891487e5114b6854a1a1839a262d8"
+            },
+            {
+              "path": "src-tauri/src/runtime/repos/sqlite.rs",
+              "digest": "git:405d696fe4fe43099856a484bff20fedbd099e05"
+            },
+            {
+              "path": "src-tauri/src/runtime/repos/sqlite/auxiliary.rs",
+              "digest": "git:bb511fea161ec30af5caf9b5213d1c74a11b2bcc"
+            },
+            {
+              "path": "src-tauri/src/runtime/repos/sqlite/lock_holdouts.rs",
+              "digest": "git:38e992a75bafb1ac0b473887107f0d4401369dde"
+            },
+            {
+              "path": "src-tauri/src/runtime/repos/sqlite/read_deadlock_tests.rs",
+              "digest": "git:f8b6a6c1a91ee6255cb9d0666c40c78f248f3652"
+            },
+            {
+              "path": "src-tauri/src/runtime/repos/sqlite/read.rs",
+              "digest": "git:7fad1befed0fce0a3e97d482b294a575679d3caa"
+            },
+            {
+              "path": "src-tauri/src/runtime/service.rs",
+              "digest": "git:4323f30d9edb4d8294dbd87cfdc36cd5f2e412af"
+            },
+            {
+              "path": "src-tauri/src/runtime/services/app_lock.rs",
+              "digest": "git:b507fccec59de0d0651037707e082f5a984b4d0c"
+            },
+            {
+              "path": "src-tauri/src/runtime/services/mod.rs",
+              "digest": "git:beac80613f223ce61c58b5f6ba5d850c54c2102d"
+            },
+            {
+              "path": "src-tauri/src/runtime/services/outbox.rs",
+              "digest": "git:a73c21798c3a031d945bf29cb1ea25ce7e0c61a5"
+            },
+            {
+              "path": "src-tauri/src/runtime/services/sync.rs",
+              "digest": "git:425d89dcd3ca90b37197a3dc5a0a377e9a3c9086"
+            },
+            {
+              "path": "src-tauri/src/runtime/tests.rs",
+              "digest": "git:b3add114c13e5fe14c812e8398973cc7c9ac14ea"
+            },
+            {
+              "path": "src-tauri/src/runtime/timing.rs",
+              "digest": "git:dcda9ee6d0e17ac75ab44e2dca32c7faaf00519f"
+            },
+            {
+              "path": "src-tauri/src/safety.rs",
+              "digest": "git:7704d82b4f8acb045ec2f6e86a50eb1056cff4a6"
+            },
+            {
+              "path": "src-tauri/src/setup.rs",
+              "digest": "git:edcc6e5f3b7f1d84128431c4471a30790bdb75fb"
+            },
+            {
+              "path": "src-tauri/src/sync.rs",
+              "digest": "git:fe7d0eaf8eae3b781fccf4eace3225f50edb7a19"
+            },
+            {
+              "path": "src-tauri/src/sync/backfill.rs",
+              "digest": "git:f54c81c6db3bc965a6dd1175d68811eb4a8a769b"
+            },
+            {
+              "path": "src-tauri/src/sync/outbox.rs",
+              "digest": "git:eaaa3a6cd98822745f249919b4ba150f0c277297"
+            },
+            {
+              "path": "src-tauri/src/tasks.rs",
+              "digest": "git:b76edcf2d6930497cd959581e72c001dd9db6111"
+            },
+            {
+              "path": "src-tauri/src/tauri_run.rs",
+              "digest": "git:88aaaf7dcae93170e9715a584febb52b53d91ddb"
+            },
+            {
+              "path": "src-tauri/src/translate.rs",
+              "digest": "git:f0e03ea0f92cc71aad43844a6e9e8f2cad4eb6cc"
+            },
+            {
+              "path": "src-tauri/src/trust.rs",
+              "digest": "git:81e9f29744e3e81bb570251eb579f41b4b11c40c"
+            },
+            {
+              "path": "src-tauri/src/trust/tests.rs",
+              "digest": "git:a8a0d1c3c97251af0ab52e9ae8cf442392176eb6"
+            },
+            {
+              "path": "src-tauri/src/webimg.rs",
+              "digest": "git:b0aeca5a52a32e6d2d086e404896867026661e35"
+            },
+            {
+              "path": "src-tauri/src/webimg/dimensions.rs",
+              "digest": "git:56e97f154703935daa4cd474d932f90dae88df90"
+            },
+            {
+              "path": "src-tauri/src/webimg/placeholder.rs",
+              "digest": "git:ffabf462be5ba792c7b58cafdd0693efbd45bc2a"
+            },
+            {
+              "path": "src-tauri/src/webimg/tests.rs",
+              "digest": "git:51c0caf4e325b25ea12b73aa1ee052f0743bd883"
+            },
+            {
+              "path": "src-tauri/src/webimg/trackers.rs",
+              "digest": "git:2d872b91c454b64bf7ee2ec5aa5024f27b77efd8"
+            },
+            {
+              "path": "src-tauri/src/webimg/validate.rs",
+              "digest": "git:76739d48e0dcc7897083afec4bebde2e9d4bb121"
+            },
+            {
+              "path": "src-tauri/src/webview_idle.rs",
+              "digest": "git:964452500450c7a178bfdacc1bc23749cefd66d7"
+            },
+            {
+              "path": "src-tauri/src/windows_security.rs",
+              "digest": "git:0f3baf50550d2153f69481e7d39e03bc071afd0c"
+            },
+            {
+              "path": "src-tauri/tests/logs_contract.rs",
+              "digest": "git:dbbb5d17763b1d91bb79804a459b97244d3ae68f"
+            },
+            {
+              "path": "src/App.tsx",
+              "digest": "git:91dbccedf6843c2f7e2e918305eda084d9c0086f"
+            },
+            {
+              "path": "src/AppLazyViews.tsx",
+              "digest": "git:a87ad3f65f9d770db043d0cfb0d3cad03916208d"
+            },
+            {
+              "path": "src/AppMainContent.tsx",
+              "digest": "git:23ca3c7d56d8a948d6bd6af6b89c4f69019622e6"
+            },
+            {
+              "path": "src/components/AccountSwitcher.tsx",
+              "digest": "git:19659907935ebe712b77e07b27bf7cc3d0e583c3"
+            },
+            {
+              "path": "src/components/AppLockOverlay.tsx",
+              "digest": "git:e39bc2c3c02049e2cfcf5074d87e8f51b71eed75"
+            },
+            {
+              "path": "src/components/AppOverlays.tsx",
+              "digest": "git:4030c230ea8428f21a980da6c65b408b61a7dbec"
+            },
+            {
+              "path": "src/components/AppSearchTopbar.tsx",
+              "digest": "git:e1e2bc2956e367556477cf4d9252ac45c14e9b54"
+            },
+            {
+              "path": "src/components/AttachmentPdfPreview.tsx",
+              "digest": "git:e9e3de12443f692671375b0e9e2bf3770e001f35"
+            },
+            {
+              "path": "src/components/AttachmentPreviewModal.tsx",
+              "digest": "git:833e6c42fccbb0734e968deb545d7ab81a00657c"
+            },
+            {
+              "path": "src/components/AttachmentTypeIcon.tsx",
+              "digest": "git:f12458406bb98e3494dcd97262725141dfafb2a9"
+            },
+            {
+              "path": "src/components/ComposeEditor.tsx",
+              "digest": "git:ea044e20506159fcd1965d4ca57a5601c1188570"
+            },
+            {
+              "path": "src/components/EmailFrame.tsx",
+              "digest": "git:6513109a3bb1bd1121760c750f4995946340b5ce"
+            },
+            {
+              "path": "src/components/ErrorBoundary.tsx",
+              "digest": "git:c99c0fd6f211acf7f83f91e6439c88c124ac316f"
+            },
+            {
+              "path": "src/components/FindBar.tsx",
+              "digest": "git:fbd16e1f7b8f132041e2bcd7195dbc03a242940b"
+            },
+            {
+              "path": "src/components/Icons.tsx",
+              "digest": "git:d1f0244ce900992d596c4e83b84f936189053a05"
+            },
+            {
+              "path": "src/components/LegalAcceptance.tsx",
+              "digest": "git:2575c9e4f33013d7cef36b145fd16118e8bf09d6"
+            },
+            {
+              "path": "src/components/LegalGate.tsx",
+              "digest": "git:ff6608cc46fa8b6eeb80334c0aac0f21c399e37d"
+            },
+            {
+              "path": "src/components/RecipientField.tsx",
+              "digest": "git:96ea886562fef9b4b1bd2e5c0d3be8e728574576"
+            },
+            {
+              "path": "src/components/ShortcutHelpOverlay.tsx",
+              "digest": "git:2cfe2fe7abd1682ad2250f251ea2a1a3e7684127"
+            },
+            {
+              "path": "src/components/Skeleton.tsx",
+              "digest": "git:3ed382aad389a7d982137ff8cc205522c29ea45e"
+            },
+            {
+              "path": "src/components/TitleBar.tsx",
+              "digest": "git:94cbab26672651613320d6750edca5f3e2971ec5"
+            },
+            {
+              "path": "src/hooks/dialog.ts",
+              "digest": "git:237b8d45158d3885a5a2cca30f111c0f3fa8dfc8"
+            },
+            {
+              "path": "src/hooks/useAppDataEffects.ts",
+              "digest": "git:4b8b25ed2a34e97a68a28150109bac166d4d6e63"
+            },
+            {
+              "path": "src/hooks/useAppEventBindings.ts",
+              "digest": "git:7683a976cd4b5118b529058569b88191052fe2b5"
+            },
+            {
+              "path": "src/hooks/useAppSwitcherShortcuts.tsx",
+              "digest": "git:8644b47f0ae7a3004fa868d7c877974b92fd1267"
+            },
+            {
+              "path": "src/hooks/useCompose.tsx",
+              "digest": "git:e7bf35bfaa7e12ac2ffc67604d9630678190eb6a"
+            },
+            {
+              "path": "src/hooks/useDialog.tsx",
+              "digest": "git:4213ba2ddc845fce2e6502603c305dbb1253a9ed"
+            },
+            {
+              "path": "src/hooks/useDrive.tsx",
+              "digest": "git:e42e7d4e238da436c0dc7c4fa43fcf12f4ae4eff"
+            },
+            {
+              "path": "src/hooks/useImageTrust.ts",
+              "digest": "git:6c9fd08e2a8776d78ec579131aba73656e978627"
+            },
+            {
+              "path": "src/hooks/useInboxAttachmentPreview.ts",
+              "digest": "git:16b13de0ba2aaff8050a9a4390621f6edd6e51eb"
+            },
+            {
+              "path": "src/hooks/useKeyboardShortcuts.tsx",
+              "digest": "git:fedd19da376fc4e924a659fcb57b97a3fd98bf64"
+            },
+            {
+              "path": "src/hooks/useLabelActions.tsx",
+              "digest": "git:ceb6916f17d1c36a004f87a2a1ba1376280cf570"
+            },
+            {
+              "path": "src/hooks/useNewMailPoll.tsx",
+              "digest": "git:55e30a18bd4bfff437f1b337da2d5577b485da70"
+            },
+            {
+              "path": "src/hooks/useReaderFindProvider.ts",
+              "digest": "git:83c97ab5746514a15b05990efa8acd95f3f73bbe"
+            },
+            {
+              "path": "src/hooks/useRemoteImages.tsx",
+              "digest": "git:14616eb901ee6327692cf4a6eed74350217733d0"
+            },
+            {
+              "path": "src/hooks/useSearchCoverage.tsx",
+              "digest": "git:f887f4a5434ea7796e0752575817395d13e255f0"
+            },
+            {
+              "path": "src/hooks/useSearchRouting.tsx",
+              "digest": "git:e04b894c6f6f930c90cc3d9df19786c730b20f4c"
+            },
+            {
+              "path": "src/hooks/useSend.tsx",
+              "digest": "git:3899267cfb286d3e01ce4b21a587c080d2d35f5c"
+            },
+            {
+              "path": "src/hooks/useSettings.tsx",
+              "digest": "git:afcead94a5a3422fe7cc73e9c45cef6837c29f1b"
+            },
+            {
+              "path": "src/hooks/useThreadView.tsx",
+              "digest": "git:eaa70587c451bca66ad7885403b72808d0002377"
+            },
+            {
+              "path": "src/lib/a11y.ts",
+              "digest": "git:e61d11d4aea54d4b100e9bb19c017d45704e2de3"
+            },
+            {
+              "path": "src/lib/attachmentTypes.ts",
+              "digest": "git:3cd7e4016eb95adf4189fd1548c32220c1d8d8c1"
+            },
+            {
+              "path": "src/lib/auth.ts",
+              "digest": "git:2f65efa042bffb0fbf048148f3d0bd1b110cad7e"
+            },
+            {
+              "path": "src/lib/calendarUtils.ts",
+              "digest": "git:3c9e54e8d32de2654c45e942f4cdb8f72412943b"
+            },
+            {
+              "path": "src/lib/debounce.ts",
+              "digest": "git:2b6be6551c8107c1d67977b4c135dec5b3fc89d2"
+            },
+            {
+              "path": "src/lib/deferredRefresh.ts",
+              "digest": "git:eb7b3da55f76bd739fa87f1ea06fdee338b8e644"
+            },
+            {
+              "path": "src/lib/folderActions.ts",
+              "digest": "git:3a8df38a9f6c5452cf184ac536bc1b9820290c0a"
+            },
+            {
+              "path": "src/lib/highlightSnippet.ts",
+              "digest": "git:fcfecd633a714d8a4c8e466c14fe6589d8f6c576"
+            },
+            {
+              "path": "src/lib/html.ts",
+              "digest": "git:02bd89c04e4c4831f5cac8c3289cf552ccbd4af9"
+            },
+            {
+              "path": "src/lib/imageTrust.ts",
+              "digest": "git:18c29c597c7a56cd230611e98a4a51853fde0a64"
+            },
+            {
+              "path": "src/lib/ipc.ts",
+              "digest": "git:f608d12189c7abf79a99d47680217c15a47aa370"
+            },
+            {
+              "path": "src/lib/ipc/attachments.ts",
+              "digest": "git:9fe8efd2cafc602d3280c2a1619fbb2d39da20eb"
+            },
+            {
+              "path": "src/lib/ipc/compose.ts",
+              "digest": "git:0481a82db5de096bf56d4771919dc147ada46a6a"
+            },
+            {
+              "path": "src/lib/ipc/invoke.ts",
+              "digest": "git:4384169e3ec9c21ac23357d877103bafabc0edf3"
+            },
+            {
+              "path": "src/lib/ipc/legal.ts",
+              "digest": "git:f962bd107915775dfd6d015d9bf9deb623a407b6"
+            },
+            {
+              "path": "src/lib/ipc/mail.ts",
+              "digest": "git:df7dee7291f1cea19dd2f33589115e8c74b25f40"
+            },
+            {
+              "path": "src/lib/ipc/people.ts",
+              "digest": "git:8a4bfdb39fc8602e2a33e40a000eab7afe59f23f"
+            },
+            {
+              "path": "src/lib/ipc/pro.ts",
+              "digest": "git:3f21e1caee185a07287adfb1300690e75daceb71"
+            },
+            {
+              "path": "src/lib/ipc/qaGate.ts",
+              "digest": "git:4af97200b04aaa5fc0ee9fd2389fc6332ccaf8ab"
+            },
+            {
+              "path": "src/lib/ipc/qaMock.ts",
+              "digest": "git:696bbd87bfae4698f0ec17c7cfc5a0b40fcd268c"
+            },
+            {
+              "path": "src/lib/ipc/qaMockData.ts",
+              "digest": "git:93e363a08d2b1e531412ca271bd0ae7358be0039"
+            },
+            {
+              "path": "src/lib/ipc/qaMockMail.ts",
+              "digest": "git:551dcb046d42207d1e9580c8c7e221ac51253a34"
+            },
+            {
+              "path": "src/lib/ipc/qaMockTypes.ts",
+              "digest": "git:6a4d266a18634f0435f26fde00eadfd199438521"
+            },
+            {
+              "path": "src/lib/ipc/qaMockWorkspace.ts",
+              "digest": "git:ac961c49603d8eceb3910c4fe6ae7fc6db25933c"
+            },
+            {
+              "path": "src/lib/ipc/secure.ts",
+              "digest": "git:cf8aba4e922576b9e8f2740640aecb04008b25dd"
+            },
+            {
+              "path": "src/lib/ipc/system.ts",
+              "digest": "git:eae9de62b2a20aafed75ca987769c7241722098a"
+            },
+            {
+              "path": "src/lib/ipc/workspace.ts",
+              "digest": "git:dca4982ef2c288f1bfe736d2c84ac3d122392c6c"
+            },
+            {
+              "path": "src/lib/legal.ts",
+              "digest": "git:bf5d2d99d5a59323aeb77dbc68d51d47ee808f22"
+            },
+            {
+              "path": "src/lib/license.ts",
+              "digest": "git:269999b8db05f358137119208f1a2f2673d0c94b"
+            },
+            {
+              "path": "src/lib/mail.ts",
+              "digest": "git:3104ef260229df948f91eff1f1bd3dab3c73993c"
+            },
+            {
+              "path": "src/lib/perfMonitor.ts",
+              "digest": "git:eb353c37d7d3b59535abfd4cbf0bb3daf3afacf9"
+            },
+            {
+              "path": "src/lib/platform.ts",
+              "digest": "git:57c8705ba288420658e9647084975fb2981680b7"
+            },
+            {
+              "path": "src/lib/preferences.ts",
+              "digest": "git:a10fba5ac8a281d545cb41d484760a17d3bda2fb"
+            },
+            {
+              "path": "src/lib/savedSearches.ts",
+              "digest": "git:45aa19012def12946494a86578eb98aa53fafd93"
+            },
+            {
+              "path": "src/lib/searchCoverage.ts",
+              "digest": "git:95ea254bd73d311228458131a0439c0fa441ed7f"
+            },
+            {
+              "path": "src/lib/searchRouting.ts",
+              "digest": "git:694cf686885832e894f5a15470ff94484aeb1940"
+            },
+            {
+              "path": "src/lib/searchUtils.ts",
+              "digest": "git:d6170dbeeb0c63083dc36e66ae0fec4384fb941c"
+            },
+            {
+              "path": "src/lib/shortcuts.ts",
+              "digest": "git:e30e170b3653566c4f8ad476f4fa1622a8f5fd66"
+            },
+            {
+              "path": "src/lib/sound.ts",
+              "digest": "git:cc746d961cd8578d5fb19cb5b640ebf5a05e7519"
+            },
+            {
+              "path": "src/lib/syncReloadGate.ts",
+              "digest": "git:2796676c34b7296f323511b17a87722ef1fa11fe"
+            },
+            {
+              "path": "src/lib/telemetry.ts",
+              "digest": "git:b6be68d44a17063aca4df15422e56e305f020dea"
+            },
+            {
+              "path": "src/lib/theme.ts",
+              "digest": "git:6011736a923ad31d5135a369087f9806354cb6a3"
+            },
+            {
+              "path": "src/lib/updateAuth.ts",
+              "digest": "git:2f5b87e95d39334739e4f72ffb10168e69a2d395"
+            },
+            {
+              "path": "src/lib/vcard.ts",
+              "digest": "git:5650a170bcbc3f6c5762090eaf910682e796b770"
+            },
+            {
+              "path": "src/main.tsx",
+              "digest": "git:05a2bb5f41839d28788e18f16f7518a07b7caa5c"
+            },
+            {
+              "path": "src/store/actions/compose.ts",
+              "digest": "git:a8029b79ce4a5fc0397a655b981c680345333bf8"
+            },
+            {
+              "path": "src/store/actions/mail.ts",
+              "digest": "git:cf9b02b4e590f447e36f572419b316c3c0b1199b"
+            },
+            {
+              "path": "src/store/actions/mail/helpers.ts",
+              "digest": "git:42bb2670f4df7dd89417d60194b483a70331d128"
+            },
+            {
+              "path": "src/store/actions/mail/openThread.ts",
+              "digest": "git:6f8035bb36ede8d291a1d59f0d74c64650dad469"
+            },
+            {
+              "path": "src/store/actions/mail/refresh.ts",
+              "digest": "git:61aef68b68ad88da663c2a0090c95e27030d1393"
+            },
+            {
+              "path": "src/store/actions/ui.ts",
+              "digest": "git:a463d3728e90906ad7e6eb377983eb15e5d4d18b"
+            },
+            {
+              "path": "src/store/fields.ts",
+              "digest": "git:1650f3e649f015bede0988dadb77eee189cb7598"
+            },
+            {
+              "path": "src/store/index.ts",
+              "digest": "git:364cc1df2ce664a22798047dea5a681f88d7e537"
+            },
+            {
+              "path": "src/store/mk.ts",
+              "digest": "git:f631109f559ce7cd7ca87dbe9055bc4d008335a7"
+            },
+            {
+              "path": "src/store/types.ts",
+              "digest": "git:58ef303c4adec4bce1d3e4744dc0c5b69be2c2f0"
+            },
+            {
+              "path": "src/views/CalendarEventFormModal.tsx",
+              "digest": "git:dd1e62ec277d582dc71c7ebb98d290752a7a6295"
+            },
+            {
+              "path": "src/views/CalendarEventPopover.tsx",
+              "digest": "git:7b9c8f70829bf6ca922b92d3122aa3cf5f68f7a0"
+            },
+            {
+              "path": "src/views/CalendarGrids.tsx",
+              "digest": "git:e546be1a1af4bc3a4db1aefdec4b4b02c4e87ffa"
+            },
+            {
+              "path": "src/views/CalendarView.tsx",
+              "digest": "git:34776a01f7a76ba7028b5e79bd5c40def67a0d43"
+            },
+            {
+              "path": "src/views/ComposeView.tsx",
+              "digest": "git:e8fe535029750f5edb2dde22fe07e7c3af8bc95f"
+            },
+            {
+              "path": "src/views/ContactsView.tsx",
+              "digest": "git:9c600d9daee814e6287440ae325dd5608fdc64eb"
+            },
+            {
+              "path": "src/views/ContactsView.types.ts",
+              "digest": "git:2c50c31c9115b951d36c0c6b51bc4925fdc9d12c"
+            },
+            {
+              "path": "src/views/driveFileGlyph.ts",
+              "digest": "git:9c42ab2b9081bc4cd117f7a7b994e6a36c2ea24d"
+            },
+            {
+              "path": "src/views/DriveFileMenu.tsx",
+              "digest": "git:97019ca6c6819b440c8abd458c2b205612eaaa60"
+            },
+            {
+              "path": "src/views/DrivePreviewModal.tsx",
+              "digest": "git:4ec4dfc1bb17ca4b8e6bede97184310564cdbd86"
+            },
+            {
+              "path": "src/views/DriveView.tsx",
+              "digest": "git:6d2f7ab5df8ac92207ab8c3b83c79f308011fe5d"
+            },
+            {
+              "path": "src/views/InboxCategoryTabs.tsx",
+              "digest": "git:820d49b2ab4cadc042f42a26eae74cf4e40893b9"
+            },
+            {
+              "path": "src/views/InboxEmptyState.tsx",
+              "digest": "git:489c0fcfdc12ab401a1a7faa236eb426a757cded"
+            },
+            {
+              "path": "src/views/InboxFolderBanner.tsx",
+              "digest": "git:a0141a6ff441bbc3ab3e9e0aebbd1f7f488d31af"
+            },
+            {
+              "path": "src/views/InboxSearchChips.tsx",
+              "digest": "git:65069468dcdd3c173f105b12b8413c0a70b3fce0"
+            },
+            {
+              "path": "src/views/InboxThreadRow.tsx",
+              "digest": "git:b45a5f10282d8fa11476958c3a8ee0c02ec1a587"
+            },
+            {
+              "path": "src/views/InboxToolbar.tsx",
+              "digest": "git:c26a80a82dcd0ef276b533632780cc50c660e921"
+            },
+            {
+              "path": "src/views/InboxView.tsx",
+              "digest": "git:e44c71d5c997d725ffc8da2539dd9eac74592da4"
+            },
+            {
+              "path": "src/views/InboxVirtualList.tsx",
+              "digest": "git:3409ccb7b9c5d93abeb797e65c04b41ef02f1f43"
+            },
+            {
+              "path": "src/views/MeetView.tsx",
+              "digest": "git:5ce2f3cdf57ab2353ab078e799f05e83d7cf155a"
+            },
+            {
+              "path": "src/views/nav/CalendarNav.tsx",
+              "digest": "git:7cd08ba2b63bd732fc599104ba4465f80555f316"
+            },
+            {
+              "path": "src/views/nav/ContactsNav.tsx",
+              "digest": "git:e913fdd2dabb5847a365e2bf3d8ab6e4618497db"
+            },
+            {
+              "path": "src/views/nav/DriveNav.tsx",
+              "digest": "git:59ee73d86340a95a6e28e89ebeefe530edd81efa"
+            },
+            {
+              "path": "src/views/nav/TasksNav.tsx",
+              "digest": "git:ae86270a52b0f54f4f02c49427aa7a1d30966eae"
+            },
+            {
+              "path": "src/views/ReaderMessage.tsx",
+              "digest": "git:666d9f2393f7b4ab6e4aac3b6888485c1e4bc2b7"
+            },
+            {
+              "path": "src/views/ReaderMoreMenu.tsx",
+              "digest": "git:491e595b8f6701749059eb0027f7e089843399c0"
+            },
+            {
+              "path": "src/views/ReaderToolbar.tsx",
+              "digest": "git:e4a1792cbcaca572675770b1e35dba38dfee0106"
+            },
+            {
+              "path": "src/views/ReaderView.tsx",
+              "digest": "git:cfff0c81ecc46fa301f6055b51765614cb9abde7"
+            },
+            {
+              "path": "src/views/SearchCoverageBanner.tsx",
+              "digest": "git:be94433878b54f1655dee58e950cc36433086d0f"
+            },
+            {
+              "path": "src/views/SettingsAccountsSection.tsx",
+              "digest": "git:93867a99d49c274745b57a2bb434318a790c591c"
+            },
+            {
+              "path": "src/views/SettingsAdvancedSection.tsx",
+              "digest": "git:2f116053240aba2bab7159d4f34082e7583fd1e4"
+            },
+            {
+              "path": "src/views/SettingsAppearanceSection.tsx",
+              "digest": "git:383acd9e5bde066521d0e9a8b430a38531a1c9c0"
+            },
+            {
+              "path": "src/views/SettingsComposeDefaultsSection.tsx",
+              "digest": "git:006b76e7a593a65e3a0a6d2be3e3d26296eaa5a9"
+            },
+            {
+              "path": "src/views/SettingsComposeExtrasSection.tsx",
+              "digest": "git:a9786ff57d2a7958c8879d938f93a8c387fe3c77"
+            },
+            {
+              "path": "src/views/SettingsCredentialsSection.tsx",
+              "digest": "git:944f401c846ba8a4a44bb5b848f1f5024bb830e0"
+            },
+            {
+              "path": "src/views/SettingsDiagnosticsSection.tsx",
+              "digest": "git:2480a8c7a9fc1aefd7d05f35d428cdd918a0880b"
+            },
+            {
+              "path": "src/views/SettingsFilterSection.tsx",
+              "digest": "git:2b575171b9f9dc79aae4c288477e5cd0d5b4f731"
+            },
+            {
+              "path": "src/views/SettingsLicenseSection.tsx",
+              "digest": "git:2522ddeac290ba69e46b4adc5e64312aa160e2f5"
+            },
+            {
+              "path": "src/views/SettingsMailSection.tsx",
+              "digest": "git:c72d4587da31271416d130d4c57bf7c2f4a170f6"
+            },
+            {
+              "path": "src/views/SettingsNotificationsSection.tsx",
+              "digest": "git:ebf0eec9f6a34a4d1245eb00747f968be9657ee5"
+            },
+            {
+              "path": "src/views/SettingsPrivacySection.tsx",
+              "digest": "git:f6d4bc537f4c6c9e3260cb49ba0afbaa011798b1"
+            },
+            {
+              "path": "src/views/SettingsShortcutsSection.tsx",
+              "digest": "git:29bf8787740bb9abbc80d9ca32138e8c67db4a3f"
+            },
+            {
+              "path": "src/views/SettingsView.tsx",
+              "digest": "git:e930ac1c3bb15af62269bbc097793562fc4fa1cd"
+            },
+            {
+              "path": "src/views/Sidebar.tsx",
+              "digest": "git:ae1013dae49cd88bec9e8008c1bbdb375d897fa3"
+            },
+            {
+              "path": "src/views/TasksView.tsx",
+              "digest": "git:c87c65d770218fdd0ee6b670d9d003c804877f5b"
+            },
+            {
+              "path": "src/vite-env.d.ts",
+              "digest": "git:11f02fe2a0061d6e6e1f271b21da95423b448b32"
+            },
+            {
+              "path": "tests/appSwitcherShortcuts.test.ts",
+              "digest": "git:6da3e8c9b844b36d22eaf61b5145fed8a02ba94e"
+            },
+            {
+              "path": "tests/architecture.test.ts",
+              "digest": "git:8146a5819ae455b30146f35603e765803704a4d9"
+            },
+            {
+              "path": "tests/attachmentTypes.test.ts",
+              "digest": "git:4ca1243cab5774256911cf42498d8911b9a2dd5d"
+            },
+            {
+              "path": "tests/auth.test.ts",
+              "digest": "git:233b0f0a625ee048c4d8b9e59bc1aff6b9b5756f"
+            },
+            {
+              "path": "tests/composeActions.test.ts",
+              "digest": "git:5d9e6ca0dfff483b8c0bcd82f0833510360a6030"
+            },
+            {
+              "path": "tests/cssOwnerInventory.test.ts",
+              "digest": "git:c86f81a8c70ec385473b346a24198538b2d0f1b9"
+            },
+            {
+              "path": "tests/debounce.test.ts",
+              "digest": "git:06cf65481e7763213bb269c2160f7bbe6f557d15"
+            },
+            {
+              "path": "tests/deferredRefresh.test.ts",
+              "digest": "git:75432db828173a01e438c953b773863a9bd81282"
+            },
+            {
+              "path": "tests/folderActions.test.ts",
+              "digest": "git:abcedb1fcf5fdcae1b6d06acdaf062810023e07d"
+            },
+            {
+              "path": "tests/highlightSnippet.test.ts",
+              "digest": "git:7506b9e9dd92fb6956342864647fa6d4063f59b1"
+            },
+            {
+              "path": "tests/imageTrust.test.ts",
+              "digest": "git:292c33139e3208fe35a857a0babee9ab3197df23"
+            },
+            {
+              "path": "tests/licenseUpdates.test.ts",
+              "digest": "git:7c48cd53eef892b4d3165c5c795fd549b86557e6"
+            },
+            {
+              "path": "tests/openThreadAction.test.ts",
+              "digest": "git:a743dece549a3717824b17b6d2d02238d1563ceb"
+            },
+            {
+              "path": "tests/perfMonitor.test.ts",
+              "digest": "git:c1830d7559c227875440fcb397b6b036aa8bd9ed"
+            },
+            {
+              "path": "tests/qaInvoke.test.ts",
+              "digest": "git:8a3c58ec1d02cc168254ea054860f74832fb9b7b"
+            },
+            {
+              "path": "tests/readerToolbarCss.test.ts",
+              "digest": "git:ad7a551bf62ac10be40b0a267125e38fac7502ba"
+            },
+            {
+              "path": "tests/refreshTail.test.ts",
+              "digest": "git:b5bed1eebbe56045df12c203ed542e1268c5ada1"
+            },
+            {
+              "path": "tests/savedSearches.test.ts",
+              "digest": "git:d3d733cc3a4340b81c82dc4e32a9b867b42b6545"
+            },
+            {
+              "path": "tests/searchCoverage.test.ts",
+              "digest": "git:4b33f39c2800931017787f6a1105698de90bacec"
+            },
+            {
+              "path": "tests/searchRouting.test.ts",
+              "digest": "git:367e1fd08c281f3e18e77fe31ae47b03ff2b5f28"
+            },
+            {
+              "path": "tests/settingsLicenseUpdates.test.ts",
+              "digest": "git:59f936d47363388c9c7052fe819e56f77387d366"
+            },
+            {
+              "path": "tests/shortcutFocusGuard.test.ts",
+              "digest": "git:c8c75f0186b1f3fb3288bd1736c9b2b4fd7a1dd1"
+            },
+            {
+              "path": "tests/shortcutHelpOverlay.test.ts",
+              "digest": "git:e23d52baab7f62bdc690c1cf56dd26fd3ce31c78"
+            },
+            {
+              "path": "tests/shortcutRegistry.test.ts",
+              "digest": "git:5e087710201c32f4018e356320ec8f4599167e2c"
+            },
+            {
+              "path": "tests/syncReloadGate.test.ts",
+              "digest": "git:8602eb459c1c41425a04a30ece420a58bb89dbf5"
+            },
+            {
+              "path": "tests/telemetry.test.ts",
+              "digest": "git:1f13995377c0c668506590546780cc85e44dedef"
+            },
+            {
+              "path": "tests/vcard.test.ts",
+              "digest": "git:ec4ee32f9d5b5952997b7151369db63ae9d550b6"
+            },
+            {
+              "path": "vite.config.ts",
+              "digest": "git:8b0f4f55d1e85351a9d75d52b323ddc5434431bc"
+            },
+            {
+              "path": "workers/waitlist/package.json",
+              "digest": "git:2c01f5792eeb3a036df99b18bbad00b3fb393ce3"
+            },
+            {
+              "path": "workers/waitlist/src/index.ts",
+              "digest": "git:922852b7562576020fb780d86073803f431083ea"
+            }
+          ],
+          "coverage": [
+            {
+              "path": "pnpm-lock.yaml",
+              "status": "unscanned",
+              "reason": "lockfile-root-unresolved",
+              "detail": "workers/waitlist/package.json"
+            }
+          ],
+          "pathBase": "repository",
+          "pathPrefix": "",
+          "provenance": [],
+          "exceptionDigest": "63ebaa29343aed4c481e9ae398090eadd8df6ba1c7823dc4fa9cfbabfdef4195",
+          "source": "committed-git-tree",
+          "keyLogDigest": "0966be0b99f9cc36037d3427cdeb32017a2b37886cc58754206dbfb05e033ef4",
+          "keyCheckpoint": {
+            "sequence": 1,
+            "head": "1eedf843bd026f99140c277a19d66cb31763ec72889bbb6d5f9f17718a55af85"
+          },
+          "rootFingerprint": "932f0049acb4902f0bd0b49164b78826ba5b8974cbc3c15ef0be0c4501cb3f3d",
+          "keyAuthority": {
+            "repositoryIdentity": "https://github.com/bogusyogi/claude",
+            "commit": "0a4916a649c72a9951d3ee96a251a468efbed2a1",
+            "tree": "e4394814849149dbcc168c7587ae17f1772032d9"
+          }
+        }
+      }
+    ]
+  }
+}

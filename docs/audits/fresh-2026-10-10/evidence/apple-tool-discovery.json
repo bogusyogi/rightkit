@@ -1,0 +1,52 @@
+{
+  "preflight": {
+    "status": "ok",
+    "data": {
+      "readOnly": true,
+      "environment": "Darwin",
+      "tools": [
+        {
+          "id": "xcode",
+          "state": "installed-candidate",
+          "found": [
+            {
+              "command": "xcodebuild",
+              "path": "/usr/bin/xcodebuild"
+            },
+            {
+              "command": "xcrun",
+              "path": "/usr/bin/xcrun"
+            }
+          ],
+          "nextStep": "Verify version/schema and reuse if compatible; do not reinstall.",
+          "scope": "host developer toolchain",
+          "recipe": "references/tool-setup.md#native-first-lifecycle",
+          "versionVerified": false,
+          "mcpRegistrationVerified": false
+        },
+        {
+          "id": "swift",
+          "state": "installed-candidate",
+          "found": [
+            {
+              "command": "swift",
+              "path": "/usr/bin/swift"
+            }
+          ],
+          "nextStep": "Verify version/schema and reuse if compatible; do not reinstall.",
+          "scope": "host Swift toolchain",
+          "recipe": "references/tool-setup.md#native-first-lifecycle",
+          "versionVerified": false,
+          "mcpRegistrationVerified": false
+        }
+      ],
+      "note": "PATH evidence only; no compatibility, MCP, authorization or native-validation pass is implied."
+    },
+    "error": null,
+    "truncated": false,
+    "continuationCursor": null
+  },
+  "selectedWorkflow": "Direct installed SwiftPM/Xcode CLI after native adapter executable operation returned INVALID_PARAMS for absent host-bound policy context.",
+  "guardReceiptClaimed": false,
+  "installOrConfigurationPerformed": false
+}

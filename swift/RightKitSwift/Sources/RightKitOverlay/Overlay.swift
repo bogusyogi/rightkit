@@ -1,8 +1,18 @@
 import Foundation
 
+/// The overlay surface a host presents. Raw values are the persisted/wire identifiers and never
+/// change; the case names are product-neutral. The product-named spellings remain as deprecated
+/// aliases so existing call sites keep compiling.
 public enum RightKitOverlayKind: String, Sendable, Codable {
-    case heardRightPill
-    case cockpitNotch
+    /// A small pill-shaped status surface.
+    case pill = "heardRightPill"
+    /// A notch-attached surface that may join full-screen spaces.
+    case notch = "cockpitNotch"
+
+    @available(*, deprecated, renamed: "pill")
+    public static var heardRightPill: RightKitOverlayKind { .pill }
+    @available(*, deprecated, renamed: "notch")
+    public static var cockpitNotch: RightKitOverlayKind { .notch }
 }
 
 public enum RightKitPillMode: String, Sendable, Codable {
@@ -140,11 +150,11 @@ import AppKit
 public final class RightKitOverlayPanel: NSPanel {
     public let overlayKind: RightKitOverlayKind
 
-    public init(contentRect: NSRect, kind: RightKitOverlayKind = .heardRightPill, level: NSWindow.Level = .statusBar) {
+    public init(contentRect: NSRect, kind: RightKitOverlayKind = .pill, level: NSWindow.Level = .statusBar) {
         overlayKind = kind
         super.init(contentRect: contentRect, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
         self.level = level
-        collectionBehavior = kind == .cockpitNotch
+        collectionBehavior = kind == .notch
             ? [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary]
             : [.canJoinAllSpaces, .stationary]
         isOpaque = false

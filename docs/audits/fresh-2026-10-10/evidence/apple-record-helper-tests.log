@@ -1,0 +1,319 @@
+Building for debugging...
+[Computing dependencies]
+[Pre-planning 1 / 124]
+[Planning deferred tasks]
+warning: Stale file '/Volumes/D/claude/tools/rightkit/crates/rightkit-record/helpers/macos/.build/out/Intermediates.noindex/RightKitRecordMacOS.build/Debug/rk-fixture-window-p.build/DerivedSources/Entitlements.plist' is located outside of the allowed root paths.
+
+warning: Stale file '/Volumes/D/claude/tools/rightkit/crates/rightkit-record/helpers/macos/.build/out/Intermediates.noindex/RightKitRecordMacOS.build/Debug/rk-fixture-window-p.build/Objects-normal/arm64/main.o' is located outside of the allowed root paths.
+
+warning: Stale file '/Volumes/D/claude/tools/rightkit/crates/rightkit-record/helpers/macos/.build/out/Intermediates.noindex/RightKitRecordMacOS.build/Debug/rk-fixture-window-p.build/Objects-normal/arm64/main.swiftconstvalues' is located outside of the allowed root paths.
+
+warning: Stale file '/Volumes/D/claude/tools/rightkit/crates/rightkit-record/helpers/macos/.build/out/Intermediates.noindex/RightKitRecordMacOS.build/Debug/rk-fixture-window-p.build/Objects-normal/arm64/rk-fixture-window Swift Compilation Finished' is located outside of the allowed root paths.
+
+warning: Stale file '/Volumes/D/claude/tools/rightkit/crates/rightkit-record/helpers/macos/.build/out/Intermediates.noindex/RightKitRecordMacOS.build/Debug/rk-fixture-window-p.build/Objects-normal/arm64/rk-fixture-window Swift Compilation Requirements Finished' is located outside of the allowed root paths.
+
+warning: Stale file '/Volumes/D/claude/tools/rightkit/crates/rightkit-record/helpers/macos/.build/out/Intermediates.noindex/RightKitRecordMacOS.build/Debug/rk-fixture-window-p.build/Objects-normal/arm64/rk-fixture-window-OutputFileMap.json' is located outside of the allowed root paths.
+
+warning: Stale file '/Volumes/D/claude/tools/rightkit/crates/rightkit-record/helpers/macos/.build/out/Intermediates.noindex/RightKitRecordMacOS.build/Debug/rk-fixture-window-p.build/Objects-normal/arm64/rk-fixture-window.LinkFileList' is located outside of the allowed root paths.
+
+warning: Stale file '/Volumes/D/claude/tools/rightkit/crates/rightkit-record/helpers/macos/.build/out/Intermediates.noindex/RightKitRecordMacOS.build/Debug/rk-fixture-window-p.build/Objects-normal/arm64/rk-fixture-window.SwiftFileList' is located outside of the allowed root paths.
+
+warning: Stale file '/Volumes/D/claude/tools/rightkit/crates/rightkit-record/helpers/macos/.build/out/Intermediates.noindex/RightKitRecordMacOS.build/Debug/rightkit-record-macos-helper-p.build/DerivedSources/Entitlements.plist' is located outside of the allowed root paths.
+
+warning: Stale file '/Volumes/D/claude/tools/rightkit/crates/rightkit-record/helpers/macos/.build/out/Intermediates.noindex/RightKitRecordMacOS.build/Debug/rk-fixture-window-p.build/Objects-normal/arm64/rk-fixture-window_const_extract_protocols.json' is located outside of the allowed root paths.
+
+warning: Stale file '/Volumes/D/claude/tools/rightkit/crates/rightkit-record/helpers/macos/.build/out/Intermediates.noindex/RightKitRecordMacOS.build/Debug/rightkit-record-macos-helper-p.build/Objects-normal/arm64/CaptureSession.o' is located outside of the allowed root paths.
+
+warning: Stale file '/Volumes/D/claude/tools/rightkit/crates/rightkit-record/helpers/macos/.build/out/Intermediates.noindex/RightKitRecordMacOS.build/Debug/rightkit-record-macos-helper-p.build/Objects-normal/arm64/CaptureSession.swiftconstvalues' is located outside of the allowed root paths.
+
+warning: Stale file '/Volumes/D/claude/tools/rightkit/crates/rightkit-record/helpers/macos/.build/out/Intermediates.noindex/RightKitRecordMacOS.build/Debug/rk-fixture-window-p.build/Objects-normal/arm64/rk-fixture-window_dependency_info.dat' is located outside of the allowed root paths.
+
+warning: Stale file '/Volumes/D/claude/tools/rightkit/crates/rightkit-record/helpers/macos/.build/out/Intermediates.noindex/RightKitRecordMacOS.build/Debug/rightkit-record-macos-helper-p.build/Objects-normal/arm64/FrameQueue.o' is located outside of the allowed root paths.
+
+warning: Stale file '/Volumes/D/claude/tools/rightkit/crates/rightkit-record/helpers/macos/.build/out/Intermediates.noindex/RightKitRecordMacOS.build/Debug/rk-fixture-window-p.build/Objects-normal/arm64/rk-fixture-window_lto.o' is located outside of the allowed root paths.
+
+warning: Stale file '/Volumes/D/claude/tools/rightkit/crates/rightkit-record/helpers/macos/.build/out/Intermediates.noindex/RightKitRecordMacOS.build/Debug/rk-fixture-window-p.build/Objects-normal/arm64/rk_fixture_window-dependency-scan.dia' is located outside of the allowed root paths.
+
+warning: Stale file '/Volumes/D/claude/tools/rightkit/crates/rightkit-record/helpers/macos/.build/out/Intermediates.noindex/RightKitRecordMacOS.build/Debug/rk-fixture-window-p.build/Objects-normal/arm64/rk_fixture_window.abi.json' is located outside of the allowed root paths.
+
+warning: Stale file '/Volumes/D/claude/tools/rightkit/crates/rightkit-record/helpers/macos/.build/out/Intermediates.noindex/RightKitRecordMacOS.build/Debug/rk-fixture-window-p.build/Objects-normal/arm64/rk_fixture_window.swiftdoc' is located outside of the allowed root paths.
+
+warning: Stale file '/Volumes/D/claude/tools/rightkit/crates/rightkit-record/helpers/macos/.build/out/Intermediates.noindex/RightKitRecordMacOS.build/Debug/rk-fixture-window-p.build/Objects-normal/arm64/rk_fixture_window.swiftmodule' is located outside of the allowed root paths.
+
+warning: Stale file '/Volumes/D/claude/tools/rightkit/crates/rightkit-record/helpers/macos/.build/out/Intermediates.noindex/GeneratedModuleMaps/RecordWire-Swift.h' is located outside of the allowed root paths.
+
+warning: Stale file '/Volumes/D/claude/tools/rightkit/crates/rightkit-record/helpers/macos/.build/out/Intermediates.noindex/RightKitRecordMacOS.build/Debug/rk-fixture-window-p.build/Objects-normal/arm64/rk_fixture_window.swiftsourceinfo' is located outside of the allowed root paths.
+
+warning: Stale file '/Volumes/D/claude/tools/rightkit/crates/rightkit-record/helpers/macos/.build/out/Intermediates.noindex/GeneratedModuleMaps/RecordWire.modulemap' is located outside of the allowed root paths.
+
+warning: Stale file '/Volumes/D/claude/tools/rightkit/crates/rightkit-record/helpers/macos/.build/out/Intermediates.noindex/RightKitRecordMacOS.build/Debug/rk-fixture-window-p.build/rk-fixture-window.xcent' is located outside of the allowed root paths.
+
+warning: Stale file '/Volumes/D/claude/tools/rightkit/crates/rightkit-record/helpers/macos/.build/out/Intermediates.noindex/RightKitRecordMacOS.build/Debug/RecordWire-t.build/Objects-normal/arm64/Blake3.o' is located outside of the allowed root paths.
+
+warning: Stale file '/Volumes/D/claude/tools/rightkit/crates/rightkit-record/helpers/macos/.build/out/Intermediates.noindex/RightKitRecordMacOS.build/Debug/rk-fixture-window-p.build/rk-fixture-window.xcent.der' is located outside of the allowed root paths.
+
+warning: Stale file '/Volumes/D/claude/tools/rightkit/crates/rightkit-record/helpers/macos/.build/out/Products/Debug/rk-fixture-window' is located outside of the allowed root paths.
+
+warning: Stale file '/Volumes/D/claude/tools/rightkit/crates/rightkit-record/helpers/macos/.build/out/Intermediates.noindex/RightKitRecordMacOS.build/Debug/RecordWire-t.build/Objects-normal/arm64/Blake3.swiftconstvalues' is located outside of the allowed root paths.
+
+warning: Stale file '/Volumes/D/claude/tools/rightkit/crates/rightkit-record/helpers/macos/.build/out/Intermediates.noindex/RightKitRecordMacOS.build/Debug/RecordWire-t.build/Objects-normal/arm64/FrameHash.o' is located outside of the allowed root paths.
+
+warning: Stale file '/Volumes/D/claude/tools/rightkit/crates/rightkit-record/helpers/macos/.build/out/Intermediates.noindex/RightKitRecordMacOS.build/Debug/RecordWire-t.build/Objects-normal/arm64/FrameHash.swiftconstvalues' is located outside of the allowed root paths.
+
+warning: Stale file '/Volumes/D/claude/tools/rightkit/crates/rightkit-record/helpers/macos/.build/out/Intermediates.noindex/RightKitRecordMacOS.build/Debug/RecordWire-t.build/Objects-normal/arm64/RecordWire Swift Compilation Finished' is located outside of the allowed root paths.
+
+warning: Stale file '/Volumes/D/claude/tools/rightkit/crates/rightkit-record/helpers/macos/.build/out/Intermediates.noindex/RightKitRecordMacOS.build/Debug/RecordWire-t.build/Objects-normal/arm64/RecordWire Swift Compilation Requirements Finished' is located outside of the allowed root paths.
+
+warning: Stale file '/Volumes/D/claude/tools/rightkit/crates/rightkit-record/helpers/macos/.build/out/Intermediates.noindex/RightKitRecordMacOS.build/Debug/RecordWire-t.build/Objects-normal/arm64/RecordWire-OutputFileMap.json' is located outside of the allowed root paths.
+
+warning: Stale file '/Volumes/D/claude/tools/rightkit/crates/rightkit-record/helpers/macos/.build/out/Intermediates.noindex/RightKitRecordMacOS.build/Debug/RecordWire-t.build/Objects-normal/arm64/RecordWire-Swift.h' is located outside of the allowed root paths.
+
+warning: Stale file '/Volumes/D/claude/tools/rightkit/crates/rightkit-record/helpers/macos/.build/out/Intermediates.noindex/RightKitRecordMacOS.build/Debug/RecordWire-t.build/Objects-normal/arm64/RecordWire-dependency-scan.dia' is located outside of the allowed root paths.
+
+warning: Stale file '/Volumes/D/claude/tools/rightkit/crates/rightkit-record/helpers/macos/.build/out/Intermediates.noindex/RightKitRecordMacOS.build/Debug/RecordWire-t.build/Objects-normal/arm64/RecordWire.LinkFileList' is located outside of the allowed root paths.
+
+warning: Stale file '/Volumes/D/claude/tools/rightkit/crates/rightkit-record/helpers/macos/.build/out/Intermediates.noindex/RightKitRecordMacOS.build/Debug/RecordWire-t.build/Objects-normal/arm64/RecordWire.SwiftFileList' is located outside of the allowed root paths.
+
+warning: Stale file '/Volumes/D/claude/tools/rightkit/crates/rightkit-record/helpers/macos/.build/out/Intermediates.noindex/RightKitRecordMacOS.build/Debug/RecordWire-t.build/Objects-normal/arm64/RecordWire.abi.json' is located outside of the allowed root paths.
+
+warning: Stale file '/Volumes/D/claude/tools/rightkit/crates/rightkit-record/helpers/macos/.build/out/Intermediates.noindex/RightKitRecordMacOS.build/Debug/RecordWire-t.build/Objects-normal/arm64/RecordWire.swiftdoc' is located outside of the allowed root paths.
+
+warning: Stale file '/Volumes/D/claude/tools/rightkit/crates/rightkit-record/helpers/macos/.build/out/Intermediates.noindex/RightKitRecordMacOS.build/Debug/RecordWire-t.build/Objects-normal/arm64/RecordWire.swiftmodule' is located outside of the allowed root paths.
+
+warning: Stale file '/Volumes/D/claude/tools/rightkit/crates/rightkit-record/helpers/macos/.build/out/Intermediates.noindex/RightKitRecordMacOS.build/Debug/RecordWire-t.build/Objects-normal/arm64/RecordWire.swiftsourceinfo' is located outside of the allowed root paths.
+
+warning: Stale file '/Volumes/D/claude/tools/rightkit/crates/rightkit-record/helpers/macos/.build/out/Intermediates.noindex/RightKitRecordMacOS.build/Debug/RecordWire-t.build/Objects-normal/arm64/RecordWire_const_extract_protocols.json' is located outside of the allowed root paths.
+
+warning: Stale file '/Volumes/D/claude/tools/rightkit/crates/rightkit-record/helpers/macos/.build/out/Intermediates.noindex/RightKitRecordMacOS.build/Debug/RecordWire-t.build/Objects-normal/arm64/RecordWire_dependency_info.dat' is located outside of the allowed root paths.
+
+warning: Stale file '/Volumes/D/claude/tools/rightkit/crates/rightkit-record/helpers/macos/.build/out/Intermediates.noindex/RightKitRecordMacOS.build/Debug/RecordWire-t.build/Objects-normal/arm64/RecordWire_lto.o' is located outside of the allowed root paths.
+
+warning: Stale file '/Volumes/D/claude/tools/rightkit/crates/rightkit-record/helpers/macos/.build/out/Intermediates.noindex/RightKitRecordMacOS.build/Debug/RecordWire-t.build/Objects-normal/arm64/Wire.o' is located outside of the allowed root paths.
+
+warning: Stale file '/Volumes/D/claude/tools/rightkit/crates/rightkit-record/helpers/macos/.build/out/Intermediates.noindex/RightKitRecordMacOS.build/Debug/RecordWire-t.build/Objects-normal/arm64/Wire.swiftconstvalues' is located outside of the allowed root paths.
+
+warning: Stale file '/Volumes/D/claude/tools/rightkit/crates/rightkit-record/helpers/macos/.build/out/Intermediates.noindex/RightKitRecordMacOS.build/Debug/RecordWire-t.build/RecordWire.modulemap' is located outside of the allowed root paths.
+
+warning: Stale file '/Volumes/D/claude/tools/rightkit/crates/rightkit-record/helpers/macos/.build/out/Intermediates.noindex/RightKitRecordMacOS.build/Debug/rightkit-record-macos-helper-p.build/Objects-normal/arm64/FrameQueue.swiftconstvalues' is located outside of the allowed root paths.
+
+warning: Stale file '/Volumes/D/claude/tools/rightkit/crates/rightkit-record/helpers/macos/.build/out/Products/Debug/RecordWire.o' is located outside of the allowed root paths.
+
+warning: Stale file '/Volumes/D/claude/tools/rightkit/crates/rightkit-record/helpers/macos/.build/out/Intermediates.noindex/RightKitRecordMacOS.build/Debug/rightkit-record-macos-helper-p.build/Objects-normal/arm64/Server.o' is located outside of the allowed root paths.
+
+warning: Stale file '/Volumes/D/claude/tools/rightkit/crates/rightkit-record/helpers/macos/.build/out/Products/Debug/RecordWire.swiftmodule/Project/arm64-apple-macos.swiftsourceinfo' is located outside of the allowed root paths.
+
+warning: Stale file '/Volumes/D/claude/tools/rightkit/crates/rightkit-record/helpers/macos/.build/out/Intermediates.noindex/RightKitRecordMacOS.build/Debug/rightkit-record-macos-helper-p.build/Objects-normal/arm64/Server.swiftconstvalues' is located outside of the allowed root paths.
+
+warning: Stale file '/Volumes/D/claude/tools/rightkit/crates/rightkit-record/helpers/macos/.build/out/Products/Debug/RecordWire.swiftmodule/arm64-apple-macos.abi.json' is located outside of the allowed root paths.
+
+warning: Stale file '/Volumes/D/claude/tools/rightkit/crates/rightkit-record/helpers/macos/.build/out/Intermediates.noindex/RightKitRecordMacOS.build/Debug/rightkit-record-macos-helper-p.build/Objects-normal/arm64/System.o' is located outside of the allowed root paths.
+
+warning: Stale file '/Volumes/D/claude/tools/rightkit/crates/rightkit-record/helpers/macos/.build/out/Products/Debug/RecordWire.swiftmodule/arm64-apple-macos.swiftdoc' is located outside of the allowed root paths.
+
+warning: Stale file '/Volumes/D/claude/tools/rightkit/crates/rightkit-record/helpers/macos/.build/out/Intermediates.noindex/RightKitRecordMacOS.build/Debug/rightkit-record-macos-helper-p.build/Objects-normal/arm64/System.swiftconstvalues' is located outside of the allowed root paths.
+
+warning: Stale file '/Volumes/D/claude/tools/rightkit/crates/rightkit-record/helpers/macos/.build/out/Products/Debug/RecordWire.swiftmodule/arm64-apple-macos.swiftmodule' is located outside of the allowed root paths.
+
+warning: Stale file '/Volumes/D/claude/tools/rightkit/crates/rightkit-record/helpers/macos/.build/out/Intermediates.noindex/RightKitRecordMacOS.build/Debug/rightkit-record-macos-helper-p.build/Objects-normal/arm64/Windows.o' is located outside of the allowed root paths.
+
+warning: Stale file '/Volumes/D/claude/tools/rightkit/crates/rightkit-record/helpers/macos/.build/out/Intermediates.noindex/RightKitRecordMacOS.build/Debug/rightkit-record-macos-helper-p.build/Objects-normal/arm64/Windows.swiftconstvalues' is located outside of the allowed root paths.
+
+warning: Stale file '/Volumes/D/claude/tools/rightkit/crates/rightkit-record/helpers/macos/.build/out/Intermediates.noindex/RightKitRecordMacOS.build/Debug/rightkit-record-macos-helper-p.build/Objects-normal/arm64/main.o' is located outside of the allowed root paths.
+
+warning: Stale file '/Volumes/D/claude/tools/rightkit/crates/rightkit-record/helpers/macos/.build/out/Intermediates.noindex/RightKitRecordMacOS.build/Debug/rightkit-record-macos-helper-p.build/Objects-normal/arm64/main.swiftconstvalues' is located outside of the allowed root paths.
+
+warning: Stale file '/Volumes/D/claude/tools/rightkit/crates/rightkit-record/helpers/macos/.build/out/Intermediates.noindex/RightKitRecordMacOS.build/Debug/rightkit-record-macos-helper-p.build/Objects-normal/arm64/rightkit-record-macos-helper Swift Compilation Finished' is located outside of the allowed root paths.
+
+warning: Stale file '/Volumes/D/claude/tools/rightkit/crates/rightkit-record/helpers/macos/.build/out/Intermediates.noindex/RightKitRecordMacOS.build/Debug/rightkit-record-macos-helper-p.build/Objects-normal/arm64/rightkit-record-macos-helper Swift Compilation Requirements Finished' is located outside of the allowed root paths.
+
+warning: Stale file '/Volumes/D/claude/tools/rightkit/crates/rightkit-record/helpers/macos/.build/out/Intermediates.noindex/RightKitRecordMacOS.build/Debug/rightkit-record-macos-helper-p.build/Objects-normal/arm64/rightkit-record-macos-helper-OutputFileMap.json' is located outside of the allowed root paths.
+
+warning: Stale file '/Volumes/D/claude/tools/rightkit/crates/rightkit-record/helpers/macos/.build/out/Intermediates.noindex/RightKitRecordMacOS.build/Debug/rightkit-record-macos-helper-p.build/Objects-normal/arm64/rightkit-record-macos-helper.LinkFileList' is located outside of the allowed root paths.
+
+warning: Stale file '/Volumes/D/claude/tools/rightkit/crates/rightkit-record/helpers/macos/.build/out/Intermediates.noindex/RightKitRecordMacOS.build/Debug/rightkit-record-macos-helper-p.build/Objects-normal/arm64/rightkit-record-macos-helper.SwiftFileList' is located outside of the allowed root paths.
+
+warning: Stale file '/Volumes/D/claude/tools/rightkit/crates/rightkit-record/helpers/macos/.build/out/Intermediates.noindex/RightKitRecordMacOS.build/Debug/rightkit-record-macos-helper-p.build/Objects-normal/arm64/rightkit-record-macos-helper_const_extract_protocols.json' is located outside of the allowed root paths.
+
+warning: Stale file '/Volumes/D/claude/tools/rightkit/crates/rightkit-record/helpers/macos/.build/out/Intermediates.noindex/RightKitRecordMacOS.build/Debug/rightkit-record-macos-helper-p.build/Objects-normal/arm64/rightkit-record-macos-helper_dependency_info.dat' is located outside of the allowed root paths.
+
+warning: Stale file '/Volumes/D/claude/tools/rightkit/crates/rightkit-record/helpers/macos/.build/out/Intermediates.noindex/RightKitRecordMacOS.build/Debug/rightkit-record-macos-helper-p.build/Objects-normal/arm64/rightkit-record-macos-helper_lto.o' is located outside of the allowed root paths.
+
+warning: Stale file '/Volumes/D/claude/tools/rightkit/crates/rightkit-record/helpers/macos/.build/out/Intermediates.noindex/RightKitRecordMacOS.build/Debug/rightkit-record-macos-helper-p.build/Objects-normal/arm64/rightkit_record_macos_helper-dependency-scan.dia' is located outside of the allowed root paths.
+
+warning: Stale file '/Volumes/D/claude/tools/rightkit/crates/rightkit-record/helpers/macos/.build/out/Intermediates.noindex/RightKitRecordMacOS.build/Debug/rightkit-record-macos-helper-p.build/Objects-normal/arm64/rightkit_record_macos_helper.abi.json' is located outside of the allowed root paths.
+
+warning: Stale file '/Volumes/D/claude/tools/rightkit/crates/rightkit-record/helpers/macos/.build/out/Intermediates.noindex/RightKitRecordMacOS.build/Debug/rightkit-record-macos-helper-p.build/Objects-normal/arm64/rightkit_record_macos_helper.swiftdoc' is located outside of the allowed root paths.
+
+warning: Stale file '/Volumes/D/claude/tools/rightkit/crates/rightkit-record/helpers/macos/.build/out/Intermediates.noindex/RightKitRecordMacOS.build/Debug/rightkit-record-macos-helper-p.build/Objects-normal/arm64/rightkit_record_macos_helper.swiftmodule' is located outside of the allowed root paths.
+
+warning: Stale file '/Volumes/D/claude/tools/rightkit/crates/rightkit-record/helpers/macos/.build/out/Intermediates.noindex/RightKitRecordMacOS.build/Debug/rightkit-record-macos-helper-p.build/Objects-normal/arm64/rightkit_record_macos_helper.swiftsourceinfo' is located outside of the allowed root paths.
+
+warning: Stale file '/Volumes/D/claude/tools/rightkit/crates/rightkit-record/helpers/macos/.build/out/Intermediates.noindex/RightKitRecordMacOS.build/Debug/rightkit-record-macos-helper-p.build/rightkit-record-macos-helper.xcent' is located outside of the allowed root paths.
+
+warning: Stale file '/Volumes/D/claude/tools/rightkit/crates/rightkit-record/helpers/macos/.build/out/Intermediates.noindex/RightKitRecordMacOS.build/Debug/rightkit-record-macos-helper-p.build/rightkit-record-macos-helper.xcent.der' is located outside of the allowed root paths.
+
+warning: Stale file '/Volumes/D/claude/tools/rightkit/crates/rightkit-record/helpers/macos/.build/out/Products/Debug/rightkit-record-macos-helper' is located outside of the allowed root paths.
+
+warning: Stale file '/Volumes/D/claude/tools/rightkit/crates/rightkit-record/helpers/macos/.build/out/Intermediates.noindex/RightKitRecordMacOS.build/Debug/RecordWireTests-p.build/DerivedSources/Entitlements.plist' is located outside of the allowed root paths.
+
+warning: Stale file '/Volumes/D/claude/tools/rightkit/crates/rightkit-record/helpers/macos/.build/out/Intermediates.noindex/RightKitRecordMacOS.build/Debug/RecordWireTests-p.build/DerivedSources/test_entry_point.swift' is located outside of the allowed root paths.
+
+warning: Stale file '/Volumes/D/claude/tools/rightkit/crates/rightkit-record/helpers/macos/.build/out/Intermediates.noindex/RightKitRecordMacOS.build/Debug/RecordWireTests-p.build/Objects-normal/arm64/GoldenTests.o' is located outside of the allowed root paths.
+
+warning: Stale file '/Volumes/D/claude/tools/rightkit/crates/rightkit-record/helpers/macos/.build/out/Intermediates.noindex/RightKitRecordMacOS.build/Debug/RecordWireTests-p.build/Objects-normal/arm64/GoldenTests.swiftconstvalues' is located outside of the allowed root paths.
+
+warning: Stale file '/Volumes/D/claude/tools/rightkit/crates/rightkit-record/helpers/macos/.build/out/Intermediates.noindex/RightKitRecordMacOS.build/Debug/RecordWireTests-p.build/Objects-normal/arm64/PlanAndTransportTests.o' is located outside of the allowed root paths.
+
+warning: Stale file '/Volumes/D/claude/tools/rightkit/crates/rightkit-record/helpers/macos/.build/out/Intermediates.noindex/RightKitRecordMacOS.build/Debug/RecordWireTests-p.build/Objects-normal/arm64/PlanAndTransportTests.swiftconstvalues' is located outside of the allowed root paths.
+
+warning: Stale file '/Volumes/D/claude/tools/rightkit/crates/rightkit-record/helpers/macos/.build/out/Intermediates.noindex/RightKitRecordMacOS.build/Debug/RecordWireTests-p.build/Objects-normal/arm64/RecordWireTests Swift Compilation Finished' is located outside of the allowed root paths.
+
+warning: Stale file '/Volumes/D/claude/tools/rightkit/crates/rightkit-record/helpers/macos/.build/out/Intermediates.noindex/RightKitRecordMacOS.build/Debug/RecordWireTests-p.build/Objects-normal/arm64/RecordWireTests Swift Compilation Requirements Finished' is located outside of the allowed root paths.
+
+warning: Stale file '/Volumes/D/claude/tools/rightkit/crates/rightkit-record/helpers/macos/.build/out/Intermediates.noindex/RightKitRecordMacOS.build/Debug/RecordWireTests-p.build/Objects-normal/arm64/RecordWireTests-OutputFileMap.json' is located outside of the allowed root paths.
+
+warning: Stale file '/Volumes/D/claude/tools/rightkit/crates/rightkit-record/helpers/macos/.build/out/Intermediates.noindex/RightKitRecordMacOS.build/Debug/RecordWireTests-p.build/Objects-normal/arm64/RecordWireTests-dependency-scan.dia' is located outside of the allowed root paths.
+
+warning: Stale file '/Volumes/D/claude/tools/rightkit/crates/rightkit-record/helpers/macos/.build/out/Intermediates.noindex/RightKitRecordMacOS.build/Debug/RecordWireTests-p.build/Objects-normal/arm64/RecordWireTests.LinkFileList' is located outside of the allowed root paths.
+
+warning: Stale file '/Volumes/D/claude/tools/rightkit/crates/rightkit-record/helpers/macos/.build/out/Intermediates.noindex/RightKitRecordMacOS.build/Debug/RecordWireTests-p.build/Objects-normal/arm64/RecordWireTests.SwiftFileList' is located outside of the allowed root paths.
+
+warning: Stale file '/Volumes/D/claude/tools/rightkit/crates/rightkit-record/helpers/macos/.build/out/Intermediates.noindex/RightKitRecordMacOS.build/Debug/RecordWireTests-p.build/Objects-normal/arm64/RecordWireTests.abi.json' is located outside of the allowed root paths.
+
+warning: Stale file '/Volumes/D/claude/tools/rightkit/crates/rightkit-record/helpers/macos/.build/out/Intermediates.noindex/RightKitRecordMacOS.build/Debug/RecordWireTests-p.build/Objects-normal/arm64/RecordWireTests.swiftdoc' is located outside of the allowed root paths.
+
+warning: Stale file '/Volumes/D/claude/tools/rightkit/crates/rightkit-record/helpers/macos/.build/out/Intermediates.noindex/RightKitRecordMacOS.build/Debug/RecordWireTests-p.build/Objects-normal/arm64/RecordWireTests.swiftmodule' is located outside of the allowed root paths.
+
+warning: Stale file '/Volumes/D/claude/tools/rightkit/crates/rightkit-record/helpers/macos/.build/out/Intermediates.noindex/RightKitRecordMacOS.build/Debug/RecordWireTests-p.build/Objects-normal/arm64/RecordWireTests.swiftsourceinfo' is located outside of the allowed root paths.
+
+warning: Stale file '/Volumes/D/claude/tools/rightkit/crates/rightkit-record/helpers/macos/.build/out/Intermediates.noindex/RightKitRecordMacOS.build/Debug/RecordWireTests-p.build/Objects-normal/arm64/RecordWireTests_const_extract_protocols.json' is located outside of the allowed root paths.
+
+warning: Stale file '/Volumes/D/claude/tools/rightkit/crates/rightkit-record/helpers/macos/.build/out/Intermediates.noindex/RightKitRecordMacOS.build/Debug/RecordWireTests-p.build/Objects-normal/arm64/RecordWireTests_dependency_info.dat' is located outside of the allowed root paths.
+
+warning: Stale file '/Volumes/D/claude/tools/rightkit/crates/rightkit-record/helpers/macos/.build/out/Intermediates.noindex/RightKitRecordMacOS.build/Debug/RecordWireTests-p.build/Objects-normal/arm64/RecordWireTests_lto.o' is located outside of the allowed root paths.
+
+warning: Stale file '/Volumes/D/claude/tools/rightkit/crates/rightkit-record/helpers/macos/.build/out/Intermediates.noindex/RightKitRecordMacOS.build/Debug/RecordWireTests-p.build/Objects-normal/arm64/test_entry_point.o' is located outside of the allowed root paths.
+
+warning: Stale file '/Volumes/D/claude/tools/rightkit/crates/rightkit-record/helpers/macos/.build/out/Intermediates.noindex/RightKitRecordMacOS.build/Debug/RecordWireTests-p.build/Objects-normal/arm64/test_entry_point.swiftconstvalues' is located outside of the allowed root paths.
+
+warning: Stale file '/Volumes/D/claude/tools/rightkit/crates/rightkit-record/helpers/macos/.build/out/Intermediates.noindex/RightKitRecordMacOS.build/Debug/RecordWireTests-p.build/RecordWireTests.xctest.xcent' is located outside of the allowed root paths.
+
+warning: Stale file '/Volumes/D/claude/tools/rightkit/crates/rightkit-record/helpers/macos/.build/out/Intermediates.noindex/RightKitRecordMacOS.build/Debug/RecordWireTests-p.build/RecordWireTests.xctest.xcent.der' is located outside of the allowed root paths.
+
+warning: Stale file '/Volumes/D/claude/tools/rightkit/crates/rightkit-record/helpers/macos/.build/out/Intermediates.noindex/RightKitRecordMacOS.build/Debug/RecordWireTests-p.build/empty-RecordWireTests.plist' is located outside of the allowed root paths.
+
+warning: Stale file '/Volumes/D/claude/tools/rightkit/crates/rightkit-record/helpers/macos/.build/out/Products/Debug/RecordWireTests.swiftmodule/Project/arm64-apple-macos.swiftsourceinfo' is located outside of the allowed root paths.
+
+warning: Stale file '/Volumes/D/claude/tools/rightkit/crates/rightkit-record/helpers/macos/.build/out/Products/Debug/RecordWireTests.swiftmodule/arm64-apple-macos.abi.json' is located outside of the allowed root paths.
+
+warning: Stale file '/Volumes/D/claude/tools/rightkit/crates/rightkit-record/helpers/macos/.build/out/Products/Debug/RecordWireTests.swiftmodule/arm64-apple-macos.swiftdoc' is located outside of the allowed root paths.
+
+warning: Stale file '/Volumes/D/claude/tools/rightkit/crates/rightkit-record/helpers/macos/.build/out/Products/Debug/RecordWireTests.swiftmodule/arm64-apple-macos.swiftmodule' is located outside of the allowed root paths.
+
+warning: Stale file '/Volumes/D/claude/tools/rightkit/crates/rightkit-record/helpers/macos/.build/out/Products/Debug/RecordWireTests.xctest' is located outside of the allowed root paths.
+
+warning: Stale file '/Volumes/D/claude/tools/rightkit/crates/rightkit-record/helpers/macos/.build/out/Products/Debug/RecordWireTests.xctest/Contents' is located outside of the allowed root paths.
+
+warning: Stale file '/Volumes/D/claude/tools/rightkit/crates/rightkit-record/helpers/macos/.build/out/Products/Debug/RecordWireTests.xctest/Contents/Info.plist' is located outside of the allowed root paths.
+
+warning: Stale file '/Volumes/D/claude/tools/rightkit/crates/rightkit-record/helpers/macos/.build/out/Products/Debug/RecordWireTests.xctest/Contents/MacOS' is located outside of the allowed root paths.
+
+warning: Stale file '/Volumes/D/claude/tools/rightkit/crates/rightkit-record/helpers/macos/.build/out/Products/Debug/RecordWireTests.xctest/Contents/MacOS/RecordWireTests' is located outside of the allowed root paths.
+
+warning: Stale file '/Volumes/D/claude/tools/rightkit/crates/rightkit-record/helpers/macos/.build/out/Products/Debug/RecordWireTests.xctest/_CodeSignature' is located outside of the allowed root paths.
+
+[37 / 70] RecordWireTests-product
+[39 / 70]
+[41 / 72] RecordWire
+[50 / 110]
+[51 / 110]
+[54 / 140]
+[62 / 140]
+[64 / 140]
+[65 / 140]
+[71 / 140]
+[73 / 140]
+[76 / 140]
+[81 / 140]
+[84 / 140]
+[86 / 140]
+[87 / 140]
+[100 / 140]
+[102 / 140] RecordWire
+[113 / 141]
+[114 / 141]
+[116 / 141] RecordWire
+[118 / 141]
+[118 / 141] RecordWire
+[120 / 141] rightkit-record-macos-helper-product
+[126 / 160]
+[127 / 160]
+[129 / 160]
+[130 / 160]
+[134 / 160]
+[135 / 160] rk-fixture-window-product
+[136 / 160] rk-fixture-window-product
+[140 / 169]
+[143 / 169]
+[150 / 169]
+[151 / 169]
+[152 / 169] rightkit-record-macos-helper-product
+[156 / 169] RecordWireTests-product
+[161 / 169] RecordWireTests-product
+/Volumes/D/claude/rightkit/crates/rightkit-record/helpers/macos/Tests/RecordWireTests/PlanAndTransportTests.swift:106:9: warning: code after 'throw' will never be executed
+104 |         #endif
+105 |         // 1600x900 BGRA is 5.76 MB. At 60 fps the helper has about 16 ms a frame for hash plus encode.
+106 |         let frame = [UInt8](repeating: 1, count: 1600 * 900 * 4)
+    |         `- warning: code after 'throw' will never be executed
+107 |         let hasher = FrameHasher()
+108 |         let start = Date()
+[163 / 169] rightkit-record-macos-helper-product
+[167 / 169] RecordWireTests-product
+[169 / 171] rightkit-record-macos-helper-product
+[173 / 173] rk-fixture-window-product
+Build complete! (23.30 sec)
+Test Suite 'All tests' started at 2026-10-10 13:37:23.912.
+Test Suite 'RecordWireTests.xctest' started at 2026-10-10 13:37:23.927.
+Test Suite 'GoldenTests' started at 2026-10-10 13:37:23.927.
+Test Case '-[RecordWireTests.GoldenTests testBlake3MatchesTheRustCrate]' started.
+Test Case '-[RecordWireTests.GoldenTests testBlake3MatchesTheRustCrate]' passed (3.769 seconds).
+Test Case '-[RecordWireTests.GoldenTests testBlake3OfNothingIsTheReferenceDigest]' started.
+Test Case '-[RecordWireTests.GoldenTests testBlake3OfNothingIsTheReferenceDigest]' passed (0.000 seconds).
+Test Case '-[RecordWireTests.GoldenTests testEveryRequestTheCoreSendsDecodes]' started.
+Test Case '-[RecordWireTests.GoldenTests testEveryRequestTheCoreSendsDecodes]' passed (0.002 seconds).
+Test Case '-[RecordWireTests.GoldenTests testFramingMatchesRustBytes]' started.
+Test Case '-[RecordWireTests.GoldenTests testFramingMatchesRustBytes]' passed (0.002 seconds).
+Test Case '-[RecordWireTests.GoldenTests testHelperFramesMatchTheRustServer]' started.
+Test Case '-[RecordWireTests.GoldenTests testHelperFramesMatchTheRustServer]' passed (0.001 seconds).
+Test Case '-[RecordWireTests.GoldenTests testIntegersStayIntegersOnTheWire]' started.
+Test Case '-[RecordWireTests.GoldenTests testIntegersStayIntegersOnTheWire]' passed (0.000 seconds).
+Test Case '-[RecordWireTests.GoldenTests testPlanFieldsAreTheOnesTheCoreSent]' started.
+Test Case '-[RecordWireTests.GoldenTests testPlanFieldsAreTheOnesTheCoreSent]' passed (0.001 seconds).
+Test Suite 'GoldenTests' passed at 2026-10-10 13:37:27.704.
+	 Executed 7 tests, with 0 failures (0 unexpected) in 3.775 (3.778) seconds
+Test Suite 'PlanAndTransportTests' started at 2026-10-10 13:37:27.704.
+Test Case '-[RecordWireTests.PlanAndTransportTests testFrameHasherIgnoresRowPadding]' started.
+Test Case '-[RecordWireTests.PlanAndTransportTests testFrameHasherIgnoresRowPadding]' passed (0.000 seconds).
+Test Case '-[RecordWireTests.PlanAndTransportTests testFrameHashSeesASinglePixelChange]' started.
+Test Case '-[RecordWireTests.PlanAndTransportTests testFrameHashSeesASinglePixelChange]' passed (0.391 seconds).
+Test Case '-[RecordWireTests.PlanAndTransportTests testFramesRoundTripThroughAPipe]' started.
+Test Case '-[RecordWireTests.PlanAndTransportTests testFramesRoundTripThroughAPipe]' passed (0.001 seconds).
+Test Case '-[RecordWireTests.PlanAndTransportTests testHashingAFullFrameIsFastEnoughForRealTime]' started.
+/Volumes/D/claude/rightkit/crates/rightkit-record/helpers/macos/Tests/RecordWireTests/PlanAndTransportTests.swift:103: -[RecordWireTests.PlanAndTransportTests testHashingAFullFrameIsFastEnoughForRealTime] : Test skipped - timing is asserted in release builds only: swift test -c release -Xswiftc -enable-testing
+Test Case '-[RecordWireTests.PlanAndTransportTests testHashingAFullFrameIsFastEnoughForRealTime]' skipped (0.001 seconds).
+Test Case '-[RecordWireTests.PlanAndTransportTests testPlanRefusesWhatTheCoreWouldNotSend]' started.
+Test Case '-[RecordWireTests.PlanAndTransportTests testPlanRefusesWhatTheCoreWouldNotSend]' passed (0.001 seconds).
+Test Case '-[RecordWireTests.PlanAndTransportTests testReaderReportsEndTruncationAndHostileLengths]' started.
+Test Case '-[RecordWireTests.PlanAndTransportTests testReaderReportsEndTruncationAndHostileLengths]' passed (0.000 seconds).
+Test Case '-[RecordWireTests.PlanAndTransportTests testRequestNeedsKindAndOp]' started.
+Test Case '-[RecordWireTests.PlanAndTransportTests testRequestNeedsKindAndOp]' passed (0.000 seconds).
+Test Suite 'PlanAndTransportTests' passed at 2026-10-10 13:37:28.102.
+	 Executed 7 tests, with 1 test skipped and 0 failures (0 unexpected) in 0.396 (0.398) seconds
+Test Suite 'RecordWireTests.xctest' passed at 2026-10-10 13:37:28.102.
+	 Executed 14 tests, with 1 test skipped and 0 failures (0 unexpected) in 4.171 (4.175) seconds
+Test Suite 'All tests' passed at 2026-10-10 13:37:28.102.
+	 Executed 14 tests, with 1 test skipped and 0 failures (0 unexpected) in 4.171 (4.190) seconds
+◇ Test run started.
+↳ Testing Library Version: 2084
+↳ Target Platform: arm64e-apple-macos14.0
+✔ Test run with 0 tests in 0 suites passed after 0.001 seconds.

@@ -1,0 +1,77 @@
+{
+  "verified_utc": "2026-10-10T07:39:05.707740+00:00",
+  "method": "Static report/inventory consistency, source hash stability & local citation bounds; no product qualification.",
+  "json_files_parsed": 14,
+  "csv_rows": {
+    "npm-dependencies.csv": 171,
+    "app-rightkit-references.csv": 3109,
+    "swift-publication.csv": 83,
+    "app-rightkit-dependencies.csv": 260
+  },
+  "reports": [
+    {
+      "report": "03-app-adoption.md",
+      "all_80_package_names_present": true,
+      "bytes": 89661,
+      "lines": 597,
+      "sha256": "31bc48f2b5bf1bacfe67834e67dba13b20d973444b302455ddade57f0c08db67"
+    },
+    {
+      "report": "02-package-boundaries.md",
+      "all_80_package_names_present": true,
+      "bytes": 43423,
+      "lines": 322,
+      "sha256": "590a8e5e7068b6e07679bd7fa62da8a64cae3c200f1f50ca66d9e092e87aef03"
+    },
+    {
+      "report": "01-dependencies.md",
+      "all_80_package_names_present": true,
+      "bytes": 122831,
+      "lines": 333,
+      "sha256": "0f548d62f7d32fbbd3f9e75c4d86ba6625eb5044dba15249a52d9883547158d4"
+    }
+  ],
+  "source_hashes": {
+    "rightkit-source-hashes.json": {
+      "checked": 2548,
+      "changed": [],
+      "missing": []
+    },
+    "source-hashes.json": {
+      "checked": 20718,
+      "changed": [],
+      "missing": []
+    }
+  },
+  "markdown_links": {
+    "checked": 79,
+    "failures": []
+  },
+  "absolute_locus_citations": {
+    "unique_checked": 304,
+    "failures": [],
+    "limit": "Bounds/existence only; priority source bodies reviewed manually."
+  },
+  "git": {
+    "head": "08252a681d9f9dc2911962a49fa0026a4c345dff",
+    "head_matches_initial": true,
+    "status": " M Cargo.lock\n M crates/rightkit-control/examples/control-test-app/Cargo.lock\n M crates/rightkit-fsindex/Cargo.toml\n M crates/rightkit-fsindex/README.md\n M crates/rightkit-fsindex/benches/footprint.rs\n M crates/rightkit-fsindex/src/backend/mod.rs\n M crates/rightkit-fsindex/src/col.rs\n M crates/rightkit-fsindex/src/index.rs\n M crates/rightkit-fsindex/src/names.rs\n M crates/rightkit-fsindex/src/store.rs\n M crates/rightkit-ocr/CHANGELOG.md\n M crates/rightkit-ocr/Cargo.toml\n M crates/rightkit-ocr/README.md\n M crates/rightkit-ocr/src/bin/rightkit-ocr.rs\n M crates/rightkit-ocr/src/lib.rs\n M crates/rightkit-ocr/src/router.rs\n M crates/rightkit-shell/example-app/Cargo.lock\n M spikes/rk2-macos/fixture-app/Cargo.lock\n M spikes/rk2-macos/svc-call/Cargo.lock\n?? .cache/\n?? .legion-cache/\n?? crates/rightkit-fsindex/CHANGELOG.md\n?? crates/rightkit-fsindex/LICENSE\n?? crates/rightkit-ocr/tests/lease_and_provenance.rs\n?? docs/audits/2026-10-10-app-adoption.md\n?? docs/audits/2026-10-10-audit-evidence/\n?? docs/audits/2026-10-10-dependencies.md\n?? docs/audits/2026-10-10-plan-vs-current.md\n?? docs/audits/2026-10-10-structure.md\n?? docs/audits/fresh-2026-10-10/\n?? spikes/rk2-macos/evidence/apphidden-30fps-stream/analyze.out\n?? spikes/rk2-macos/evidence/apphidden-30fps-stream/capture.mp4\n?? spikes/rk2-macos/evidence/minimized-30fps-stream/analyze.out\n?? spikes/rk2-macos/evidence/minimized-30fps-stream/capture.mp4\n?? spikes/rk2-macos/evidence/occluded-30fps-stream-napfix/analyze.out\n?? spikes/rk2-macos/evidence/occluded-30fps-stream-napfix/capture.mp4\n?? spikes/rk2-macos/evidence/occluded-30fps-stream-napfix/occluder-sanity/capture.mp4\n?? spikes/rk2-macos/evidence/occluded-30fps-stream/analyze.out\n?? spikes/rk2-macos/evidence/occluded-30fps-stream/capture.mp4\n?? spikes/rk2-macos/evidence/occluded-30fps-stream/occluder-sanity/capture.mp4\n?? spikes/rk2-macos/evidence/offscreen-30fps-file/analyze.out\n?? spikes/rk2-macos/evidence/offscreen-30fps-file/capture.mp4\n?? spikes/rk2-macos/evidence/offscreen-30fps-stream-napfix/analyze.out\n?? spikes/rk2-macos/evidence/offscreen-30fps-stream-napfix/capture.mp4\n?? spikes/rk2-macos/evidence/offscreen-30fps-stream-noinput/analyze.out\n?? spikes/rk2-macos/evidence/offscreen-30fps-stream-noinput/capture.mp4\n?? spikes/rk2-macos/evidence/offscreen-30fps-stream-nospi/analyze.out\n?? spikes/rk2-macos/evidence/offscreen-30fps-stream-nospi/capture.mp4\n?? spikes/rk2-macos/evidence/offscreen-30fps-stream/analyze.out\n?? spikes/rk2-macos/evidence/offscreen-30fps-stream/capture.mp4\n?? spikes/rk2-macos/evidence/offscreen-60fps-stream-napfix/analyze.out\n?? spikes/rk2-macos/evidence/offscreen-60fps-stream-napfix/capture.mp4\n?? spikes/rk2-macos/evidence/offscreen-60fps-stream/analyze.out\n?? spikes/rk2-macos/evidence/offscreen-60fps-stream/capture.mp4\n",
+    "new_status_lines": [
+      "?? docs/audits/fresh-2026-10-10/"
+    ],
+    "removed_status_lines": []
+  },
+  "qualification": {
+    "native_audit": "incomplete",
+    "native_quality_gate": "unproven",
+    "build_tests_run": false,
+    "registry_verified": false,
+    "source_edits_made": false
+  },
+  "core_relative_loci": {
+    "checked": 200,
+    "unresolved": [],
+    "method": "Relative citation file suffix matching inside section app root; only unique matches checked for line bounds. Contextual correctness requires body review.",
+    "manual_correction": "Telemetry source rechecked at line 5; stale line 234 removed."
+  }
+}

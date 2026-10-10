@@ -1,0 +1,15 @@
+{
+  "ok": false,
+  "error": {
+    "type": "protected-evidence",
+    "message": "repository is not registered in protected trust"
+  },
+  "rows": [],
+  "violations": [],
+  "covered": [],
+  "problems": [
+    "repository is not registered in protected trust"
+  ],
+  "coverage": [],
+  "metadata": null
+}

@@ -1,0 +1,18 @@
+Scope: all 25 workspace projects
+? Verifying lockfile against supply-chain policies (425 entries)...
+✓ Lockfile passes supply-chain policies (425 entries in 2.5s)
+Lockfile is up to date, resolution step is skipped
+Already up to date
+
+Done in 3.3s using pnpm v11.24.0
+$ node --test swift/contracts/contracts.test.mjs
+✔ Swift (both copies), Rust, and TypeScript consume the same license-v2 golden vector (1.516084ms)
+✔ license-v2 vector is a valid Ed25519 entitlement contract (1.637541ms)
+ℹ tests 2
+ℹ suites 0
+ℹ pass 2
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 42.125041

@@ -214,12 +214,16 @@ public final class SecurityAppleCredentialBackend: AppleCredentialBackend, @unch
     public init(accessGroup: String? = nil) { self.accessGroup = accessGroup }
 
     func base(_ service: String, _ account: String) -> [String: Any] {
+        // Non-interactive: a protected item fails with `errSecInteractionNotAllowed` instead of
+        // prompting. `kSecUseAuthenticationUIFail` is deprecated; this is its documented replacement.
+        let context = LAContext()
+        context.interactionNotAllowed = true
         var query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
             kSecAttrAccount as String: account,
             kSecUseDataProtectionKeychain as String: true,
-            kSecUseAuthenticationUI as String: kSecUseAuthenticationUIFail,
+            kSecUseAuthenticationContext as String: context,
         ]
         if let accessGroup { query[kSecAttrAccessGroup as String] = accessGroup }
         return query

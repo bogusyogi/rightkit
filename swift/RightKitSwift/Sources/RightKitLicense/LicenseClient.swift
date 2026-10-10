@@ -521,7 +521,8 @@ public struct LicenseActivationClient: Sendable {
 
     public func activateLease(key: String, deviceLabel: String? = nil) async throws -> StoredLicense {
         let deviceHash = Self.deviceIDHash(configuration.deviceID())
-        var payload = leaseBody(["licenseKey": key.trimmingCharacters(in: .whitespacesAndNewlines), "deviceIdHash": deviceHash, "platform": Self.platform()])
+        let platform = await Self.platform()
+        var payload = leaseBody(["licenseKey": key.trimmingCharacters(in: .whitespacesAndNewlines), "deviceIdHash": deviceHash, "platform": platform])
         if let deviceLabel { payload["deviceLabel"] = deviceLabel }
         let body: LicenseServerResponse = try await post(url: configuration.leaseURL([]), payload: payload)
         guard let lease = body.lease, let token = body.activationToken else {
@@ -606,13 +607,21 @@ public struct LicenseActivationClient: Sendable {
         SHA256.hash(data: Data(deviceID.utf8)).map { String(format: "%02x", $0) }.joined()
     }
 
-    private static func platform() -> String {
+    /// `UIDevice` is main-actor state, so the idiom is read by hopping to the main actor instead of
+    /// touching it from this nonisolated client.
+    private static func platform() async -> String {
         #if canImport(UIKit)
-        return UIDevice.current.userInterfaceIdiom == .pad ? "ipados" : "ios"
+        return await mainActorPlatform()
         #else
         return "ios"
         #endif
     }
+
+    #if canImport(UIKit)
+    @MainActor private static func mainActorPlatform() -> String {
+        UIDevice.current.userInterfaceIdiom == .pad ? "ipados" : "ios"
+    }
+    #endif
 
     private func leaseKey() throws -> Curve25519.Signing.PublicKey {
         guard let key = configuration.publicKeyBase64url else { throw LicenseError.malformedPublicKey }

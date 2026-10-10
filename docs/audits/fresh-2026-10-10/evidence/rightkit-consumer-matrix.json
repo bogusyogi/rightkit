@@ -1,0 +1,1215 @@
+[
+  {
+    "ecosystem": "npm",
+    "package": "@rightkit/agent-room-mcp",
+    "source_version": "0.1.0",
+    "declaration_roots": [],
+    "reference_roots": [],
+    "declaration_count": 0,
+    "reference_count": 0
+  },
+  {
+    "ecosystem": "npm",
+    "package": "@rightkit/app-shell",
+    "source_version": "0.3.0",
+    "declaration_roots": [
+      "cutright",
+      "genright",
+      "heardright",
+      "pulse",
+      "scraperight"
+    ],
+    "reference_roots": [
+      "cutright",
+      "genright",
+      "heardright",
+      "pulse",
+      "scraperight",
+      "viewright"
+    ],
+    "declaration_count": 5,
+    "reference_count": 89
+  },
+  {
+    "ecosystem": "npm",
+    "package": "@rightkit/ax",
+    "source_version": "0.2.4",
+    "declaration_roots": [
+      "coderight",
+      "legion",
+      "membrane:membrane-blueprint-findings",
+      "membrane:membrane-live-diagnostics-phase1-repair",
+      "membrane:membrane-main-f602-baseline"
+    ],
+    "reference_roots": [
+      "coderight",
+      "legion",
+      "membrane:membrane-blueprint-findings",
+      "membrane:membrane-live-diagnostics-phase1-repair",
+      "membrane:membrane-main-f602-baseline"
+    ],
+    "declaration_count": 5,
+    "reference_count": 24
+  },
+  {
+    "ecosystem": "npm",
+    "package": "@rightkit/build-control-policy",
+    "source_version": "0.1.0-phase1",
+    "declaration_roots": [],
+    "reference_roots": [],
+    "declaration_count": 0,
+    "reference_count": 0
+  },
+  {
+    "ecosystem": "npm",
+    "package": "@rightkit/doc-render",
+    "source_version": "0.1.4",
+    "declaration_roots": [
+      "viewright"
+    ],
+    "reference_roots": [
+      "viewright"
+    ],
+    "declaration_count": 1,
+    "reference_count": 21
+  },
+  {
+    "ecosystem": "npm",
+    "package": "@rightkit/git",
+    "source_version": "0.2.33",
+    "declaration_roots": [
+      "coderight",
+      "legion",
+      "membrane:membrane-blueprint-findings",
+      "membrane:membrane-live-diagnostics-phase1-repair",
+      "membrane:membrane-main-f602-baseline"
+    ],
+    "reference_roots": [
+      "coderight",
+      "legion",
+      "membrane:membrane-blueprint-findings",
+      "membrane:membrane-live-diagnostics-phase1-repair",
+      "membrane:membrane-main-f602-baseline"
+    ],
+    "declaration_count": 5,
+    "reference_count": 20
+  },
+  {
+    "ecosystem": "npm",
+    "package": "@rightkit/hooks",
+    "source_version": "0.1.2",
+    "declaration_roots": [
+      "coderight",
+      "legion",
+      "membrane:membrane-blueprint-findings",
+      "membrane:membrane-live-diagnostics-phase1-repair",
+      "membrane:membrane-main-f602-baseline"
+    ],
+    "reference_roots": [
+      "coderight",
+      "legion",
+      "membrane:membrane-blueprint-findings",
+      "membrane:membrane-live-diagnostics-phase1-repair",
+      "membrane:membrane-main-f602-baseline"
+    ],
+    "declaration_count": 8,
+    "reference_count": 44
+  },
+  {
+    "ecosystem": "npm",
+    "package": "@rightkit/i18n",
+    "source_version": "0.1.0",
+    "declaration_roots": [],
+    "reference_roots": [],
+    "declaration_count": 0,
+    "reference_count": 0
+  },
+  {
+    "ecosystem": "npm",
+    "package": "@rightkit/legal",
+    "source_version": "0.3.1",
+    "declaration_roots": [
+      "coderight",
+      "cutright",
+      "heardright",
+      "mailright",
+      "rightsites",
+      "scraperight",
+      "sellright",
+      "viewright"
+    ],
+    "reference_roots": [
+      "coderight",
+      "cutright",
+      "heardright",
+      "mailright",
+      "rightsites",
+      "scraperight",
+      "sellright",
+      "viewright"
+    ],
+    "declaration_count": 8,
+    "reference_count": 65
+  },
+  {
+    "ecosystem": "npm",
+    "package": "@rightkit/legal-ui",
+    "source_version": "0.2.0",
+    "declaration_roots": [
+      "cutright",
+      "heardright",
+      "scraperight",
+      "viewright"
+    ],
+    "reference_roots": [
+      "cutright",
+      "genright",
+      "heardright",
+      "scraperight",
+      "viewright"
+    ],
+    "declaration_count": 4,
+    "reference_count": 45
+  },
+  {
+    "ecosystem": "npm",
+    "package": "@rightkit/license",
+    "source_version": "0.1.8",
+    "declaration_roots": [
+      "coderight",
+      "cutright",
+      "heardright",
+      "mailright",
+      "scraperight",
+      "viewright"
+    ],
+    "reference_roots": [
+      "coderight",
+      "cutright",
+      "genright",
+      "heardright",
+      "mailright",
+      "scraperight",
+      "viewright"
+    ],
+    "declaration_count": 6,
+    "reference_count": 61
+  },
+  {
+    "ecosystem": "npm",
+    "package": "@rightkit/logs",
+    "source_version": "0.1.4",
+    "declaration_roots": [
+      "coderight",
+      "cutright",
+      "heardright",
+      "mailright",
+      "scraperight",
+      "viewright"
+    ],
+    "reference_roots": [
+      "coderight",
+      "cutright",
+      "genright",
+      "heardright",
+      "mailright",
+      "scraperight",
+      "viewright"
+    ],
+    "declaration_count": 6,
+    "reference_count": 45
+  },
+  {
+    "ecosystem": "npm",
+    "package": "@rightkit/media-ui",
+    "source_version": "0.3.0",
+    "declaration_roots": [
+      "cutright",
+      "genright",
+      "scraperight",
+      "viewright"
+    ],
+    "reference_roots": [
+      "cutright",
+      "genright",
+      "scraperight",
+      "viewright"
+    ],
+    "declaration_count": 4,
+    "reference_count": 60
+  },
+  {
+    "ecosystem": "npm",
+    "package": "@rightkit/onboarding",
+    "source_version": "0.3.0",
+    "declaration_roots": [
+      "cutright",
+      "genright",
+      "heardright",
+      "scraperight"
+    ],
+    "reference_roots": [
+      "cutright",
+      "genright",
+      "heardright",
+      "scraperight"
+    ],
+    "declaration_count": 4,
+    "reference_count": 33
+  },
+  {
+    "ecosystem": "npm",
+    "package": "@rightkit/pdf-ui",
+    "source_version": "0.1.2",
+    "declaration_roots": [
+      "viewright"
+    ],
+    "reference_roots": [
+      "viewright"
+    ],
+    "declaration_count": 1,
+    "reference_count": 14
+  },
+  {
+    "ecosystem": "npm",
+    "package": "@rightkit/platform-ui",
+    "source_version": "0.2.0",
+    "declaration_roots": [
+      "cutright",
+      "genright",
+      "membrane:membrane-blueprint-findings",
+      "membrane:membrane-live-diagnostics-phase1-repair",
+      "membrane:membrane-main-f602-baseline",
+      "pulse",
+      "scraperight"
+    ],
+    "reference_roots": [
+      "cutright",
+      "genright",
+      "heardright",
+      "membrane:membrane-blueprint-findings",
+      "membrane:membrane-live-diagnostics-phase1-repair",
+      "membrane:membrane-main-f602-baseline",
+      "pulse",
+      "scraperight"
+    ],
+    "declaration_count": 7,
+    "reference_count": 80
+  },
+  {
+    "ecosystem": "npm",
+    "package": "@rightkit/qa",
+    "source_version": "0.4.0",
+    "declaration_roots": [],
+    "reference_roots": [],
+    "declaration_count": 0,
+    "reference_count": 0
+  },
+  {
+    "ecosystem": "npm",
+    "package": "@rightkit/qa-chrome",
+    "source_version": "0.1.3",
+    "declaration_roots": [
+      "heardright",
+      "scraperight",
+      "viewright"
+    ],
+    "reference_roots": [
+      "heardright",
+      "scraperight",
+      "viewright"
+    ],
+    "declaration_count": 3,
+    "reference_count": 20
+  },
+  {
+    "ecosystem": "npm",
+    "package": "@rightkit/release",
+    "source_version": "0.2.147",
+    "declaration_roots": [
+      "coderight",
+      "cutright",
+      "genright",
+      "heardright",
+      "legion",
+      "mailright",
+      "membrane:membrane-blueprint-findings",
+      "membrane:membrane-live-diagnostics-phase1-repair",
+      "membrane:membrane-main-f602-baseline",
+      "pulse",
+      "scraperight",
+      "swiftright",
+      "viewright",
+      "voiceright"
+    ],
+    "reference_roots": [
+      "coderight",
+      "cutright",
+      "genright",
+      "heardright",
+      "legion",
+      "mailright",
+      "membrane:membrane-blueprint-findings",
+      "membrane:membrane-live-diagnostics-phase1-repair",
+      "membrane:membrane-main-f602-baseline",
+      "pulse",
+      "rightsites",
+      "scraperight",
+      "swiftright",
+      "viewright",
+      "voiceright"
+    ],
+    "declaration_count": 15,
+    "reference_count": 193
+  },
+  {
+    "ecosystem": "npm",
+    "package": "@rightkit/settings-ui",
+    "source_version": "0.3.0",
+    "declaration_roots": [
+      "cutright",
+      "genright",
+      "heardright",
+      "scraperight"
+    ],
+    "reference_roots": [
+      "cutright",
+      "genright",
+      "heardright",
+      "scraperight"
+    ],
+    "declaration_count": 4,
+    "reference_count": 37
+  },
+  {
+    "ecosystem": "npm",
+    "package": "@rightkit/shell",
+    "source_version": "0.1.0",
+    "declaration_roots": [
+      "coderight",
+      "cutright"
+    ],
+    "reference_roots": [
+      "coderight",
+      "cutright",
+      "genright",
+      "heardright",
+      "scraperight"
+    ],
+    "declaration_count": 2,
+    "reference_count": 34
+  },
+  {
+    "ecosystem": "npm",
+    "package": "@rightkit/tauri",
+    "source_version": "0.2.0",
+    "declaration_roots": [
+      "coderight",
+      "heardright",
+      "mailright",
+      "scraperight",
+      "viewright"
+    ],
+    "reference_roots": [
+      "coderight",
+      "heardright",
+      "mailright",
+      "scraperight",
+      "viewright"
+    ],
+    "declaration_count": 5,
+    "reference_count": 25
+  },
+  {
+    "ecosystem": "npm",
+    "package": "@rightkit/theme",
+    "source_version": "0.2.1",
+    "declaration_roots": [
+      "cutright",
+      "genright",
+      "heardright",
+      "scraperight"
+    ],
+    "reference_roots": [
+      "cutright",
+      "genright",
+      "heardright",
+      "scraperight"
+    ],
+    "declaration_count": 4,
+    "reference_count": 33
+  },
+  {
+    "ecosystem": "npm",
+    "package": "@rightkit/updates",
+    "source_version": "0.2.5",
+    "declaration_roots": [
+      "coderight",
+      "cutright",
+      "heardright",
+      "mailright",
+      "scraperight",
+      "viewright"
+    ],
+    "reference_roots": [
+      "coderight",
+      "cutright",
+      "genright",
+      "heardright",
+      "mailright",
+      "scraperight",
+      "viewright"
+    ],
+    "declaration_count": 6,
+    "reference_count": 73
+  },
+  {
+    "ecosystem": "cargo",
+    "package": "agent-room-core",
+    "source_version": "0.3.0",
+    "declaration_roots": [],
+    "reference_roots": [],
+    "declaration_count": 0,
+    "reference_count": 0
+  },
+  {
+    "ecosystem": "cargo",
+    "package": "rightkit-agent-tools",
+    "source_version": "0.1.2",
+    "declaration_roots": [],
+    "reference_roots": [],
+    "declaration_count": 0,
+    "reference_count": 0
+  },
+  {
+    "ecosystem": "cargo",
+    "package": "rightkit-align",
+    "source_version": "0.0.0",
+    "declaration_roots": [],
+    "reference_roots": [],
+    "declaration_count": 0,
+    "reference_count": 0
+  },
+  {
+    "ecosystem": "cargo",
+    "package": "rightkit-asr",
+    "source_version": "0.0.2",
+    "declaration_roots": [
+      "heardright"
+    ],
+    "reference_roots": [
+      "heardright"
+    ],
+    "declaration_count": 1,
+    "reference_count": 1
+  },
+  {
+    "ecosystem": "cargo",
+    "package": "rightkit-audio",
+    "source_version": "0.2.0",
+    "declaration_roots": [
+      "cutright",
+      "heardright"
+    ],
+    "reference_roots": [
+      "cutright",
+      "heardright"
+    ],
+    "declaration_count": 4,
+    "reference_count": 47
+  },
+  {
+    "ecosystem": "cargo",
+    "package": "rightkit-automation",
+    "source_version": "0.1.0",
+    "declaration_roots": [],
+    "reference_roots": [],
+    "declaration_count": 0,
+    "reference_count": 0
+  },
+  {
+    "ecosystem": "cargo",
+    "package": "rightkit-browser",
+    "source_version": "0.2.3",
+    "declaration_roots": [
+      "coderight",
+      "genright"
+    ],
+    "reference_roots": [
+      "coderight",
+      "genright"
+    ],
+    "declaration_count": 3,
+    "reference_count": 7
+  },
+  {
+    "ecosystem": "cargo",
+    "package": "rightkit-cache",
+    "source_version": "0.1.0",
+    "declaration_roots": [
+      "coderight",
+      "mailright"
+    ],
+    "reference_roots": [
+      "coderight",
+      "mailright"
+    ],
+    "declaration_count": 4,
+    "reference_count": 3
+  },
+  {
+    "ecosystem": "cargo",
+    "package": "rightkit-channel-memory",
+    "source_version": "0.1.0",
+    "declaration_roots": [],
+    "reference_roots": [],
+    "declaration_count": 0,
+    "reference_count": 0
+  },
+  {
+    "ecosystem": "cargo",
+    "package": "rightkit-compose",
+    "source_version": "0.0.0",
+    "declaration_roots": [],
+    "reference_roots": [],
+    "declaration_count": 0,
+    "reference_count": 0
+  },
+  {
+    "ecosystem": "cargo",
+    "package": "rightkit-contracts",
+    "source_version": "0.1.2",
+    "declaration_roots": [],
+    "reference_roots": [],
+    "declaration_count": 0,
+    "reference_count": 0
+  },
+  {
+    "ecosystem": "cargo",
+    "package": "rightkit-control",
+    "source_version": "0.1.11",
+    "declaration_roots": [
+      "cutright",
+      "genright",
+      "pulse"
+    ],
+    "reference_roots": [
+      "cutright",
+      "genright",
+      "pulse"
+    ],
+    "declaration_count": 3,
+    "reference_count": 3
+  },
+  {
+    "ecosystem": "cargo",
+    "package": "rightkit-crash",
+    "source_version": "0.2.0",
+    "declaration_roots": [
+      "heardright"
+    ],
+    "reference_roots": [
+      "heardright"
+    ],
+    "declaration_count": 1,
+    "reference_count": 5
+  },
+  {
+    "ecosystem": "cargo",
+    "package": "rightkit-daemon",
+    "source_version": "0.1.0",
+    "declaration_roots": [],
+    "reference_roots": [],
+    "declaration_count": 0,
+    "reference_count": 0
+  },
+  {
+    "ecosystem": "cargo",
+    "package": "rightkit-db",
+    "source_version": "0.3.2",
+    "declaration_roots": [
+      "coderight",
+      "genright",
+      "mailright",
+      "scraperight",
+      "viewright"
+    ],
+    "reference_roots": [
+      "coderight",
+      "genright",
+      "mailright",
+      "scraperight",
+      "viewright"
+    ],
+    "declaration_count": 12,
+    "reference_count": 121
+  },
+  {
+    "ecosystem": "cargo",
+    "package": "rightkit-embed",
+    "source_version": "0.3.1",
+    "declaration_roots": [
+      "coderight",
+      "mailright"
+    ],
+    "reference_roots": [
+      "coderight",
+      "mailright"
+    ],
+    "declaration_count": 2,
+    "reference_count": 4
+  },
+  {
+    "ecosystem": "cargo",
+    "package": "rightkit-framed-sidecar",
+    "source_version": "0.1.0",
+    "declaration_roots": [
+      "scraperight"
+    ],
+    "reference_roots": [
+      "scraperight"
+    ],
+    "declaration_count": 2,
+    "reference_count": 2
+  },
+  {
+    "ecosystem": "cargo",
+    "package": "rightkit-fs",
+    "source_version": "0.3.3",
+    "declaration_roots": [
+      "coderight",
+      "cutright",
+      "genright",
+      "rustright",
+      "scraperight"
+    ],
+    "reference_roots": [
+      "coderight",
+      "cutright",
+      "genright",
+      "rustright",
+      "scraperight"
+    ],
+    "declaration_count": 17,
+    "reference_count": 67
+  },
+  {
+    "ecosystem": "cargo",
+    "package": "rightkit-fsindex",
+    "source_version": "0.1.0",
+    "declaration_roots": [
+      "pulse"
+    ],
+    "reference_roots": [
+      "pulse"
+    ],
+    "declaration_count": 1,
+    "reference_count": 1
+  },
+  {
+    "ecosystem": "cargo",
+    "package": "rightkit-hotkeys",
+    "source_version": "0.1.0",
+    "declaration_roots": [],
+    "reference_roots": [],
+    "declaration_count": 0,
+    "reference_count": 0
+  },
+  {
+    "ecosystem": "cargo",
+    "package": "rightkit-http",
+    "source_version": "0.2.4",
+    "declaration_roots": [
+      "coderight",
+      "mailright",
+      "viewright"
+    ],
+    "reference_roots": [
+      "coderight",
+      "mailright",
+      "viewright"
+    ],
+    "declaration_count": 4,
+    "reference_count": 8
+  },
+  {
+    "ecosystem": "cargo",
+    "package": "rightkit-jobs",
+    "source_version": "0.2.6",
+    "declaration_roots": [
+      "cutright",
+      "genright"
+    ],
+    "reference_roots": [
+      "cutright",
+      "genright"
+    ],
+    "declaration_count": 3,
+    "reference_count": 8
+  },
+  {
+    "ecosystem": "cargo",
+    "package": "rightkit-license",
+    "source_version": "0.1.3",
+    "declaration_roots": [
+      "coderight",
+      "heardright",
+      "mailright",
+      "scraperight",
+      "viewright"
+    ],
+    "reference_roots": [
+      "coderight",
+      "heardright",
+      "mailright",
+      "scraperight",
+      "viewright"
+    ],
+    "declaration_count": 6,
+    "reference_count": 50
+  },
+  {
+    "ecosystem": "cargo",
+    "package": "rightkit-llm",
+    "source_version": "0.1.0",
+    "declaration_roots": [],
+    "reference_roots": [],
+    "declaration_count": 0,
+    "reference_count": 0
+  },
+  {
+    "ecosystem": "cargo",
+    "package": "rightkit-logs",
+    "source_version": "0.2.0",
+    "declaration_roots": [
+      "coderight",
+      "genright",
+      "heardright",
+      "mailright",
+      "scraperight",
+      "viewright"
+    ],
+    "reference_roots": [
+      "coderight",
+      "genright",
+      "heardright",
+      "mailright",
+      "scraperight",
+      "viewright"
+    ],
+    "declaration_count": 8,
+    "reference_count": 37
+  },
+  {
+    "ecosystem": "cargo",
+    "package": "rightkit-mcp",
+    "source_version": "0.5.2",
+    "declaration_roots": [
+      "coderight"
+    ],
+    "reference_roots": [
+      "coderight"
+    ],
+    "declaration_count": 4,
+    "reference_count": 46
+  },
+  {
+    "ecosystem": "cargo",
+    "package": "rightkit-media",
+    "source_version": "0.2.4",
+    "declaration_roots": [
+      "genright"
+    ],
+    "reference_roots": [
+      "genright"
+    ],
+    "declaration_count": 1,
+    "reference_count": 13
+  },
+  {
+    "ecosystem": "cargo",
+    "package": "rightkit-models",
+    "source_version": "0.2.7",
+    "declaration_roots": [
+      "cutright",
+      "genright",
+      "heardright",
+      "scraperight"
+    ],
+    "reference_roots": [
+      "cutright",
+      "genright",
+      "heardright",
+      "scraperight"
+    ],
+    "declaration_count": 7,
+    "reference_count": 35
+  },
+  {
+    "ecosystem": "cargo",
+    "package": "rightkit-oauth",
+    "source_version": "0.3.0",
+    "declaration_roots": [
+      "coderight",
+      "mailright"
+    ],
+    "reference_roots": [
+      "coderight",
+      "mailright"
+    ],
+    "declaration_count": 3,
+    "reference_count": 10
+  },
+  {
+    "ecosystem": "cargo",
+    "package": "rightkit-ocr",
+    "source_version": "0.2.0",
+    "declaration_roots": [
+      "coderight",
+      "scraperight",
+      "viewright"
+    ],
+    "reference_roots": [
+      "coderight",
+      "scraperight",
+      "viewright"
+    ],
+    "declaration_count": 3,
+    "reference_count": 27
+  },
+  {
+    "ecosystem": "cargo",
+    "package": "rightkit-ort",
+    "source_version": "0.2.2",
+    "declaration_roots": [
+      "coderight",
+      "cutright",
+      "genright",
+      "scraperight"
+    ],
+    "reference_roots": [
+      "coderight",
+      "cutright",
+      "genright",
+      "scraperight"
+    ],
+    "declaration_count": 17,
+    "reference_count": 110
+  },
+  {
+    "ecosystem": "cargo",
+    "package": "rightkit-overlay",
+    "source_version": "0.1.0",
+    "declaration_roots": [],
+    "reference_roots": [],
+    "declaration_count": 0,
+    "reference_count": 0
+  },
+  {
+    "ecosystem": "cargo",
+    "package": "rightkit-ownership",
+    "source_version": "0.2.1",
+    "declaration_roots": [
+      "rustright"
+    ],
+    "reference_roots": [
+      "rustright"
+    ],
+    "declaration_count": 2,
+    "reference_count": 14
+  },
+  {
+    "ecosystem": "cargo",
+    "package": "rightkit-pdf",
+    "source_version": "0.2.0",
+    "declaration_roots": [],
+    "reference_roots": [],
+    "declaration_count": 0,
+    "reference_count": 0
+  },
+  {
+    "ecosystem": "cargo",
+    "package": "rightkit-playback",
+    "source_version": "0.1.1",
+    "declaration_roots": [],
+    "reference_roots": [],
+    "declaration_count": 0,
+    "reference_count": 0
+  },
+  {
+    "ecosystem": "cargo",
+    "package": "rightkit-process",
+    "source_version": "0.3.3",
+    "declaration_roots": [
+      "coderight",
+      "cutright",
+      "genright",
+      "heardright",
+      "rustright"
+    ],
+    "reference_roots": [
+      "coderight",
+      "genright",
+      "heardright",
+      "rustright"
+    ],
+    "declaration_count": 11,
+    "reference_count": 15
+  },
+  {
+    "ecosystem": "cargo",
+    "package": "rightkit-qa",
+    "source_version": "0.2.14",
+    "declaration_roots": [
+      "cutright",
+      "genright",
+      "pulse"
+    ],
+    "reference_roots": [
+      "cutright",
+      "genright",
+      "pulse"
+    ],
+    "declaration_count": 4,
+    "reference_count": 51
+  },
+  {
+    "ecosystem": "cargo",
+    "package": "rightkit-qts",
+    "source_version": "0.2.4",
+    "declaration_roots": [
+      "genright"
+    ],
+    "reference_roots": [],
+    "declaration_count": 1,
+    "reference_count": 0
+  },
+  {
+    "ecosystem": "cargo",
+    "package": "rightkit-qts-ggml",
+    "source_version": "0.1.1",
+    "declaration_roots": [
+      "genright"
+    ],
+    "reference_roots": [],
+    "declaration_count": 1,
+    "reference_count": 0
+  },
+  {
+    "ecosystem": "cargo",
+    "package": "rightkit-qts-ggml-sys",
+    "source_version": "0.1.1",
+    "declaration_roots": [
+      "genright"
+    ],
+    "reference_roots": [],
+    "declaration_count": 1,
+    "reference_count": 0
+  },
+  {
+    "ecosystem": "cargo",
+    "package": "rightkit-record",
+    "source_version": "0.1.1",
+    "declaration_roots": [],
+    "reference_roots": [],
+    "declaration_count": 0,
+    "reference_count": 0
+  },
+  {
+    "ecosystem": "cargo",
+    "package": "rightkit-review",
+    "source_version": "0.1.0",
+    "declaration_roots": [],
+    "reference_roots": [],
+    "declaration_count": 0,
+    "reference_count": 0
+  },
+  {
+    "ecosystem": "cargo",
+    "package": "rightkit-sandbox",
+    "source_version": "0.3.3",
+    "declaration_roots": [
+      "coderight"
+    ],
+    "reference_roots": [
+      "coderight"
+    ],
+    "declaration_count": 1,
+    "reference_count": 3
+  },
+  {
+    "ecosystem": "cargo",
+    "package": "rightkit-scenario",
+    "source_version": "0.0.0",
+    "declaration_roots": [],
+    "reference_roots": [],
+    "declaration_count": 0,
+    "reference_count": 0
+  },
+  {
+    "ecosystem": "cargo",
+    "package": "rightkit-search",
+    "source_version": "0.2.0",
+    "declaration_roots": [],
+    "reference_roots": [],
+    "declaration_count": 0,
+    "reference_count": 0
+  },
+  {
+    "ecosystem": "cargo",
+    "package": "rightkit-secrets",
+    "source_version": "0.1.2",
+    "declaration_roots": [
+      "coderight",
+      "cutright",
+      "genright",
+      "mailright",
+      "scraperight",
+      "viewright"
+    ],
+    "reference_roots": [
+      "coderight",
+      "cutright",
+      "genright",
+      "mailright",
+      "scraperight",
+      "viewright"
+    ],
+    "declaration_count": 10,
+    "reference_count": 40
+  },
+  {
+    "ecosystem": "cargo",
+    "package": "rightkit-service",
+    "source_version": "0.1.3",
+    "declaration_roots": [
+      "heardright"
+    ],
+    "reference_roots": [
+      "heardright"
+    ],
+    "declaration_count": 1,
+    "reference_count": 1
+  },
+  {
+    "ecosystem": "cargo",
+    "package": "rightkit-settings",
+    "source_version": "0.1.0",
+    "declaration_roots": [
+      "genright"
+    ],
+    "reference_roots": [
+      "genright"
+    ],
+    "declaration_count": 1,
+    "reference_count": 1
+  },
+  {
+    "ecosystem": "cargo",
+    "package": "rightkit-shell",
+    "source_version": "0.1.4",
+    "declaration_roots": [
+      "coderight",
+      "mailright",
+      "viewright"
+    ],
+    "reference_roots": [
+      "coderight",
+      "mailright",
+      "viewright"
+    ],
+    "declaration_count": 3,
+    "reference_count": 31
+  },
+  {
+    "ecosystem": "cargo",
+    "package": "rightkit-speech-client",
+    "source_version": "0.3.2",
+    "declaration_roots": [
+      "cutright",
+      "heardright"
+    ],
+    "reference_roots": [
+      "cutright",
+      "heardright"
+    ],
+    "declaration_count": 4,
+    "reference_count": 25
+  },
+  {
+    "ecosystem": "cargo",
+    "package": "rightkit-sync",
+    "source_version": "0.1.0",
+    "declaration_roots": [],
+    "reference_roots": [],
+    "declaration_count": 0,
+    "reference_count": 0
+  },
+  {
+    "ecosystem": "cargo",
+    "package": "rightkit-tauri",
+    "source_version": "0.1.2",
+    "declaration_roots": [
+      "coderight",
+      "heardright",
+      "mailright",
+      "scraperight",
+      "viewright"
+    ],
+    "reference_roots": [
+      "coderight",
+      "heardright",
+      "mailright",
+      "scraperight",
+      "viewright"
+    ],
+    "declaration_count": 6,
+    "reference_count": 57
+  },
+  {
+    "ecosystem": "cargo",
+    "package": "rightkit-transcript",
+    "source_version": "0.1.0",
+    "declaration_roots": [],
+    "reference_roots": [],
+    "declaration_count": 0,
+    "reference_count": 0
+  },
+  {
+    "ecosystem": "cargo",
+    "package": "rightkit-tts",
+    "source_version": "0.1.0",
+    "declaration_roots": [
+      "genright"
+    ],
+    "reference_roots": [
+      "genright"
+    ],
+    "declaration_count": 1,
+    "reference_count": 1
+  },
+  {
+    "ecosystem": "cargo",
+    "package": "rightkit-vad",
+    "source_version": "0.0.2",
+    "declaration_roots": [],
+    "reference_roots": [],
+    "declaration_count": 0,
+    "reference_count": 0
+  },
+  {
+    "ecosystem": "cargo",
+    "package": "rightkit-watch",
+    "source_version": "0.3.1",
+    "declaration_roots": [
+      "coderight",
+      "viewright"
+    ],
+    "reference_roots": [
+      "coderight",
+      "viewright"
+    ],
+    "declaration_count": 4,
+    "reference_count": 5
+  }
+]

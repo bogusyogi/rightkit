@@ -58,7 +58,14 @@ public enum RelocatableFile {
 
 /// Bounded most-recent-first set of strings in `UserDefaults`: acknowledged file names awaiting
 /// orphan sweep, or fingerprints of results already shown (dedupe).
+///
+/// Supported sharing model: any number of threads and any number of `BoundedStringLog` values
+/// (including separate `UserDefaults` handles to one suite) inside ONE process. Every read-modify-
+/// write runs under one process-wide lock, so `insertIfNew` admits a value exactly once. Two
+/// processes writing one key are not coordinated; give each process its own key or suite.
 public struct BoundedStringLog: @unchecked Sendable {
+    private static let transactionLock = NSLock()
+
     private let defaults: UserDefaults
     private let key: String
     private let limit: Int
@@ -69,22 +76,31 @@ public struct BoundedStringLog: @unchecked Sendable {
         self.limit = limit
     }
 
-    public var all: [String] { defaults.stringArray(forKey: key) ?? [] }
-    public func contains(_ value: String) -> Bool { all.contains(value) }
+    public var all: [String] { Self.transactionLock.withLock { snapshot() } }
+    public func contains(_ value: String) -> Bool { Self.transactionLock.withLock { snapshot().contains(value) } }
 
     public func remember(_ value: String) {
         guard !value.isEmpty else { return }
-        var values = all
+        Self.transactionLock.withLock { store(value) }
+    }
+
+    /// True the first time `value` is seen (and records it); false for a duplicate. The lookup and
+    /// the insert are one transaction.
+    public func insertIfNew(_ value: String) -> Bool {
+        Self.transactionLock.withLock {
+            guard !snapshot().contains(value) else { return false }
+            store(value)
+            return true
+        }
+    }
+
+    private func snapshot() -> [String] { defaults.stringArray(forKey: key) ?? [] }
+
+    private func store(_ value: String) {
+        var values = snapshot()
         values.removeAll { $0 == value }
         values.insert(value, at: 0)
         defaults.set(Array(values.prefix(limit)), forKey: key)
-    }
-
-    /// True the first time `value` is seen (and records it); false for a duplicate.
-    public func insertIfNew(_ value: String) -> Bool {
-        guard !contains(value) else { return false }
-        remember(value)
-        return true
     }
 }
 

@@ -1,0 +1,84 @@
+ecosystem,name,source_version,source_path,publishable,adopted_record,staged_record,local_registry_record,gate_receipt_version,gate_receipt_current_head,status
+cargo,rightkit-asr,0.0.2,/Volumes/D/claude/rightkit/crates/rightkit-asr/Cargo.toml:3,yes,,0.0.2,0.0.2,0.0.2,no,staged=source; registry-unverified; gate-stale
+cargo,rightkit-audio,0.2.0,/Volumes/D/claude/rightkit/crates/rightkit-audio/Cargo.toml:3,yes,0.1.0,0.2.0,0.2.0,0.2.0,no,adopted-record-different; registry-unverified; gate-stale
+cargo,rightkit-browser,0.2.3,/Volumes/D/claude/rightkit/crates/rightkit-browser/Cargo.toml:3,yes,0.1.0,0.2.3,0.2.2,0.2.2,no,adopted-record-different; registry-record-different; gate-version-stale
+cargo,rightkit-cache,0.1.0,/Volumes/D/claude/rightkit/crates/rightkit-cache/Cargo.toml:3,yes,0.1.0,0.1.0,0.1.0,0.1.0,no,registry-unverified; gate-stale
+cargo,rightkit-control,0.1.11,/Volumes/D/claude/rightkit/crates/rightkit-control/Cargo.toml:3,yes,,0.1.11,0.1.11,0.1.11,no,registry-unverified; gate-stale
+cargo,rightkit-crash,0.2.0,/Volumes/D/claude/rightkit/crates/rightkit-crash/Cargo.toml:3,yes,0.1.0,0.2.0,0.2.0,0.2.0,no,adopted-record-different; registry-unverified; gate-stale
+cargo,rightkit-db,0.3.2,/Volumes/D/claude/rightkit/crates/rightkit-db/Cargo.toml:3,yes,0.1.0,0.3.2,0.3.2,0.3.2,no,adopted-record-different; registry-unverified; gate-stale
+cargo,rightkit-embed,0.3.1,/Volumes/D/claude/rightkit/crates/rightkit-embed/Cargo.toml:3,yes,,0.3.1,0.3.1,0.3.1,no,registry-unverified; gate-stale
+cargo,rightkit-framed-sidecar,0.1.0,/Volumes/D/claude/rightkit/crates/rightkit-framed-sidecar/Cargo.toml:3,yes,0.1.0,0.1.0,0.1.0,0.1.0,no,registry-unverified; gate-stale
+cargo,rightkit-fs,0.3.3,/Volumes/D/claude/rightkit/crates/rightkit-fs/Cargo.toml:3,yes,0.1.0,0.3.3,0.3.3,0.3.3,no,adopted-record-different; registry-unverified; gate-stale
+cargo,rightkit-fsindex,0.1.0,/Volumes/D/claude/rightkit/crates/rightkit-fsindex/Cargo.toml:3,yes,,0.1.0,0.1.0,0.1.0,no,dirty; registry-unverified; gate-stale
+cargo,rightkit-hotkeys,0.1.0,/Volumes/D/claude/rightkit/crates/rightkit-hotkeys/Cargo.toml:3,yes,,,,,no,no-local-publication-record
+cargo,rightkit-http,0.2.4,/Volumes/D/claude/rightkit/crates/rightkit-http/Cargo.toml:3,yes,,0.2.4,0.2.4,0.2.4,no,registry-unverified; gate-stale
+cargo,rightkit-jobs,0.2.6,/Volumes/D/claude/rightkit/crates/rightkit-jobs/Cargo.toml:3,yes,,0.2.6,0.2.6,0.2.6,no,registry-unverified; gate-stale
+cargo,rightkit-license,0.1.3,/Volumes/D/claude/rightkit/crates/rightkit-license/Cargo.toml:3,yes,0.1.2,0.1.3,0.1.3,,no,adopted-record-different; receipt-missing
+cargo,rightkit-llm,0.1.0,/Volumes/D/claude/rightkit/crates/rightkit-llm/Cargo.toml:3,yes,,,,,no,no-local-publication-record
+cargo,rightkit-logs,0.2.0,/Volumes/D/claude/rightkit/crates/rightkit-logs/Cargo.toml:3,yes,0.1.0,0.2.0,0.2.0,0.2.0,no,adopted-record-different; registry-unverified; gate-stale
+cargo,rightkit-mcp,0.5.2,/Volumes/D/claude/rightkit/crates/rightkit-mcp/Cargo.toml:3,yes,,0.5.2,0.5.2,0.5.2,no,registry-unverified; gate-stale
+cargo,rightkit-media,0.2.4,/Volumes/D/claude/rightkit/crates/rightkit-media/Cargo.toml:3,yes,0.1.0,0.2.4,0.2.4,0.2.4,no,adopted-record-different; registry-unverified; gate-stale
+cargo,rightkit-models,0.2.7,/Volumes/D/claude/rightkit/crates/rightkit-models/Cargo.toml:3,yes,,0.2.7,0.2.7,0.2.7,no,registry-unverified; gate-stale
+cargo,rightkit-oauth,0.3.0,/Volumes/D/claude/rightkit/crates/rightkit-oauth/Cargo.toml:3,yes,,0.3.0,0.3.0,0.3.0,no,registry-unverified; gate-stale
+cargo,rightkit-ocr,0.2.0,/Volumes/D/claude/rightkit/crates/rightkit-ocr/Cargo.toml:3,yes,,0.1.2,0.1.2,0.1.2,no,dirty; source-staged-registry-receipt-mismatch
+cargo,rightkit-ort,0.2.2,/Volumes/D/claude/rightkit/crates/rightkit-ort/Cargo.toml:3,yes,,0.2.2,0.2.2,0.2.2,no,registry-unverified; gate-stale
+cargo,rightkit-overlay,0.1.0,/Volumes/D/claude/rightkit/crates/rightkit-overlay/Cargo.toml:3,yes,,,,,no,no-local-publication-record
+cargo,rightkit-ownership,0.2.1,/Volumes/D/claude/rightkit/crates/rightkit-ownership/Cargo.toml:3,yes,,0.2.1,0.2.1,0.2.1,no,registry-unverified; gate-stale
+cargo,rightkit-pdf,0.2.0,/Volumes/D/claude/rightkit/crates/rightkit-pdf/Cargo.toml:3,yes,0.1.0,0.2.0,0.2.0,0.2.0,no,adopted-record-different; registry-unverified; gate-stale
+cargo,rightkit-playback,0.1.1,/Volumes/D/claude/rightkit/crates/rightkit-playback/Cargo.toml:3,yes,0.1.0,0.1.1,0.1.1,0.1.1,no,adopted-record-different; registry-unverified; gate-stale
+cargo,rightkit-process,0.3.3,/Volumes/D/claude/rightkit/crates/rightkit-process/Cargo.toml:3,yes,0.1.0,0.3.3,0.3.3,0.3.3,no,adopted-record-different; registry-unverified; gate-stale
+cargo,rightkit-qa,0.2.14,/Volumes/D/claude/rightkit/crates/rightkit-qa/Cargo.toml:3,yes,,0.2.14,0.2.14,0.2.14,no,registry-unverified; gate-stale
+cargo,rightkit-qts,0.2.4,/Volumes/D/claude/rightkit/crates/rightkit-qts/Cargo.toml:3,yes,,0.2.4,0.2.4,0.2.4,no,registry-unverified; gate-stale
+cargo,rightkit-qts-ggml,0.1.1,/Volumes/D/claude/rightkit/crates/rightkit-qts-ggml/Cargo.toml:3,yes,,0.1.1,0.1.1,0.1.1,no,registry-unverified; gate-stale
+cargo,rightkit-qts-ggml-sys,0.1.1,/Volumes/D/claude/rightkit/crates/rightkit-qts-ggml-sys/Cargo.toml:3,yes,,0.1.1,0.1.1,0.1.1,no,registry-unverified; gate-stale
+cargo,rightkit-sandbox,0.3.3,/Volumes/D/claude/rightkit/crates/rightkit-sandbox/Cargo.toml:3,yes,,0.3.3,0.3.3,0.3.3,no,registry-unverified; gate-stale
+cargo,rightkit-search,0.2.0,/Volumes/D/claude/rightkit/crates/rightkit-search/Cargo.toml:3,yes,0.1.0,0.2.0,0.2.0,0.2.0,no,adopted-record-different; registry-unverified; gate-stale
+cargo,rightkit-secrets,0.1.2,/Volumes/D/claude/rightkit/crates/rightkit-secrets/Cargo.toml:3,yes,,0.1.2,0.1.2,0.1.2,no,registry-unverified; gate-stale
+cargo,rightkit-service,0.1.3,/Volumes/D/claude/rightkit/crates/rightkit-service/Cargo.toml:3,yes,,0.1.3,0.1.3,0.1.3,no,registry-unverified; gate-stale
+cargo,rightkit-settings,0.1.0,/Volumes/D/claude/rightkit/crates/rightkit-settings/Cargo.toml:3,yes,0.1.0,0.1.0,0.1.0,0.1.0,no,registry-unverified; gate-stale
+cargo,rightkit-shell,0.1.4,/Volumes/D/claude/rightkit/crates/rightkit-shell/Cargo.toml:3,yes,,0.1.4,0.1.4,0.1.4,no,registry-unverified; gate-stale
+cargo,rightkit-speech-client,0.3.2,/Volumes/D/claude/rightkit/crates/rightkit-speech-client/Cargo.toml:3,yes,,0.3.2,0.3.2,0.3.2,no,registry-unverified; gate-stale
+cargo,rightkit-sync,0.1.0,/Volumes/D/claude/rightkit/crates/rightkit-sync/Cargo.toml:3,yes,,0.1.0,,,no,receipt-missing; registry-record-missing
+cargo,rightkit-tauri,0.1.2,/Volumes/D/claude/rightkit/crates/rightkit-tauri/Cargo.toml:3,yes,0.1.0,0.1.2,0.1.2,0.1.2,no,adopted-record-different; registry-unverified; gate-stale
+cargo,rightkit-transcript,0.1.0,/Volumes/D/claude/rightkit/crates/rightkit-transcript/Cargo.toml:3,yes,,0.1.0,0.1.0,0.1.0,no,registry-unverified; gate-stale
+cargo,rightkit-tts,0.1.0,/Volumes/D/claude/rightkit/crates/rightkit-tts/Cargo.toml:3,yes,,0.1.0,0.1.0,0.1.0,no,registry-unverified; gate-stale
+cargo,rightkit-vad,0.0.2,/Volumes/D/claude/rightkit/crates/rightkit-vad/Cargo.toml:3,yes,,0.0.2,0.0.2,0.0.2,no,registry-unverified; gate-stale
+cargo,rightkit-watch,0.3.1,/Volumes/D/claude/rightkit/crates/rightkit-watch/Cargo.toml:3,yes,,0.3.1,0.3.1,0.3.1,no,registry-unverified; gate-stale
+npm,@rightkit/app-shell,0.3.0,/Volumes/D/claude/rightkit/packages/app-shell/package.json:3,yes,,0.3.0,0.3.0,0.3.0,no,registry-unverified; gate-stale
+npm,@rightkit/ax,0.2.4,/Volumes/D/claude/rightkit/packages/ax/package.json:3,yes,,0.2.4,0.2.4,,no,receipt-missing
+npm,@rightkit/doc-render,0.1.4,/Volumes/D/claude/rightkit/packages/doc-render/package.json:3,yes,,0.1.4,0.1.4,0.1.4,no,registry-unverified; gate-stale
+npm,@rightkit/git,0.2.33,/Volumes/D/claude/rightkit/packages/git/package.json:3,yes,0.2.0,0.2.33,0.2.33,0.2.33,no,adopted-record-different; registry-unverified; gate-stale
+npm,@rightkit/hooks,0.1.2,/Volumes/D/claude/rightkit/packages/hooks/package.json:3,yes,,0.1.2,0.1.2,0.1.2,no,registry-unverified; gate-stale
+npm,@rightkit/i18n,0.1.0,/Volumes/D/claude/rightkit/packages/i18n/package.json:3,yes,,0.1.0,0.1.0,0.1.0,no,registry-unverified; gate-stale
+npm,@rightkit/legal,0.3.1,/Volumes/D/claude/rightkit/packages/legal/package.json:3,yes,0.2.0,0.3.1,0.3.1,,no,adopted-record-different; receipt-missing
+npm,@rightkit/legal-ui,0.2.0,/Volumes/D/claude/rightkit/packages/legal-ui/package.json:3,yes,,0.2.0,0.2.0,0.2.0,no,registry-unverified; gate-stale
+npm,@rightkit/license,0.1.8,/Volumes/D/claude/rightkit/packages/license/package.json:3,yes,0.1.5,0.1.8,0.1.8,,no,adopted-record-different; receipt-missing
+npm,@rightkit/logs,0.1.4,/Volumes/D/claude/rightkit/packages/logs/package.json:3,yes,0.1.3,0.1.4,0.1.4,,no,adopted-record-different; receipt-missing
+npm,@rightkit/media-ui,0.3.0,/Volumes/D/claude/rightkit/packages/media-ui/package.json:3,yes,,0.3.0,0.3.0,0.3.0,no,registry-unverified; gate-stale
+npm,@rightkit/onboarding,0.3.0,/Volumes/D/claude/rightkit/packages/onboarding/package.json:3,yes,,0.3.0,0.3.0,0.3.0,no,registry-unverified; gate-stale
+npm,@rightkit/pdf-ui,0.1.2,/Volumes/D/claude/rightkit/packages/pdf-ui/package.json:3,yes,,0.1.2,0.1.2,0.1.2,no,registry-unverified; gate-stale
+npm,@rightkit/platform-ui,0.2.0,/Volumes/D/claude/rightkit/packages/platform-ui/package.json:3,yes,0.1.0,0.2.0,0.2.0,0.2.0,no,adopted-record-different; registry-unverified; gate-stale
+npm,@rightkit/qa,0.4.0,/Volumes/D/claude/rightkit/packages/qa/package.json:3,yes,0.1.0,0.4.0,0.4.0,0.4.0,no,adopted-record-different; registry-unverified; gate-stale
+npm,@rightkit/qa-chrome,0.1.3,/Volumes/D/claude/rightkit/packages/qa-chrome/package.json:3,yes,,0.1.3,0.1.3,0.1.3,no,registry-unverified; gate-stale
+npm,@rightkit/release,0.2.147,/Volumes/D/claude/rightkit/packages/release/package.json:3,yes,0.2.47,0.2.147,0.2.147,0.2.147,no,adopted-record-different; registry-unverified; gate-stale
+npm,@rightkit/settings-ui,0.3.0,/Volumes/D/claude/rightkit/packages/settings-ui/package.json:3,yes,,0.3.0,0.3.0,0.3.0,no,registry-unverified; gate-stale
+npm,@rightkit/shell,0.1.0,/Volumes/D/claude/rightkit/packages/shell/package.json:3,yes,,0.1.0,0.1.0,0.1.0,no,registry-unverified; gate-stale
+npm,@rightkit/tauri,0.2.0,/Volumes/D/claude/rightkit/packages/tauri/package.json:3,yes,0.1.0,0.2.0,0.2.0,0.2.0,no,adopted-record-different; registry-unverified; gate-stale
+npm,@rightkit/theme,0.2.1,/Volumes/D/claude/rightkit/packages/theme/package.json:3,yes,,0.2.1,0.2.1,0.2.1,no,registry-unverified; gate-stale
+npm,@rightkit/updates,0.2.5,/Volumes/D/claude/rightkit/packages/updates/package.json:3,yes,0.2.3,0.2.5,0.2.5,0.2.5,no,adopted-record-different; registry-unverified; gate-stale
+swift,RightKitSwift,0.3.8,/Volumes/D/claude/rightkit/swift/RightKitSwift/VERSION:1,yes,0.1.1,0.3.1,,0.3.7,no,source-staged-adopted-receipt-mismatch; no-registry
+swift,RightKitCloudKitHelper,,/Volumes/D/claude/rightkit/swift/RightKitCloudKitHelper/Package.swift:7,no,,,,,no,executable-only; local-path-dependency
+swift,RightKitRecordMacOS,,/Volumes/D/claude/rightkit/crates/rightkit-record/helpers/macos/Package.swift:8,no,,,,,no,internal-record-helper; parent-Cargo-publish=false; no-ledger-or-gate
+cargo,agent-room-core,0.3.0,/Volumes/D/claude/rightkit/crates/agent-room-core/Cargo.toml:3,no,,0.3.0,,,no,publish=false; staged-record-present
+cargo,rightkit-agent-tools,0.1.2,/Volumes/D/claude/rightkit/crates/rightkit-agent-tools/Cargo.toml:3,no,,,,,no,publish=false
+cargo,rightkit-align,0.0.0,/Volumes/D/claude/rightkit/crates/rightkit-align/Cargo.toml:3,no,,,,,no,publish=false
+cargo,rightkit-automation,0.1.0,/Volumes/D/claude/rightkit/crates/rightkit-automation/Cargo.toml:3,no,,0.1.0,,,no,publish=false; staged-record-present
+cargo,rightkit-channel-memory,0.1.0,/Volumes/D/claude/rightkit/crates/rightkit-channel-memory/Cargo.toml:3,no,,,,,no,publish=false
+cargo,rightkit-compose,0.0.0,/Volumes/D/claude/rightkit/crates/rightkit-compose/Cargo.toml:3,no,,,,,no,publish=false
+cargo,rightkit-contracts,0.1.2,/Volumes/D/claude/rightkit/crates/rightkit-contracts/Cargo.toml:3,no,,0.1.2,,,no,publish=false; staged-record-present
+cargo,rightkit-daemon,0.1.0,/Volumes/D/claude/rightkit/crates/rightkit-daemon/Cargo.toml:3,no,,,,,no,publish=false
+cargo,rightkit-record,0.1.1,/Volumes/D/claude/rightkit/crates/rightkit-record/Cargo.toml:3,no,,,,,no,publish=false
+cargo,rightkit-review,0.1.0,/Volumes/D/claude/rightkit/crates/rightkit-review/Cargo.toml:3,no,,,,,no,publish=false
+cargo,rightkit-scenario,0.0.0,/Volumes/D/claude/rightkit/crates/rightkit-scenario/Cargo.toml:3,no,,,,,no,publish=false
+npm,@rightkit/agent-room-mcp,0.1.0,/Volumes/D/claude/rightkit/packages/agent-room-mcp/package.json:3,no,,,,,no,private=true
+npm,@rightkit/build-control-policy,0.1.0-phase1,/Volumes/D/claude/rightkit/packages/build-control-policy/package.json:3,no,,,,,no,private=true; non-semver-release-version

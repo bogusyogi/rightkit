@@ -7,7 +7,7 @@ import CoreGraphics
 
 final class OverlayTests: XCTestCase {
     func testDefaultHitboxFollowsFrameAfterPlacement() {
-        var model = RightKitOverlayModel(kind: .heardRightPill, frame: RightKitOverlayRect(x: 900, y: 900, width: 64, height: 10))
+        var model = RightKitOverlayModel(kind: .pill, frame: RightKitOverlayRect(x: 900, y: 900, width: 64, height: 10))
         model.apply(.recording)
         model.place(in: RightKitOverlayWorkArea(left: 0, top: 0, right: 800, bottom: 600))
         XCTAssertEqual(model.frame, RightKitOverlayRect(x: 736, y: 590, width: 64, height: 10))
@@ -15,8 +15,28 @@ final class OverlayTests: XCTestCase {
         XCTAssertFalse(model.hitTest(x: 920, y: 905), "old pre-placement frame must not stay hittable")
     }
 
+    func testKindKeepsItsPersistedRawValuesAndDecodesLegacyJSON() throws {
+        XCTAssertEqual(RightKitOverlayKind.pill.rawValue, "heardRightPill")
+        XCTAssertEqual(RightKitOverlayKind.notch.rawValue, "cockpitNotch")
+        let decoded = try JSONDecoder().decode([RightKitOverlayKind].self, from: Data(#"["heardRightPill","cockpitNotch"]"#.utf8))
+        XCTAssertEqual(decoded, [.pill, .notch])
+        XCTAssertEqual(try JSONEncoder().encode(RightKitOverlayKind.notch), Data(#""cockpitNotch""#.utf8))
+    }
+
+    @available(*, deprecated, message: "exercises the deprecated product-named aliases")
+    func testDeprecatedProductNamedAliasesStayEqualToTheNeutralCases() {
+        XCTAssertEqual(RightKitOverlayKind.heardRightPill, .pill)
+        XCTAssertEqual(RightKitOverlayKind.cockpitNotch, .notch)
+        let kind: RightKitOverlayKind = .notch
+        switch kind {
+        case .heardRightPill: XCTFail("a notch is not a pill")
+        case .cockpitNotch: break
+        default: XCTFail("unexpected kind")
+        }
+    }
+
     func testExplicitHitboxKeepsOffsetThroughPlacement() {
-        var model = RightKitOverlayModel(kind: .heardRightPill, frame: RightKitOverlayRect(x: 900, y: 900, width: 64, height: 10))
+        var model = RightKitOverlayModel(kind: .pill, frame: RightKitOverlayRect(x: 900, y: 900, width: 64, height: 10))
         model.hitbox = RightKitOverlayRect(x: 890, y: 890, width: 84, height: 30)
         model.apply(.recording)
         model.place(in: RightKitOverlayWorkArea(left: 0, top: 0, right: 800, bottom: 600))
@@ -38,7 +58,7 @@ final class OverlayTests: XCTestCase {
 
     @MainActor
     func testCockpitNotchMayJoinFullscreenAuxiliarySpace() {
-        let panel = RightKitOverlayPanel(contentRect: NSRect(x: 0, y: 0, width: 360, height: 64), kind: .cockpitNotch)
+        let panel = RightKitOverlayPanel(contentRect: NSRect(x: 0, y: 0, width: 360, height: 64), kind: .notch)
         XCTAssertTrue(panel.collectionBehavior.contains(.fullScreenAuxiliary))
     }
 

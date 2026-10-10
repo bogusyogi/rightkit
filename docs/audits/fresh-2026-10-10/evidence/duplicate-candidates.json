@@ -1,0 +1,1126 @@
+{
+  "method": "Exact 16-line normalized first-party source windows >=400 characters; comment-only/blank lines removed; cross-component only. Candidates require semantic review. No AST or complete clone-graph claim.",
+  "files": 1042,
+  "significant_lines": 229545,
+  "window_hashes": 132643,
+  "component_pairs": [
+    {
+      "components": [
+        "packages/build-control-policy",
+        "packages/release"
+      ],
+      "overlapping_window_count": 205,
+      "representative_blocks": [
+        {
+          "sha256": "e30e856e9fb4f5c7a396cf38553c23766a6576031ebb37389c1f7a949e0b5e49",
+          "left": {
+            "owner": "packages/build-control-policy",
+            "path": "/Volumes/D/claude/rightkit/packages/build-control-policy/src/ownership-source.mjs",
+            "start": 3,
+            "end": 18
+          },
+          "right": {
+            "owner": "packages/release",
+            "path": "/Volumes/D/claude/rightkit/packages/release/ownership-source.mjs",
+            "start": 3,
+            "end": 18
+          }
+        },
+        {
+          "sha256": "af1ed9402c7472b7c6d6dec44eff38031efc3fcaddfd3dc8a5652e3328da2c31",
+          "left": {
+            "owner": "packages/build-control-policy",
+            "path": "/Volumes/D/claude/rightkit/packages/build-control-policy/src/ownership-source.mjs",
+            "start": 19,
+            "end": 34
+          },
+          "right": {
+            "owner": "packages/release",
+            "path": "/Volumes/D/claude/rightkit/packages/release/ownership-source.mjs",
+            "start": 19,
+            "end": 34
+          }
+        },
+        {
+          "sha256": "2ab532bc5c1c2b8d6d8ddfb7bc5f3d1eeaa7cc2bab723e1db6455e5ef2ef9a1c",
+          "left": {
+            "owner": "packages/build-control-policy",
+            "path": "/Volumes/D/claude/rightkit/packages/build-control-policy/src/ownership-availability.mjs",
+            "start": 2,
+            "end": 17
+          },
+          "right": {
+            "owner": "packages/release",
+            "path": "/Volumes/D/claude/rightkit/packages/release/ownership-availability.mjs",
+            "start": 2,
+            "end": 17
+          }
+        },
+        {
+          "sha256": "edc25634d058a91ef1c4f072664bc27266117f9d6bcc2d2c0eb5c2c8dbf4ec4f",
+          "left": {
+            "owner": "packages/build-control-policy",
+            "path": "/Volumes/D/claude/rightkit/packages/build-control-policy/src/rightkit-drift.mjs",
+            "start": 1,
+            "end": 23
+          },
+          "right": {
+            "owner": "packages/release",
+            "path": "/Volumes/D/claude/rightkit/packages/release/rightkit-drift.mjs",
+            "start": 1,
+            "end": 23
+          }
+        },
+        {
+          "sha256": "b919907b0267b9d572affd1112551206b831368c78159d6ea1e01962118f68f7",
+          "left": {
+            "owner": "packages/build-control-policy",
+            "path": "/Volumes/D/claude/rightkit/packages/build-control-policy/src/rightkit-drift.mjs",
+            "start": 17,
+            "end": 37
+          },
+          "right": {
+            "owner": "packages/release",
+            "path": "/Volumes/D/claude/rightkit/packages/release/rightkit-drift.mjs",
+            "start": 17,
+            "end": 37
+          }
+        },
+        {
+          "sha256": "b1326847895f9f4b4b07e2c699dac2e99e854de05d8d3e170a65203089687e5d",
+          "left": {
+            "owner": "packages/build-control-policy",
+            "path": "/Volumes/D/claude/rightkit/packages/build-control-policy/src/rightkit-drift.mjs",
+            "start": 33,
+            "end": 50
+          },
+          "right": {
+            "owner": "packages/release",
+            "path": "/Volumes/D/claude/rightkit/packages/release/rightkit-drift.mjs",
+            "start": 33,
+            "end": 50
+          }
+        },
+        {
+          "sha256": "867e56bf185871dd21b7bdb8d77b5c6ebdb0ddb9431e17f7870251482e50fee0",
+          "left": {
+            "owner": "packages/build-control-policy",
+            "path": "/Volumes/D/claude/rightkit/packages/build-control-policy/src/rightkit-drift.mjs",
+            "start": 49,
+            "end": 65
+          },
+          "right": {
+            "owner": "packages/release",
+            "path": "/Volumes/D/claude/rightkit/packages/release/rightkit-drift.mjs",
+            "start": 49,
+            "end": 65
+          }
+        },
+        {
+          "sha256": "beb2912af8197c8da2fbaf084325cee8839ed2e6eddcdc6a90969f290ac67672",
+          "left": {
+            "owner": "packages/build-control-policy",
+            "path": "/Volumes/D/claude/rightkit/packages/build-control-policy/src/rightkit-drift.mjs",
+            "start": 65,
+            "end": 83
+          },
+          "right": {
+            "owner": "packages/release",
+            "path": "/Volumes/D/claude/rightkit/packages/release/rightkit-drift.mjs",
+            "start": 65,
+            "end": 83
+          }
+        },
+        {
+          "sha256": "a3f76f7acb181f327d7be3b5a77c7b6e9f23e6eae7238cf5c73af81077734a76",
+          "left": {
+            "owner": "packages/build-control-policy",
+            "path": "/Volumes/D/claude/rightkit/packages/build-control-policy/src/rightkit-drift.mjs",
+            "start": 81,
+            "end": 96
+          },
+          "right": {
+            "owner": "packages/release",
+            "path": "/Volumes/D/claude/rightkit/packages/release/rightkit-drift.mjs",
+            "start": 81,
+            "end": 96
+          }
+        },
+        {
+          "sha256": "6049a36f6a63dc7b3eb70e91670709f3d0a87979dc35a58a33ceee1d4f0314f8",
+          "left": {
+            "owner": "packages/build-control-policy",
+            "path": "/Volumes/D/claude/rightkit/packages/build-control-policy/src/background-process.mjs",
+            "start": 1,
+            "end": 23
+          },
+          "right": {
+            "owner": "packages/release",
+            "path": "/Volumes/D/claude/rightkit/packages/release/background-process.mjs",
+            "start": 1,
+            "end": 23
+          }
+        },
+        {
+          "sha256": "e8dd671540dcc405b44d4c4b71439e5040e4383076d124974c771cf164946f7a",
+          "left": {
+            "owner": "packages/build-control-policy",
+            "path": "/Volumes/D/claude/rightkit/packages/build-control-policy/src/background-process.mjs",
+            "start": 17,
+            "end": 38
+          },
+          "right": {
+            "owner": "packages/release",
+            "path": "/Volumes/D/claude/rightkit/packages/release/background-process.mjs",
+            "start": 17,
+            "end": 38
+          }
+        },
+        {
+          "sha256": "34bb5c1cffb20e180a8f59c096ca226d2fa45717fcb24ef3d73adb2262a9bace",
+          "left": {
+            "owner": "packages/build-control-policy",
+            "path": "/Volumes/D/claude/rightkit/packages/build-control-policy/src/ownership-dependency-allowlist.mjs",
+            "start": 11,
+            "end": 29
+          },
+          "right": {
+            "owner": "packages/release",
+            "path": "/Volumes/D/claude/rightkit/packages/release/ownership-dependency-allowlist.mjs",
+            "start": 11,
+            "end": 29
+          }
+        }
+      ]
+    },
+    {
+      "components": [
+        "packages/app-shell",
+        "packages/onboarding"
+      ],
+      "overlapping_window_count": 150,
+      "representative_blocks": [
+        {
+          "sha256": "f2e19cc5bd3ac9afeb9678e9dd821a147b824bb84daf00ac0d11d71cad77bf77",
+          "left": {
+            "owner": "packages/app-shell",
+            "path": "/Volumes/D/claude/rightkit/packages/app-shell/e2e/browser.ts",
+            "start": 7,
+            "end": 26
+          },
+          "right": {
+            "owner": "packages/onboarding",
+            "path": "/Volumes/D/claude/rightkit/packages/onboarding/e2e/browser.ts",
+            "start": 7,
+            "end": 26
+          }
+        },
+        {
+          "sha256": "f79afde502e0b0d41f1560fef51ecacf241abf0b5a1f159d5709e5528a607496",
+          "left": {
+            "owner": "packages/app-shell",
+            "path": "/Volumes/D/claude/rightkit/packages/app-shell/e2e/browser.ts",
+            "start": 23,
+            "end": 39
+          },
+          "right": {
+            "owner": "packages/onboarding",
+            "path": "/Volumes/D/claude/rightkit/packages/onboarding/e2e/browser.ts",
+            "start": 23,
+            "end": 39
+          }
+        },
+        {
+          "sha256": "5ad65a620fc33a0a3fd459f20c6ab17923a3a0b8bd520422168db591aa141294",
+          "left": {
+            "owner": "packages/app-shell",
+            "path": "/Volumes/D/claude/rightkit/packages/app-shell/e2e/browser.ts",
+            "start": 39,
+            "end": 57
+          },
+          "right": {
+            "owner": "packages/onboarding",
+            "path": "/Volumes/D/claude/rightkit/packages/onboarding/e2e/browser.ts",
+            "start": 39,
+            "end": 57
+          }
+        },
+        {
+          "sha256": "d60d2b5042fdfd242e2739c2a7626c02a4cd4d2fbc38f580a9ae337aa48b7475",
+          "left": {
+            "owner": "packages/app-shell",
+            "path": "/Volumes/D/claude/rightkit/packages/app-shell/e2e/browser.ts",
+            "start": 55,
+            "end": 70
+          },
+          "right": {
+            "owner": "packages/onboarding",
+            "path": "/Volumes/D/claude/rightkit/packages/onboarding/e2e/browser.ts",
+            "start": 55,
+            "end": 70
+          }
+        },
+        {
+          "sha256": "54fd655286f19d896f1933a0f492ca5d6441a4993a67a8365c31e04401d92330",
+          "left": {
+            "owner": "packages/app-shell",
+            "path": "/Volumes/D/claude/rightkit/packages/app-shell/e2e/browser.ts",
+            "start": 71,
+            "end": 88
+          },
+          "right": {
+            "owner": "packages/onboarding",
+            "path": "/Volumes/D/claude/rightkit/packages/onboarding/e2e/browser.ts",
+            "start": 71,
+            "end": 88
+          }
+        },
+        {
+          "sha256": "3ed4e5d73d299f385afd452e05beff79fb698ca495877e243f9f36442f5654eb",
+          "left": {
+            "owner": "packages/app-shell",
+            "path": "/Volumes/D/claude/rightkit/packages/app-shell/e2e/browser.ts",
+            "start": 88,
+            "end": 103
+          },
+          "right": {
+            "owner": "packages/onboarding",
+            "path": "/Volumes/D/claude/rightkit/packages/onboarding/e2e/browser.ts",
+            "start": 88,
+            "end": 103
+          }
+        },
+        {
+          "sha256": "1adeb46fb3a14314e462f3b4d01920b13ef984a6699686a5ce64c37e27e0bfe3",
+          "left": {
+            "owner": "packages/app-shell",
+            "path": "/Volumes/D/claude/rightkit/packages/app-shell/e2e/browser.ts",
+            "start": 104,
+            "end": 120
+          },
+          "right": {
+            "owner": "packages/onboarding",
+            "path": "/Volumes/D/claude/rightkit/packages/onboarding/e2e/browser.ts",
+            "start": 104,
+            "end": 120
+          }
+        },
+        {
+          "sha256": "b4165e9c62db6de6f6ce0be2893e289757dc1f0d83bb77bd962eb4cf83265cb9",
+          "left": {
+            "owner": "packages/app-shell",
+            "path": "/Volumes/D/claude/rightkit/packages/app-shell/e2e/browser.ts",
+            "start": 120,
+            "end": 135
+          },
+          "right": {
+            "owner": "packages/onboarding",
+            "path": "/Volumes/D/claude/rightkit/packages/onboarding/e2e/browser.ts",
+            "start": 120,
+            "end": 135
+          }
+        },
+        {
+          "sha256": "5f0a5dbc07a7d871b863aaf5f87d40ca4a13f287e805b44f8d4721cac11f0846",
+          "left": {
+            "owner": "packages/app-shell",
+            "path": "/Volumes/D/claude/rightkit/packages/app-shell/e2e/browser.ts",
+            "start": 136,
+            "end": 151
+          },
+          "right": {
+            "owner": "packages/onboarding",
+            "path": "/Volumes/D/claude/rightkit/packages/onboarding/e2e/browser.ts",
+            "start": 136,
+            "end": 151
+          }
+        },
+        {
+          "sha256": "93617e5fe2ca716357dc82be1baeb23c280656e67c5505f89629af5806c76187",
+          "left": {
+            "owner": "packages/app-shell",
+            "path": "/Volumes/D/claude/rightkit/packages/app-shell/e2e/browser.ts",
+            "start": 152,
+            "end": 167
+          },
+          "right": {
+            "owner": "packages/onboarding",
+            "path": "/Volumes/D/claude/rightkit/packages/onboarding/e2e/browser.ts",
+            "start": 152,
+            "end": 167
+          }
+        },
+        {
+          "sha256": "36cb6d2c700f79c2f3104daff03a6adcbcc96aad995d7566039de3b127d7b584",
+          "left": {
+            "owner": "packages/app-shell",
+            "path": "/Volumes/D/claude/rightkit/packages/app-shell/e2e/browser.ts",
+            "start": 168,
+            "end": 185
+          },
+          "right": {
+            "owner": "packages/onboarding",
+            "path": "/Volumes/D/claude/rightkit/packages/onboarding/e2e/browser.ts",
+            "start": 168,
+            "end": 185
+          }
+        }
+      ]
+    },
+    {
+      "components": [
+        "packages/app-shell",
+        "packages/theme"
+      ],
+      "overlapping_window_count": 150,
+      "representative_blocks": [
+        {
+          "sha256": "f2e19cc5bd3ac9afeb9678e9dd821a147b824bb84daf00ac0d11d71cad77bf77",
+          "left": {
+            "owner": "packages/app-shell",
+            "path": "/Volumes/D/claude/rightkit/packages/app-shell/e2e/browser.ts",
+            "start": 7,
+            "end": 26
+          },
+          "right": {
+            "owner": "packages/theme",
+            "path": "/Volumes/D/claude/rightkit/packages/theme/e2e/browser.ts",
+            "start": 7,
+            "end": 26
+          }
+        },
+        {
+          "sha256": "f79afde502e0b0d41f1560fef51ecacf241abf0b5a1f159d5709e5528a607496",
+          "left": {
+            "owner": "packages/app-shell",
+            "path": "/Volumes/D/claude/rightkit/packages/app-shell/e2e/browser.ts",
+            "start": 23,
+            "end": 39
+          },
+          "right": {
+            "owner": "packages/theme",
+            "path": "/Volumes/D/claude/rightkit/packages/theme/e2e/browser.ts",
+            "start": 23,
+            "end": 39
+          }
+        },
+        {
+          "sha256": "5ad65a620fc33a0a3fd459f20c6ab17923a3a0b8bd520422168db591aa141294",
+          "left": {
+            "owner": "packages/app-shell",
+            "path": "/Volumes/D/claude/rightkit/packages/app-shell/e2e/browser.ts",
+            "start": 39,
+            "end": 57
+          },
+          "right": {
+            "owner": "packages/theme",
+            "path": "/Volumes/D/claude/rightkit/packages/theme/e2e/browser.ts",
+            "start": 39,
+            "end": 57
+          }
+        },
+        {
+          "sha256": "d60d2b5042fdfd242e2739c2a7626c02a4cd4d2fbc38f580a9ae337aa48b7475",
+          "left": {
+            "owner": "packages/app-shell",
+            "path": "/Volumes/D/claude/rightkit/packages/app-shell/e2e/browser.ts",
+            "start": 55,
+            "end": 70
+          },
+          "right": {
+            "owner": "packages/theme",
+            "path": "/Volumes/D/claude/rightkit/packages/theme/e2e/browser.ts",
+            "start": 55,
+            "end": 70
+          }
+        },
+        {
+          "sha256": "54fd655286f19d896f1933a0f492ca5d6441a4993a67a8365c31e04401d92330",
+          "left": {
+            "owner": "packages/app-shell",
+            "path": "/Volumes/D/claude/rightkit/packages/app-shell/e2e/browser.ts",
+            "start": 71,
+            "end": 88
+          },
+          "right": {
+            "owner": "packages/theme",
+            "path": "/Volumes/D/claude/rightkit/packages/theme/e2e/browser.ts",
+            "start": 71,
+            "end": 88
+          }
+        },
+        {
+          "sha256": "3ed4e5d73d299f385afd452e05beff79fb698ca495877e243f9f36442f5654eb",
+          "left": {
+            "owner": "packages/app-shell",
+            "path": "/Volumes/D/claude/rightkit/packages/app-shell/e2e/browser.ts",
+            "start": 88,
+            "end": 103
+          },
+          "right": {
+            "owner": "packages/theme",
+            "path": "/Volumes/D/claude/rightkit/packages/theme/e2e/browser.ts",
+            "start": 88,
+            "end": 103
+          }
+        },
+        {
+          "sha256": "1adeb46fb3a14314e462f3b4d01920b13ef984a6699686a5ce64c37e27e0bfe3",
+          "left": {
+            "owner": "packages/app-shell",
+            "path": "/Volumes/D/claude/rightkit/packages/app-shell/e2e/browser.ts",
+            "start": 104,
+            "end": 120
+          },
+          "right": {
+            "owner": "packages/theme",
+            "path": "/Volumes/D/claude/rightkit/packages/theme/e2e/browser.ts",
+            "start": 104,
+            "end": 120
+          }
+        },
+        {
+          "sha256": "b4165e9c62db6de6f6ce0be2893e289757dc1f0d83bb77bd962eb4cf83265cb9",
+          "left": {
+            "owner": "packages/app-shell",
+            "path": "/Volumes/D/claude/rightkit/packages/app-shell/e2e/browser.ts",
+            "start": 120,
+            "end": 135
+          },
+          "right": {
+            "owner": "packages/theme",
+            "path": "/Volumes/D/claude/rightkit/packages/theme/e2e/browser.ts",
+            "start": 120,
+            "end": 135
+          }
+        },
+        {
+          "sha256": "5f0a5dbc07a7d871b863aaf5f87d40ca4a13f287e805b44f8d4721cac11f0846",
+          "left": {
+            "owner": "packages/app-shell",
+            "path": "/Volumes/D/claude/rightkit/packages/app-shell/e2e/browser.ts",
+            "start": 136,
+            "end": 151
+          },
+          "right": {
+            "owner": "packages/theme",
+            "path": "/Volumes/D/claude/rightkit/packages/theme/e2e/browser.ts",
+            "start": 136,
+            "end": 151
+          }
+        },
+        {
+          "sha256": "93617e5fe2ca716357dc82be1baeb23c280656e67c5505f89629af5806c76187",
+          "left": {
+            "owner": "packages/app-shell",
+            "path": "/Volumes/D/claude/rightkit/packages/app-shell/e2e/browser.ts",
+            "start": 152,
+            "end": 167
+          },
+          "right": {
+            "owner": "packages/theme",
+            "path": "/Volumes/D/claude/rightkit/packages/theme/e2e/browser.ts",
+            "start": 152,
+            "end": 167
+          }
+        },
+        {
+          "sha256": "36cb6d2c700f79c2f3104daff03a6adcbcc96aad995d7566039de3b127d7b584",
+          "left": {
+            "owner": "packages/app-shell",
+            "path": "/Volumes/D/claude/rightkit/packages/app-shell/e2e/browser.ts",
+            "start": 168,
+            "end": 185
+          },
+          "right": {
+            "owner": "packages/theme",
+            "path": "/Volumes/D/claude/rightkit/packages/theme/e2e/browser.ts",
+            "start": 168,
+            "end": 185
+          }
+        }
+      ]
+    },
+    {
+      "components": [
+        "packages/onboarding",
+        "packages/theme"
+      ],
+      "overlapping_window_count": 150,
+      "representative_blocks": [
+        {
+          "sha256": "f2e19cc5bd3ac9afeb9678e9dd821a147b824bb84daf00ac0d11d71cad77bf77",
+          "left": {
+            "owner": "packages/onboarding",
+            "path": "/Volumes/D/claude/rightkit/packages/onboarding/e2e/browser.ts",
+            "start": 7,
+            "end": 26
+          },
+          "right": {
+            "owner": "packages/theme",
+            "path": "/Volumes/D/claude/rightkit/packages/theme/e2e/browser.ts",
+            "start": 7,
+            "end": 26
+          }
+        },
+        {
+          "sha256": "f79afde502e0b0d41f1560fef51ecacf241abf0b5a1f159d5709e5528a607496",
+          "left": {
+            "owner": "packages/onboarding",
+            "path": "/Volumes/D/claude/rightkit/packages/onboarding/e2e/browser.ts",
+            "start": 23,
+            "end": 39
+          },
+          "right": {
+            "owner": "packages/theme",
+            "path": "/Volumes/D/claude/rightkit/packages/theme/e2e/browser.ts",
+            "start": 23,
+            "end": 39
+          }
+        },
+        {
+          "sha256": "5ad65a620fc33a0a3fd459f20c6ab17923a3a0b8bd520422168db591aa141294",
+          "left": {
+            "owner": "packages/onboarding",
+            "path": "/Volumes/D/claude/rightkit/packages/onboarding/e2e/browser.ts",
+            "start": 39,
+            "end": 57
+          },
+          "right": {
+            "owner": "packages/theme",
+            "path": "/Volumes/D/claude/rightkit/packages/theme/e2e/browser.ts",
+            "start": 39,
+            "end": 57
+          }
+        },
+        {
+          "sha256": "d60d2b5042fdfd242e2739c2a7626c02a4cd4d2fbc38f580a9ae337aa48b7475",
+          "left": {
+            "owner": "packages/onboarding",
+            "path": "/Volumes/D/claude/rightkit/packages/onboarding/e2e/browser.ts",
+            "start": 55,
+            "end": 70
+          },
+          "right": {
+            "owner": "packages/theme",
+            "path": "/Volumes/D/claude/rightkit/packages/theme/e2e/browser.ts",
+            "start": 55,
+            "end": 70
+          }
+        },
+        {
+          "sha256": "54fd655286f19d896f1933a0f492ca5d6441a4993a67a8365c31e04401d92330",
+          "left": {
+            "owner": "packages/onboarding",
+            "path": "/Volumes/D/claude/rightkit/packages/onboarding/e2e/browser.ts",
+            "start": 71,
+            "end": 88
+          },
+          "right": {
+            "owner": "packages/theme",
+            "path": "/Volumes/D/claude/rightkit/packages/theme/e2e/browser.ts",
+            "start": 71,
+            "end": 88
+          }
+        },
+        {
+          "sha256": "3ed4e5d73d299f385afd452e05beff79fb698ca495877e243f9f36442f5654eb",
+          "left": {
+            "owner": "packages/onboarding",
+            "path": "/Volumes/D/claude/rightkit/packages/onboarding/e2e/browser.ts",
+            "start": 88,
+            "end": 103
+          },
+          "right": {
+            "owner": "packages/theme",
+            "path": "/Volumes/D/claude/rightkit/packages/theme/e2e/browser.ts",
+            "start": 88,
+            "end": 103
+          }
+        },
+        {
+          "sha256": "1adeb46fb3a14314e462f3b4d01920b13ef984a6699686a5ce64c37e27e0bfe3",
+          "left": {
+            "owner": "packages/onboarding",
+            "path": "/Volumes/D/claude/rightkit/packages/onboarding/e2e/browser.ts",
+            "start": 104,
+            "end": 120
+          },
+          "right": {
+            "owner": "packages/theme",
+            "path": "/Volumes/D/claude/rightkit/packages/theme/e2e/browser.ts",
+            "start": 104,
+            "end": 120
+          }
+        },
+        {
+          "sha256": "b4165e9c62db6de6f6ce0be2893e289757dc1f0d83bb77bd962eb4cf83265cb9",
+          "left": {
+            "owner": "packages/onboarding",
+            "path": "/Volumes/D/claude/rightkit/packages/onboarding/e2e/browser.ts",
+            "start": 120,
+            "end": 135
+          },
+          "right": {
+            "owner": "packages/theme",
+            "path": "/Volumes/D/claude/rightkit/packages/theme/e2e/browser.ts",
+            "start": 120,
+            "end": 135
+          }
+        },
+        {
+          "sha256": "5f0a5dbc07a7d871b863aaf5f87d40ca4a13f287e805b44f8d4721cac11f0846",
+          "left": {
+            "owner": "packages/onboarding",
+            "path": "/Volumes/D/claude/rightkit/packages/onboarding/e2e/browser.ts",
+            "start": 136,
+            "end": 151
+          },
+          "right": {
+            "owner": "packages/theme",
+            "path": "/Volumes/D/claude/rightkit/packages/theme/e2e/browser.ts",
+            "start": 136,
+            "end": 151
+          }
+        },
+        {
+          "sha256": "93617e5fe2ca716357dc82be1baeb23c280656e67c5505f89629af5806c76187",
+          "left": {
+            "owner": "packages/onboarding",
+            "path": "/Volumes/D/claude/rightkit/packages/onboarding/e2e/browser.ts",
+            "start": 152,
+            "end": 167
+          },
+          "right": {
+            "owner": "packages/theme",
+            "path": "/Volumes/D/claude/rightkit/packages/theme/e2e/browser.ts",
+            "start": 152,
+            "end": 167
+          }
+        },
+        {
+          "sha256": "36cb6d2c700f79c2f3104daff03a6adcbcc96aad995d7566039de3b127d7b584",
+          "left": {
+            "owner": "packages/onboarding",
+            "path": "/Volumes/D/claude/rightkit/packages/onboarding/e2e/browser.ts",
+            "start": 168,
+            "end": 185
+          },
+          "right": {
+            "owner": "packages/theme",
+            "path": "/Volumes/D/claude/rightkit/packages/theme/e2e/browser.ts",
+            "start": 168,
+            "end": 185
+          }
+        }
+      ]
+    },
+    {
+      "components": [
+        "packages/app-shell",
+        "packages/settings-ui"
+      ],
+      "overlapping_window_count": 64,
+      "representative_blocks": [
+        {
+          "sha256": "f2e19cc5bd3ac9afeb9678e9dd821a147b824bb84daf00ac0d11d71cad77bf77",
+          "left": {
+            "owner": "packages/app-shell",
+            "path": "/Volumes/D/claude/rightkit/packages/app-shell/e2e/browser.ts",
+            "start": 7,
+            "end": 26
+          },
+          "right": {
+            "owner": "packages/settings-ui",
+            "path": "/Volumes/D/claude/rightkit/packages/settings-ui/e2e/browser.ts",
+            "start": 7,
+            "end": 26
+          }
+        },
+        {
+          "sha256": "f79afde502e0b0d41f1560fef51ecacf241abf0b5a1f159d5709e5528a607496",
+          "left": {
+            "owner": "packages/app-shell",
+            "path": "/Volumes/D/claude/rightkit/packages/app-shell/e2e/browser.ts",
+            "start": 23,
+            "end": 39
+          },
+          "right": {
+            "owner": "packages/settings-ui",
+            "path": "/Volumes/D/claude/rightkit/packages/settings-ui/e2e/browser.ts",
+            "start": 23,
+            "end": 39
+          }
+        },
+        {
+          "sha256": "d60d2b5042fdfd242e2739c2a7626c02a4cd4d2fbc38f580a9ae337aa48b7475",
+          "left": {
+            "owner": "packages/app-shell",
+            "path": "/Volumes/D/claude/rightkit/packages/app-shell/e2e/browser.ts",
+            "start": 55,
+            "end": 70
+          },
+          "right": {
+            "owner": "packages/settings-ui",
+            "path": "/Volumes/D/claude/rightkit/packages/settings-ui/e2e/browser.ts",
+            "start": 56,
+            "end": 71
+          }
+        },
+        {
+          "sha256": "61e2dcba319ce4b226b6586f2cd7a061aa33d7d9c13089d0a5e2ac47293e0d67",
+          "left": {
+            "owner": "packages/app-shell",
+            "path": "/Volumes/D/claude/rightkit/packages/app-shell/e2e/browser.ts",
+            "start": 79,
+            "end": 95
+          },
+          "right": {
+            "owner": "packages/settings-ui",
+            "path": "/Volumes/D/claude/rightkit/packages/settings-ui/e2e/browser.ts",
+            "start": 80,
+            "end": 96
+          }
+        },
+        {
+          "sha256": "da34954dc31573274d7435aa723960c2109d959cc59ee3c939d5d6efd9e89129",
+          "left": {
+            "owner": "packages/app-shell",
+            "path": "/Volumes/D/claude/rightkit/packages/app-shell/e2e/browser.ts",
+            "start": 119,
+            "end": 134
+          },
+          "right": {
+            "owner": "packages/settings-ui",
+            "path": "/Volumes/D/claude/rightkit/packages/settings-ui/e2e/browser.ts",
+            "start": 130,
+            "end": 145
+          }
+        },
+        {
+          "sha256": "bd8b4d5f625a7200ae3b334628f2ef38c5dc090256f00dcd525543a62f43c037",
+          "left": {
+            "owner": "packages/app-shell",
+            "path": "/Volumes/D/claude/rightkit/packages/app-shell/e2e/browser.ts",
+            "start": 137,
+            "end": 152
+          },
+          "right": {
+            "owner": "packages/settings-ui",
+            "path": "/Volumes/D/claude/rightkit/packages/settings-ui/e2e/browser.ts",
+            "start": 154,
+            "end": 169
+          }
+        },
+        {
+          "sha256": "bccbe9bdae31503e8f0028a6108e349b0d5502bc813a36e6fd3163ae9716c9db",
+          "left": {
+            "owner": "packages/app-shell",
+            "path": "/Volumes/D/claude/rightkit/packages/app-shell/e2e/browser.ts",
+            "start": 153,
+            "end": 168
+          },
+          "right": {
+            "owner": "packages/settings-ui",
+            "path": "/Volumes/D/claude/rightkit/packages/settings-ui/e2e/browser.ts",
+            "start": 173,
+            "end": 188
+          }
+        },
+        {
+          "sha256": "f4ea0532ef4996ecb5dc7908077c3467bd61f445132b64599717188942bbf25e",
+          "left": {
+            "owner": "packages/app-shell",
+            "path": "/Volumes/D/claude/rightkit/packages/app-shell/e2e/browser.ts",
+            "start": 169,
+            "end": 186
+          },
+          "right": {
+            "owner": "packages/settings-ui",
+            "path": "/Volumes/D/claude/rightkit/packages/settings-ui/e2e/browser.ts",
+            "start": 189,
+            "end": 206
+          }
+        }
+      ]
+    },
+    {
+      "components": [
+        "packages/onboarding",
+        "packages/settings-ui"
+      ],
+      "overlapping_window_count": 64,
+      "representative_blocks": [
+        {
+          "sha256": "f2e19cc5bd3ac9afeb9678e9dd821a147b824bb84daf00ac0d11d71cad77bf77",
+          "left": {
+            "owner": "packages/onboarding",
+            "path": "/Volumes/D/claude/rightkit/packages/onboarding/e2e/browser.ts",
+            "start": 7,
+            "end": 26
+          },
+          "right": {
+            "owner": "packages/settings-ui",
+            "path": "/Volumes/D/claude/rightkit/packages/settings-ui/e2e/browser.ts",
+            "start": 7,
+            "end": 26
+          }
+        },
+        {
+          "sha256": "f79afde502e0b0d41f1560fef51ecacf241abf0b5a1f159d5709e5528a607496",
+          "left": {
+            "owner": "packages/onboarding",
+            "path": "/Volumes/D/claude/rightkit/packages/onboarding/e2e/browser.ts",
+            "start": 23,
+            "end": 39
+          },
+          "right": {
+            "owner": "packages/settings-ui",
+            "path": "/Volumes/D/claude/rightkit/packages/settings-ui/e2e/browser.ts",
+            "start": 23,
+            "end": 39
+          }
+        },
+        {
+          "sha256": "d60d2b5042fdfd242e2739c2a7626c02a4cd4d2fbc38f580a9ae337aa48b7475",
+          "left": {
+            "owner": "packages/onboarding",
+            "path": "/Volumes/D/claude/rightkit/packages/onboarding/e2e/browser.ts",
+            "start": 55,
+            "end": 70
+          },
+          "right": {
+            "owner": "packages/settings-ui",
+            "path": "/Volumes/D/claude/rightkit/packages/settings-ui/e2e/browser.ts",
+            "start": 56,
+            "end": 71
+          }
+        },
+        {
+          "sha256": "61e2dcba319ce4b226b6586f2cd7a061aa33d7d9c13089d0a5e2ac47293e0d67",
+          "left": {
+            "owner": "packages/onboarding",
+            "path": "/Volumes/D/claude/rightkit/packages/onboarding/e2e/browser.ts",
+            "start": 79,
+            "end": 95
+          },
+          "right": {
+            "owner": "packages/settings-ui",
+            "path": "/Volumes/D/claude/rightkit/packages/settings-ui/e2e/browser.ts",
+            "start": 80,
+            "end": 96
+          }
+        },
+        {
+          "sha256": "da34954dc31573274d7435aa723960c2109d959cc59ee3c939d5d6efd9e89129",
+          "left": {
+            "owner": "packages/onboarding",
+            "path": "/Volumes/D/claude/rightkit/packages/onboarding/e2e/browser.ts",
+            "start": 119,
+            "end": 134
+          },
+          "right": {
+            "owner": "packages/settings-ui",
+            "path": "/Volumes/D/claude/rightkit/packages/settings-ui/e2e/browser.ts",
+            "start": 130,
+            "end": 145
+          }
+        },
+        {
+          "sha256": "bd8b4d5f625a7200ae3b334628f2ef38c5dc090256f00dcd525543a62f43c037",
+          "left": {
+            "owner": "packages/onboarding",
+            "path": "/Volumes/D/claude/rightkit/packages/onboarding/e2e/browser.ts",
+            "start": 137,
+            "end": 152
+          },
+          "right": {
+            "owner": "packages/settings-ui",
+            "path": "/Volumes/D/claude/rightkit/packages/settings-ui/e2e/browser.ts",
+            "start": 154,
+            "end": 169
+          }
+        },
+        {
+          "sha256": "bccbe9bdae31503e8f0028a6108e349b0d5502bc813a36e6fd3163ae9716c9db",
+          "left": {
+            "owner": "packages/onboarding",
+            "path": "/Volumes/D/claude/rightkit/packages/onboarding/e2e/browser.ts",
+            "start": 153,
+            "end": 168
+          },
+          "right": {
+            "owner": "packages/settings-ui",
+            "path": "/Volumes/D/claude/rightkit/packages/settings-ui/e2e/browser.ts",
+            "start": 173,
+            "end": 188
+          }
+        },
+        {
+          "sha256": "f4ea0532ef4996ecb5dc7908077c3467bd61f445132b64599717188942bbf25e",
+          "left": {
+            "owner": "packages/onboarding",
+            "path": "/Volumes/D/claude/rightkit/packages/onboarding/e2e/browser.ts",
+            "start": 169,
+            "end": 186
+          },
+          "right": {
+            "owner": "packages/settings-ui",
+            "path": "/Volumes/D/claude/rightkit/packages/settings-ui/e2e/browser.ts",
+            "start": 189,
+            "end": 206
+          }
+        }
+      ]
+    },
+    {
+      "components": [
+        "packages/settings-ui",
+        "packages/theme"
+      ],
+      "overlapping_window_count": 64,
+      "representative_blocks": [
+        {
+          "sha256": "f2e19cc5bd3ac9afeb9678e9dd821a147b824bb84daf00ac0d11d71cad77bf77",
+          "left": {
+            "owner": "packages/settings-ui",
+            "path": "/Volumes/D/claude/rightkit/packages/settings-ui/e2e/browser.ts",
+            "start": 7,
+            "end": 26
+          },
+          "right": {
+            "owner": "packages/theme",
+            "path": "/Volumes/D/claude/rightkit/packages/theme/e2e/browser.ts",
+            "start": 7,
+            "end": 26
+          }
+        },
+        {
+          "sha256": "f79afde502e0b0d41f1560fef51ecacf241abf0b5a1f159d5709e5528a607496",
+          "left": {
+            "owner": "packages/settings-ui",
+            "path": "/Volumes/D/claude/rightkit/packages/settings-ui/e2e/browser.ts",
+            "start": 23,
+            "end": 39
+          },
+          "right": {
+            "owner": "packages/theme",
+            "path": "/Volumes/D/claude/rightkit/packages/theme/e2e/browser.ts",
+            "start": 23,
+            "end": 39
+          }
+        },
+        {
+          "sha256": "d60d2b5042fdfd242e2739c2a7626c02a4cd4d2fbc38f580a9ae337aa48b7475",
+          "left": {
+            "owner": "packages/settings-ui",
+            "path": "/Volumes/D/claude/rightkit/packages/settings-ui/e2e/browser.ts",
+            "start": 56,
+            "end": 71
+          },
+          "right": {
+            "owner": "packages/theme",
+            "path": "/Volumes/D/claude/rightkit/packages/theme/e2e/browser.ts",
+            "start": 55,
+            "end": 70
+          }
+        },
+        {
+          "sha256": "61e2dcba319ce4b226b6586f2cd7a061aa33d7d9c13089d0a5e2ac47293e0d67",
+          "left": {
+            "owner": "packages/settings-ui",
+            "path": "/Volumes/D/claude/rightkit/packages/settings-ui/e2e/browser.ts",
+            "start": 80,
+            "end": 96
+          },
+          "right": {
+            "owner": "packages/theme",
+            "path": "/Volumes/D/claude/rightkit/packages/theme/e2e/browser.ts",
+            "start": 79,
+            "end": 95
+          }
+        },
+        {
+          "sha256": "da34954dc31573274d7435aa723960c2109d959cc59ee3c939d5d6efd9e89129",
+          "left": {
+            "owner": "packages/settings-ui",
+            "path": "/Volumes/D/claude/rightkit/packages/settings-ui/e2e/browser.ts",
+            "start": 130,
+            "end": 145
+          },
+          "right": {
+            "owner": "packages/theme",
+            "path": "/Volumes/D/claude/rightkit/packages/theme/e2e/browser.ts",
+            "start": 119,
+            "end": 134
+          }
+        },
+        {
+          "sha256": "bd8b4d5f625a7200ae3b334628f2ef38c5dc090256f00dcd525543a62f43c037",
+          "left": {
+            "owner": "packages/settings-ui",
+            "path": "/Volumes/D/claude/rightkit/packages/settings-ui/e2e/browser.ts",
+            "start": 154,
+            "end": 169
+          },
+          "right": {
+            "owner": "packages/theme",
+            "path": "/Volumes/D/claude/rightkit/packages/theme/e2e/browser.ts",
+            "start": 137,
+            "end": 152
+          }
+        },
+        {
+          "sha256": "bccbe9bdae31503e8f0028a6108e349b0d5502bc813a36e6fd3163ae9716c9db",
+          "left": {
+            "owner": "packages/settings-ui",
+            "path": "/Volumes/D/claude/rightkit/packages/settings-ui/e2e/browser.ts",
+            "start": 173,
+            "end": 188
+          },
+          "right": {
+            "owner": "packages/theme",
+            "path": "/Volumes/D/claude/rightkit/packages/theme/e2e/browser.ts",
+            "start": 153,
+            "end": 168
+          }
+        },
+        {
+          "sha256": "f4ea0532ef4996ecb5dc7908077c3467bd61f445132b64599717188942bbf25e",
+          "left": {
+            "owner": "packages/settings-ui",
+            "path": "/Volumes/D/claude/rightkit/packages/settings-ui/e2e/browser.ts",
+            "start": 189,
+            "end": 206
+          },
+          "right": {
+            "owner": "packages/theme",
+            "path": "/Volumes/D/claude/rightkit/packages/theme/e2e/browser.ts",
+            "start": 169,
+            "end": 186
+          }
+        }
+      ]
+    }
+  ],
+  "excluded_directory_names": [
+    ".audit",
+    ".build",
+    ".cache",
+    ".preview",
+    "artifacts",
+    "benches",
+    "dist",
+    "evidence",
+    "example-app",
+    "examples",
+    "fixtures",
+    "node_modules",
+    "preview",
+    "snapshots",
+    "target",
+    "test",
+    "tests",
+    "vendor"
+  ]
+}

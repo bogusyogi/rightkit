@@ -1,0 +1,213 @@
+{
+  "verified_utc": "2026-10-10T08:16:30.714086+00:00",
+  "method": "Source-hash stability, report references/counts, native log checks; no product remediation.",
+  "skills": [
+    {
+      "name": "legion:ios-development",
+      "path": "/Users/adrdsouza/Library/Application Support/Orthic Labs/Legion/versions/0.3.21/plugin/skills/ios-development/SKILL.md",
+      "sha256": "93eba0a3dc2d132a53f29cd694d9a46f04416e7f4e848193cd8e7f92263c42ef"
+    },
+    {
+      "name": "legion:macos-development",
+      "path": "/Users/adrdsouza/Library/Application Support/Orthic Labs/Legion/versions/0.3.21/plugin/skills/macos-development/SKILL.md",
+      "sha256": "63e085e3702f2f821ff70413e5d6e9db5627679498d879d0b3d7f1a208d1c8cc"
+    }
+  ],
+  "source_hashes": {
+    "rightkit-source-hashes.json": {
+      "checked": 2548,
+      "changed": [
+        "/Volumes/D/claude/rightkit/packages/release/release.mjs",
+        "/Volumes/D/claude/rightkit/packages/git/manifest.test.mjs",
+        "/Volumes/D/claude/rightkit/packages/git/manifest.mjs",
+        "/Volumes/D/claude/rightkit/packages/git/render.test.mjs",
+        "/Volumes/D/claude/rightkit/packages/git/templates/profiles/rust-hybrid/ci.yml"
+      ],
+      "missing": []
+    },
+    "source-hashes.json": {
+      "checked": 20718,
+      "changed": [
+        "/Volumes/D/claude/pulse/pnpm-lock.yaml",
+        "/Volumes/D/claude/pulse/right-release.config.mjs",
+        "/Volumes/D/claude/pulse/package.json",
+        "/Volumes/D/claude/pulse/pnpm-workspace.yaml",
+        "/Volumes/D/claude/pulse/core/src/apps.rs",
+        "/Volumes/D/claude/pulse/core/src/folder_growth.rs",
+        "/Volumes/D/claude/pulse/core/src/bridge_cmd.rs",
+        "/Volumes/D/claude/pulse/core/src/history.rs",
+        "/Volumes/D/claude/pulse/core/src/main.rs",
+        "/Volumes/D/claude/pulse/core/src/scan.rs",
+        "/Volumes/D/claude/pulse/core/src/claude_sync.rs",
+        "/Volumes/D/claude/pulse/core/src/bridge/hub.rs",
+        "/Volumes/D/claude/pulse/windows/src/bridge.rs",
+        "/Volumes/D/claude/pulse/windows/src/layout.rs",
+        "/Volumes/D/claude/pulse/windows/src/render.rs",
+        "/Volumes/D/claude/pulse/windows/src/main.rs",
+        "/Volumes/D/claude/pulse/windows/src/settings.rs",
+        "/Volumes/D/claude/pulse/hub/src-tauri/src/lib.rs",
+        "/Volumes/D/claude/pulse/hub/src-tauri/src/scanner.rs",
+        "/Volumes/D/claude/pulse/hub/src-tauri/src/watch.rs",
+        "/Volumes/D/claude/pulse/hub/qa-e2e/tests/ui.rs",
+        "/Volumes/D/claude/swiftright/qualification/test_run.py",
+        "/Volumes/D/claude/legion/scripts/ci/right-git-ci.sh",
+        "/Volumes/D/claude/legion/engine/bins/legion/tests/entrypoint_inventory.rs"
+      ],
+      "missing": []
+    }
+  },
+  "report_links": {
+    "unique_checked": 178,
+    "failures": []
+  },
+  "all_14_swift_products_present": true,
+  "products": [
+    "RightKitLicense",
+    "RightKitDiagnostics",
+    "RightKitArtifacts",
+    "RightKitPurchases",
+    "RightKitCloudSync",
+    "RightKitStore",
+    "RightKitImportQueue",
+    "RightKitLiveActivity",
+    "RightKitWatchBridge",
+    "RightKitSpeech",
+    "RightKitIntents",
+    "RightKitAppleCredentials",
+    "RightKitOverlay",
+    "RightKitUI"
+  ],
+  "reports": [
+    {
+      "path": "/Volumes/D/claude/rightkit/docs/audits/fresh-2026-10-10/01-dependencies.md",
+      "bytes": 132491,
+      "sha256": "5934d7b335a083e599423ca9ec40b8b1950d32e747ab49b91436e95d14798606"
+    },
+    {
+      "path": "/Volumes/D/claude/rightkit/docs/audits/fresh-2026-10-10/02-package-boundaries.md",
+      "bytes": 71317,
+      "sha256": "9cfbf4e2a1c6c9fac56d94c5e43362761b2327fbcda585124a3bdd125813554e"
+    },
+    {
+      "path": "/Volumes/D/claude/rightkit/docs/audits/fresh-2026-10-10/03-app-adoption.md",
+      "bytes": 105447,
+      "sha256": "27dee749a85e71af52230b465f14d54b8f73baee49dab515841913d7e45fa6f9"
+    },
+    {
+      "path": "/Volumes/D/claude/rightkit/docs/audits/fresh-2026-10-10/README.md",
+      "bytes": 2492,
+      "sha256": "187807a3b427998a046a73f61a14f6fe1927e5d64055c71af636821b3c9d45f0"
+    },
+    {
+      "path": "/Volumes/D/claude/rightkit/docs/audits/fresh-2026-10-10/evidence/apple-consumers-review.md",
+      "bytes": 13663,
+      "sha256": "a0673f5202b2d42c01206e3ad20bb39a8b684c02c42b85946a5cc05e08072351"
+    },
+    {
+      "path": "/Volumes/D/claude/rightkit/docs/audits/fresh-2026-10-10/evidence/apple-core-review.md",
+      "bytes": 10768,
+      "sha256": "4c518b5e460baeabe27cebdc2bf31a721401b1dc20b12edf48bf139098d35fa3"
+    },
+    {
+      "path": "/Volumes/D/claude/rightkit/docs/audits/fresh-2026-10-10/evidence/apple-ui-review.md",
+      "bytes": 10095,
+      "sha256": "3d7f6f4e8fb5ef9ed68d94ad1da6d01df82d0fa7e9c7c01dfe127b25e5933427"
+    },
+    {
+      "path": "/Volumes/D/claude/rightkit/docs/audits/fresh-2026-10-10/evidence/apple-verification.md",
+      "bytes": 7569,
+      "sha256": "07f652d68e06eb7d43ba3aafc881129a491fed83a2294f1dfef365a39638a0ca"
+    },
+    {
+      "path": "/Volumes/D/claude/rightkit/docs/audits/fresh-2026-10-10/evidence/apple-closure.md",
+      "bytes": 4886,
+      "sha256": "9c502641eb2f5e5b6b6066c339f9a1264f79fa4b6b134598fb6eed643dd602c6"
+    }
+  ],
+  "native_checks": [
+    {
+      "name": "macos-package",
+      "command": "swift test --package-path swift/RightKitSwift --no-parallel",
+      "cwd": "/Volumes/D/claude/rightkit",
+      "exit_code": 0,
+      "cases": 201,
+      "explicit_skips": 3,
+      "failures": 0,
+      "log": "/Volumes/D/claude/rightkit/docs/audits/fresh-2026-10-10/evidence/apple-swift-tests.log",
+      "log_sha256": "6e7991be015393cbe6fb1f225364505d9494ce301f13eb0cc5ab63da7393549e"
+    },
+    {
+      "name": "ios-build",
+      "command": "xcodebuild -scheme RightKitSwift-Package -destination 'generic/platform=iOS Simulator' -derivedDataPath /Volumes/D/claude/rightkit/.cache/apple-audit-derived build",
+      "cwd": "/Volumes/D/claude/rightkit/swift/RightKitSwift",
+      "exit_code": 0,
+      "cases": null,
+      "explicit_skips": null,
+      "failures": null,
+      "log": "/Volumes/D/claude/rightkit/docs/audits/fresh-2026-10-10/evidence/apple-ios-build.log",
+      "log_sha256": "639c4e0dda4102a5b0dd4361f3e0d09302e684c1d278f2124eb2018ac7ecca97"
+    },
+    {
+      "name": "ios-storekit",
+      "command": "xcodebuild test -scheme RightKitPurchasesStoreKitTests -destination 'platform=iOS Simulator,id=DF6BA962-3463-4078-8862-31D09A82A7AB' -derivedDataPath /Volumes/D/claude/rightkit/.cache/apple-audit-derived -resultBundlePath /Volumes/D/claude/rightkit/.cache/apple-audit-storekit.xcresult",
+      "cwd": "/Volumes/D/claude/rightkit/swift/RightKitSwift",
+      "exit_code": 0,
+      "cases": 8,
+      "explicit_skips": 0,
+      "failures": 0,
+      "log": "/Volumes/D/claude/rightkit/docs/audits/fresh-2026-10-10/evidence/apple-ios-storekit-tests.log",
+      "log_sha256": "99fb084885c6e6d335cb384bdd0944a59e4d5199e6ad5275f95bb9cc2eb6ada5"
+    },
+    {
+      "name": "cloudkit-helper",
+      "command": "swift build --package-path swift/RightKitCloudKitHelper",
+      "cwd": "/Volumes/D/claude/rightkit",
+      "exit_code": 0,
+      "cases": null,
+      "explicit_skips": null,
+      "failures": null,
+      "log": "/Volumes/D/claude/rightkit/docs/audits/fresh-2026-10-10/evidence/apple-cloudkit-helper-build.log",
+      "log_sha256": "d14286ee67b7e4d89734c7ffa69812f283aa5bda96f0ff5cb8030ec9ad2332b3"
+    },
+    {
+      "name": "record-helper",
+      "command": "swift test --package-path crates/rightkit-record/helpers/macos",
+      "cwd": "/Volumes/D/claude/rightkit",
+      "exit_code": 0,
+      "cases": 14,
+      "explicit_skips": 1,
+      "failures": 0,
+      "log": "/Volumes/D/claude/rightkit/docs/audits/fresh-2026-10-10/evidence/apple-record-helper-tests.log",
+      "log_sha256": "b24d8ca11c8166caa8cf4e218436fa8a66f39996b0026751776fb20fb631c0a2"
+    },
+    {
+      "name": "license-contracts",
+      "command": "pnpm test:swift-contracts",
+      "cwd": "/Volumes/D/claude/rightkit",
+      "exit_code": 0,
+      "cases": 2,
+      "explicit_skips": 0,
+      "failures": 0,
+      "log": "/Volumes/D/claude/rightkit/docs/audits/fresh-2026-10-10/evidence/apple-contract-tests.log",
+      "log_sha256": "c631f756222335720bda90ca3787c9a1259e5c3a072d43071446c6b7ff71d56a"
+    },
+    {
+      "name": "legacy-archive",
+      "command": "node --test swift/scripts/archive-package.test.mjs",
+      "cwd": "/Volumes/D/claude/rightkit",
+      "exit_code": 1,
+      "cases": 3,
+      "explicit_skips": 0,
+      "failures": 2,
+      "log": "/Volumes/D/claude/rightkit/docs/audits/fresh-2026-10-10/evidence/apple-archive-tests.log",
+      "log_sha256": "2e2532fee325f113b4744016910f86978ed55103265fdc294340bbcf9f6f8e93"
+    }
+  ],
+  "git_head": "08252a681d9f9dc2911962a49fa0026a4c345dff",
+  "qualification": "Apple native checks only; frozen Audit gate remains incomplete, product findings/remediation remain open.",
+  "concurrent_workspace_drift": {
+    "evidence": "/Volumes/D/claude/rightkit/docs/audits/fresh-2026-10-10/evidence/workspace-drift.json",
+    "recorded_files": 29,
+    "treatment": "Original audit remains source snapshot; Apple follow-up validates unchanged Swift sources. Concurrent unrelated edits require their own focused verification."
+  }
+}

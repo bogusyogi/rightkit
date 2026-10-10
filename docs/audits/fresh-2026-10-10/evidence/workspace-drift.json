@@ -1,0 +1,164 @@
+{
+  "reason": "Concurrent external workspace changes during Apple follow-up; audit agent changed no product files. Preserve baseline evidence; apply following captured delta for Pulse handoff.",
+  "source_drift": [
+    {
+      "path": "/Volumes/D/claude/rightkit/packages/release/release.mjs",
+      "baseline_sha256": "13f46455886fe055f0d963e2ce4552bce0b1565f2574ccbd524eb6d7a9a5a32d",
+      "followup_sha256": "1295b3e048305824badc877c848a2c120f4afaa64e23607409a7a6402b042fbb"
+    },
+    {
+      "path": "/Volumes/D/claude/rightkit/packages/git/manifest.test.mjs",
+      "baseline_sha256": "e70f53c18d7aea74233ae8527b7d4ac07c22c6e62cf00c22a938103ec556709d",
+      "followup_sha256": "e07aaf15cd5ec263db12bd76d7d87ae2e9d15d208d2951bb8818cbe40ed777a3"
+    },
+    {
+      "path": "/Volumes/D/claude/rightkit/packages/git/manifest.mjs",
+      "baseline_sha256": "ee5ebc3f0a148d88063b529ca62e46bb02436ebd598be81f7247153b4c259c64",
+      "followup_sha256": "9d12675677b8c98af281139b8474ec7b87d41c6d9349e20d04c080f4f762a69b"
+    },
+    {
+      "path": "/Volumes/D/claude/rightkit/packages/git/render.test.mjs",
+      "baseline_sha256": "606bf4caaaed4a07ff32eede1286ad12fa77f9fc1d11cfdfc70ea7226c1e047d",
+      "followup_sha256": "bddeb70b0dca45b0531d5450c28ec18d38b06d9a8590a8e0f9fb4badcf061c85"
+    },
+    {
+      "path": "/Volumes/D/claude/rightkit/packages/git/templates/profiles/rust-hybrid/ci.yml",
+      "baseline_sha256": "dc6bd25fca007194595b548dc9bfe074664bc3dfcf98309db57fe2bbda6d0626",
+      "followup_sha256": "15c296b4f0187e34b485b7400e2498da36e624db06e53abdac06ab5e1a47f076"
+    },
+    {
+      "path": "/Volumes/D/claude/pulse/pnpm-lock.yaml",
+      "baseline_sha256": "acf3b04fb2f7f01118fd53f22b43c5f239ce1f3ab5f5e4f4cde984083d6450ef",
+      "followup_sha256": "2c49efbf4453169106d052697f8606ee2a2f581cf1ac1379ab3da04cf280d521"
+    },
+    {
+      "path": "/Volumes/D/claude/pulse/right-release.config.mjs",
+      "baseline_sha256": "dde8939418ec2b23d8f5647d46a8dd0323f134d1755c84da86fc1b18cc47ac39",
+      "followup_sha256": "7e73152c83e3ff0a569c0ec3c3ab156dc060493cbf0955ad7c178296958031c3"
+    },
+    {
+      "path": "/Volumes/D/claude/pulse/package.json",
+      "baseline_sha256": "89a6551276b463d6ce67126875e9200984b251abec2f9b4f325c4eb122dcee94",
+      "followup_sha256": "2e06efbfdcd284f7c56ad635b46ba627eeb34b1aaa1a02e2b2fc817e3c22b81e"
+    },
+    {
+      "path": "/Volumes/D/claude/pulse/pnpm-workspace.yaml",
+      "baseline_sha256": "12fbcab7cc2235e072dc260835b8ee6eb01e8ddb023a97dff4faf8b30ce5063b",
+      "followup_sha256": "144671067e195238a97fb89853e6b0e5700a57bf6f9078ad95f2f7ef36ba0fa0"
+    },
+    {
+      "path": "/Volumes/D/claude/pulse/core/src/apps.rs",
+      "baseline_sha256": "b06eea93126b960fdaccf851131e5ac5d4ee6b435dcc622a4239635bc61a1d27",
+      "followup_sha256": "3f1e8bcf47c2ec2d09deb39dadebe50d4d5e95c7108ee45bcf87c24eaabe10ff"
+    },
+    {
+      "path": "/Volumes/D/claude/pulse/core/src/folder_growth.rs",
+      "baseline_sha256": "fb27edfc2bfcabfdcd61e8e9ef4b9c58d81923bbf8f89d3ad00987c1774c2791",
+      "followup_sha256": "489ce3b0426f0f645cba90993f00e606b2fd3ccf3336c39225b691571824bc37"
+    },
+    {
+      "path": "/Volumes/D/claude/pulse/core/src/bridge_cmd.rs",
+      "baseline_sha256": "b6c9a77638fbfce08e123f5a98cb8ea6908d1ae3f01c222bf65ec6662d619d90",
+      "followup_sha256": "a948ebd24361912d3d39b6d986e9693bac2acbe04d6adca468bdaf8e661ad09f"
+    },
+    {
+      "path": "/Volumes/D/claude/pulse/core/src/history.rs",
+      "baseline_sha256": "699b953bd46ca00b4fbca1be0ad7a3a2799ca4326f29fec5ec23e02abae2fc65",
+      "followup_sha256": "1ae45b5e38419cfca6b85fc9a3ed2a7a397e9d88c6128f32d9247162ff8c96c1"
+    },
+    {
+      "path": "/Volumes/D/claude/pulse/core/src/main.rs",
+      "baseline_sha256": "3e304f1c71983b00bb7ac8ff4a575d33bbc46517fc96861cc1a97bce947083b1",
+      "followup_sha256": "8c068b21fcd72a12d351fda09f16178f2902fb1b66a29e392fee97c2a3a2bf60"
+    },
+    {
+      "path": "/Volumes/D/claude/pulse/core/src/scan.rs",
+      "baseline_sha256": "9cfcb350eabb7976102ef4673dd63176599b67677cc99e3d6a726f50f8b60f63",
+      "followup_sha256": "6122dba8c21224a7870a9968a95c402b3a37aa03c4ddc863f047cfdf7b0b885e"
+    },
+    {
+      "path": "/Volumes/D/claude/pulse/core/src/claude_sync.rs",
+      "baseline_sha256": "e7655d9fd7f3db3c2a41a9d50f6f66707b058df748b417bad2332fa6aa4e2b8c",
+      "followup_sha256": "db22495a0d47816897d01020f0cb13612f0bdf69d1affcedfbe27ead620bd1b4"
+    },
+    {
+      "path": "/Volumes/D/claude/pulse/core/src/bridge/hub.rs",
+      "baseline_sha256": "e96fdbd5cd353c3461a754edf5d8d75373b831d575733cbcfccf20bf30717d00",
+      "followup_sha256": "dcc975a8ee6ebf517da16bbcb3e9da08a621bef861eeff87163f1715574c0d43"
+    },
+    {
+      "path": "/Volumes/D/claude/pulse/windows/src/bridge.rs",
+      "baseline_sha256": "2bda2c512157f7ded369d4a3c3f85f2bcb83e62155963a9f220529e95d9b8afc",
+      "followup_sha256": "af5f5e77d75c2da7b1c7a4a4e874971c644294d98abd217cfb5e7063191134f0"
+    },
+    {
+      "path": "/Volumes/D/claude/pulse/windows/src/layout.rs",
+      "baseline_sha256": "855aca1466125f469aa8e035599f9e0f58b3921a2a9f343b008b1505bb60247a",
+      "followup_sha256": "3c7320a6ffb04f2346bebf56a84249e9c6cfb23b31d80f9db7f71f03a275139f"
+    },
+    {
+      "path": "/Volumes/D/claude/pulse/windows/src/render.rs",
+      "baseline_sha256": "8d85a564e5325ef8d85d56e14bc06aa725010f2999d17666c508a36abb4eaec7",
+      "followup_sha256": "fc5f4726967867d9f4cbfc7de776ce64a3e3f081f3945b45158fa7ecb7957103"
+    },
+    {
+      "path": "/Volumes/D/claude/pulse/windows/src/main.rs",
+      "baseline_sha256": "f62507b145f4d050942cf144d05c75ae9ee1452cd10a6fae48876b4d0c98749a",
+      "followup_sha256": "a358431ffca0d0e0836894495b2d2d2f07c9b85d5b8acf7f999484cc6b1900ef"
+    },
+    {
+      "path": "/Volumes/D/claude/pulse/windows/src/settings.rs",
+      "baseline_sha256": "d6c0bcb97bb0cb08f504bedfab84df348a8741c92180c90cecc7f8c2e3d33939",
+      "followup_sha256": "fda72e1c629809cc140c29d7a4d4904600da4235700e6e189e58ca629bcd3f12"
+    },
+    {
+      "path": "/Volumes/D/claude/pulse/hub/src-tauri/src/lib.rs",
+      "baseline_sha256": "416e3461ecfb661d18bd73041ce518336bf0e523f2e43c85994588cebba498d0",
+      "followup_sha256": "3bb173539a36ccf646207fcdfa796cb834022c6819462b86abc2e528f1af26c4"
+    },
+    {
+      "path": "/Volumes/D/claude/pulse/hub/src-tauri/src/scanner.rs",
+      "baseline_sha256": "d974effb02e2a7bceead57adc619cd893608893c46533547a1889c17247edf8d",
+      "followup_sha256": "38ce4556c234afd887d1c312350cd27b3c466e64c77c68b3bfb083e56b27a75c"
+    },
+    {
+      "path": "/Volumes/D/claude/pulse/hub/src-tauri/src/watch.rs",
+      "baseline_sha256": "b6080d8bf920a286e0f4078c25a55c0bfce5f55118776997950075171975d724",
+      "followup_sha256": "eb8cd523d2c138bfd766a6cad3b81b516c8b7a08bddc884aeb681e2c0d4aaa06"
+    },
+    {
+      "path": "/Volumes/D/claude/pulse/hub/qa-e2e/tests/ui.rs",
+      "baseline_sha256": "692ac72aecfcb0b9a70ff288a6e5a7da47c1dbfc19bec6f188f6fd71344e9fca",
+      "followup_sha256": "dbfa398a1ee20682801030e461445fdf836e328a1421da3f9fd4bd009289fead"
+    },
+    {
+      "path": "/Volumes/D/claude/swiftright/qualification/test_run.py",
+      "baseline_sha256": "8b05596beece89e3b48b240f355947f6a6593e4394d0b1db53ec13d052bd15e6",
+      "followup_sha256": "5fac9c25ec78032204f23ac215813bdf20db482e6cc0edd792c166e5ea5141f2"
+    },
+    {
+      "path": "/Volumes/D/claude/legion/scripts/ci/right-git-ci.sh",
+      "baseline_sha256": "42b4b9b6f42b5cc9d582a8b8fb0817bd2db3f02aa9e2f47c0efeaeed27218ff0",
+      "followup_sha256": "8241894c6bce5bdf4e93b279035e71f70de0e3f52288b9a344b4e2fa47f5042c"
+    },
+    {
+      "path": "/Volumes/D/claude/legion/engine/bins/legion/tests/entrypoint_inventory.rs",
+      "baseline_sha256": "7a72fa49b5ef89cce81ccc129ff90fd6f15bb945631163b0740ca39dfd5adf7f",
+      "followup_sha256": "5fc8e152760846736abc0fac131d0ca17b299ae7b72dde9b4ea18942f7e02d83"
+    }
+  ],
+  "pulse_baseline_head": "d701b5ee5c65d3c3dd9b0dcf2280abfd0bd9862e",
+  "pulse_followup_head": "abd6de0bea1dbdb76758880af8d65f6d12cf18cf",
+  "manifest_delta": [
+    {
+      "app": "pulse",
+      "manifest": "/Volumes/D/claude/pulse/package.json",
+      "dependency": "@rightkit/release",
+      "before": "0.2.141",
+      "after": "0.2.146"
+    }
+  ],
+  "release_config_delta": "Pulse adds source/installed QA receipt mappings. Installed plan explicitly records failed app.launch until release-safe driver exists. Source declaration is not execution proof.",
+  "additional_drift": "Concurrent Pulse, SwiftRight, Legion & RightKit release/Git-tooling work is recorded as snapshot drift, not reaudited here. Swift package/helper baseline is checked separately.",
+  "recorded_utc": "2026-10-10T08:16:30.714086+00:00"
+}

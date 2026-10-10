@@ -172,6 +172,44 @@ import Testing
         #expect(subs == 1)
     }
 
+    /// A sleep that parks until cancelled, so a test can observe whether cancellation reaches it.
+    private final class ParkedSleep: @unchecked Sendable {
+        private let lock = NSLock()
+        private var started = false
+        private var cancelled = false
+        var hasStarted: Bool { lock.withLock { started } }
+        var wasCancelled: Bool { lock.withLock { cancelled } }
+        func sleep(_ seconds: TimeInterval) async throws {
+            lock.withLock { started = true }
+            do { try await Task.sleep(nanoseconds: 60_000_000_000) } catch {
+                lock.withLock { cancelled = true }
+                throw error
+            }
+        }
+    }
+
+    @Test func releasingTheEngineDuringSubscriptionRetryStopsWorkAndReleasesIt() async throws {
+        let zone = InMemorySyncTransport()
+        await zone.setFailNextSubscription(.networkUnavailable(retryAfter: nil))
+        let parked = ParkedSleep()
+        var config = CloudSyncConfiguration()
+        config.sleep = { try await parked.sleep($0) }
+        weak var released: CloudSyncEngine<NoteAdapter>?
+        do {
+            let device = Device(transport: zone, configuration: config)
+            device.adapter.put(Note(id: "n1", text: "one", updatedAt: t(1), createdAt: t(1)))
+            released = device.engine
+            _ = await device.engine.sync()  // starts the subscription retry, which parks in the backoff sleep
+            while !parked.hasStarted { await Task.yield() }
+            #expect(released != nil)
+        }
+        // The owner is gone; the in-flight retry must not be what keeps the engine alive.
+        for _ in 0..<2_000 where released != nil || !parked.wasCancelled { try await Task.sleep(nanoseconds: 1_000_000) }
+        #expect(released == nil, "the retry task must not retain the engine across its backoff sleep")
+        #expect(parked.wasCancelled, "releasing the engine cancels the pending backoff")
+        #expect(await zone.subscriptionCount == 0, "no subscription work runs after release")
+    }
+
     @Test func transientPerRecordFetchErrorAbortsThePullKeepsTheTokenAndNeverQuarantines() async throws {
         let zone = InMemorySyncTransport()
         let a = Device(transport: zone), b = Device(transport: zone)

@@ -1499,3 +1499,73 @@ private func makeScrapeRightController(
     }
     #expect(delivered == [.activation(activationToken: "t")])
 }
+
+// MARK: Removal queue read-modify-write races (A-license)
+
+/// Runs `body(index)` on `count` threads at once and waits for all of them.
+private func raceThreads(_ count: Int, _ body: @escaping @Sendable (Int) -> Void) {
+    let group = DispatchGroup()
+    for index in 0..<count {
+        group.enter()
+        Thread { body(index); group.leave() }.start()
+    }
+    group.wait()
+}
+
+@Test func concurrentQueueInstancesOverOneKeyLoseNoEnqueuedRemoval() async throws {
+    let storage = InMemoryLicenseDeviceState()
+    // Eight queue instances (relaunch, extension, second controller) all enqueue at once.
+    raceThreads(8) { writer in
+        let queue = PendingLicenseRemovalQueue(storage: storage, namespace: "app")
+        let done = DispatchSemaphore(value: 0)
+        Task {
+            for index in 0..<25 { await queue.enqueue(.lease(deviceIdHash: "h\(writer)", leaseId: "l\(index)")) }
+            done.signal()
+        }
+        done.wait()
+    }
+    let all = await PendingLicenseRemovalQueue(storage: storage, namespace: "app").pending
+    #expect(all.count == 8 * 25, "no enqueue may be overwritten by another instance's write")
+}
+
+@Test func aDeliveryAcknowledgementNeverEraseARemovalEnqueuedByAnotherInstance() async throws {
+    let storage = InMemoryLicenseDeviceState()
+    let first = PendingLicenseRemoval.lease(deviceIdHash: "h", leaseId: "first")
+    let queueA = PendingLicenseRemovalQueue(storage: storage, namespace: "app")
+    let queueB = PendingLicenseRemovalQueue(storage: storage, namespace: "app")
+    await queueA.enqueue(first)
+    let racing: [PendingLicenseRemoval] = (0..<20).map { .activation(activationToken: "t\($0)") }
+    let delivered = await queueA.retry { _ in
+        // While A is mid-delivery, another instance enqueues.
+        for removal in racing { await queueB.enqueue(removal) }
+    }
+    #expect(delivered == [first])
+    #expect(await queueA.pending == racing)
+}
+
+@Test func fileLockedDeviceStateSerializesReadModifyWriteAcrossIndependentHandles() throws {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent("rk-lic-lock-\(UUID().uuidString)")
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    let lockFile = directory.appendingPathComponent("removals.lock")
+    let suite = "rk-lic-\(UUID().uuidString)"
+    // Separate handles stand in for separate processes: flock contends across open file descriptions.
+    raceThreads(8) { _ in
+        let state = UserDefaultsLicenseDeviceState(defaults: UserDefaults(suiteName: suite)!, lockFileURL: lockFile)
+        for _ in 0..<25 {
+            let ran = state.transact(forKey: "counter") {
+                let value = Int(String(decoding: state.data(forKey: "counter") ?? Data("0".utf8), as: UTF8.self)) ?? 0
+                usleep(50)  // widen the window a lost update would need
+                state.set(Data(String(value + 1).utf8), forKey: "counter")
+            }
+            precondition(ran)
+        }
+    }
+    let final = UserDefaultsLicenseDeviceState(defaults: UserDefaults(suiteName: suite)!, lockFileURL: lockFile)
+    #expect(String(decoding: final.data(forKey: "counter") ?? Data(), as: UTF8.self) == "200")
+
+    // An unobtainable lock fails closed: the body never runs unlocked.
+    let blocked = UserDefaultsLicenseDeviceState(
+        defaults: UserDefaults(suiteName: suite)!, lockFileURL: directory.appendingPathComponent("missing/dir.lock"))
+    var ran = false
+    #expect(blocked.transact(forKey: "counter") { ran = true } == false && !ran)
+}

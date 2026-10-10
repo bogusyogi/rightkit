@@ -1,0 +1,15 @@
+{
+  "ok": false,
+  "error": {
+    "type": "protected-evidence",
+    "message": "committed ownership: protected release checkout has tracked or untracked changes"
+  },
+  "rows": [],
+  "violations": [],
+  "covered": [],
+  "problems": [
+    "committed ownership: protected release checkout has tracked or untracked changes"
+  ],
+  "coverage": [],
+  "metadata": null
+}

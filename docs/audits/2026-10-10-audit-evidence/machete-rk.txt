@@ -1,0 +1,49 @@
+rightkit: request 9e3e9533-8188-435e-b5cc-106e710d7dc5
+Analyzing dependencies of crates in this directory...
+error when handling ./docs/plans/evidence/rightkit-build-control-plane-v5/windows/managed-agent-fixture/Cargo.toml: `cargo metadata` exited with an error: rightkit managed-agent: request 1d59d974-20a4-40d3-ac59-af0f2361cb2e
+error: current package believes it's in a workspace when it's not:
+current:   /Volumes/D/claude/rightkit/docs/plans/evidence/rightkit-build-control-plane-v5/windows/managed-agent-fixture/Cargo.toml
+workspace: /Volumes/D/claude/rightkit/Cargo.toml
+
+this may be fixable by adding `docs/plans/evidence/rightkit-build-control-plane-v5/windows/managed-agent-fixture` to the `workspace.members` array of the manifest located at: /Volumes/D/claude/rightkit/Cargo.toml
+Alternatively, to keep it out of the workspace, add the package to the `workspace.exclude` array, or add an empty `[workspace]` table to the package's manifest.
+
+cargo-machete found the following unused dependencies in this directory:
+rightkit-qts -- ./crates/rightkit-qts/Cargo.toml:
+	prost-build
+	protoc-bin-vendored
+rightkit-shell -- ./crates/rightkit-shell/Cargo.toml:
+	webview2_com_038
+	windows_061
+shell-example-app -- ./crates/rightkit-shell/example-app/Cargo.toml:
+	rightkit-service
+	tauri-build
+rightkit-qts-ggml-sys -- ./crates/rightkit-qts-ggml-sys/Cargo.toml:
+	bindgen
+	cmake
+rightkit-daemon -- ./crates/rightkit-daemon/Cargo.toml:
+	rustls-pki-types
+rightkit-control -- ./crates/rightkit-control/Cargo.toml:
+	webview2_com_038
+	windows_061
+control-test-app -- ./crates/rightkit-control/examples/control-test-app/Cargo.toml:
+	tauri-build
+rightkit-audio -- ./crates/rightkit-audio/Cargo.toml:
+	windows-core
+rk2-fixture -- ./spikes/rk2-macos/fixture-app/Cargo.toml:
+	tauri-build
+rightapp-engine -- ./desktop-app-template/crates/engine/Cargo.toml:
+	serde
+rightapp -- ./desktop-app-template/src-tauri/Cargo.toml:
+	serde
+	tauri-build
+
+If you believe cargo-machete has detected an unused dependency incorrectly,
+you can add the dependency to the list of dependencies to ignore in the
+`[package.metadata.cargo-machete]` section of the appropriate Cargo.toml.
+For example:
+
+[package.metadata.cargo-machete]
+ignored = ["prost"]
+
+Done!

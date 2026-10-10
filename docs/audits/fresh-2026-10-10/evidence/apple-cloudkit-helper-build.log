@@ -1,0 +1,157 @@
+Building for debugging...
+[Pre-planning 1 / 67]
+[Planning deferred tasks]
+warning: Stale file '/Volumes/D/claude/tools/rightkit/swift/RightKitCloudKitHelper/.build/out/Intermediates.noindex/RightKitCloudKitHelper.build/Debug/rightkit-cloudkit-helper-p.build/DerivedSources/Entitlements.plist' is located outside of the allowed root paths.
+
+warning: Stale file '/Volumes/D/claude/tools/rightkit/swift/RightKitCloudKitHelper/.build/out/Intermediates.noindex/RightKitCloudKitHelper.build/Debug/rightkit-cloudkit-helper-p.build/Objects-normal/arm64/Session.o' is located outside of the allowed root paths.
+
+warning: Stale file '/Volumes/D/claude/tools/rightkit/swift/RightKitCloudKitHelper/.build/out/Intermediates.noindex/RightKitCloudKitHelper.build/Debug/rightkit-cloudkit-helper-p.build/Objects-normal/arm64/Session.swiftconstvalues' is located outside of the allowed root paths.
+
+warning: Stale file '/Volumes/D/claude/tools/rightkit/swift/RightKitCloudKitHelper/.build/out/Intermediates.noindex/RightKitCloudKitHelper.build/Debug/rightkit-cloudkit-helper-p.build/Objects-normal/arm64/Zone.o' is located outside of the allowed root paths.
+
+warning: Stale file '/Volumes/D/claude/tools/rightkit/swift/RightKitCloudKitHelper/.build/out/Intermediates.noindex/RightKitCloudKitHelper.build/Debug/rightkit-cloudkit-helper-p.build/Objects-normal/arm64/Zone.swiftconstvalues' is located outside of the allowed root paths.
+
+warning: Stale file '/Volumes/D/claude/tools/rightkit/swift/RightKitCloudKitHelper/.build/out/Intermediates.noindex/RightKitCloudKitHelper.build/Debug/rightkit-cloudkit-helper-p.build/Objects-normal/arm64/main.o' is located outside of the allowed root paths.
+
+warning: Stale file '/Volumes/D/claude/tools/rightkit/swift/RightKitCloudKitHelper/.build/out/Intermediates.noindex/RightKitCloudKitHelper.build/Debug/rightkit-cloudkit-helper-p.build/Objects-normal/arm64/main.swiftconstvalues' is located outside of the allowed root paths.
+
+warning: Stale file '/Volumes/D/claude/tools/rightkit/swift/RightKitCloudKitHelper/.build/out/Intermediates.noindex/RightKitCloudKitHelper.build/Debug/rightkit-cloudkit-helper-p.build/Objects-normal/arm64/rightkit-cloudkit-helper Swift Compilation Finished' is located outside of the allowed root paths.
+
+warning: Stale file '/Volumes/D/claude/tools/rightkit/swift/RightKitCloudKitHelper/.build/out/Intermediates.noindex/RightKitCloudKitHelper.build/Debug/rightkit-cloudkit-helper-p.build/Objects-normal/arm64/rightkit-cloudkit-helper Swift Compilation Requirements Finished' is located outside of the allowed root paths.
+
+warning: Stale file '/Volumes/D/claude/tools/rightkit/swift/RightKitCloudKitHelper/.build/out/Intermediates.noindex/RightKitCloudKitHelper.build/Debug/rightkit-cloudkit-helper-p.build/Objects-normal/arm64/rightkit-cloudkit-helper-OutputFileMap.json' is located outside of the allowed root paths.
+
+warning: Stale file '/Volumes/D/claude/tools/rightkit/swift/RightKitCloudKitHelper/.build/out/Intermediates.noindex/RightKitCloudKitHelper.build/Debug/rightkit-cloudkit-helper-p.build/Objects-normal/arm64/rightkit-cloudkit-helper.LinkFileList' is located outside of the allowed root paths.
+
+warning: Stale file '/Volumes/D/claude/tools/rightkit/swift/RightKitCloudKitHelper/.build/out/Intermediates.noindex/RightKitCloudKitHelper.build/Debug/rightkit-cloudkit-helper-p.build/Objects-normal/arm64/rightkit-cloudkit-helper.SwiftFileList' is located outside of the allowed root paths.
+
+warning: Stale file '/Volumes/D/claude/tools/rightkit/swift/RightKitCloudKitHelper/.build/out/Intermediates.noindex/RightKitCloudKitHelper.build/Debug/rightkit-cloudkit-helper-p.build/Objects-normal/arm64/rightkit-cloudkit-helper_const_extract_protocols.json' is located outside of the allowed root paths.
+
+warning: Stale file '/Volumes/D/claude/tools/rightkit/swift/RightKitCloudKitHelper/.build/out/Intermediates.noindex/RightKitCloudKitHelper.build/Debug/rightkit-cloudkit-helper-p.build/Objects-normal/arm64/rightkit-cloudkit-helper_dependency_info.dat' is located outside of the allowed root paths.
+
+warning: Stale file '/Volumes/D/claude/tools/rightkit/swift/RightKitCloudKitHelper/.build/out/Intermediates.noindex/RightKitCloudKitHelper.build/Debug/rightkit-cloudkit-helper-p.build/Objects-normal/arm64/rightkit-cloudkit-helper_lto.o' is located outside of the allowed root paths.
+
+warning: Stale file '/Volumes/D/claude/tools/rightkit/swift/RightKitCloudKitHelper/.build/out/Intermediates.noindex/RightKitCloudKitHelper.build/Debug/rightkit-cloudkit-helper-p.build/Objects-normal/arm64/rightkit_cloudkit_helper-dependency-scan.dia' is located outside of the allowed root paths.
+
+warning: Stale file '/Volumes/D/claude/tools/rightkit/swift/RightKitCloudKitHelper/.build/out/Intermediates.noindex/RightKitCloudKitHelper.build/Debug/rightkit-cloudkit-helper-p.build/Objects-normal/arm64/rightkit_cloudkit_helper.abi.json' is located outside of the allowed root paths.
+
+warning: Stale file '/Volumes/D/claude/tools/rightkit/swift/RightKitCloudKitHelper/.build/out/Intermediates.noindex/RightKitCloudKitHelper.build/Debug/rightkit-cloudkit-helper-p.build/Objects-normal/arm64/rightkit_cloudkit_helper.swiftdoc' is located outside of the allowed root paths.
+
+warning: Stale file '/Volumes/D/claude/tools/rightkit/swift/RightKitCloudKitHelper/.build/out/Intermediates.noindex/RightKitCloudKitHelper.build/Debug/rightkit-cloudkit-helper-p.build/Objects-normal/arm64/rightkit_cloudkit_helper.swiftmodule' is located outside of the allowed root paths.
+
+warning: Stale file '/Volumes/D/claude/tools/rightkit/swift/RightKitCloudKitHelper/.build/out/Intermediates.noindex/RightKitCloudKitHelper.build/Debug/rightkit-cloudkit-helper-p.build/Objects-normal/arm64/rightkit_cloudkit_helper.swiftsourceinfo' is located outside of the allowed root paths.
+
+warning: Stale file '/Volumes/D/claude/tools/rightkit/swift/RightKitCloudKitHelper/.build/out/Intermediates.noindex/RightKitCloudKitHelper.build/Debug/rightkit-cloudkit-helper-p.build/rightkit-cloudkit-helper.xcent' is located outside of the allowed root paths.
+
+warning: Stale file '/Volumes/D/claude/tools/rightkit/swift/RightKitCloudKitHelper/.build/out/Intermediates.noindex/RightKitCloudKitHelper.build/Debug/rightkit-cloudkit-helper-p.build/rightkit-cloudkit-helper.xcent.der' is located outside of the allowed root paths.
+
+warning: Stale file '/Volumes/D/claude/tools/rightkit/swift/RightKitCloudKitHelper/.build/out/Products/Debug/rightkit-cloudkit-helper' is located outside of the allowed root paths.
+
+warning: Stale file '/Volumes/D/claude/tools/rightkit/swift/RightKitCloudKitHelper/.build/out/Intermediates.noindex/GeneratedModuleMaps/RightKitCloudSync-Swift.h' is located outside of the allowed root paths.
+
+warning: Stale file '/Volumes/D/claude/tools/rightkit/swift/RightKitCloudKitHelper/.build/out/Intermediates.noindex/GeneratedModuleMaps/RightKitCloudSync.modulemap' is located outside of the allowed root paths.
+
+warning: Stale file '/Volumes/D/claude/tools/rightkit/swift/RightKitCloudKitHelper/.build/out/Intermediates.noindex/RightKitSwift.build/Debug/RightKitCloudSync-t.build/Objects-normal/arm64/CloudKitSyncTransport.o' is located outside of the allowed root paths.
+
+warning: Stale file '/Volumes/D/claude/tools/rightkit/swift/RightKitCloudKitHelper/.build/out/Intermediates.noindex/RightKitSwift.build/Debug/RightKitCloudSync-t.build/Objects-normal/arm64/CloudKitSyncTransport.swiftconstvalues' is located outside of the allowed root paths.
+
+warning: Stale file '/Volumes/D/claude/tools/rightkit/swift/RightKitCloudKitHelper/.build/out/Intermediates.noindex/RightKitSwift.build/Debug/RightKitCloudSync-t.build/Objects-normal/arm64/CloudSyncCoordinator.o' is located outside of the allowed root paths.
+
+warning: Stale file '/Volumes/D/claude/tools/rightkit/swift/RightKitCloudKitHelper/.build/out/Intermediates.noindex/RightKitSwift.build/Debug/RightKitCloudSync-t.build/Objects-normal/arm64/CloudSyncCoordinator.swiftconstvalues' is located outside of the allowed root paths.
+
+warning: Stale file '/Volumes/D/claude/tools/rightkit/swift/RightKitCloudKitHelper/.build/out/Intermediates.noindex/RightKitSwift.build/Debug/RightKitCloudSync-t.build/Objects-normal/arm64/CloudSyncEngine.o' is located outside of the allowed root paths.
+
+warning: Stale file '/Volumes/D/claude/tools/rightkit/swift/RightKitCloudKitHelper/.build/out/Intermediates.noindex/RightKitSwift.build/Debug/RightKitCloudSync-t.build/Objects-normal/arm64/CloudSyncEngine.swiftconstvalues' is located outside of the allowed root paths.
+
+warning: Stale file '/Volumes/D/claude/tools/rightkit/swift/RightKitCloudKitHelper/.build/out/Intermediates.noindex/RightKitSwift.build/Debug/RightKitCloudSync-t.build/Objects-normal/arm64/CloudSyncTriggers.o' is located outside of the allowed root paths.
+
+warning: Stale file '/Volumes/D/claude/tools/rightkit/swift/RightKitCloudKitHelper/.build/out/Intermediates.noindex/RightKitSwift.build/Debug/RightKitCloudSync-t.build/Objects-normal/arm64/CloudSyncTriggers.swiftconstvalues' is located outside of the allowed root paths.
+
+warning: Stale file '/Volumes/D/claude/tools/rightkit/swift/RightKitCloudKitHelper/.build/out/Intermediates.noindex/RightKitSwift.build/Debug/RightKitCloudSync-t.build/Objects-normal/arm64/RightKitCloudSync Swift Compilation Finished' is located outside of the allowed root paths.
+
+warning: Stale file '/Volumes/D/claude/tools/rightkit/swift/RightKitCloudKitHelper/.build/out/Intermediates.noindex/RightKitSwift.build/Debug/RightKitCloudSync-t.build/Objects-normal/arm64/RightKitCloudSync Swift Compilation Requirements Finished' is located outside of the allowed root paths.
+
+warning: Stale file '/Volumes/D/claude/tools/rightkit/swift/RightKitCloudKitHelper/.build/out/Intermediates.noindex/RightKitSwift.build/Debug/RightKitCloudSync-t.build/Objects-normal/arm64/RightKitCloudSync-OutputFileMap.json' is located outside of the allowed root paths.
+
+warning: Stale file '/Volumes/D/claude/tools/rightkit/swift/RightKitCloudKitHelper/.build/out/Intermediates.noindex/RightKitSwift.build/Debug/RightKitCloudSync-t.build/Objects-normal/arm64/RightKitCloudSync-Swift.h' is located outside of the allowed root paths.
+
+warning: Stale file '/Volumes/D/claude/tools/rightkit/swift/RightKitCloudKitHelper/.build/out/Intermediates.noindex/RightKitSwift.build/Debug/RightKitCloudSync-t.build/Objects-normal/arm64/RightKitCloudSync-dependency-scan.dia' is located outside of the allowed root paths.
+
+warning: Stale file '/Volumes/D/claude/tools/rightkit/swift/RightKitCloudKitHelper/.build/out/Intermediates.noindex/RightKitSwift.build/Debug/RightKitCloudSync-t.build/Objects-normal/arm64/RightKitCloudSync.LinkFileList' is located outside of the allowed root paths.
+
+warning: Stale file '/Volumes/D/claude/tools/rightkit/swift/RightKitCloudKitHelper/.build/out/Intermediates.noindex/RightKitSwift.build/Debug/RightKitCloudSync-t.build/Objects-normal/arm64/RightKitCloudSync.SwiftFileList' is located outside of the allowed root paths.
+
+warning: Stale file '/Volumes/D/claude/tools/rightkit/swift/RightKitCloudKitHelper/.build/out/Intermediates.noindex/RightKitSwift.build/Debug/RightKitCloudSync-t.build/Objects-normal/arm64/RightKitCloudSync.abi.json' is located outside of the allowed root paths.
+
+warning: Stale file '/Volumes/D/claude/tools/rightkit/swift/RightKitCloudKitHelper/.build/out/Intermediates.noindex/RightKitSwift.build/Debug/RightKitCloudSync-t.build/Objects-normal/arm64/RightKitCloudSync.swiftdoc' is located outside of the allowed root paths.
+
+warning: Stale file '/Volumes/D/claude/tools/rightkit/swift/RightKitCloudKitHelper/.build/out/Intermediates.noindex/RightKitSwift.build/Debug/RightKitCloudSync-t.build/Objects-normal/arm64/RightKitCloudSync.swiftmodule' is located outside of the allowed root paths.
+
+warning: Stale file '/Volumes/D/claude/tools/rightkit/swift/RightKitCloudKitHelper/.build/out/Intermediates.noindex/RightKitSwift.build/Debug/RightKitCloudSync-t.build/Objects-normal/arm64/RightKitCloudSync.swiftsourceinfo' is located outside of the allowed root paths.
+
+warning: Stale file '/Volumes/D/claude/tools/rightkit/swift/RightKitCloudKitHelper/.build/out/Intermediates.noindex/RightKitSwift.build/Debug/RightKitCloudSync-t.build/Objects-normal/arm64/RightKitCloudSync_const_extract_protocols.json' is located outside of the allowed root paths.
+
+warning: Stale file '/Volumes/D/claude/tools/rightkit/swift/RightKitCloudKitHelper/.build/out/Intermediates.noindex/RightKitSwift.build/Debug/RightKitCloudSync-t.build/Objects-normal/arm64/RightKitCloudSync_dependency_info.dat' is located outside of the allowed root paths.
+
+warning: Stale file '/Volumes/D/claude/tools/rightkit/swift/RightKitCloudKitHelper/.build/out/Intermediates.noindex/RightKitSwift.build/Debug/RightKitCloudSync-t.build/Objects-normal/arm64/RightKitCloudSync_lto.o' is located outside of the allowed root paths.
+
+warning: Stale file '/Volumes/D/claude/tools/rightkit/swift/RightKitCloudKitHelper/.build/out/Intermediates.noindex/RightKitSwift.build/Debug/RightKitCloudSync-t.build/Objects-normal/arm64/SyncAdapter.o' is located outside of the allowed root paths.
+
+warning: Stale file '/Volumes/D/claude/tools/rightkit/swift/RightKitCloudKitHelper/.build/out/Intermediates.noindex/RightKitSwift.build/Debug/RightKitCloudSync-t.build/Objects-normal/arm64/SyncAdapter.swiftconstvalues' is located outside of the allowed root paths.
+
+warning: Stale file '/Volumes/D/claude/tools/rightkit/swift/RightKitCloudKitHelper/.build/out/Intermediates.noindex/RightKitSwift.build/Debug/RightKitCloudSync-t.build/Objects-normal/arm64/SyncModels.o' is located outside of the allowed root paths.
+
+warning: Stale file '/Volumes/D/claude/tools/rightkit/swift/RightKitCloudKitHelper/.build/out/Intermediates.noindex/RightKitSwift.build/Debug/RightKitCloudSync-t.build/Objects-normal/arm64/SyncModels.swiftconstvalues' is located outside of the allowed root paths.
+
+warning: Stale file '/Volumes/D/claude/tools/rightkit/swift/RightKitCloudKitHelper/.build/out/Intermediates.noindex/RightKitSwift.build/Debug/RightKitCloudSync-t.build/Objects-normal/arm64/SyncRetry.o' is located outside of the allowed root paths.
+
+warning: Stale file '/Volumes/D/claude/tools/rightkit/swift/RightKitCloudKitHelper/.build/out/Intermediates.noindex/RightKitSwift.build/Debug/RightKitCloudSync-t.build/Objects-normal/arm64/SyncRetry.swiftconstvalues' is located outside of the allowed root paths.
+
+warning: Stale file '/Volumes/D/claude/tools/rightkit/swift/RightKitCloudKitHelper/.build/out/Intermediates.noindex/RightKitSwift.build/Debug/RightKitCloudSync-t.build/Objects-normal/arm64/SyncStateStore.o' is located outside of the allowed root paths.
+
+warning: Stale file '/Volumes/D/claude/tools/rightkit/swift/RightKitCloudKitHelper/.build/out/Intermediates.noindex/RightKitSwift.build/Debug/RightKitCloudSync-t.build/Objects-normal/arm64/SyncStateStore.swiftconstvalues' is located outside of the allowed root paths.
+
+warning: Stale file '/Volumes/D/claude/tools/rightkit/swift/RightKitCloudKitHelper/.build/out/Intermediates.noindex/RightKitSwift.build/Debug/RightKitCloudSync-t.build/Objects-normal/arm64/SyncTransport.o' is located outside of the allowed root paths.
+
+warning: Stale file '/Volumes/D/claude/tools/rightkit/swift/RightKitCloudKitHelper/.build/out/Intermediates.noindex/RightKitSwift.build/Debug/RightKitCloudSync-t.build/Objects-normal/arm64/SyncTransport.swiftconstvalues' is located outside of the allowed root paths.
+
+warning: Stale file '/Volumes/D/claude/tools/rightkit/swift/RightKitCloudKitHelper/.build/out/Intermediates.noindex/RightKitSwift.build/Debug/RightKitCloudSync-t.build/RightKitCloudSync.modulemap' is located outside of the allowed root paths.
+
+warning: Stale file '/Volumes/D/claude/tools/rightkit/swift/RightKitCloudKitHelper/.build/out/Products/Debug/RightKitCloudSync.o' is located outside of the allowed root paths.
+
+warning: Stale file '/Volumes/D/claude/tools/rightkit/swift/RightKitCloudKitHelper/.build/out/Products/Debug/RightKitCloudSync.swiftmodule/Project/arm64-apple-macos.swiftsourceinfo' is located outside of the allowed root paths.
+
+warning: Stale file '/Volumes/D/claude/tools/rightkit/swift/RightKitCloudKitHelper/.build/out/Products/Debug/RightKitCloudSync.swiftmodule/arm64-apple-macos.abi.json' is located outside of the allowed root paths.
+
+warning: Stale file '/Volumes/D/claude/tools/rightkit/swift/RightKitCloudKitHelper/.build/out/Products/Debug/RightKitCloudSync.swiftmodule/arm64-apple-macos.swiftdoc' is located outside of the allowed root paths.
+
+warning: Stale file '/Volumes/D/claude/tools/rightkit/swift/RightKitCloudKitHelper/.build/out/Products/Debug/RightKitCloudSync.swiftmodule/arm64-apple-macos.swiftmodule' is located outside of the allowed root paths.
+
+[23 / 38]
+[24 / 39] RightKitCloudSync
+[33 / 93]
+[34 / 93]
+[36 / 93]
+[42 / 93]
+[43 / 93]
+[44 / 93]
+[47 / 93]
+[48 / 93]
+[50 / 93]
+[51 / 93]
+[54 / 93]
+[58 / 93]
+[59 / 93]
+[60 / 93]
+[61 / 93]
+[66 / 93]
+[67 / 93]
+[68 / 93]
+[78 / 93] RightKitCloudSync
+[79 / 93] RightKitCloudSync
+[87 / 94] RightKitCloudSync
+[87 / 94] rightkit-cloudkit-helper-product
+[91 / 98] rightkit-cloudkit-helper-product
+[92 / 98] rightkit-cloudkit-helper-product
+[96 / 98] rightkit-cloudkit-helper-product
+Build complete! (29.27 sec)

@@ -1,6 +1,22 @@
-# RightKitSwift Mac extraction checklist
+# RightKitSwift Mac extraction checklist (historical)
 
-This is the Phase 7 execution gate. Do not publish or adopt the package until every evidence row passes on a Mac.
+> **Status: historical.** This was the Phase 7 extraction gate for the original four-target package; the extraction is
+> complete. It is kept as the record of what was gated, not as the current procedure. Where it disagrees with the
+> sources below, the sources win.
+>
+> **Current contract (2026-10-10):** `RightKitSwift/Package.swift` declares **14 library products** and 14 test
+> targets (see `RightKitSwift/README.md`). Consumers pin the distribution git repository by **URL + exact version tag**
+> (`exact:` / XcodeGen `exactVersion`), never a path, branch, revision, `from:` range or registry; the pinnable
+> version is the `swift` section of `packages/release/rightkit-versions.json`, not `VERSION`
+> (`docs/RIGHTKIT-SHARED-PACKAGES.md`, Swift section).
+>
+> **Current qualification path:** `swift test` and `swift build -c release` in `RightKitSwift/`, the iOS Simulator
+> build (`xcodebuild -scheme RightKitSwift-Package -destination 'generic/platform=iOS Simulator' build`), then
+> `right-release publish swift` (secret scan, tests, release build, mirror and tag, fresh-consumer `exact:` resolution,
+> push; use `--dry-run` for everything but the push). `swift/scripts/archive-package.mjs` is a deterministic
+> source-archive helper derived from the package's own git tree. Each adopting app is qualified separately.
+
+The sections below are the original gate text.
 
 ## 0. Preserve and baseline
 
@@ -12,7 +28,7 @@ This is the Phase 7 execution gate. Do not publish or adopt the package until ev
 
 ## 1. Create the package skeleton
 
-- Create `rightkit/swift/RightKitSwift/Package.swift` with iOS 17 and macOS test support, library products matching the four targets in `README.md`, test targets, bundled `contracts/license-v2.json`, and `MIT OR Apache-2.0` licensing.
+- Create `rightkit/swift/RightKitSwift/Package.swift` with iOS 17 and macOS test support, library products matching the targets then planned in `README.md` (the package now has 14), test targets, bundled `contracts/license-v2.json`, and `MIT OR Apache-2.0` licensing.
 - Use Foundation, CryptoKit, Security, and native URLSession/FileManager APIs. Add no third-party dependency. If gzip/tar support needs a system-library target, keep it private to `RightKitArtifacts` and verify registry archive portability.
 - Add a package test that loads the bundled vector, verifies its Ed25519 signature, and asserts app/device/tier/features/iat/exp.
 - Gate: `swift package dump-package`, `swift test`, and `swift package archive-source` succeed from the package directory.
@@ -47,21 +63,21 @@ This is the Phase 7 execution gate. Do not publish or adopt the package until ev
 - Add the package through a local path only while extracting inside the canonical RightKit workspace; do not commit an app dependency on that path.
 - Run `scripts/local-smoke.sh`, then `scripts/release-preflight.sh` from `heardright/ios-native`.
 - Generate the Xcode project from `project.yml`, build the simulator app, and run the existing HeardRight UI/device proof contracts. Native foreground/device interaction remains operator-approved only.
-- Replace the temporary path dependency with an exact Swift package-registry version only after registry publication succeeds.
+- Replace the temporary path dependency with an exact git URL + version-tag pin only after the tag is published (originally written as a package-registry version; the contract is now git URL + exact tag).
 - Gate: the app contains no copied RightKit sources, behavior remains characterized, and all package/app tests pass.
 
-## 6. Registry and clean-clone proof
+## 6. Publication and clean-clone proof (originally "Registry"; superseded by git URL + exact tag)
 
-- Publish only through the future `right-release publish swift` lane. It must run tests, archive-source, deterministic archive/hash comparison, secret scan, license/provenance checks, and registry dry-run before the real publish. Do not hand-run a registry publish.
-- In a clean directory outside the Claude workspace, resolve the exact registry version, run `swift test`, and build the HeardRight integration without sibling paths or Git dependencies.
-- Record package version, registry URL, archive SHA-256, resolved dependency metadata, test logs, and clean-clone path in the Phase 7 evidence bundle.
-- Gate: `right-release doctor` rejects Git/path/branch/revision dependencies and non-exact registry versions before app adoption.
+- Publish only through the `right-release publish swift` lane (secret scan, tests, release build, mirror and tag, fresh-consumer exact-pin resolution, then push). Do not hand-run a publish.
+- In a clean directory outside the Claude workspace, resolve the exact git URL + version tag, run `swift test`, and build the HeardRight integration without sibling paths.
+- Record package version, git URL and tag, archive SHA-256, resolved dependency metadata, test logs, and clean-clone path in the evidence bundle.
+- Gate: `right-release doctor` rejects path/branch/revision dependencies and non-exact pins before app adoption.
 
 ## 7. Template and ScrapeRight proof
 
 - Create the XcodeGen iOS template separately from the package. It may contain signing placeholders, privacy manifest, dependency injection, accessibility defaults, diagnostics screen, test targets, and release verification scripts—never HeardRight branding or product behavior.
 - Generate the ScrapeRight spike from the template; import a fixture, download a test artifact, verify checksum/install/rollback, emit redacted diagnostics, and pass simulator plus approved installed-device QA.
-- Gate: the spike resolves RightKitSwift from the registry and contains no copied shared source, HeardRight identifiers, transcription behavior, keyboard, Live Activity, or StoreKit policy.
+- Gate: the spike resolves RightKitSwift by git URL + exact tag and contains no copied shared source, HeardRight identifiers, transcription behavior, keyboard, Live Activity, or StoreKit policy.
 
 ## Required evidence
 
@@ -72,7 +88,7 @@ This is the Phase 7 execution gate. Do not publish or adopt the package until ev
 | Diagnostics | privacy redaction and bounded/recoverable JSONL tests green |
 | Artifacts | checksum, safe extraction, atomic activation, rollback, retry/cancel tests green |
 | HeardRight | local smoke, release preflight, simulator build, existing QA green |
-| Portability | clean external clone resolves exact registry version; no path/Git dependency |
+| Portability | clean external clone resolves the exact git URL + tag; no path/branch/revision dependency |
 | Template/spike | XcodeGen output and ScrapeRight simulator/device proof green; no copied shared source |
 
-Publication remains blocked until this Mac evidence exists. Windows contract parity alone is preparation, not a Swift release gate.
+Windows contract parity alone is preparation, not a Swift release gate.

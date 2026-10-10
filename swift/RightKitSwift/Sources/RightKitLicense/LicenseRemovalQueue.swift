@@ -13,11 +13,61 @@ public protocol LicenseDeviceStateStoring: Sendable {
     func data(forKey key: String) -> Data?
     /// `nil` removes the value.
     func set(_ data: Data?, forKey key: String)
+    /// Runs `body` as ONE exclusive read-modify-write of `key` and returns `true`; returns `false`
+    /// WITHOUT running `body` when the exclusion cannot be obtained. `body` must not call back into
+    /// `transact`. The default excludes every caller in this process, so separate store or queue
+    /// instances over one key cannot lose each other's updates. A store shared with another process
+    /// (an app group with an extension) must override this with a cross-process lock; see
+    /// ``UserDefaultsLicenseDeviceState/init(defaults:lockFileURL:)``.
+    func transact(forKey key: String, _ body: () -> Void) -> Bool
+}
+
+public extension LicenseDeviceStateStoring {
+    func transact(forKey key: String, _ body: () -> Void) -> Bool {
+        LicenseDeviceStateLock.process.withLock { body() }
+        return true
+    }
+}
+
+enum LicenseDeviceStateLock {
+    /// One lock for every store in the process; critical sections are a decode and an encode.
+    static let process = NSLock()
+
+    /// `flock` on `url`: excludes other threads and other processes that open the same file. The
+    /// wait is bounded and fails closed, so a suspended holder cannot wedge every other process.
+    static func withFileLock(at url: URL, timeout: TimeInterval = 5, _ body: () -> Void) -> Bool {
+        let fd = open(url.path, O_RDWR | O_CREAT, 0o600)
+        guard fd >= 0 else { return false }
+        defer { close(fd) }
+        let deadline = Date().addingTimeInterval(timeout)
+        while flock(fd, LOCK_EX | LOCK_NB) != 0 {
+            guard errno == EWOULDBLOCK || errno == EINTR, Date() < deadline else { return false }
+            usleep(1_000)
+        }
+        defer { flock(fd, LOCK_UN) }
+        body()
+        return true
+    }
 }
 
 public final class UserDefaultsLicenseDeviceState: LicenseDeviceStateStoring, @unchecked Sendable {
     private let defaults: UserDefaults
-    public init(defaults: UserDefaults = .standard) { self.defaults = defaults }
+    private let lockFileURL: URL?
+    /// - Parameter lockFileURL: when the suite is shared with another process (an app group read
+    ///   by an app and its extension), a lock file in the same shared container makes
+    ///   ``transact(forKey:_:)`` exclude those processes too. Without it, exclusion covers this
+    ///   process only.
+    public init(defaults: UserDefaults = .standard, lockFileURL: URL? = nil) {
+        self.defaults = defaults
+        self.lockFileURL = lockFileURL
+    }
+    public func transact(forKey key: String, _ body: () -> Void) -> Bool {
+        guard let lockFileURL else {
+            LicenseDeviceStateLock.process.withLock { body() }
+            return true
+        }
+        return LicenseDeviceStateLock.withFileLock(at: lockFileURL, body)
+    }
     public func data(forKey key: String) -> Data? { defaults.data(forKey: key) }
     public func set(_ data: Data?, forKey key: String) {
         if let data { defaults.set(data, forKey: key) } else { defaults.removeObject(forKey: key) }
@@ -81,12 +131,19 @@ public actor PendingLicenseRemovalQueue {
 
     public var pending: [PendingLicenseRemoval] { load() }
 
-    /// Adds `removal` unless an identical entry is already queued. Persisted before returning.
-    public func enqueue(_ removal: PendingLicenseRemoval) {
-        var current = load()
-        guard !current.contains(removal) else { return }
-        current.append(removal)
-        save(current)
+    /// Adds `removal` unless an identical entry is already queued. Persisted before returning, as
+    /// one exclusive read-modify-write so a concurrent writer (another queue instance, or another
+    /// process when the storage provides a cross-process lock) cannot lose it. Returns `false` only
+    /// when the storage could not grant that exclusion, in which case nothing was written.
+    @discardableResult
+    public func enqueue(_ removal: PendingLicenseRemoval) -> Bool {
+        let (storage, key) = (self.storage, self.key)
+        return storage.transact(forKey: key) {
+            var current = Self.load(storage, key)
+            guard !current.contains(removal) else { return }
+            current.append(removal)
+            Self.save(current, storage, key)
+        }
     }
 
     /// Delivers every queued removal through `client`, removing each one as soon as the server
@@ -137,19 +194,25 @@ public actor PendingLicenseRemovalQueue {
                 continue // Offline or rejected for now: stays queued for the next retry.
             }
             delivered.append(removal)
-            // Re-read after the await: a removal queued meanwhile must survive.
-            save(load().filter { $0 != removal })
+            // Re-read after the await, inside the exclusive section: a removal queued meanwhile by
+            // anyone must survive. A refused lock leaves the entry queued; redelivery is idempotent.
+            let (storage, key) = (self.storage, self.key)
+            _ = storage.transact(forKey: key) {
+                Self.save(Self.load(storage, key).filter { $0 != removal }, storage, key)
+            }
         }
         return delivered
     }
 
-    private func load() -> [PendingLicenseRemoval] {
+    private func load() -> [PendingLicenseRemoval] { Self.load(storage, key) }
+
+    private static func load(_ storage: any LicenseDeviceStateStoring, _ key: String) -> [PendingLicenseRemoval] {
         guard let data = storage.data(forKey: key),
               let decoded = try? JSONDecoder().decode([PendingLicenseRemoval].self, from: data) else { return [] }
         return decoded
     }
 
-    private func save(_ removals: [PendingLicenseRemoval]) {
+    private static func save(_ removals: [PendingLicenseRemoval], _ storage: any LicenseDeviceStateStoring, _ key: String) {
         guard !removals.isEmpty else { storage.set(nil, forKey: key); return }
         storage.set(try? JSONEncoder().encode(removals), forKey: key)
     }

@@ -1,6 +1,7 @@
 #!/bin/sh
-# BUILD PROOF ONLY. Tag 0.3.0 is not published yet, so mirror ../RightKitSwift into a scratch git
-# repo tagged with the pinned version and redirect the GitHub URL to it for this process only.
+# BUILD PROOF ONLY. Mirror the CURRENT ../RightKitSwift source into a scratch git repo tagged with
+# the pinned version and redirect the GitHub URL to it for this process only, so the template can be
+# proven against unreleased source (for example before its pin is raised).
 # project.yml is NOT modified; it keeps the git URL + exact tag.
 set -eu
 here=$(cd "$(dirname "$0")/.." && pwd)

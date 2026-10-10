@@ -1,0 +1,65 @@
+fatal: not a git repository (or any parent up to mount point /Volumes)
+Stopping at filesystem boundary (GIT_DISCOVERY_ACROSS_FILESYSTEM not set).
+fatal: not a git repository (or any parent up to mount point /Volumes)
+Stopping at filesystem boundary (GIT_DISCOVERY_ACROSS_FILESYSTEM not set).
+✖ the same commit always produces the same archive bytes (8.931167ms)
+✖ the archive is cut from the commit, not the working tree (7.062167ms)
+✔ the version is semver (0.462958ms)
+ℹ tests 3
+ℹ suites 0
+ℹ pass 1
+ℹ fail 2
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 55.830666
+
+✖ failing tests:
+
+test at swift/scripts/archive-package.test.mjs:6:1
+✖ the same commit always produces the same archive bytes (8.931167ms)
+  Error: Command failed: git -C /Volumes/D archive --format=zip --prefix=RightKitSwift/ HEAD:rightkit/swift/RightKitSwift
+  fatal: not a git repository (or any parent up to mount point /Volumes)
+  Stopping at filesystem boundary (GIT_DISCOVERY_ACROSS_FILESYSTEM not set).
+  
+      at genericNodeError (node:internal/errors:999:15)
+      at wrappedFn (node:internal/errors:544:14)
+      at checkExecSyncError (node:child_process:942:11)
+      at execFileSync (node:child_process:978:15)
+      at buildArchive (file:///Volumes/D/claude/rightkit/swift/scripts/archive-package.mjs:29:10)
+      at TestContext.<anonymous> (file:///Volumes/D/claude/rightkit/swift/scripts/archive-package.test.mjs:7:17)
+      at Test.runInAsyncScope (node:async_hooks:226:14)
+      at Test.run (node:internal/test_runner/test:1402:25)
+      at Test.start (node:internal/test_runner/test:1262:17)
+      at startSubtestAfterBootstrap (node:internal/test_runner/harness:387:17) {
+    status: 128,
+    signal: null,
+    output: [ null, <Buffer >, <Buffer 66 61 74 61 6c 3a 20 6e 6f 74 20 61 20 67 69 74 20 72 65 70 6f 73 69 74 6f 72 79 20 28 6f 72 20 61 6e 79 20 70 61 72 65 6e 74 20 75 70 20 74 6f 20 6d ... 96 more bytes> ],
+    pid: 24309,
+    stdout: <Buffer >,
+    stderr: <Buffer 66 61 74 61 6c 3a 20 6e 6f 74 20 61 20 67 69 74 20 72 65 70 6f 73 69 74 6f 72 79 20 28 6f 72 20 61 6e 79 20 70 61 72 65 6e 74 20 75 70 20 74 6f 20 6d ... 96 more bytes>
+  }
+
+test at swift/scripts/archive-package.test.mjs:15:1
+✖ the archive is cut from the commit, not the working tree (7.062167ms)
+  Error: Command failed: git -C /Volumes/D archive --format=zip --prefix=RightKitSwift/ HEAD:rightkit/swift/RightKitSwift
+  fatal: not a git repository (or any parent up to mount point /Volumes)
+  Stopping at filesystem boundary (GIT_DISCOVERY_ACROSS_FILESYSTEM not set).
+  
+      at genericNodeError (node:internal/errors:999:15)
+      at wrappedFn (node:internal/errors:544:14)
+      at checkExecSyncError (node:child_process:942:11)
+      at execFileSync (node:child_process:978:15)
+      at buildArchive (file:///Volumes/D/claude/rightkit/swift/scripts/archive-package.mjs:29:10)
+      at TestContext.<anonymous> (file:///Volumes/D/claude/rightkit/swift/scripts/archive-package.test.mjs:17:25)
+      at Test.runInAsyncScope (node:async_hooks:226:14)
+      at Test.run (node:internal/test_runner/test:1402:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:974:18)
+      at Test.postRun (node:internal/test_runner/test:1542:19) {
+    status: 128,
+    signal: null,
+    output: [ null, <Buffer >, <Buffer 66 61 74 61 6c 3a 20 6e 6f 74 20 61 20 67 69 74 20 72 65 70 6f 73 69 74 6f 72 79 20 28 6f 72 20 61 6e 79 20 70 61 72 65 6e 74 20 75 70 20 74 6f 20 6d ... 96 more bytes> ],
+    pid: 24328,
+    stdout: <Buffer >,
+    stderr: <Buffer 66 61 74 61 6c 3a 20 6e 6f 74 20 61 20 67 69 74 20 72 65 70 6f 73 69 74 6f 72 79 20 28 6f 72 20 61 6e 79 20 70 61 72 65 6e 74 20 75 70 20 74 6f 20 6d ... 96 more bytes>
+  }
