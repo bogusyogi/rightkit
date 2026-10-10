@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.2.2 — 2026-10-11
+
+Additive. With no new prop set, the gate renders the same markup as 0.2.1 (the first-run, re-acceptance and save-error renders are checked against captured 0.2.1 markup in `src/default-render.test.tsx`). The `onAgree` payload and the theme behaviour are unchanged.
+
+- New optional `LegalGate` props:
+  - `agreeLabel` (default `"Agree & continue"`) sets the idle text of the primary button. The pending text stays `"Saving…"`.
+  - `showQuit` (default `true`) and `quitLabel` (default `"Quit"`) control the Quit button.
+  - `tradingNameNotice: string | false` (default: the trading-name line, or `dbaLine` when that is set). A string replaces the line. `false` hides it. The text is legal copy: hiding or replacing it is the app's decision.
+  - `eyebrow` (`ReactNode`, absent by default) renders a small line above the heading.
+  - `heading` (`ReactNode`) replaces the wordmark heading. Absent keeps the wordmark.
+  - `renderError(error: unknown) => ReactNode` replaces the default save-failure text. The result stays inside the same `role="alert"` container. Default: `"Couldn’t save your acceptance. Try again."`.
+  - `onError(error: unknown)` is called with the rejection value when `onAgree` rejects or throws, before the error is shown.
+  - `footer` (`ReactNode`) renders below the actions and any error message.
+- An eligibility option whose `description` is `""` renders no description element. Omitted fields in `eligibilityLabels` still keep the default text, as in 0.2.1.
+- Bumped `version` in `package.json` to `0.2.2`.
+
 ## 0.2.1
 
 - `onAgree` now receives `{ version, acceptedAt, manifestSha256, eligibilityBasis }`. Chosen compatibility: the object stays the FIRST and only argument (it already was an object, `{ eligibilityBasis }`), so existing callbacks that read `eligibilityBasis` keep working; the three new keys are added. There are no positional arguments to preserve. `acceptedAt` is a UTC ISO-8601 string (`toISOString()`, `YYYY-MM-DDTHH:mm:ss.sssZ`) taken when the user presses Agree (a retry after a failed save takes a fresh one). `version` and `manifestSha256` come from the new optional props of the same name and are `undefined` when the host passes none.

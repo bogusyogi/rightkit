@@ -101,6 +101,12 @@ export interface LegalGateProps {
    *  `null`: no lockup. It renders inside the centred lockup band; `parentLogoSrc` only affects the
    *  default lockup. */
   lockup?: ReactNode;
+  /** Legal copy under the actions: the trading-name notice. Undefined keeps the default line (or
+   *  `dbaLine` when that is set). A string replaces it. `false` hides it. The text is legal copy:
+   *  hiding or replacing it is the app's decision, and the app owns the wording it ships. */
+  tradingNameNotice?: string | false;
+  /** Trading-name line rendered under the actions when `tradingNameNotice` is undefined.
+   *  Superseded by `tradingNameNotice` whenever that prop is set. */
   dbaLine?: string;
   /** Overrides the built-in Orthic Labs mark with an image URL. The mark is
    * inlined by default (see OrthicMark) so no asset wiring is needed; pass this
@@ -113,6 +119,36 @@ export interface LegalGateProps {
    * the locked suite face even if the host app hasn't loaded Tanker itself.
    * theme.fontDisplay must still list "Tanker" first for this to take effect. */
   wordmarkFontUrl?: string;
+  /** Text of the primary button when idle. Default "Agree & continue". The pending state still
+   *  reads "Saving…". */
+  agreeLabel?: string;
+  /** Renders the Quit button. Default true. */
+  showQuit?: boolean;
+  /** Text of the Quit button. Default "Quit". */
+  quitLabel?: string;
+  /** Small line above the heading (a ReactNode). Absent by default. */
+  eyebrow?: ReactNode;
+  /** Replaces the wordmark heading (a ReactNode). Absent keeps the app wordmark, with the
+   *  "Right" suffix in the accent colour. A string renders as plain text in the display face. */
+  heading?: ReactNode;
+  /** Renders the message shown when `onAgree` rejects or throws. Receives the rejection value.
+   *  The result sits inside the same `role="alert"` container as the default text. Default: the
+   *  generic "Couldn’t save your acceptance. Try again." */
+  renderError?: (error: unknown) => ReactNode;
+  /** Called with the rejection value when `onAgree` rejects or throws, before the error is shown.
+   *  Use it for logging. A throw from this callback is not caught. */
+  onError?: (error: unknown) => void;
+  /** Rendered below the actions and any error message. Absent by default. */
+  footer?: ReactNode;
+}
+
+const DEFAULT_AGREE_LABEL = "Agree & continue";
+const DEFAULT_QUIT_LABEL = "Quit";
+const DEFAULT_ERROR_TEXT = "Couldn’t save your acceptance. Try again.";
+
+/** True for `undefined`, `null`, `false` and `""`: the ReactNode values that render nothing. */
+function isEmptyNode(node: ReactNode): boolean {
+  return node === undefined || node === null || node === false || node === "";
 }
 
 const DEFAULT_DBA_LINE = "Orthic Labs is a trading name of Damned Ventures LLC.";
@@ -165,6 +201,10 @@ function splitWordmark(appName: string): { base: string; suffix: string } {
     return { base: appName.slice(0, -"Right".length), suffix: "Right" };
   }
   return { base: appName, suffix: "" };
+}
+
+function hasDescription(description: string | undefined): description is string {
+  return description !== undefined && description !== "";
 }
 
 function stripUndefined<T extends object>(value: T | undefined): Partial<T> {
@@ -243,8 +283,17 @@ export function LegalGate({
   eligibilityLabels,
   lockup,
   dbaLine = DEFAULT_DBA_LINE,
+  tradingNameNotice,
   parentLogoSrc,
   wordmarkFontUrl,
+  agreeLabel = DEFAULT_AGREE_LABEL,
+  showQuit = true,
+  quitLabel = DEFAULT_QUIT_LABEL,
+  eyebrow,
+  heading,
+  renderError,
+  onError,
+  footer,
 }: LegalGateProps): ReactElement {
   const theme = resolveTheme(themeProp);
   const labels = {
@@ -258,7 +307,7 @@ export function LegalGate({
   const [eligibilityBasis, setEligibilityBasis] = useState<LegalGateEligibilityBasis | null>(null);
   const [agreed, setAgreed] = useState(false);
   const [submitting, setSubmitting] = useState(false);
-  const [submitError, setSubmitError] = useState<string | null>(null);
+  const [submitError, setSubmitError] = useState<{ error: unknown } | null>(null);
 
   const headlineId = useId();
   const trustLineId = useId();
@@ -267,6 +316,7 @@ export function LegalGate({
   const agreeCheckboxId = useId();
 
   const { base, suffix } = splitWordmark(appName);
+  const tradingNotice = tradingNameNotice === undefined ? dbaLine : tradingNameNotice;
   const canAgree = eligibilityBasis !== null && agreed && !submitting;
 
   const handleAgree = async (): Promise<void> => {
@@ -276,8 +326,9 @@ export function LegalGate({
     try {
       const acceptedAt = new Date().toISOString();
       await Promise.resolve(onAgree({ version, acceptedAt, manifestSha256, eligibilityBasis }));
-    } catch {
-      setSubmitError("Couldn’t save your acceptance. Try again.");
+    } catch (error) {
+      setSubmitError({ error });
+      onError?.(error);
     } finally {
       setSubmitting(false);
     }
@@ -346,6 +397,22 @@ export function LegalGate({
         {/* Left rail: who is asking, and what they can read before agreeing. */}
         <div className="rk-legal-gate__rail">
           <header className="rk-legal-gate__wordmark" style={{ marginBottom: 14 }}>
+            {isEmptyNode(eyebrow) ? null : (
+              <div
+                className="rk-legal-gate__eyebrow"
+                style={{
+                  fontFamily: theme.fontBody,
+                  fontSize: 11,
+                  lineHeight: 1.4,
+                  letterSpacing: "0.06em",
+                  textTransform: "uppercase",
+                  color: theme.muted,
+                  margin: "0 0 12px",
+                }}
+              >
+                {eyebrow}
+              </div>
+            )}
             <h1
               id={headlineId}
               style={{
@@ -358,8 +425,14 @@ export function LegalGate({
                 textAlign: "left",
               }}
             >
-              {base}
-              <span style={{ color: theme.accent }}>{suffix}</span>
+              {heading !== undefined ? (
+                heading
+              ) : (
+                <>
+                  {base}
+                  <span style={{ color: theme.accent }}>{suffix}</span>
+                </>
+              )}
             </h1>
           </header>
 
@@ -425,10 +498,14 @@ export function LegalGate({
               />
               <span style={{ fontSize: 14, lineHeight: 1.4 }}>
                 {labels.individual.label}
-                <br />
-                <span style={{ color: theme.muted, fontSize: 12.5 }}>
-                  {labels.individual.description}
-                </span>
+                {hasDescription(labels.individual.description) ? (
+                  <>
+                    <br />
+                    <span style={{ color: theme.muted, fontSize: 12.5 }}>
+                      {labels.individual.description}
+                    </span>
+                  </>
+                ) : null}
               </span>
             </label>
             <label htmlFor={enterpriseId} className="rk-legal-gate__radio-row">
@@ -442,10 +519,14 @@ export function LegalGate({
               />
               <span style={{ fontSize: 14, lineHeight: 1.4 }}>
                 {labels.enterprise.label}
-                <br />
-                <span style={{ color: theme.muted, fontSize: 12.5 }}>
-                  {labels.enterprise.description}
-                </span>
+                {hasDescription(labels.enterprise.description) ? (
+                  <>
+                    <br />
+                    <span style={{ color: theme.muted, fontSize: 12.5 }}>
+                      {labels.enterprise.description}
+                    </span>
+                  </>
+                ) : null}
               </span>
             </label>
           </div>
@@ -478,22 +559,24 @@ export function LegalGate({
               opacity: canAgree ? 1 : 0.45,
             }}
           >
-            {submitting ? "Saving…" : "Agree & continue"}
+            {submitting ? "Saving…" : agreeLabel}
           </button>
-          <button
-            type="button"
-            className="rk-legal-gate__quit"
-            onClick={onQuit}
-            style={{
-              background: "transparent",
-              border: "none",
-              color: theme.muted,
-              fontSize: 14,
-              padding: "11px 4px",
-            }}
-          >
-            Quit
-          </button>
+          {showQuit ? (
+            <button
+              type="button"
+              className="rk-legal-gate__quit"
+              onClick={onQuit}
+              style={{
+                background: "transparent",
+                border: "none",
+                color: theme.muted,
+                fontSize: 14,
+                padding: "11px 4px",
+              }}
+            >
+              {quitLabel}
+            </button>
+          ) : null}
         </div>
 
         {submitError ? (
@@ -512,22 +595,30 @@ export function LegalGate({
               background: theme.surface,
             }}
           >
-            {submitError}
+            {renderError ? renderError(submitError.error) : DEFAULT_ERROR_TEXT}
           </div>
         ) : null}
 
-        <p
-          className="rk-legal-gate__dba"
-          style={{
-            fontFamily: theme.fontBody,
-            fontSize: 12,
-            lineHeight: 1.6,
-            color: theme.muted,
-            margin: "20px 0 0",
-          }}
-        >
-          {dbaLine}
-        </p>
+        {isEmptyNode(footer) ? null : (
+          <div className="rk-legal-gate__footer" style={{ margin: "16px 0 0" }}>
+            {footer}
+          </div>
+        )}
+
+        {tradingNotice === false ? null : (
+          <p
+            className="rk-legal-gate__dba"
+            style={{
+              fontFamily: theme.fontBody,
+              fontSize: 12,
+              lineHeight: 1.6,
+              color: theme.muted,
+              margin: "20px 0 0",
+            }}
+          >
+            {tradingNotice}
+          </p>
+        )}
         </div>
       </form>
 

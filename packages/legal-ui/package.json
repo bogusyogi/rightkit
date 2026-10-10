@@ -1,6 +1,6 @@
 {
   "name": "@rightkit/legal-ui",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "The one first-run / re-acceptance legal gate screen for Right Suite desktop apps.",
   "license": "MIT OR Apache-2.0",
   "type": "module",
