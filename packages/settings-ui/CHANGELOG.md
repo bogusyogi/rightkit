@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.3.4
+
+Added:
+- `hideSectionHeading` on `SettingsPanel` and on `SettingsSection`. When set, the section renders no `<h1 class="rk-settings__h1">`, and its article is labelled by the section `label`. The section value overrides the panel value. `SectionFrame` takes the same flag.
+- `initial?: SettingsSnapshot` on `SettingsPanel` and `useSettings(backend, { initial })`. When the caller already holds the state, for example `createMemorySettings(...).snapshot()`, the first render is loaded and "Loading settings…" never appears. The background `load()` still runs.
+- `--rk-settings-padding` (body padding, default `24px 32px 40px`; the narrow-screen default `18px 16px 32px` applies when unset) and `--rk-settings-font-size` (default `13.5px`). Both are read from `.rk-settings` and inherit from `:root`.
+
+Changed:
+- `SettingsSection` has a new optional `hideSectionHeading` field. Existing sections are unaffected.
+
 ## 0.3.3
 
 Added:

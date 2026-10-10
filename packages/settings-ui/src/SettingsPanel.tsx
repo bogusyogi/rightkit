@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { cx } from "./primitives.js";
-import type { SettingsBackend, SettingsContext, SettingsSection } from "./types.js";
+import type { SettingsBackend, SettingsContext, SettingsSection, SettingsSnapshot } from "./types.js";
 import { useSettings } from "./useSettings.js";
 
 /** Sort by group (first appearance), then `order`, then label. Sections an app adds slot in by `order`. */
@@ -49,8 +49,14 @@ export function revealSetting(root: ParentNode, id: string): boolean {
   return true;
 }
 
-/** The active section's article: heading (`heading` ?? `label`) plus its body. */
-export function SectionFrame({ section, ctx }: { section: SettingsSection; ctx: SettingsContext }) {
+/**
+ * The active section's article: heading (`heading` ?? `label`) plus its body. With the heading hidden (`hideSectionHeading`
+ * on the section or the panel) there is no `<h1>` and the article is labelled by `label`.
+ */
+export function SectionFrame({ section, ctx, hideSectionHeading = false }: { section: SettingsSection; ctx: SettingsContext; hideSectionHeading?: boolean }) {
+  if ((section.hideSectionHeading ?? hideSectionHeading)) {
+    return <article className="rk-settings__section" aria-label={section.label}>{section.render(ctx)}</article>;
+  }
   return (
     <article className="rk-settings__section" aria-labelledby={`rk-sec-${section.id}`}>
       <h1 id={`rk-sec-${section.id}`} className="rk-settings__h1">{section.heading ?? section.label}</h1>
@@ -87,6 +93,13 @@ export interface SettingsPanelProps {
   search?: boolean;
   /** Shown above the content while the backend loads. */
   loading?: ReactNode;
+  /** Omit every section's `<h1>` (the nav still shows the label). A section's own `hideSectionHeading` overrides this. Default false. */
+  hideSectionHeading?: boolean;
+  /**
+   * A snapshot already known to the caller (for example `createMemorySettings(...).snapshot()`). With it, the first render
+   * shows the sections and never "Loading settings…".
+   */
+  initial?: SettingsSnapshot;
   className?: string;
 }
 
@@ -94,8 +107,8 @@ export interface SettingsPanelProps {
  * Settings frame: grouped section nav with search on the left, the active section on the right.
  * Persistence is the backend's; sections receive a `SettingsContext` and never touch storage themselves.
  */
-export function SettingsPanel({ backend, sections, title = "Settings", navHeading, navFooter, renderNavItem, hideNav = false, activeId, onActiveChange, defaultActiveId, search = true, loading, className }: SettingsPanelProps) {
-  const settings = useSettings(backend);
+export function SettingsPanel({ backend, sections, title = "Settings", navHeading, navFooter, renderNavItem, hideNav = false, activeId, onActiveChange, defaultActiveId, search = true, loading, hideSectionHeading = false, initial, className }: SettingsPanelProps) {
+  const settings = useSettings(backend, { initial });
   const ctx: SettingsContext = settings;
   const ordered = useMemo(() => orderSections(sections.filter((s) => !s.visible || s.visible(ctx))), [sections, ctx]);
   const [query, setQuery] = useState("");
@@ -195,7 +208,7 @@ export function SettingsPanel({ backend, sections, title = "Settings", navHeadin
         {!settings.loaded ? (
           <div className="rk-settings__loading" aria-busy="true">{loading ?? "Loading settings…"}</div>
         ) : active ? (
-          <SectionFrame key={active.id} section={active} ctx={ctx} />
+          <SectionFrame key={active.id} section={active} ctx={ctx} hideSectionHeading={hideSectionHeading} />
         ) : null}
         <div className="rk-settings__saving" aria-live="polite">{settings.saving ? "Saving…" : ""}</div>
       </div>

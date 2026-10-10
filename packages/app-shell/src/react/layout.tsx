@@ -92,18 +92,34 @@ const blurThen = (fn: () => Promise<void>) => (event: MouseEvent<HTMLButtonEleme
   void fn().catch(() => undefined);
 };
 
-export function CaptionControls({ adapter, labels = createWindowControlLabels(), className }: { adapter: WindowControlAdapter; labels?: WindowControlLabels; className?: string }) {
+/** Replacement glyphs for the caption buttons. A glyph left out keeps its built-in SVG. */
+export interface CaptionGlyphs {
+  minimize?: ReactNode;
+  maximize?: ReactNode;
+  /** Shown on the maximize button while `maximized` is true. Falls back to `maximize`, then the built-in square. */
+  restore?: ReactNode;
+  close?: ReactNode;
+}
+
+export function CaptionControls({ adapter, labels = createWindowControlLabels(), className, glyphs, maximized = false }: { adapter: WindowControlAdapter; labels?: WindowControlLabels; className?: string; glyphs?: CaptionGlyphs; maximized?: boolean }) {
   const controls = useMemo(() => createWindowControls(adapter), [adapter]);
+  const maximizeGlyph = maximized ? (glyphs?.restore ?? glyphs?.maximize) : glyphs?.maximize;
   return (
     <div className={cx("rk-caption", className)}>
       <button type="button" className="rk-caption__btn" title={labels.minimize} aria-label={labels.minimize} onClick={blurThen(controls.minimize)}>
-        <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><rect x="0" y="4.5" width="10" height="1" fill="currentColor" /></svg>
+        {glyphs?.minimize ?? (
+          <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><rect x="0" y="4.5" width="10" height="1" fill="currentColor" /></svg>
+        )}
       </button>
       <button type="button" className="rk-caption__btn" title={labels.maximize} aria-label={labels.maximize} onClick={blurThen(controls.toggleMaximize)}>
-        <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><rect x="0.5" y="0.5" width="9" height="9" fill="none" stroke="currentColor" /></svg>
+        {maximizeGlyph ?? (
+          <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><rect x="0.5" y="0.5" width="9" height="9" fill="none" stroke="currentColor" /></svg>
+        )}
       </button>
       <button type="button" className="rk-caption__btn rk-caption__close" title={labels.close} aria-label={labels.close} onClick={blurThen(controls.close)}>
-        <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><path d="M0.5 0.5 9.5 9.5M9.5 0.5 0.5 9.5" stroke="currentColor" strokeWidth="1" /></svg>
+        {glyphs?.close ?? (
+          <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><path d="M0.5 0.5 9.5 9.5M9.5 0.5 0.5 9.5" stroke="currentColor" strokeWidth="1" /></svg>
+        )}
       </button>
     </div>
   );
@@ -119,6 +135,13 @@ export interface TitlebarProps {
   end?: ReactNode;
   windowControls?: WindowControlAdapter;
   windowControlLabels?: WindowControlLabels;
+  /** Replacement caption glyphs. Each one left out keeps the built-in SVG. */
+  captionGlyphs?: CaptionGlyphs;
+  /**
+   * True while the window is maximized: the maximize button shows `captionGlyphs.restore`. The window adapter does not
+   * report window state, so the app passes it. Default false.
+   */
+  maximized?: boolean;
   platform?: Platform;
   className?: string;
   /**
@@ -133,7 +156,7 @@ export interface TitlebarProps {
  * (Overlay title bar); Windows/Linux draw caption buttons from the adapter. Heights, paddings and
  * widths are `--rk-titlebar-*` / `--rk-lights-width` / `--rk-caption-*` tokens (see the README recipe).
  */
-export function Titlebar({ start, startWidth, title, end, windowControls, windowControlLabels, platform: platformProp, className, slots }: TitlebarProps) {
+export function Titlebar({ start, startWidth, title, end, windowControls, windowControlLabels, captionGlyphs, maximized, platform: platformProp, className, slots }: TitlebarProps) {
   const detected = usePlatform();
   const platform = platformProp ?? detected;
   const caps = platformCapabilities(platform);
@@ -146,8 +169,8 @@ export function Titlebar({ start, startWidth, title, end, windowControls, window
       </div>
       {title ? <div className={cx("rk-top__title", slots?.title)} data-tauri-drag-region>{title}</div> : null}
       <div className={cx("rk-top__drag", slots?.drag)} data-tauri-drag-region />
-      {end}
-      {caps.customCaptionButtons && windowControls ? <CaptionControls adapter={windowControls} labels={windowControlLabels} className={slots?.caption} /> : null}
+      {end ? <div className={cx("rk-top__end", slots?.end)} data-tauri-drag-region>{end}</div> : null}
+      {caps.customCaptionButtons && windowControls ? <CaptionControls adapter={windowControls} labels={windowControlLabels} className={slots?.caption} glyphs={captionGlyphs} maximized={maximized} /> : null}
     </header>
   );
 }

@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.5.1
+
+Added:
+- Titlebar tokens: `--rk-top-bg` (bar background, default `--rk-chrome`), `--rk-top-border` (bottom border, default `none`, counted inside `--rk-titlebar-height`), `--rk-caption-hover-bg` (default `--rk-fill-2`), `--rk-caption-margin-start` (default `6px`), `--rk-caption-margin-end` (default `calc(-1 * var(--rk-titlebar-pad-end))`) and `--rk-top-end-gap` (default `--rk-titlebar-gap`). Derived defaults stay in the rules, not on `:root`, so dark mode still follows the surface.
+- `captionGlyphs` on `Titlebar` (and `CaptionControls`): `{ minimize, maximize, restore, close }` ReactNodes replace the built-in SVGs. A glyph left out keeps its SVG.
+- `maximized` on `Titlebar`: shows `captionGlyphs.restore` on the maximize button (falls back to `captionGlyphs.maximize`, then the square). The window adapter does not report window state, so the app passes it.
+- `CaptionGlyphs` type export.
+
+Changed:
+- The end content of `Titlebar` is wrapped in `div.rk-top__end` (with `data-tauri-drag-region`) when `end` is given. It carries the `slots.end` class, which was previously accepted but never applied. Titlebars without `end` render the same markup as 0.5.0. With `end`, the wrapper is the only markup change; the default layout is pixel-identical.
+- `slots.end` is now applied (see above).
+
 ## 0.5.0
 
 Added:

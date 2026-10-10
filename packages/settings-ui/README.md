@@ -45,6 +45,24 @@ const sections = standardSections();
 
 `standardSections` takes `about`, `appearance`, `updates`, `license`, `doctor` and other options. `useLicenseSection(options)` and `useDoctor(checks)` are headless hooks for apps that draw their own markup.
 
+### Panel options for matching an existing settings panel
+
+| Option | Default | Effect |
+|---|---|---|
+| `hideSectionHeading` (panel prop, or on a section) | `false` | Omits the section `<h1 class="rk-settings__h1">`. The article is labelled by the section `label`. A section value overrides the panel value. |
+| `initial` (panel prop, or `useSettings(backend, { initial })`) | none | A `SettingsSnapshot` the app already holds, such as `createMemorySettings(...).snapshot()`. The first render is loaded, so "Loading settings…" never shows. |
+
+### Tokens
+
+Set on `:root` or `.rk-settings`. Every default is today's built-in value.
+
+| Token | Default | Controls |
+|---|---|---|
+| `--rk-settings-padding` | `24px 32px 40px` | Body padding. A value set here applies at every width. Unset, the narrow screen (640px and under) uses `18px 16px 32px`. |
+| `--rk-settings-font-size` | `13.5px` | Base font size of the panel |
+
+The panel reads the suite colour tokens from `@rightkit/app-shell/shell.css` (`--rk-plane`, `--rk-chrome`, `--rk-ink` and the rest). It brings no colours of its own.
+
 ## Known issues
 
 - Three peers have no upper bound: `@rightkit/license`, `@rightkit/logs` and `@rightkit/updates` (npm audit 2026-10-08, settings-ui finding).

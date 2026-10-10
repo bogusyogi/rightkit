@@ -1,18 +1,27 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { SettingsBackend, SettingsContext, SettingsValues } from "./types.js";
+import type { SettingsBackend, SettingsContext, SettingsSnapshot, SettingsValues } from "./types.js";
 
 const message = (e: unknown) => (e instanceof Error ? e.message : typeof e === "string" ? e : "Could not save the setting.");
+
+export interface UseSettingsOptions {
+  /**
+   * A snapshot the caller already holds, such as `createMemorySettings(...).snapshot()`. The first render is then loaded,
+   * so "Loading settings…" is never shown. The background `load()` still runs and refreshes it.
+   */
+  initial?: SettingsSnapshot;
+}
 
 /**
  * Settings state over a backend: loads once, applies writes optimistically, serialises them (so revisions never race),
  * rolls back and reports on failure, and reloads when another window changes keys.
  */
-export function useSettings(backend: SettingsBackend): SettingsContext & { loaded: boolean } {
-  const [values, setValues] = useState<SettingsValues>({});
-  const [loaded, setLoaded] = useState(false);
+export function useSettings(backend: SettingsBackend, options: UseSettingsOptions = {}): SettingsContext & { loaded: boolean } {
+  const initial = options.initial;
+  const [values, setValues] = useState<SettingsValues>(() => initial?.values ?? {});
+  const [loaded, setLoaded] = useState(() => initial !== undefined);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const revision = useRef<number | undefined>(undefined);
+  const revision = useRef<number | undefined>(initial?.revision);
   const chain = useRef<Promise<unknown>>(Promise.resolve());
   const pending = useRef(0);
   const alive = useRef(true);

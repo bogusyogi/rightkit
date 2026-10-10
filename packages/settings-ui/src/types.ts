@@ -90,6 +90,8 @@ export interface SettingsSection {
   badge?: ReactNode;
   /** Page heading when it should differ from the nav label (defaults to `label`). */
   heading?: ReactNode;
+  /** Omit this section's `<h1>`. Overrides the panel's `hideSectionHeading`; the article is labelled by `label` instead. */
+  hideSectionHeading?: boolean;
   /** Nav group heading; sections with the same group sit together. */
   group?: string;
   icon?: ReactNode;

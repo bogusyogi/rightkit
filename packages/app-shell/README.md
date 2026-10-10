@@ -72,7 +72,7 @@ Visual components take `className` for their root and `slots` for named regions.
 | `ContextMenu` | `root`, `item`, `separator`, `label` |
 | `CommandPalette` | `root`, `field`, `input`, `list`, `group`, `option`, `empty` |
 | `ToastViewport` | `root`, `toast`, `message`, `action`, `dismiss` |
-| `Titlebar` | `root`, `side`, `lights`, `title`, `drag`, `end`, `caption` |
+| `Titlebar` | `root`, `side`, `lights`, `title`, `drag`, `end` (wraps the end content), `caption` |
 | `AppShell` | `root`, `titlebar`, `sidebar`, `sidebarFoot`, `body`, `plane` |
 
 ### Theme store
@@ -98,9 +98,52 @@ The default titlebar is sized by tokens, so an app can reproduce its own titleba
 | `--rk-lights-width` | `72px` | Space reserved for the macOS traffic lights |
 | `--rk-caption-width` | `46px` | Width of each Windows caption button |
 | `--rk-caption-close-bg` / `--rk-caption-close-ink` | `#c42b1c` / `#fff` | Close button hover |
-| `--rk-chrome` | theme | Titlebar, sidebar and frame background |
+| `--rk-chrome` | theme | Sidebar and frame background |
+| `--rk-top-bg` | `var(--rk-chrome)` | Titlebar background only |
+| `--rk-top-border` | `none` | Titlebar bottom border (any `border` value). Counted inside `--rk-titlebar-height`. |
+| `--rk-top-end-gap` | `var(--rk-titlebar-gap)` | Gap between the end cluster's children, separate from the bar gap |
+| `--rk-caption-margin-start` | `6px` | Left margin of the caption group |
+| `--rk-caption-margin-end` | `calc(-1 * var(--rk-titlebar-pad-end))` | Right margin of the caption group (bleeds into the bar padding) |
+| `--rk-caption-hover-bg` | `var(--rk-fill-2)` | Caption button hover background (close keeps `--rk-caption-close-bg`) |
+
+Derived defaults (`--rk-top-bg`, `--rk-caption-hover-bg`, the caption margins and `--rk-top-end-gap`) are not set on `:root`. Their fallbacks are in the rules, so a dark theme still follows `--rk-chrome` and `--rk-fill-2`. Set them on `:root` or `.rk-shell` to override.
 
 For a fully custom titlebar, pass `titlebar={<YourBar />}` (or `titlebar={false}`) and keep `AppFrame`, `Plane` and `NavList`. Use `Titlebar` with `slots` when only classes need to change. `titlebarStart` and `titlebarEnd` take the app's own controls, and `wordmark` takes the brand lockup.
+
+#### Render your existing titlebar
+
+Use this to match an app's titlebar pixel for pixel. `AppShell` builds its own titlebar, so pass a `Titlebar` through its `titlebar` prop.
+
+```tsx
+import "@rightkit/app-shell/shell.css";
+import { AppFrame, Plane, Titlebar, NavList } from "@rightkit/app-shell/react";
+
+// 1. Copy the measurements from the old titlebar onto :root (or .rk-shell).
+//    Keep the old values for anything you do not change.
+//    :root { --rk-titlebar-height: 44px; --rk-top-bg: #1b1b1f; --rk-top-border: 1px solid #2a2a2f;
+//            --rk-caption-hover-bg: #2a2a2f; --rk-caption-margin-start: 0px; --rk-top-end-gap: 6px; }
+
+// 2. Pass the old icons as caption glyphs, and tell Titlebar when the window is maximized.
+<AppFrame>
+  <Titlebar
+    platform="windows"
+    windowControls={windowAdapter}
+    maximized={isMaximized}
+    captionGlyphs={{ minimize: <MinIcon />, maximize: <MaxIcon />, restore: <RestoreIcon />, close: <CloseIcon /> }}
+    start={<SidebarToggle />}
+    title="Library"
+    end={<StatusPill />}
+  />
+  <Plane>{children}</Plane>
+</AppFrame>
+```
+
+Check the result against the old app in light and dark. Each value that differs from the default should appear in the token table above.
+
+### Known gaps for the recipe
+
+- `AppShell`'s built-in titlebar does not take `captionGlyphs` or `maximized`. Use the `titlebar` prop with a `Titlebar` for those.
+- Tokens size the bar. They do not move the titlebar's title, the sidebar's nav, or the content plane. Use `slots` or a custom titlebar for those.
 
 ### Palette and toast tokens
 
