@@ -11,7 +11,7 @@ use std::sync::mpsc::channel;
 use std::time::Duration;
 use tauri::{Runtime, WebviewWindow};
 #[cfg(not(any(feature = "wv2-0_38", feature = "wv2-0_39")))]
-compile_error!("rightkit-control's Windows plugin needs `wv2-0_38` (Tauri 2.11, default) or `wv2-0_39` (Tauri 2.12+)");
+compile_error!("rightkit-control's Windows plugin needs one of `wv2-0_38` (Tauri 2.11) or `wv2-0_39` (Tauri 2.12+); neither is a default feature");
 use webview2_com::CallDevToolsProtocolMethodCompletedHandler;
 use windows::core::HSTRING;
 #[cfg(all(feature = "wv2-0_38", not(feature = "wv2-0_39")))]

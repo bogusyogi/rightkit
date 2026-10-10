@@ -36,7 +36,8 @@ fn source(dest: Dest) -> Result<Cf> {
 
 fn key_pair(dest: Dest, src: &Cf, code: u16, flags: u64, unicode: Option<&[u16]>) -> Result<()> {
     for down in [1u8, 0u8] {
-        let ev = Cf::new(unsafe { CGEventCreateKeyboardEvent(src.0, code, down) }).ok_or(Error::Unsupported("key event"))?;
+        let ev = Cf::new(unsafe { CGEventCreateKeyboardEvent(src.0, code, down) })
+            .ok_or(Error::Unsupported("key event"))?;
         unsafe {
             if let Some(u) = unicode {
                 CGEventKeyboardSetUnicodeString(ev.0, u.len() as c_ulong, u.as_ptr());
@@ -50,7 +51,8 @@ fn key_pair(dest: Dest, src: &Cf, code: u16, flags: u64, unicode: Option<&[u16]>
 }
 
 fn key_chord(dest: Dest, c: Chord) -> Result<()> {
-    let code = keys::mac_keycode(c.key).ok_or_else(|| Error::Invalid(format!("no mac keycode for {:?}", c.key)))?;
+    let code = keys::mac_keycode(c.key)
+        .ok_or_else(|| Error::Invalid(format!("no mac keycode for {:?}", c.key)))?;
     let src = source(dest)?;
     key_pair(dest, &src, code, keys::mac_flags(c.mods), None)
 }
@@ -77,7 +79,14 @@ fn window_under(pid: i32, x: f64, y: f64) -> Option<u32> {
         .map(|w| w.window_id as u32)
 }
 
-fn click(dest: Dest, window: Option<u64>, x: f64, y: f64, button: Button, count: u32) -> Result<()> {
+fn click(
+    dest: Dest,
+    window: Option<u64>,
+    x: f64,
+    y: f64,
+    button: Button,
+    count: u32,
+) -> Result<()> {
     let src = source(dest)?;
     let pt = CGPoint { x, y };
     let (down_t, up_t, btn) = match button {
@@ -89,9 +98,15 @@ fn click(dest: Dest, window: Option<u64>, x: f64, y: f64, button: Button, count:
         (Dest::Pid(pid), None) => window_under(pid, x, y),
         _ => None,
     };
-    let saved = matches!(dest, Dest::Hid).then(|| Cf::new(unsafe { CGEventCreate(std::ptr::null()) }).map(|e| unsafe { CGEventGetLocation(e.0) })).flatten();
+    let saved = matches!(dest, Dest::Hid)
+        .then(|| {
+            Cf::new(unsafe { CGEventCreate(std::ptr::null()) })
+                .map(|e| unsafe { CGEventGetLocation(e.0) })
+        })
+        .flatten();
     let mk = |ty: u32, state: i64| -> Result<Cf> {
-        let ev = Cf::new(unsafe { CGEventCreateMouseEvent(src.0, ty, pt, btn) }).ok_or(Error::Unsupported("mouse event"))?;
+        let ev = Cf::new(unsafe { CGEventCreateMouseEvent(src.0, ty, pt, btn) })
+            .ok_or(Error::Unsupported("mouse event"))?;
         unsafe {
             CGEventSetIntegerValueField(ev.0, 1, state); // click state
             if let Some(w) = wid {
@@ -121,8 +136,10 @@ fn click(dest: Dest, window: Option<u64>, x: f64, y: f64, button: Button, count:
 fn scroll(dest: Dest, x: f64, y: f64, dx: f64, dy: f64) -> Result<()> {
     let src = source(dest)?;
     // Our convention: positive dy scrolls content down (like DOM deltaY); CG wheel is inverse.
-    let ev = Cf::new(unsafe { CGEventCreateScrollWheelEvent2(src.0, 1, 2, (-dy).round() as i32, (-dx).round() as i32, 0) })
-        .ok_or(Error::Unsupported("scroll event"))?;
+    let ev = Cf::new(unsafe {
+        CGEventCreateScrollWheelEvent2(src.0, 1, 2, (-dy).round() as i32, (-dx).round() as i32, 0)
+    })
+    .ok_or(Error::Unsupported("scroll event"))?;
     unsafe { CGEventSetLocation(ev.0, CGPoint { x, y }) };
     post(dest, &ev);
     Ok(())
@@ -135,8 +152,12 @@ pub fn send(dest: Dest, window: Option<u64>, ev: &InputEvent) -> Result<()> {
     match ev {
         InputEvent::Text(t) => type_text(dest, t),
         InputEvent::Key(c) => key_chord(dest, *c),
-        InputEvent::Click { x, y, button, count } => click(dest, window, *x, *y, *button, *count),
+        InputEvent::Click {
+            x,
+            y,
+            button,
+            count,
+        } => click(dest, window, *x, *y, *button, *count),
         InputEvent::Scroll { x, y, dx, dy } => scroll(dest, *x, *y, *dx, *dy),
     }
 }
-

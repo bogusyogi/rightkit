@@ -39,6 +39,7 @@ pub mod keys;
 pub mod lease;
 pub mod mock;
 pub mod model;
+#[cfg(feature = "in-app")]
 pub mod paths;
 pub mod platform;
 pub mod png;
@@ -52,24 +53,24 @@ pub mod macos;
 pub mod win;
 
 pub use admission::{Admission, Admit, AllowAll, EffectKind, EffectRequest, Settled};
-pub use focus::{FocusReport, FocusWatch};
-pub use events::{DeniedBy, Journal, LifecycleEvent, MemoryJournal, Metrics};
-pub use lease::{Fence, Lease, LeaseRequest, LeaseStatus};
-pub use redact::{MaskText, Redactor, ShotContext, ShotReport};
 pub use delivery::{DeliveryOptions, DeliveryOutcome, DeliveryRecord, FocusPin, Why};
 pub use engine::{ActOptions, ActOutcome, Automation, Guard};
+pub use events::{DeniedBy, Journal, LifecycleEvent, MemoryJournal, Metrics};
+pub use focus::{FocusReport, FocusWatch};
+pub use lease::{Fence, Lease, LeaseRequest, LeaseStatus};
 pub use model::*;
 pub use platform::{ClipSnapshot, InputEvent, Platform};
 pub use policy::{
-    classify_risk, credential_label, kill, killed, looks_secret, redact, reset_kill, Attempt, EvidenceSink, Indicator, JsonlEvidence, MemoryEvidence,
-    MemoryIndicator, Policy, Receipt, ResultKind, SessionEvent,
+    classify_risk, credential_label, kill, killed, looks_secret, redact, reset_kill, Attempt,
+    EvidenceSink, Indicator, JsonlEvidence, MemoryEvidence, MemoryIndicator, Policy, Receipt,
+    ResultKind, SessionEvent,
 };
+pub use redact::{MaskText, Redactor, ShotContext, ShotReport};
 
 #[cfg(target_os = "macos")]
 pub type NativePlatform = macos::MacPlatform;
 #[cfg(windows)]
 pub type NativePlatform = win::WinPlatform;
-
 
 /// The real backend for this OS.
 #[cfg(any(target_os = "macos", windows))]

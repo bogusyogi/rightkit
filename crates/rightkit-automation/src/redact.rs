@@ -30,7 +30,13 @@ impl Redactor for MaskText {
     fn regions(&self, ctx: &ShotContext) -> Vec<Rect> {
         let mut out = vec![];
         fn walk(n: &Node, needles: &[String], out: &mut Vec<Rect>) {
-            let hit = |t: &Option<String>| t.as_deref().is_some_and(|t| needles.iter().any(|x| t.to_lowercase().contains(&x.to_lowercase())));
+            let hit = |t: &Option<String>| {
+                t.as_deref().is_some_and(|t| {
+                    needles
+                        .iter()
+                        .any(|x| t.to_lowercase().contains(&x.to_lowercase()))
+                })
+            };
             if hit(&n.name) || hit(&n.value) || hit(&n.description) {
                 if let Some(f) = n.frame {
                     out.push(f);
@@ -57,7 +63,11 @@ pub(crate) fn builtin_regions(root: &Node) -> Vec<Rect> {
     let mut out = vec![];
     fn walk(n: &Node, out: &mut Vec<Rect>) {
         let editable = matches!(n.role.as_str(), "textfield" | "textarea" | "combobox");
-        let label = [&n.name, &n.description, &n.identifier].iter().filter_map(|x| x.as_deref()).collect::<Vec<_>>().join(" ");
+        let label = [&n.name, &n.description, &n.identifier]
+            .iter()
+            .filter_map(|x| x.as_deref())
+            .collect::<Vec<_>>()
+            .join(" ");
         if n.secure || (editable && crate::policy::credential_label(&label)) {
             if let Some(f) = n.frame {
                 out.push(f);
@@ -71,9 +81,14 @@ pub(crate) fn builtin_regions(root: &Node) -> Vec<Rect> {
 
 /// Rewrite the PNG at `path` with `regions` (screen points) painted black.
 /// `window` is the capture's bounds in points; pixel scale comes from the PNG.
-pub(crate) fn mask_file(path: &std::path::Path, window: Rect, regions: &[Rect]) -> std::result::Result<(u32, u32), String> {
+pub(crate) fn mask_file(
+    path: &std::path::Path,
+    window: Rect,
+    regions: &[Rect],
+) -> std::result::Result<(u32, u32), String> {
     let bytes = std::fs::read(path).map_err(|e| e.to_string())?;
-    let (w, h, mut rgba) = crate::png::decode_rgba(&bytes).ok_or("PNG is not a decodable 8-bit image")?;
+    let (w, h, mut rgba) =
+        crate::png::decode_rgba(&bytes).ok_or("PNG is not a decodable 8-bit image")?;
     if regions.is_empty() {
         return Ok((w, h));
     }

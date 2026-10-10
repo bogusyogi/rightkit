@@ -35,7 +35,7 @@ Do not use it to define product behaviour. The schemas are shared contracts; pro
 
 ## Cargo features
 
-None. The crate has no `[features]` table. `jsonschema` 0.58.6 is used with default features off, so the crate never resolves a remote URI or pulls in HTTP or TLS.
+`schema` (default): JSON Schema validation (`validate`, `validate_str`, `parse`, `check_typed`, `fixtures`), the semantic cross-field rules, the `rightkit-contracts` CLI and the `jsonschema` dependency. `jsonschema` 0.58.6 is used with its own default features off, so the crate never resolves a remote URI or pulls in HTTP or TLS. With `default-features = false` the typed structs in `types`, `Contract`, `ContractError` and version negotiation (`negotiate`, `Version`) remain and the crate drops `jsonschema` and its tree.
 
 ## CLI
 

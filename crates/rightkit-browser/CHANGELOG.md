@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.4
+
+- Trim the dependency tree: tokio no longer enables `fs`, `macros` or `rt-multi-thread` for production builds (the e2e tests move them to dev-dependencies), and `chromiumoxide` is used with `default-features = false`. No public API change.
+
 ## 0.2.1
 
 - Add `LaunchOptions::profile_dir(path)` & `ProfileSpec::Directory(PathBuf)` for

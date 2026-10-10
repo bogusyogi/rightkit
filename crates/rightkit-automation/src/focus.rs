@@ -33,7 +33,10 @@ impl FocusReport {
         if self.measured == 0 {
             "foreground could not be measured (an unavailable measurement is never a pass)".into()
         } else if self.unavailable > 0 {
-            format!("foreground was unmeasurable for {} sample(s) while acting", self.unavailable)
+            format!(
+                "foreground was unmeasurable for {} sample(s) while acting",
+                self.unavailable
+            )
         } else {
             format!("foreground changed: {:?}", self.states)
         }
@@ -49,8 +52,15 @@ pub struct FocusWatch {
 impl FocusWatch {
     /// Start sampling `front` every `interval`. One sample is taken synchronously
     /// first, so the starting state is always recorded before the action begins.
-    pub fn start(front: impl Fn() -> Option<FrontApp> + Send + 'static, interval: Duration) -> FocusWatch {
-        let seen = Arc::new(Mutex::new(FocusReport { measured: 0, unavailable: 0, states: vec![] }));
+    pub fn start(
+        front: impl Fn() -> Option<FrontApp> + Send + 'static,
+        interval: Duration,
+    ) -> FocusWatch {
+        let seen = Arc::new(Mutex::new(FocusReport {
+            measured: 0,
+            unavailable: 0,
+            states: vec![],
+        }));
         let record = |seen: &Mutex<FocusReport>, f: Option<FrontApp>| {
             let mut r = seen.lock().unwrap_or_else(|e| e.into_inner());
             match f {
@@ -73,7 +83,11 @@ impl FocusWatch {
                 record(&seen2, front());
             }
         });
-        FocusWatch { stop, seen, thread: Some(thread) }
+        FocusWatch {
+            stop,
+            seen,
+            thread: Some(thread),
+        }
     }
 
     /// Stop sampling and return what was observed.
@@ -92,7 +106,11 @@ mod tests {
     use std::sync::atomic::AtomicUsize;
 
     fn app(pid: i32) -> Option<FrontApp> {
-        Some(FrontApp { pid, app_id: "x".into(), window_id: Some(1) })
+        Some(FrontApp {
+            pid,
+            app_id: "x".into(),
+            window_id: Some(1),
+        })
     }
 
     #[test]
@@ -105,11 +123,23 @@ mod tests {
         let n = Arc::new(AtomicUsize::new(0));
         let n2 = n.clone();
         // pid 1, then a one-sample flash of pid 2, then pid 1 again: before/after would say "unchanged".
-        let w = FocusWatch::start(move || app(if n2.fetch_add(1, Ordering::SeqCst) == 3 { 2 } else { 1 }), Duration::from_millis(2));
+        let w = FocusWatch::start(
+            move || {
+                app(if n2.fetch_add(1, Ordering::SeqCst) == 3 {
+                    2
+                } else {
+                    1
+                })
+            },
+            Duration::from_millis(2),
+        );
         std::thread::sleep(Duration::from_millis(30));
         let r = w.finish();
         assert!(!r.proven());
-        assert_eq!(r.states.iter().map(|s| s.0).collect::<Vec<_>>(), vec![1, 2, 1]);
+        assert_eq!(
+            r.states.iter().map(|s| s.0).collect::<Vec<_>>(),
+            vec![1, 2, 1]
+        );
 
         let steady = FocusWatch::start(|| app(1), Duration::from_millis(2));
         std::thread::sleep(Duration::from_millis(10));

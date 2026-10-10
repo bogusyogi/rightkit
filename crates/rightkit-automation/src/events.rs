@@ -34,15 +34,46 @@ impl DeniedBy {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum LifecycleEvent {
-    Started { session: String, pid: i32, app_id: String, label: String },
-    Stopped { session: String, pid: i32 },
+    Started {
+        session: String,
+        pid: i32,
+        app_id: String,
+        label: String,
+    },
+    Stopped {
+        session: String,
+        pid: i32,
+    },
     /// The target process vanished while a session or lease was active.
-    TargetExited { session: String, pid: i32, app_id: String },
-    Denied { session: String, pid: i32, app_id: String, action: String, by: DeniedBy, reason: String },
-    LeaseGranted { pid: i32, holder: String, epoch: u64, displaced: Option<String> },
-    LeaseReleased { pid: i32, epoch: u64 },
+    TargetExited {
+        session: String,
+        pid: i32,
+        app_id: String,
+    },
+    Denied {
+        session: String,
+        pid: i32,
+        app_id: String,
+        action: String,
+        by: DeniedBy,
+        reason: String,
+    },
+    LeaseGranted {
+        pid: i32,
+        holder: String,
+        epoch: u64,
+        displaced: Option<String>,
+    },
+    LeaseReleased {
+        pid: i32,
+        epoch: u64,
+    },
     /// An input from a stale or out-of-order controller was refused.
-    LeaseFenced { pid: i32, presented_epoch: u64, current_epoch: Option<u64> },
+    LeaseFenced {
+        pid: i32,
+        presented_epoch: u64,
+        current_epoch: Option<u64>,
+    },
     KillSwitch,
 }
 
@@ -64,18 +95,63 @@ impl LifecycleEvent {
     pub fn to_json(&self) -> String {
         let o = Obj::new().str("event", self.kind()).num("ts_ms", now_ms());
         match self {
-            LifecycleEvent::Started { session, pid, app_id, label } => o.str("session", session).num("pid", *pid).str("app_id", app_id).str("label", label),
+            LifecycleEvent::Started {
+                session,
+                pid,
+                app_id,
+                label,
+            } => o
+                .str("session", session)
+                .num("pid", *pid)
+                .str("app_id", app_id)
+                .str("label", label),
             LifecycleEvent::Stopped { session, pid } => o.str("session", session).num("pid", *pid),
-            LifecycleEvent::TargetExited { session, pid, app_id } => o.str("session", session).num("pid", *pid).str("app_id", app_id),
-            LifecycleEvent::Denied { session, pid, app_id, action, by, reason } => {
-                o.str("session", session).num("pid", *pid).str("app_id", app_id).str("action", action).str("by", by.label()).str("reason", reason)
-            }
-            LifecycleEvent::LeaseGranted { pid, holder, epoch, displaced } => o.num("pid", *pid).str("holder", holder).num("epoch", *epoch).opt_str("displaced", displaced),
+            LifecycleEvent::TargetExited {
+                session,
+                pid,
+                app_id,
+            } => o
+                .str("session", session)
+                .num("pid", *pid)
+                .str("app_id", app_id),
+            LifecycleEvent::Denied {
+                session,
+                pid,
+                app_id,
+                action,
+                by,
+                reason,
+            } => o
+                .str("session", session)
+                .num("pid", *pid)
+                .str("app_id", app_id)
+                .str("action", action)
+                .str("by", by.label())
+                .str("reason", reason),
+            LifecycleEvent::LeaseGranted {
+                pid,
+                holder,
+                epoch,
+                displaced,
+            } => o
+                .num("pid", *pid)
+                .str("holder", holder)
+                .num("epoch", *epoch)
+                .opt_str("displaced", displaced),
             LifecycleEvent::LeaseReleased { pid, epoch } => o.num("pid", *pid).num("epoch", *epoch),
-            LifecycleEvent::LeaseFenced { pid, presented_epoch, current_epoch } => o
+            LifecycleEvent::LeaseFenced {
+                pid,
+                presented_epoch,
+                current_epoch,
+            } => o
                 .num("pid", *pid)
                 .num("presented_epoch", *presented_epoch)
-                .raw("current_epoch", current_epoch.map(|e| e.to_string()).unwrap_or_else(|| "null".into())),
+                .raw(
+                    "current_epoch",
+                    current_epoch
+                        .map(|e| e.to_string())
+                        .unwrap_or_else(|| "null".into()),
+                ),
             LifecycleEvent::KillSwitch => o,
         }
         .build()
@@ -143,7 +219,12 @@ impl Counters {
             denied: g(&self.denied),
             replayed: g(&self.replayed),
             fenced: g(&self.fenced),
-            by_tier: [g(&self.by_tier[0]), g(&self.by_tier[1]), g(&self.by_tier[2]), g(&self.by_tier[3])],
+            by_tier: [
+                g(&self.by_tier[0]),
+                g(&self.by_tier[1]),
+                g(&self.by_tier[2]),
+                g(&self.by_tier[3]),
+            ],
             deliveries: g(&self.deliveries),
             screenshots: g(&self.screenshots),
             screenshot_regions_masked: g(&self.masked),

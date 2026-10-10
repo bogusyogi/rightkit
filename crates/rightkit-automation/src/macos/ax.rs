@@ -26,7 +26,8 @@ impl El {
         if unsafe { AXIsProcessTrusted() } == 0 {
             return Err(Error::PermissionDenied("Accessibility"));
         }
-        let r = Cf::new(unsafe { AXUIElementCreateApplication(pid) }).ok_or_else(|| Error::NotFound(format!("pid {pid}")))?;
+        let r = Cf::new(unsafe { AXUIElementCreateApplication(pid) })
+            .ok_or_else(|| Error::NotFound(format!("pid {pid}")))?;
         unsafe { AXUIElementSetMessagingTimeout(r.0, AX_TIMEOUT) };
         Ok(El(r))
     }
@@ -72,12 +73,16 @@ impl El {
         (unsafe { AXUIElementGetPid((self.0).0, &mut p) } == 0).then_some(p)
     }
     pub fn list(&self, name: &str) -> Vec<El> {
-        let Some(a) = self.raw(name) else { return vec![] };
+        let Some(a) = self.raw(name) else {
+            return vec![];
+        };
         unsafe {
             if CFGetTypeID(a.0) != CFArrayGetTypeID() {
                 return vec![];
             }
-            (0..CFArrayGetCount(a.0)).filter_map(|i| Cf::retain(CFArrayGetValueAtIndex(a.0, i)).map(El)).collect()
+            (0..CFArrayGetCount(a.0))
+                .filter_map(|i| Cf::retain(CFArrayGetValueAtIndex(a.0, i)).map(El))
+                .collect()
         }
     }
     pub fn children(&self) -> Vec<El> {
@@ -89,7 +94,11 @@ impl El {
             return vec![];
         }
         let Some(a) = Cf::new(out) else { return vec![] };
-        unsafe { (0..CFArrayGetCount(a.0)).filter_map(|i| cf_to_string(CFArrayGetValueAtIndex(a.0, i))).collect() }
+        unsafe {
+            (0..CFArrayGetCount(a.0))
+                .filter_map(|i| cf_to_string(CFArrayGetValueAtIndex(a.0, i)))
+                .collect()
+        }
     }
     pub fn settable(&self, attr: &str) -> bool {
         let k = Cf::string(attr);
@@ -100,13 +109,23 @@ impl El {
         let (p, s) = (self.raw("AXPosition")?, self.raw("AXSize")?);
         let (mut pt, mut sz) = (CGPoint { x: 0.0, y: 0.0 }, CGSize { w: 0.0, h: 0.0 });
         unsafe {
-            (AXValueGetValue(p.0, 1, &mut pt as *mut _ as *mut c_void) != 0 && AXValueGetValue(s.0, 2, &mut sz as *mut _ as *mut c_void) != 0)
-                .then_some(Rect { x: pt.x, y: pt.y, w: sz.w, h: sz.h })
+            (AXValueGetValue(p.0, 1, &mut pt as *mut _ as *mut c_void) != 0
+                && AXValueGetValue(s.0, 2, &mut sz as *mut _ as *mut c_void) != 0)
+                .then_some(Rect {
+                    x: pt.x,
+                    y: pt.y,
+                    w: sz.w,
+                    h: sz.h,
+                })
         }
     }
     pub fn window_id(&self) -> Option<u64> {
         let mut w = 0u32;
-        let win = if self.str_attr("AXRole").as_deref() == Some("AXWindow") { self.clone() } else { self.el_attr("AXWindow")? };
+        let win = if self.str_attr("AXRole").as_deref() == Some("AXWindow") {
+            self.clone()
+        } else {
+            self.el_attr("AXWindow")?
+        };
         (unsafe { _AXUIElementGetWindow((win.0).0, &mut w) } == 0 && w != 0).then_some(u64::from(w))
     }
     pub fn same(&self, other: &El) -> bool {
@@ -115,8 +134,16 @@ impl El {
     /// Selection as UTF-16 (location, length).
     pub fn selected_range(&self) -> Option<(usize, usize)> {
         let v = self.raw("AXSelectedTextRange")?;
-        let mut r = CFRange { location: 0, length: 0 };
-        unsafe { (AXValueGetValue(v.0, 4, &mut r as *mut _ as *mut c_void) != 0 && r.location >= 0 && r.length >= 0).then_some((r.location as usize, r.length as usize)) }
+        let mut r = CFRange {
+            location: 0,
+            length: 0,
+        };
+        unsafe {
+            (AXValueGetValue(v.0, 4, &mut r as *mut _ as *mut c_void) != 0
+                && r.location >= 0
+                && r.length >= 0)
+                .then_some((r.location as usize, r.length as usize))
+        }
     }
     pub fn perform(&self, action: &str) -> Result<()> {
         let a = Cf::string(action);
@@ -134,7 +161,13 @@ impl El {
     }
     pub fn set_bool(&self, attr: &str, v: bool) -> Result<()> {
         let k = Cf::string(attr);
-        let b = unsafe { if v { kCFBooleanTrue } else { kCFBooleanFalse } };
+        let b = unsafe {
+            if v {
+                kCFBooleanTrue
+            } else {
+                kCFBooleanFalse
+            }
+        };
         match unsafe { AXUIElementSetAttributeValue((self.0).0, k.0, b) } {
             0 => Ok(()),
             c => Err(ax_err(c, "set_bool")),
@@ -142,17 +175,25 @@ impl El {
     }
     pub fn set_f64(&self, attr: &str, v: f64) -> Result<()> {
         let k = Cf::string(attr);
-        let n = Cf::new(unsafe { CFNumberCreate(std::ptr::null(), 6, &v as *const f64 as *const c_void) }).ok_or(Error::Unsupported("number"))?;
+        let n = Cf::new(unsafe {
+            CFNumberCreate(std::ptr::null(), 6, &v as *const f64 as *const c_void)
+        })
+        .ok_or(Error::Unsupported("number"))?;
         match unsafe { AXUIElementSetAttributeValue((self.0).0, k.0, n.0) } {
             0 => Ok(()),
             c => Err(ax_err(c, "set_number")),
         }
     }
     fn text_marker_string(&self) -> Option<String> {
-        let (k1, k2) = (Cf::string("AXTextMarkerRangeForUIElement"), Cf::string("AXStringForTextMarkerRange"));
+        let (k1, k2) = (
+            Cf::string("AXTextMarkerRangeForUIElement"),
+            Cf::string("AXStringForTextMarkerRange"),
+        );
         unsafe {
             let mut range: CFTypeRef = std::ptr::null();
-            if AXUIElementCopyParameterizedAttributeValue((self.0).0, k1.0, (self.0).0, &mut range) != 0 {
+            if AXUIElementCopyParameterizedAttributeValue((self.0).0, k1.0, (self.0).0, &mut range)
+                != 0
+            {
                 return None;
             }
             let range = Cf::new(range)?;
@@ -177,7 +218,8 @@ impl El {
         false
     }
     pub fn is_secure(&self) -> bool {
-        self.str_attr("AXRole").as_deref() == Some("AXSecureTextField") || self.str_attr("AXSubrole").as_deref() == Some("AXSecureTextField")
+        self.str_attr("AXRole").as_deref() == Some("AXSecureTextField")
+            || self.str_attr("AXSubrole").as_deref() == Some("AXSecureTextField")
     }
 }
 
@@ -212,10 +254,16 @@ pub fn read_node(el: &El) -> Option<RawNode> {
     let nonempty = |s: Option<String>| s.filter(|v| !v.is_empty());
     let actions = el.actions();
     let mut caps: Vec<String> = vec![];
-    if actions.iter().any(|a| a == "AXPress" || a == "AXConfirm" || a == "AXPick") {
+    if actions
+        .iter()
+        .any(|a| a == "AXPress" || a == "AXConfirm" || a == "AXPick")
+    {
         caps.push("press".into());
     }
-    let texty = matches!(native.as_str(), "AXTextField" | "AXTextArea" | "AXComboBox" | "AXSearchField" | "AXSecureTextField");
+    let texty = matches!(
+        native.as_str(),
+        "AXTextField" | "AXTextArea" | "AXComboBox" | "AXSearchField" | "AXSecureTextField"
+    );
     if texty {
         if el.settable("AXValue") {
             caps.push("set_value".into());
@@ -227,7 +275,10 @@ pub fn read_node(el: &El) -> Option<RawNode> {
     if el.settable("AXFocused") {
         caps.push("focus".into());
     }
-    if native == "AXScrollArea" || native == "AXScrollBar" || el.raw("AXVerticalScrollBar").is_some() {
+    if native == "AXScrollArea"
+        || native == "AXScrollBar"
+        || el.raw("AXVerticalScrollBar").is_some()
+    {
         caps.push("scroll".into());
     }
     if actions.iter().any(|a| a == "AXShowMenu") {
@@ -239,7 +290,11 @@ pub fn read_node(el: &El) -> Option<RawNode> {
         subrole: nonempty(el.str_attr("AXSubrole")),
         name: nonempty(el.str_attr("AXTitle")),
         // Never read the value of a secure field.
-        value: if secure { None } else { nonempty(el.value_text()) },
+        value: if secure {
+            None
+        } else {
+            nonempty(el.value_text())
+        },
         description: nonempty(el.str_attr("AXDescription")),
         identifier: nonempty(el.str_attr("AXIdentifier")),
         enabled: el.bool_attr("AXEnabled"),
@@ -251,15 +306,25 @@ pub fn read_node(el: &El) -> Option<RawNode> {
 
 /// The window element for a target: explicit window id, else focused, main, first.
 pub fn window_root(app: &El, window_id: Option<u64>) -> Option<El> {
-    let by_id = |id: u64| app.list("AXWindows").into_iter().find(|w| w.window_id() == Some(id));
+    let by_id = |id: u64| {
+        app.list("AXWindows")
+            .into_iter()
+            .find(|w| w.window_id() == Some(id))
+    };
     match window_id {
         Some(id) => by_id(id),
-        None => app.el_attr("AXFocusedWindow").or_else(|| app.el_attr("AXMainWindow")).or_else(|| app.list("AXWindows").into_iter().next()),
+        None => app
+            .el_attr("AXFocusedWindow")
+            .or_else(|| app.el_attr("AXMainWindow"))
+            .or_else(|| app.list("AXWindows").into_iter().next()),
     }
 }
 
 fn is_editable_role(role: &str) -> bool {
-    matches!(role, "AXTextField" | "AXTextArea" | "AXComboBox" | "AXSearchField" | "AXSecureTextField")
+    matches!(
+        role,
+        "AXTextField" | "AXTextArea" | "AXComboBox" | "AXSearchField" | "AXSecureTextField"
+    )
 }
 
 /// Deepest focused element, resolved to an editable editor when the focus sits
@@ -275,7 +340,10 @@ pub fn focused_editor(app: &El) -> Option<El> {
     if is_editable_role(&role) {
         return Some(f);
     }
-    if matches!(role.as_str(), "AXGroup" | "AXScrollArea" | "AXWebArea" | "AXWindow") {
+    if matches!(
+        role.as_str(),
+        "AXGroup" | "AXScrollArea" | "AXWebArea" | "AXWindow"
+    ) {
         if let Some(d) = find_focused_descendant(&f, 6, &mut 300) {
             return Some(d);
         }
@@ -290,7 +358,9 @@ fn find_focused_descendant(root: &El, depth: usize, budget: &mut usize) -> Optio
         }
         *budget -= 1;
         let role = c.str_attr("AXRole").unwrap_or_default();
-        if c.bool_attr("AXFocused") == Some(true) && (is_editable_role(&role) || c.children().is_empty()) {
+        if c.bool_attr("AXFocused") == Some(true)
+            && (is_editable_role(&role) || c.children().is_empty())
+        {
             return Some(c);
         }
         if depth > 0 {
@@ -347,7 +417,9 @@ pub fn semantic(el: &El, action: &Action) -> Result<String> {
 }
 
 pub fn menu_press(app: &El, path: &[String]) -> Result<()> {
-    let mut cur = app.el_attr("AXMenuBar").ok_or_else(|| Error::NotFound("menu bar".into()))?;
+    let mut cur = app
+        .el_attr("AXMenuBar")
+        .ok_or_else(|| Error::NotFound("menu bar".into()))?;
     for (i, want) in path.iter().enumerate() {
         let item = cur
             .children()
@@ -357,7 +429,11 @@ pub fn menu_press(app: &El, path: &[String]) -> Result<()> {
         if i + 1 == path.len() {
             return item.perform("AXPress");
         }
-        cur = item.children().into_iter().next().ok_or_else(|| Error::NotFound(format!("submenu {want}")))?;
+        cur = item
+            .children()
+            .into_iter()
+            .next()
+            .ok_or_else(|| Error::NotFound(format!("submenu {want}")))?;
     }
     Err(Error::Invalid("empty menu path".into()))
 }
@@ -366,10 +442,20 @@ pub fn field_text(el: &El) -> Option<FieldText> {
     let selection = el.selected_range();
     if let Some(v) = el.raw("AXValue").and_then(|c| cf_to_string(c.0)) {
         if v.len() <= MAX_PROOF_BYTES {
-            return Some(FieldText { text: v, source: Some(TextSource::Value), selection });
+            return Some(FieldText {
+                text: v,
+                source: Some(TextSource::Value),
+                selection,
+            });
         }
     }
-    el.text_marker_string().filter(|t| t.len() <= MAX_PROOF_BYTES).map(|t| FieldText { text: t, source: Some(TextSource::TextMarker), selection: None })
+    el.text_marker_string()
+        .filter(|t| t.len() <= MAX_PROOF_BYTES)
+        .map(|t| FieldText {
+            text: t,
+            source: Some(TextSource::TextMarker),
+            selection: None,
+        })
 }
 
 /// HR's four-signal capability decision: a real native text control, not

@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-browser"
-version = "0.2.3"
+version = "0.2.4"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Shared Chrome DevTools Protocol browser runtime for Right Suite: multi-page sessions, named profiles, real CDP input, observations with stale-ref checks."
@@ -12,12 +12,16 @@ categories = ["development-tools::testing"]
 include = ["src/**", "tests/**", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
 
 [dependencies]
-chromiumoxide = "0.9"
+chromiumoxide = { version = "0.9", default-features = false }
 futures = "0.3"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tempfile = "3"
 thiserror = "2"
-tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "fs", "net", "io-util"] }
+tokio = { version = "1", features = ["rt", "sync", "time", "net", "io-util"] }
 url = "2"
 rightkit-process = { path = "../rightkit-process", version = "0.3.0" }
+
+[dev-dependencies]
+# `#[tokio::test(flavor = "multi_thread")]` in the e2e tests; production code needs no macros or multi-thread runtime.
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }

@@ -36,15 +36,27 @@ unsafe fn info_of(a: Id) -> Option<AppInfo> {
     let bundle = ns_to_string(msg0(a, c"bundleIdentifier")).filter(|s| !s.is_empty());
     let path = ns_to_string(msg0(msg0(a, c"bundleURL"), c"path"));
     let launch = msg0(a, c"launchDate");
-    let started = (!launch.is_null()).then(|| (msg_f64(launch, c"timeIntervalSince1970") * 1000.0) as u64);
-    Some(AppInfo { pid, app_id: bundle.unwrap_or_else(|| name.to_ascii_lowercase()), name, path, started })
+    let started =
+        (!launch.is_null()).then(|| (msg_f64(launch, c"timeIntervalSince1970") * 1000.0) as u64);
+    Some(AppInfo {
+        pid,
+        app_id: bundle.unwrap_or_else(|| name.to_ascii_lowercase()),
+        name,
+        path,
+        started,
+    })
 }
 
 pub fn app(pid: i32) -> Option<AppInfo> {
     pump();
     pool(|| unsafe {
-        let f: unsafe extern "C" fn(Id, Sel, i32) -> Id = std::mem::transmute(objc_msgSend as *const ());
-        let a = f(class(c"NSRunningApplication"), sel(c"runningApplicationWithProcessIdentifier:"), pid);
+        let f: unsafe extern "C" fn(Id, Sel, i32) -> Id =
+            std::mem::transmute(objc_msgSend as *const ());
+        let a = f(
+            class(c"NSRunningApplication"),
+            sel(c"runningApplicationWithProcessIdentifier:"),
+            pid,
+        );
         if a.is_null() || msg_bool(a, c"isTerminated") {
             None
         } else {
@@ -64,10 +76,17 @@ pub fn frontmost_pid() -> Option<i32> {
 
 /// AXFrontmost on the app element, then NSRunningApplication activation.
 pub fn activate(pid: i32) -> bool {
-    let ax = super::ax::El::app(pid).and_then(|e| e.set_bool("AXFrontmost", true)).is_ok();
+    let ax = super::ax::El::app(pid)
+        .and_then(|e| e.set_bool("AXFrontmost", true))
+        .is_ok();
     let ns = pool(|| unsafe {
-        let f: unsafe extern "C" fn(Id, Sel, i32) -> Id = std::mem::transmute(objc_msgSend as *const ());
-        let a = f(class(c"NSRunningApplication"), sel(c"runningApplicationWithProcessIdentifier:"), pid);
+        let f: unsafe extern "C" fn(Id, Sel, i32) -> Id =
+            std::mem::transmute(objc_msgSend as *const ());
+        let a = f(
+            class(c"NSRunningApplication"),
+            sel(c"runningApplicationWithProcessIdentifier:"),
+            pid,
+        );
         !a.is_null() && msg_bool1_u64(a, c"activateWithOptions:", 1)
     });
     ax || ns
@@ -75,8 +94,13 @@ pub fn activate(pid: i32) -> bool {
 
 pub fn terminate(pid: i32) -> bool {
     pool(|| unsafe {
-        let f: unsafe extern "C" fn(Id, Sel, i32) -> Id = std::mem::transmute(objc_msgSend as *const ());
-        let a = f(class(c"NSRunningApplication"), sel(c"runningApplicationWithProcessIdentifier:"), pid);
+        let f: unsafe extern "C" fn(Id, Sel, i32) -> Id =
+            std::mem::transmute(objc_msgSend as *const ());
+        let a = f(
+            class(c"NSRunningApplication"),
+            sel(c"runningApplicationWithProcessIdentifier:"),
+            pid,
+        );
         !a.is_null() && msg_bool(a, c"terminate")
     })
 }
@@ -97,7 +121,9 @@ pub fn resolve_launch(spec: &str) -> Result<String> {
         .map_err(|e| Error::NotFound(format!("plutil: {e}")))?;
     let id = String::from_utf8_lossy(&out.stdout).trim().to_string();
     if !out.status.success() || id.is_empty() {
-        return Err(Error::NotFound(format!("bundle id of {target} (is it an .app bundle?)")));
+        return Err(Error::NotFound(format!(
+            "bundle id of {target} (is it an .app bundle?)"
+        )));
     }
     Ok(id)
 }
@@ -127,13 +153,20 @@ pub fn launch(spec: &str) -> Result<i32> {
     for _ in 0..100 {
         std::thread::sleep(std::time::Duration::from_millis(50));
         let newest = apps().into_iter().find(|a| {
-            !before.contains(&a.pid) && (a.app_id.eq_ignore_ascii_case(target) || a.path.as_deref().is_some_and(|p| target.contains('/') && p.trim_end_matches('/') == target.trim_end_matches('/')))
+            !before.contains(&a.pid)
+                && (a.app_id.eq_ignore_ascii_case(target)
+                    || a.path.as_deref().is_some_and(|p| {
+                        target.contains('/')
+                            && p.trim_end_matches('/') == target.trim_end_matches('/')
+                    }))
         });
         if let Some(a) = newest {
             return Ok(a.pid);
         }
     }
-    Err(Error::NotFound(format!("no new process appeared for {target} (already running apps are never adopted)")))
+    Err(Error::NotFound(format!(
+        "no new process appeared for {target} (already running apps are never adopted)"
+    )))
 }
 
 // ---------------------------------------------------------------- pasteboard
@@ -141,12 +174,21 @@ pub fn launch(spec: &str) -> Result<i32> {
 fn lossless_type(t: &str) -> bool {
     matches!(
         t,
-        "public.utf8-plain-text" | "NSStringPboardType" | "public.utf16-external-plain-text" | "public.utf16-plain-text" | "com.apple.traditional-mac-plain-text"
+        "public.utf8-plain-text"
+            | "NSStringPboardType"
+            | "public.utf16-external-plain-text"
+            | "public.utf16-plain-text"
+            | "com.apple.traditional-mac-plain-text"
     ) || t.starts_with("org.nspasteboard.")
 }
 
 pub fn clip_change() -> u64 {
-    pool(|| unsafe { msg_i64(msg0(class(c"NSPasteboard"), c"generalPasteboard"), c"changeCount") as u64 })
+    pool(|| unsafe {
+        msg_i64(
+            msg0(class(c"NSPasteboard"), c"generalPasteboard"),
+            c"changeCount",
+        ) as u64
+    })
 }
 
 pub fn clip_snapshot() -> Option<ClipSnapshot> {
@@ -154,7 +196,11 @@ pub fn clip_snapshot() -> Option<ClipSnapshot> {
         let pb = msg0(class(c"NSPasteboard"), c"generalPasteboard");
         let change = msg_i64(pb, c"changeCount") as u64;
         let types = msg0(pb, c"types");
-        let n = if types.is_null() { 0 } else { msg_i64(types, c"count") };
+        let n = if types.is_null() {
+            0
+        } else {
+            msg_i64(types, c"count")
+        };
         let mut lossless = true;
         for i in 0..n as usize {
             if let Some(t) = ns_to_string(msg_idx(types, c"objectAtIndex:", i)) {
@@ -162,7 +208,12 @@ pub fn clip_snapshot() -> Option<ClipSnapshot> {
             }
         }
         let text = ns_to_string(msg1(pb, c"stringForType:", ns_string(PLAIN)));
-        Some(ClipSnapshot { text, lossless, change, formats: n as usize })
+        Some(ClipSnapshot {
+            text,
+            lossless,
+            change,
+            formats: n as usize,
+        })
     })
 }
 
@@ -195,9 +246,21 @@ mod tests {
     /// Admission needs the id BEFORE launch; a path spec must resolve from the real plist.
     #[test]
     fn path_and_hidden_specs_resolve_without_launching() {
-        assert_eq!(resolve_launch("/System/Applications/Calculator.app").unwrap(), "com.apple.calculator");
-        assert_eq!(resolve_launch("hidden:/System/Applications/Calculator.app").unwrap(), "com.apple.calculator");
-        assert_eq!(resolve_launch("hidden:com.apple.TextEdit").unwrap(), "com.apple.TextEdit");
-        assert!(resolve_launch("/nonexistent/Nope.app").is_err(), "unresolvable specs fail closed");
+        assert_eq!(
+            resolve_launch("/System/Applications/Calculator.app").unwrap(),
+            "com.apple.calculator"
+        );
+        assert_eq!(
+            resolve_launch("hidden:/System/Applications/Calculator.app").unwrap(),
+            "com.apple.calculator"
+        );
+        assert_eq!(
+            resolve_launch("hidden:com.apple.TextEdit").unwrap(),
+            "com.apple.TextEdit"
+        );
+        assert!(
+            resolve_launch("/nonexistent/Nope.app").is_err(),
+            "unresolvable specs fail closed"
+        );
     }
 }

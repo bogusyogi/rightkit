@@ -33,7 +33,7 @@ Do not use it for Right Suite apps that expose their own in-app control service:
 
 ## Cargo features
 
-None. The crate has no `[features]` table. The Windows backend is compiled with `cfg(windows)` and depends on the `windows` crate.
+`in-app` (off by default): the tier-2 `in_app::ServiceBridge` client and the `paths` module, which pull in `rightkit-service` and `serde_json`. The `in_app::InApp` trait is always available. The Windows backend is compiled with `cfg(windows)` and depends on the `windows` crate. Without `in-app` the crate has no third-party dependencies on macOS.
 
 ## Usage
 
@@ -73,7 +73,7 @@ let snap = automation.snapshot(Target::app(pid), Limits { max_depth: 14, max_nod
 
 ## Version and changes
 
-Published version: not published. See [INDEX.md](../../INDEX.md). No CHANGELOG.md in this crate.
+Published version: not published. See [INDEX.md](../../INDEX.md). Changes are listed in [CHANGELOG.md](CHANGELOG.md).
 
 ## Windows
 

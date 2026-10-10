@@ -94,7 +94,7 @@ pub const ROUTES: &[RouteDef] = &[
         true,
         true,
         &[Venture, Channel, Account],
-        &[200, 401, 403, 409]
+        &[200, 400, 401, 403, 409, 422, 428]
     ),
     route!(
         "oauth.callback",
@@ -124,6 +124,17 @@ pub enum Matched {
     NotFound,
 }
 
+/// The `{provider}` path-parameter rule: `^[a-z0-9][a-z0-9-]{0,63}$`.
+/// Mirrors `$defs/providerSlug` in `daemon-api.v1.schema.json`.
+pub fn is_provider_slug(s: &str) -> bool {
+    let b = s.as_bytes();
+    (1..=64).contains(&b.len())
+        && (b[0].is_ascii_lowercase() || b[0].is_ascii_digit())
+        && b[1..]
+            .iter()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || *c == b'-')
+}
+
 fn capture(pattern: &str, path: &str) -> Option<Vec<String>> {
     let mut params = Vec::new();
     let mut p = pattern.split('/');
@@ -133,7 +144,8 @@ fn capture(pattern: &str, path: &str) -> Option<Vec<String>> {
             (None, None) => return Some(params),
             (Some(a), Some(b)) => {
                 if a.starts_with('{') {
-                    if b.is_empty() {
+                    if b.is_empty() || (a == "{provider}" && !is_provider_slug(b)) {
+                        // A provider outside the slug rule is not a route: 404.
                         return None;
                     }
                     params.push(b.to_string());
@@ -160,5 +172,53 @@ pub fn match_route(method: &str, path: &str) -> Matched {
         Matched::MethodNotAllowed
     } else {
         Matched::NotFound
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn provider_slug_rule() {
+        for ok in ["instagram-login", "meta", "a", "0x", &"a".repeat(64)] {
+            assert!(is_provider_slug(ok), "{ok}");
+        }
+        for bad in [
+            "Instagram",
+            "a_b",
+            "",
+            "-meta",
+            "me ta",
+            "méta",
+            "a.b",
+            &"a".repeat(65),
+        ] {
+            assert!(!is_provider_slug(bad), "{bad}");
+        }
+    }
+
+    #[test]
+    fn invalid_provider_is_not_a_route() {
+        let long = format!("/v1/webhooks/{}", "a".repeat(65));
+        for (m, p) in [
+            ("POST", "/v1/webhooks/Instagram"),
+            ("POST", "/v1/webhooks/a_b"),
+            ("POST", "/v1/webhooks/"),
+            ("POST", long.as_str()),
+            ("GET", "/v1/oauth/Instagram/callback"),
+            ("GET", "/v1/oauth/a_b/callback"),
+            ("GET", "/v1/oauth//callback"),
+        ] {
+            assert!(matches!(match_route(m, p), Matched::NotFound), "{m} {p}");
+        }
+        assert!(matches!(
+            match_route("POST", "/v1/webhooks/instagram-login"),
+            Matched::Route(r, ref p) if r.id == "webhook.inbound" && p[0] == "instagram-login"
+        ));
+        assert!(matches!(
+            match_route("GET", "/v1/oauth/instagram-login/callback"),
+            Matched::Route(r, _) if r.id == "oauth.callback"
+        ));
     }
 }

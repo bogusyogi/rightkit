@@ -12,4 +12,4 @@ tauri-build = "2"
 
 [dependencies]
 tauri = "2"
-rightkit-control = { path = "../..", features = ["tauri-plugin"] }
+rightkit-control = { path = "../..", features = ["tauri-plugin", "wv2-0_38"] }

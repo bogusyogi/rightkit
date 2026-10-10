@@ -26,7 +26,9 @@ impl MacPlatform {
 /// All windows, front to back. `on_screen_only=false` includes minimized/other-Space windows.
 pub fn list_windows(on_screen_only: bool) -> Vec<WindowInfo> {
     let opt = if on_screen_only { 1 | 16 } else { 16 };
-    let Some(arr) = Cf::new(unsafe { CGWindowListCopyWindowInfo(opt, 0) }) else { return vec![] };
+    let Some(arr) = Cf::new(unsafe { CGWindowListCopyWindowInfo(opt, 0) }) else {
+        return vec![];
+    };
     let mut out = vec![];
     unsafe {
         for i in 0..CFArrayGetCount(arr.0) {
@@ -40,7 +42,12 @@ pub fn list_windows(on_screen_only: bool) -> Vec<WindowInfo> {
                 title: cf_to_string(dict_get(d, "kCGWindowName")).unwrap_or_default(),
                 layer: cf_to_i64(dict_get(d, "kCGWindowLayer")).unwrap_or(0) as i32,
                 on_screen: cf_to_bool(dict_get(d, "kCGWindowIsOnscreen")).unwrap_or(false),
-                bounds: Rect { x: num("X"), y: num("Y"), w: num("Width"), h: num("Height") },
+                bounds: Rect {
+                    x: num("X"),
+                    y: num("Y"),
+                    w: num("Width"),
+                    h: num("Height"),
+                },
             });
         }
     }
@@ -55,15 +62,28 @@ impl Platform for MacPlatform {
     }
 
     fn status(&self) -> Status {
-        let (a, s) = unsafe { (AXIsProcessTrusted() != 0, CGPreflightScreenCaptureAccess() != 0) };
+        let (a, s) = unsafe {
+            (
+                AXIsProcessTrusted() != 0,
+                CGPreflightScreenCaptureAccess() != 0,
+            )
+        };
         let mut notes = vec![];
         if !a {
-            notes.push("grant Accessibility to the host process (System Settings > Privacy & Security)".into());
+            notes.push(
+                "grant Accessibility to the host process (System Settings > Privacy & Security)"
+                    .into(),
+            );
         }
         if !s {
             notes.push("grant Screen Recording to the host process for window capture".into());
         }
-        Status { platform: PlatformKind::MacOs, accessibility: a, screen_capture: s, notes }
+        Status {
+            platform: PlatformKind::MacOs,
+            accessibility: a,
+            screen_capture: s,
+            notes,
+        }
     }
 
     fn apps(&self) -> Vec<AppInfo> {
@@ -78,8 +98,15 @@ impl Platform for MacPlatform {
     fn frontmost(&self) -> Option<FrontApp> {
         let pid = appkit::frontmost_pid()?;
         let app_id = appkit::app(pid).map(|a| a.app_id).unwrap_or_default();
-        let window_id = El::app(pid).ok().and_then(|a| a.el_attr("AXFocusedWindow")).and_then(|w| w.window_id());
-        Some(FrontApp { pid, app_id, window_id })
+        let window_id = El::app(pid)
+            .ok()
+            .and_then(|a| a.el_attr("AXFocusedWindow"))
+            .and_then(|w| w.window_id());
+        Some(FrontApp {
+            pid,
+            app_id,
+            window_id,
+        })
     }
 
     fn wake(&self, pid: i32) {
@@ -94,7 +121,10 @@ impl Platform for MacPlatform {
         match ax::window_root(&app, t.window_id) {
             Some(w) => Ok(w),
             None if t.window_id.is_none() => Ok(app),
-            None => Err(Error::NotFound(format!("window {:?} of pid {}", t.window_id, t.pid))),
+            None => Err(Error::NotFound(format!(
+                "window {:?} of pid {}",
+                t.window_id, t.pid
+            ))),
         }
     }
     fn read(&self, el: &El) -> Option<RawNode> {

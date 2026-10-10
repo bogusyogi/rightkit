@@ -1,6 +1,8 @@
 //! Runs every fixture under `rightkit/contracts/fixtures/` through the
 //! library and through the `rightkit-contracts` binary.
 
+#![cfg(feature = "schema")]
+
 use std::path::PathBuf;
 use std::process::Command;
 

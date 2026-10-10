@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.1 — unpublished
+
+- Replace `rand` with `getrandom` 0.3 (the workspace standard) for random identifier bytes in `auth` and the `room` bin. Output format is unchanged (lowercase hex).
+
 ## 0.3.0 — unpublished
 
 - Add the `http` Cargo feature (default on). It gates the `server` module and the `room` bin, which

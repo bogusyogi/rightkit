@@ -1,14 +1,16 @@
 //! End-to-end: a real panic in a real child process; reports travel through the
 //! real consented outbox to a real HTTP server on loopback.
 
+#[cfg(feature = "support-bundle")]
+use rightkit_crash::{build_support_bundle, SupportBundleOptions};
 use rightkit_crash::{
-    build_support_bundle, enqueue_pending, install_panic_hook, list_pending, CrashConfig,
-    CrashReport, NativeCapture, SupportBundleOptions, CRASH_EVENT_TYPE,
+    enqueue_pending, install_panic_hook, list_pending, CrashConfig, CrashReport, NativeCapture,
+    CRASH_EVENT_TYPE,
 };
 use rightkit_logs::testing::MockServer;
-use rightkit_logs::{
-    CollectionPolicy, FlushState, HttpTransport, LogSource, OutboxConfig, Telemetry, UploadConfig,
-};
+#[cfg(feature = "support-bundle")]
+use rightkit_logs::{CollectionPolicy, LogSource};
+use rightkit_logs::{FlushState, HttpTransport, OutboxConfig, Telemetry, UploadConfig};
 use serde_json::json;
 use std::io::Read;
 use std::path::{Path, PathBuf};
@@ -213,6 +215,7 @@ fn crash_report_is_held_without_consent_then_uploaded_after_restart_with_consent
     assert!(telemetry.outbox.is_empty());
 }
 
+#[cfg(feature = "support-bundle")]
 #[test]
 fn support_bundle_is_a_redacted_zip_and_native_dumps_need_explicit_opt_in() {
     let dir = temp_dir("bundle");

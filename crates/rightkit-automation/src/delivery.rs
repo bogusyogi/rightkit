@@ -6,8 +6,8 @@
 
 use crate::admission::EffectKind;
 use crate::engine::Automation;
-use crate::lease::Admitted;
 use crate::keys;
+use crate::lease::Admitted;
 use crate::model::*;
 use crate::platform::{InputEvent, Platform};
 use crate::policy::{credential_label, killed, looks_secret, Attempt};
@@ -75,9 +75,14 @@ pub enum Why {
 #[derive(Debug, Clone, PartialEq)]
 pub enum DeliveryOutcome {
     /// Confirmed by an attributable read-back delta.
-    Inserted { tier: Tier },
+    Inserted {
+        tier: Tier,
+    },
     /// Posted, but no proof could be gathered. Never retried, never submitted.
-    SentUnconfirmed { tier: Tier, reason: String },
+    SentUnconfirmed {
+        tier: Tier,
+        reason: String,
+    },
     NotDelivered(Why),
     /// Not delivered; the text was left on the clipboard because the caller opted in.
     CopiedFallback(Why),
@@ -110,11 +115,19 @@ impl<P: Platform> Automation<P> {
     pub fn capture_pin(&self, pid: Option<i32>) -> Result<FocusPin<P::El>> {
         let pid = match pid {
             Some(p) => p,
-            None => self.front_pid().ok_or_else(|| Error::NotFound("frontmost app".into()))?,
+            None => self
+                .front_pid()
+                .ok_or_else(|| Error::NotFound("frontmost app".into()))?,
         };
         let app = self.checked_app(pid)?;
-        let editor = self.p.focused(pid)?.ok_or_else(|| Error::NotFound("focused element".into()))?;
-        let raw = self.p.read(&editor).ok_or_else(|| Error::NotFound("focused element vanished".into()))?;
+        let editor = self
+            .p
+            .focused(pid)?
+            .ok_or_else(|| Error::NotFound("focused element".into()))?;
+        let raw = self
+            .p
+            .read(&editor)
+            .ok_or_else(|| Error::NotFound("focused element vanished".into()))?;
         Ok(FocusPin {
             pid,
             app_id: app.app_id,
@@ -122,7 +135,10 @@ impl<P: Platform> Automation<P> {
             started: app.started,
             secure: Some(raw.secure),
             role: raw.role,
-            fingerprint: self.p.field_text(&editor).map(|f| crate::proof::text_fingerprint(&f.text)),
+            fingerprint: self
+                .p
+                .field_text(&editor)
+                .map(|f| crate::proof::text_fingerprint(&f.text)),
             editor,
             captured_ms: now_ms(),
         })
@@ -144,12 +160,21 @@ impl<P: Platform> Automation<P> {
         }
         let cand = self.capture_pin(Some(pin.pid)).ok()?;
         let same = cand.window_id == pin.window_id && cand.started == pin.started;
-        crate::proof::replacement_editor_may_receive(gone, same, cand.secure, cand.fingerprint, pin.fingerprint).then_some(cand)
+        crate::proof::replacement_editor_may_receive(
+            gone,
+            same,
+            cand.secure,
+            cand.fingerprint,
+            pin.fingerprint,
+        )
+        .then_some(cand)
     }
 
     /// The pinned editor is still the live focused editor of the same process.
     pub fn pin_is_current(&self, pin: &FocusPin<P::El>) -> bool {
-        let Some(app) = self.p.app(pin.pid) else { return false };
+        let Some(app) = self.p.app(pin.pid) else {
+            return false;
+        };
         if app.started != pin.started || self.policy.check(&app).is_err() {
             return false;
         }
@@ -159,7 +184,12 @@ impl<P: Platform> Automation<P> {
         matches!(self.p.focused(pin.pid), Ok(Some(f)) if self.p.same(&f, &pin.editor))
     }
 
-    pub fn deliver_text(&self, pin: &FocusPin<P::El>, text: &str, opts: &DeliveryOptions) -> DeliveryRecord {
+    pub fn deliver_text(
+        &self,
+        pin: &FocusPin<P::El>,
+        text: &str,
+        opts: &DeliveryOptions,
+    ) -> DeliveryRecord {
         let started = Instant::now();
         let mut rec = DeliveryRecord {
             outcome: DeliveryOutcome::NotDelivered(Why::NoTierAllowed),
@@ -169,7 +199,9 @@ impl<P: Platform> Automation<P> {
             enter_sent: false,
             total_ms: 0,
         };
-        self.counters.deliveries.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        self.counters
+            .deliveries
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         let outcome = match self.delivery_gate(pin, text, opts) {
             Err(why) => DeliveryOutcome::NotDelivered(why),
             Ok((lease, eff, cap)) => {
@@ -184,21 +216,34 @@ impl<P: Platform> Automation<P> {
                 let result = match &out {
                     DeliveryOutcome::Inserted { .. } => crate::policy::ResultKind::Done,
                     DeliveryOutcome::SentUnconfirmed { .. } => crate::policy::ResultKind::Done,
-                    DeliveryOutcome::NotDelivered(Why::Blocked(_)) | DeliveryOutcome::NotDelivered(Why::SecureTarget) => crate::policy::ResultKind::Blocked,
+                    DeliveryOutcome::NotDelivered(Why::Blocked(_))
+                    | DeliveryOutcome::NotDelivered(Why::SecureTarget) => {
+                        crate::policy::ResultKind::Blocked
+                    }
                     _ => crate::policy::ResultKind::Failed,
                 };
                 let tier_used = match &out {
-                    DeliveryOutcome::Inserted { tier } | DeliveryOutcome::SentUnconfirmed { tier, .. } => Some(*tier),
+                    DeliveryOutcome::Inserted { tier }
+                    | DeliveryOutcome::SentUnconfirmed { tier, .. } => Some(*tier),
                     _ => None,
                 };
                 if let Some(eff) = eff {
-                    self.settle(&eff, &crate::admission::Settled { result, tier_used, error: None });
+                    self.settle(
+                        &eff,
+                        &crate::admission::Settled {
+                            result,
+                            tier_used,
+                            error: None,
+                        },
+                    );
                 }
                 out
             }
         };
         rec.outcome = match outcome {
-            DeliveryOutcome::NotDelivered(reason) if opts.fallback_copy && Self::copyable(&reason) => {
+            DeliveryOutcome::NotDelivered(reason)
+                if opts.fallback_copy && Self::copyable(&reason) =>
+            {
                 if self.p.clip_write(text).is_some() {
                     DeliveryOutcome::CopiedFallback(reason)
                 } else {
@@ -213,21 +258,59 @@ impl<P: Platform> Automation<P> {
 
     /// Validate -> approve for one delivery: lease fence, credential gates, admission.
     #[allow(clippy::type_complexity)]
-    fn delivery_gate(&self, pin: &FocusPin<P::El>, text: &str, opts: &DeliveryOptions) -> std::result::Result<(Option<(u64, u64)>, Option<crate::admission::EffectRequest>, Option<Tier>), Why> {
+    fn delivery_gate(
+        &self,
+        pin: &FocusPin<P::El>,
+        text: &str,
+        opts: &DeliveryOptions,
+    ) -> std::result::Result<
+        (
+            Option<(u64, u64)>,
+            Option<crate::admission::EffectRequest>,
+            Option<Tier>,
+        ),
+        Why,
+    > {
         use crate::events::DeniedBy;
         let session = self.session_for(pin.pid);
         let refuse = |by: DeniedBy, e: Error| {
-            self.denied(&session, pin.pid, &pin.app_id, "deliver", by, &e.to_string());
+            self.denied(
+                &session,
+                pin.pid,
+                &pin.app_id,
+                "deliver",
+                by,
+                &e.to_string(),
+            );
             Why::Blocked(e.to_string())
         };
         if looks_secret(text) {
-            return Err(refuse(DeniedBy::Safety, Error::Blocked("payload looks like a credential; credentials are never typed".into())));
+            return Err(refuse(
+                DeniedBy::Safety,
+                Error::Blocked(
+                    "payload looks like a credential; credentials are never typed".into(),
+                ),
+            ));
         }
-        if let Some(raw) = self.p.read(&pin.editor).filter(|r| !r.secure && pin.secure != Some(true)) {
+        if let Some(raw) = self
+            .p
+            .read(&pin.editor)
+            .filter(|r| !r.secure && pin.secure != Some(true))
+        {
             // (A positively secure field is vetoed by `deliver_inner` as `SecureTarget`.)
-            let l = [&raw.name, &raw.description, &raw.identifier].iter().filter_map(|x| x.as_deref()).collect::<Vec<_>>().join(" ");
+            let l = [&raw.name, &raw.description, &raw.identifier]
+                .iter()
+                .filter_map(|x| x.as_deref())
+                .collect::<Vec<_>>()
+                .join(" ");
             if credential_label(&l) {
-                return Err(refuse(DeniedBy::Safety, Error::Blocked("target is labelled as a credential field; credentials are never typed".into())));
+                return Err(refuse(
+                    DeniedBy::Safety,
+                    Error::Blocked(
+                        "target is labelled as a credential field; credentials are never typed"
+                            .into(),
+                    ),
+                ));
             }
         }
         let lease = match self.leases.admit(pin.pid, opts.fence) {
@@ -235,12 +318,20 @@ impl<P: Platform> Automation<P> {
             Ok(Admitted::Unleased) => None,
             Err(e) => {
                 if matches!(e, Error::Replayed { .. }) {
-                    self.counters.replayed.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                    self.counters
+                        .replayed
+                        .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
                 }
                 return Err(refuse(DeniedBy::Lease, e));
             }
         };
-        let mut eff = self.effect(EffectKind::Deliver, pin.pid, &pin.app_id, "deliver_text", opts.max_tier);
+        let mut eff = self.effect(
+            EffectKind::Deliver,
+            pin.pid,
+            &pin.app_id,
+            "deliver_text",
+            opts.max_tier,
+        );
         eff.payload_chars = Some(text.chars().count());
         eff.lease_epoch = lease.map(|l| l.0);
         match self.admit_effect(&eff) {
@@ -255,13 +346,25 @@ impl<P: Platform> Automation<P> {
     }
 
     fn copyable(r: &Why) -> bool {
-        !matches!(r, Why::EmptyText | Why::Blocked(_) | Why::ClipboardLossy | Why::ClipboardUnavailable)
+        !matches!(
+            r,
+            Why::EmptyText | Why::Blocked(_) | Why::ClipboardLossy | Why::ClipboardUnavailable
+        )
     }
 
-    fn deliver_inner(&self, pin: &FocusPin<P::El>, text: &str, opts: &DeliveryOptions, rec: &mut DeliveryRecord) -> DeliveryOutcome {
+    fn deliver_inner(
+        &self,
+        pin: &FocusPin<P::El>,
+        text: &str,
+        opts: &DeliveryOptions,
+        rec: &mut DeliveryRecord,
+    ) -> DeliveryOutcome {
         use DeliveryOutcome::*;
         let t0 = Instant::now();
-        let step = |rec: &mut DeliveryRecord, name: &str| rec.steps.push((name.to_string(), t0.elapsed().as_millis() as u64));
+        let step = |rec: &mut DeliveryRecord, name: &str| {
+            rec.steps
+                .push((name.to_string(), t0.elapsed().as_millis() as u64))
+        };
 
         if text.trim().is_empty() {
             return NotDelivered(Why::EmptyText);
@@ -286,7 +389,14 @@ impl<P: Platform> Automation<P> {
             return NotDelivered(Why::SecureTarget);
         }
         let baseline: Option<FieldText> = self.p.field_text(&pin.editor);
-        step(rec, if baseline.is_some() { "baseline_captured" } else { "baseline_unavailable" });
+        step(
+            rec,
+            if baseline.is_some() {
+                "baseline_captured"
+            } else {
+                "baseline_unavailable"
+            },
+        );
         let readback = Duration::from_millis(opts.readback_ms);
 
         let mut last_fail: Option<Why> = None;
@@ -294,22 +404,40 @@ impl<P: Platform> Automation<P> {
 
         // Tier 1: selection-exact native write.
         if opts.max_tier >= Tier::Semantic {
-            if let Some(b) = baseline.as_ref().filter(|_| self.p.native_write_capable(&pin.editor)) {
+            if let Some(b) = baseline
+                .as_ref()
+                .filter(|_| self.p.native_write_capable(&pin.editor))
+            {
                 match self.p.native_write(&pin.editor, text) {
                     Ok(()) => {
                         let ok = self.confirm_readback(&pin.editor, b, text, readback);
-                        rec.attempts.push(Attempt { tier: Tier::Semantic, ok, detail: "selected-text write".into() });
+                        rec.attempts.push(Attempt {
+                            tier: Tier::Semantic,
+                            ok,
+                            detail: "selected-text write".into(),
+                        });
                         step(rec, "native_write");
                         if ok {
                             inserted_tier = Some(Tier::Semantic);
                         } else {
-                            return SentUnconfirmed { tier: Tier::Semantic, reason: "native_write_unconfirmed".into() };
+                            return SentUnconfirmed {
+                                tier: Tier::Semantic,
+                                reason: "native_write_unconfirmed".into(),
+                            };
                         }
                     }
-                    Err(e) => rec.attempts.push(Attempt { tier: Tier::Semantic, ok: false, detail: e.to_string() }),
+                    Err(e) => rec.attempts.push(Attempt {
+                        tier: Tier::Semantic,
+                        ok: false,
+                        detail: e.to_string(),
+                    }),
                 }
             } else {
-                rec.attempts.push(Attempt { tier: Tier::Semantic, ok: false, detail: "no selection-exact native write for this editor".into() });
+                rec.attempts.push(Attempt {
+                    tier: Tier::Semantic,
+                    ok: false,
+                    detail: "no selection-exact native write for this editor".into(),
+                });
             }
         }
 
@@ -327,27 +455,55 @@ impl<P: Platform> Automation<P> {
                         None => Err(Error::Unsupported("no in-app channel")),
                     }
                 }
-                _ => self.p.post(pin.pid, pin.window_id, &ev).map(|_| "text events posted".to_string()),
+                _ => self
+                    .p
+                    .post(pin.pid, pin.window_id, &ev)
+                    .map(|_| "text events posted".to_string()),
             };
             match sent {
-                Err(Error::Unsupported(s)) => rec.attempts.push(Attempt { tier, ok: false, detail: s.into() }),
+                Err(Error::Unsupported(s)) => rec.attempts.push(Attempt {
+                    tier,
+                    ok: false,
+                    detail: s.into(),
+                }),
                 Err(e) => {
-                    rec.attempts.push(Attempt { tier, ok: false, detail: e.to_string() });
+                    rec.attempts.push(Attempt {
+                        tier,
+                        ok: false,
+                        detail: e.to_string(),
+                    });
                     last_fail = Some(Why::PostFailed(e.to_string()));
                 }
                 Ok(detail) => {
                     step(rec, "text_posted");
                     match self.verdict(pin, baseline.as_ref(), text, readback) {
                         Verdict::Confirmed => {
-                            rec.attempts.push(Attempt { tier, ok: true, detail });
+                            rec.attempts.push(Attempt {
+                                tier,
+                                ok: true,
+                                detail,
+                            });
                             inserted_tier = Some(tier);
                         }
                         Verdict::NothingLanded if opts.escalate_when_nothing_landed => {
-                            rec.attempts.push(Attempt { tier, ok: false, detail: "posted but nothing landed".into() });
+                            rec.attempts.push(Attempt {
+                                tier,
+                                ok: false,
+                                detail: "posted but nothing landed".into(),
+                            });
                         }
-                        Verdict::NothingLanded => return SentUnconfirmed { tier, reason: "nothing_landed".into() },
+                        Verdict::NothingLanded => {
+                            return SentUnconfirmed {
+                                tier,
+                                reason: "nothing_landed".into(),
+                            }
+                        }
                         Verdict::Unproven(why) => {
-                            rec.attempts.push(Attempt { tier, ok: false, detail: why.clone() });
+                            rec.attempts.push(Attempt {
+                                tier,
+                                ok: false,
+                                detail: why.clone(),
+                            });
                             return SentUnconfirmed { tier, reason: why };
                         }
                     }
@@ -381,7 +537,14 @@ impl<P: Platform> Automation<P> {
                         Err(Error::Unsupported("enter needs tier 3"))
                     };
                     rec.enter_sent = res.is_ok();
-                    step(rec, if rec.enter_sent { "enter_sent" } else { "enter_failed" });
+                    step(
+                        rec,
+                        if rec.enter_sent {
+                            "enter_sent"
+                        } else {
+                            "enter_failed"
+                        },
+                    );
                 }
             } else {
                 step(rec, "enter_skipped_focus_changed");
@@ -394,8 +557,16 @@ impl<P: Platform> Automation<P> {
         self.in_app_bridge(pid)
     }
 
-    fn verdict(&self, pin: &FocusPin<P::El>, baseline: Option<&FieldText>, text: &str, timeout: Duration) -> Verdict {
-        let Some(b) = baseline else { return Verdict::Unproven("readback_unavailable".into()) };
+    fn verdict(
+        &self,
+        pin: &FocusPin<P::El>,
+        baseline: Option<&FieldText>,
+        text: &str,
+        timeout: Duration,
+    ) -> Verdict {
+        let Some(b) = baseline else {
+            return Verdict::Unproven("readback_unavailable".into());
+        };
         if self.confirm_readback(&pin.editor, b, text, timeout) {
             return Verdict::Confirmed;
         }
@@ -418,11 +589,15 @@ impl<P: Platform> Automation<P> {
         let fail = |r: Why| Err4::Fail(r);
         let front0 = self.front_pid();
         // A lossy snapshot makes a destructive paste unsafe: refuse before touching the clipboard.
-        let Some(snap) = self.p.clip_snapshot() else { return Err(fail(Why::ClipboardUnavailable)) };
+        let Some(snap) = self.p.clip_snapshot() else {
+            return Err(fail(Why::ClipboardUnavailable));
+        };
         if !snap.lossless {
             return Err(fail(Why::ClipboardLossy));
         }
-        let Some(staged) = self.p.clip_write(text) else { return Err(fail(Why::ClipboardUnavailable)) };
+        let Some(staged) = self.p.clip_write(text) else {
+            return Err(fail(Why::ClipboardUnavailable));
+        };
         let restore = |p: &Self| {
             p.p.clip_restore(&snap, staged);
         };
@@ -441,7 +616,11 @@ impl<P: Platform> Automation<P> {
         if let Err(e) = posted {
             restore(self);
             self.give_back_front(front0, pin.pid);
-            rec.attempts.push(Attempt { tier: Tier::Foreground, ok: false, detail: e.to_string() });
+            rec.attempts.push(Attempt {
+                tier: Tier::Foreground,
+                ok: false,
+                detail: e.to_string(),
+            });
             return Err(fail(Why::PostFailed(e.to_string())));
         }
         let verdict = self.verdict(pin, baseline, text, readback);
@@ -450,18 +629,33 @@ impl<P: Platform> Automation<P> {
             Verdict::Confirmed => {
                 // Restore only if nobody else wrote the clipboard meanwhile.
                 self.p.clip_restore(&snap, staged);
-                rec.attempts.push(Attempt { tier: Tier::Foreground, ok: true, detail: "clipboard paste, read-back confirmed, clipboard restored".into() });
+                rec.attempts.push(Attempt {
+                    tier: Tier::Foreground,
+                    ok: true,
+                    detail: "clipboard paste, read-back confirmed, clipboard restored".into(),
+                });
                 Ok(())
             }
             Verdict::NothingLanded => {
                 restore(self);
-                rec.attempts.push(Attempt { tier: Tier::Foreground, ok: false, detail: "paste landed nothing".into() });
+                rec.attempts.push(Attempt {
+                    tier: Tier::Foreground,
+                    ok: false,
+                    detail: "paste landed nothing".into(),
+                });
                 Err(fail(Why::PostFailed("paste landed nothing".into())))
             }
             Verdict::Unproven(why) => {
                 // Staged text stays on the clipboard so the user can recover it.
-                rec.attempts.push(Attempt { tier: Tier::Foreground, ok: false, detail: why.clone() });
-                Err(Err4::Done(SentUnconfirmed { tier: Tier::Foreground, reason: why }))
+                rec.attempts.push(Attempt {
+                    tier: Tier::Foreground,
+                    ok: false,
+                    detail: why.clone(),
+                });
+                Err(Err4::Done(SentUnconfirmed {
+                    tier: Tier::Foreground,
+                    reason: why,
+                }))
             }
         }
     }

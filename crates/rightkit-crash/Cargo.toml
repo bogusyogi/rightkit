@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-crash"
-version = "0.2.0"
+version = "0.2.1"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Privacy-first panic capture, redacted crash reports, native dumps and support bundles for Right Suite apps."
@@ -9,7 +9,7 @@ readme = "README.md"
 repository = "https://github.com/bogusyogi/rightkit"
 keywords = ["crash", "panic", "diagnostics", "privacy"]
 categories = ["development-tools::debugging"]
-include = ["src/**", "tests/**", "README.md", "LICENSE-MIT", "LICENSE-APACHE"]
+include = ["src/**", "tests/**", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
 
 [lib]
 name = "rightkit_crash"
@@ -19,11 +19,17 @@ path = "src/lib.rs"
 name = "rightkit-dump-helper"
 path = "src/bin/rightkit-dump-helper.rs"
 
+[features]
+default = ["support-bundle"]
+# User-initiated redacted support ZIP: `build_support_bundle`, `SupportBundleOptions`,
+# `BundleManifest`, `create_zip` and the `zip` dependency. Off for apps that only capture crashes.
+support-bundle = ["dep:zip"]
+
 [dependencies]
 rightkit-logs = { version = "0.2.0", path = "../rightkit-logs", default-features = false }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-zip = { version = "2", default-features = false, features = ["deflate"] }
+zip = { version = "2", default-features = false, features = ["deflate"], optional = true }
 
 [target.'cfg(target_os = "windows")'.dependencies]
 windows-sys = { version = "0.61.2", features = [

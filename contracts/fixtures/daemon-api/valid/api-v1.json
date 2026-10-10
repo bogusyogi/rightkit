@@ -139,9 +139,12 @@
       ],
       "responses": [
         200,
+        400,
         401,
         403,
-        409
+        409,
+        422,
+        428
       ]
     },
     {
@@ -223,6 +226,16 @@
     {
       "code": "revision_conflict",
       "status": 409,
+      "retryable": false
+    },
+    {
+      "code": "precondition_required",
+      "status": 428,
+      "retryable": false
+    },
+    {
+      "code": "idempotency_key_reuse",
+      "status": 422,
       "retryable": false
     },
     {

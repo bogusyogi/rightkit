@@ -21,13 +21,18 @@
 #![forbid(unsafe_code)]
 
 mod error;
+#[cfg(feature = "schema")]
 pub mod fixtures;
+#[cfg(feature = "schema")]
 mod schema;
+#[cfg(feature = "schema")]
 mod semantic;
 pub mod types;
 mod version;
 
+#[cfg(feature = "schema")]
 use serde::de::DeserializeOwned;
+#[cfg(feature = "schema")]
 use serde_json::Value;
 
 pub use error::ContractError;
@@ -113,6 +118,7 @@ impl Contract {
         }
     }
 
+    #[cfg(feature = "schema")]
     pub(crate) fn index(self) -> usize {
         Contract::ALL
             .iter()
@@ -124,6 +130,7 @@ impl Contract {
 /// Validates a parsed document: contract name, version negotiation, JSON
 /// Schema, then semantic rules. Negotiation runs first, so an incompatible
 /// major version never reaches schema validation.
+#[cfg(feature = "schema")]
 pub fn validate(contract: Contract, document: &Value) -> Result<(), ContractError> {
     check_contract_name(contract, document)?;
     let offered = document
@@ -136,6 +143,7 @@ pub fn validate(contract: Contract, document: &Value) -> Result<(), ContractErro
 }
 
 /// Parses JSON text and validates it with [`validate`].
+#[cfg(feature = "schema")]
 pub fn validate_str(contract: Contract, text: &str) -> Result<Value, ContractError> {
     let document: Value = serde_json::from_str(text).map_err(|source| ContractError::Parse {
         message: source.to_string(),
@@ -145,6 +153,7 @@ pub fn validate_str(contract: Contract, text: &str) -> Result<Value, ContractErr
 }
 
 /// Validates the text and deserialises it into the contract's typed struct.
+#[cfg(feature = "schema")]
 pub fn parse<T: DeserializeOwned>(contract: Contract, text: &str) -> Result<T, ContractError> {
     let document = validate_str(contract, text)?;
     serde_json::from_value(document).map_err(|source| ContractError::Parse {
@@ -155,6 +164,7 @@ pub fn parse<T: DeserializeOwned>(contract: Contract, text: &str) -> Result<T, C
 /// Validates the text, then deserialises it into the typed struct for `contract`.
 /// The typed view is checked as well as the schema, so a fixture that validates
 /// but cannot be read by the Rust types fails the suite.
+#[cfg(feature = "schema")]
 pub fn check_typed(contract: Contract, text: &str) -> Result<(), ContractError> {
     match contract {
         Contract::ContentBrief => parse::<types::ContentBrief>(contract, text).map(drop),
@@ -166,6 +176,7 @@ pub fn check_typed(contract: Contract, text: &str) -> Result<(), ContractError> 
     }
 }
 
+#[cfg(feature = "schema")]
 fn check_contract_name(contract: Contract, document: &Value) -> Result<(), ContractError> {
     let found = document
         .get("contract")

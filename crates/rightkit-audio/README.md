@@ -23,7 +23,7 @@ Do not use it for playback or for transcription (see `rightkit-asr`).
 
 | Feature | Default | Pulls in | Adds |
 |---|---|---|---|
-| `capture` | yes | `cpal` 0.18.2, `rubato` 5.0.0, `ringbuf` 0.5; macOS `objc2-core-audio`, `objc2-core-foundation`; Windows `windows`, `windows-core` | Live microphone capture (`capture` module) and the Windows endpoint and power lifecycle (`lifecycle`). Without it, the crate is filter graphs, measurement, WAV I/O and room tone only. |
+| `capture` | yes | `tracing` 0.1, `cpal` 0.18.2, `rubato` 5.0.0, `ringbuf` 0.5; macOS `objc2-core-audio`, `objc2-core-foundation`; Windows `windows`, `windows-core` | Live microphone capture (`capture` module) and the Windows endpoint and power lifecycle (`lifecycle`). Without it, the crate is filter graphs, measurement, WAV I/O and room tone only. |
 
 ## Usage
 
@@ -50,4 +50,4 @@ let samples: Vec<f32> = read_wav_16k_mono(Path::new("/abs/in.wav"))?;
 
 ## Version and changes
 
-Published version: see [INDEX.md](../../INDEX.md). Publication goes through the RightKit release workflow after platform gates pass. No CHANGELOG.md in this crate.
+Published version: see [INDEX.md](../../INDEX.md). Publication goes through the RightKit release workflow after platform gates pass. Changes are listed in [CHANGELOG.md](CHANGELOG.md).

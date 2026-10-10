@@ -1,22 +1,24 @@
 [package]
 name = "rightkit-control"
-version = "0.1.11"
+version = "0.2.0"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Background native input, accessibility reads, and a WebDriver bridge for driving real desktop apps without stealing focus."
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/bogusyogi/rightkit"
 readme = "README.md"
-include = ["src/**", "tests/**", "README.md", "LICENSE-MIT", "LICENSE-APACHE"]
+include = ["src/**", "tests/**", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
 
 # Zero third-party dependencies by default: macOS paths use direct framework
 # FFI. The optional `tauri-plugin` feature adds only `tauri` (already in the
 # workspace lock) for the in-app control server.
 [features]
-default = ["wv2-0_38"]
+default = []
+# The embedded Tauri control server. On Windows it also needs exactly one `wv2-*` feature (enforced by
+# a compile_error in `embedded/win_view.rs`); macOS needs none. Tauri 2.11: `features = ["tauri-plugin", "wv2-0_38"]`.
 tauri-plugin = ["dep:tauri", "dep:rightkit-service", "dep:serde_json"]
 # Windows: the `windows` + `webview2-com` generation the app's Tauri resolves, so WebView2 types cross the
-# Tauri boundary. Tauri 2.11 (wry 0.55) = wv2-0_38 (default); Tauri 2.12+ = default-features = false, features = ["tauri-plugin", "wv2-0_39"].
+# Tauri boundary. Tauri 2.11 (wry 0.55) = wv2-0_38; Tauri 2.12+ = wv2-0_39. Neither is default: enable one together with `tauri-plugin`.
 # macOS only: calls WKWebView `_setWindowOcclusionDetectionEnabled:` (private SPI) for off-screen
 # recording. Default off so shipping apps opt in explicitly; without it `offscreen` fails with a typed
 # OcclusionSpiNotCompiled error on macOS.

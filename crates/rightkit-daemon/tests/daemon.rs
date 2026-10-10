@@ -931,3 +931,35 @@ fn events_are_written_as_json_lines_without_secrets() {
         .any(|l| l["event"] == "AUTH_REJECTED" && l["reason"] == "malformed_nonce"));
     assert!(!log.contains("RK-Device") && !log.contains("meta-secret"));
 }
+
+#[test]
+fn provider_outside_the_slug_rule_never_reaches_a_handler() {
+    let fake = Arc::new(FakeOAuth(Mutex::new(vec![]), OAuthOutcome::Completed));
+    let h = Harness::with_oauth(
+        |c| c.oauth_success_redirect = "/done".into(),
+        Some(fake.clone()),
+    );
+    let long = "a".repeat(65);
+    for p in ["Instagram", "a_b", "", long.as_str()] {
+        let r = h.call(get(&format!("/v1/oauth/{p}/callback?code=c&state=s")));
+        assert_eq!(
+            (r.status, &r.body["error"]),
+            (404, &json!("not_found")),
+            "oauth {p:?}"
+        );
+        let r = h.call(h.webhook(p, b"meta-secret", h.now(), b"{}"));
+        assert_eq!(
+            (r.status, &r.body["error"]),
+            (404, &json!("not_found")),
+            "webhook {p:?}"
+        );
+    }
+    assert!(fake.0.lock().unwrap().is_empty());
+    assert!(h.events("OAUTH_COMPLETED").is_empty());
+    // A valid slug dispatches normally.
+    assert_eq!(
+        h.call(get("/v1/oauth/instagram-login/callback?code=c&state=s"))
+            .status,
+        302
+    );
+}

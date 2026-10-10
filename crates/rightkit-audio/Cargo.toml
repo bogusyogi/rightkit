@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-audio"
-version = "0.2.0"
+version = "0.2.1"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Shared audio for Right Suite apps: typed FFmpeg filter graphs, loudness gates, room tone, ducking, WAV I/O, and cpal capture with resample/downmix/recovery."
@@ -9,13 +9,13 @@ repository = "https://github.com/bogusyogi/rightkit"
 keywords = ["audio", "ffmpeg", "capture", "loudness"]
 categories = ["multimedia::audio"]
 readme = "README.md"
-include = ["src/**", "tests/**", "presets/**", "README.md", "LICENSE-MIT", "LICENSE-APACHE"]
+include = ["src/**", "tests/**", "presets/**", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
 
 [features]
 default = ["capture"]
-# Live microphone capture (cpal + rubato + ringbuf), the macOS CoreAudio device probe,
+# Live microphone capture (cpal + rubato + ringbuf + tracing), the macOS CoreAudio device probe,
 # and the Windows endpoint/power lifecycle adapter. Off for pure filter-graph consumers.
-capture = ["dep:cpal", "dep:rubato", "dep:ringbuf", "dep:objc2-core-audio", "dep:objc2-core-foundation", "dep:windows", "dep:windows-core"]
+capture = ["dep:tracing", "dep:cpal", "dep:rubato", "dep:ringbuf", "dep:objc2-core-audio", "dep:objc2-core-foundation", "dep:windows", "dep:windows-core"]
 
 [dependencies]
 rightkit-media = { path = "../rightkit-media", version = "0.2.3" }
@@ -26,7 +26,7 @@ hound = "3"
 cpal = { version = "0.18.2", optional = true }
 rubato = { version = "5.0.0", optional = true }
 ringbuf = { version = "0.5", optional = true }
-tracing = "0.1"
+tracing = { version = "0.1", optional = true }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2-core-audio = { version = "0.3.2", optional = true }

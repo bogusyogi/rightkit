@@ -58,7 +58,12 @@ pub fn collapse_exact_mirror(value: &str) -> Option<&str> {
         .map(|(l, _)| l)
 }
 
-fn confirm_representation(before: &str, range: Option<(usize, usize)>, after: &str, needle: &str) -> bool {
+fn confirm_representation(
+    before: &str,
+    range: Option<(usize, usize)>,
+    after: &str,
+    needle: &str,
+) -> bool {
     if after == before {
         return false;
     }
@@ -78,7 +83,12 @@ fn confirm_representation(before: &str, range: Option<(usize, usize)>, after: &s
     occurrences(after, needle) == occurrences(before, needle) + 1
 }
 
-fn confirm_any_representation(before: &str, range: Option<(usize, usize)>, after: &str, needle: &str) -> bool {
+fn confirm_any_representation(
+    before: &str,
+    range: Option<(usize, usize)>,
+    after: &str,
+    needle: &str,
+) -> bool {
     if confirm_representation(before, range, after, needle) {
         return true;
     }
@@ -90,7 +100,12 @@ fn confirm_any_representation(before: &str, range: Option<(usize, usize)>, after
 }
 
 /// The single insertion-confirmation rule shared by every tier and platform.
-pub fn confirm_insertion(before: &str, range: Option<(usize, usize)>, after: &str, needle: &str) -> bool {
+pub fn confirm_insertion(
+    before: &str,
+    range: Option<(usize, usize)>,
+    after: &str,
+    needle: &str,
+) -> bool {
     if needle.is_empty() {
         return false;
     }
@@ -130,7 +145,11 @@ pub fn replacement_editor_may_receive(
     candidate_fingerprint: Option<u64>,
     pinned_fingerprint: Option<u64>,
 ) -> bool {
-    original_gone && same_process_and_window && candidate_secure == Some(false) && candidate_fingerprint.is_some() && candidate_fingerprint == pinned_fingerprint
+    original_gone
+        && same_process_and_window
+        && candidate_secure == Some(false)
+        && candidate_fingerprint.is_some()
+        && candidate_fingerprint == pinned_fingerprint
 }
 
 /// Continuity of a captured focus anchor measured against an OS-clock
@@ -169,12 +188,32 @@ mod tests {
         assert!(confirm_insertion("", None, "hello", "hello"));
         let needle = "one.\n\ntwo.";
         assert!(confirm_insertion("\n", Some((0, 0)), "one.\ntwo.", needle));
-        assert!(confirm_insertion("draft", Some((5, 0)), "draftone.\ntwo.", needle));
+        assert!(confirm_insertion(
+            "draft",
+            Some((5, 0)),
+            "draftone.\ntwo.",
+            needle
+        ));
         assert!(confirm_insertion("", None, "one.\ntwo.one.\ntwo.", needle));
-        assert!(confirm_insertion("draftdraft", None, "draftdraftone.\ntwo.one.\ntwo.", needle));
+        assert!(confirm_insertion(
+            "draftdraft",
+            None,
+            "draftdraftone.\ntwo.one.\ntwo.",
+            needle
+        ));
         assert!(!confirm_insertion("one.\ntwo.", None, "one.\ntwo.", needle));
-        assert!(!confirm_insertion("draft", None, "draftone.\nother.", needle));
-        assert!(!confirm_insertion("draft", None, "draftone.\ntwo.one.\ntwo.", needle));
+        assert!(!confirm_insertion(
+            "draft",
+            None,
+            "draftone.\nother.",
+            needle
+        ));
+        assert!(!confirm_insertion(
+            "draft",
+            None,
+            "draftone.\ntwo.one.\ntwo.",
+            needle
+        ));
         assert!(!confirm_insertion("hello", None, "hello", "hello"));
         assert!(!confirm_insertion("draft", None, "draft and more", "draft"));
         assert!(!confirm_insertion("gamma gamma", None, "gamma", "gamma"));
@@ -184,10 +223,20 @@ mod tests {
     #[test]
     fn selection_replacement_is_exact() {
         // "hello world" with "world" (6,5) selected, replaced by "there".
-        assert!(confirm_insertion("hello world", Some((6, 5)), "hello there", "there"));
+        assert!(confirm_insertion(
+            "hello world",
+            Some((6, 5)),
+            "hello there",
+            "there"
+        ));
         // Appended instead of replacing: the range reconstruction fails but a
         // single new occurrence still attributes the text.
-        assert!(confirm_insertion("hello world", Some((6, 5)), "hello worldthere", "there"));
+        assert!(confirm_insertion(
+            "hello world",
+            Some((6, 5)),
+            "hello worldthere",
+            "there"
+        ));
     }
 
     #[test]
@@ -198,14 +247,48 @@ mod tests {
     #[test]
     fn only_the_same_place_with_the_same_text_may_replace_the_original() {
         let fp = Some(text_fingerprint("draft\n\ntext"));
-        assert_eq!(text_fingerprint("a\n\nb"), text_fingerprint("a\nb"), "canonical line breaks");
-        assert!(replacement_editor_may_receive(true, true, Some(false), fp, fp));
-        assert!(!replacement_editor_may_receive(false, true, Some(false), fp, fp), "original not provably gone");
-        assert!(!replacement_editor_may_receive(true, false, Some(false), fp, fp), "other process or window");
-        assert!(!replacement_editor_may_receive(true, true, None, fp, fp), "secure state unknown");
-        assert!(!replacement_editor_may_receive(true, true, Some(true), fp, fp), "secure");
-        assert!(!replacement_editor_may_receive(true, true, Some(false), Some(text_fingerprint("other")), fp), "different text");
-        assert!(!replacement_editor_may_receive(true, true, Some(false), None, None), "nothing fingerprinted");
+        assert_eq!(
+            text_fingerprint("a\n\nb"),
+            text_fingerprint("a\nb"),
+            "canonical line breaks"
+        );
+        assert!(replacement_editor_may_receive(
+            true,
+            true,
+            Some(false),
+            fp,
+            fp
+        ));
+        assert!(
+            !replacement_editor_may_receive(false, true, Some(false), fp, fp),
+            "original not provably gone"
+        );
+        assert!(
+            !replacement_editor_may_receive(true, false, Some(false), fp, fp),
+            "other process or window"
+        );
+        assert!(
+            !replacement_editor_may_receive(true, true, None, fp, fp),
+            "secure state unknown"
+        );
+        assert!(
+            !replacement_editor_may_receive(true, true, Some(true), fp, fp),
+            "secure"
+        );
+        assert!(
+            !replacement_editor_may_receive(
+                true,
+                true,
+                Some(false),
+                Some(text_fingerprint("other")),
+                fp
+            ),
+            "different text"
+        );
+        assert!(
+            !replacement_editor_may_receive(true, true, Some(false), None, None),
+            "nothing fingerprinted"
+        );
     }
 
     #[test]

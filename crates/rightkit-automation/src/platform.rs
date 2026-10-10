@@ -14,8 +14,18 @@ pub enum InputEvent {
     /// Unicode text, delivered as key events (never the clipboard).
     Text(String),
     Key(Chord),
-    Click { x: f64, y: f64, button: Button, count: u32 },
-    Scroll { x: f64, y: f64, dx: f64, dy: f64 },
+    Click {
+        x: f64,
+        y: f64,
+        button: Button,
+        count: u32,
+    },
+    Scroll {
+        x: f64,
+        y: f64,
+        dx: f64,
+        dy: f64,
+    },
 }
 
 /// Clipboard state held across a paste transaction. `lossless` is false when

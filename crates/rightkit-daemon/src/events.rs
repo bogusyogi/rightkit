@@ -25,7 +25,7 @@ pub fn contract_name(event: &str) -> Option<&'static str> {
         "DEVICE_REVOKED" => "device_revoked",
         "UPLOAD_STARTED" => "upload_started",
         "UPLOAD_COMPLETE" => "upload_completed",
-        "JOB_UPDATED" => "job_queued",
+        "JOB_UPDATED" => "job_updated",
         _ => return None,
     })
 }

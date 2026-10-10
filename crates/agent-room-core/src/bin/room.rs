@@ -3,7 +3,6 @@ use agent_room_core::protocol::{EventKind, Room, RoomConfig, ScopeRef, SeatConfi
 use agent_room_core::runtime::{load_runtime, write_owner_file, write_runtime, RuntimeInfo};
 use agent_room_core::server::{serve, ServerState};
 use agent_room_core::store::RoomStore;
-use rand::RngCore;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
@@ -715,7 +714,7 @@ fn required_path(args: &[String], flag: &str) -> Result<PathBuf, Box<dyn std::er
 
 fn random_token(bytes: usize) -> String {
     let mut value = vec![0_u8; bytes];
-    rand::rng().fill_bytes(&mut value);
+    getrandom::fill(&mut value).expect("system randomness unavailable");
     value.iter().map(|byte| format!("{byte:02x}")).collect()
 }
 

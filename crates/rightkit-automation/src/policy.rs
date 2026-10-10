@@ -48,15 +48,26 @@ impl Policy {
     /// `allow` holds bundle ids (macOS) or lowercase exe names (Windows). Empty denies all.
     pub fn new<I: IntoIterator<Item = S>, S: Into<String>>(allow: I) -> Self {
         Policy {
-            allowed: Mutex::new(allow.into_iter().map(|s| s.into().to_ascii_lowercase()).collect()),
+            allowed: Mutex::new(
+                allow
+                    .into_iter()
+                    .map(|s| s.into().to_ascii_lowercase())
+                    .collect(),
+            ),
             self_pid: Mutex::new(None),
         }
     }
     pub fn allow(&self, app_id: &str) {
-        self.allowed.lock().unwrap().insert(app_id.to_ascii_lowercase());
+        self.allowed
+            .lock()
+            .unwrap()
+            .insert(app_id.to_ascii_lowercase());
     }
     pub fn revoke(&self, app_id: &str) {
-        self.allowed.lock().unwrap().remove(&app_id.to_ascii_lowercase());
+        self.allowed
+            .lock()
+            .unwrap()
+            .remove(&app_id.to_ascii_lowercase());
     }
     pub fn allowed(&self) -> Vec<String> {
         let mut v: Vec<String> = self.allowed.lock().unwrap().iter().cloned().collect();
@@ -81,7 +92,10 @@ impl Policy {
         if self.allowed.lock().unwrap().contains(&id) {
             Ok(())
         } else {
-            Err(Error::Blocked(format!("{} is not on the allowlist", app.app_id)))
+            Err(Error::Blocked(format!(
+                "{} is not on the allowlist",
+                app.app_id
+            )))
         }
     }
 }
@@ -90,7 +104,10 @@ impl Policy {
 /// `ActOptions::confirm` to contain the class.
 pub fn classify_risk(label: &str) -> Option<RiskClass> {
     let l = label.to_ascii_lowercase();
-    let words: Vec<&str> = l.split(|c: char| !c.is_alphanumeric()).filter(|w| !w.is_empty()).collect();
+    let words: Vec<&str> = l
+        .split(|c: char| !c.is_alphanumeric())
+        .filter(|w| !w.is_empty())
+        .collect();
     let has = |set: &[&str]| words.iter().any(|w| set.contains(w));
     if has(&["delete", "remove", "erase", "discard", "trash", "destroy"]) {
         Some(RiskClass::Delete)
@@ -119,12 +136,16 @@ fn secret_prefixes() -> Vec<String> {
 pub fn looks_secret(v: &str) -> bool {
     let t = v.trim();
     let lower = t.to_ascii_lowercase();
-    if secret_prefixes().iter().any(|p| lower.starts_with(p.as_str())) {
+    if secret_prefixes()
+        .iter()
+        .any(|p| lower.starts_with(p.as_str()))
+    {
         return true;
     }
     t.len() >= 24
         && !t.contains(' ')
-        && t.chars().all(|c| c.is_ascii_alphanumeric() || "+/=_-".contains(c))
+        && t.chars()
+            .all(|c| c.is_ascii_alphanumeric() || "+/=_-".contains(c))
         && t.chars().any(|c| c.is_ascii_digit())
         && t.chars().any(|c| c.is_ascii_alphabetic())
 }
@@ -133,10 +154,27 @@ pub fn looks_secret(v: &str) -> bool {
 /// or showing it in a capture, is refused even when the OS does not flag it secure.
 pub fn credential_label(label: &str) -> bool {
     let l = label.to_ascii_lowercase();
-    let words: Vec<&str> = l.split(|c: char| !c.is_alphanumeric()).filter(|w| !w.is_empty()).collect();
+    let words: Vec<&str> = l
+        .split(|c: char| !c.is_alphanumeric())
+        .filter(|w| !w.is_empty())
+        .collect();
     let has = |w: &str| words.contains(&w);
     let pair = |a: &str, b: &str| words.windows(2).any(|p| p[0] == a && p[1] == b);
-    ["password", "passcode", "passphrase", "secret", "token", "otp", "cvv", "cvc", "ssn", "apikey", "pwd"].iter().any(|w| has(w))
+    [
+        "password",
+        "passcode",
+        "passphrase",
+        "secret",
+        "token",
+        "otp",
+        "cvv",
+        "cvc",
+        "ssn",
+        "apikey",
+        "pwd",
+    ]
+    .iter()
+    .any(|w| has(w))
         || pair("api", "key")
         || pair("private", "key")
         || pair("one", "time")
@@ -219,7 +257,11 @@ pub struct Receipt {
 impl Receipt {
     pub fn to_json(&self) -> String {
         let attempts = json::arr(self.attempts.iter().map(|a| {
-            Obj::new().str("tier", a.tier.label()).bool("ok", a.ok).str("detail", &a.detail).build()
+            Obj::new()
+                .str("tier", a.tier.label())
+                .bool("ok", a.ok)
+                .str("detail", &a.detail)
+                .build()
         }));
         let opt_num = |v: Option<i64>| v.map(|n| n.to_string()).unwrap_or_else(|| "null".into());
         Obj::new()
@@ -234,15 +276,41 @@ impl Receipt {
             .str("action", &self.action)
             .opt_str("value", &self.value)
             .raw("attempts", attempts)
-            .raw("tier_used", self.tier_used.map(|t| json::s(t.label())).unwrap_or_else(|| "null".into()))
-            .raw("frontmost_before", opt_num(self.frontmost_before.map(i64::from)))
-            .raw("frontmost_after", opt_num(self.frontmost_after.map(i64::from)))
+            .raw(
+                "tier_used",
+                self.tier_used
+                    .map(|t| json::s(t.label()))
+                    .unwrap_or_else(|| "null".into()),
+            )
+            .raw(
+                "frontmost_before",
+                opt_num(self.frontmost_before.map(i64::from)),
+            )
+            .raw(
+                "frontmost_after",
+                opt_num(self.frontmost_after.map(i64::from)),
+            )
             .bool("focus_moved", self.focus_moved)
             .str("result", self.result.label())
             .opt_str("error", &self.error)
-            .raw("lease_epoch", self.lease.map(|l| l.0.to_string()).unwrap_or_else(|| "null".into()))
-            .raw("lease_seq", self.lease.map(|l| l.1.to_string()).unwrap_or_else(|| "null".into()))
-            .raw("denied_by", self.denied_by.map(|d| json::s(d.label())).unwrap_or_else(|| "null".into()))
+            .raw(
+                "lease_epoch",
+                self.lease
+                    .map(|l| l.0.to_string())
+                    .unwrap_or_else(|| "null".into()),
+            )
+            .raw(
+                "lease_seq",
+                self.lease
+                    .map(|l| l.1.to_string())
+                    .unwrap_or_else(|| "null".into()),
+            )
+            .raw(
+                "denied_by",
+                self.denied_by
+                    .map(|d| json::s(d.label()))
+                    .unwrap_or_else(|| "null".into()),
+            )
             .build()
     }
 }
@@ -251,9 +319,21 @@ impl Receipt {
 /// window while a session is active; the crate only emits events.
 #[derive(Debug, Clone, PartialEq)]
 pub enum SessionEvent {
-    Started { session: String, pid: i32, app_id: String, label: String },
-    Acted { session: String, action: String, tier: Option<Tier>, result: ResultKind },
-    Ended { session: String },
+    Started {
+        session: String,
+        pid: i32,
+        app_id: String,
+        label: String,
+    },
+    Acted {
+        session: String,
+        action: String,
+        tier: Option<Tier>,
+        result: ResultKind,
+    },
+    Ended {
+        session: String,
+    },
 }
 
 pub trait Indicator: Send + Sync {
@@ -301,12 +381,20 @@ impl JsonlEvidence {
     /// `path` must be absolute: evidence never lands relative to the working directory.
     pub fn open(path: &std::path::Path) -> std::io::Result<Self> {
         if !path.is_absolute() {
-            return Err(std::io::Error::new(std::io::ErrorKind::InvalidInput, "evidence path must be absolute (refusing a cwd-relative location)"));
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "evidence path must be absolute (refusing a cwd-relative location)",
+            ));
         }
         if let Some(d) = path.parent() {
             std::fs::create_dir_all(d)?;
         }
-        Ok(JsonlEvidence(Mutex::new(std::fs::OpenOptions::new().create(true).append(true).open(path)?)))
+        Ok(JsonlEvidence(Mutex::new(
+            std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(path)?,
+        )))
     }
 }
 impl EvidenceSink for JsonlEvidence {
@@ -322,20 +410,32 @@ mod tests {
     use super::*;
 
     fn app(id: &str, pid: i32) -> AppInfo {
-        AppInfo { pid, app_id: id.into(), name: id.into(), path: None, started: None }
+        AppInfo {
+            pid,
+            app_id: id.into(),
+            name: id.into(),
+            path: None,
+            started: None,
+        }
     }
 
     #[test]
     fn empty_allowlist_denies_everything() {
         let p = Policy::default();
-        assert!(matches!(p.check(&app("com.apple.TextEdit", 1)), Err(Error::Blocked(_))));
+        assert!(matches!(
+            p.check(&app("com.apple.TextEdit", 1)),
+            Err(Error::Blocked(_))
+        ));
     }
 
     #[test]
     fn allowlist_deny_list_and_self_protection() {
         let p = Policy::new(["com.apple.TextEdit", "com.apple.systempreferences"]);
         assert!(p.check(&app("com.apple.textedit", 1)).is_ok());
-        assert!(p.check(&app("com.apple.systempreferences", 2)).is_err(), "deny list beats allowlist");
+        assert!(
+            p.check(&app("com.apple.systempreferences", 2)).is_err(),
+            "deny list beats allowlist"
+        );
         p.protect_pid(1);
         assert!(p.check(&app("com.apple.TextEdit", 1)).is_err());
         assert!(p.check(&app("com.apple.TextEdit", 9)).is_ok());
@@ -361,10 +461,26 @@ mod tests {
 
     #[test]
     fn credential_labels() {
-        for l in ["Password", "Confirm password", "API key", "Card number", "One-time code", "Security Code", "Client secret", "Access token"] {
+        for l in [
+            "Password",
+            "Confirm password",
+            "API key",
+            "Card number",
+            "One-time code",
+            "Security Code",
+            "Client secret",
+            "Access token",
+        ] {
             assert!(credential_label(l), "{l}");
         }
-        for l in ["Search", "Body", "Pin tab", "Keyboard", "Name", "Passport photo"] {
+        for l in [
+            "Search",
+            "Body",
+            "Pin tab",
+            "Keyboard",
+            "Name",
+            "Passport photo",
+        ] {
             assert!(!credential_label(l), "{l}");
         }
     }
@@ -382,7 +498,11 @@ mod tests {
             element: Some("e1".into()),
             action: "press".into(),
             value: None,
-            attempts: vec![Attempt { tier: Tier::Semantic, ok: true, detail: "AXPress".into() }],
+            attempts: vec![Attempt {
+                tier: Tier::Semantic,
+                ok: true,
+                detail: "AXPress".into(),
+            }],
             tier_used: Some(Tier::Semantic),
             frontmost_before: Some(1),
             frontmost_after: Some(1),

@@ -63,7 +63,8 @@ impl Platform for WinPlatform {
 
     fn root(&self, t: &Target) -> Result<El> {
         uia::ensure_com();
-        let h = sys::main_window(t.pid, t.window_id).ok_or_else(|| Error::NotFound(format!("window of pid {}", t.pid)))?;
+        let h = sys::main_window(t.pid, t.window_id)
+            .ok_or_else(|| Error::NotFound(format!("window of pid {}", t.pid)))?;
         uia::element_from_hwnd(h)
     }
     fn read(&self, el: &El) -> Option<RawNode> {
@@ -93,7 +94,9 @@ impl Platform for WinPlatform {
     fn menu_press(&self, _pid: i32, _path: &[String]) -> Result<()> {
         // UIA menu items only exist while the menu is open; opening it is visible and
         // takes focus. Use accelerators (tier 4) or the app's own commands instead.
-        Err(Error::Unsupported("menu commands need the menu opened; no background form on Windows"))
+        Err(Error::Unsupported(
+            "menu commands need the menu opened; no background form on Windows",
+        ))
     }
 
     fn field_text(&self, el: &El) -> Option<FieldText> {
@@ -137,22 +140,42 @@ impl Platform for WinPlatform {
         let (path, id) = sys::resolve_launch(spec)?;
         let owned = sys::launch(&path, &id, self.process_cap)?;
         let pid = owned.pid;
-        self.owned.lock().unwrap_or_else(|e| e.into_inner()).insert(pid, owned);
+        self.owned
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(pid, owned);
         Ok(pid)
     }
     fn terminate(&self, pid: i32) -> Result<()> {
-        if !self.owned.lock().unwrap_or_else(|e| e.into_inner()).contains_key(&pid) {
-            return Err(Error::Blocked(format!("pid {pid} was not launched by this engine; user apps are never terminated")));
+        if !self
+            .owned
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .contains_key(&pid)
+        {
+            return Err(Error::Blocked(format!(
+                "pid {pid} was not launched by this engine; user apps are never terminated"
+            )));
         }
         sys::terminate(pid)?;
         // Exited: release the job (kills any helper the app left behind).
-        self.owned.lock().unwrap_or_else(|e| e.into_inner()).remove(&pid);
+        self.owned
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(&pid);
         Ok(())
     }
     fn kill_owned(&self, pid: i32) -> Result<()> {
-        match self.owned.lock().unwrap_or_else(|e| e.into_inner()).remove(&pid) {
+        match self
+            .owned
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(&pid)
+        {
             Some(_) => Ok(()), // dropping the Owned terminates the job
-            None => Err(Error::Blocked(format!("pid {pid} was not launched by this engine"))),
+            None => Err(Error::Blocked(format!(
+                "pid {pid} was not launched by this engine"
+            ))),
         }
     }
 }

@@ -37,7 +37,7 @@ path = "src/bin/rightkit-qa.rs"
 
 # Only `mac::frontmost_name` / `mac::frontmost_pid` are used; the default feature set is empty.
 [target.'cfg(target_os = "macos")'.dependencies]
-rightkit-control = { version = "0.1.8", path = "../rightkit-control", default-features = false }
+rightkit-control = { version = "0.2.0", path = "../rightkit-control", default-features = false }
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging"] }

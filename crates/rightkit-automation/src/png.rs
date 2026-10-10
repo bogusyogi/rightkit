@@ -6,7 +6,11 @@ fn crc32(data: &[u8]) -> u32 {
     for (n, slot) in table.iter_mut().enumerate() {
         let mut c = n as u32;
         for _ in 0..8 {
-            c = if c & 1 != 0 { 0xEDB8_8320 ^ (c >> 1) } else { c >> 1 };
+            c = if c & 1 != 0 {
+                0xEDB8_8320 ^ (c >> 1)
+            } else {
+                c >> 1
+            };
         }
         *slot = c;
     }
@@ -72,10 +76,16 @@ pub fn encode_rgba(width: u32, height: u32, rgba: &[u8]) -> Option<Vec<u8>> {
 
 /// Dimensions from a PNG header (for validation).
 pub fn dimensions(png: &[u8]) -> Option<(u32, u32)> {
-    if png.len() < 24 || png[..8] != [0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A] || &png[12..16] != b"IHDR" {
+    if png.len() < 24
+        || png[..8] != [0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A]
+        || &png[12..16] != b"IHDR"
+    {
         return None;
     }
-    Some((u32::from_be_bytes(png[16..20].try_into().ok()?), u32::from_be_bytes(png[20..24].try_into().ok()?)))
+    Some((
+        u32::from_be_bytes(png[16..20].try_into().ok()?),
+        u32::from_be_bytes(png[20..24].try_into().ok()?),
+    ))
 }
 
 // ------------------------------------------------------------ decoder -----
@@ -141,14 +151,30 @@ impl Huff {
     }
 }
 
-const LBASE: [u16; 29] = [3, 4, 5, 6, 7, 8, 9, 10, 11, 13, 15, 17, 19, 23, 27, 31, 35, 43, 51, 59, 67, 83, 99, 115, 131, 163, 195, 227, 258];
-const LEXT: [u8; 29] = [0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3, 4, 4, 4, 4, 5, 5, 5, 5, 0];
-const DBASE: [u16; 30] = [1, 2, 3, 4, 5, 7, 9, 13, 17, 25, 33, 49, 65, 97, 129, 193, 257, 385, 513, 769, 1025, 1537, 2049, 3073, 4097, 6145, 8193, 12289, 16385, 24577];
-const DEXT: [u8; 30] = [0, 0, 0, 0, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6, 7, 7, 8, 8, 9, 9, 10, 10, 11, 11, 12, 12, 13, 13];
+const LBASE: [u16; 29] = [
+    3, 4, 5, 6, 7, 8, 9, 10, 11, 13, 15, 17, 19, 23, 27, 31, 35, 43, 51, 59, 67, 83, 99, 115, 131,
+    163, 195, 227, 258,
+];
+const LEXT: [u8; 29] = [
+    0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3, 4, 4, 4, 4, 5, 5, 5, 5, 0,
+];
+const DBASE: [u16; 30] = [
+    1, 2, 3, 4, 5, 7, 9, 13, 17, 25, 33, 49, 65, 97, 129, 193, 257, 385, 513, 769, 1025, 1537,
+    2049, 3073, 4097, 6145, 8193, 12289, 16385, 24577,
+];
+const DEXT: [u8; 30] = [
+    0, 0, 0, 0, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6, 7, 7, 8, 8, 9, 9, 10, 10, 11, 11, 12, 12, 13,
+    13,
+];
 
 /// Raw DEFLATE (RFC 1951). `limit` bounds the output so a hostile stream cannot exhaust memory.
 fn inflate(data: &[u8], limit: usize) -> Option<Vec<u8>> {
-    let mut b = Bits { d: data, pos: 0, bit: 0, cnt: 0 };
+    let mut b = Bits {
+        d: data,
+        pos: 0,
+        bit: 0,
+        cnt: 0,
+    };
     let mut out: Vec<u8> = Vec::new();
     loop {
         let last = b.need(1)?;
@@ -177,7 +203,9 @@ fn inflate(data: &[u8], limit: usize) -> Option<Vec<u8>> {
                     let nlen = b.need(5)? as usize + 257;
                     let ndist = b.need(5)? as usize + 1;
                     let ncode = b.need(4)? as usize + 4;
-                    const ORDER: [usize; 19] = [16, 17, 18, 0, 8, 7, 9, 6, 10, 5, 11, 4, 12, 3, 13, 2, 14, 1, 15];
+                    const ORDER: [usize; 19] = [
+                        16, 17, 18, 0, 8, 7, 9, 6, 10, 5, 11, 4, 12, 3, 13, 2, 14, 1, 15,
+                    ];
                     let mut cl = [0u8; 19];
                     for &o in ORDER.iter().take(ncode) {
                         cl[o] = b.need(3)? as u8;
@@ -213,9 +241,11 @@ fn inflate(data: &[u8], limit: usize) -> Option<Vec<u8>> {
                         break;
                     } else {
                         let s = sym - 257;
-                        let len = usize::from(*LBASE.get(s)?) + b.need(u32::from(*LEXT.get(s)?))? as usize;
+                        let len = usize::from(*LBASE.get(s)?)
+                            + b.need(u32::from(*LEXT.get(s)?))? as usize;
                         let ds = dist.decode(&mut b)? as usize;
-                        let d = usize::from(*DBASE.get(ds)?) + b.need(u32::from(*DEXT.get(ds)?))? as usize;
+                        let d = usize::from(*DBASE.get(ds)?)
+                            + b.need(u32::from(*DEXT.get(ds)?))? as usize;
                         if d > out.len() {
                             return None;
                         }
@@ -291,9 +321,19 @@ pub fn decode_rgba(png: &[u8]) -> Option<(u32, u32, Vec<u8>)> {
                 2 => v.wrapping_add(b),
                 3 => v.wrapping_add(((u16::from(a) + u16::from(b)) / 2) as u8),
                 4 => {
-                    let (pa, pb, pc) = (i32::from(b) - i32::from(c), i32::from(a) - i32::from(c), i32::from(a) + i32::from(b) - 2 * i32::from(c));
+                    let (pa, pb, pc) = (
+                        i32::from(b) - i32::from(c),
+                        i32::from(a) - i32::from(c),
+                        i32::from(a) + i32::from(b) - 2 * i32::from(c),
+                    );
                     let (da, db, dc) = (pa.abs(), pb.abs(), pc.abs());
-                    let p = if da <= db && da <= dc { a } else if db <= dc { b } else { c };
+                    let p = if da <= db && da <= dc {
+                        a
+                    } else if db <= dc {
+                        b
+                    } else {
+                        c
+                    };
                     v.wrapping_add(p)
                 }
                 _ => return None,
@@ -370,7 +410,10 @@ mod tests {
                 break;
             }
         }
-        assert_eq!(adler32(&raw), u32::from_be_bytes(idat[j..j + 4].try_into().unwrap()));
+        assert_eq!(
+            adler32(&raw),
+            u32::from_be_bytes(idat[j..j + 4].try_into().unwrap())
+        );
         let rows: Vec<u8> = raw.chunks(13).flat_map(|r| r[1..].to_vec()).collect();
         assert_eq!(rows, px);
     }
@@ -383,10 +426,21 @@ mod tests {
         let (dw, dh, mut back) = decode_rgba(&png).unwrap();
         assert_eq!((dw, dh), (w, h));
         assert_eq!(back, px);
-        let n = fill_rects(w, h, &mut back, &[(5, 5, 10, 8), (-4, -4, 2, 2), (38, 28, 99, 99)]);
+        let n = fill_rects(
+            w,
+            h,
+            &mut back,
+            &[(5, 5, 10, 8), (-4, -4, 2, 2), (38, 28, 99, 99)],
+        );
         assert_eq!(n, 15 + 4 + 4);
-        assert_eq!(&back[(5 * 40 + 5) * 4..(5 * 40 + 5) * 4 + 4], &[0, 0, 0, 255]);
-        assert_ne!(&back[(5 * 40 + 10) * 4..(5 * 40 + 10) * 4 + 4], &[0, 0, 0, 255]);
+        assert_eq!(
+            &back[(5 * 40 + 5) * 4..(5 * 40 + 5) * 4 + 4],
+            &[0, 0, 0, 255]
+        );
+        assert_ne!(
+            &back[(5 * 40 + 10) * 4..(5 * 40 + 10) * 4 + 4],
+            &[0, 0, 0, 255]
+        );
         assert!(decode_rgba(b"not a png at all, no header").is_none());
     }
 

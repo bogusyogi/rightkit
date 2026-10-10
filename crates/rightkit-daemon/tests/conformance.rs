@@ -319,3 +319,164 @@ fn every_valid_and_invalid_fixture_still_checks() {
     let report = rightkit_contracts::fixtures::check_tree(&root).unwrap();
     assert!(report.is_green(), "{:?}", report.failures);
 }
+
+// ---- contract/code drift guards ----------------------------------------------
+
+const DAEMON_SRC: &[(&str, &str)] = &[
+    ("daemon.rs", include_str!("../src/daemon.rs")),
+    ("http.rs", include_str!("../src/http.rs")),
+];
+
+fn schema() -> Value {
+    serde_json::from_str(&std::fs::read_to_string(SCHEMA).unwrap()).unwrap()
+}
+
+/// The first string literal in `s`, if any.
+fn first_literal(s: &str) -> Option<&str> {
+    let start = s.find('"')? + 1;
+    let len = s[start..].find('"')?;
+    Some(&s[start..start + len])
+}
+
+/// The last string literal in `s`, if any (the code argument of a call, even
+/// when rustfmt spreads the call over several lines).
+fn last_literal(s: &str) -> Option<&str> {
+    let end = s.rfind('"')?;
+    let start = s[..end].rfind('"')? + 1;
+    Some(&s[start..end])
+}
+
+/// Every string literal passed as the code of `Response::err(status, "code")`,
+/// as the last argument of `reject(.., status, "code")`, or as an inline
+/// `"error": "code"` body field.
+fn source_error_codes() -> std::collections::BTreeSet<String> {
+    let mut codes = std::collections::BTreeSet::new();
+    for (_, src) in DAEMON_SRC {
+        for (i, _) in src.match_indices("Response::err(") {
+            let call = &src[i..];
+            let call = &call[..call.find(')').unwrap()];
+            if let Some(lit) = last_literal(call) {
+                codes.insert(lit.to_string());
+            }
+        }
+        for (i, _) in src.match_indices(".reject(") {
+            let call = &src[i..];
+            let call = &call[..call.find(')').unwrap()];
+            if let Some(lit) = last_literal(call) {
+                codes.insert(lit.to_string());
+            }
+        }
+        for (i, _) in src.match_indices("\"error\": \"") {
+            let tail = &src[i + "\"error\": ".len()..];
+            codes.insert(first_literal(tail).unwrap().to_string());
+        }
+    }
+    codes
+}
+
+#[test]
+fn every_error_code_the_daemon_returns_is_in_the_schema_enum() {
+    let schema = schema();
+    let allowed: Vec<&str> = schema["properties"]["errors"]["items"]["properties"]["code"]["enum"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|v| v.as_str().unwrap())
+        .collect();
+    let codes = source_error_codes();
+    // The scanner must actually see the codes it guards.
+    for known in [
+        "unauthenticated",
+        "precondition_required",
+        "idempotency_key_reuse",
+    ] {
+        assert!(codes.contains(known), "scanner missed {known}: {codes:?}");
+    }
+    let missing: Vec<_> = codes
+        .iter()
+        .filter(|c| !allowed.contains(&c.as_str()))
+        .collect();
+    assert!(
+        missing.is_empty(),
+        "codes missing from the schema enum: {missing:?}"
+    );
+}
+
+/// Internal event names passed to `emit(`, mapped to the contract vocabulary.
+fn emitted_contract_events() -> std::collections::BTreeSet<String> {
+    let mut internal = std::collections::BTreeSet::new();
+    for (_, src) in DAEMON_SRC {
+        for (i, _) in src.match_indices(".emit(") {
+            let tail = &src[i + ".emit(".len()..];
+            // `emit(event, fields)` forwarders pass a variable, not a literal.
+            if tail.trim_start().starts_with('"') {
+                internal.insert(first_literal(tail).unwrap().to_string());
+            }
+        }
+    }
+    let mut out = std::collections::BTreeSet::new();
+    for ev in &internal {
+        if let Some(n) = contract_name(ev) {
+            out.insert(n.to_string());
+        }
+    }
+    // AUTH_REJECTED on the signed-webhook class carries `webhook_rejected`.
+    if internal.contains("AUTH_REJECTED") {
+        out.insert("webhook_rejected".to_string());
+    }
+    out
+}
+
+#[test]
+fn every_schema_event_has_an_emitter_or_is_reserved() {
+    let schema = schema();
+    let prop = &schema["properties"]["lifecycleEvents"];
+    let listed: Vec<String> = prop["items"]["enum"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|v| v.as_str().unwrap().to_string())
+        .collect();
+    let reserved: Vec<String> = prop["x-reservedEvents"]
+        .as_array()
+        .expect("schema marks reserved events")
+        .iter()
+        .map(|v| v.as_str().unwrap().to_string())
+        .collect();
+    let emitted = emitted_contract_events();
+    assert!(emitted.contains("daemon_started") && emitted.contains("job_updated"));
+    for ev in &listed {
+        assert!(
+            emitted.contains(ev) || reserved.contains(ev),
+            "{ev} has no emitter and is not reserved"
+        );
+    }
+    for ev in &reserved {
+        assert!(listed.contains(ev), "reserved {ev} is not in the enum");
+        assert!(
+            !emitted.contains(ev),
+            "reserved {ev} is emitted; unreserve it"
+        );
+    }
+    for ev in &emitted {
+        assert!(listed.contains(ev), "emitted {ev} is not in the schema");
+    }
+}
+
+#[test]
+fn job_update_documents_every_status_it_returns() {
+    let r = ROUTES.iter().find(|r| r.id == "job.update").unwrap();
+    for status in [200, 400, 401, 403, 409, 422, 428] {
+        assert!(r.responses.contains(&status), "{status}");
+    }
+    let h = Harness::new();
+    let dev = h.enrol();
+    let mut no_if_match = dev.patch_job(&h, "j", 0, "k1", &json!({"a": 1}));
+    assert_eq!(no_if_match.status, 200);
+    // Same key, different body: 422.
+    no_if_match = dev.patch_job(&h, "j", 0, "k1", &json!({"a": 2}));
+    assert_eq!(
+        (no_if_match.status, &no_if_match.body["error"]),
+        (422, &json!("idempotency_key_reuse"))
+    );
+}

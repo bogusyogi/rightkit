@@ -4,11 +4,17 @@
 //! no AX grant. This module is the client: it speaks the shared
 //! `rightkit-service` convention (discovery file, current-user-only Unix socket
 //! or named pipe, per-app request allowlist). There is no TCP and no bearer token.
+//!
+//! The [`InApp`] trait is always available. The `rightkit-service` client
+//! ([`ServiceBridge`]) is behind the `in-app` feature.
 
+#[cfg(feature = "in-app")]
 use crate::keys::{Chord, Key, Named};
 use crate::model::*;
 use crate::platform::InputEvent;
+#[cfg(feature = "in-app")]
 use rightkit_service::{Client, ServiceError, Suite, ERROR_NOT_ALLOWED};
+#[cfg(feature = "in-app")]
 use serde_json::{json, Value};
 
 /// A per-process in-app channel. `perform` returns `Unsupported` for anything
@@ -19,6 +25,7 @@ pub trait InApp: Send + Sync {
 }
 
 /// Client for one launched app instance, reached through its control service.
+#[cfg(feature = "in-app")]
 pub struct ServiceBridge {
     pub pid: i32,
     suite: Suite,
@@ -26,15 +33,27 @@ pub struct ServiceBridge {
     app: String,
 }
 
+#[cfg(feature = "in-app")]
 impl ServiceBridge {
     /// `service` is the lowercase name the launcher gave the app in
     /// `RIGHTKIT_CONTROL_SERVICE`; `app` is this caller's allowlist label
     /// (`right-qa` or `right-ctl` unless the app allowed another).
     pub fn new(pid: i32, suite: Suite, service: &str, app: &str) -> Result<Self> {
-        if service.is_empty() || !service.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-') {
-            return Err(Error::Invalid("control service name must be lowercase [a-z0-9-]".into()));
+        if service.is_empty()
+            || !service
+                .chars()
+                .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
+        {
+            return Err(Error::Invalid(
+                "control service name must be lowercase [a-z0-9-]".into(),
+            ));
         }
-        Ok(ServiceBridge { pid, suite, service: service.into(), app: app.into() })
+        Ok(ServiceBridge {
+            pid,
+            suite,
+            service: service.into(),
+            app: app.into(),
+        })
     }
 
     fn call(&self, method: &str, params: Value) -> Result<String> {
@@ -44,6 +63,7 @@ impl ServiceBridge {
     }
 }
 
+#[cfg(feature = "in-app")]
 fn map_err(e: ServiceError) -> Error {
     if e.code == ERROR_NOT_ALLOWED {
         Error::Blocked(format!("control service refused: {}", e.message))
@@ -54,6 +74,7 @@ fn map_err(e: ServiceError) -> Error {
     }
 }
 
+#[cfg(feature = "in-app")]
 fn key_name(c: Chord) -> Option<String> {
     let mut parts: Vec<String> = vec![];
     if c.mods.meta {
@@ -92,6 +113,7 @@ fn key_name(c: Chord) -> Option<String> {
     Some(parts.join("+"))
 }
 
+#[cfg(feature = "in-app")]
 impl InApp for ServiceBridge {
     fn handles(&self, pid: i32) -> bool {
         pid == self.pid
@@ -114,7 +136,7 @@ impl InApp for ServiceBridge {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "in-app"))]
 mod tests {
     use super::*;
     use crate::keys;
@@ -124,7 +146,13 @@ mod tests {
 
     struct Rec(Mutex<Vec<(String, Value)>>);
     impl Handler for Rec {
-        fn call(&self, _cx: &CallContext, method: &str, params: &Value, _e: &Emit) -> std::result::Result<Value, ServiceError> {
+        fn call(
+            &self,
+            _cx: &CallContext,
+            method: &str,
+            params: &Value,
+            _e: &Emit,
+        ) -> std::result::Result<Value, ServiceError> {
             self.0.lock().unwrap().push((method.into(), params.clone()));
             Ok(json!({"ok": true}))
         }
@@ -144,9 +172,16 @@ mod tests {
     fn type_reaches_the_service_with_exact_json() {
         let (suite, rec, hosted) = start(Allowlist::new().allow("right-qa", ["type", "key"]));
         let b = ServiceBridge::new(7, suite, "control-fake", "right-qa").unwrap();
-        b.perform(7, &InputEvent::Text("hi \"there\" \\ \u{1f600}".into())).unwrap();
+        b.perform(7, &InputEvent::Text("hi \"there\" \\ \u{1f600}".into()))
+            .unwrap();
         let seen = rec.0.lock().unwrap().clone();
-        assert_eq!(seen, vec![("type".to_string(), json!({"text": "hi \"there\" \\ \u{1f600}"}))]);
+        assert_eq!(
+            seen,
+            vec![(
+                "type".to_string(),
+                json!({"text": "hi \"there\" \\ \u{1f600}"})
+            )]
+        );
         hosted.shutdown();
     }
 
@@ -155,19 +190,43 @@ mod tests {
         let (suite, rec, hosted) = start(Allowlist::new().allow("right-qa", ["type"]));
         let chord = keys::parse_chord("cmd+k", true).unwrap();
         let denied = ServiceBridge::new(7, suite.clone(), "control-fake", "right-qa").unwrap();
-        assert!(matches!(denied.perform(7, &InputEvent::Key(chord)), Err(Error::Blocked(_))), "method outside allowlist");
+        assert!(
+            matches!(
+                denied.perform(7, &InputEvent::Key(chord)),
+                Err(Error::Blocked(_))
+            ),
+            "method outside allowlist"
+        );
         let stranger = ServiceBridge::new(7, suite, "control-fake", "someone-else").unwrap();
-        assert!(matches!(stranger.perform(7, &InputEvent::Text("x".into())), Err(Error::Blocked(_))));
-        assert!(matches!(denied.perform(8, &InputEvent::Text("x".into())), Err(Error::Unsupported(_))));
-        assert!(rec.0.lock().unwrap().is_empty(), "nothing reached the handler");
-        assert!(ServiceBridge::new(1, Suite::per_run_temp("x").unwrap(), "Bad Name", "right-qa").is_err());
+        assert!(matches!(
+            stranger.perform(7, &InputEvent::Text("x".into())),
+            Err(Error::Blocked(_))
+        ));
+        assert!(matches!(
+            denied.perform(8, &InputEvent::Text("x".into())),
+            Err(Error::Unsupported(_))
+        ));
+        assert!(
+            rec.0.lock().unwrap().is_empty(),
+            "nothing reached the handler"
+        );
+        assert!(
+            ServiceBridge::new(1, Suite::per_run_temp("x").unwrap(), "Bad Name", "right-qa")
+                .is_err()
+        );
         hosted.shutdown();
     }
 
     #[test]
     fn key_names_follow_control_channel_grammar() {
-        assert_eq!(key_name(keys::parse_chord("cmd+shift+k", true).unwrap()).unwrap(), "cmd+shift+k");
-        assert_eq!(key_name(keys::parse_chord("return", true).unwrap()).unwrap(), "return");
+        assert_eq!(
+            key_name(keys::parse_chord("cmd+shift+k", true).unwrap()).unwrap(),
+            "cmd+shift+k"
+        );
+        assert_eq!(
+            key_name(keys::parse_chord("return", true).unwrap()).unwrap(),
+            "return"
+        );
         assert!(key_name(keys::parse_chord("f5", true).unwrap()).is_none());
     }
 }

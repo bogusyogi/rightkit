@@ -76,10 +76,16 @@ pub struct Target {
 
 impl Target {
     pub fn app(pid: i32) -> Self {
-        Target { pid, window_id: None }
+        Target {
+            pid,
+            window_id: None,
+        }
     }
     pub fn window(pid: i32, window_id: u64) -> Self {
-        Target { pid, window_id: Some(window_id) }
+        Target {
+            pid,
+            window_id: Some(window_id),
+        }
     }
 }
 
@@ -177,7 +183,10 @@ pub struct Limits {
 
 impl Default for Limits {
     fn default() -> Self {
-        Limits { max_depth: 12, max_nodes: 600 }
+        Limits {
+            max_depth: 12,
+            max_nodes: 600,
+        }
     }
 }
 
@@ -220,8 +229,15 @@ pub enum Action {
     /// Chord sequence, space separated: `"cmd+a delete"`.
     Keys(String),
     /// Click the element's centre, or an explicit screen point.
-    Click { point: Option<(f64, f64)>, button: Button, count: u32 },
-    Scroll { dx: f64, dy: f64 },
+    Click {
+        point: Option<(f64, f64)>,
+        button: Button,
+        count: u32,
+    },
+    Scroll {
+        dx: f64,
+        dy: f64,
+    },
     Focus,
     MenuPress(Vec<String>),
 }
@@ -282,18 +298,32 @@ pub enum Error {
     UnknownSnapshot(String),
     /// The caller's max tier does not reach any tier that can do this.
     NoTier(String),
-    FocusMoved { before: Option<i32>, after: Option<i32> },
+    FocusMoved {
+        before: Option<i32>,
+        after: Option<i32>,
+    },
     Invalid(String),
     /// The caller's admission hook refused the effect before anything ran.
     Denied(String),
     /// Another controller holds the lease on this app.
-    LeaseHeld { holder: String, epoch: u64 },
+    LeaseHeld {
+        holder: String,
+        epoch: u64,
+    },
     /// The fence's epoch is not the current lease epoch (stale controller).
-    StaleLease { presented: u64, current: Option<u64> },
+    StaleLease {
+        presented: u64,
+        current: Option<u64>,
+    },
     /// The fence skipped ahead of `acked_seq + 1`.
-    OutOfOrder { expected: u64, got: u64 },
+    OutOfOrder {
+        expected: u64,
+        got: u64,
+    },
     /// `seq <= acked_seq`: already processed, deliberately not executed again.
-    Replayed { acked_seq: u64 },
+    Replayed {
+        acked_seq: u64,
+    },
 }
 
 impl fmt::Display for Error {
@@ -304,16 +334,30 @@ impl fmt::Display for Error {
             Error::Platform(c, op) => write!(f, "platform error {c} during {op}"),
             Error::Unsupported(s) => write!(f, "unsupported: {s}"),
             Error::Blocked(s) => write!(f, "blocked by safety policy: {s}"),
-            Error::NeedsConfirmation(r) => write!(f, "confirmation required for {} action", r.label()),
+            Error::NeedsConfirmation(r) => {
+                write!(f, "confirmation required for {} action", r.label())
+            }
             Error::UnknownSnapshot(s) => write!(f, "unknown snapshot {s}"),
             Error::NoTier(s) => write!(f, "no allowed tier can perform: {s}"),
-            Error::FocusMoved { before, after } => write!(f, "frontmost app moved {before:?} -> {after:?}"),
+            Error::FocusMoved { before, after } => {
+                write!(f, "frontmost app moved {before:?} -> {after:?}")
+            }
             Error::Invalid(s) => write!(f, "invalid: {s}"),
             Error::Denied(s) => write!(f, "denied by admission: {s}"),
-            Error::LeaseHeld { holder, epoch } => write!(f, "lease held by {holder} (epoch {epoch})"),
-            Error::StaleLease { presented, current } => write!(f, "stale lease: presented epoch {presented}, current {current:?}"),
-            Error::OutOfOrder { expected, got } => write!(f, "input out of order: expected seq {expected}, got {got}"),
-            Error::Replayed { acked_seq } => write!(f, "input already processed (acked seq {acked_seq}); not executed again"),
+            Error::LeaseHeld { holder, epoch } => {
+                write!(f, "lease held by {holder} (epoch {epoch})")
+            }
+            Error::StaleLease { presented, current } => write!(
+                f,
+                "stale lease: presented epoch {presented}, current {current:?}"
+            ),
+            Error::OutOfOrder { expected, got } => {
+                write!(f, "input out of order: expected seq {expected}, got {got}")
+            }
+            Error::Replayed { acked_seq } => write!(
+                f,
+                "input already processed (acked seq {acked_seq}); not executed again"
+            ),
         }
     }
 }

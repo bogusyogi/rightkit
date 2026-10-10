@@ -150,7 +150,7 @@
         "additionalProperties": false,
         "required": ["code", "status", "retryable"],
         "properties": {
-          "code": { "enum": ["unauthenticated", "forbidden", "revision_conflict", "upload_hash_mismatch", "upload_out_of_range", "webhook_signature_invalid", "webhook_replay", "oauth_state_invalid", "scope_mismatch", "rate_limited", "not_found"] },
+          "code": { "enum": ["unauthenticated", "forbidden", "revision_conflict", "upload_hash_mismatch", "upload_out_of_range", "webhook_signature_invalid", "webhook_replay", "oauth_state_invalid", "scope_mismatch", "rate_limited", "not_found", "bad_request", "method_not_allowed", "body_too_large", "internal", "storage_error", "precondition_required", "idempotency_key_reuse", "already_enrolled", "too_large", "too_many_uploads", "bad_chunk_size", "bad_chunk_index", "bad_chunk_length", "chunk_too_large", "chunk_digest_mismatch", "chunk_conflict", "already_complete", "finalizing", "hash_mismatch", "incomplete", "oauth_unavailable", "duplicate_delivery"] },
           "status": { "type": "integer", "minimum": 400, "maximum": 599 },
           "retryable": { "type": "boolean" }
         }
@@ -160,7 +160,9 @@
       "type": "array",
       "minItems": 1,
       "uniqueItems": true,
-      "items": { "enum": ["daemon_started", "daemon_stopped", "device_enrolled", "device_revoked", "upload_started", "upload_completed", "job_queued", "job_published", "job_outcome_unknown", "token_refreshed", "webhook_rejected"] }
+      "description": "Lifecycle event names. job_updated is emitted by the daemon on every accepted job.update. The names in x-reservedEvents are reserved: part of the vocabulary, but this daemon has no state that emits them (it neither publishes jobs nor refreshes tokens).",
+      "x-reservedEvents": ["job_queued", "job_published", "job_outcome_unknown", "token_refreshed"],
+      "items": { "enum": ["daemon_started", "daemon_stopped", "device_enrolled", "device_revoked", "upload_started", "upload_completed", "job_updated", "job_queued", "job_published", "job_outcome_unknown", "token_refreshed", "webhook_rejected"] }
     },
     "exchanges": {
       "type": "array",
@@ -195,6 +197,11 @@
   "$defs": {
     "contractVersion": { "type": "string", "pattern": "^1\\.[0-9]+\\.[0-9]+$" },
     "id": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$" },
+    "providerSlug": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]{0,63}$",
+      "description": "The {provider} path parameter of oauth.callback (/v1/oauth/{provider}/callback) and webhook.inbound (/v1/webhooks/{provider}). The daemon enforces this at route dispatch: a path whose provider segment does not match is not a route and answers 404 not_found."
+    },
     "route": {
       "type": "object",
       "additionalProperties": false,
@@ -251,7 +258,7 @@
         { "routeId": "upload.chunk", "method": "PUT", "path": "/v1/uploads/{uploadId}/chunks/{index}", "authClass": "device_authenticated_mutation", "mutation": true, "casRequired": false, "scopes": ["venture", "channel"], "responses": [204, 401, 409, 416] },
         { "routeId": "upload.status", "method": "GET", "path": "/v1/uploads/{uploadId}", "authClass": "device_authenticated_mutation", "mutation": false, "casRequired": false, "scopes": ["venture", "channel"], "responses": [200, 401, 404] },
         { "routeId": "upload.complete", "method": "POST", "path": "/v1/uploads/{uploadId}/complete", "authClass": "device_authenticated_mutation", "mutation": true, "casRequired": false, "scopes": ["venture", "channel"], "responses": [200, 400, 401] },
-        { "routeId": "job.update", "method": "PATCH", "path": "/v1/publish-jobs/{jobId}", "authClass": "device_authenticated_mutation", "mutation": true, "casRequired": true, "scopes": ["venture", "channel", "account"], "responses": [200, 401, 403, 409] },
+        { "routeId": "job.update", "method": "PATCH", "path": "/v1/publish-jobs/{jobId}", "authClass": "device_authenticated_mutation", "mutation": true, "casRequired": true, "scopes": ["venture", "channel", "account"], "responses": [200, 400, 401, 403, 409, 422, 428] },
         { "routeId": "oauth.callback", "method": "GET", "path": "/v1/oauth/{provider}/callback", "authClass": "oauth_callback", "mutation": false, "casRequired": false, "scopes": ["account"], "responses": [302, 400] },
         { "routeId": "webhook.inbound", "method": "POST", "path": "/v1/webhooks/{provider}", "authClass": "signed_webhook", "mutation": false, "casRequired": false, "scopes": ["account"], "responses": [202, 401, 409] }
       ],
@@ -273,6 +280,8 @@
       "errors": [
         { "code": "unauthenticated", "status": 401, "retryable": false },
         { "code": "revision_conflict", "status": 409, "retryable": false },
+        { "code": "precondition_required", "status": 428, "retryable": false },
+        { "code": "idempotency_key_reuse", "status": 422, "retryable": false },
         { "code": "rate_limited", "status": 429, "retryable": true }
       ],
       "lifecycleEvents": ["daemon_started", "device_enrolled", "upload_completed", "job_published", "job_outcome_unknown"],

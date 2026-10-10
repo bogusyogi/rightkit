@@ -49,7 +49,11 @@ impl Obj {
         self.raw(k, if v { "true" } else { "false" })
     }
     pub fn build(self) -> String {
-        let body: Vec<String> = self.0.into_iter().map(|(k, v)| format!("{}:{}", s(&k), v)).collect();
+        let body: Vec<String> = self
+            .0
+            .into_iter()
+            .map(|(k, v)| format!("{}:{}", s(&k), v))
+            .collect();
         format!("{{{}}}", body.join(","))
     }
 }
@@ -64,7 +68,12 @@ mod tests {
     #[test]
     fn escapes_and_builds() {
         assert_eq!(esc("a\"b\\c\n\u{1}"), "a\\\"b\\\\c\\n\\u0001");
-        let j = Obj::new().str("k", "v\"").num("n", 3).bool("b", true).opt_str("o", &None).build();
+        let j = Obj::new()
+            .str("k", "v\"")
+            .num("n", 3)
+            .bool("b", true)
+            .opt_str("o", &None)
+            .build();
         assert_eq!(j, r#"{"k":"v\"","n":3,"b":true,"o":null}"#);
         assert_eq!(arr(vec!["1".into(), "2".into()]), "[1,2]");
     }

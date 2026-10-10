@@ -289,50 +289,55 @@
   },
   "stagedCargo": {
     "agent-room-core": "0.3.0",
-    "rightkit-asr": "0.0.2",
-    "rightkit-audio": "0.2.0",
+    "rightkit-asr": "0.1.0",
+    "rightkit-audio": "0.2.1",
     "rightkit-automation": "0.1.0",
-    "rightkit-browser": "0.2.3",
+    "rightkit-browser": "0.2.4",
     "rightkit-cache": "0.1.0",
     "rightkit-contracts": "0.1.2",
-    "rightkit-control": "0.1.11",
-    "rightkit-crash": "0.2.0",
+    "rightkit-control": "0.2.0",
+    "rightkit-crash": "0.2.1",
     "rightkit-db": "0.3.2",
-    "rightkit-embed": "0.3.1",
+    "rightkit-embed": "0.3.2",
     "rightkit-framed-sidecar": "0.1.0",
     "rightkit-fs": "0.3.3",
     "rightkit-fsindex": "0.1.1",
-    "rightkit-http": "0.2.4",
-    "rightkit-jobs": "0.2.6",
+    "rightkit-hotkeys": "0.1.0",
+    "rightkit-http": "0.2.5",
+    "rightkit-jobs": "0.2.7",
     "rightkit-license": "0.1.3",
-    "rightkit-logs": "0.2.0",
-    "rightkit-mcp": "0.5.2",
-    "rightkit-media": "0.2.4",
-    "rightkit-models": "0.2.7",
-    "rightkit-oauth": "0.3.0",
-    "rightkit-ocr": "0.1.2",
+    "rightkit-llm": "0.1.0",
+    "rightkit-logs": "0.2.1",
+    "rightkit-mcp": "0.5.3",
+    "rightkit-media": "0.2.5",
+    "rightkit-models": "0.2.8",
+    "rightkit-oauth": "0.3.1",
+    "rightkit-ocr": "0.2.0",
     "rightkit-ort": "0.2.2",
+    "rightkit-overlay": "0.1.1",
     "rightkit-ownership": "0.2.1",
     "rightkit-pdf": "0.2.0",
-    "rightkit-playback": "0.1.1",
+    "rightkit-playback": "0.1.2",
     "rightkit-process": "0.3.3",
-    "rightkit-qa": "0.2.14",
-    "rightkit-qts": "0.2.4",
-    "rightkit-qts-ggml": "0.1.1",
-    "rightkit-qts-ggml-sys": "0.1.1",
+    "rightkit-qa": "0.2.15",
+    "rightkit-qts": "0.2.5",
+    "rightkit-qts-ggml": "0.1.2",
+    "rightkit-qts-ggml-sys": "0.1.2",
+    "rightkit-review": "0.1.0",
     "rightkit-sandbox": "0.3.3",
+    "rightkit-scenario": "0.1.0",
     "rightkit-search": "0.2.0",
     "rightkit-secrets": "0.1.2",
-    "rightkit-service": "0.1.3",
-    "rightkit-settings": "0.1.0",
-    "rightkit-shell": "0.1.4",
-    "rightkit-speech-client": "0.3.2",
+    "rightkit-service": "0.1.4",
+    "rightkit-settings": "0.1.1",
+    "rightkit-shell": "0.2.0",
+    "rightkit-speech-client": "0.3.3",
     "rightkit-sync": "0.1.0",
     "rightkit-tauri": "0.1.2",
-    "rightkit-transcript": "0.1.0",
+    "rightkit-transcript": "0.2.0",
     "rightkit-tts": "0.1.0",
     "rightkit-vad": "0.0.2",
-    "rightkit-watch": "0.3.1"
+    "rightkit-watch": "0.3.2"
   },
   "swift": {
     "rightkit-swift": {
@@ -430,11 +435,13 @@
       "0.2.3",
       "0.2.4",
       "0.2.5",
-      "0.2.6"
+      "0.2.6",
+      "0.2.7"
     ],
     "rightkit-audio": [
       "0.1.0",
-      "0.1.1"
+      "0.1.1",
+      "0.2.0"
     ],
     "rightkit-db": [
       "0.2.1",
@@ -444,14 +451,16 @@
     "rightkit-embed": [
       "0.2.1",
       "0.2.2",
-      "0.3.0"
+      "0.3.0",
+      "0.3.1"
     ],
     "rightkit-jobs": [
       "0.2.1",
       "0.2.2",
       "0.2.3",
       "0.2.4",
-      "0.2.5"
+      "0.2.5",
+      "0.2.6"
     ],
     "rightkit-mcp": [
       "0.1.1",
@@ -460,15 +469,18 @@
       "0.3.1",
       "0.4.0",
       "0.5.0",
-      "0.5.1"
+      "0.5.1",
+      "0.5.2"
     ],
     "rightkit-media": [
       "0.2.2",
-      "0.2.3"
+      "0.2.3",
+      "0.2.4"
     ],
     "rightkit-oauth": [
       "0.2.0",
-      "0.2.1"
+      "0.2.1",
+      "0.3.0"
     ],
     "rightkit-ort": [
       "0.1.4",
@@ -476,7 +488,8 @@
       "0.2.1"
     ],
     "rightkit-playback": [
-      "0.1.0"
+      "0.1.0",
+      "0.1.1"
     ],
     "rightkit-process": [
       "0.2.1",
@@ -490,7 +503,8 @@
       "0.2.9",
       "0.2.10",
       "0.2.11",
-      "0.2.12"
+      "0.2.12",
+      "0.2.14"
     ],
     "rightkit-sandbox": [
       "0.1.0",
@@ -507,25 +521,29 @@
       "0.1.0",
       "0.1.1",
       "0.1.2",
-      "0.1.3"
+      "0.1.3",
+      "0.1.4"
     ],
     "rightkit-watch": [
       "0.1.0",
       "0.2.0",
-      "0.3.0"
+      "0.3.0",
+      "0.3.1"
     ],
     "rightkit-qts": [
       "0.2.0",
       "0.2.1",
       "0.2.2",
-      "0.2.3"
+      "0.2.3",
+      "0.2.4"
     ],
     "rightkit-control": [
       "0.1.6",
       "0.1.7",
       "0.1.8",
       "0.1.9",
-      "0.1.10"
+      "0.1.10",
+      "0.1.11"
     ],
     "rightkit-secrets": [
       "0.1.0",
@@ -536,7 +554,8 @@
       "0.2.0",
       "0.2.1",
       "0.2.2",
-      "0.2.3"
+      "0.2.3",
+      "0.2.4"
     ],
     "rightkit-fs": [
       "0.1.0",
@@ -548,7 +567,8 @@
     "rightkit-service": [
       "0.1.0",
       "0.1.1",
-      "0.1.2"
+      "0.1.2",
+      "0.1.3"
     ],
     "rightkit-search": [
       "0.1.0"
@@ -557,22 +577,41 @@
       "0.1.1"
     ],
     "rightkit-qts-ggml": [
-      "0.1.0"
+      "0.1.0",
+      "0.1.1"
     ],
     "rightkit-pdf": [
       "0.1.0"
     ],
     "rightkit-speech-client": [
       "0.3.0",
-      "0.3.1"
+      "0.3.1",
+      "0.3.2"
     ],
     "rightkit-crash": [
-      "0.1.0"
+      "0.1.0",
+      "0.2.0"
     ],
     "rightkit-qts-ggml-sys": [
-      "0.1.0"
+      "0.1.0",
+      "0.1.1"
     ],
     "rightkit-fsindex": [
+      "0.1.0"
+    ],
+    "rightkit-asr": [
+      "0.0.2"
+    ],
+    "rightkit-logs": [
+      "0.2.0"
+    ],
+    "rightkit-ocr": [
+      "0.1.2"
+    ],
+    "rightkit-settings": [
+      "0.1.0"
+    ],
+    "rightkit-transcript": [
       "0.1.0"
     ]
   }

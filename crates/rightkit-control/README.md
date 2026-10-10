@@ -28,11 +28,11 @@ Do not use it for a web page that a headless browser can drive (see `rightkit-br
 
 | Feature | Default | Pulls in | Enables |
 |---|---|---|---|
-| `wv2-0_38` | yes | `windows` 0.61, `webview2-com` 0.38 (Windows only) | WebView2 types for Tauri 2.11 (wry 0.55). |
+| `wv2-0_38` | no | `windows` 0.61, `webview2-com` 0.38 (Windows only) | WebView2 types for Tauri 2.11 (wry 0.55). |
 | `wv2-0_39` | no | `windows` 0.62, `webview2-com` 0.39 (Windows only) | WebView2 types for Tauri 2.12 and later. |
 | `tauri-plugin` | no | `tauri` 2, `rightkit-service`, `serde_json` | The embedded Tauri control server (`embedded` module). |
 
-For Tauri 2.12 or later, use `default-features = false` with `features = ["tauri-plugin", "wv2-0_39"]`. Exactly one WebView2 generation should be enabled.
+There are no default features. On Windows the `tauri-plugin` feature requires exactly one WebView2 generation: `features = ["tauri-plugin", "wv2-0_38"]` for Tauri 2.11, or `features = ["tauri-plugin", "wv2-0_39"]` for Tauri 2.12 and later (a Windows build with neither fails with a `compile_error!`). macOS and non-plugin builds need neither.
 
 ## Usage
 
@@ -103,4 +103,4 @@ Without a policy, the gate is allow-all and output is unchanged. With `--policy 
 
 ## Version and changes
 
-Published version: see [INDEX.md](../../INDEX.md). No CHANGELOG.md in this crate.
+Published version: see [INDEX.md](../../INDEX.md). Changes are listed in [CHANGELOG.md](CHANGELOG.md).

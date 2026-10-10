@@ -8,14 +8,16 @@ use std::time::Duration;
 use windows::core::{BOOL, PCWSTR, PWSTR};
 use windows::Win32::Foundation::*;
 use windows::Win32::Graphics::Gdi::*;
+use windows::Win32::Storage::FileSystem::SearchPathW;
 use windows::Win32::Storage::Xps::{PrintWindow, PRINT_WINDOW_FLAGS};
 use windows::Win32::System::DataExchange::*;
+use windows::Win32::System::JobObjects::*;
 use windows::Win32::System::Memory::*;
 use windows::Win32::System::Ole::{CF_LOCALE, CF_OEMTEXT, CF_TEXT, CF_UNICODETEXT};
-use windows::Win32::Storage::FileSystem::SearchPathW;
-use windows::Win32::System::JobObjects::*;
 use windows::Win32::System::Threading::*;
-use windows::Win32::UI::HiDpi::{SetProcessDpiAwarenessContext, DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2};
+use windows::Win32::UI::HiDpi::{
+    SetProcessDpiAwarenessContext, DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2,
+};
 use windows::Win32::UI::Input::KeyboardAndMouse::*;
 use windows::Win32::UI::WindowsAndMessaging::*;
 
@@ -52,7 +54,12 @@ fn window_text(h: HWND) -> String {
 pub fn window_rect(h: HWND) -> Option<Rect> {
     let mut r = RECT::default();
     unsafe { GetWindowRect(h, &mut r) }.ok()?;
-    Some(Rect { x: f64::from(r.left), y: f64::from(r.top), w: f64::from(r.right - r.left), h: f64::from(r.bottom - r.top) })
+    Some(Rect {
+        x: f64::from(r.left),
+        y: f64::from(r.top),
+        w: f64::from(r.right - r.left),
+        h: f64::from(r.bottom - r.top),
+    })
 }
 
 unsafe extern "system" fn collect(h: HWND, lp: LPARAM) -> BOOL {
@@ -75,7 +82,9 @@ pub fn list_windows(on_screen_only: bool) -> Vec<WindowInfo> {
             let visible = unsafe { IsWindowVisible(h) }.as_bool();
             let iconic = unsafe { IsIconic(h) }.as_bool();
             let title = window_text(h);
-            let owner = unsafe { GetWindow(h, GW_OWNER) }.map(|o| !o.0.is_null()).unwrap_or(false);
+            let owner = unsafe { GetWindow(h, GW_OWNER) }
+                .map(|o| !o.0.is_null())
+                .unwrap_or(false);
             let ex = unsafe { GetWindowLongPtrW(h, GWL_EXSTYLE) } as u32;
             if title.is_empty() || ex & WS_EX_TOOLWINDOW.0 != 0 {
                 return None;
@@ -104,11 +113,25 @@ pub fn process_info(pid: i32) -> Option<(String, Option<String>, Option<u64>)> {
         let h = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid as u32).ok()?;
         let mut buf = [0u16; 1024];
         let mut n = buf.len() as u32;
-        let path = QueryFullProcessImageNameW(h, PROCESS_NAME_WIN32, PWSTR(buf.as_mut_ptr()), &mut n).ok().map(|_| String::from_utf16_lossy(&buf[..n as usize]));
-        let (mut c, mut e, mut k, mut u) = (FILETIME::default(), FILETIME::default(), FILETIME::default(), FILETIME::default());
-        let started = GetProcessTimes(h, &mut c, &mut e, &mut k, &mut u).ok().map(|_| ((u64::from(c.dwHighDateTime) << 32) | u64::from(c.dwLowDateTime)) / 10_000);
+        let path =
+            QueryFullProcessImageNameW(h, PROCESS_NAME_WIN32, PWSTR(buf.as_mut_ptr()), &mut n)
+                .ok()
+                .map(|_| String::from_utf16_lossy(&buf[..n as usize]));
+        let (mut c, mut e, mut k, mut u) = (
+            FILETIME::default(),
+            FILETIME::default(),
+            FILETIME::default(),
+            FILETIME::default(),
+        );
+        let started = GetProcessTimes(h, &mut c, &mut e, &mut k, &mut u)
+            .ok()
+            .map(|_| ((u64::from(c.dwHighDateTime) << 32) | u64::from(c.dwLowDateTime)) / 10_000);
         let _ = CloseHandle(h);
-        let exe = path.as_deref().and_then(|p| p.rsplit(['\\', '/']).next()).unwrap_or("").to_ascii_lowercase();
+        let exe = path
+            .as_deref()
+            .and_then(|p| p.rsplit(['\\', '/']).next())
+            .unwrap_or("")
+            .to_ascii_lowercase();
         Some((exe, path, started))
     }
 }
@@ -120,7 +143,13 @@ pub fn apps() -> Vec<AppInfo> {
             continue;
         }
         if let Some((exe, path, started)) = process_info(w.pid) {
-            seen.push(AppInfo { pid: w.pid, app_id: exe, name: w.title, path, started });
+            seen.push(AppInfo {
+                pid: w.pid,
+                app_id: exe,
+                name: w.title,
+                path,
+                started,
+            });
         }
     }
     seen
@@ -133,7 +162,11 @@ pub fn frontmost() -> Option<FrontApp> {
     }
     let pid = pid_of(f)?;
     let app_id = process_info(pid).map(|p| p.0).unwrap_or_default();
-    Some(FrontApp { pid, app_id, window_id: Some(f.0 as u64) })
+    Some(FrontApp {
+        pid,
+        app_id,
+        window_id: Some(f.0 as u64),
+    })
 }
 
 /// The window to address for a pid: the requested id, else the largest visible top-level window.
@@ -144,7 +177,11 @@ pub fn main_window(pid: i32, window_id: Option<u64>) -> Option<isize> {
     list_windows(false)
         .into_iter()
         .filter(|w| w.pid == pid && w.layer == 0)
-        .max_by(|a, b| (u8::from(a.on_screen), a.bounds.w * a.bounds.h).partial_cmp(&(u8::from(b.on_screen), b.bounds.w * b.bounds.h)).unwrap_or(std::cmp::Ordering::Equal))
+        .max_by(|a, b| {
+            (u8::from(a.on_screen), a.bounds.w * a.bounds.h)
+                .partial_cmp(&(u8::from(b.on_screen), b.bounds.w * b.bounds.h))
+                .unwrap_or(std::cmp::Ordering::Equal)
+        })
         .map(|w| w.window_id as isize)
 }
 
@@ -152,7 +189,10 @@ pub fn main_window(pid: i32, window_id: Option<u64>) -> Option<isize> {
 
 fn focus_target(top: HWND) -> HWND {
     let tid = unsafe { GetWindowThreadProcessId(top, None) };
-    let mut gi = GUITHREADINFO { cbSize: std::mem::size_of::<GUITHREADINFO>() as u32, ..Default::default() };
+    let mut gi = GUITHREADINFO {
+        cbSize: std::mem::size_of::<GUITHREADINFO>() as u32,
+        ..Default::default()
+    };
     if unsafe { GetGUIThreadInfo(tid, &mut gi) }.is_ok() && !gi.hwndFocus.0.is_null() {
         gi.hwndFocus
     } else {
@@ -165,7 +205,8 @@ fn lparam(x: i32, y: i32) -> LPARAM {
 }
 
 fn post_msg(h: HWND, msg: u32, w: usize, l: LPARAM) -> Result<()> {
-    unsafe { PostMessageW(Some(h), msg, WPARAM(w), l) }.map_err(|e| Error::Platform(i64::from(e.code().0), "PostMessage"))
+    unsafe { PostMessageW(Some(h), msg, WPARAM(w), l) }
+        .map_err(|e| Error::Platform(i64::from(e.code().0), "PostMessage"))
 }
 
 fn deepest_child_at(top: HWND, sx: i32, sy: i32) -> (HWND, i32, i32) {
@@ -195,7 +236,9 @@ fn key_lparam(vk: u16, up: bool) -> LPARAM {
 }
 
 pub fn post(pid: i32, window: Option<u64>, ev: &InputEvent) -> Result<()> {
-    let top = hwnd(main_window(pid, window).ok_or_else(|| Error::NotFound(format!("window of pid {pid}")))?);
+    let top = hwnd(
+        main_window(pid, window).ok_or_else(|| Error::NotFound(format!("window of pid {pid}")))?,
+    );
     match ev {
         InputEvent::Text(t) => {
             let target = focus_target(top);
@@ -209,9 +252,12 @@ pub fn post(pid: i32, window: Option<u64>, ev: &InputEvent) -> Result<()> {
             // Posted messages do not change the thread's key state, so shortcuts that
             // read Ctrl/Alt/Shift cannot work here: climb to the foreground tier instead.
             if c.mods.any() {
-                return Err(Error::Unsupported("modifier chords need the foreground tier"));
+                return Err(Error::Unsupported(
+                    "modifier chords need the foreground tier",
+                ));
             }
-            let vk = keys::win_vk(c.key).ok_or_else(|| Error::Invalid(format!("no virtual key for {:?}", c.key)))?;
+            let vk = keys::win_vk(c.key)
+                .ok_or_else(|| Error::Invalid(format!("no virtual key for {:?}", c.key)))?;
             let target = focus_target(top);
             post_msg(target, WM_KEYDOWN, usize::from(vk), key_lparam(vk, false))?;
             let ch = match c.key {
@@ -226,7 +272,12 @@ pub fn post(pid: i32, window: Option<u64>, ev: &InputEvent) -> Result<()> {
             }
             post_msg(target, WM_KEYUP, usize::from(vk), key_lparam(vk, true))
         }
-        InputEvent::Click { x, y, button, count } => {
+        InputEvent::Click {
+            x,
+            y,
+            button,
+            count,
+        } => {
             let (child, cx, cy) = deepest_child_at(top, *x as i32, *y as i32);
             let (down, up, dbl, mk) = match button {
                 Button::Left => (WM_LBUTTONDOWN, WM_LBUTTONUP, WM_LBUTTONDBLCLK, 1usize),
@@ -245,7 +296,12 @@ pub fn post(pid: i32, window: Option<u64>, ev: &InputEvent) -> Result<()> {
         InputEvent::Scroll { x, y, dy, .. } => {
             let (child, _, _) = deepest_child_at(top, *x as i32, *y as i32);
             let delta = (-dy * 120.0).round() as i32 as i16 as u16 as usize;
-            post_msg(child, WM_MOUSEWHEEL, delta << 16, lparam(*x as i32, *y as i32))
+            post_msg(
+                child,
+                WM_MOUSEWHEEL,
+                delta << 16,
+                lparam(*x as i32, *y as i32),
+            )
         }
     }
 }
@@ -257,30 +313,83 @@ fn send(inputs: &[INPUT]) -> Result<()> {
     if n as usize == inputs.len() {
         Ok(())
     } else {
-        Err(Error::Platform(i64::from(n), "SendInput (blocked by UIPI or a secure desktop?)"))
+        Err(Error::Platform(
+            i64::from(n),
+            "SendInput (blocked by UIPI or a secure desktop?)",
+        ))
     }
 }
 
 fn kb(vk: u16, scan: u16, flags: KEYBD_EVENT_FLAGS) -> INPUT {
-    INPUT { r#type: INPUT_KEYBOARD, Anonymous: INPUT_0 { ki: KEYBDINPUT { wVk: VIRTUAL_KEY(vk), wScan: scan, dwFlags: flags, time: 0, dwExtraInfo: 0 } } }
+    INPUT {
+        r#type: INPUT_KEYBOARD,
+        Anonymous: INPUT_0 {
+            ki: KEYBDINPUT {
+                wVk: VIRTUAL_KEY(vk),
+                wScan: scan,
+                dwFlags: flags,
+                time: 0,
+                dwExtraInfo: 0,
+            },
+        },
+    }
 }
 
 fn mouse(flags: MOUSE_EVENT_FLAGS, data: i32) -> INPUT {
-    INPUT { r#type: INPUT_MOUSE, Anonymous: INPUT_0 { mi: MOUSEINPUT { dx: 0, dy: 0, mouseData: data as u32, dwFlags: flags, time: 0, dwExtraInfo: 0 } } }
+    INPUT {
+        r#type: INPUT_MOUSE,
+        Anonymous: INPUT_0 {
+            mi: MOUSEINPUT {
+                dx: 0,
+                dy: 0,
+                mouseData: data as u32,
+                dwFlags: flags,
+                time: 0,
+                dwExtraInfo: 0,
+            },
+        },
+    }
 }
 
 fn extended(key: Key) -> bool {
-    matches!(key, Key::Named(Named::Left | Named::Right | Named::Up | Named::Down | Named::Home | Named::End | Named::PageUp | Named::PageDown | Named::Delete))
+    matches!(
+        key,
+        Key::Named(
+            Named::Left
+                | Named::Right
+                | Named::Up
+                | Named::Down
+                | Named::Home
+                | Named::End
+                | Named::PageUp
+                | Named::PageDown
+                | Named::Delete
+        )
+    )
 }
 
 fn chord_inputs(c: Chord) -> Result<Vec<INPUT>> {
-    let vk = keys::win_vk(c.key).ok_or_else(|| Error::Invalid(format!("no virtual key for {:?}", c.key)))?;
+    let vk = keys::win_vk(c.key)
+        .ok_or_else(|| Error::Invalid(format!("no virtual key for {:?}", c.key)))?;
     let mut v = vec![];
-    let mods: Vec<u16> = [(c.mods.ctrl, 0x11u16), (c.mods.alt, 0x12), (c.mods.shift, 0x10), (c.mods.meta, 0x5B)].iter().filter(|m| m.0).map(|m| m.1).collect();
+    let mods: Vec<u16> = [
+        (c.mods.ctrl, 0x11u16),
+        (c.mods.alt, 0x12),
+        (c.mods.shift, 0x10),
+        (c.mods.meta, 0x5B),
+    ]
+    .iter()
+    .filter(|m| m.0)
+    .map(|m| m.1)
+    .collect();
     for m in &mods {
         v.push(kb(*m, 0, KEYBD_EVENT_FLAGS(0)));
     }
-    let ext = if extended(c.key) { KEYEVENTF_EXTENDEDKEY } else { KEYBD_EVENT_FLAGS(0) };
+    let ext = if extended(c.key) {
+        KEYEVENTF_EXTENDEDKEY
+    } else {
+        KEYBD_EVENT_FLAGS(0)
+    };
     v.push(kb(vk, 0, ext));
     v.push(kb(vk, 0, ext | KEYEVENTF_KEYUP));
     for m in mods.iter().rev() {
@@ -291,7 +400,9 @@ fn chord_inputs(c: Chord) -> Result<Vec<INPUT>> {
 
 /// Key-up events for every modifier that is currently held down (generic, left and right forms).
 fn held_modifier_keyups() -> Vec<INPUT> {
-    const MODS: [u16; 11] = [0x10, 0x11, 0x12, 0xA0, 0xA1, 0xA2, 0xA3, 0xA4, 0xA5, 0x5B, 0x5C];
+    const MODS: [u16; 11] = [
+        0x10, 0x11, 0x12, 0xA0, 0xA1, 0xA2, 0xA3, 0xA4, 0xA5, 0x5B, 0x5C,
+    ];
     MODS.iter()
         .filter(|vk| (unsafe { GetAsyncKeyState(i32::from(**vk)) } as u16) & 0x8000 != 0)
         .map(|vk| kb(*vk, 0, KEYEVENTF_KEYUP))
@@ -303,9 +414,15 @@ pub fn foreground_send(ev: &InputEvent) -> Result<()> {
         InputEvent::Text(t) => {
             for u in t.replace('\n', "\r").encode_utf16() {
                 if u == 13 {
-                    send(&chord_inputs(Chord { mods: Default::default(), key: Key::Named(Named::Return) })?)?;
+                    send(&chord_inputs(Chord {
+                        mods: Default::default(),
+                        key: Key::Named(Named::Return),
+                    })?)?;
                 } else {
-                    send(&[kb(0, u, KEYEVENTF_UNICODE), kb(0, u, KEYEVENTF_UNICODE | KEYEVENTF_KEYUP)])?;
+                    send(&[
+                        kb(0, u, KEYEVENTF_UNICODE),
+                        kb(0, u, KEYEVENTF_UNICODE | KEYEVENTF_KEYUP),
+                    ])?;
                 }
                 sleep(2);
             }
@@ -318,10 +435,16 @@ pub fn foreground_send(ev: &InputEvent) -> Result<()> {
             inputs.extend(chord_inputs(*c)?);
             send(&inputs)
         }
-        InputEvent::Click { x, y, button, count } => {
+        InputEvent::Click {
+            x,
+            y,
+            button,
+            count,
+        } => {
             let mut saved = POINT::default();
             let had = unsafe { GetCursorPos(&mut saved) }.is_ok();
-            unsafe { SetCursorPos(*x as i32, *y as i32) }.map_err(|e| Error::Platform(i64::from(e.code().0), "SetCursorPos"))?;
+            unsafe { SetCursorPos(*x as i32, *y as i32) }
+                .map_err(|e| Error::Platform(i64::from(e.code().0), "SetCursorPos"))?;
             sleep(20);
             let (d, u) = match button {
                 Button::Left => (MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP),
@@ -350,7 +473,9 @@ pub fn foreground_send(ev: &InputEvent) -> Result<()> {
 }
 
 pub fn activate(pid: i32) -> bool {
-    let Some(h) = main_window(pid, None).map(hwnd) else { return false };
+    let Some(h) = main_window(pid, None).map(hwnd) else {
+        return false;
+    };
     unsafe {
         if IsIconic(h).as_bool() {
             let _ = ShowWindow(h, SW_RESTORE);
@@ -397,7 +522,15 @@ pub fn capture(window_id: u64, path: &std::path::Path) -> Result<()> {
             ..Default::default()
         };
         let mut px = vec![0u8; (w * ht * 4) as usize];
-        let rows = GetDIBits(mem, bmp, 0, ht as u32, Some(px.as_mut_ptr() as *mut _), &mut bmi, DIB_RGB_COLORS);
+        let rows = GetDIBits(
+            mem,
+            bmp,
+            0,
+            ht as u32,
+            Some(px.as_mut_ptr() as *mut _),
+            &mut bmi,
+            DIB_RGB_COLORS,
+        );
         SelectObject(mem, old);
         let _ = DeleteObject(bmp.into());
         let _ = DeleteDC(mem);
@@ -409,7 +542,8 @@ pub fn capture(window_id: u64, path: &std::path::Path) -> Result<()> {
             p.swap(0, 2); // BGRA -> RGBA
             p[3] = 255;
         }
-        let png = crate::png::encode_rgba(w as u32, ht as u32, &px).ok_or(Error::Unsupported("png encode"))?;
+        let png = crate::png::encode_rgba(w as u32, ht as u32, &px)
+            .ok_or(Error::Unsupported("png encode"))?;
         std::fs::write(path, png).map_err(|_| Error::Platform(0, "write png"))
     }
 }
@@ -469,15 +603,24 @@ pub fn clip_snapshot() -> Option<ClipSnapshot> {
             break;
         }
         formats += 1;
-        lossless &= [CF_TEXT.0, CF_OEMTEXT.0, CF_UNICODETEXT.0, CF_LOCALE.0].iter().any(|k| u32::from(*k) == f);
+        lossless &= [CF_TEXT.0, CF_OEMTEXT.0, CF_UNICODETEXT.0, CF_LOCALE.0]
+            .iter()
+            .any(|k| u32::from(*k) == f);
     }
-    Some(ClipSnapshot { text: read_unicode(), lossless, change, formats })
+    Some(ClipSnapshot {
+        text: read_unicode(),
+        lossless,
+        change,
+        formats,
+    })
 }
 
 fn write_unicode(text: &str) -> bool {
     unsafe {
         let units: Vec<u16> = text.encode_utf16().chain(std::iter::once(0)).collect();
-        let Ok(g) = GlobalAlloc(GMEM_MOVEABLE, units.len() * 2) else { return false };
+        let Ok(g) = GlobalAlloc(GMEM_MOVEABLE, units.len() * 2) else {
+            return false;
+        };
         let p = GlobalLock(g) as *mut u16;
         if p.is_null() {
             return false;
@@ -549,12 +692,22 @@ pub fn resolve_launch(spec: &str) -> Result<(String, String)> {
         spec.to_string()
     } else {
         if spec.contains(['\\', '/']) {
-            return Err(Error::Invalid("launch spec must be an absolute path or a bare executable name".into()));
+            return Err(Error::Invalid(
+                "launch spec must be an absolute path or a bare executable name".into(),
+            ));
         }
         let name: Vec<u16> = spec.encode_utf16().chain(std::iter::once(0)).collect();
         let ext: Vec<u16> = ".exe".encode_utf16().chain(std::iter::once(0)).collect();
         let mut buf = vec![0u16; 1024];
-        let n = unsafe { SearchPathW(PCWSTR::null(), PCWSTR(name.as_ptr()), PCWSTR(ext.as_ptr()), Some(&mut buf), None) } as usize;
+        let n = unsafe {
+            SearchPathW(
+                PCWSTR::null(),
+                PCWSTR(name.as_ptr()),
+                PCWSTR(ext.as_ptr()),
+                Some(&mut buf),
+                None,
+            )
+        } as usize;
         if n == 0 || n >= buf.len() {
             return Err(Error::NotFound(format!("executable {spec}")));
         }
@@ -564,7 +717,10 @@ pub fn resolve_launch(spec: &str) -> Result<(String, String)> {
     if !p.is_file() || !p.extension().is_some_and(|e| e.eq_ignore_ascii_case("exe")) {
         return Err(Error::NotFound(format!("executable {path}")));
     }
-    let id = p.file_name().map(|n| n.to_string_lossy().to_ascii_lowercase()).unwrap_or_default();
+    let id = p
+        .file_name()
+        .map(|n| n.to_string_lossy().to_ascii_lowercase())
+        .unwrap_or_default();
     Ok((path, id))
 }
 
@@ -576,25 +732,45 @@ pub fn resolve_launch(spec: &str) -> Result<(String, String)> {
 pub fn launch(path: &str, app_id: &str, max_processes: u32) -> Result<Owned> {
     let before: std::collections::HashSet<i32> = apps().into_iter().map(|a| a.pid).collect();
     unsafe {
-        let job = CreateJobObjectW(None, PCWSTR::null()).map_err(|e| Error::NotFound(format!("job object: {e}")))?;
+        let job = CreateJobObjectW(None, PCWSTR::null())
+            .map_err(|e| Error::NotFound(format!("job object: {e}")))?;
         let mut info = JOBOBJECT_EXTENDED_LIMIT_INFORMATION::default();
         info.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
         if max_processes > 0 {
             info.BasicLimitInformation.LimitFlags |= JOB_OBJECT_LIMIT_ACTIVE_PROCESS;
             info.BasicLimitInformation.ActiveProcessLimit = max_processes;
         }
-        if let Err(e) = SetInformationJobObject(job, JobObjectExtendedLimitInformation, &info as *const _ as *const std::ffi::c_void, std::mem::size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>() as u32) {
+        if let Err(e) = SetInformationJobObject(
+            job,
+            JobObjectExtendedLimitInformation,
+            &info as *const _ as *const std::ffi::c_void,
+            std::mem::size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>() as u32,
+        ) {
             let _ = CloseHandle(job);
             return Err(Error::NotFound(format!("job limits: {e}")));
         }
         let app: Vec<u16> = path.encode_utf16().chain(std::iter::once(0)).collect();
-        let mut cmd: Vec<u16> = format!("\"{path}\"").encode_utf16().chain(std::iter::once(0)).collect();
+        let mut cmd: Vec<u16> = format!("\"{path}\"")
+            .encode_utf16()
+            .chain(std::iter::once(0))
+            .collect();
         let mut si: STARTUPINFOW = std::mem::zeroed();
         si.cb = std::mem::size_of::<STARTUPINFOW>() as u32;
         si.dwFlags = STARTF_USESHOWWINDOW;
         si.wShowWindow = SW_SHOWNOACTIVATE.0 as u16;
         let mut pi = PROCESS_INFORMATION::default();
-        if let Err(e) = CreateProcessW(PCWSTR(app.as_ptr()), Some(PWSTR(cmd.as_mut_ptr())), None, None, false, CREATE_SUSPENDED, None, PCWSTR::null(), &si, &mut pi) {
+        if let Err(e) = CreateProcessW(
+            PCWSTR(app.as_ptr()),
+            Some(PWSTR(cmd.as_mut_ptr())),
+            None,
+            None,
+            false,
+            CREATE_SUSPENDED,
+            None,
+            PCWSTR::null(),
+            &si,
+            &mut pi,
+        ) {
             let _ = CloseHandle(job);
             return Err(Error::NotFound(format!("could not start {path}: {e}")));
         }
@@ -609,24 +785,37 @@ pub fn launch(path: &str, app_id: &str, max_processes: u32) -> Result<Owned> {
         let _ = CloseHandle(pi.hThread);
         let started_pid = pi.dwProcessId as i32;
         // From here `owned` tears everything down on any early return.
-        let owned = Owned { pid: started_pid, process: pi.hProcess.0 as isize, job: job.0 as isize };
+        let owned = Owned {
+            pid: started_pid,
+            process: pi.hProcess.0 as isize,
+            job: job.0 as isize,
+        };
         for _ in 0..100 {
             sleep(50);
             let now = apps();
             // The process we started, or a NEW process of the same executable that is
             // inside our job (a launcher that hands off to a helper). A matching window
             // owned by anything outside the job is someone else's app and is never adopted.
-            let hit = now.iter().find(|a| a.pid == started_pid || (!before.contains(&a.pid) && a.app_id == app_id && in_job(a.pid, job)));
+            let hit = now.iter().find(|a| {
+                a.pid == started_pid
+                    || (!before.contains(&a.pid) && a.app_id == app_id && in_job(a.pid, job))
+            });
             if let Some(a) = hit {
                 // Re-key to the window-owning pid (it may be a helper in our job); keep the handles.
                 let o = std::mem::ManuallyDrop::new(owned);
-                return Ok(Owned { pid: a.pid, process: o.process, job: o.job });
+                return Ok(Owned {
+                    pid: a.pid,
+                    process: o.process,
+                    job: o.job,
+                });
             }
             if !process_alive(started_pid) && !job_has_processes(job) {
                 break;
             }
         }
-        Err(Error::NotFound(format!("no window appeared for {path}; the launched process tree was terminated")))
+        Err(Error::NotFound(format!(
+            "no window appeared for {path}; the launched process tree was terminated"
+        )))
     }
 }
 
@@ -647,7 +836,15 @@ fn in_job(pid: i32, job: HANDLE) -> bool {
 fn job_has_processes(job: HANDLE) -> bool {
     let mut info = JOBOBJECT_BASIC_ACCOUNTING_INFORMATION::default();
     unsafe {
-        QueryInformationJobObject(Some(job), JobObjectBasicAccountingInformation, &mut info as *mut _ as *mut std::ffi::c_void, std::mem::size_of::<JOBOBJECT_BASIC_ACCOUNTING_INFORMATION>() as u32, None).is_ok() && info.ActiveProcesses > 0
+        QueryInformationJobObject(
+            Some(job),
+            JobObjectBasicAccountingInformation,
+            &mut info as *mut _ as *mut std::ffi::c_void,
+            std::mem::size_of::<JOBOBJECT_BASIC_ACCOUNTING_INFORMATION>() as u32,
+            None,
+        )
+        .is_ok()
+            && info.ActiveProcesses > 0
     }
 }
 
@@ -664,7 +861,10 @@ pub fn terminate(pid: i32) -> Result<()> {
     }
     // Never force-kill: an unsaved-changes prompt must be answered, not bypassed.
     // (Dropping the `Owned` handle is the explicit, caller-chosen hard stop.)
-    Err(Error::Platform(0, "process did not exit after WM_CLOSE (a dialog may be waiting)"))
+    Err(Error::Platform(
+        0,
+        "process did not exit after WM_CLOSE (a dialog may be waiting)",
+    ))
 }
 
 pub fn process_alive(pid: i32) -> bool {

@@ -33,7 +33,11 @@ pub struct LeaseRequest {
 
 impl LeaseRequest {
     pub fn new(holder: &str) -> Self {
-        LeaseRequest { holder: holder.into(), ttl: None, takeover: false }
+        LeaseRequest {
+            holder: holder.into(),
+            ttl: None,
+            takeover: false,
+        }
     }
     pub fn ttl(mut self, d: Duration) -> Self {
         self.ttl = Some(d);
@@ -55,7 +59,10 @@ pub struct Lease {
 impl Lease {
     /// Fence for the controller's `seq`-th input (the first input is `seq` 1).
     pub fn fence(&self, seq: u64) -> Fence {
-        Fence { epoch: self.epoch, seq }
+        Fence {
+            epoch: self.epoch,
+            seq,
+        }
     }
 }
 
@@ -98,7 +105,10 @@ pub(crate) enum Admitted {
 
 impl Leases {
     fn live(map: &mut HashMap<i32, State>, pid: i32) -> Option<&mut State> {
-        if map.get(&pid).is_some_and(|s| s.expires.is_some_and(|e| Instant::now() >= e)) {
+        if map
+            .get(&pid)
+            .is_some_and(|s| s.expires.is_some_and(|e| Instant::now() >= e))
+        {
             map.remove(&pid);
         }
         map.get_mut(&pid)
@@ -109,7 +119,10 @@ impl Leases {
         let mut map = self.map.lock().unwrap();
         let displaced = match Self::live(&mut map, pid) {
             Some(s) if !req.takeover && s.holder != req.holder => {
-                return Err(Error::LeaseHeld { holder: s.holder.clone(), epoch: s.epoch });
+                return Err(Error::LeaseHeld {
+                    holder: s.holder.clone(),
+                    epoch: s.epoch,
+                });
             }
             Some(s) => Some((s.holder.clone(), s.epoch)),
             None => None,
@@ -117,9 +130,23 @@ impl Leases {
         let epoch = self.epoch.fetch_add(1, Ordering::SeqCst) + 1;
         map.insert(
             pid,
-            State { holder: req.holder.clone(), epoch, acked: 0, in_flight: false, expires: req.ttl.map(|t| Instant::now() + t), ttl: req.ttl },
+            State {
+                holder: req.holder.clone(),
+                epoch,
+                acked: 0,
+                in_flight: false,
+                expires: req.ttl.map(|t| Instant::now() + t),
+                ttl: req.ttl,
+            },
         );
-        Ok((Lease { pid, holder: req.holder.clone(), epoch }, displaced))
+        Ok((
+            Lease {
+                pid,
+                holder: req.holder.clone(),
+                epoch,
+            },
+            displaced,
+        ))
     }
 
     pub fn release(&self, pid: i32, epoch: u64) -> bool {
@@ -151,7 +178,9 @@ impl Leases {
             holder: s.holder.clone(),
             epoch: s.epoch,
             acked_seq: s.acked,
-            expires_in_ms: s.expires.map(|e| e.saturating_duration_since(Instant::now()).as_millis() as u64),
+            expires_in_ms: s
+                .expires
+                .map(|e| e.saturating_duration_since(Instant::now()).as_millis() as u64),
         })
     }
 
@@ -168,23 +197,40 @@ impl Leases {
         let st = Self::live(&mut map, pid);
         match (st, fence) {
             (None, None) => Ok(Admitted::Unleased),
-            (None, Some(f)) => Err(Error::StaleLease { presented: f.epoch, current: None }),
-            (Some(s), None) => Err(Error::Blocked(format!("pid {pid} is leased by {} (epoch {}); present a fence", s.holder, s.epoch))),
+            (None, Some(f)) => Err(Error::StaleLease {
+                presented: f.epoch,
+                current: None,
+            }),
+            (Some(s), None) => Err(Error::Blocked(format!(
+                "pid {pid} is leased by {} (epoch {}); present a fence",
+                s.holder, s.epoch
+            ))),
             (Some(s), Some(f)) => {
                 if f.epoch != s.epoch {
-                    return Err(Error::StaleLease { presented: f.epoch, current: Some(s.epoch) });
+                    return Err(Error::StaleLease {
+                        presented: f.epoch,
+                        current: Some(s.epoch),
+                    });
                 }
                 if f.seq <= s.acked {
                     return Err(Error::Replayed { acked_seq: s.acked });
                 }
                 if f.seq != s.acked + 1 {
-                    return Err(Error::OutOfOrder { expected: s.acked + 1, got: f.seq });
+                    return Err(Error::OutOfOrder {
+                        expected: s.acked + 1,
+                        got: f.seq,
+                    });
                 }
                 if s.in_flight {
-                    return Err(Error::Invalid("another input from this lease is still executing".into()));
+                    return Err(Error::Invalid(
+                        "another input from this lease is still executing".into(),
+                    ));
                 }
                 s.in_flight = true;
-                Ok(Admitted::Fenced { epoch: s.epoch, seq: f.seq })
+                Ok(Admitted::Fenced {
+                    epoch: s.epoch,
+                    seq: f.seq,
+                })
             }
         }
     }

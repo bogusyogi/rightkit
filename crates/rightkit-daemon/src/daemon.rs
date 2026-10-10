@@ -933,7 +933,7 @@ impl Daemon {
             return Response::err(502, "oauth_unavailable");
         };
         let (mut code, mut state, mut error) = (None, None, None);
-        for (k, v) in url::form_urlencoded::parse(req.query().as_bytes()) {
+        for (k, v) in form_urlencoded::parse(req.query().as_bytes()) {
             match k.as_ref() {
                 "code" => code = Some(v.into_owned()),
                 "state" => state = Some(v.into_owned()),

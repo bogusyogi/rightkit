@@ -1,6 +1,8 @@
 //! Contract-level tests: embedded schemas compile, their own examples validate,
 //! version negotiation runs before schema work, and the schema metadata is present.
 
+#![cfg(feature = "schema")]
+
 use rightkit_contracts::{check_typed, validate, Contract, ContractError, Version};
 use serde_json::Value;
 

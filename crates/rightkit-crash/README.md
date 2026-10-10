@@ -20,7 +20,7 @@ Do not use it to upload reports on its own. Upload goes through the consented ou
 
 ## Cargo features
 
-None. The crate has no `[features]` table. Dependencies: `rightkit-logs` (without its default `http` feature), `serde`, `serde_json`, and `zip` (deflate). Windows-only dependencies apply on Windows.
+`support-bundle` (default): `build_support_bundle`, `SupportBundleOptions`, `BundleManifest`, `create_zip` and the `zip` (deflate) dependency. Other dependencies: `rightkit-logs` (without its default `http` feature), `serde`, `serde_json`. Windows-only dependencies apply on Windows.
 
 ## Usage
 
@@ -82,4 +82,4 @@ rightkit cargo test -p rightkit-crash --target <native-target>
 
 ## Version and changes
 
-Published version: see [INDEX.md](../../INDEX.md). No CHANGELOG.md in this crate.
+Published version: see [INDEX.md](../../INDEX.md). Changes are listed in [CHANGELOG.md](CHANGELOG.md).

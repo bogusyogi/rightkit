@@ -83,7 +83,11 @@ pub fn parse_chord(spec: &str, primary_meta: bool) -> Result<Chord> {
         Some(h) if spec.len() > 1 => (h.trim_end_matches('+'), true),
         _ => (spec, false),
     };
-    let mut parts: Vec<&str> = if head.is_empty() { vec![] } else { head.split('+').collect() };
+    let mut parts: Vec<&str> = if head.is_empty() {
+        vec![]
+    } else {
+        head.split('+').collect()
+    };
     if tail_plus {
         key = Some(Key::Char('='));
         // plus is shift+= on US layouts
@@ -107,11 +111,15 @@ pub fn parse_chord(spec: &str, primary_meta: bool) -> Result<Chord> {
                 if key.is_some() {
                     return Err(Error::Invalid(format!("two keys in chord {spec:?}")));
                 }
-                key = Some(parse_key(other).ok_or_else(|| Error::Invalid(format!("unknown key {other:?}")))?);
+                key = Some(
+                    parse_key(other)
+                        .ok_or_else(|| Error::Invalid(format!("unknown key {other:?}")))?,
+                );
             }
         }
     }
-    key.map(|key| Chord { mods, key }).ok_or_else(|| Error::Invalid(format!("no key in chord {spec:?}")))
+    key.map(|key| Chord { mods, key })
+        .ok_or_else(|| Error::Invalid(format!("no key in chord {spec:?}")))
 }
 
 fn parse_key(s: &str) -> Option<Key> {
@@ -128,12 +136,16 @@ fn parse_key(s: &str) -> Option<Key> {
     if it.next().is_some() {
         return None;
     }
-    (c.is_ascii_alphanumeric() || ";=,-./`[]\\'".contains(c)).then_some(Key::Char(c.to_ascii_lowercase()))
+    (c.is_ascii_alphanumeric() || ";=,-./`[]\\'".contains(c))
+        .then_some(Key::Char(c.to_ascii_lowercase()))
 }
 
 /// Space-separated sequence of chords.
 pub fn parse_sequence(spec: &str, primary_meta: bool) -> Result<Vec<Chord>> {
-    let v: Result<Vec<Chord>> = spec.split_whitespace().map(|c| parse_chord(c, primary_meta)).collect();
+    let v: Result<Vec<Chord>> = spec
+        .split_whitespace()
+        .map(|c| parse_chord(c, primary_meta))
+        .collect();
     let v = v?;
     if v.is_empty() {
         return Err(Error::Invalid("empty key sequence".into()));
@@ -160,14 +172,56 @@ pub fn mac_keycode(key: Key) -> Option<u16> {
             Named::PageUp => 116,
             Named::PageDown => 121,
         },
-        Key::F(n) => *[122u16, 120, 99, 118, 96, 97, 98, 100, 101, 109, 103, 111].get(usize::from(n).checked_sub(1)?)?,
+        Key::F(n) => *[122u16, 120, 99, 118, 96, 97, 98, 100, 101, 109, 103, 111]
+            .get(usize::from(n).checked_sub(1)?)?,
         Key::Char(c) => match c {
-            'a' => 0, 's' => 1, 'd' => 2, 'f' => 3, 'h' => 4, 'g' => 5, 'z' => 6, 'x' => 7, 'c' => 8,
-            'v' => 9, 'b' => 11, 'q' => 12, 'w' => 13, 'e' => 14, 'r' => 15, 'y' => 16, 't' => 17,
-            '1' => 18, '2' => 19, '3' => 20, '4' => 21, '6' => 22, '5' => 23, '=' => 24, '9' => 25,
-            '7' => 26, '-' => 27, '8' => 28, '0' => 29, ']' => 30, 'o' => 31, 'u' => 32, '[' => 33,
-            'i' => 34, 'p' => 35, 'l' => 37, 'j' => 38, '\'' => 39, 'k' => 40, ';' => 41, '\\' => 42,
-            ',' => 43, '/' => 44, 'n' => 45, 'm' => 46, '.' => 47, '`' => 50,
+            'a' => 0,
+            's' => 1,
+            'd' => 2,
+            'f' => 3,
+            'h' => 4,
+            'g' => 5,
+            'z' => 6,
+            'x' => 7,
+            'c' => 8,
+            'v' => 9,
+            'b' => 11,
+            'q' => 12,
+            'w' => 13,
+            'e' => 14,
+            'r' => 15,
+            'y' => 16,
+            't' => 17,
+            '1' => 18,
+            '2' => 19,
+            '3' => 20,
+            '4' => 21,
+            '6' => 22,
+            '5' => 23,
+            '=' => 24,
+            '9' => 25,
+            '7' => 26,
+            '-' => 27,
+            '8' => 28,
+            '0' => 29,
+            ']' => 30,
+            'o' => 31,
+            'u' => 32,
+            '[' => 33,
+            'i' => 34,
+            'p' => 35,
+            'l' => 37,
+            'j' => 38,
+            '\'' => 39,
+            'k' => 40,
+            ';' => 41,
+            '\\' => 42,
+            ',' => 43,
+            '/' => 44,
+            'n' => 45,
+            'm' => 46,
+            '.' => 47,
+            '`' => 50,
             _ => return None,
         },
     })
@@ -197,8 +251,17 @@ pub fn win_vk(key: Key) -> Option<u16> {
         Key::Char(c) if c.is_ascii_lowercase() => 0x41 + (c as u16 - 'a' as u16),
         Key::Char(c) if c.is_ascii_digit() => 0x30 + (c as u16 - '0' as u16),
         Key::Char(c) => match c {
-            ';' => 0xBA, '=' => 0xBB, ',' => 0xBC, '-' => 0xBD, '.' => 0xBE, '/' => 0xBF,
-            '`' => 0xC0, '[' => 0xDB, '\\' => 0xDC, ']' => 0xDD, '\'' => 0xDE,
+            ';' => 0xBA,
+            '=' => 0xBB,
+            ',' => 0xBC,
+            '-' => 0xBD,
+            '.' => 0xBE,
+            '/' => 0xBF,
+            '`' => 0xC0,
+            '[' => 0xDB,
+            '\\' => 0xDC,
+            ']' => 0xDD,
+            '\'' => 0xDE,
             _ => return None,
         },
     })
@@ -221,7 +284,11 @@ pub fn inserted_char(c: Chord) -> Option<char> {
         Key::Named(Named::Return) => Some('\r'),
         Key::Named(Named::Tab) => Some('\t'),
         Key::Named(Named::Space) => Some(' '),
-        Key::Char(ch) => Some(if c.mods.shift { ch.to_ascii_uppercase() } else { ch }),
+        Key::Char(ch) => Some(if c.mods.shift {
+            ch.to_ascii_uppercase()
+        } else {
+            ch
+        }),
         _ => None,
     }
 }
@@ -235,8 +302,20 @@ mod tests {
         let c = parse_chord("cmd+shift+k", true).unwrap();
         assert!(c.mods.meta && c.mods.shift && !c.mods.ctrl);
         assert_eq!(c.key, Key::Char('k'));
-        assert_eq!(parse_chord("mod+a", true).unwrap().mods, Mods { meta: true, ..Default::default() });
-        assert_eq!(parse_chord("mod+a", false).unwrap().mods, Mods { ctrl: true, ..Default::default() });
+        assert_eq!(
+            parse_chord("mod+a", true).unwrap().mods,
+            Mods {
+                meta: true,
+                ..Default::default()
+            }
+        );
+        assert_eq!(
+            parse_chord("mod+a", false).unwrap().mods,
+            Mods {
+                ctrl: true,
+                ..Default::default()
+            }
+        );
         assert_eq!(parse_sequence("cmd+a delete", true).unwrap().len(), 2);
         assert_eq!(parse_chord("F5", true).unwrap().key, Key::F(5));
         assert!(parse_chord("cmd+", true).is_ok());
@@ -269,9 +348,22 @@ mod tests {
 
     #[test]
     fn flags_and_inserted_chars() {
-        assert_eq!(mac_flags(Mods { meta: true, shift: true, ..Default::default() }), 0x100000 | 0x20000);
-        assert_eq!(inserted_char(parse_chord("shift+a", true).unwrap()), Some('A'));
+        assert_eq!(
+            mac_flags(Mods {
+                meta: true,
+                shift: true,
+                ..Default::default()
+            }),
+            0x100000 | 0x20000
+        );
+        assert_eq!(
+            inserted_char(parse_chord("shift+a", true).unwrap()),
+            Some('A')
+        );
         assert_eq!(inserted_char(parse_chord("cmd+a", true).unwrap()), None);
-        assert_eq!(inserted_char(parse_chord("return", true).unwrap()), Some('\r'));
+        assert_eq!(
+            inserted_char(parse_chord("return", true).unwrap()),
+            Some('\r')
+        );
     }
 }

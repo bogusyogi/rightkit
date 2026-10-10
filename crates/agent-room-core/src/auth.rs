@@ -1,5 +1,4 @@
 use crate::protocol::{Event, Room, SeatBudget};
-use rand::RngCore;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
@@ -202,6 +201,6 @@ fn token_digest(token: &str) -> String {
 
 fn random_token() -> String {
     let mut bytes = [0_u8; 32];
-    rand::rng().fill_bytes(&mut bytes);
+    getrandom::fill(&mut bytes).expect("system randomness unavailable");
     bytes.iter().map(|byte| format!("{byte:02x}")).collect()
 }

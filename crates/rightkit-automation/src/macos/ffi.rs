@@ -1,7 +1,12 @@
 //! Raw framework bindings: CoreFoundation, ApplicationServices (AX, CoreGraphics
 //! events and windows), ImageIO, and the Objective-C runtime. No third-party crates.
 
-#![allow(non_snake_case, non_upper_case_globals, dead_code, clippy::missing_safety_doc)]
+#![allow(
+    non_snake_case,
+    non_upper_case_globals,
+    dead_code,
+    clippy::missing_safety_doc
+)]
 
 use std::ffi::c_void;
 use std::os::raw::{c_char, c_double, c_int, c_long, c_ulong};
@@ -48,7 +53,13 @@ extern "C" {
     pub fn CFArrayGetTypeID() -> c_ulong;
     pub fn CFNumberGetTypeID() -> c_ulong;
     pub fn CFBooleanGetTypeID() -> c_ulong;
-    pub fn CFStringCreateWithBytes(alloc: CFTypeRef, bytes: *const u8, n: CFIndex, enc: u32, ext: u8) -> CFTypeRef;
+    pub fn CFStringCreateWithBytes(
+        alloc: CFTypeRef,
+        bytes: *const u8,
+        n: CFIndex,
+        enc: u32,
+        ext: u8,
+    ) -> CFTypeRef;
     pub fn CFStringGetLength(s: CFTypeRef) -> CFIndex;
     pub fn CFStringGetMaximumSizeForEncoding(len: CFIndex, enc: u32) -> CFIndex;
     pub fn CFStringGetCString(s: CFTypeRef, buf: *mut c_char, size: CFIndex, enc: u32) -> u8;
@@ -58,7 +69,12 @@ extern "C" {
     pub fn CFNumberGetValue(n: CFTypeRef, ty: c_int, out: *mut c_void) -> u8;
     pub fn CFNumberCreate(alloc: CFTypeRef, ty: c_int, v: *const c_void) -> CFTypeRef;
     pub fn CFBooleanGetValue(b: CFTypeRef) -> u8;
-    pub fn CFURLCreateFromFileSystemRepresentation(alloc: CFTypeRef, buf: *const u8, len: CFIndex, dir: u8) -> CFTypeRef;
+    pub fn CFURLCreateFromFileSystemRepresentation(
+        alloc: CFTypeRef,
+        buf: *const u8,
+        len: CFIndex,
+        dir: u8,
+    ) -> CFTypeRef;
     pub fn CFRunLoopRunInMode(mode: CFTypeRef, secs: c_double, ret: u8) -> c_int;
     pub static kCFRunLoopDefaultMode: CFTypeRef;
     pub static kCFBooleanTrue: CFTypeRef;
@@ -69,8 +85,17 @@ extern "C" {
 extern "C" {
     pub fn AXIsProcessTrusted() -> u8;
     pub fn AXUIElementCreateApplication(pid: c_int) -> CFTypeRef;
-    pub fn AXUIElementCopyAttributeValue(el: CFTypeRef, attr: CFTypeRef, out: *mut CFTypeRef) -> c_int;
-    pub fn AXUIElementCopyParameterizedAttributeValue(el: CFTypeRef, attr: CFTypeRef, param: CFTypeRef, out: *mut CFTypeRef) -> c_int;
+    pub fn AXUIElementCopyAttributeValue(
+        el: CFTypeRef,
+        attr: CFTypeRef,
+        out: *mut CFTypeRef,
+    ) -> c_int;
+    pub fn AXUIElementCopyParameterizedAttributeValue(
+        el: CFTypeRef,
+        attr: CFTypeRef,
+        param: CFTypeRef,
+        out: *mut CFTypeRef,
+    ) -> c_int;
     pub fn AXUIElementSetAttributeValue(el: CFTypeRef, attr: CFTypeRef, v: CFTypeRef) -> c_int;
     pub fn AXUIElementIsAttributeSettable(el: CFTypeRef, attr: CFTypeRef, out: *mut u8) -> c_int;
     pub fn AXUIElementCopyActionNames(el: CFTypeRef, out: *mut CFTypeRef) -> c_int;
@@ -88,7 +113,14 @@ extern "C" {
     pub fn CGEventCreate(src: CFTypeRef) -> CFTypeRef;
     pub fn CGEventCreateKeyboardEvent(src: CFTypeRef, key: u16, down: u8) -> CFTypeRef;
     pub fn CGEventCreateMouseEvent(src: CFTypeRef, ty: u32, pt: CGPoint, button: u32) -> CFTypeRef;
-    pub fn CGEventCreateScrollWheelEvent2(src: CFTypeRef, units: u32, count: u32, w1: i32, w2: i32, w3: i32) -> CFTypeRef;
+    pub fn CGEventCreateScrollWheelEvent2(
+        src: CFTypeRef,
+        units: u32,
+        count: u32,
+        w1: i32,
+        w2: i32,
+        w3: i32,
+    ) -> CFTypeRef;
     pub fn CGEventKeyboardSetUnicodeString(ev: CFTypeRef, n: c_ulong, s: *const u16);
     pub fn CGEventSetFlags(ev: CFTypeRef, flags: u64);
     pub fn CGEventSetLocation(ev: CFTypeRef, pt: CGPoint);
@@ -103,7 +135,12 @@ extern "C" {
 
 #[link(name = "ImageIO", kind = "framework")]
 extern "C" {
-    pub fn CGImageDestinationCreateWithURL(url: CFTypeRef, ty: CFTypeRef, count: usize, opts: CFTypeRef) -> CFTypeRef;
+    pub fn CGImageDestinationCreateWithURL(
+        url: CFTypeRef,
+        ty: CFTypeRef,
+        count: usize,
+        opts: CFTypeRef,
+    ) -> CFTypeRef;
     pub fn CGImageDestinationAddImage(dest: CFTypeRef, img: CFTypeRef, props: CFTypeRef);
     pub fn CGImageDestinationFinalize(dest: CFTypeRef) -> u8;
 }
@@ -142,7 +179,9 @@ impl Cf {
         }
     }
     pub fn string(s: &str) -> Cf {
-        Cf(unsafe { CFStringCreateWithBytes(std::ptr::null(), s.as_ptr(), s.len() as CFIndex, UTF8, 0) })
+        Cf(unsafe {
+            CFStringCreateWithBytes(std::ptr::null(), s.as_ptr(), s.len() as CFIndex, UTF8, 0)
+        })
     }
 }
 impl Clone for Cf {
@@ -168,7 +207,11 @@ pub fn cf_to_string(r: CFTypeRef) -> Option<String> {
         if CFStringGetCString(r, buf.as_mut_ptr(), max, UTF8) == 0 {
             return None;
         }
-        Some(std::ffi::CStr::from_ptr(buf.as_ptr()).to_string_lossy().into_owned())
+        Some(
+            std::ffi::CStr::from_ptr(buf.as_ptr())
+                .to_string_lossy()
+                .into_owned(),
+        )
     }
 }
 pub fn cf_to_i64(r: CFTypeRef) -> Option<i64> {
@@ -190,7 +233,9 @@ pub fn cf_to_f64(r: CFTypeRef) -> Option<f64> {
     }
 }
 pub fn cf_to_bool(r: CFTypeRef) -> Option<bool> {
-    unsafe { (!r.is_null() && CFGetTypeID(r) == CFBooleanGetTypeID()).then(|| CFBooleanGetValue(r) != 0) }
+    unsafe {
+        (!r.is_null() && CFGetTypeID(r) == CFBooleanGetTypeID()).then(|| CFBooleanGetValue(r) != 0)
+    }
 }
 pub fn dict_get(d: CFTypeRef, key: &str) -> CFTypeRef {
     let k = Cf::string(key);
@@ -215,7 +260,8 @@ pub unsafe fn msg1(obj: Id, s: &std::ffi::CStr, a: Id) -> Id {
     f(obj, sel(s), a)
 }
 pub unsafe fn msg2(obj: Id, s: &std::ffi::CStr, a: Id, b: Id) -> Id {
-    let f: unsafe extern "C" fn(Id, Sel, Id, Id) -> Id = std::mem::transmute(objc_msgSend as *const ());
+    let f: unsafe extern "C" fn(Id, Sel, Id, Id) -> Id =
+        std::mem::transmute(objc_msgSend as *const ());
     f(obj, sel(s), a, b)
 }
 pub unsafe fn msg_i64(obj: Id, s: &std::ffi::CStr) -> i64 {
@@ -231,29 +277,38 @@ pub unsafe fn msg_bool(obj: Id, s: &std::ffi::CStr) -> bool {
     f(obj, sel(s)) != 0
 }
 pub unsafe fn msg_bool1_u64(obj: Id, s: &std::ffi::CStr, a: u64) -> bool {
-    let f: unsafe extern "C" fn(Id, Sel, u64) -> u8 = std::mem::transmute(objc_msgSend as *const ());
+    let f: unsafe extern "C" fn(Id, Sel, u64) -> u8 =
+        std::mem::transmute(objc_msgSend as *const ());
     f(obj, sel(s), a) != 0
 }
 pub unsafe fn msg_bool2(obj: Id, s: &std::ffi::CStr, a: Id, b: Id) -> bool {
-    let f: unsafe extern "C" fn(Id, Sel, Id, Id) -> u8 = std::mem::transmute(objc_msgSend as *const ());
+    let f: unsafe extern "C" fn(Id, Sel, Id, Id) -> u8 =
+        std::mem::transmute(objc_msgSend as *const ());
     f(obj, sel(s), a, b) != 0
 }
 pub unsafe fn msg_idx(obj: Id, s: &std::ffi::CStr, i: usize) -> Id {
-    let f: unsafe extern "C" fn(Id, Sel, usize) -> Id = std::mem::transmute(objc_msgSend as *const ());
+    let f: unsafe extern "C" fn(Id, Sel, usize) -> Id =
+        std::mem::transmute(objc_msgSend as *const ());
     f(obj, sel(s), i)
 }
 
 /// `[NSString stringWithUTF8String:]`, autoreleased by the runtime.
 pub unsafe fn ns_string(s: &str) -> Id {
     let c = std::ffi::CString::new(s.replace('\0', "")).unwrap_or_default();
-    let f: unsafe extern "C" fn(Id, Sel, *const c_char) -> Id = std::mem::transmute(objc_msgSend as *const ());
-    f(class(c"NSString"), sel(c"stringWithUTF8String:"), c.as_ptr())
+    let f: unsafe extern "C" fn(Id, Sel, *const c_char) -> Id =
+        std::mem::transmute(objc_msgSend as *const ());
+    f(
+        class(c"NSString"),
+        sel(c"stringWithUTF8String:"),
+        c.as_ptr(),
+    )
 }
 pub unsafe fn ns_to_string(o: Id) -> Option<String> {
     if o.is_null() {
         return None;
     }
-    let f: unsafe extern "C" fn(Id, Sel) -> *const c_char = std::mem::transmute(objc_msgSend as *const ());
+    let f: unsafe extern "C" fn(Id, Sel) -> *const c_char =
+        std::mem::transmute(objc_msgSend as *const ());
     let p = f(o, sel(c"UTF8String"));
     (!p.is_null()).then(|| std::ffi::CStr::from_ptr(p).to_string_lossy().into_owned())
 }

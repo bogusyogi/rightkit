@@ -8,7 +8,9 @@ use std::cell::Cell;
 use std::sync::OnceLock;
 use windows::core::{IUnknown, Interface, BSTR};
 use windows::Win32::Foundation::{HWND, RECT};
-use windows::Win32::System::Com::{CoCreateInstance, CoInitializeEx, CLSCTX_INPROC_SERVER, COINIT_MULTITHREADED};
+use windows::Win32::System::Com::{
+    CoCreateInstance, CoInitializeEx, CLSCTX_INPROC_SERVER, COINIT_MULTITHREADED,
+};
 use windows::Win32::UI::Accessibility::*;
 use windows::Win32::UI::WindowsAndMessaging::{GetAncestor, GA_ROOT};
 
@@ -36,10 +38,20 @@ fn automation() -> Option<&'static IUIAutomation> {
     static AUTO: OnceLock<Option<Shared<IUIAutomation>>> = OnceLock::new();
     ensure_com();
     AUTO.get_or_init(|| unsafe {
-        CoCreateInstance::<Option<&IUnknown>, IUIAutomation>(&CUIAutomation8, None, CLSCTX_INPROC_SERVER)
-            .or_else(|_| CoCreateInstance::<Option<&IUnknown>, IUIAutomation>(&CUIAutomation, None, CLSCTX_INPROC_SERVER))
-            .ok()
-            .map(Shared)
+        CoCreateInstance::<Option<&IUnknown>, IUIAutomation>(
+            &CUIAutomation8,
+            None,
+            CLSCTX_INPROC_SERVER,
+        )
+        .or_else(|_| {
+            CoCreateInstance::<Option<&IUnknown>, IUIAutomation>(
+                &CUIAutomation,
+                None,
+                CLSCTX_INPROC_SERVER,
+            )
+        })
+        .ok()
+        .map(Shared)
     })
     .as_ref()
     .map(|s| &s.0)
@@ -66,17 +78,59 @@ fn win_err(e: windows::core::Error, op: &'static str) -> Error {
 
 pub fn element_from_hwnd(hwnd: isize) -> Result<El> {
     let a = automation().ok_or(Error::Unsupported("UI Automation unavailable"))?;
-    unsafe { a.ElementFromHandle(HWND(hwnd as *mut _)) }.map(El).map_err(|e| win_err(e, "ElementFromHandle"))
+    unsafe { a.ElementFromHandle(HWND(hwnd as *mut _)) }
+        .map(El)
+        .map_err(|e| win_err(e, "ElementFromHandle"))
 }
 
 fn control_name(id: i32) -> &'static str {
     const NAMES: [&str; 41] = [
-        "Button", "Calendar", "CheckBox", "ComboBox", "Edit", "Hyperlink", "Image", "ListItem", "List", "Menu", "MenuBar", "MenuItem",
-        "ProgressBar", "RadioButton", "ScrollBar", "Slider", "Spinner", "StatusBar", "Tab", "TabItem", "Text", "ToolBar", "ToolTip", "Tree",
-        "TreeItem", "Custom", "Group", "Thumb", "DataGrid", "DataItem", "Document", "SplitButton", "Window", "Pane", "Header", "HeaderItem",
-        "Table", "TitleBar", "Separator", "SemanticZoom", "AppBar",
+        "Button",
+        "Calendar",
+        "CheckBox",
+        "ComboBox",
+        "Edit",
+        "Hyperlink",
+        "Image",
+        "ListItem",
+        "List",
+        "Menu",
+        "MenuBar",
+        "MenuItem",
+        "ProgressBar",
+        "RadioButton",
+        "ScrollBar",
+        "Slider",
+        "Spinner",
+        "StatusBar",
+        "Tab",
+        "TabItem",
+        "Text",
+        "ToolBar",
+        "ToolTip",
+        "Tree",
+        "TreeItem",
+        "Custom",
+        "Group",
+        "Thumb",
+        "DataGrid",
+        "DataItem",
+        "Document",
+        "SplitButton",
+        "Window",
+        "Pane",
+        "Header",
+        "HeaderItem",
+        "Table",
+        "TitleBar",
+        "Separator",
+        "SemanticZoom",
+        "AppBar",
     ];
-    NAMES.get((id - 50000) as usize).copied().unwrap_or("Unknown")
+    NAMES
+        .get((id - 50000) as usize)
+        .copied()
+        .unwrap_or("Unknown")
 }
 
 fn normalize_role(native: &str) -> &'static str {
@@ -121,15 +175,27 @@ impl El {
     }
     pub fn rect(&self) -> Option<Rect> {
         let r: RECT = unsafe { self.0.CurrentBoundingRectangle() }.ok()?;
-        (r.right > r.left && r.bottom > r.top).then(|| Rect { x: f64::from(r.left), y: f64::from(r.top), w: f64::from(r.right - r.left), h: f64::from(r.bottom - r.top) })
+        (r.right > r.left && r.bottom > r.top).then(|| Rect {
+            x: f64::from(r.left),
+            y: f64::from(r.top),
+            w: f64::from(r.right - r.left),
+            h: f64::from(r.bottom - r.top),
+        })
     }
     pub fn children(&self) -> Vec<El> {
         let Some(a) = automation() else { return vec![] };
         unsafe {
-            let Ok(cond) = a.ControlViewCondition() else { return vec![] };
-            let Ok(arr) = self.0.FindAll(TreeScope_Children, &cond) else { return vec![] };
+            let Ok(cond) = a.ControlViewCondition() else {
+                return vec![];
+            };
+            let Ok(arr) = self.0.FindAll(TreeScope_Children, &cond) else {
+                return vec![];
+            };
             let n = arr.Length().unwrap_or(0);
-            (0..n).filter_map(|i| arr.GetElement(i).ok()).map(El).collect()
+            (0..n)
+                .filter_map(|i| arr.GetElement(i).ok())
+                .map(El)
+                .collect()
         }
     }
     pub fn parent(&self) -> Option<El> {
@@ -163,7 +229,9 @@ impl El {
 }
 
 pub fn same(a: &El, b: &El) -> bool {
-    automation().and_then(|au| unsafe { au.CompareElements(&a.0, &b.0) }.ok()).is_some_and(|x| x.as_bool())
+    automation()
+        .and_then(|au| unsafe { au.CompareElements(&a.0, &b.0) }.ok())
+        .is_some_and(|x| x.as_bool())
 }
 
 pub fn read_node(el: &El) -> Option<RawNode> {
@@ -171,24 +239,38 @@ pub fn read_node(el: &El) -> Option<RawNode> {
     let native = control_name(ct.0);
     let secure = el.is_password();
     let mut caps: Vec<String> = vec![];
-    if el.pattern::<IUIAutomationInvokePattern>(UIA_InvokePatternId).is_some()
-        || el.pattern::<IUIAutomationTogglePattern>(UIA_TogglePatternId).is_some()
-        || el.pattern::<IUIAutomationSelectionItemPattern>(UIA_SelectionItemPatternId).is_some()
-        || el.pattern::<IUIAutomationExpandCollapsePattern>(UIA_ExpandCollapsePatternId).is_some()
+    if el
+        .pattern::<IUIAutomationInvokePattern>(UIA_InvokePatternId)
+        .is_some()
+        || el
+            .pattern::<IUIAutomationTogglePattern>(UIA_TogglePatternId)
+            .is_some()
+        || el
+            .pattern::<IUIAutomationSelectionItemPattern>(UIA_SelectionItemPatternId)
+            .is_some()
+        || el
+            .pattern::<IUIAutomationExpandCollapsePattern>(UIA_ExpandCollapsePatternId)
+            .is_some()
     {
         caps.push("press".into());
     }
     let mut value = None;
     if let Some(v) = el.pattern::<IUIAutomationValuePattern>(UIA_ValuePatternId) {
         if !secure {
-            value = unsafe { v.CurrentValue() }.ok().map(|x| x.to_string()).filter(|x| !x.is_empty());
+            value = unsafe { v.CurrentValue() }
+                .ok()
+                .map(|x| x.to_string())
+                .filter(|x| !x.is_empty());
         }
         if !b(unsafe { v.CurrentIsReadOnly() }).unwrap_or(true) {
             caps.push("set_value".into());
             caps.push("insert_text".into());
         }
     }
-    if el.pattern::<IUIAutomationScrollPattern>(UIA_ScrollPatternId).is_some() {
+    if el
+        .pattern::<IUIAutomationScrollPattern>(UIA_ScrollPatternId)
+        .is_some()
+    {
         caps.push("scroll".into());
     }
     if b(unsafe { el.0.CurrentIsKeyboardFocusable() }).unwrap_or(false) {
@@ -258,11 +340,15 @@ pub fn semantic(el: &El, action: &Action) -> Result<String> {
                 unsafe { p.Toggle() }.map_err(|e| win_err(e, "Toggle"))?;
                 return Ok("TogglePattern".into());
             }
-            if let Some(p) = el.pattern::<IUIAutomationSelectionItemPattern>(UIA_SelectionItemPatternId) {
+            if let Some(p) =
+                el.pattern::<IUIAutomationSelectionItemPattern>(UIA_SelectionItemPatternId)
+            {
                 unsafe { p.Select() }.map_err(|e| win_err(e, "Select"))?;
                 return Ok("SelectionItemPattern".into());
             }
-            if let Some(p) = el.pattern::<IUIAutomationExpandCollapsePattern>(UIA_ExpandCollapsePatternId) {
+            if let Some(p) =
+                el.pattern::<IUIAutomationExpandCollapsePattern>(UIA_ExpandCollapsePatternId)
+            {
                 unsafe { p.Expand() }.map_err(|e| win_err(e, "Expand"))?;
                 return Ok("ExpandCollapsePattern".into());
             }
@@ -272,7 +358,9 @@ pub fn semantic(el: &El, action: &Action) -> Result<String> {
             if el.is_password() {
                 return Err(Error::Blocked("secure field".into()));
             }
-            let p: IUIAutomationValuePattern = el.pattern(UIA_ValuePatternId).ok_or(Error::Unsupported("no ValuePattern"))?;
+            let p: IUIAutomationValuePattern = el
+                .pattern(UIA_ValuePatternId)
+                .ok_or(Error::Unsupported("no ValuePattern"))?;
             if b(unsafe { p.CurrentIsReadOnly() }).unwrap_or(true) {
                 return Err(Error::Unsupported("value is read-only"));
             }
@@ -280,8 +368,18 @@ pub fn semantic(el: &El, action: &Action) -> Result<String> {
             Ok("ValuePattern".into())
         }
         Action::Scroll { dx, dy } => {
-            let p: IUIAutomationScrollPattern = el.pattern(UIA_ScrollPatternId).ok_or(Error::Unsupported("no ScrollPattern"))?;
-            let amt = |d: f64| if d > 0.0 { ScrollAmount_LargeIncrement } else if d < 0.0 { ScrollAmount_LargeDecrement } else { ScrollAmount_NoAmount };
+            let p: IUIAutomationScrollPattern = el
+                .pattern(UIA_ScrollPatternId)
+                .ok_or(Error::Unsupported("no ScrollPattern"))?;
+            let amt = |d: f64| {
+                if d > 0.0 {
+                    ScrollAmount_LargeIncrement
+                } else if d < 0.0 {
+                    ScrollAmount_LargeDecrement
+                } else {
+                    ScrollAmount_NoAmount
+                }
+            };
             unsafe { p.Scroll(amt(*dx), amt(*dy)) }.map_err(|e| win_err(e, "Scroll"))?;
             Ok("ScrollPattern".into())
         }
@@ -292,7 +390,9 @@ pub fn semantic(el: &El, action: &Action) -> Result<String> {
                 unsafe { el.0.SetFocus() }.map_err(|e| win_err(e, "SetFocus"))?;
                 Ok("SetFocus".into())
             } else {
-                Err(Error::Unsupported("element is not in the foreground app (SetFocus would activate it)"))
+                Err(Error::Unsupported(
+                    "element is not in the foreground app (SetFocus would activate it)",
+                ))
             }
         }
         _ => Err(Error::Unsupported("not a semantic action")),
@@ -310,7 +410,11 @@ pub fn field_text(el: &El) -> Option<FieldText> {
         }
     }
     let v = el.value_text()?;
-    (v.len() <= MAX_PROOF_BYTES).then_some(FieldText { text: v, source: Some(TextSource::Value), selection: None })
+    (v.len() <= MAX_PROOF_BYTES).then_some(FieldText {
+        text: v,
+        source: Some(TextSource::Value),
+        selection: None,
+    })
 }
 
 fn text_pattern_read(tp: &IUIAutomationTextPattern) -> Option<FieldText> {
@@ -321,11 +425,24 @@ fn text_pattern_read(tp: &IUIAutomationTextPattern) -> Option<FieldText> {
         if let Ok(sels) = tp.GetSelection() {
             if sels.Length().unwrap_or(0) > 0 {
                 if let Ok(sel) = sels.GetElement(0) {
-                    let len = sel.GetText(MAX_PROOF_BYTES as i32).ok().map(|t| t.to_string().encode_utf16().count());
+                    let len = sel
+                        .GetText(MAX_PROOF_BYTES as i32)
+                        .ok()
+                        .map(|t| t.to_string().encode_utf16().count());
                     // start = text between the document start and the selection start
                     let pre = doc.Clone().ok()?;
-                    if pre.MoveEndpointByRange(TextPatternRangeEndpoint_End, &sel, TextPatternRangeEndpoint_Start).is_ok() {
-                        let start = pre.GetText(MAX_PROOF_BYTES as i32).ok().map(|t| t.to_string().encode_utf16().count());
+                    if pre
+                        .MoveEndpointByRange(
+                            TextPatternRangeEndpoint_End,
+                            &sel,
+                            TextPatternRangeEndpoint_Start,
+                        )
+                        .is_ok()
+                    {
+                        let start = pre
+                            .GetText(MAX_PROOF_BYTES as i32)
+                            .ok()
+                            .map(|t| t.to_string().encode_utf16().count());
                         if let (Some(st), Some(l)) = (start, len) {
                             selection = Some((st, l));
                         }
@@ -333,7 +450,11 @@ fn text_pattern_read(tp: &IUIAutomationTextPattern) -> Option<FieldText> {
                 }
             }
         }
-        Some(FieldText { text, source: Some(TextSource::Value), selection })
+        Some(FieldText {
+            text,
+            source: Some(TextSource::Value),
+            selection,
+        })
     }
 }
 
@@ -344,13 +465,19 @@ pub fn native_write_capable(el: &El) -> bool {
     if el.is_password() {
         return false;
     }
-    let Some(role) = read_native_role(el) else { return false };
+    let Some(role) = read_native_role(el) else {
+        return false;
+    };
     if !is_text_role(&role) {
         return false;
     }
-    let Some(v) = el.pattern::<IUIAutomationValuePattern>(UIA_ValuePatternId) else { return false };
+    let Some(v) = el.pattern::<IUIAutomationValuePattern>(UIA_ValuePatternId) else {
+        return false;
+    };
     let writable = !b(unsafe { v.CurrentIsReadOnly() }).unwrap_or(true);
-    let empty = unsafe { v.CurrentValue() }.map(|x| x.is_empty()).unwrap_or(false);
+    let empty = unsafe { v.CurrentValue() }
+        .map(|x| x.is_empty())
+        .unwrap_or(false);
     writable && empty
 }
 
@@ -360,6 +487,8 @@ fn read_native_role(el: &El) -> Option<String> {
 }
 
 pub fn native_write(el: &El, text: &str) -> Result<()> {
-    let v: IUIAutomationValuePattern = el.pattern(UIA_ValuePatternId).ok_or(Error::Unsupported("no ValuePattern"))?;
+    let v: IUIAutomationValuePattern = el
+        .pattern(UIA_ValuePatternId)
+        .ok_or(Error::Unsupported("no ValuePattern"))?;
     unsafe { v.SetValue(&BSTR::from(text)) }.map_err(|e| win_err(e, "SetValue"))
 }

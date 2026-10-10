@@ -253,6 +253,9 @@ fn windows_lifecycle_registers_and_unregisters() {
     let started = Instant::now();
     drop(second);
     drop(first);
-    assert!(started.elapsed() < Duration::from_secs(2), "unregister must not block");
+    assert!(
+        started.elapsed() < Duration::from_secs(2),
+        "unregister must not block"
+    );
     assert!(first_rx.recv_timeout(Duration::from_millis(50)).is_err());
 }
