@@ -7,16 +7,16 @@ Shared scenario interpreter and durable state machine for the RightKit scenario 
 - Durable journal (`Journal`, `Record`, `Event`). A record is acknowledged only after `sync_all`. On open, bytes after the last newline (a torn, unacknowledged write) are truncated.
 - Run and leases (`Run`, `Lease`, `Phase`, `ExecContext`). `acquire` and `renew` issue leases. Every write carries its fencing token. A superseded or expired lease is rejected.
 - Retake (`Run::retake`, `RetakeReport`). A differing postcondition is flagged. It is never spliced into the original take.
-- Remote worker boundary (`WorkerTransport`, `EnrolmentRequest`, `WorkerIdentity`, `Capability`, `BundleRef`, `ReconnectState`). This is a trait only. The crate has no network code.
+- Remote worker boundary (`WorkerTransport`, `EnrolmentRequest`, `WorkerIdentity`, `Capability`, `BundleRef`, `ReconnectState`). `WorkerTransport` is a trait (`src/transport.rs`); `controller::ControllerLink` implements it over any `Read + Write` stream (`src/controller.rs:338`), `worker::WorkerEndpoint` is the worker side, and `net` holds loopback-first TCP helpers that refuse non-loopback addresses unless the caller opts in (`src/net.rs:1-25`, `:54`).
 
-Catalog capability: `scenario-runtime`. The catalog entry is declaration-only (`rightkit-ownership.json`). Workers implement `StepDriver`. Remote transport implements `WorkerTransport` in later slices.
+Catalog capability: `scenario-runtime`. The catalog entry is declaration-only (`rightkit-ownership.json`). Workers implement `StepDriver`. `ControllerLink` implements `WorkerTransport` today; other transports may follow in later slices.
 
 ## When to use it
 
 - Use it to run an ordered set of steps where a repeated action would be harmful, such as a click that must not fire twice.
 - Use it to resume a run after a crash. A step that was dispatched resumes into observe. It is not performed again.
 
-Do not use it for GUI driving, capture, or networking. The crate performs no I/O beyond its journal file. Do not use it as a general workflow engine or queue.
+Do not use it for GUI driving, capture, or networking. The `Run` machine performs no I/O beyond its journal file (`src/lib.rs:23-24`); the `net`, `controller` and `worker` modules do socket and stream I/O for remote workers. Do not use it as a general workflow engine or queue.
 
 ## Cargo features
 

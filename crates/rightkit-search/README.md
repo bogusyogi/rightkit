@@ -10,14 +10,14 @@ Product-neutral search query language for Right Suite apps. It owns the tokenize
 
 | Feature | Default | Pulls in | Effect |
 |---|---|---|---|
-| `sqlite` | on | `rusqlite` | SQL predicate compiler (`src/sql.rs`) and the SQLite-backed tests. |
+| `sqlite` | on | `rusqlite` | The `rusqlite::ToSql` impl for `Param` (`src/sql.rs:17-25`); the SQL predicate compiler itself (`src/sql.rs`, `src/lib.rs:13`) is not gated. |
 | `filename-index` | off | none | In-memory filename index (`src/filename.rs`). |
 
 Disable `sqlite` (`default-features = false`) to use the parser and data model without `rusqlite`.
 
 ## Platform support
 
-No `cfg(target_os)` gates in `src/`. `rusqlite` is built with its bundled SQLite in the usual way, so platform support follows `rusqlite`.
+No `cfg(target_os)` gates in `src/`. `rusqlite` is a dependency with default features off, so the library build does not bundle SQLite; the `bundled` feature is enabled only for dev-dependencies, i.e. the tests (`Cargo.toml:20`, `:23`). Platform support follows `rusqlite` and the consumer's SQLite selection.
 
 Published version: see `INDEX.md` at the repository root. This crate has no `CHANGELOG.md`.
 

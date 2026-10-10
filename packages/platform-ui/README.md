@@ -22,7 +22,7 @@ Brand-neutral platform primitives for Right Suite desktop apps: Tauri-backed pla
 | Peer | Range |
 |---|---|
 | `@tauri-apps/plugin-os` | `>=2 <3`, optional (`peerDependenciesMeta`). Loaded lazily; the browser's platform report is used when it is absent. |
-| `react` | `>=18 <20` |
+| `react` | `>=18 <21` |
 
 ## Example
 
@@ -48,4 +48,4 @@ Bundling note: the root and `./react` entries contain a dynamic `import("@tauri-
 ## Known issues
 
 - `bootstrapQaPlatform` and `resolveQaPlatform` are QA helpers exported from the runtime entry. Call them only in QA builds. Browser overrides need `qa=1` and `qaPlatform`, or `RIGHTKIT_QA=1` and `RIGHTKIT_QA_PLATFORM`. Production detection uses `@tauri-apps/plugin-os`.
-- Peer React is `<20`, while `doc-render`, `i18n`, `media-ui` and `pdf-ui` accept `<21` (npm audit 2026-10-08).
+- Peer React is `<21`, the same range as `doc-render`, `i18n`, `media-ui` and `pdf-ui` (`package.json:33`).

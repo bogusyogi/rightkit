@@ -48,14 +48,14 @@ let verified = verify_ffmpeg(resolved, Duration::from_secs(10))?;
 
 ## Features
 
-None. The crate has no Cargo features.
+`native` (default on, empty feature list): the `native` module, the suite-wide native-library catalog (`Cargo.toml:15-18`, `src/lib.rs:23-24`). FFmpeg-only consumers opt out with `default-features = false`.
 
 ## Platform support
 
 - macOS aarch64: `decode` (ffmpeg, ffprobe) and `export-ass` (ffmpeg) approved.
 - macOS x86_64: `decode` (ffmpeg, ffprobe) approved; `export-ass` pending.
 - Windows x86_64: `decode` (ffmpeg) approved.
-- `cfg(windows)` and `cfg(unix)` branches exist only in `src/staging.rs` and `src/lib.rs`.
+- Production `cfg(unix)` and `cfg(not(unix))` branches exist only in `src/staging.rs`; `cfg(windows)` and `cfg(unix)` also appear in test modules (`src/lib.rs:1632`, `src/probe.rs:827`, `src/unverified.rs:540`).
 
 Availability is defined by `catalog/artifacts.json`, not by this README. Check the `status` field of each record.
 
@@ -80,4 +80,4 @@ Licensed under either MIT or Apache-2.0, at your option. FFmpeg artifacts retain
 
 ## Changes
 
-This crate has no `CHANGELOG.md`. Version and status history is in `INDEX.md`.
+Release notes: [CHANGELOG.md](CHANGELOG.md). Version and status history is also in `INDEX.md`.

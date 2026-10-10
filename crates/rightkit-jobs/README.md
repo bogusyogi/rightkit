@@ -24,7 +24,7 @@ Do not use it for one-shot calls that need no persistence. Do not use it to stor
 
 ## Cargo features
 
-None. The crate has no `[features]` table. Unix-only code is under `cfg(unix)`.
+`service` (default on): `DispatcherHandler`, which serves a `Dispatcher` over `rightkit-service` (`Cargo.toml:14-18`, `src/lib.rs:10`). Engines that only speak stdio or CLI build with `default-features = false`.
 
 ## Usage
 
@@ -98,7 +98,7 @@ Apps that already have a stdio or CLI protocol can adopt `JobStore` with `StoreC
 
 ## Platform support
 
-The crate depends on `rightkit-process` and `rightkit-service`, which have their own per-OS behaviour. Unix-only code is under `cfg(unix)`. Windows behaviour is not documented in this crate.
+The crate depends on `rightkit-process` and `rightkit-service`, which have their own per-OS behaviour. `src/` has no `cfg(unix)` or `cfg(windows)` code; the job lock comes from `rightkit_fs::FileLock` (POSIX record lock on Unix, `LockFileEx` elsewhere, `src/runner.rs:34-35`), and only some tests are `cfg(unix)` (`tests/job_lock_process.rs:1`). Windows behaviour is not otherwise documented in this crate.
 
 ## Version and changes
 

@@ -9,10 +9,11 @@ and reports frames, geometry, losses and failures as `HelperEvent`s.
 
 - `backend`: the `Backend` seam, `BackendPlan`, `StartInfo`, `HelperEvent`, `Failure`, `Permission`, `Codec`.
 - `recorder`: the public take lifecycle over a `Backend`. A take ends `complete`, `quarantined` or `invalid`; `complete` needs a clean stop and an accepted readiness marker.
-- `plan`, `redact`, `verify`, `reader`: the request, per-field redaction, bundle verification, and the step-to-frame reader.
+- `plan`, `redact`, `verify`, `reader`: the request, per-field redaction, bundle verification, and the bundle reader (step and target to frame, scenario, events, clock map, cursor assets).
 - `protocol`: the helper wire protocol. Length-prefixed JSON frames (`rightkit-framed-sidecar`) with `request`, `response`, `event` and `bye` kinds.
 - `process`: `ProcessBackend`, the core's `Backend` over a helper's stdio, and `serve_backend`, which lets a helper serve any `Backend`.
-- `windows` (Windows only): Windows.Graphics.Capture and Media Foundation capture for one HWND.
+- `windows` (Windows only): Windows.Graphics.Capture and Media Foundation capture for one HWND (`src/lib.rs:47-49`).
+- `macos` (macOS only): ScreenCaptureKit capture through the Swift helper in `helpers/macos`; the module launches it and speaks the helper protocol (`src/lib.rs:50-53`).
 
 ## Recoverable media (R14)
 
@@ -47,8 +48,81 @@ key id). They still read and verify; `bundle_verify` reports them in `VerifyRepo
 redaction (anyone can confirm a guessed value). New bundles never use label salts. Existing digests
 cannot be re-keyed: the plaintext is gone.
 
+## Reading a sealed bundle
+
+`BundleReader` is the consumer side. Two ways to open a bundle:
+
+- `BundleReader::open(dir)` reads any bundle without re-hashing it. A quarantined,
+  partial or invalid bundle opens too, and `status()` reports it.
+- `BundleReader::open_complete(dir, &VerifyOptions)` opens only a bundle sealed
+  `complete` that passes `bundle_verify`. A `partial_quarantined` or `invalid` bundle
+  is refused with `bundle_not_complete`, and the message names the status and the
+  manifest reason. A bundle that fails verification is refused with
+  `bundle_verify_failed`, and the message names the first failed checks. Consumers
+  that import takes as finished use this form.
+
+Accessors:
+
+- `scenario()`: the scenario id, and each step's `stepId`, `label` and optional `say`,
+  in declaration order (`scenario.json`).
+- `events()`: `events.ndjson` as `RecordEvent`s, streamed one line at a time. A line
+  that does not parse yields an error with its line number, and the stream ends there.
+- `step_index()`, `frame_at(step_id, description)`: the step's first and last host time,
+  and the first source frame that shows a postcondition by its description text.
+- `frame_at_target(step_id, target_id)`: the same resolution, keyed by the
+  postcondition event's `target.targetId`. The recorder passes the id through unchanged.
+  The `postcondition` object is `additionalProperties: false` in record-event v1, so the
+  target id lives on the event's existing `target` object, not on the postcondition.
+  The earliest observed postcondition for the target wins. A bundle recorded without
+  target ids returns `not_found` for every target.
+- `clock_map()`: a `ClockMap` with `host_to_sample_pts(ns)` and
+  `sample_to_encoded_pts(ns)`, both clamped at zero. The host-to-sample offset is
+  anchored to the first accepted frame. The encoded offset is
+  `mapping.samplePtsToEncodedPtsOffsetNs`, which the recorder writes as 0 today, so
+  encoded PTS equals sample PTS. A bundle without the field reads as 0.
+- `cursor_assets()` and `cursor_assets_status()`: see "Cursor assets" below.
+
+### Decoding clean.mp4
+
+This crate never decodes video, and it exposes no `decode_frame`. A consumer decodes
+`clean.mp4` through its own typed ffmpeg boundary and selects each picture by the
+`sample_pts_ns` of the `SourceFrame` it wants (from `frames()` or `frame_at*`). Convert
+the frame's time with `clock_map().sample_to_encoded_pts(sample_pts_ns)` before matching
+decoder timestamps. Match by PTS, never by decode order or elapsed time. The raw frame
+identity is `raw_blake3`: BLAKE3 over the captured frame as packed BGRA, rows top to
+bottom, row padding removed (`helpers/macos/Sources/RecordWire/FrameHash.swift`). A decoded H.264
+picture is in a different pixel format, so it does not reproduce `raw_blake3`. Use the PTS to find
+the picture, and the hash only to identify the source frame it came from.
+
+### Cursor assets
+
+The cursor manifest is `cursors/manifest.json`, relative to the bundle root. The recorder
+does not write it yet, so a bundle without it reads as `CursorAssetsStatus::NotRecorded`
+with an empty list. A producer, when it exists, must:
+
+- list `cursors/manifest.json` and each image in `hashes.json` `files`, so
+  `bundle_verify` covers them. Until verify learns the `cursors/` directory, a sealed
+  bundle that contains one fails verification as an unlisted file.
+- write this shape:
+
+```json
+{
+  "schema": "rightkit.record.cursor-assets.v1",
+  "cursors": [
+    { "id": "arrow", "path": "cursors/arrow.png", "hotspotX": 4, "hotspotY": 2, "width": 32, "height": 32 }
+  ]
+}
+```
+
+`id` is a record id (letters, digits, `_.:-`). `path` is relative to the bundle root and
+must sit under `cursors/` with no `..`, root or prefix components. `hotspotX` and
+`hotspotY` are in the image's own pixels from its top-left corner, and each must be less
+than the image's `width` or `height`. The reader rejects a manifest that breaks these
+rules, or whose `schema` is not `rightkit.record.cursor-assets.v1`.
+
 ## Helpers
 
+- `rightkit-record-macos-helper` (Swift, `helpers/macos`): the macOS capture helper that `src/macos/mod.rs` launches.
 - `rightkit-record-helper capture ...`: a one-shot Windows take that prints a JSON summary.
 - `rightkit-record-helper serve`: the protocol over stdin and stdout, for rightkit-process.
 

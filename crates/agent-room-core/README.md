@@ -13,7 +13,7 @@ Catalog capability: `agent-room`.
 | `auth` | Seat join and claim. `AUTHORITY_ROLES` (`human`, `moderator`, `implementer`) require a host-minted, seat-bound bootstrap token. Other roles claim without one. |
 | `runtime` | `RuntimeInfo` discovery file (`runtime.json`) and owner-only file checks. Tokens never appear in the base URL. |
 | `server` | `ServerState` and `router()`: an axum HTTP host with JSON endpoints, SSE streams and a dashboard. |
-| `bin/room` | The `room` CLI: `spawn`, `watch`, `say`, `abort`, `export`, `prune`. |
+| `bin/room` | The `room` CLI: `spawn`, `watch`, `say`, `advance`, `seal`, `abort`, `export`, `prune` (dispatch at `src/bin/room.rs:79-87`). |
 
 ## When to use it
 
@@ -33,8 +33,11 @@ Do not use it for general chat, for hosted or multi-machine rooms, or as a produ
 CLI, taken from `tests/p0_cli.rs`:
 
 ```sh
-room spawn --run-dir <run-dir> --room-id cli-smoke --workspace <workspace> --seats claude,codex
+room spawn --run-dir <run-dir> --room-id cli-smoke --workspace <workspace> --seats claude,codex \
+  --mode debate --scope-ref packet.md --no-open --no-seats
 ```
+
+`--mode` is required (`src/bin/room.rs:96`). Without `--no-seats`, `spawn` preflights and launches the seats, which exists only under `cfg(windows)` (`src/bin/room.rs:1027`, `:1167`); every other OS returns `os_unsupported` (`src/bin/room.rs:1153`, `:1411`).
 
 Library, taken from `tests/p0_runtime.rs`:
 
@@ -47,7 +50,7 @@ let loaded = load_runtime(run_dir)?;         // round-trips RuntimeInfo
 
 ## Platform support
 
-Rust and SQLite are portable, but the crate has not been verified off macOS. The `room` binary opens the dashboard with the macOS `open` command (`src/bin/room.rs`).
+Rust and SQLite are portable, but the crate has not been verified off macOS. The `room` binary opens the dashboard with `explorer.exe` on Windows, `open` on macOS and `xdg-open` on other Unix (`src/bin/room.rs:760`, `:769`, `:774`). Seat launch is Windows-only (see Usage).
 
 ## Version and changes
 

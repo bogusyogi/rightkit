@@ -42,4 +42,4 @@ Status flow: `checking`, then `available`, then `downloading`, then `ready`. `re
 
 - Omitting `getInstallHeaders` reuses the `getHeaders` result for the download. That can send a manifest credential to a different artifact origin. New apps must set `getInstallHeaders` explicitly, returning `undefined` for public patches.
 - `UPDATE_HOST_CONTRACT_VECTORS` is test data exported from the runtime entry. Within this repository only the package's own test uses it. Consumer tests import it too (npm audit 2026-10-08, updates finding 1).
-- `@rightkit/tauri` pins `0.2.4`, so consumers can get two copies of this package (npm audit 2026-10-08).
+- `@rightkit/tauri` 0.2.0 in this tree declares `@rightkit/updates` as a peer (`^0.2.5`, `packages/tauri/package.json:21-23`), not a pinned dependency; an older published `@rightkit/tauri` that pins `0.2.4` can still give a consumer two copies of this package (npm audit 2026-10-08).

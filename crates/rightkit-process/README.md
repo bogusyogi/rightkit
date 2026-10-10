@@ -11,7 +11,7 @@ It contains no app protocol, probe implementation, or business message.
 
 ## Features
 
-None. The crate has no Cargo features. Platform dependencies: `nix` (Unix) and `windows` (Windows).
+None. The crate has no Cargo features. Platform dependencies: `libc` (Unix) and `windows` 0.62 (Windows) (`Cargo.toml:14-18`).
 
 ## Platform support
 
@@ -19,7 +19,7 @@ None. The crate has no Cargo features. Platform dependencies: `nix` (Unix) and `
 - Windows: children are created suspended, assigned to a Job Object, then resumed. Termination uses the Job Object.
 - The crate has `cfg(unix)`, `cfg(windows)`, `cfg(target_os = "macos")`, and `cfg(target_os = "linux")` branches across `src/owned.rs`, `src/process_handle.rs`, `src/process_unix.rs`, `src/process_windows.rs`, and `src/spawn_windows.rs`.
 
-Published version: see `INDEX.md` at the repository root. This crate has no `CHANGELOG.md`.
+Published version: see `INDEX.md` at the repository root. Release notes: `CHANGELOG.md`.
 
 ## Ownership boundary
 
@@ -62,6 +62,28 @@ exit. Windows resumes the suspended primary thread only after assignment decisio
   state. Release `child()` guards before calling another accessor or reader.
 - `partial_spawn_cleanup_timeout(Duration::from_secs(5))` bounds failed-spawn
   cleanup; default remains unbounded. Timed-out children go to a background reaper.
+
+## Also (0.3.4)
+
+- `OwnedCommand::kill_on_parent_exit(true)` is an opt-in tie to the supervising process for the case where
+  the parent dies without cleanup (SIGKILL, abort, crash). Destructors and `wait_or_kill` cannot run then,
+  so the kernel or a helper has to do the work:
+  - Linux: `prctl(PR_SET_PDEATHSIG, SIGTERM)` is set in `pre_exec`, and `getppid()` is checked afterwards so a
+    supervisor that died before the prctl makes the spawn fail. The signal goes to the direct child only.
+    It fires when the thread that spawned the child exits, not only when the process exits, so spawn from a
+    thread that lives as long as the child. The child gets one TERM and no KILL escalation, so a child that
+    ignores TERM survives. Descendants in the group are not signalled.
+  - macOS: a helper forked before exec joins the child's process group and waits on `EVFILT_PROC`/`NOTE_EXIT`
+    for the supervisor. When the supervisor dies, the helper sends `SIGTERM` to the group, waits 2 s, then
+    sends `SIGKILL` to the group. It ignores `SIGTERM` itself, closes inherited descriptors (so pipe readers
+    get EOF as usual), and exits when the engine exits while the supervisor is alive. Cost: one extra process
+    per opted-in child while the child runs. The helper keeps the group id reserved, so the group cannot be
+    reused under the signal.
+  - Other Unix hosts: the spawn fails with `Unsupported`.
+  - Windows: a no-op. Kill-on-close job objects already terminate the tree when the owner handle closes.
+  - Combining the option with `spawn_uncontained_detached` returns `InvalidInput`.
+- `tests/parent_death.rs` covers the Linux and macOS behavior by re-executing the test binary as the parent,
+  SIGKILLing it, and checking the child pid. The group-wide case runs on macOS only.
 
 ## Example and usage
 
@@ -120,8 +142,7 @@ their own host platforms.
 - Termination: `terminate_tree` calls `TerminateJobObject` on the owned job, then `TerminateProcess` on the direct child. An ACCESS_DENIED from a child that is already exiting gets a 2 s wait. Processes outside the job are untouched.
 - Detached spawns (`spawn_uncontained_detached`) need the parent job to allow breakaway. The spawn fails without fallback when it does not, and a detached spawn cannot take a caller job.
 - Errors: a `HRESULT_FROM_WIN32` value (0x8007xxxx) is returned as the raw OS error. Other failures are `io::Error::other`.
-- Dependency: `windows` 0.61 under `cfg(windows)`, with features `Win32_Foundation`, `Win32_Security`, `Win32_System_Diagnostics_ToolHelp`, `Win32_System_JobObjects` and `Win32_System_Threading`. Consumers enable no Windows features.
-- The staged 0.62 bump (`tasks/handoffs/2026-10-08/inventory/windows-0.62.patch`) is not applied at HEAD.
+- Dependency: `windows` 0.62 under `cfg(windows)` (`Cargo.toml:18`), with features `Win32_Foundation`, `Win32_Security`, `Win32_System_Diagnostics_ToolHelp`, `Win32_System_JobObjects` and `Win32_System_Threading`. Consumers enable no Windows features.
 - The code has no session or desktop check. Nothing here was run on Windows for this section.
 
 Licensed under either MIT or Apache-2.0, at your option.

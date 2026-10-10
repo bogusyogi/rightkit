@@ -15,7 +15,24 @@ The license client for Right Suite apps. It exchanges a license key for a signed
 |---|---|
 | `@rightkit/license` | `createLicenseClient(config)`, `isLicensed`, `isPro`, `tier`, `hasFeature`, `hasAllFeatures`, `hasAnyFeature`, `tierAtLeast`, `satisfiesRequirement`; types `Entitlements`, `LicenseTier`, `LicenseRequirement`, `LicenseStatus`, `LicenseKind`, `EntitlementStage`, `StoredLicense`, `LicenseStorage`, `LicenseConfig` |
 
-`createLicenseClient` returns `{ activate(key), refresh(), deactivate(), load() }`.
+Added in 0.2.0: `classifyLifecycle`, `lifecycleGrantsAccess`, `lifecycleNeedsOnlineRefresh`; types `Lifecycle`, `ClassifyOptions`, `RefreshOutcome`, `RefreshOutcomeKind`, `RefreshResult`.
+
+`createLicenseClient` returns `{ activate(key), refresh(), refreshWithOutcome(), deactivate(), load() }`.
+
+## Refresh semantics
+
+`refreshWithOutcome()` returns `{ outcome, license }`. `refresh()` returns just the record, which carries `lastRefreshOutcome` and, while the server is unreachable, `staleSince`.
+
+| Outcome | When | Record |
+|---|---|---|
+| `tokenReplaced` | active, new `signedToken` | token replaced |
+| `tokenKept` | active, token omitted or identical, cached token's `exp` still in the future | unchanged |
+| `tokenDropped` | active, token omitted or identical, none cached or cached one expired/undecodable | `signedToken` removed, `status` stays `active` |
+| `stale` | no network, 5xx, unstructured error, malformed body | unchanged except `staleSince` (first failure of the episode) |
+| `revoked` | structured 4xx rejection, or a non-`active` status | `status: 'invalid'` |
+| `noCredential` | no `activationToken` | nothing sent, nothing written |
+
+The lifecycle classification (`classifyLifecycle`) is a UI hint derived from the stored record. The Rust `Lifecycle` in `rightkit-license` is the authority.
 
 ## Peer dependencies
 

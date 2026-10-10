@@ -22,7 +22,7 @@ First-run onboarding framework for Right Suite apps. The legal agreement gate co
 |---|---|
 | `@rightkit/app-shell` | `>=0.2.0 <1` |
 | `@rightkit/legal-ui` | `>=0.1.2 <1` |
-| `react` | `>=18 <20` |
+| `react` | `>=18 <21` |
 
 ## Example
 
@@ -47,4 +47,4 @@ Acceptance is stored as `legalAcceptance: { version, documentsHash, acceptedAt, 
 
 ## Known issues
 
-- Peer React is `<20`, while `doc-render`, `i18n`, `media-ui` and `pdf-ui` accept `<21` (npm audit 2026-10-08).
+- Peer React is `<21`, the same range as `doc-render`, `i18n`, `media-ui` and `pdf-ui` (`package.json:29`).

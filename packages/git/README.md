@@ -106,6 +106,27 @@ Both keys are opt-in; unset, the rendered workflows are byte-identical.
 }
 ```
 
+## Private Swift packages (ci lanes)
+
+Set `swift.privatePackages` to let a public repository's `ci` job fetch a private Swift package mirror, for example `bogusyogi/rightkit-swift`:
+
+```json
+{
+  "profile": "rust-hybrid",
+  "swift": { "privatePackages": [{ "host": "github.com", "secret": "RIGHTKIT_SWIFT_TOKEN" }] }
+}
+```
+
+- `host` is a bare host name, unique within the list (at most four entries). `secret` is a GitHub Actions secret name (letters, digits, `_`; not starting with a digit or `GITHUB_`).
+- The secret must be a fine-grained token with `contents: read` on the mirror. The repository owner provisions it; the workflow never prints it.
+- The configure step runs right before the first build or test step: the rust-hybrid gate, or the node test steps. It writes `~/.netrc` (`machine <host> login x-access-token password <token>`, mode 600) and a job-scoped `git config --global url."https://x-access-token:<token>@<host>/".insteadOf "https://<host>/"`. The token reaches the step through `env`, not the run script.
+- It refuses to run when `~/.netrc` already exists, so a persistent self-hosted runner's own file is never overwritten. The cleanup step runs with `if: always()` at the end of the ci job, removes the `~/.netrc` and the git rewrite it created, and leaves a pre-existing file alone.
+- Any code that runs after the configure step in that job can read the token. Keep the mirror token read-only.
+- Only the `ci` workflow renders these steps. `release-candidate`, the publish lanes and the `devArtifact` jobs do not get them. `devArtifact` jobs stay secret-free by design.
+- Refused with `devArtifact.dispatch: true`: a manual dispatch of any ref would reach the secret.
+- A run from a fork gets no secrets, so the configure step fails with a message that names the secret.
+- Unset, the rendered workflows are byte-identical to earlier versions.
+
 ## Entry points
 
 No importable API. The package has no `main` and no `exports` map. The supported surface is the `right-git` bin.
@@ -126,3 +147,4 @@ pnpm exec right-git drift --all
 
 - The optional `publish-package-managers` lane needs two long-lived tokens in GitHub Actions secrets. Their names and scope are in the package templates, and they are not zero-exposure. Read `docs/rules/github-access.md` in the workspace before enabling it.
 - Manifest fields are charset-checked before they reach workflow YAML.
+- `swift.privatePackages` renders a secret reference into ci.yml. The `right-git-ci-only` policy in `@rightkit/release` refuses managed workflows that reference secrets outside its allowlist, so a release check fails until that allowlist names the private-package secret.

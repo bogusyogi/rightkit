@@ -27,7 +27,7 @@ The default writer and legacy reader open select WAL with rollback fallback, a b
 | `sqlcipher` | no | `cipher`, `rusqlite/bundled-sqlcipher-vendored-openssl` | SQLCipher with vendored OpenSSL, the same crypto provider on every OS. |
 | `sqlcipher-system` | no | `cipher`, `rusqlite/bundled-sqlcipher` | SQLCipher with the system crypto provider: CommonCrypto on Apple, libcrypto elsewhere. Use it where existing encrypted databases were created with system crypto. Switching providers is not a silent refactor. |
 | `cipher` | no | none | Internal gate for keyed open and `rekey`. Enabled by either SQLCipher feature. Do not name it directly. |
-| `hooks` | no | `rusqlite/hooks` | `progress_handler()` for cancellation through returned connections, and the `rightkit_db::rusqlite` re-export. |
+| `hooks` | no | `rusqlite/hooks` | `progress_handler()` for cancellation through returned connections. The `rightkit_db::rusqlite` re-export is not gated by it (`src/lib.rs:22`). |
 
 SQLCipher consumers must turn off default features and choose exactly one provider feature. Both providers expose the same keyed-open and `rekey` APIs. Enabling both is a compile error. Keep the provider compatible with existing encrypted databases:
 
@@ -79,7 +79,7 @@ Tests: `tests/contract.rs`, `tests/e2e.rs`, `tests/journal_fallback.rs`, `tests/
 
 ## Version and changes
 
-Published version: see [INDEX.md](../../INDEX.md). No CHANGELOG.md in this crate.
+Published version: see [INDEX.md](../../INDEX.md). Release notes: [CHANGELOG.md](CHANGELOG.md).
 
 Publish only through the RightKit release command:
 

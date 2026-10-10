@@ -18,8 +18,8 @@ Do not use it to fetch models, and do not use it to pick a model at run time. Mo
 
 | Feature | Default | Pulls in | Effect |
 |---|---|---|---|
-| `inference` | on | `ort` (`load-dynamic`), `rightkit-ort`, `tokenizers` (`onig`), `sha2`, `serde_json` | `Embedder`, `EmbedderConfig`, `ExecutionProvider`, `truncate_and_normalize`. |
-| `vector` | on | `rusqlite` (no default features) | `VectorStore` (persistent cosine store) and `cosine_similarity`. |
+| `inference` | on | `rightkit-ort` (owns the `ort` pin and loads it dynamically), `tokenizers` (`onig`), `rightkit-fs` (`digest`), `serde_json` (`Cargo.toml:16`) | `Embedder`, `EmbedderConfig`, `ExecutionProvider`, `truncate_and_normalize`. |
+| `vector` | on | `rusqlite` and `rightkit-db` (both without default features; `Cargo.toml:17`) | `VectorStore` (persistent cosine store) and `cosine_similarity`. |
 
 `--no-default-features --features vector` builds the store without `ort` or `tokenizers`. Accelerator support is still compiled by `rightkit-ort` for each target OS.
 
@@ -69,4 +69,4 @@ let vectors = embedder.embed_batch(["first text", "second text"])?;
 
 ## Version and changes
 
-Published version: see [INDEX.md](../../INDEX.md). No CHANGELOG.md in this crate.
+Published version: see [INDEX.md](../../INDEX.md). Release notes: [CHANGELOG.md](CHANGELOG.md).

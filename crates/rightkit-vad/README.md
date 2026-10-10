@@ -1,6 +1,6 @@
 # rightkit-vad
 
-Product-neutral voice activity detection for Right Suite apps. It owns the Silero scorer (`Silero`, loaded from a caller-supplied ONNX model path), the frame protocol (512-sample frames at 16 kHz, 32 ms each), the span policy (`scores_to_spans`, `detect`), chunking (`chunk_spans`), and streaming frame verdicts (`FrameStream`). It owns no dictation, push-to-talk, or command policy. Callers decide what a span means.
+Product-neutral voice activity detection for Right Suite apps. It owns the Silero scorer (`Silero`, loaded from a caller-supplied ONNX file or from embedded bytes), the frame protocol (512-sample frames at 16 kHz, 32 ms each), the span policy (`scores_to_spans`, `detect`), chunking (`chunk_spans`), and streaming frame verdicts (`FrameStream`). It owns no dictation, push-to-talk, or command policy. Callers decide what a span means.
 
 **Use it** to find speech spans in 16 kHz mono audio, or to get per-frame speech decisions in a live stream.
 
@@ -11,6 +11,7 @@ Product-neutral voice activity detection for Right Suite apps. It owns the Siler
 Each layer is usable alone:
 
 - `FrameScorer`: any per-frame speech-probability source. `Silero` is one; tests can use a double.
+- `SpeechScorer` (feature `silero`): a scorer built from a path or bytes that reports its `Backend` (`SileroCpu`, `SileroCoreMl`, `SileroDirectMl`, `Energy`). With `energy_fallback`, a failed Silero load yields the energy scorer and the reason. The energy scorer is batch-only, so it reaches `scores` and `detect` but not `FrameStream`.
 - `scores_to_spans`: Silero `get_speech_timestamps`-shaped hysteresis (`threshold` to start, `neg_threshold` to end, `min_speech`, `min_silence`, `pad`, merge).
 - `detect`: runs a `FrameScorer` over samples and returns spans.
 - `chunk_spans`: splits spans under `ChunkConfig` limits.
@@ -22,18 +23,18 @@ Each layer is usable alone:
 | Feature | Default | Pulls in | Effect |
 |---|---|---|---|
 | `default` | on | `silero` | The default set. |
-| `silero` | on | `rightkit-ort`, `ort/tracing` | The `Silero` scorer and `SileroOptions`. ONNX Runtime tracing only: the crate fetches, copies and links no runtime. The consumer supplies ONNX Runtime through `rightkit-ort`. With `default-features = false` no ONNX Runtime is compiled and only the policy layers remain. |
-| `download-binaries` | off | `ort/download-binaries` | Opt-in: fetches prebuilt ONNX Runtime during the build. |
-| `tls-native` | off | `ort/tls-native` | Opt-in: native TLS backend for `download-binaries`. |
-| `copy-dylibs` | off | `ort/copy-dylibs` | Opt-in: copies the ONNX Runtime dylibs next to the build output. |
+| `silero` | on | `rightkit-ort`, `rightkit-ort/tracing` | The `Silero` scorer, `SileroOptions`, `SpeechScorer`, and the `Backend` report. ONNX Runtime tracing only: the crate fetches, copies and links no runtime. The consumer supplies ONNX Runtime through `rightkit-ort`. With `default-features = false` no ONNX Runtime is compiled and only the policy layers remain. |
+| `download-binaries` | off | `rightkit-ort/download-binaries` | Opt-in: fetches prebuilt ONNX Runtime during the build. |
+| `tls-native` | off | `rightkit-ort/tls-native` | Opt-in: native TLS backend for `download-binaries`. |
+| `copy-dylibs` | off | `rightkit-ort/copy-dylibs` | Opt-in: copies the ONNX Runtime dylibs next to the build output. |
 
 Unreleased change: the default no longer enables `ort/ndarray` or the build-time download (`download-binaries`, `tls-native`, `copy-dylibs`). The `ort-defaults` feature is removed. To keep the old build-time download, opt in with `features = ["download-binaries", "tls-native", "copy-dylibs"]` (with `default-features` left on), or use `default-features = false` and bind the approved runtime through `rightkit-ort`. The empty `load-dynamic` feature is removed.
 
-The `ort` dependency is pinned to `=2.0.0-rc.13` in `Cargo.toml`, with `std` and API level 24 set in `[dependencies]`. rc.13's own `default` raises the API floor to ORT 1.27, which the suite's 1.24.4 runtime cannot serve. Do not use `ort/default`.
+This crate has no direct `ort` dependency (`Cargo.toml:27-28`); the `ort` pin (`=2.0.0-rc.13`, `std`, API level 24) lives in `rightkit-ort` (`crates/rightkit-ort/Cargo.toml:59`). rc.13's own `default` raises the API floor to ORT 1.27, which the suite's 1.24.4 runtime cannot serve. Do not use `ort/default`.
 
 ## Platform support
 
-The crate has no `cfg(target_os)` gates in `src/`. ONNX Runtime support follows the `ort` features above. The Silero model file and the ONNX Runtime library are supplied by the app.
+The only OS gates in `src/` are in `src/silero.rs`: the CoreML provider needs `target_vendor = "apple"` (`:181`) and the DirectML provider needs `target_os = "windows"` (`:199`); on other targets those providers return an error (`:210-215`). ONNX Runtime support follows the `rightkit-ort` features above. The Silero model file and the ONNX Runtime library are supplied by the app.
 
 Release notes: see `CHANGELOG.md` in this crate. The crate is published to crates.io.
 
@@ -42,8 +43,16 @@ Release notes: see `CHANGELOG.md` in this crate. The crate is published to crate
 Illustrative; not compiled as a doctest. For compiled usage, see `tests/e2e_silero.rs`.
 
 ```rust,ignore
-use rightkit_vad::{detect, Silero, SileroOptions, VadConfig};
+use rightkit_vad::{detect, ExecutionProvider, SpeechScorer, SileroOptions, VadConfig};
 
-let mut scorer = Silero::load_with("/app/models/silero_vad.onnx", SileroOptions::default())?;
-let spans = detect(&mut scorer, &samples_16k_mono, &VadConfig::default())?;
+let options = SileroOptions {
+    execution_provider: ExecutionProvider::CoreMl, // Apple only; Cpu is the default
+    energy_fallback: true,                         // a failed load scores with energy and says why
+    ..SileroOptions::default()
+};
+let (mut scorer, report) = SpeechScorer::from_bytes(SILERO_ONNX, options)?;
+if let Some(reason) = &report.fallback_reason {
+    eprintln!("VAD fell back to {}: {reason}", report.backend.name());
+}
+let spans = scorer.detect(&samples_16k_mono, &VadConfig::default())?;
 ```

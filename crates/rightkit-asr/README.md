@@ -21,7 +21,9 @@ Do not put product policy (model selection, downloads, environment variables) in
 | Feature | Default | Enables |
 |---|---|---|
 | `cpu` | yes | CPU build marker. It adds no dependency. |
-| `ort-defaults` | yes | `ort/std`, `ort/ndarray`, `ort/tracing`, `ort/download-binaries`, `ort/tls-native`, `ort/copy-dylibs`, `ort/api-24`. Keeps the suite API level and does not use `ort/default`. |
+| `whisper-tokenizers` | yes | HF `tokenizers` for the Whisper CoreML decoder, the CTC and EOU Parakeet decoders and Cohere (`Cargo.toml:63`). |
+| `ort-defaults` | yes | `rightkit-ort/tracing` only (`Cargo.toml:67`). The suite API level lives in `rightkit-ort`; this crate does not use `ort/default`. |
+| `ort-download` | no | `rightkit-ort/download-binaries`, `rightkit-ort/tls-native`, `rightkit-ort/copy-dylibs`: build-time ONNX Runtime fetch (`Cargo.toml:69`). |
 | `cuda` | no | `ort/cuda` execution provider. |
 | `tensorrt` | no | `ort/tensorrt` execution provider. |
 | `coreml` | no | `ort/coreml` execution provider. |
@@ -33,10 +35,10 @@ Do not put product policy (model selection, downloads, environment variables) in
 | `sortformer` | no | Enables the `sortformer` module. |
 | `multitalker` | no | Enables the `multitalker` module. It requires `sortformer`. |
 | `cohere` | no | Enables the `cohere` module. |
-| `load-dynamic` | no | `ort/load-dynamic`: loads the ONNX Runtime library at run time. The test lane below uses it. |
+| `load-dynamic` | no | No-op kept so existing feature lists resolve; `rightkit-ort` always loads ONNX Runtime dynamically (`Cargo.toml:81-82`). |
 | `preload-dylibs` | no | `ort/preload-dylibs`. |
 
-Unreleased change: the `eyre` dependency is removed. `rightkit-vad` is taken with `default-features = false`, so the vad crate adds no ORT download features (its `default` is ORT tracing only; see `rightkit-vad/README.md`). This crate's own `ort-defaults` still enables `download-binaries`, `tls-native` and `copy-dylibs` on its ORT dependency, so the default build still fetches ONNX Runtime. To build without the fetch, use `--no-default-features --features load-dynamic` and bind the runtime through `rightkit-ort`.
+Unreleased change: the `eyre` dependency is removed. `rightkit-vad` is taken with `default-features = false`, so the vad crate adds no ORT download features (its `default` is ORT tracing only; see `rightkit-vad/README.md`). This crate's `ort-defaults` enables only `rightkit-ort/tracing`, so the default build does not fetch ONNX Runtime (`Cargo.toml:67`); the fetch is the opt-in `ort-download` feature. Bind the runtime through `rightkit-ort`.
 
 On macOS the crate also depends on `objc2`, `objc2-core-ml` and `objc2-foundation`. The `parakeet_coreml` module compiles only on macOS.
 
@@ -80,7 +82,7 @@ rightkit cargo fmt --check
 rightkit cargo package -p rightkit-asr --allow-dirty --no-verify --list
 ```
 
-The `load-dynamic` lane avoids linking the downloaded ONNX Runtime static library into test binaries. macOS parity and portable fixtures are still publication gates.
+The `load-dynamic` lane is `--no-default-features` plus a no-op feature (`Cargo.toml:81-82`); `rightkit-ort` loads ONNX Runtime dynamically in every lane, and only `ort-download` fetches it at build time. macOS parity and portable fixtures are still publication gates.
 
 ## Version and changes
 

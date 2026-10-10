@@ -3,10 +3,10 @@
 Safe filesystem state for Right Suite apps:
 
 - Descriptor-pinned state directories (`StateDir`). A swapped or symlinked path cannot redirect a pinned directory.
-- Atomic writes (`atomic_write`, `atomic_write_private`, `atomic_write_with`, `AtomicWriter`): temp file, `fsync`, then rename. Stale temp files from crashes are swept (`sweep_stale_temps`).
-- Cross-process advisory locks (`FileLock`, `LockOptions`, `with_lock`), with owner and stale-owner reporting.
+- Atomic writes (`atomic_write`, `atomic_write_private`, `atomic_write_with`, `atomic_write_with_options`, `AtomicWriter`): temp file, `fsync`, then rename. `AtomicWriteOptions` adds `ReplaceMode::ReplaceFile` (Windows `ReplaceFileW`) and a `RetryPolicy` for sharing violations. A directory `fsync` failure after the replace returns `FsError::ReplacedButDirSyncFailed`. Stale temp files from crashes are swept (`sweep_stale_temps`).
+- Cross-process advisory locks (`FileLock`, `LockOptions`, `with_lock`), with owner and stale-owner reporting. `LockKind` chooses POSIX record locks (`Fcntl`, the default) or `flock(2)` (`Flock`) on Unix; `probe_owner` reads the owner record without locking.
 - Owner-only files and directories (`write_private_file`, `ensure_private_dir`, `create_private_new`): mode 0600 and 0700 on Unix, a restricted DACL on Windows.
-- Stable file identity across renames and atomic replacement (`IdentityStore`, `StableId`, `Fingerprint`).
+- Stable file identity across renames and atomic replacement (`IdentityStore`, `StableId`; `Fingerprint` is `identity::Fingerprint`, not re-exported at the crate root, `src/lib.rs:49`).
 - macOS `clonefile(2)` with `CLONE_NOFOLLOW` (`clone_file_nofollow`). It never falls back to a byte copy.
 - macOS `renamex_np(RENAME_SWAP)` (`swap_paths`, `is_swap_unsupported`) and the `rightkit-swap A B` binary: atomic exchange of two paths, never absent in between.
 
@@ -40,7 +40,9 @@ Without `json`, locks write no owner file, so `recovered_stale` and `current_own
 ## Tests
 
 - `tests/e2e.rs`: real files, real child processes, real symlink attacks and real SIGKILLs. Nothing is mocked.
-- `tests/lock_spawn.rs`: cross-process locks.
+- `tests/lock_spawn.rs`: locks across forking threads, and in-process `flock` semantics.
+- `tests/lock_cross_process.rs`: locks held by other processes, for both kinds.
+- `tests/lock_owner.rs`: owner record shapes (RFC 3339 and unix-millis) and `probe_owner`.
 - `tests/clone.rs`: `clonefile` behaviour.
 - `tests/swap.rs`: `RENAME_SWAP` exchange, missing-path error, and the `rightkit-swap` binary.
 

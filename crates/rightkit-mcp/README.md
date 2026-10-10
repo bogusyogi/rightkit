@@ -14,7 +14,7 @@ The public API is re-exported from `src/lib.rs`. The trust store, client, pool, 
 |---|---|---|---|
 | `exact-json-ids` | off | `serde_json/arbitrary_precision` | Echoes JSON-RPC ids with their exact numeric spelling (for example `1e+2` or integers above `u64`). Changes number round-tripping for the whole dependency graph, so it is off by default. |
 
-There are no other Cargo features. HTTP uses `ureq` and `reqwest`, both with `rustls`.
+`advanced-http` is the only other feature and is on by default (`Cargo.toml:27-33`): streamable HTTP with extensions and legacy SSE through `tokio`, `http`, `futures-util` and `rightkit-http/async`. Stdio-only consumers build with `default-features = false`. HTTP uses `ureq` and `reqwest`, both with `rustls`.
 
 ## Platform support
 

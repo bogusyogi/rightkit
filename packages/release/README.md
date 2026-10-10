@@ -89,6 +89,48 @@ For `projectType: "swiftpm"` on mac with `appBeforePackage: true` and no `target
 
 `sign.prePackageFiles` entries may be `.app` bundles (directories). Nested code (Mach-O files, frameworks, XPC services, plug-ins) is signed first, inside-out and without entitlements, then the bundle is signed; the receipt records a tree digest of the bundle. Any other directory is rejected with a clear error.
 
+### Per-file signing matrix (macOS)
+
+By default every code item is signed with the hardened runtime and no entitlements, so a bundle that needs entitlements on some of its code (an app, a sandboxed extension) declares them per file. Both forms below are optional and backwards compatible; a config of plain path strings signs exactly as before.
+
+- `sign.prePackageFiles[]` entries are a path string or `{ file, entitlements?, hardenedRuntime?, options? }`. `entitlements` is a plist path relative to the release config directory. For a `.app` entry the settings apply to the bundle signature.
+- `sign.nestedCode` is a map from a path inside the bundle (`Contents/...`, forward slashes) to `{ entitlements?, hardenedRuntime?, options? }`. It needs exactly one `.app` entry in `sign.prePackageFiles` to resolve against. Nested code the map does not name keeps the defaults.
+- `options` are extra codesign `--options` names (`expires`, `hard`, `host`, `kill`, `library`; `runtime` is always on). `hardenedRuntime` may be `true` or omitted: `false` is a config error because a notarized target cannot ship code without it.
+
+Signing order stays inside-out: all nested code, deepest path first (a nested bundle after everything inside it), then the `sign.prePackageFiles` entries in declared order. A `nestedCode` path is signed once, with its own settings, in that sequence; it must exist, must not be a symlink or leave the bundle, and must not be the bundle's main executable (that is signed with the bundle). Every problem found is reported at once, before anything is signed.
+
+`right-release doctor` and `--dry-run` validate the matrix: unknown keys, malformed paths, unsupported option names, entitlement files that are missing, outside the config directory or not property lists. Whether a `nestedCode` path exists inside the built bundle is checked at sign time, before the first codesign call. The receipt records, per signed item, the entitlements file digest and the `--options` value, and the build refuses a receipt that disagrees with the plan. Steps that carry settings reach `sign-macos.mjs` as a JSON manifest (`--manifest`, written beside the receipt); steps with only defaults keep the positional form.
+
+Worked example, the Pulse bundle (hardened-runtime helpers with no entitlements, a sandboxed Finder Sync extension with its own entitlements, the app with the app entitlements; replaces `@electron/osx-sign` `optionsForFile`):
+
+```js
+sign: {
+  prePackageFiles: [
+    { file: "dist/staging/Pulse.app", entitlements: "release/entitlements.plist", hardenedRuntime: true },
+  ],
+  nestedCode: {
+    "Contents/Helpers/PulseHelper":   { hardenedRuntime: true },
+    "Contents/Helpers/pulse-elevate": { hardenedRuntime: true },
+    "Contents/Helpers/smartctl":      { hardenedRuntime: true },
+    "Contents/PlugIns/PulseFinder.appex": { hardenedRuntime: true, entitlements: "mac/Notch/FinderExtension/PulseFinder.entitlements" },
+  },
+},
+```
+
+Nested code that the map does not name (frameworks, other helpers) is signed first with the defaults; the appex's own `Contents/MacOS` executable is signed before the appex, and the appex signature then carries the extension entitlements. The Finder extension's entitlements never reach the app and the app's Apple Events entitlement never reaches the extension.
+
+### DMG from an appdmg-style spec
+
+`right-release dmg build --app <.app> --out <dmg> --spec <appdmg.json>` (and `targets.mac.dmg.spec` for SwiftPM apps that right-release packs itself) renders an appdmg-style JSON file through the same headless hdiutil pipeline; explicit flags and `targets.mac.dmg` options win over the spec, and the spec's `title` is the volume name. Relative `background` and `icon` paths resolve against the spec file's directory. Pulse's `release/appdmg.json` works unchanged:
+
+```json
+{ "title": "Pulse", "icon-size": 128, "window": { "size": { "width": 640, "height": 420 } },
+  "contents": [ { "x": 180, "y": 210, "type": "file", "path": "Pulse.app" },
+                { "x": 460, "y": 210, "type": "link", "path": "/Applications" } ] }
+```
+
+Supported: `title`, `icon` (`.icns` volume icon), `background` (PNG or TIFF), `icon-size`, `window.size`, `window.position`, `format: "UDZO"`, `filesystem: "HFS+"`, and `contents` limited to the `.app` (`file`, its name must match `--app`) and a `link` to `/Applications`, where `x`/`y` are icon centres. Unsupported fields (`background-color`, `code-sign`, `license`, other formats or filesystems, extra files or links, `position` entries, anything unknown) fail with `DMG_SPEC_UNSUPPORTED` instead of being ignored. `code-sign` is refused because the release pipeline signs the DMG in its own step (receipt `macos-dmg-signing.json`).
+
 ## Known issues
 
 - `smol-toml` is pinned exactly. A consumer that adds another `smol-toml` gets a second copy (npm audit 2026-10-08, release finding).

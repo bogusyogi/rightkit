@@ -29,7 +29,7 @@ The persistence port is the `SettingsBackend` interface (`load`, `patch` with `e
 | `@rightkit/logs` | `>=0.1.0` | No upper bound. Type use only. |
 | `@rightkit/theme` | `>=0.2.0 <1` | |
 | `@rightkit/updates` | `>=0.2.0` | No upper bound. Type use only. |
-| `react` | `>=18 <20` | |
+| `react` | `>=18 <21` | |
 
 ## Example
 
@@ -48,4 +48,4 @@ const sections = standardSections();
 ## Known issues
 
 - Three peers have no upper bound: `@rightkit/license`, `@rightkit/logs` and `@rightkit/updates` (npm audit 2026-10-08, settings-ui finding).
-- Peer React is `<20`, while `doc-render`, `i18n`, `media-ui` and `pdf-ui` accept `<21`.
+- Peer React is `<21`, the same range as `doc-render`, `i18n`, `media-ui` and `pdf-ui` (`package.json:38`).

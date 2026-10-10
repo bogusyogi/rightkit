@@ -81,6 +81,6 @@ deriving each SID & comparing it with its profile mapping; unrelated
 - Denied by default: AppContainer blocks file and registry access outside the granted paths, as the module header states. A `cwd` outside every grant is refused.
 - `rightkit-sandbox-exec` (`src/bin/rightkit-sandbox-exec.rs`, Windows only) takes `--read-only`, `--writable`, `--cwd` and `--env`, then `-- <command>`. It relays stdout and stderr with a 64 MiB cap per stream and propagates the exit code. Setup failures exit 125.
 - PTYs: `spawn_pty` with a policy returns `SandboxError::Unsupported` on Windows. Without a policy the PTY is unconfined.
-- Dependency: `windows` 0.61 under `cfg(windows)`, with features `Win32_Foundation`, `Win32_System_Threading`, `Win32_System_JobObjects` and `Win32_Security`. Most AppContainer calls are declared directly in `windows_appcontainer.rs` (kernel32, userenv, ole32, advapi32). Consumers enable no Windows features.
+- Dependency: `windows` 0.62 under `cfg(windows)` (`Cargo.toml:26`), with features `Win32_Foundation`, `Win32_System_Threading`, `Win32_System_JobObjects` and `Win32_Security`. Most AppContainer calls are declared directly in `windows_appcontainer.rs` (kernel32, userenv, ole32, advapi32). Consumers enable no Windows features.
 - Nothing in this section was run on Windows for this README.
 

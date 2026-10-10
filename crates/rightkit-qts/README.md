@@ -14,9 +14,9 @@ Native Qwen3-TTS inference for Right Suite apps: GGUF and GGML talker and code-p
 | `vulkan` | off | `rightkit-qts-ggml-sys/vulkan` | ggml Vulkan backend. |
 | `blas` | off | `rightkit-qts-ggml-sys/blas` | ggml BLAS backend. |
 | `native` | off | `rightkit-qts-ggml-sys/native` | Builds ggml for the host CPU. |
-| `acl`, `armnn`, `azure`, `cann`, `coreml`, `cuda`, `directml`, `migraphx`, `nnapi`, `nvrtx`, `onednn`, `openvino`, `qnn`, `rknpu`, `tensorrt`, `tvm`, `vitis`, `webgpu`, `xnnpack` | off | `ort/<name>` | Execution-provider features for the vocoder's ONNX Runtime session. Each forwards to the same-named `ort` feature. |
+| `acl`, `armnn`, `azure`, `cann`, `coreml`, `cuda`, `directml`, `migraphx`, `nnapi`, `nvrtx`, `onednn`, `openvino`, `qnn`, `rknpu`, `tensorrt`, `tvm`, `vitis`, `webgpu`, `xnnpack` | off | `rightkit-ort/<name>` | Execution-provider features for the vocoder's ONNX Runtime session. Each forwards to the same-named `rightkit-ort` feature (`Cargo.toml:21`). |
 
-The default feature set is empty. The ONNX Runtime dependency is pinned to `=2.0.0-rc.13` with `load-dynamic` and API 24 (see `Cargo.toml`).
+The default feature set is empty. This crate has no direct `ort` dependency; the ONNX Runtime pin (`=2.0.0-rc.13`, `load-dynamic`, API 24) is owned by `rightkit-ort` (`crates/rightkit-ort/Cargo.toml:59`).
 
 ## Platform support
 

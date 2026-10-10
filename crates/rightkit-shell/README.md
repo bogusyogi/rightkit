@@ -32,7 +32,7 @@ Illustrative; not compiled as a doctest. The compiled references are `tests/poli
 ## Windows
 
 - Generation: `src/lib.rs` re-exports one `windows` and `webview2-com` pair as `crate::winapi`. `wv2-0_38` selects windows 0.61 and webview2-com 0.38 (default). `wv2-0_39` selects 0.62 and 0.39. Enabling both picks 0.39. With neither, the crate fails with `compile_error!`. Tauri 2.12 apps use `default-features = false, features = ["wv2-0_39"]` (add `"engine"` for the sidecar).
-- The Cargo.toml comment ties 0.38 to Tauri 2.11 and 0.39 to Tauri 2.12. The Tauri lock versions are not checked here: the example app's `Cargo.lock` is stale and records rightkit-shell 0.1.0.
+- The Cargo.toml comment ties 0.38 to Tauri 2.11 and 0.39 to Tauri 2.12. The Tauri lock versions are not checked here: the example app's `Cargo.lock` is stale and records rightkit-shell 0.2.0 (`example-app/Cargo.lock:2692`; the crate is 0.3.0).
 - WebView2 hardening (`src/harden.rs`, `windows_impl`): sets devtools, status bar, zoom control, pinch zoom, swipe navigation and browser accelerator keys (F5, Ctrl+R, Alt+Left, F12). It registers `ContextMenuRequested` through `ICoreWebView2_11`. That handler suppresses the menu unless the target is editable and `allow_editable_menu` is set.
 - Idle (`src/idle.rs`): `ICoreWebView2_3::TrySuspend` and `SetIsVisible` on the controller.
 - Clipboard (`src/clipboard.rs`): `OpenClipboard` with 10 retries at 20 ms. Reads `CF_UNICODETEXT` and `CF_HDROP`, with file lists read through `DragQueryFileW`.
@@ -40,7 +40,48 @@ Illustrative; not compiled as a doctest. The compiled references are `tests/poli
 - Registry and shell: autostart reads and writes `HKCU\...\CurrentVersion\Run` through `reg.exe`. Scheme registration writes under `HKCU\Software\Classes` through `reg.exe`. Both use `CREATE_NO_WINDOW`. `opener` launches `rundll32.exe url.dll,FileProtocolHandler`.
 - Single instance uses the rightkit-service named pipe (`src/instance.rs`). Broker entropy comes from `SystemFunction036` in advapi32 (`src/broker.rs`).
 - Dependencies: `windows_061`/`windows_062` and `webview2_com_038`/`webview2_com_039` are optional. They enable Win32 features `Win32_Foundation`, `Win32_System_Com`, `Win32_System_DataExchange`, `Win32_System_Memory`, `Win32_System_Ole` and `Win32_UI_Shell`. Consumers select only a `wv2-*` feature.
-- Caveat: `harden.rs` and `clipboard.rs` both say they are not compiled on the macOS host. Run `rightkit cargo check -p rightkit-shell` on Windows before relying on them.
+- Caveat: `harden.rs`, `clipboard.rs` and `idle.rs` each say they are not compiled or not exercised on the macOS host (`src/idle.rs:9`). Run `rightkit cargo check -p rightkit-shell` on Windows before relying on them.
+
+## Also (0.3.0)
+
+### Modular install and the broker as a library type
+
+```rust,ignore
+use rightkit_shell::{Module, Shell, ShellPlugin};
+
+// Everything except presence and the watchdog:
+let plugin = ShellPlugin::builder()
+    .shell(Shell::builder("viewright").build())
+    .without(Module::Presence)
+    .without(Module::Watchdog)
+    .build();
+
+// Only broker, stream, recovery, frameless and clipboard state:
+let plugin = ShellPlugin::builder()
+    .shell(Shell::builder("viewright").build())
+    .install_state_only();
+```
+
+An opted-out command family answers `unsupported`. `PathBroker` needs no plugin: create one
+in your own state and call its grant and `require_*` methods from your own commands.
+
+### Site-root scheme
+
+`ShellBuilder::site_protocol("viewright-site", SitePolicy::default())` serves allowlisted
+subresources beneath a site root. The app grants it for a document it already holds with
+`rk_shell_site_grant` (which returns `{token, root, baseUrl}`) and ends it with
+`rk_shell_site_revoke`. Denied names and the MIME allowlist are part of `SitePolicy`.
+
+### Typed clipboard, recovery, idle and single instance
+
+- `rk_shell_clipboard_item` returns `{"kind": "files" | "image" | "text" | "none", ...}`. Images are
+  written to a granted temp file that is purged after `clipboard_purge_after` (default one hour).
+- `RecoverySpec::documents().at_path(p)` pins the snapshot file. `RecoveryStore::migrate_legacy`
+  does a one-time, validated migration from an older path.
+- `webview_idle_on_error(|failure| ..)` reports failed main-webview suspend or resume calls.
+- `SingleInstance::claim(id, on_message)` returns `ClaimOutcome::{Primary, Forwarded, Failed}`.
+  Treat `Forwarded` and `Failed` as exit paths. `Failed` never becomes a second primary.
+- `startup_cache::ensure_http_cache_dir(identifier)` repairs the user cache directory for the app.
 
 ## Also (0.1.3)
 

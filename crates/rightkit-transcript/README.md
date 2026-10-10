@@ -8,12 +8,25 @@ Product-neutral word-timed transcript contract for Right Suite applications. It 
 
 ## Public surface
 
-- Contract: `Transcript`, `Word`, `Span`, `ModelRef`, `EndSource`, `TranscriptError`, `SCHEMA`, `LEGACY_SCHEMA`.
+- Contract: `Transcript`, `Word`, `Span`, `ModelRef`, `EndSource`, `TranscriptError`, `SCHEMA`, `LEGACY_SCHEMA`, `ACCEPTED_SCHEMAS`.
+  Reads: `Transcript::from_json` (lenient, defaults missing fields), `Transcript::from_json_strict` (CutRight rules: rejects unknown fields, requires `source_blake3`, `language`, `vad`, `model`).
+  Writes: `Transcript::to_json`, `Transcript::to_json_with_schema_id` (readable ids only).
+  Editing: `Transcript::constrain_duration` (clamp to media duration).
 - Words: `words_from_seconds`, `words_from_transcript`, `TimedWord` (`new`, `from_seconds`, `start_secs`, `end_secs`, `From<(text, start_ms, end_ms)>`), `MAP_DURATION_TOLERANCE_MS`.
 - Segmentation: `normalize_words`, `build_cues`, `CaptionConfig`, `Cue`, `Profile`; lightweight engine-side grouping `group_words`, `GroupRules`, `cues_from_spans`.
 - Alignment: `check_alignment`, `AlignmentIssue`, `ALIGNMENT_TOLERANCE_MS`.
 - Export: `to_srt`, `to_vtt`, `to_plain_text`, `to_timing_json`, `Newline`.
 - Parsing: `parse_srt`, `parse_vtt`, `parse_timing_json`, `words_from_cues`, `ParsedCue`, `ParseError`.
+
+## Schema ids
+
+| Id | Constant | Read | Written |
+|---|---|---|---|
+| `rightkit.transcript.v1` | `SCHEMA` | yes | by default (`from_words`) |
+| `cutright.transcript.v1` | `LEGACY_SCHEMA` | yes | only through `to_json_with_schema_id` |
+
+`ACCEPTED_SCHEMAS` lists exactly these ids. Any other id is rejected on read. A
+parsed transcript keeps the id it was read with.
 
 ## Features
 

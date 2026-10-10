@@ -27,8 +27,8 @@ The default feature set is empty. The build always disables shared libraries, en
 
 Metal is effective on Apple targets only. Vulkan and BLAS need their SDKs or libraries installed on the build host. The Windows bindings are checked in, so Windows builds do not need `bindgen` or libclang.
 
-Published version: see `INDEX.md` at the repository root. This crate has no `CHANGELOG.md`. For the pinned upstream commit and licences, see [PINNED.md](PINNED.md) and [VERSIONS.md](VERSIONS.md).
+Published version: see `INDEX.md` at the repository root. Release history is in [CHANGELOG.md](CHANGELOG.md). For the pinned upstream commit and licences, see [PINNED.md](PINNED.md) and [VERSIONS.md](VERSIONS.md).
 
 ## Example
 
-Not an app-facing API. The crate has no tests or examples of its own. Use it through `rightkit-qts-ggml`.
+Not an app-facing API. The crate has a bindings-stamp test (`tests/bindings_match.rs`) and a unit smoke test in `src/lib.rs`, and no examples. Use it through `rightkit-qts-ggml`.

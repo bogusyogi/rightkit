@@ -68,7 +68,7 @@ Pure Rust. No platform-specific code.
 
 ## Version and changes
 
-Published version: not published. See [INDEX.md](../../INDEX.md). No CHANGELOG.md in this crate.
+Published version: not published. See [INDEX.md](../../INDEX.md). Release notes: [CHANGELOG.md](CHANGELOG.md).
 
 Minor changes in this crate:
 

@@ -22,7 +22,7 @@ macOS (v1): `getattrlistbulk` crawl (parallel, std threads), FSEvents upkeep wit
 resume from a snapshot, full-rescan fallback on dropped events, subtree rescan on
 must-scan-subdirs/root-changed/mount events.
 
-Windows (planned, only a stub today): the `Backend` trait (`src/backend/mod.rs`) is the seam.
+Windows (planned, only a stub today; the 0.2.0 public APIs above are macOS-only): the `Backend` trait (`src/backend/mod.rs`) is the seam.
 `UnsupportedBackend` returns `Error::Unsupported`. The plan: enumerate the NTFS MFT
 (`FSCTL_ENUM_USN_DATA` or direct `$MFT` read with elevation, falling back to
 `FindFirstFileExW` with `FIND_FIRST_EX_LARGE_FETCH` when not elevated) for the initial crawl, using
@@ -32,6 +32,35 @@ for changes, resuming from a stored (journal id, USN) and rescanning when the jo
 or the USN fell off the journal; clones map to ReFS block cloning where available, otherwise
 `allocated_unique == allocated`. Packages do not exist on Windows. Everything above the trait (store,
 rollups, query, subscriptions, snapshot) is platform-neutral.
+
+## Public APIs and semver (0.2.0, macOS)
+
+Additive over 0.1.1; no existing item changed signature. Windows does not get these APIs
+until its backend ships.
+
+* `list_dir_fd(BorrowedFd, ListOptions) -> Result<Listing>`, with `ListOptions`, `Listing`,
+  `Entry`, and `EntrySize` (`Bytes`, `NoSize`, `Dataless`). Reads from the descriptor's current
+  position. Pass a fresh descriptor to list from the start. Sizes are data-fork only, so
+  `logical == st_size`. `allocated` covers every fork and equals `st_blocks * 512` for ordinary
+  files. The resource fork is not in `logical`; the index's own crawl keeps its data-plus-resource
+  rule, so folder rollups do not change.
+* `FsEventsWatcher::start(&[PathBuf], WatchOptions) -> Result<(FsEventsWatcher, Receiver<FsEvent>)>`,
+  with `WatchOptions { since_event_id, latency, flags: WatchFlags }`, `FsEvent` (`#[non_exhaustive]`),
+  `ItemFlags`, and `WatchFlags`. `FsEventsWatcher::last_event_id()` gives the highest id delivered.
+  Persist it only after applying the events up to it, then resume with `since_event_id`.
+  `FsEventsWatcher::current_event_id()` reads the position before a scan. Dropping the watcher
+  disconnects the receiver.
+
+Semver promise: from 0.2.0, items listed above change only in a minor release (or a major one).
+Enum types marked `#[non_exhaustive]` may gain variants in a minor release, so match them with a
+wildcard arm. Fields added to `FsEvent` variants or `Entry` are a breaking change. Behaviour that
+the docs leave open, such as delivery timing within `latency` and history beyond FSEvents'
+retention, may change without notice.
+
+Limits: FSEvents history is finite. A `since_event_id` older than what macOS still keeps replays
+what remains and gives no signal for the gap; `Dropped` and `RootChanged` are the signals to
+re-crawl. Events are delivered over an unbounded channel. A consumer that stops draining it grows
+its memory.
 
 ## Size semantics
 

@@ -16,7 +16,7 @@ Both return PCM WAV plus a word-timed manifest that can be passed to `rightkit-t
 | Feature | Default | Pulls in | Effect |
 |---|---|---|---|
 | `system` | on | `rightkit-transcript`, `thiserror` | The OS voice backend (`say`/`afconvert` on macOS, SAPI on Windows) and the word-timed transcript. |
-| `client` | on | `rightkit-process`, `rightkit-fs` (`digest`), `serde`, `serde_json` | QTS worker client (`QtsClient`, chunking, model manifest checks). |
+| `client` | on | `rightkit-ort`, `rightkit-process`, `rightkit-fs` (`digest`), `serde`, `serde_json` | QTS worker client (`QtsClient`, chunking, model manifest checks). |
 | `engine` | off | `client`, `qts` (`rightkit-qts`), `libc` on Unix | The Qwen3-TTS QTS worker backend and the `rightkit-tts-worker` binary. |
 | `metal` | off | `engine`, `qts/metal` | QTS with the Metal backend (Apple). |
 | `vulkan` | off | `engine`, `qts/vulkan` | QTS with the Vulkan backend. |
@@ -25,7 +25,15 @@ Environment variables used by the crate:
 
 - `RIGHTKIT_TTS_MODEL_DIR` (legacy `GENRIGHT_QTS_MODEL_DIR`): QTS model directory. The default is `<data>/models/qts`.
 - `RIGHTKIT_TTS_WORKER` (legacy `GENRIGHT_QTS_WORKER`): worker binary path.
-- `ORT_DYLIB_PATH`: ONNX Runtime library for the vocoder.
+- `ORT_DYLIB_PATH`: ONNX Runtime library for the vocoder. Debug builds only: release builds never read it, and
+  the client strips it from the worker's environment. Release callers pass the runtime with
+  `QtsClient::with_ort_runtime(path)`, or the installed runtime is found by search.
+
+Caller-owned locations: `QtsClient::with_data_root(path)` resolves models, voices and the worker's runtime
+under `path` (absolute). `RIGHTKIT_TTS_MODEL_DIR` still overrides the model folder.
+
+Model modes: `SynthOptions::mode` selects `Base` (0.6B, the default), `CustomVoice` (speaker) or
+`VoiceDesign` (instruct). The 1.7B modes need their exports in the model folder.
 
 ## Platform support
 

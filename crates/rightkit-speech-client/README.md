@@ -8,13 +8,13 @@ Client and protocol contract for the Orthic Labs shared speech service, which ru
 
 ## Features
 
-None. The crate has no Cargo features. Dependencies: `rightkit-service`, `rightkit-framed-sidecar`, `serde`, `serde_json`.
+None. The crate has no Cargo features. Dependencies: `rightkit-service`, `rightkit-framed-sidecar`, `rightkit-transcript`, `serde`, `serde_json` (`Cargo.toml:13-17`).
 
 ## Platform support
 
-Platform gates are in `src/lib.rs`: `cfg(windows)` (named pipe) and `cfg(unix)` (Unix socket). Transport details are defined by `rightkit-service`.
+`src/lib.rs` has no `cfg` gates. `endpoint_for` in `src/protocol.rs:182-190` picks a named pipe on Windows (`cfg!(windows)`) and a Unix socket elsewhere; the `cfg(windows)` and `cfg(unix)` transport gates are in `rightkit-service` (`src/transport.rs`). Transport details are defined by `rightkit-service`.
 
-Published version: see `INDEX.md` at the repository root. This crate has no `CHANGELOG.md`.
+Published version: see `INDEX.md` at the repository root. Release notes: [CHANGELOG.md](CHANGELOG.md).
 
 ## Example
 

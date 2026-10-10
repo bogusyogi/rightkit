@@ -18,7 +18,7 @@ Filesystem watching for Right Suite apps. It is built on `notify` and has three 
 
 The crate has no platform-specific code in `src/`. The only `cfg(unix)` is a test (`recursive_directory_snapshot_does_not_follow_symlinks`). Backend behavior comes from `notify`. For example, the README describes FSEvents on macOS supplying unpaired rename hints as Modify events.
 
-Published version: see `INDEX.md` at the repository root. Release notes for the 0.2.0 and 0.3.x additions are below. This crate has no `CHANGELOG.md`.
+Published version: see `INDEX.md` at the repository root. Release notes for the 0.2.0 and 0.3.x additions are below. The full history is in [CHANGELOG.md](CHANGELOG.md).
 
 ## Example
 

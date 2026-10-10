@@ -4,7 +4,7 @@ Shared OAuth 2.0 sign-in for Right Suite apps. It owns loopback S256 PKCE for de
 
 **Use it** for sign-in and token refresh in a Right Suite app or daemon, when the provider fits one of the descriptors or can be described by an `OAuthConfig`.
 
-**Do not use it** as an identity provider, to verify who a provider account belongs to (the host must do that), or to hold secrets outside the store it provides. The crate starts no server, opens no browser, and schedules no background work.
+**Do not use it** as an identity provider, to verify who a provider account belongs to (the host must do that), or to hold secrets outside the store it provides. Desktop sign-in binds a loopback callback listener on `127.0.0.1` (`src/lib.rs:370`); the crate starts no other server, opens no browser, and schedules no background work.
 
 ## Features
 
@@ -12,7 +12,7 @@ Shared OAuth 2.0 sign-in for Right Suite apps. It owns loopback S256 PKCE for de
 |---|---|---|---|
 | `secrets` | on | `rightkit-secrets` | Desktop token storage in the OS credential store. |
 | `system-sources` | on | `rightkit-process` | Reads credentials from system sources (`src/system.rs`). |
-| `server` | off | `base64`, `ring`, `subtle`, `url`, `zeroize`, `serde`, `libc` | Server mode: `rightkit_oauth::server` (begin/complete/refresh, sealed file store, OIDC hooks). |
+| `server` | off | `ring`, `url`, `zeroize`, `serde`, `libc` (`Cargo.toml:22`) | Server mode: `rightkit_oauth::server` (begin/complete/refresh, sealed file store, OIDC hooks). |
 | `server-example` | off | `server`, `axum`, `tokio` | Builds `examples/server_axum.rs` (required feature for that example). |
 
 `rightkit-http` is always a dependency. It is used for every token request.
@@ -83,7 +83,7 @@ PKCE uses CSPRNG/base64url primitives, 64-character verifiers & S256 challenges
 where descriptor enables it. Public clients must enable PKCE. Nonce is independent random state for `openid` scopes.
 
 `complete(CallbackQuery { code, state, error })` atomically takes pending state, compares
-with `subtle::ConstantTimeEq`, checks expiry & provider binding, then exchanges code.
+with a constant-time check (`ct_eq`, HMAC tags compared by `ring::hmac::verify`, `src/server/mod.rs:22-26`), checks expiry & provider binding, then exchanges code.
 State is single-use even on denial, malformed callback or exchange failure. Errors include
 `StateMismatch`, `StateExpired`, `ProviderError`, `ExchangeFailure`, `OidcValidation` &
 `ReauthRequired`; arbitrary provider text/HTTP bodies never enter errors or Debug output.

@@ -40,7 +40,7 @@ let samples: Vec<f32> = read_wav_16k_mono(Path::new("/abs/in.wav"))?;
 
 ## Platform support
 
-- Capture is compiled for macOS and Windows (`cfg(target_os = "macos")` and `cfg(windows)` dependencies).
+- Capture is the default `capture` feature: the cpal capture module has no OS gate (`src/lib.rs:16-17`). Two parts are OS-specific: the CoreAudio transport probe is `cfg(target_os = "macos")` (`src/capture/device.rs:65`), and the endpoint and power lifecycle is `cfg(target_os = "windows")` (`src/lifecycle.rs:142-153`); the lifecycle registration returns `None` on every other OS.
 - FFmpeg is required for measurement and rendering. It is resolved through `rightkit-media`.
 - `tests/audio_e2e.rs` uses real files and FFmpeg, and a named loopback input device when one is available. No test routes audio to speakers.
 

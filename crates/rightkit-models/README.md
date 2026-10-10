@@ -18,7 +18,7 @@ The default feature set is empty.
 
 Platform-specific code is gated with `cfg(windows)`, `cfg(target_os = "macos")`, and `cfg(unix)`, mainly in `alias.rs`, `disk.rs`, `hardware.rs`, and the `suite/` modules. The store layout, locking, and path validation are the same code on each platform. Symlink and hard-link behavior follows the host file system. `Hardware::probe_with` accepts an app-supplied override for hosts where the probe is unreliable.
 
-Published version: see `INDEX.md` at the repository root. Release notes: this crate has no `CHANGELOG.md`; see `INDEX.md`.
+Published version: see `INDEX.md` at the repository root. Release notes: see [CHANGELOG.md](CHANGELOG.md) and `INDEX.md`.
 
 ## Example
 
@@ -52,7 +52,7 @@ Added in 0.2.0:
   ETag, else a clean restart); `cancel` discards staging. `Store::paused`,
   `Store::discard_staging`.
 - `Requirements::{cuda_vram_gb, mps_memory_gb, remote_only}`,
-  `FitKind::{RentalOnly, Api}`, `Hardware::probe_with(HardwareOverride)`
+  `FitKind::{RentalOnly, Api}`, `Hardware::probe_with(Option<HardwareOverride>)`
   (app-supplied path or JSON, lenient shape), `ProfileAlias`.
 
 Added in 0.2.1:

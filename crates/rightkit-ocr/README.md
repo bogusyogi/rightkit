@@ -76,6 +76,21 @@ calls ScrapeRight makes.
 The committed PNG fixture is test data, not a model. No ONNX model or ONNX
 Runtime binary is bundled.
 
+## Isolated worker: events and typed kinds
+
+Apps that run native recognition in a child process (`WorkerCommand`) can observe
+the child's lifecycle and key on typed failures instead of message text:
+
+- `WorkerCommand::run_observed(bytes, &events)` reports `WorkerEvent`s
+  (`Spawned { pid }`, `Waiting`, `Responded`, `Exited`, `TimedOut`) as they happen,
+  and returns a `RunRecord` with the same facts. A plain closure works as `events`.
+- `WorkerFailure::kind` and `OcrError::kind()` return an `OcrErrorKind`. Match on the
+  kind. The message text still carries the legacy prefix (for example
+  `macos-vision-unavailable:`), but the prefix constants are deprecated for keying.
+- `WorkerCommand::with_canary_deadline` bounds the canary run separately from the
+  request deadline. `Ocr::with_health_hook` takes a host-owned `NativeHealthHook`
+  cache of the availability verdict. The crate keeps no cache.
+
 ## Publication status
 
 Recorded blockers as of 2026-10-06. Check `INDEX.md` for the current state.

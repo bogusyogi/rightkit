@@ -1,6 +1,6 @@
 # rightkit-control
 
-Shared native desktop control for Right Suite applications: drive a real desktop app like a person would, in the background, without taking focus. It provides background native input, accessibility reads, a WebDriver bridge, an embedded Tauri control server (behind a feature), and a `rightkit-control` CLI. Every effectful request passes one admission gate, and input is fenced by an epoch-based lease.
+Shared native desktop control for Right Suite applications: drive a real desktop app like a person would, in the background, without taking focus. It provides background native input, accessibility reads, a WebDriver bridge, an embedded Tauri control server (behind a feature), and a macOS-only `rightkit-control` CLI (`src/bin/rightkit-control.rs:5-8` exits 2 on other targets). Every effectful request passes one admission gate, and input is fenced by an epoch-based lease.
 
 Catalog capability: `desktop-control`. Published to crates.io (see [INDEX.md](../../INDEX.md)).
 
@@ -31,8 +31,9 @@ Do not use it for a web page that a headless browser can drive (see `rightkit-br
 | `wv2-0_38` | no | `windows` 0.61, `webview2-com` 0.38 (Windows only) | WebView2 types for Tauri 2.11 (wry 0.55). |
 | `wv2-0_39` | no | `windows` 0.62, `webview2-com` 0.39 (Windows only) | WebView2 types for Tauri 2.12 and later. |
 | `tauri-plugin` | no | `tauri` 2, `rightkit-service`, `serde_json` | The embedded Tauri control server (`embedded` module). |
+| `offscreen-private-spi` | no | none | macOS only: WKWebView `_setWindowOcclusionDetectionEnabled:` private SPI for `offscreen` launch; without it `offscreen` fails with `OcclusionSpiNotCompiled` (`Cargo.toml:22-25`). |
 
-There are no default features. On Windows the `tauri-plugin` feature requires exactly one WebView2 generation: `features = ["tauri-plugin", "wv2-0_38"]` for Tauri 2.11, or `features = ["tauri-plugin", "wv2-0_39"]` for Tauri 2.12 and later (a Windows build with neither fails with a `compile_error!`). macOS and non-plugin builds need neither.
+There are no default features. On Windows the `tauri-plugin` feature requires one WebView2 generation (enable exactly one; if both are enabled `wv2-0_39` wins, `src/embedded/win_view.rs:13-19`): `features = ["tauri-plugin", "wv2-0_38"]` for Tauri 2.11, or `features = ["tauri-plugin", "wv2-0_39"]` for Tauri 2.12 and later (a Windows build with neither fails with a `compile_error!`). macOS and non-plugin builds need neither.
 
 ## Usage
 

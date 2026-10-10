@@ -55,7 +55,7 @@ let snap = automation.snapshot(Target::app(pid), Limits { max_depth: 14, max_nod
 - macOS: the accessibility (AX) backend, verified by `tests/e2e_mac.rs` and `examples/mac_proof.rs`.
 - Windows: the UI Automation backend in `src/win/`. Verify it on a Windows host before you rely on it: `rightkit cargo test -p rightkit-automation --test e2e_win -- --nocapture`.
 - Threading (macOS): NSWorkspace publishes the app list and frontmost app through the main run loop. Call from the main thread of a CLI or test, or from any thread of an app whose main loop runs.
-- `launch` uses the system `open` command on macOS. It uses `screencapture` only if `CGWindowListCreateImage` is missing. Both run as waited children, so a strict zero-child profile should not call `launch`.
+- `launch` uses the system `open` command on macOS. Window capture tries `CGWindowListCreateImage` first and falls back to `screencapture` whenever that returns no image (`src/macos/capture.rs:54-57`). Both `open` and `screencapture` run as waited children, so a strict zero-child profile should call neither `launch` nor window capture.
 
 ## Safety rules enforced here
 

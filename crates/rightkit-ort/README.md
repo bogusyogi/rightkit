@@ -26,7 +26,7 @@ The crate accepts ordered absolute candidates from the app. It validates the pla
 - Windows: DirectML provider enabled by the crate (`cfg(target_os = "windows")`), plus `windows-sys` as a Windows-only dependency.
 - The approved ONNX Runtime shared library for macOS arm64 is `1.24.4`. It is recorded in `rightkit-media`'s `catalog/native-libraries.json`, not in this crate. Runtime upgrades need a catalog row and real native-host verification.
 
-Published version: see `INDEX.md` at the repository root. This crate has no `CHANGELOG.md`.
+Published version: see `INDEX.md` at the repository root. Release notes are in `CHANGELOG.md`.
 
 - Added in 0.2.0: `configure_runtime_with_options` adds forced `ORT_DYLIB_PATH`
 replacement & missing-path binding with `RuntimeBindingStatus::Missing`.
@@ -101,6 +101,48 @@ Tests use temporary fixture files, an injected environment writer & a fake ORT
 backend; these option tests require no real runtime binary. Existing macOS E2E
 coverage remains separate.
 
+## Runtime bundle manifest
+
+`verify_runtime_manifest(dir)` checks a staged ONNX Runtime bundle before anything loads it. `dir`
+is the bundle directory and must be absolute; `manifest.json` sits inside it. The usual layout,
+staged beside an installed executable:
+
+```text
+<exe dir>/runtime/
+  manifest.json                              not listed in its own manifest
+  onnxruntime.dll                            platform library (libonnxruntime.dylib on macOS)
+  DirectML.dll
+  models/face_detection_yunet_2023mar.onnx
+```
+
+```json
+{
+  "schema": 1,
+  "platform": "windows-x64",
+  "onnxruntime": { "version": "1.24.4", "variant": "directml", "catalogRow": "<catalog row id>" },
+  "files": [
+    { "path": "onnxruntime.dll", "sha256": "<64 hex>", "bytes": 12345 },
+    { "path": "models/face_detection_yunet_2023mar.onnx", "sha256": "<64 hex>", "bytes": 232589 }
+  ]
+}
+```
+
+Rules:
+
+- `schema` is the integer `1`. Unknown fields are rejected. `platform` is lowercase `<os>-<arch>`.
+- Each `path` is relative to `dir`, uses `/`, and is normalised: no `..`, `.`, leading `/`, drive
+  prefix, `\`, repeated or trailing `/`. It may not name `manifest.json`. Paths are unique.
+- Every listed file must exist as a regular file with the listed byte count and SHA-256. Each file
+  is hashed in full. The manifest digest may be uppercase; the result is lowercase.
+- Extra files: every regular file under `dir`, at any depth, must be listed. The only exemption is
+  `manifest.json` at the top level. Directories may exist. Symbolic links and special files anywhere
+  under `dir` are rejected.
+
+On success it returns `VerifiedRuntime { dir, platform, onnxruntime, files }`, with `dir`
+canonicalised. `onnxruntime_library_path()` gives `<dir>/<runtime filename>` when that library is
+listed, and `None` otherwise. Verification loads no library and creates no session. The catalog row
+is recorded, not checked; catalog checks belong to the native-library catalog in `rightkit-media`.
+
 ## Version policy
 
 The suite pins the Rust `ort` crate to `=2.0.0-rc.13` with `load-dynamic` and
@@ -140,3 +182,5 @@ bindings are recorded too; failed bindings preserve the previous record. Without
 a recorded binding it reports non-empty `ORT_DYLIB_PATH`, or `None`. Resolution
 alone records nothing; this diagnostic does not validate or load a library.
 - Added in 0.2.2: `discovery_candidates`, `discover_runtime` & `export_discovered_runtime` own the worker-process runtime search (`ORT_DYLIB_PATH`, `<exe>/runtime`, `<exe>`, caller dirs; System32 copy skipped); pass-through ort features (`tracing`, download/copy, execution providers).
+- Added in 0.2.3: `SessionOptions::directml_sequential` & `directml_memory_pattern` (with their `with_*` builders) disable parallel execution & the memory-pattern optimisation when the DirectML provider is selected; both default to off.
+- Added in 0.2.3: `verify_runtime_manifest` verifies a runtime bundle; see "Runtime bundle manifest" below.

@@ -2,7 +2,7 @@
 
 GUI-free local logging, diagnostics, and consented telemetry for Right Suite apps.
 
-The crate has no Tauri, async-runtime or tracing dependency. Apps supply log paths, content-free metadata, consent and an endpoint. The crate owns the shared mechanics:
+The default build has no Tauri, async-runtime or tracing dependency. Apps supply log paths, content-free metadata, consent and an endpoint. The crate owns the shared mechanics:
 
 - one JSON object per line, with stable `schema_version`, `ts_ms`, `level` and `event` fields;
 - synchronous serialised append, and a bounded non-blocking async writer (`AsyncWriter`);
@@ -13,7 +13,8 @@ The crate has no Tauri, async-runtime or tracing dependency. Apps supply log pat
 - malformed-row, missing-file and truncation statistics, instead of a failed report;
 - a final serialised-byte cap that removes whole oldest events and never slices JSON;
 - a consent-gated durable outbox, with key and free-text redaction before anything reaches disk;
-- HTTPS upload, with loopback HTTP reserved for local test servers, persisted back-off, and a pluggable `Transport`.
+- HTTPS upload, with loopback HTTP reserved for local test servers, persisted back-off, and a pluggable `Transport`;
+- optional daily-rolling JSONL files for `tracing` (feature `tracing`), collected by the same diagnostics path.
 
 The host decides when to grant consent, enqueue events, flush, revoke consent, or let a user copy and save a returned bundle. Revocation purges queued and quarantined bytes.
 
@@ -24,7 +25,7 @@ Catalog capability: `structured-logging`. Published to crates.io (see [INDEX.md]
 - Use it for an app's local JSONL event log and its diagnostics bundle.
 - Use it for consented telemetry through the outbox.
 
-Do not use it as a general tracing framework. The crate has no `tracing` integration.
+Do not use it as a general tracing framework. The `tracing` feature only writes the app's daily JSONL file and its diagnostics; it does not replace `tracing` for other sinks.
 
 ## Cargo features
 
@@ -32,8 +33,29 @@ Do not use it as a general tracing framework. The crate has no `tracing` integra
 |---|---|---|---|
 | `http` | yes | `ureq` 3.4 (`rustls`) | The HTTPS transport for the consented outbox uploader. Without it the crate has no network dependency, and callers supply their own `Transport`. |
 | `testing` | no | none | `testing::MockServer`, a loopback mock ingest server for app end-to-end tests. |
+| `tracing` | no | `tracing` 0.1, `tracing-subscriber` 0.3 (`json`, `env-filter`) | Daily-rolling JSONL file logs: `install_tracing`, `tracing_layer`, `TracingFileConfig`, `TracingGuard`, `tracing_log_sources` and `collect_tracing_diagnostics`. |
 
-Consumers that bring their own transport use `default-features = false`.
+Consumers that bring their own transport use `default-features = false`. `default-features = false` builds the event store, collection and consent code with no network dependency.
+
+## Tracing file logs
+
+With `features = ["tracing"]`, the writer creates `<dir>/<file_prefix>.YYYY-MM-DD.jsonl` for each UTC day:
+
+- `install_tracing(config)` installs a global subscriber and returns a `TracingGuard`. Keep the guard alive. Dropping it writes every accepted line, then joins the writer thread.
+- `tracing_layer::<S>(config)` returns a boxed layer and guard for apps that compose their own subscriber, such as one that also writes stderr. It never fails the caller; setup problems go to stderr.
+- Opening a day's file prunes the directory to the newest `max_files` daily files, today's included, oldest first. Only names of the exact form `<prefix>.YYYY-MM-DD.jsonl` are touched.
+- Lines pass through a bounded queue. When the queue is full, the line is dropped and counted (`TracingGuard::dropped_events`); the caller never blocks.
+- With `json: true` and `flatten_event: true`, event fields are top-level keys. `env_filter: None` reads `RUST_LOG`, then falls back to `info`.
+- `tracing_log_sources(config, "app")` lists the newest `max_files` daily files as sources named `app-0`, `app-1`, and so on, oldest first. `collect_tracing_diagnostics` runs those sources through the normal bounded, redacted collection policy.
+
+```rust
+use rightkit_logs::{install_tracing, TracingFileConfig};
+
+let _guard = install_tracing(TracingFileConfig::new(logs_dir, "scraperight"))?;
+tracing::info!(detail = "ready", "app started");
+```
+
+Days use UTC, so the file for an event is chosen by its UTC date.
 
 ## Usage
 
@@ -98,8 +120,8 @@ rightkit cargo test -p rightkit-logs --target <native-target>
 rightkit cargo fmt --check --manifest-path crates/rightkit-logs/Cargo.toml
 ```
 
-Tests: `tests/contract.rs` (event shape, collection and redaction) and `tests/outbox_e2e.rs` (consented outbox end to end).
+Tests: `tests/contract.rs` (event shape, collection and redaction) and `tests/outbox_e2e.rs` (consented outbox end to end). With `--features tracing`, `tests/tracing.rs` covers the layer, JSON shape, guard flush, retention and collection, and `tests/tracing_install.rs` covers the global install.
 
 ## Version and changes
 
-Published version: see [INDEX.md](../../INDEX.md). No CHANGELOG.md in this crate.
+Published version: see [INDEX.md](../../INDEX.md). Release notes are in [CHANGELOG.md](CHANGELOG.md).
