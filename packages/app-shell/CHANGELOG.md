@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.1
+
+- Republish with `dist/` present. 0.4.0 was published from an unbuilt tree and cannot be imported (exports point at ./dist/index.js); do not pin 0.4.0. `prepack` now builds.
+
 ## 0.4.0 — 2026-10-10
 
 - Peer contract: declare `react-dom` (`>=18 <21`, matching the `react` range) as a peer dependency; `@rightkit/app-shell/react` imports it for the context-menu portal. Apps already install it alongside `react`.

@@ -1,6 +1,6 @@
 {
   "name": "@rightkit/media-ui",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "description": "Brand-neutral media player and image viewer/editor for Right Suite apps.",
   "license": "MIT OR Apache-2.0",
   "type": "module",
@@ -61,7 +61,8 @@
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
-    "test:browser": "pnpm --filter @rightkit/qa-chrome run build && node test/browser-e2e.mjs"
+    "test:browser": "pnpm --filter @rightkit/qa-chrome run build && node test/browser-e2e.mjs",
+    "prepack": "pnpm run build"
   },
   "publishConfig": {
     "registry": "https://registry.npmjs.org",

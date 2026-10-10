@@ -1,6 +1,6 @@
 {
   "name": "@rightkit/onboarding",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "description": "First-run onboarding framework: ordered steps, progress, skip/resume, legal gate first, permissions, model download and licence/trial steps.",
   "license": "MIT OR Apache-2.0",
   "type": "module",
@@ -48,7 +48,8 @@
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "pretest": "pnpm --filter \"@rightkit/onboarding^...\" run build",
-    "test": "vitest run"
+    "test": "vitest run",
+    "prepack": "pnpm run build"
   },
   "publishConfig": {
     "registry": "https://registry.npmjs.org",
