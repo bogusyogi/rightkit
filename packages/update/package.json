@@ -1,0 +1,56 @@
+{
+  "name": "@rightkit/update",
+  "version": "0.1.0",
+  "description": "Per-repo dependency updater: compares every pinned dependency with its upstream latest (right-update check). apply, gate and land are not implemented yet.",
+  "license": "MIT OR Apache-2.0",
+  "packageManager": "pnpm@11.24.0",
+  "private": false,
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "bin": {
+    "right-update": "dist/bin.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "update.schema.json",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE-MIT",
+    "LICENSE-APACHE"
+  ],
+  "sideEffects": false,
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "prepack": "pnpm run build"
+  },
+  "engines": {
+    "node": ">=26.8.0"
+  },
+  "dependencies": {
+    "@rightkit/git": "0.2.37",
+    "smol-toml": "1.7.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "typescript": "^5.7.0",
+    "vitest": "^2.1.8"
+  },
+  "publishConfig": {
+    "registry": "https://registry.npmjs.org/",
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/bogusyogi/rightkit.git",
+    "directory": "packages/update"
+  }
+}

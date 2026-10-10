@@ -476,6 +476,25 @@ importers:
         specifier: ^2.1.8
         version: 2.1.9(@types/node@24.13.3)(jsdom@26.1.0(canvas@3.2.3)(supports-color@8.1.1))(supports-color@8.1.1)
 
+  packages/update:
+    dependencies:
+      '@rightkit/git':
+        specifier: 0.2.37
+        version: link:../git
+      smol-toml:
+        specifier: 1.7.0
+        version: 1.7.0
+    devDependencies:
+      '@types/node':
+        specifier: ^24.0.0
+        version: 24.13.3
+      typescript:
+        specifier: ^5.7.0
+        version: 5.9.3
+      vitest:
+        specifier: ^2.1.8
+        version: 2.1.9(@types/node@24.13.3)(jsdom@26.1.0(canvas@3.2.3)(supports-color@8.1.1))(supports-color@8.1.1)
+
   packages/updates:
     devDependencies:
       typescript:

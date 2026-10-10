@@ -1,0 +1,10 @@
+export { validateManifest, loadManifest, MANIFEST_RELATIVE_PATH, RIGHTKIT_VERSIONS_DEFAULT } from "./manifest.js";
+export type { ManifestValidation } from "./manifest.js";
+export { compareVersions, parsePinned, parseLatest, resolvePolicy, DEFAULT_HELD_PATTERN } from "./compare.js";
+export { checkSources, buildReport, exitCodeFor, cargoDependencies, parseSwiftPackage, parseSwiftProjectYml, pnpmDependencies } from "./check.js";
+export type { CheckDeps, DriftFn, ExecFn, ExecResult } from "./check.js";
+export { runCheck, runCli } from "./run.js";
+export type { CliIo } from "./run.js";
+export { fetchText, fetchJson, mapLimit, USER_AGENT } from "./http.js";
+export type { FetchLike } from "./http.js";
+export * from "./types.js";

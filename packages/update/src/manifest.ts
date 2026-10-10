@@ -1,0 +1,270 @@
+// Loader and hand-rolled validator for `.rightkit/update.json`.
+// Mirrors update.schema.json. Never throws: problems are returned as messages.
+
+import fs from "node:fs";
+import path from "node:path";
+import { POLICIES, PLATFORMS, SCHEMA_VERSION, type Policy, type Source, type UpdateManifest } from "./types.js";
+
+export const MANIFEST_RELATIVE_PATH = ".rightkit/update.json";
+export const RIGHTKIT_VERSIONS_DEFAULT = "packages/release/rightkit-versions.json";
+
+const SOURCE_KINDS = ["cargo", "pnpm", "swiftpm", "rightkit", "tool"] as const;
+const UPSTREAM_TYPES = ["github-release", "url"] as const;
+const TOP_LEVEL_KEYS = new Set(["schemaVersion", "sources", "policy"]);
+const POLICY_KEYS = new Set(["default", "held", "tier"]);
+const TOOL_KEYS = new Set(["kind", "name", "pin", "assets", "upstream", "journey", "policy"]);
+const TOOL_ASSET_KEYS = new Set(["asset", "checksum", "extract"]);
+
+const TOOL_NAME_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
+const TOOL_PIN_RE = /^[A-Za-z0-9][A-Za-z0-9._+-]{0,63}$/;
+const ASSET_NAME_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
+const CHECKSUM_RE = /^sha256:[0-9a-f]{64}$/;
+const GITHUB_REPO_RE = /^[A-Za-z0-9][A-Za-z0-9-]{0,38}\/[A-Za-z0-9._-]{1,100}$/;
+const SWIFT_MANIFEST_NAMES = new Set(["Package.swift", "project.yml"]);
+/** Journey placeholders. `check` only rejects unknown ones; `gate` fills them in. */
+export const JOURNEY_PLACEHOLDERS = Object.freeze(["{candidate}", "{out}", "{delivery}", "{model}"]);
+
+export interface ManifestValidation {
+  valid: boolean;
+  errors: string[];
+  manifest?: UpdateManifest;
+}
+
+type Obj = Record<string, unknown>;
+
+function isObject(value: unknown): value is Obj {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function isPolicy(value: unknown): value is Policy {
+  return typeof value === "string" && (POLICIES as readonly string[]).includes(value);
+}
+
+function checkUnknownKeys(obj: Obj, allowed: Set<string>, where: string, errors: string[]): void {
+  for (const key of Object.keys(obj)) {
+    if (!allowed.has(key)) errors.push(`${where}: unknown field ${key}`);
+  }
+}
+
+/** Relative path inside the repo: no absolute paths, no parent traversal. */
+function safeRelativePath(value: unknown): boolean {
+  if (typeof value !== "string" || value.length === 0 || value.length > 512) return false;
+  if (path.isAbsolute(value) || value.startsWith("~")) return false;
+  return !value.split(/[\\/]/).includes("..");
+}
+
+function validateHttps(value: unknown, where: string, errors: string[]): void {
+  if (typeof value !== "string") {
+    errors.push(`${where} must be a string`);
+    return;
+  }
+  try {
+    const url = new URL(value.replace("{version}", "0"));
+    if (url.protocol !== "https:") errors.push(`${where} must be an https URL`);
+  } catch {
+    errors.push(`${where} must be a valid URL`);
+  }
+}
+
+function validatePolicyConfig(value: unknown, errors: string[]): void {
+  if (!isObject(value)) {
+    errors.push("policy must be an object");
+    return;
+  }
+  checkUnknownKeys(value, POLICY_KEYS, "policy", errors);
+  if (!isPolicy(value.default)) errors.push(`policy.default must be one of ${POLICIES.join(", ")}`);
+  if (value.held !== undefined) {
+    if (!Array.isArray(value.held) || value.held.some((n) => typeof n !== "string" || n.length === 0)) {
+      errors.push("policy.held must be an array of dependency names");
+    }
+  }
+  if (value.tier !== undefined) {
+    if (!isObject(value.tier)) {
+      errors.push("policy.tier must be an object");
+    } else {
+      checkUnknownKeys(value.tier, new Set(["held"]), "policy.tier", errors);
+      if (value.tier.held !== undefined) {
+        if (!Array.isArray(value.tier.held) || value.tier.held.some((p) => typeof p !== "string")) {
+          errors.push("policy.tier.held must be an array of strings");
+        } else {
+          for (const p of value.tier.held as string[]) {
+            if (p.startsWith("/")) {
+              try {
+                new RegExp(p.replace(/^\/|\/[a-z]*$/g, ""));
+              } catch {
+                errors.push(`policy.tier.held has an invalid regex: ${p}`);
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
+/** Reject any `{...}` token that is not a known journey placeholder. */
+function checkPlaceholders(text: string, where: string, errors: string[]): void {
+  for (const token of text.match(/\{[^{}]*\}/g) ?? []) {
+    if (!(JOURNEY_PLACEHOLDERS as readonly string[]).includes(token)) {
+      errors.push(`${where}: unknown placeholder ${token} (allowed: ${JOURNEY_PLACEHOLDERS.join(", ")})`);
+    }
+  }
+}
+
+function validateTool(source: Obj, where: string, errors: string[]): void {
+  checkUnknownKeys(source, TOOL_KEYS, where, errors);
+  if (typeof source.name !== "string" || !TOOL_NAME_RE.test(source.name)) {
+    errors.push(`${where}: name must match ${TOOL_NAME_RE.source}`);
+  }
+  if (typeof source.pin !== "string" || !TOOL_PIN_RE.test(source.pin)) {
+    errors.push(`${where}: pin must be a version string`);
+  }
+
+  if (!isObject(source.assets) || Object.keys(source.assets).length === 0) {
+    errors.push(`${where}: assets must be a non-empty object keyed by platform`);
+  } else {
+    for (const [platform, entry] of Object.entries(source.assets)) {
+      const at = `${where}.assets.${platform}`;
+      if (!(PLATFORMS as readonly string[]).includes(platform)) {
+        errors.push(`${at}: unknown platform (expected ${PLATFORMS.join(", ")})`);
+        continue;
+      }
+      if (!isObject(entry)) {
+        errors.push(`${at} must be an object`);
+        continue;
+      }
+      checkUnknownKeys(entry, TOOL_ASSET_KEYS, at, errors);
+      if (typeof entry.asset !== "string" || !ASSET_NAME_RE.test(entry.asset)) {
+        errors.push(`${at}: asset must be a plain file name`);
+      }
+      if (typeof entry.checksum !== "string" || !CHECKSUM_RE.test(entry.checksum)) {
+        errors.push(`${at}: checksum must be sha256:<64 lowercase hex>`);
+      }
+      if (entry.extract !== undefined) {
+        if (!isObject(entry.extract)) {
+          errors.push(`${at}.extract must be an object`);
+        } else {
+          checkUnknownKeys(entry.extract, new Set(["member"]), `${at}.extract`, errors);
+          if (!safeRelativePath(entry.extract.member)) {
+            errors.push(`${at}.extract.member must be a relative path inside the archive`);
+          }
+        }
+      }
+    }
+  }
+
+  if (!isObject(source.upstream)) {
+    errors.push(`${where}: upstream is required`);
+  } else if (source.upstream.type === "github-release") {
+    checkUnknownKeys(source.upstream, new Set(["type", "repo"]), `${where}.upstream`, errors);
+    if (typeof source.upstream.repo !== "string" || !GITHUB_REPO_RE.test(source.upstream.repo)) {
+      errors.push(`${where}.upstream.repo must be owner/repo`);
+    }
+  } else if (source.upstream.type === "url") {
+    checkUnknownKeys(source.upstream, new Set(["type", "latest", "download"]), `${where}.upstream`, errors);
+    validateHttps(source.upstream.latest, `${where}.upstream.latest`, errors);
+    validateHttps(source.upstream.download, `${where}.upstream.download`, errors);
+    if (typeof source.upstream.download === "string" && !source.upstream.download.includes("{version}")) {
+      errors.push(`${where}.upstream.download must contain {version}`);
+    }
+  } else {
+    errors.push(`${where}.upstream.type must be one of ${UPSTREAM_TYPES.join(", ")}`);
+  }
+
+  if (!isObject(source.journey)) {
+    errors.push(`${where}: journey must be an object {command, report, inputs?}`);
+  } else {
+    checkUnknownKeys(source.journey, new Set(["command", "report", "inputs"]), `${where}.journey`, errors);
+    const cmd = source.journey.command;
+    if (!Array.isArray(cmd) || cmd.length === 0 || cmd.some((a) => typeof a !== "string" || a.length === 0 || a.length > 1024)) {
+      errors.push(`${where}.journey.command must be a non-empty array of strings`);
+    } else {
+      for (const arg of cmd as string[]) checkPlaceholders(arg, `${where}.journey.command`, errors);
+    }
+    if (typeof source.journey.report !== "string" || source.journey.report.length === 0) {
+      errors.push(`${where}.journey.report must be a non-empty string`);
+    } else {
+      checkPlaceholders(source.journey.report, `${where}.journey.report`, errors);
+    }
+    if (source.journey.inputs !== undefined && !isObject(source.journey.inputs)) {
+      errors.push(`${where}.journey.inputs must be an object`);
+    }
+  }
+}
+
+/** Validate a parsed manifest. Never throws. */
+export function validateManifest(raw: unknown): ManifestValidation {
+  const errors: string[] = [];
+  if (!isObject(raw)) return { valid: false, errors: ["manifest must be a JSON object"] };
+
+  checkUnknownKeys(raw, TOP_LEVEL_KEYS, "manifest", errors);
+  if (raw.schemaVersion !== SCHEMA_VERSION) errors.push(`schemaVersion must be exactly ${SCHEMA_VERSION}`);
+
+  validatePolicyConfig(raw.policy, errors);
+
+  if (!Array.isArray(raw.sources)) {
+    errors.push("sources must be an array");
+  } else {
+    raw.sources.forEach((source, index) => {
+      const where = `sources[${index}]`;
+      if (!isObject(source)) {
+        errors.push(`${where} must be an object`);
+        return;
+      }
+      if (!(SOURCE_KINDS as readonly string[]).includes(source.kind as string)) {
+        errors.push(`${where}: unknown kind ${JSON.stringify(source.kind)} (expected ${SOURCE_KINDS.join(", ")})`);
+        return;
+      }
+      if (source.policy !== undefined && !isPolicy(source.policy)) {
+        errors.push(`${where}.policy must be one of ${POLICIES.join(", ")}`);
+      }
+      switch (source.kind) {
+        case "cargo":
+        case "pnpm":
+          checkUnknownKeys(source, new Set(["kind", "manifest", "policy"]), where, errors);
+          if (!safeRelativePath(source.manifest)) errors.push(`${where}.manifest must be a relative path`);
+          break;
+        case "swiftpm":
+          checkUnknownKeys(source, new Set(["kind", "manifest", "policy"]), where, errors);
+          if (!safeRelativePath(source.manifest)) {
+            errors.push(`${where}.manifest must be a relative path`);
+          } else if (!SWIFT_MANIFEST_NAMES.has(path.basename(source.manifest as string))) {
+            errors.push(`${where}.manifest must be Package.swift or project.yml`);
+          }
+          break;
+        case "rightkit":
+          checkUnknownKeys(source, new Set(["kind", "versions", "policy"]), where, errors);
+          if (source.versions !== undefined && !safeRelativePath(source.versions)) {
+            errors.push(`${where}.versions must be a relative path`);
+          }
+          break;
+        case "tool":
+          validateTool(source, where, errors);
+          break;
+      }
+    });
+  }
+
+  if (errors.length > 0) return { valid: false, errors };
+  return { valid: true, errors: [], manifest: raw as unknown as UpdateManifest };
+}
+
+/** Read and validate `<repo>/.rightkit/update.json`. Never throws. */
+export function loadManifest(repoPath: string): ManifestValidation {
+  const file = path.join(repoPath, MANIFEST_RELATIVE_PATH);
+  let text: string;
+  try {
+    text = fs.readFileSync(file, "utf8");
+  } catch (error) {
+    return { valid: false, errors: [`cannot read ${file}: ${(error as Error).message}`] };
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch (error) {
+    return { valid: false, errors: [`${file} is not valid JSON: ${(error as Error).message}`] };
+  }
+  return validateManifest(parsed);
+}
+
+export type { Source };
