@@ -477,6 +477,15 @@ function sealRelease({ configRoot, managedCargoTarget, nativeLayout, sealedDir, 
     addSource(resolveArtifactPath(artifact.file), "updater");
     if (target.updater?.kind !== "appinstaller") addSource(resolveArtifactPath(artifact.signature), "updater-signature");
   }
+  // Portable contracts ship bare archives (zip / tar.gz) with no installer or
+  // updater block: `target.artifacts` entries (paths or { file }) seal with the
+  // "portable" role.
+  for (const artifact of target.artifacts ?? []) {
+    const file = typeof artifact === "string" ? artifact : artifact?.file;
+    if (typeof file !== "string" || !file) fail("target.artifacts entries must be paths or { file }");
+    addSource(resolveArtifactPath(file), "portable");
+  }
+  if (sources.size === 0) fail(`nothing to seal: declare installer.artifacts, updater.artifacts or artifacts for the ${platform} target`);
   for (const file of sources.keys()) if (!existsSync(file)) fail(`cannot seal missing artifact: ${file}`);
   const temp = `${sealedDir}.tmp-${process.pid}`;
   if (existsSync(temp)) rmSync(temp, { recursive: true, force: true });

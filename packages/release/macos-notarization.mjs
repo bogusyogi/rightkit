@@ -33,7 +33,12 @@ function fileEvidence(file) {
 
 // DMG/PKG receive their own ticket. For a separately submitted app ZIP,
 // target.notarize.app (CLI --app) identifies the bundle to staple before packaging.
-export function notarizeMacosArtifact({ archive, receiptPath, authArgs, profile, app, run = spawnSync, env = process.env, ...agentOptions }) {
+// `staple: false` is for archives of bare Mach-O executables (portable CLIs):
+// the notary ticket is recorded online and nothing can carry a staple, so the
+// receipt records `staplingSkipped` instead of stapling evidence.
+export const STAPLING_SKIPPED_PORTABLE = "portable-executables";
+
+export function notarizeMacosArtifact({ archive, receiptPath, authArgs, profile, app, staple = true, run = spawnSync, env = process.env, ...agentOptions }) {
   archive = path.resolve(archive);
   const stapleTargets = /\.(dmg|pkg)$/i.test(archive) ? [archive] : [];
   if (app) {
@@ -41,7 +46,11 @@ export function notarizeMacosArtifact({ archive, receiptPath, authArgs, profile,
     if (!/\.app$/i.test(bundle)) throw new Error(`notarize.app must name an app bundle: ${bundle}`);
     stapleTargets.push(bundle);
   }
-  if (!stapleTargets.length) throw new Error("notarization archives require notarize.app (or --app) for stapling their app bundle");
+  if (staple === false) {
+    if (stapleTargets.length) throw new Error("notarize.staple: false applies only to archives of bare executables (no .dmg/.pkg archive and no notarize.app)");
+  } else if (!stapleTargets.length) {
+    throw new Error("notarization archives require notarize.app (or --app) for stapling their app bundle, or notarize.staple: false for bare executables");
+  }
   let result, stapling;
   if (detectMacSigningSession({ env, run }).guiRunner) {
     // SSH ignores API credential environment/argv entirely. Only profile name
@@ -64,6 +73,7 @@ export function notarizeMacosArtifact({ archive, receiptPath, authArgs, profile,
     archive: { file: archive, ...fileEvidence(archive) },
     notarization: { status: result.status, id: result.id ?? result.submissionId ?? null },
     stapling,
+    ...(staple === false ? { staplingSkipped: STAPLING_SKIPPED_PORTABLE } : {}),
   };
   mkdirSync(path.dirname(path.resolve(receiptPath)), { recursive: true });
   writeFileSync(receiptPath, `${JSON.stringify(receipt, null, 2)}\n`);
@@ -99,6 +109,12 @@ export function validateNotarizationReceipt({ receiptPath, archive, run = spawnS
     || path.resolve(receipt.archive?.file ?? "") !== archive || receipt.archive.sha256 !== fileEvidence(archive).sha256
     || receipt.notarization?.status !== "Accepted") throw new Error(`invalid macOS notarization receipt evidence: ${receiptPath}`);
   const stapling = receipt.stapling;
+  if (receipt.staplingSkipped === STAPLING_SKIPPED_PORTABLE) {
+    if (/\.(dmg|pkg|app)$/i.test(archive) || !Array.isArray(stapling) || stapling.length) {
+      throw new Error(`invalid macOS notarization receipt: stapling may be skipped only for archives of bare executables: ${receiptPath}`);
+    }
+    return receipt;
+  }
   if (!Array.isArray(stapling) || !stapling.length || stapling.some((item) => item.validated !== true || !/\.(dmg|pkg|app)$/i.test(item.file ?? ""))
     || (/\.(dmg|pkg|app)$/i.test(archive) && !stapling.some((item) => path.resolve(item.file) === archive))) {
     throw new Error(`missing macOS stapling evidence: ${receiptPath}; rerun notarization before sealing`);

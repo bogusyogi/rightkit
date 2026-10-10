@@ -18,7 +18,7 @@ function git(cwd, ...args) {
   return execFileSync("git", args, { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
 }
 
-function fixture({ signed = true, publish = false, signingContract = "windows-raw-exe-authenticode-before-nsis-v1", prePackageFiles = ["raw.exe"], signFiles = ["fixture.exe"], macSigning = false, packageJson, packageCommand, cargoManifest, cargoConfig, repoCargoConfig, siblingCargoManifest, buildInputs = defaultBuildInputs, platform = "win", hostedWorkflows, includeCargoSources = true } = {}) {
+function fixture({ signed = true, publish = false, signingContract = "windows-raw-exe-authenticode-before-nsis-v1", prePackageFiles = ["raw.exe"], signFiles = ["fixture.exe"], macSigning = false, macNotarize = { file: "fixture.zip" }, packageJson, packageCommand, cargoManifest, cargoConfig, repoCargoConfig, siblingCargoManifest, buildInputs = defaultBuildInputs, platform = "win", hostedWorkflows, includeCargoSources = true } = {}) {
   const fixtureRoot = mkdtempSync(path.join(os.tmpdir(), "right-release-test-"));
   const dir = repoCargoConfig ? path.join(fixtureRoot, "apps", "fixture") : fixtureRoot;
   mkdirSync(dir, { recursive: true });
@@ -56,7 +56,7 @@ function fixture({ signed = true, publish = false, signingContract = "windows-ra
           ...(publish ? { publish: { cmd: "node", args: ["publish-update.mjs"] } } : {}),
           artifacts: [],
           ...(platform === "win" ? { signingContract, prePackage: { cmd: "node", args: ["-e", "process.exit(0)"] }, sign: { prePackageFiles, files: signFiles } } : {}),
-          ...(platform === "mac" && macSigning ? { signingContract: "macos-developer-id-notarized-portable-v1", prePackage: { cmd: "node", args: ["-e", "process.exit(0)"] }, sign: { prePackageFiles: ["fixture"] }, notarize: { file: "fixture.zip" } } : {}),
+          ...(platform === "mac" && macSigning ? { signingContract: "macos-developer-id-notarized-portable-v1", prePackage: { cmd: "node", args: ["-e", "process.exit(0)"] }, sign: { prePackageFiles: ["fixture"] }, notarize: macNotarize } : {}),
           updater: { artifacts: [{ file: "fixture.exe", signature: "fixture.exe.sig", platform: "windows-x86_64", key: "fixture/fixture.exe" }] },
           hardening: [],
         },
@@ -260,6 +260,17 @@ test("accepts portable Windows releases with multiple pre-package executables an
   assert.equal(result.status, 0, result.stderr);
   assert.match(result.stdout, /raw-exe/);
   assert.doesNotMatch(result.stdout, /bundle marker/);
+});
+
+test("macOS notarize.staple: false is accepted for a bare-executable archive and refused with notarize.app or a DMG", () => {
+  const okResult = runRaw(fixture({ platform: "mac", macSigning: true, macNotarize: { file: "fixture.zip", staple: false } }), "--platform", "mac", "--dry-run");
+  assert.equal(okResult.status, 0, okResult.stderr);
+  const withApp = runRaw(fixture({ platform: "mac", macSigning: true, macNotarize: { file: "fixture.zip", staple: false, app: "dist/App.app" } }), "--platform", "mac", "--dry-run");
+  assert.notEqual(withApp.status, 0);
+  assert.match(withApp.stderr, /notarize\.staple: false applies only/);
+  const dmg = runRaw(fixture({ platform: "mac", macSigning: true, macNotarize: { file: "fixture.dmg", staple: false } }), "--platform", "mac", "--dry-run");
+  assert.notEqual(dmg.status, 0);
+  assert.match(dmg.stderr, /notarize\.staple: false applies only/);
 });
 
 test("macOS portable contract signs exact pre-package files then notarizes declared archive", () => {

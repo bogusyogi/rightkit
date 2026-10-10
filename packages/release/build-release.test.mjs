@@ -132,6 +132,10 @@ test("Windows native executables preserve arguments containing spaces", () => {
 test("sealing resolves installer and updater artifacts against the broker target on a managed host", () => {
   assert.match(source, /sealRelease\(\{ configRoot: appRoot, managedCargoTarget,/);
   assert.match(source, /function sealRelease\(\{ configRoot, managedCargoTarget,/);
+  // Portable contracts declare bare archives under target.artifacts; the seal must read them.
+  assert.match(source, /for \(const artifact of target\.artifacts \?\? \[\]\)/);
+  assert.match(source, /addSource\(resolveArtifactPath\(file\), "portable"\)/);
+  assert.match(source, /nothing to seal: declare installer\.artifacts, updater\.artifacts or artifacts/);
   assert.match(source, /const targetPrefix = "src-tauri\/target\/";/);
   assert.match(source, /if \(managedCargoTarget && normalized\.startsWith\(targetPrefix\)\) \{/);
   // Every configRoot-relative artifact lookup inside sealRelease must route

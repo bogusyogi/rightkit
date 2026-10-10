@@ -160,6 +160,9 @@ if (opts.platform === "mac") {
   if (!target.sign?.prePackageFiles?.length) fail(`${config.app ?? "app"} mac must declare at least one sign.prePackageFiles`);
   if (!target.notarize?.file) fail(`${config.app ?? "app"} mac must declare notarize.file`);
   if (target.notarize.appBeforePackage && !target.notarize.app) fail(`${config.app ?? "app"} mac notarize.appBeforePackage requires notarize.app`);
+  if (target.notarize.staple === false && (target.notarize.app || /\.(dmg|pkg)$/i.test(target.notarize.file))) {
+    fail(`${config.app ?? "app"} mac notarize.staple: false applies only to an archive of bare executables (no notarize.app, not a .dmg/.pkg)`);
+  }
   const swiftDmgError = swiftMacDmgConfigError({ target, projectType: resolveProjectType({ appRoot: root, config, target }), appName: config.app ?? "app" });
   if (swiftDmgError) fail(swiftDmgError);
 }
@@ -931,6 +934,7 @@ async function notarizeMacos(archive, root) {
   if (opts.dryRun) args.push("--dry-run");
   args.push("--receipt", receipt);
   if (target.notarize.profile) args.push("--profile", target.notarize.profile);
+  if (target.notarize.staple === false) args.push("--no-staple");
   // With appBeforePackage the app already carries its own stapled ticket inside the packaged DMG.
   if (target.notarize.app && !target.notarize.appBeforePackage) args.push("--app", resolveReleaseArtifactPath(root, target.notarize.app));
   args.push(archive);

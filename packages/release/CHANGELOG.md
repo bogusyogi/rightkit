@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.151
+
+- Portable contracts seal their archives: `target.artifacts` entries (paths or `{ file }`) are sealed with the `portable` role beside `installer.artifacts` and `updater.artifacts`; a target with nothing sealable fails with a clear message instead of `artifact files are required`.
+- `targets.mac.notarize.staple: false` for an archive of bare Mach-O executables (portable CLIs): the archive is submitted and must be Accepted, the receipt records `staplingSkipped: "portable-executables"`, and nothing is stapled (Gatekeeper checks the ticket online). Refused with `notarize.app` or a `.dmg`/`.pkg` archive. `notarize-macos.mjs --no-staple` is the CLI form.
+- README records the measured MSIX NeedsRemediation recoveries (Settings › Repair, same-version redeploy).
+
 ## 0.2.150
 
 - Hosted-workflow policy accepts the notary API key secrets inside the `dev-mac-sign` job when `.rightgit.json` declares `devArtifact.mac: "notarize"`; with `"sign"` only the three Developer ID certificate secrets remain allowed. The job gate is unchanged.
