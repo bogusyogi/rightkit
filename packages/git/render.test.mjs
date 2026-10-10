@@ -215,6 +215,51 @@ test("rust-hybrid cache contract renders every declared Cargo workspace", () => 
   assert.match(content, /RUSTC_WRAPPER: \$\{\{ steps\.rust-changes\.outputs\.required == 'true' && 'sccache' \|\| '' \}\}/);
 });
 
+test("release-candidate artifact names all carry the admission artifact_suffix so dry-run artifacts cannot impersonate real ones", () => {
+  const manifest = {
+    ...FULL_MANIFEST,
+    lanes: ["ci", "release-candidate"],
+    profile: "rust-hybrid",
+    gate: { path: "scripts/gate.sh" },
+    candidate: {
+      buildScript: "ci:candidate",
+      checkScript: "ci:candidate-check",
+      admissionScript: "release:admit",
+      stageSummaryScript: "release:stage-summary",
+      artifactRoot: "widgets-unsigned",
+      os: ["windows-2025", "macos-15"],
+      targets: [
+        { os: "windows-2025", platform: "windows", architecture: "x86_64" },
+        { os: "macos-15", platform: "macos", architecture: "arm64" },
+      ],
+      signWindows: true,
+      signMacos: true,
+      releaseChain: {
+        evidenceVerificationScript: "release:verify-evidence",
+        windowsFinalizeScript: "release:finalize-windows",
+        macosFinalizeScript: "release:finalize-macos",
+        installedQualificationScript: "release:qualify-installed",
+        publishScript: "release:publish-qualified",
+        qualificationRunnerVariable: "WIDGETS_QUALIFICATION_RUNNER",
+      },
+    },
+    matrix: { os: ["ubuntu-24.04", "windows-2025", "macos-15"], node: ["22.23.2"] },
+    templateVersion: "1.8.0",
+  };
+  const content = renderTemplate(
+    fs.readFileSync(path.join(templatesDir, "profiles/rust-hybrid/release-candidate.yml"), "utf8"),
+    buildRenderContext(manifest, "/repos/widgets", "release-candidate"),
+  );
+  const identityNames = content.split("\n").filter((line) => /^\s*name: .*needs\.admission\.outputs\.source_revision/.test(line));
+  assert.ok(identityNames.length >= 8, `expected identity-bound artifact names, got ${identityNames.length}`);
+  for (const line of identityNames) {
+    assert.ok(line.endsWith("${{ needs.admission.outputs.source_revision }}${{ needs.admission.outputs.artifact_suffix }}"), line.trim());
+  }
+  assert.match(content, /artifact_suffix: \$\{\{ steps\.admit\.outputs\.artifact_suffix \}\}/);
+  // The publish gate text is pinned by @rightkit/release's hosted-workflow policy; dry runs are refused by admission, not by this `if`.
+  assert.match(content, /publish:\n    needs: \[[^\n]*\]\n    if: \$\{\{ needs\.admission\.outputs\.publish == 'true' && needs\.installed-qualification\.result == 'success' && needs\.macos-sign\.result == 'success' \}\}/);
+});
+
 test("rust-hybrid release candidate can opt into OIDC Windows signing without long-lived secrets", () => {
   const manifest = {
     ...FULL_MANIFEST,

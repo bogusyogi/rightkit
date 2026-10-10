@@ -178,14 +178,14 @@ ${RUST_CACHE_WORKSPACES}
         if: ${{ always() }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: ${ARTIFACT_PREFIX}-${{ github.run_id }}-${{ github.run_attempt }}-candidate-${{ matrix.platform }}-${{ matrix.architecture }}-${{ needs.admission.outputs.version }}-${{ needs.admission.outputs.source_revision }}
+          name: ${ARTIFACT_PREFIX}-${{ github.run_id }}-${{ github.run_attempt }}-candidate-${{ matrix.platform }}-${{ matrix.architecture }}-${{ needs.admission.outputs.version }}-${{ needs.admission.outputs.source_revision }}${{ needs.admission.outputs.artifact_suffix }}
           path: ${{ runner.temp }}/${CANDIDATE_ARTIFACT_ROOT}/**
           if-no-files-found: error
       - name: Upload candidate stage summary
         if: ${{ always() }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: ${ARTIFACT_PREFIX}-${{ github.run_id }}-${{ github.run_attempt }}-summary-candidate-${{ matrix.platform }}-${{ matrix.architecture }}-${{ needs.admission.outputs.version }}-${{ needs.admission.outputs.source_revision }}
+          name: ${ARTIFACT_PREFIX}-${{ github.run_id }}-${{ github.run_attempt }}-summary-candidate-${{ matrix.platform }}-${{ matrix.architecture }}-${{ needs.admission.outputs.version }}-${{ needs.admission.outputs.source_revision }}${{ needs.admission.outputs.artifact_suffix }}
           path: ${{ runner.temp }}/right-git-stage-summary/stage-summary.json
           if-no-files-found: error
 ${WINDOWS_SIGNING_JOB}

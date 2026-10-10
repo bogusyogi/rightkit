@@ -856,7 +856,7 @@ ${pm.setup}
       - name: Download exact unsigned Windows candidate
         uses: actions/download-artifact@${DOWNLOAD_ARTIFACT_SHA} # v4.3.0
         with:
-          name: ${artifactPrefix}-\${{ github.run_id }}-\${{ github.run_attempt }}-candidate-\${{ matrix.platform }}-\${{ matrix.architecture }}-\${{ needs.admission.outputs.version }}-\${{ needs.admission.outputs.source_revision }}
+          name: ${artifactPrefix}-\${{ github.run_id }}-\${{ github.run_attempt }}-candidate-\${{ matrix.platform }}-\${{ matrix.architecture }}-\${{ needs.admission.outputs.version }}-\${{ needs.admission.outputs.source_revision }}\${{ needs.admission.outputs.artifact_suffix }}
           path: \${{ runner.temp }}/unsigned-windows-candidate
       - name: Authenticate to Azure with GitHub OIDC
         uses: azure/login@${AZURE_LOGIN_SHA} # v3
@@ -910,7 +910,7 @@ ${finalizeEnvironment}
         if: \${{ always() }}
         uses: actions/upload-artifact@${UPLOAD_ARTIFACT_SHA} # v4
         with:
-          name: ${artifactPrefix}-\${{ github.run_id }}-\${{ github.run_attempt }}-signed-windows-\${{ matrix.architecture }}-\${{ needs.admission.outputs.version }}-\${{ needs.admission.outputs.source_revision }}
+          name: ${artifactPrefix}-\${{ github.run_id }}-\${{ github.run_attempt }}-signed-windows-\${{ matrix.architecture }}-\${{ needs.admission.outputs.version }}-\${{ needs.admission.outputs.source_revision }}\${{ needs.admission.outputs.artifact_suffix }}
           path: |
 ${uploadPath}
           if-no-files-found: error
@@ -918,7 +918,7 @@ ${uploadPath}
         if: \${{ always() }}
         uses: actions/upload-artifact@${UPLOAD_ARTIFACT_SHA} # v4
         with:
-          name: ${artifactPrefix}-\${{ github.run_id }}-\${{ github.run_attempt }}-summary-windows-sign-\${{ matrix.architecture }}-\${{ needs.admission.outputs.version }}-\${{ needs.admission.outputs.source_revision }}
+          name: ${artifactPrefix}-\${{ github.run_id }}-\${{ github.run_attempt }}-summary-windows-sign-\${{ matrix.architecture }}-\${{ needs.admission.outputs.version }}-\${{ needs.admission.outputs.source_revision }}\${{ needs.admission.outputs.artifact_suffix }}
           path: \${{ runner.temp }}/right-git-stage-summary/stage-summary.json
           if-no-files-found: error
 `.trimEnd();
@@ -984,7 +984,7 @@ ${pm.setup}
       - name: Download exact unsigned macOS candidate
         uses: actions/download-artifact@${DOWNLOAD_ARTIFACT_SHA} # v4.3.0
         with:
-          name: ${artifactPrefix}-\${{ github.run_id }}-\${{ github.run_attempt }}-candidate-\${{ matrix.platform }}-\${{ matrix.architecture }}-\${{ needs.admission.outputs.version }}-\${{ needs.admission.outputs.source_revision }}
+          name: ${artifactPrefix}-\${{ github.run_id }}-\${{ github.run_attempt }}-candidate-\${{ matrix.platform }}-\${{ matrix.architecture }}-\${{ needs.admission.outputs.version }}-\${{ needs.admission.outputs.source_revision }}\${{ needs.admission.outputs.artifact_suffix }}
           path: \${{ runner.temp }}/unsigned-macos-candidate
       - name: Install Apple signing identity in temporary keychain
         shell: bash
@@ -1037,7 +1037,7 @@ ${finalizeEnvironment}
         if: \${{ always() }}
         uses: actions/upload-artifact@${UPLOAD_ARTIFACT_SHA} # v4
         with:
-          name: ${artifactPrefix}-\${{ github.run_id }}-\${{ github.run_attempt }}-signed-macos-\${{ matrix.architecture }}-\${{ needs.admission.outputs.version }}-\${{ needs.admission.outputs.source_revision }}
+          name: ${artifactPrefix}-\${{ github.run_id }}-\${{ github.run_attempt }}-signed-macos-\${{ matrix.architecture }}-\${{ needs.admission.outputs.version }}-\${{ needs.admission.outputs.source_revision }}\${{ needs.admission.outputs.artifact_suffix }}
           path: |
 ${uploadPath}
           if-no-files-found: error
@@ -1045,7 +1045,7 @@ ${uploadPath}
         if: \${{ always() }}
         uses: actions/upload-artifact@${UPLOAD_ARTIFACT_SHA} # v4
         with:
-          name: ${artifactPrefix}-\${{ github.run_id }}-\${{ github.run_attempt }}-summary-macos-sign-\${{ matrix.architecture }}-\${{ needs.admission.outputs.version }}-\${{ needs.admission.outputs.source_revision }}
+          name: ${artifactPrefix}-\${{ github.run_id }}-\${{ github.run_attempt }}-summary-macos-sign-\${{ matrix.architecture }}-\${{ needs.admission.outputs.version }}-\${{ needs.admission.outputs.source_revision }}\${{ needs.admission.outputs.artifact_suffix }}
           path: \${{ runner.temp }}/right-git-stage-summary/stage-summary.json
           if-no-files-found: error
       - name: Remove Apple signing material
@@ -1072,7 +1072,8 @@ function releaseChainJobs(manifest, pm, artifactPrefix) {
   // available in these non-matrixed jobs, so the platform architecture is a
   // literal derived from the manifest's single windows/macos target.
   const VERSION = "${{ needs.admission.outputs.version }}";
-  const SOURCE_REVISION = "${{ needs.admission.outputs.source_revision }}";
+  // Identity-bound artifact names end with the admission artifact_suffix (`-dry-run` on a rehearsal, empty otherwise).
+  const SOURCE_REVISION = "${{ needs.admission.outputs.source_revision }}${{ needs.admission.outputs.artifact_suffix }}";
   const windowsSignedArtifact = `${artifactPrefix}-\${{ github.run_id }}-\${{ github.run_attempt }}-signed-windows-${windowsArchitecture}-${VERSION}-${SOURCE_REVISION}`;
   const windowsSummaryArtifact = `${artifactPrefix}-\${{ github.run_id }}-\${{ github.run_attempt }}-summary-windows-sign-${windowsArchitecture}-${VERSION}-${SOURCE_REVISION}`;
   const macosSignedArtifact = signMacos ? `${artifactPrefix}-\${{ github.run_id }}-\${{ github.run_attempt }}-signed-macos-${macosTarget.architecture}-${VERSION}-${SOURCE_REVISION}` : "";
