@@ -5,6 +5,26 @@ version is `0.x`, a minor bump may carry breaking changes.
 
 ## Unreleased
 
+- **Windows: a denied webview whose DevTools cannot be disabled is refused (ledger 180, findings 3 to 6).**
+  `apply_native` ignored the result of `SetAreDevToolsEnabled(false)`. It now sets the value, reads it back, and when the
+  webview has no settings object, the call fails or the value is still on, it closes the webview and reports the new
+  `DevToolsError::NativePolicyNotApplied { label, detail }` (code `native_policy_not_applied`); the shell sets nothing
+  else up for that webview. **API change:** `devtools::apply_native` returns `Result<(), DevToolsError>` (always `Ok`
+  off Windows). When Tauri runs the native step later instead of at once, the function has already returned `Ok` and
+  the refusal is the printed error and the closed webview. A webview that may be inspected is never refused.
+  New: `DevToolsSwitch`, `enforce_switch`, `is_blocked_accelerator`.
+- **Windows: browser keys are stopped one by one, never all at once (ledger 180; MailRight lost Ctrl+P and keyboard zoom).**
+  The DevTools layer turned every WebView2 browser accelerator key off in a denied webview, and the hardening did the
+  same for `block_reload` or `block_history_nav`. Neither calls `SetAreBrowserAcceleratorKeysEnabled(false)` any more.
+  Each webview has one `AcceleratorKeyPressed` handler that stops exactly the keys its active rules name: F12,
+  Ctrl+Shift+I / J / C and Ctrl+U in a denied webview; F5, Ctrl+R, Ctrl+Shift+R and the refresh key only with
+  `block_reload`; Alt+Left / Right and the back and forward keys only with `block_history_nav`; Ctrl with plus, minus
+  or zero only with `block_zoom` (Ctrl+wheel stays with `IsZoomControlEnabled`). Ctrl+P, Ctrl+F and every other key
+  pass. **Behaviour change:** a denied webview without `block_reload` now reloads on F5, and without
+  `block_history_nav` goes back on Alt+Left. New: `KeyRules`, `KeyModifiers`.
+- Windows: the context-menu item name is freed after it is read, and a webview that becomes ready again has its previous
+  context-menu and key handlers removed before new ones are added. The hardening layer's own context-menu handler is
+  unchanged.
 - **Windows: the WebView2 policy check no longer fails open (ledger 180, findings 1, 2, 8).** The guard read the
   `AdditionalBrowserArguments` policy keys by running `reg.exe query` and treated exit code 1 as "no policy". `reg.exe`
   exits 1 for a missing key and for a key it could not read alike, and a program started by name is looked up in the

@@ -16,6 +16,178 @@ use rightkit_shell::devtools::{
 };
 use rightkit_shell::{Hardening, Shell};
 
+/// A native DevTools switch that can reject the call or ignore it.
+struct FakeSwitch {
+    enabled: bool,
+    reject_set: bool,
+    ignore_set: bool,
+    reject_get: bool,
+}
+
+impl FakeSwitch {
+    fn on() -> Self {
+        Self {
+            enabled: true,
+            reject_set: false,
+            ignore_set: false,
+            reject_get: false,
+        }
+    }
+}
+
+impl rightkit_shell::devtools::DevToolsSwitch for FakeSwitch {
+    fn set(&mut self, enabled: bool) -> Result<(), String> {
+        if self.reject_set {
+            return Err("E_FAIL".to_owned());
+        }
+        if !self.ignore_set {
+            self.enabled = enabled;
+        }
+        Ok(())
+    }
+    fn get(&self) -> Result<bool, String> {
+        if self.reject_get {
+            return Err("E_FAIL".to_owned());
+        }
+        Ok(self.enabled)
+    }
+}
+
+fn enforce(decision: WebviewDecision, switch: Option<&mut FakeSwitch>) -> Result<(), String> {
+    use rightkit_shell::devtools::{enforce_switch, DevToolsSwitch};
+    enforce_switch(
+        "main",
+        decision,
+        switch.map(|s| s as &mut dyn DevToolsSwitch),
+    )
+    .map_err(|e| e.code().to_owned())
+}
+
+#[test]
+fn a_denied_webview_is_refused_unless_devtools_are_off_and_read_back_off() {
+    let refused = Err("native_policy_not_applied".to_owned());
+    let mut switch = FakeSwitch::on();
+    assert_eq!(enforce(WebviewDecision::Deny, Some(&mut switch)), Ok(()));
+    assert!(!switch.enabled);
+
+    assert_eq!(enforce(WebviewDecision::Deny, None), refused);
+    let mut switch = FakeSwitch {
+        reject_set: true,
+        ..FakeSwitch::on()
+    };
+    assert_eq!(enforce(WebviewDecision::Deny, Some(&mut switch)), refused);
+    let mut switch = FakeSwitch {
+        ignore_set: true,
+        ..FakeSwitch::on()
+    };
+    assert_eq!(enforce(WebviewDecision::Deny, Some(&mut switch)), refused);
+    let mut switch = FakeSwitch {
+        reject_get: true,
+        ..FakeSwitch::on()
+    };
+    assert_eq!(enforce(WebviewDecision::Deny, Some(&mut switch)), refused);
+}
+
+#[test]
+fn a_content_webview_is_allowed_and_never_refused_by_the_native_switch() {
+    let mut switch = FakeSwitch {
+        enabled: false,
+        ..FakeSwitch::on()
+    };
+    assert_eq!(
+        enforce(WebviewDecision::AllowContent, Some(&mut switch)),
+        Ok(())
+    );
+    assert!(switch.enabled);
+    let mut switch = FakeSwitch {
+        reject_set: true,
+        ..FakeSwitch::on()
+    };
+    assert_eq!(
+        enforce(WebviewDecision::AllowContent, Some(&mut switch)),
+        Ok(())
+    );
+    assert_eq!(enforce(WebviewDecision::AllowContent, None), Ok(()));
+}
+
+fn blocked(key: u32, mods: &str, rules: rightkit_shell::devtools::KeyRules) -> bool {
+    use rightkit_shell::devtools::{is_blocked_accelerator, KeyModifiers};
+    let held = KeyModifiers {
+        ctrl: mods.contains('c'),
+        shift: mods.contains('s'),
+        alt: mods.contains('a'),
+    };
+    is_blocked_accelerator(key, held, rules)
+}
+
+const F5: u32 = 0x74;
+const F12: u32 = 0x7B;
+
+#[test]
+fn a_denied_webview_blocks_only_the_inspector_and_view_source_keys() {
+    use rightkit_shell::devtools::KeyRules;
+    let denied = KeyRules {
+        devtools: true,
+        ..KeyRules::default()
+    };
+    let key = |c: char| c as u32;
+    assert!(blocked(F12, "", denied) && blocked(F12, "cs", denied));
+    for c in ['I', 'J', 'C'] {
+        assert!(blocked(key(c), "cs", denied), "Ctrl+Shift+{c}");
+    }
+    assert!(blocked(key('U'), "c", denied));
+    // Ctrl+C is copy, and a plain letter is typing.
+    assert!(!blocked(key('C'), "c", denied) && !blocked(key('I'), "", denied));
+    // Reload, print, find, zoom and history keys are not this rule's.
+    assert!(!blocked(F5, "", denied) && !blocked(key('R'), "c", denied));
+    for c in ['P', 'F', '0'] {
+        assert!(!blocked(key(c), "c", denied), "Ctrl+{c}");
+    }
+    assert!(!blocked(0xBB, "c", denied) && !blocked(0x25, "a", denied));
+    // A webview that may be inspected has no rule at all.
+    assert!(!blocked(F12, "", KeyRules::default()));
+}
+
+#[test]
+fn with_block_reload_ctrl_p_still_reaches_the_page_and_f5_does_not() {
+    use rightkit_shell::devtools::KeyRules;
+    let reload = KeyRules {
+        reload: true,
+        ..KeyRules::default()
+    };
+    let key = |c: char| c as u32;
+    assert!(blocked(F5, "", reload) && blocked(F5, "c", reload));
+    assert!(blocked(key('R'), "c", reload) && blocked(key('R'), "cs", reload));
+    assert!(!blocked(key('R'), "", reload));
+    assert!(!blocked(key('P'), "c", reload) && !blocked(key('F'), "c", reload));
+    assert!(
+        !blocked(F12, "", reload) && !blocked(0x25, "a", reload) && !blocked(0xBB, "c", reload)
+    );
+}
+
+#[test]
+fn history_and_zoom_keys_are_blocked_only_by_their_own_rule() {
+    use rightkit_shell::devtools::KeyRules;
+    let history = KeyRules {
+        history: true,
+        ..KeyRules::default()
+    };
+    let zoom = KeyRules {
+        zoom: true,
+        ..KeyRules::default()
+    };
+    // Alt+Left, Alt+Right, browser back and forward; a plain arrow moves the caret.
+    assert!(blocked(0x25, "a", history) && blocked(0x27, "a", history));
+    assert!(blocked(0xA6, "", history) && blocked(0xA7, "", history));
+    assert!(!blocked(0x25, "", history) && !blocked(0xBB, "c", history));
+    // Ctrl with plus, minus, zero, also on the number pad; a plain zero is typing.
+    for k in [0xBB, 0xBD, 0x30, 0x6B, 0x6D, 0x60] {
+        assert!(blocked(k, "c", zoom), "{k:#x}");
+        assert!(!blocked(k, "", zoom) && !blocked(k, "c", history), "{k:#x}");
+    }
+    assert!(!blocked(0x25, "a", zoom) && !blocked('P' as u32, "c", zoom));
+}
+
 fn dbg_port() -> String {
     ["--remote-", "debugging-", "port"].concat()
 }

@@ -759,7 +759,11 @@ pub(crate) fn install(cfg: ShellBuilder) -> TauriPlugin<Wry> {
         .on_webview_ready(move |webview| {
             let decision = gate_for_views.decide(webview.label());
             // The DevTools policy is not a module: it applies to every webview, always.
-            devtools::apply_native(&webview, decision);
+            // A denied webview whose DevTools could not be disabled is refused: it has been
+            // closed and reported, and nothing else is set up for it.
+            if devtools::apply_native(&webview, decision).is_err() {
+                return;
+            }
             if harden_webviews {
                 harden::apply_native(&webview, &hardening_for_views, decision);
             }
