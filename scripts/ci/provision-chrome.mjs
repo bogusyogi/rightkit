@@ -59,29 +59,34 @@ export async function recordPin({ version, key, url, dryRun, fetchImpl = fetch, 
   } finally { fs.rmSync(tmpDir, { recursive: true, force: true }); }
 }
 
-async function main() {
-  const root = process.env.RIGHTKIT_CHROME_FOR_TESTING_ROOT;
-  if (!root) throw new Error("RIGHTKIT_CHROME_FOR_TESTING_ROOT is not set");
-  const dryRun = process.env.PUBLISH_DRY_RUN === "true";
-  const pins = JSON.parse(fs.readFileSync(path.join(ROOT, "ci", "chrome-for-testing.json"), "utf8"));
-  const key = platformKey();
+/** Units whose tests drive real Chrome for Testing: ordinary CI provisions the pin once per job before running any of them. */
+export const CHROME_NPM_DIRS = ["packages/qa", "packages/qa-chrome"];
+export const CHROME_RUST_CRATES = ["rightkit-browser", "rightkit-qa", "rightkit-pdf"];
+export function needsChrome(selection) {
+  return (selection?.npm?.test ?? []).some((dir) => CHROME_NPM_DIRS.includes(dir)) || (selection?.rust?.test ?? []).some((name) => CHROME_RUST_CRATES.includes(name));
+}
+
+/**
+ * Install the pinned build under <root>/<version> unless that directory already holds this exact pin (install.json
+ * carries the verified sha256), so a second call in the same job, or a persistent runner, downloads nothing.
+ * Returns { exe, downloaded }. An empty sha256 is a record request and is refused here (see main).
+ */
+export async function provision({ root, pins, key = platformKey(), fetchImpl = fetch, log = console.log }) {
   const entry = pinFor(pins, key);
-  if (entry.sha256 === "") {
-    const line = await recordPin({ version: pins.version, key, url: entry.url, dryRun });
-    console.log(line);
-    if (process.env.GITHUB_STEP_SUMMARY) fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, `\n\`${line}\`\n`);
-    throw new Error("pin recorded above; add it to ci/chrome-for-testing.json");
-  }
+  if (entry.sha256 === "") throw new Error(`${key} has no pinned sha256; record it with a publish dry run`);
   const versionDir = path.join(root, pins.version);
   const exe = executable(versionDir, key);
-  if (fs.existsSync(exe) && fs.existsSync(path.join(versionDir, "install.json")) && JSON.parse(fs.readFileSync(path.join(versionDir, "install.json"), "utf8")).sha256 === entry.sha256) {
-    console.log(`Chrome for Testing ${pins.version} (${key}) already provisioned: ${exe}`);
-    return;
+  const marker = path.join(versionDir, "install.json");
+  let recorded = null;
+  try { recorded = JSON.parse(fs.readFileSync(marker, "utf8")).sha256; } catch { /* not installed */ }
+  if (fs.existsSync(exe) && recorded === entry.sha256) {
+    log(`Chrome for Testing ${pins.version} (${key}) already provisioned: ${exe}`);
+    return { exe, downloaded: false };
   }
   fs.mkdirSync(root, { recursive: true });
   const staging = fs.mkdtempSync(path.join(root, ".staging-"));
   try {
-    const response = await fetch(entry.url, { redirect: "error", signal: AbortSignal.timeout(600_000) });
+    const response = await fetchImpl(entry.url, { redirect: "error", signal: AbortSignal.timeout(600_000) });
     if (!response.ok) throw new Error(`download failed: HTTP ${response.status}`);
     const bytes = Buffer.from(await response.arrayBuffer());
     const digest = crypto.createHash("sha256").update(bytes).digest("hex");
@@ -97,8 +102,31 @@ async function main() {
     fs.writeFileSync(path.join(out, "install.json"), `${JSON.stringify({ version: pins.version, platform: key, url: entry.url, sha256: digest })}\n`);
     fs.rmSync(versionDir, { recursive: true, force: true });
     fs.renameSync(out, versionDir);
-    console.log(`provisioned Chrome for Testing ${pins.version} (${key}), sha256 ${digest}: ${exe}`);
+    log(`provisioned Chrome for Testing ${pins.version} (${key}), sha256 ${digest}: ${exe}`);
+    return { exe, downloaded: true };
   } finally { fs.rmSync(staging, { recursive: true, force: true }); }
+}
+
+/** Provision the repository pin and return the environment tests read: the managed root and the executable. */
+export async function provisionForTests({ root, pins = JSON.parse(fs.readFileSync(path.join(ROOT, "ci", "chrome-for-testing.json"), "utf8")), key, fetchImpl, log } = {}) {
+  const { exe, downloaded } = await provision({ root, pins, key, fetchImpl, log });
+  return { downloaded, env: { RIGHTKIT_CHROME_FOR_TESTING_ROOT: root, RIGHTKIT_CHROME_FOR_TESTING: exe } };
+}
+
+async function main() {
+  const root = process.env.RIGHTKIT_CHROME_FOR_TESTING_ROOT;
+  if (!root) throw new Error("RIGHTKIT_CHROME_FOR_TESTING_ROOT is not set");
+  const dryRun = process.env.PUBLISH_DRY_RUN === "true";
+  const pins = JSON.parse(fs.readFileSync(path.join(ROOT, "ci", "chrome-for-testing.json"), "utf8"));
+  const key = platformKey();
+  const entry = pinFor(pins, key);
+  if (entry.sha256 === "") {
+    const line = await recordPin({ version: pins.version, key, url: entry.url, dryRun });
+    console.log(line);
+    if (process.env.GITHUB_STEP_SUMMARY) fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, `\n\`${line}\`\n`);
+    throw new Error("pin recorded above; add it to ci/chrome-for-testing.json");
+  }
+  await provision({ root, pins, key });
 }
 
 if (process.argv[1] && fs.realpathSync(process.argv[1]) === fs.realpathSync(fileURLToPath(import.meta.url))) {

@@ -167,6 +167,17 @@ Stated as configured, not as hoped:
   `CHROME_PIN <platform> <version> <sha256> <bytes>` to the log and job summary, deletes the file and fails with
   "pin recorded above". An unpinned download is never installed or run, and a real publish refuses an empty
   sha256 (the contract ties the step's `PUBLISH_DRY_RUN` to the plan's `dry_run`).
+- **Chrome for Testing in ordinary CI.** The ci gate (`scripts/ci/gate.mjs`, `chromeGate`) calls the same module
+  (`provisionForTests` in `scripts/ci/provision-chrome.mjs`) before any unit runs whenever the selection includes
+  `packages/qa`, `packages/qa-chrome`, `rightkit-browser`, `rightkit-qa` or `rightkit-pdf`, on both legs, so Mac and
+  Windows test the same pinned build instead of whatever the image carries. It installs under
+  `$RUNNER_TOOL_CACHE/rightkit-chrome-for-testing` (else `$RUNNER_TEMP`) and exports `RIGHTKIT_CHROME_FOR_TESTING_ROOT`
+  and `RIGHTKIT_CHROME_FOR_TESTING` to every later step. A directory whose `install.json` already records the pinned
+  sha256 is reused with no download, so the download happens once per job (about 200 MB on Windows, less on Mac) and
+  not at all on a persistent runner. The rendered `ci.yml` has no cache step for it and right-git offers no option
+  to add an arbitrary cache path (`ciIncremental` caches only DerivedData), so hosted runners pay the download on
+  every run that touches those units. A provisioning failure is a red `chrome:provision` unit. Publish verify is
+  unchanged: it provisions in its own step and the gate does not repeat it in `--units` mode.
 - **What the checks do stop.** A red or missing verification on either host, bytes that differ from what
   was verified, a dependency installed or built in the privileged job, a token reaching a build step, a
   dry run touching a credential, and a workflow edit that weakens any of this on `main` (the contract

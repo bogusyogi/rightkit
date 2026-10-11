@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- `DirWatchSet::watch_records` docs state the existing delivery guarantee: eviction and `unwatch` join the watch thread, so the final flush (and FSEvents' history replay on arm) is delivered inside that call and no callback for the directory runs after it returns. `dir_watch_set_caps_evicts_oldest_and_unwatches` no longer treats that in-call flush as post-eviction emission (it failed once on macOS CI); it drains the backlog after eviction and then asserts that a write into the evicted directory produces no batch.
+
 ## 0.4.0
 
 Purely additive: every existing constructor stays on notify with unchanged behaviour, and no existing field, variant or signature changed.

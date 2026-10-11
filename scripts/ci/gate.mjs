@@ -27,6 +27,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { judgeUnit, mergeCounts, ResultScanner, TEST_COMMAND } from "./test-results.mjs";
+import { needsChrome, provisionForTests } from "./provision-chrome.mjs";
 import { changedConfigCrates, changedLockNames, parseLock, selectByPaths, selectNpm, selectRust, selectUnits } from "./select.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
@@ -349,6 +350,26 @@ function report(selection) {
   return unexpected.length === 0;
 }
 
+/**
+ * Ordinary CI (publish verify provisions its own): the @rightkit/qa integration lane has no skip, so a runner without
+ * Chrome for Testing fails it. Install the pinned build once per job (hash-marked, so a repeat is free) and export the
+ * root and executable that @rightkit/qa-chrome and rightkit-browser resolve first. A failed provision is a red unit.
+ */
+async function chromeGate(selection) {
+  if (UNIT_MODE || !needsChrome(selection)) return;
+  const started = Date.now();
+  const root = path.join(process.env.RUNNER_TOOL_CACHE || process.env.RUNNER_TEMP || os.tmpdir(), "rightkit-chrome-for-testing");
+  console.log("::group::chrome: provision pinned Chrome for Testing");
+  try {
+    const { env } = await provisionForTests({ root });
+    Object.assign(process.env, env);
+  } catch (error) {
+    console.log(`chrome provisioning failed: ${error.message}`);
+    results.push({ unit: "chrome:provision", command: "provision-chrome", ok: false, code: 1, seconds: Math.round((Date.now() - started) / 1000) });
+  }
+  console.log("::endgroup::");
+}
+
 const selection = plan();
 if (PLAN) {
   const { config, packages, ...printable } = selection;
@@ -360,6 +381,7 @@ if (process.env.GITHUB_ACTIONS !== "true") {
   process.exit(2);
 }
 console.log(`Selection: ${JSON.stringify({ base: selection.base, all: selection.all, rust: selection.rust, npm: selection.npm.test, root: selection.root, swift: selection.swift })}`);
+await chromeGate(selection);
 await rustGate(selection, selection.config);
 await npmGate(selection);
 await swiftGate(selection);

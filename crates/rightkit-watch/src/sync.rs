@@ -407,6 +407,9 @@ impl DirWatchSet {
     /// Tolerated arm failures emit Error records; they do not retry registration.
     /// Unwatch, eviction & set drop flush pending records unless discard is enabled.
     /// Callbacks run on the watch thread; they must not synchronously unwatch their own set.
+    /// Eviction and `unwatch` join the watch thread before returning: the final flush (and any
+    /// backend history replayed on arm) is delivered inside that call, and no callback for the
+    /// directory runs after it returns.
     pub fn watch_records(
         &self,
         dir: &Path,
