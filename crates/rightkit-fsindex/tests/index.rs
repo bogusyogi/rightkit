@@ -55,9 +55,7 @@ fn live_create_rename_delete_move() {
     write(&t.root.join("seed.txt"), 5);
     let idx = Index::open(config(&t.root)).unwrap();
     write(&t.root.join("d1/report_final.txt"), 1000);
-    wait_for(&idx, "create", |i| {
-        i.search("report_final").unwrap().len() == 1
-    });
+    wait_for(&idx, "create", |i| file_hits(i, "report_final") == 1);
     assert_eq!(idx.folder_size(t.root.join("d1")).unwrap().logical, 1000);
 
     std::fs::rename(
@@ -66,7 +64,7 @@ fn live_create_rename_delete_move() {
     )
     .unwrap();
     wait_for(&idx, "rename", |i| {
-        i.search("renamed_doc").unwrap().len() == 1 && i.search("report_final").unwrap().is_empty()
+        file_hits(i, "renamed_doc") == 1 && file_hits(i, "report_final") == 0
     });
 
     std::fs::create_dir_all(t.root.join("d2")).unwrap();
@@ -78,9 +76,7 @@ fn live_create_rename_delete_move() {
     assert_eq!(idx.folder_size(t.root.join("d2")).unwrap().logical, 1000);
 
     std::fs::remove_file(t.root.join("d2/moved/renamed_doc.txt")).unwrap();
-    wait_for(&idx, "delete", |i| {
-        i.search("renamed_doc").unwrap().is_empty()
-    });
+    wait_for(&idx, "delete", |i| file_hits(i, "renamed_doc") == 0);
     assert_eq!(idx.folder_size(&t.root).unwrap().logical, 5);
 
     std::fs::remove_dir_all(t.root.join("d2")).unwrap();
@@ -150,9 +146,7 @@ fn hard_link_ownership_moves_on_delete() {
     std::fs::hard_link(t.root.join("a/one.bin"), t.root.join("b/two.bin")).unwrap();
     let idx = Index::open(config(&t.root)).unwrap();
     std::fs::remove_file(t.root.join("a/one.bin")).unwrap();
-    wait_for(&idx, "owner removed", |i| {
-        i.search("one.bin").unwrap().is_empty()
-    });
+    wait_for(&idx, "owner removed", |i| file_hits(i, "one.bin") == 0);
     wait_for(&idx, "ownership moved", |i| {
         i.folder_size(t.root.join("b")).unwrap().logical == 150_000
     });
@@ -228,9 +222,7 @@ fn apfs_clones_counted_once() {
 
     // Deleting the original leaves the clones owning the extent.
     std::fs::remove_file(t.root.join("orig.bin")).unwrap();
-    wait_for(&idx, "orig gone", |i| {
-        i.search("orig.bin").unwrap().is_empty()
-    });
+    wait_for(&idx, "orig gone", |i| file_hits(i, "orig.bin") == 0);
     wait_for(&idx, "unique stable", |i| {
         i.folder_size(&t.root).unwrap().allocated == 3 * one
     });
@@ -334,7 +326,7 @@ fn name_and_size_mode_never_opens_file_contents() {
         std::os::unix::fs::PermissionsExt::from_mode(0o000),
     )
     .unwrap();
-    wait_for(&idx, "later", |i| i.search("later").unwrap().len() == 1);
+    wait_for(&idx, "later", |i| file_hits(i, "later") == 1);
     for i in 0..5 {
         let _ = std::fs::set_permissions(
             t.root.join(format!("secret{i}.txt")),
@@ -428,7 +420,7 @@ fn protected_stores_skipped_unless_configured() {
     cfg.allow_consent_prompts = true;
     let idx = Index::open(cfg.clone()).unwrap();
     assert!(
-        idx.search("message.emlx").unwrap().is_empty(),
+        file_hits(&idx, "message.emlx") == 0,
         "Mail must not be indexed by default"
     );
     assert!(idx
@@ -436,11 +428,11 @@ fn protected_stores_skipped_unless_configured() {
         .skipped_dirs
         .iter()
         .any(|p| p.ends_with("Library/Mail")));
-    assert_eq!(idx.search("note.txt").unwrap().len(), 1);
+    assert_eq!(file_hits(&idx, "note.txt"), 1);
     drop(idx);
     cfg.include_protected = true;
     let idx = Index::open(cfg).unwrap();
-    assert_eq!(idx.search("message.emlx").unwrap().len(), 1);
+    assert_eq!(file_hits(&idx, "message.emlx"), 1);
 }
 
 #[test]
@@ -464,7 +456,7 @@ fn snapshot_resumes_and_catches_up() {
         "valid snapshot must be reused"
     );
     wait_for(&idx, "catch up", |i| {
-        i.search("two.txt").unwrap().len() == 1 && i.search("one.txt").unwrap().is_empty()
+        file_hits(i, "two.txt") == 1 && file_hits(i, "one.txt") == 0
     });
     assert_eq!(idx.folder_size(&t.root).unwrap().logical, 200);
 }
@@ -502,12 +494,12 @@ fn committed_columns_reopen_without_a_crawl_and_stay_exact() {
     );
     assert_eq!(idx.folder_size(&t.root).unwrap(), before);
     assert!(idx.folder_size(t.root.join("Pkg.app")).unwrap().is_package);
-    assert_eq!(idx.search("link.dat").unwrap().len(), 1);
+    assert_eq!(file_hits(&idx, "link.dat"), 1);
     // Hard-link ownership and clone groups were rebuilt from the columns: keep editing.
     std::fs::remove_file(t.root.join("p/q0/f0.dat")).unwrap();
     std::fs::remove_file(t.root.join("clones/orig.bin")).unwrap();
     wait_for(&idx, "edits after reopen", |i| {
-        i.search("'f0.dat").unwrap().is_empty() && i.search("orig.bin").unwrap().is_empty()
+        file_hits(i, "'f0.dat") == 0 && file_hits(i, "orig.bin") == 0
     });
     idx.flush();
     assert_matches_fresh_crawl(&idx, &t.root);
@@ -521,7 +513,7 @@ fn torn_update_is_discarded_and_recrawled() {
     {
         let idx = Index::open(state_cfg(&t.root, state.path())).unwrap();
         write(&t.root.join("a/two.txt"), 200);
-        wait_for(&idx, "two", |i| i.search("two.txt").unwrap().len() == 1);
+        wait_for(&idx, "two", |i| file_hits(i, "two.txt") == 1);
         // Simulated crash: the header is dirty (a change landed after the commit) and Drop never runs.
         std::mem::forget(idx);
     }
@@ -558,10 +550,10 @@ fn compaction_reclaims_slots_and_keeps_rollups() {
         "compaction rebuilds contiguous slots: {slots} -> {slots2}"
     );
     assert_eq!(idx.folder_size(&t.root).unwrap().logical, 4242);
-    assert_eq!(idx.search("k.txt").unwrap().len(), 1);
+    assert_eq!(file_hits(&idx, "k.txt"), 1);
     write(&t.root.join("keep/after.txt"), 10);
     wait_for(&idx, "live after compaction", |i| {
-        i.search("after.txt").unwrap().len() == 1
+        file_hits(i, "after.txt") == 1
     });
     idx.flush();
     assert_matches_fresh_crawl(&idx, &t.root);

@@ -47,10 +47,10 @@ fn default_patterns_exclude_build_output_and_keep_the_rest() {
     assert!(!lib["Prefs"]);
 
     assert!(
-        idx.search("huge").unwrap().is_empty(),
+        file_hits(&idx, "huge") == 0,
         "nothing under target is indexed"
     );
-    assert_eq!(idx.search("keep_me").unwrap().len(), 1);
+    assert_eq!(file_hits(&idx, "keep_me"), 1);
 }
 
 #[test]
@@ -61,7 +61,7 @@ fn include_build_output_drops_the_defaults() {
     cfg.include_build_output = true;
     let idx = Index::open(cfg).unwrap();
     assert!(!kids(&idx, &t.root)["target"]);
-    assert_eq!(idx.search("huge").unwrap().len(), 1);
+    assert_eq!(file_hits(&idx, "huge"), 1);
 }
 
 #[test]
@@ -84,7 +84,7 @@ fn exact_path_excludes_still_apply() {
     cfg.exclude = vec![t.root.join("src")];
     let idx = Index::open(cfg).unwrap();
     assert!(kids(&idx, &t.root)["src"]);
-    assert!(idx.search("keep_me").unwrap().is_empty());
+    assert!(file_hits(&idx, "keep_me") == 0);
 }
 
 #[test]
@@ -92,5 +92,5 @@ fn a_root_placed_under_a_pattern_name_is_indexed() {
     let t = tree();
     write(&t.root.join("target/proj/inside.txt"), 10);
     let idx = Index::open(static_config(&t.root.join("target/proj"))).unwrap();
-    assert_eq!(idx.search("inside").unwrap().len(), 1);
+    assert_eq!(file_hits(&idx, "inside"), 1);
 }

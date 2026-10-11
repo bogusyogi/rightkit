@@ -98,3 +98,15 @@ pub fn assert_matches_fresh_crawl(live: &Index, root: &Path) {
         );
     }
 }
+
+/// Hits for `query`, not counting a root. A root's name is its absolute path and search is a
+/// fuzzy subsequence match, so a short query can match the random temp directory in that path
+/// (seen in CI: "inside" matched a root and a count of one came back as two).
+#[allow(dead_code)]
+pub fn file_hits(idx: &rightkit_fsindex::Index, query: &str) -> usize {
+    idx.search(query)
+        .unwrap()
+        .into_iter()
+        .filter(|hit| !Path::new(&hit.item.name).is_absolute())
+        .count()
+}
