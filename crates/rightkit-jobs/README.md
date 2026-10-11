@@ -15,6 +15,10 @@ Catalog capability: `persistent-jobs`. Published to crates.io (see [INDEX.md](..
 - `EngineClient`: client for a running engine.
 - `DispatcherHandler` and `Gate`: serve a `Dispatcher` on `rightkit-service`, and hand off to a new host.
 - `StagedPool`, `PoolConfig`, `StagedHandler`: admission-limited parallel prepare with one thread-affine compute lane (see below).
+- `HandlerOutcome`: a handler that settles its own jobs (or hands them on) says so, and the runner writes nothing more (see "Handler-owned outcomes").
+- Settle-later (`JobStore::settle_terminal`, `flush_pending_settlements`, `shutdown_detailed`, `RunOutcome::Unsettled`): a terminal write that storage refuses is held and retried, not lost (see "Settle later").
+- `ClaimScope`, `JobStore::claimed_paths_with`, `Runner::sweep_unclaimed_with`: which jobs' files a sweep treats as owned.
+- `JobError::open_failure` and `OpenFailure`: a typed classification of database failures.
 
 ## When to use it
 
@@ -96,15 +100,50 @@ pool.shutdown();
 
 - Admission is FIFO and bounded by the limit closure. A raised limit is seen within 50 ms.
 - Each admitted job still runs through `Runner::run`, so the per-job lock, fencing, attempt accounting and lifecycle events are unchanged.
-- `prepare` returns `Staged::Done(value)` to finish without the lane, or `Staged::Compute(work)` to queue for it.
+- `prepare` returns `Staged::Done(value)` to finish without the lane, `Staged::Compute(work)` to queue for it, or `Staged::Handled(HandlerOutcome)` when it already settled the job (see "Handler-owned outcomes").
 - `compute` and `idle` are called only on the lane thread. The lane claims each item before it computes, so an item whose waiter already withdrew (cancel, stall, shutdown) is skipped.
 - `shutdown` stops admission and withdraws buffered or waiting work with the retryable host-handoff error. Those jobs stay recoverable. A `prepare` or `compute` call already running is not interrupted; shutdown waits for it, so a call that never returns blocks shutdown.
 - The pool adds a continuous thread (dispatcher and lane, plus one thread per admitted job). Its resource budget is not yet measured; see `runtime-budget.json`.
 
+## Handler-owned outcomes
+
+A handler that settles its own jobs (it writes the terminal state through `JobControl::transition`, `JobControl::settle` or the store) or hands them to something that will (a provider callback, a held status) returns a `HandlerOutcome` instead of a bare value. Override `JobHandler::run_outcome`; `run` must still exist, and a handler that implements only `run` is untouched (its `Ok(value)` is `HandlerOutcome::Done(value)`).
+
+```rust
+fn run_outcome(&self, job: &Job, ctl: &Arc<JobControl>) -> JobResult<HandlerOutcome> {
+    let result = work(job)?;                    // an Err is a failure, as always
+    ctl.settle(&Transition::to(COMPLETE).result(result).error(None))?;
+    Ok(HandlerOutcome::Settled)                 // the runner writes nothing more
+}
+```
+
+- `Done(value)`: the runner completes the job with `value`, as before.
+- `Settled`: the handler already wrote the terminal state. The runner writes **nothing** (no `COMPLETE`, no `FAILED`), checks that the row really is terminal, releases the job's lock, and emits the usual lifecycle event for that terminal status (`complete`, `failed` or `cancelled`) with the message `settled by handler`. A row that is *not* terminal is a handler bug: the job is failed with the typed error `handler_unsettled` (`HANDLER_UNSETTLED`) instead of being left running with no owner. A row in a held status counts as `Pending`.
+- `Pending(reason)`: the outcome waits for something outside. The runner writes nothing, releases the lock, emits the usual `paused` event with the message `pending: <reason>` and returns `RunOutcome::Paused`. A held job waits for `resolve`. A job that is not held stays recoverable, so the next `resume_recoverable` runs the handler again (the polling-resume pattern); a `Recovery::Never` job that is not held cannot be `Pending` and is failed with `handler_unsettled`, because recovery would otherwise fail it as `interrupted`.
+- Failure stays `Err(JobError)`: a retryable error pauses, any other fails. An error returned after the handler settled the job changes nothing (the row is terminal; the runner's write is skipped).
+- The staged pool carries the same outcomes: `Staged::Handled(HandlerOutcome)` from `prepare`, and `StagedHandler::compute_outcome` (default: `compute` read as `Done`) from the lane.
+
+## Settle later
+
+A terminal write can fail on storage (database busy, I/O error, disk full: error code `db` or `io`). The runner no longer loses the outcome or turns it into a different state:
+
+- The intended terminal transition (and the lifecycle event that announces it) is kept in memory **with the job's lock held**, so no other runner in this process starts the finished job again. `Runner::run` returns `RunOutcome::Unsettled(job)`, where `job` is the row as it will read once written; the stored row stays non-terminal until then.
+- It is retried, with no timer and no sleep, when the store next completes a write (`submit`, a transition, `begin_run`, an event, `cancel`, ...) and on `JobStore::flush_pending_settlements()` (also on `Runner` and `StagedPool`). A flush stops at the first storage error. A retry that lands writes the state and event in one transaction, drops the lock, removes the journal file and delivers the event to the runner's sink, exactly once.
+- The set is bounded by `MAX_PENDING_SETTLEMENTS` (64) entries and `MAX_PENDING_SETTLEMENT_BYTES` (4 MiB of JSON). Past either bound a failing write is not held: its error is returned, as before.
+- Only storage errors (`db`, `io`) are held. A hook refusal (a spend cap), `stale_attempt`, `illegal_transition` and the like are returned at once and nothing is kept.
+- A handler holds its own terminal write the same way: `JobControl::settle(&Transition)` (or `JobStore::settle_terminal` / `settle_terminal_fenced`) returns `Settlement::Deferred` instead of an error when storage refuses it. The handler returns `HandlerOutcome::Settled`; the runner takes over the lock and writes nothing else.
+- `Runner::with_settle_later(false)` turns it off for that runner: the error is returned and the job stays `running` and recoverable, as in 0.2.9.
+
+Restart. A held write is also written to a small journal, one file per job, in `<database file>.settlements/` next to the database, with `rightkit-fs`'s atomic write (temp file, `fsync`, rename) and owner-only permissions. It does not depend on the table that refused the write. Opening the store reads the journal and writes each recorded transition, so a job whose handler finished is **settled the way the handler left it instead of being run again**. If that write is still refused at open, the entry comes back pending and unclaimed, and by default (`UnsettledRecovery::Settle`) `resume_recoverable`, `recoverable_ids` and `run` leave the job alone (`run` returns `Unsettled`). `Runner::with_unsettled_recovery(UnsettledRecovery::Rerun)` discards such an entry and recovers the job as unfinished (re-run the handler, or fail a `Recovery::Never` job as `interrupted`); choose it only for idempotent handlers.
+
+Shutdown. `JobStore::shutdown_detailed()` (also `Runner::shutdown_detailed` and `StagedPool::shutdown_detailed`, which stops the pool first) makes one last flush and returns a `SettlementShutdown { settled, dropped, unsettled }`: the jobs that finished but could not be stored ("finished, unsettled"), each with its intended status, `durable` (in the journal: applied at the next open) and the last error. `StagedPool::shutdown` and its drop flush too. This is a different object from `EngineSupervisor::shutdown_detailed`, which reports the child process.
+
+Limits. When nothing durable can be written at all (the journal directory fails too, for example a full disk), the entry is memory-only (`durable == false`): a crash loses it and the next open sees an unfinished job, which recovery re-runs (or fails as `interrupted` for `Recovery::Never`). `shutdown_detailed` is the only warning in that case. The in-process lock stops duplicate runs in this process; another process sharing the database file sees the job as `running` with a free lock only after this process exits. Another process that opens the same file replays the journal too: writing a terminal state that is already there is harmless (the later write finds the job terminal and is dropped). Prune's announce guard covers the rows a runner terminalises between the start of `Runner::run` and its return, not a `cancel` or `complete` an app makes itself, and the guard and the held set live in the process that runs the job.
+
 ## Delete, keep-total, rejected submissions and recovering open
 
 - `JobStore::delete(job_id) -> PruneReport`. A non-terminal job is cancelled first (the hook sees `cancelled`), then its rows are removed in one transaction and its cancel token is set. It does not wait for the handler to stop: a running handler sees the cancel at its next check, and a late write it makes is refused. With `StoreConfig::artifact_root` / `scratch_root` configured, the job's artifact files and `<scratch_root>/<job_id>` are removed too (inside those roots only, symlinks never followed, a path outside the roots fails with `path_outside_root`); `delete_with(id, &DeleteOptions { keep_files: true })` keeps them and returns a `DeleteReport`. The order is crash-safe (mark in `rk_job_deleting`, files, rows); call `finish_deletions()` at startup to finish an interrupted delete. With no root configured, files are left and the caller removes `report.artifacts[..].path`.
-- `PrunePolicy::keep_total(n)` bounds the whole table to `n` rows. It keeps `n` minus the non-terminal count of the newest terminal rows, so active jobs are never dropped. Inside `SubmitOptions::prune` the incoming row counts.
+- `PrunePolicy::keep_total(n)` keeps the `n` newest **terminal** rows. Active jobs neither count toward `n` nor are ever removed by it, so a table with more than `n` active jobs still keeps its newest `n` finished rows (the first completion is not pruned the moment it lands). This replaces the whole-table meaning the unpublished 0.2.9 text gave it, and is now the same bound as `keep_latest(n)`. A terminal row whose runner has not finished announcing it (the lifecycle event and the sink call of `Runner::run`) is skipped by every prune until it has; the guard lives in the process that runs the job.
 - `JobStore::submit_rejected(&NewJob, &Ext, &JobError) -> JobRecord`. The job is inserted, `on_create` runs, and the job moves to `failed` with the error and a `rejected` event, all in one transaction. It never runs, and a crash cannot leave it runnable. The app's entitlement check stays in the app; call this when the app refuses.
 - `JobStore::open_recovering(&DbOptions, StoreConfig, RecoveryPolicy) -> (JobStore, Option<PathBuf>)`. If the database file is unreadable and the policy allows it, the file is moved aside and a fresh store is created. The second value is where the old file went; the original bytes are kept under the `.corrupt-` name.
 - `JobStore::open_recovering_unreadable(&DbOptions, StoreConfig, RecoveryPolicy, UnreadablePolicy) -> (JobStore, OpenRecovery)` adds the opt-in policy for a database that cannot be *read* (permission denied, I/O read failure), which is not corruption. The default `UnreadablePolicy::Fail` fails with `db_unreadable` and touches nothing; `QuarantineAfter { attempts }` sets the file aside only after that many consecutive failed opens. A full disk, read-only filesystem, dropped share, lock or missing file never counts. `OpenRecovery { quarantined, action }` says what happened. See `rightkit_jobs::db` below.
@@ -153,6 +192,17 @@ let out = store.import_terminal_with(&rec, &ImportOptions::new().idempotent())?;
 - `import_terminal_batch(&[ImportRecord], &ImportOptions)` takes up to `MAX_IMPORT_BATCH` (1,000) records, oldest first, in one transaction: every record is validated, then all are written or none. Larger imports are several batches; make them idempotent to re-run an interrupted one.
 - The job is never queued or run: there is no queue in the store, `non_terminal_ids` and recovery do not list it, no event is written (no `started`), the attempt generation is 0. `StoreHook::on_create`, `on_attempt` and `on_transition` are not called; `StoreHook::on_import` is, in the same transaction.
 
+## Classifying a failed open
+
+`JobError::open_failure() -> Option<OpenFailure>` says what kind of database failure an error is, built from the underlying `rightkit_jobs::db::DbError` and never from the message; the string `code` (`db`, `db_unreadable`) is unchanged and stays the wire identifier. It is set on the errors of `open`, `open_with`, `open_with_config`, `open_recovering` and `open_recovering_unreadable`, and on any other error converted from a database error; it is `None` for an error that never touched the database (a refused configuration, a handler error).
+
+- `OpenFailure::Corrupt`: not a database, corrupt, or failed the open-time integrity check. `RecoveryPolicy` can set such a file aside.
+- `OpenFailure::Unreadable(cause)`: permission denied or an I/O read failure (`UnreadableCause::PermissionDenied` or `IoReadFailure`).
+- `OpenFailure::StorageUnavailable(problem)`: disk full, read-only filesystem, a dropped share, a lock held elsewhere, a missing file (`StorageProblem`). The file may be healthy.
+- `OpenFailure::Other`: any other database failure.
+
+Equality of `JobError` ignores the classification.
+
 ## Opening without a `rightkit-db` dependency
 
 `rightkit_jobs::db` re-exports, as the same types, the `rightkit-db` types in this crate's public API: `DbOptions` and what its fields are made of (`CacheProfile`, `DurabilityProfile`, `IntegrityCheck`, `JournalSelect`, `ConnInit`), the policies `open_recovering` and `open_recovering_unreadable` take (`RecoveryPolicy` with `QuarantineStamp` and `SidecarPolicy`, `UnreadablePolicy`), what the latter reports (`RecoveryAction` and the `UnreadableCause` and `StorageProblem` behind a refusal), and `DbError`, which converts into `JobError`. `RecoveryPolicy` and `rusqlite` are also at the crate root. An app that only opens a store needs no `rightkit-db` entry in its own `Cargo.toml`, and no version to keep matching this crate's.
@@ -161,6 +211,7 @@ let out = store.import_terminal_with(&rec, &ImportOptions::new().idempotent())?;
 
 - `Runner::resume_recoverable_each() -> Vec<(String, JobResult<RunOutcome>)>` attempts every recoverable job, oldest first. Each keeps its own result: one failing job does not stop the rest, and a job that cannot be examined is reported by id. `Runner::resume_recoverable` is unchanged and stops at the first error.
 - `Runner::sweep_unclaimed(root) -> Vec<PathBuf>` removes child directories of `root` that contain no path claimed by a non-terminal job (`JobStore::claimed_paths`). Plain files are left alone and a symlink is never followed out of `root`. Call it only when this process is the sole engine for `root`. Not calling it is the off switch.
+- **Claim scope.** `sweep_unclaimed` and `claimed_paths` claim the artifacts of **non-terminal** jobs only, so a finished job that keeps its media directory until it is deleted loses it to a sweep. `JobStore::claimed_paths_with(ClaimScope)` and `Runner::sweep_unclaimed_with(root, ClaimScope)` choose: `ClaimScope::NonTerminal` is the existing behaviour (and the default); `ClaimScope::All` claims the artifact paths of every job row still in the store, whatever its status, plus `<scratch_root>/<job_id>` of every row when `StoreConfig::scratch_root` is set. A row that was deleted or pruned claims nothing, so its directory becomes an orphan again.
 
 ## Held jobs
 
@@ -207,7 +258,7 @@ Apps that already have a stdio or CLI protocol can adopt `JobStore` with `StoreC
 
 ## Tests
 
-`tests/dispatcher.rs`, `tests/e2e.rs`, `tests/engine_contract.rs`, `tests/fencing.rs`, `tests/genright.rs`, `tests/job_lock.rs`, `tests/supervisor.rs`, `tests/v021.rs`, `tests/prune.rs`, `tests/delete_reject.rs`, `tests/delete_files.rs`, `tests/held.rs`, `tests/resume_sweep.rs`, `tests/pool.rs`, `tests/paging.rs`, `tests/import_terminal.rs`, `tests/reexport.rs`. The `examples/` directory has `job_engine.rs` (the test engine) and `engine_fixture.rs`.
+`tests/dispatcher.rs`, `tests/e2e.rs`, `tests/engine_contract.rs`, `tests/fencing.rs`, `tests/genright.rs`, `tests/job_lock.rs`, `tests/supervisor.rs`, `tests/v021.rs`, `tests/prune.rs`, `tests/delete_reject.rs`, `tests/delete_files.rs`, `tests/held.rs`, `tests/resume_sweep.rs`, `tests/pool.rs`, `tests/paging.rs`, `tests/import_terminal.rs`, `tests/reexport.rs`, `tests/handler_outcome.rs`, `tests/settle_later.rs`, `tests/terminal_announce.rs`, `tests/claim_scope.rs`, `tests/open_failure.rs`. The `examples/` directory has `job_engine.rs` (the test engine) and `engine_fixture.rs`.
 
 ## Platform support
 

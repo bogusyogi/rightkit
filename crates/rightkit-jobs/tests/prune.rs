@@ -222,7 +222,7 @@ fn prune_removes_submission_rows_and_extension_data_with_the_job() {
 }
 
 #[test]
-fn keep_total_never_drops_active() {
+fn keep_total_counts_and_removes_only_terminal_rows() {
     let dir = tempfile::tempdir().unwrap();
     let store = open(dir.path());
     let mut terminal = Vec::new();
@@ -244,33 +244,51 @@ fn keep_total_never_drops_active() {
         })
         .collect();
 
+    // Active rows neither count toward the bound nor are removed by it.
     let report = store.prune(&PrunePolicy::new().keep_total(200)).unwrap();
     assert_eq!(
-        count(&store, "jobs"),
-        200,
-        "the bound is on the whole table"
+        report.jobs,
+        vec![terminal[0].clone()],
+        "only the oldest went"
     );
-    assert_eq!(report.jobs.len(), 4);
+    assert_eq!(
+        count(&store, "jobs"),
+        203,
+        "200 terminal rows plus 3 active"
+    );
     for id in &active {
         assert!(store.get(id).is_ok(), "an active job is never dropped");
     }
-    // The four oldest terminal rows went, the newest stayed.
-    for id in &terminal[..4] {
-        assert_eq!(store.get(id).unwrap_err().code, "job_not_found");
-    }
     assert!(store.get(&terminal[200]).is_ok());
 
-    // More active jobs than the bound: no terminal row survives, no active job is touched.
+    // More active jobs than the bound: the newest `n` terminal rows still stay.
     let report = store.prune(&PrunePolicy::new().keep_total(2)).unwrap();
-    assert_eq!(report.jobs.len(), 197);
-    assert_eq!(count(&store, "jobs"), 3);
+    assert_eq!(report.jobs.len(), 198);
+    assert_eq!(count(&store, "jobs"), 5);
     for id in &active {
         assert!(store.get(id).is_ok());
     }
+    assert!(store.get(&terminal[200]).is_ok());
+    assert!(store.get(&terminal[199]).is_ok());
 }
 
 #[test]
-fn keep_total_in_a_submit_counts_the_incoming_row() {
+fn keep_total_with_more_active_jobs_than_the_bound_keeps_terminal_rows() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = open(dir.path());
+    let active: Vec<String> = (0..201)
+        .map(|i| store.submit(&new_job(&format!("a{i}"))).unwrap().0.job_id)
+        .collect();
+    // The first completion must not be pruned the moment it lands.
+    store.complete(&active[0], &json!({})).unwrap();
+    let report = store.prune(&PrunePolicy::new().keep_total(200)).unwrap();
+    assert!(report.jobs.is_empty(), "{:?}", report.jobs);
+    assert_eq!(store.get(&active[0]).unwrap().status, COMPLETE);
+    assert_eq!(count(&store, "jobs"), 201);
+}
+
+#[test]
+fn keep_total_in_a_submit_bounds_the_terminal_rows_only() {
     let dir = tempfile::tempdir().unwrap();
     let store = open(dir.path());
     for i in 0..5 {
@@ -285,11 +303,11 @@ fn keep_total_in_a_submit_counts_the_incoming_row() {
             &SubmitOptions::new().prune(PrunePolicy::new().keep_total(3)),
         )
         .unwrap();
-    assert_eq!(s.pruned.jobs.len(), 3);
+    assert_eq!(s.pruned.jobs.len(), 2);
     assert_eq!(
         count(&store, "jobs"),
-        3,
-        "two kept terminal rows plus the new job"
+        4,
+        "three kept terminal rows plus the new job"
     );
     assert!(!store.get(&s.record.job.job_id).unwrap().is_terminal());
 }

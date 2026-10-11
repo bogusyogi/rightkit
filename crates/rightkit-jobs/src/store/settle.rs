@@ -1,0 +1,825 @@
+//! Settle-later: a terminal write that fails on storage is kept, not lost.
+//!
+//! When the runner (or a handler, through [`crate::JobControl::settle`]) writes a job's terminal
+//! state and the database refuses with a storage error (`db` or `io`: busy, I/O error, disk
+//! full), the intended transition is kept in memory with the job's claim (its per-job lock)
+//! still held, so no other runner in this process can start the job again. It is retried when
+//! the store next completes a write, and on [`JobStore::flush_pending_settlements`]. There is no
+//! timer and no sleep: only store activity and that explicit call drive a retry.
+//!
+//! Restart. A held transition is also written to a small journal file, one file per job, in
+//! `<database file>.settlements/` next to the database, through `rightkit_fs`'s atomic write
+//! (temp file, `fsync`, rename). The journal does not depend on the table that refused the write.
+//! Opening the store reads the journal and writes each recorded transition, so a job whose
+//! handler finished is settled the way the handler left it instead of being run again. A
+//! transition that cannot be written yet stays pending, and a runner does not list or run such a
+//! job (see [`crate::UnsettledRecovery`]).
+//!
+//! Limits. The journal needs a writable directory next to the database: when that fails too
+//! (disk full), the entry is memory-only ([`UnsettledJob::durable`] is false) and a crash loses
+//! it. The set is bounded by [`MAX_PENDING_SETTLEMENTS`] entries and
+//! [`MAX_PENDING_SETTLEMENT_BYTES`] bytes; past either bound the write is not held and its error
+//! is returned, as before.
+
+use std::collections::{HashMap, HashSet};
+use std::io::Write;
+use std::panic::{catch_unwind, AssertUnwindSafe};
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Mutex, MutexGuard, TryLockError};
+use std::time::{Duration, Instant};
+
+use rightkit_db::write_txn;
+use serde_json::{json, Map, Value};
+
+use super::{
+    add_event_on, check_fence, now, Event, Job, JobRecord, JobStore, Transition, CANCELLED,
+};
+use crate::config::StatusModel;
+use crate::error::{JobError, JobResult};
+use crate::runner::{EventSink, JobLock};
+
+/// Most terminal writes held in memory at once. A write that fails while the set is full is not
+/// held: its error is returned.
+pub const MAX_PENDING_SETTLEMENTS: usize = 64;
+/// Most bytes (results, errors, extension values, ids) held at once, counted from their JSON.
+pub const MAX_PENDING_SETTLEMENT_BYTES: usize = 4 * 1024 * 1024;
+
+/// Retries of one entry that run immediately; later ones wait [`SLOW_RETRY`] between tries.
+const FAST_RETRIES: u32 = 3;
+const SLOW_RETRY: Duration = Duration::from_secs(1);
+
+fn lk<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
+    m.lock().unwrap_or_else(|p| p.into_inner())
+}
+
+/// A lifecycle event (`complete`, `failed`, ...) written in the same transaction as the terminal
+/// state it announces.
+#[derive(Debug, Clone)]
+pub(crate) struct LifecycleEvent {
+    pub(crate) stage: String,
+    pub(crate) progress: Option<f64>,
+    pub(crate) message: Option<String>,
+}
+
+impl LifecycleEvent {
+    pub(crate) fn new(stage: &str, progress: Option<f64>, message: Option<&str>) -> Self {
+        Self {
+            stage: stage.into(),
+            progress,
+            message: message.map(Into::into),
+        }
+    }
+}
+
+/// One terminal write to make: now, or later if storage refuses it.
+pub(crate) struct SettleRequest {
+    pub(crate) job_id: String,
+    /// Attempt generation the write is fenced to (`None`: unfenced).
+    pub(crate) fence: Option<i64>,
+    pub(crate) transition: Transition,
+    pub(crate) event: Option<LifecycleEvent>,
+    /// The job's per-job lock. Kept with the held write, dropped with it, or dropped at once
+    /// when the write lands.
+    pub(crate) claim: Option<JobLock>,
+    /// Receives `event` if the write lands later than this call.
+    pub(crate) sink: Option<EventSink>,
+    /// Hold a write that fails on storage (otherwise return its error).
+    pub(crate) defer: bool,
+}
+
+#[allow(clippy::large_enum_variant)]
+pub(crate) enum Settle {
+    /// Committed. `record` is `None` when the job was already terminal (nothing was written).
+    Written {
+        record: Option<JobRecord>,
+        event: Option<Event>,
+    },
+    /// Storage refused the write; it is held and will be retried.
+    Deferred,
+}
+
+/// Result of [`JobStore::settle_terminal`] and [`crate::JobControl::settle`].
+#[allow(clippy::large_enum_variant)]
+#[derive(Debug, Clone)]
+pub enum Settlement {
+    /// The terminal state is stored. `None`: the job was already terminal and nothing changed.
+    Written(Option<JobRecord>),
+    /// Storage refused the write (`db` or `io`). It is kept in memory and in the journal, with
+    /// the job's claim held once the runner has it, and retried (see
+    /// [`JobStore::flush_pending_settlements`]). The job reads as non-terminal until it lands.
+    Deferred,
+}
+
+/// What a flush did.
+#[derive(Debug, Clone, Default)]
+pub struct FlushReport {
+    /// Held writes that are no longer pending because the job's terminal state is stored: written
+    /// by this flush, or already there.
+    pub settled: usize,
+    /// Held writes given up because they can never apply (the job is gone, a newer attempt
+    /// superseded the write, a hook refused it), with the reason. They are removed from the
+    /// journal.
+    pub dropped: Vec<(String, JobError)>,
+    /// Held writes still pending after the flush.
+    pub pending: usize,
+}
+
+/// A job whose handler finished but whose terminal state is not stored yet.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct UnsettledJob {
+    pub job_id: String,
+    /// The terminal status the job will get: `complete`, `failed` or `cancelled`.
+    pub status: String,
+    /// The transition is in the journal file, so it survives a crash and is applied at the next
+    /// open. False: memory only (the journal could not be written).
+    pub durable: bool,
+    /// A runner in this process holds the job's lock for it. False: the entry came from the
+    /// journal at open.
+    pub claimed: bool,
+    /// Failed write attempts so far.
+    pub attempts: u32,
+    /// The last storage error.
+    pub last_error: String,
+}
+
+/// What [`JobStore::shutdown_detailed`] (also on `Runner` and `StagedPool`) found.
+#[derive(Debug, Clone, Default)]
+#[non_exhaustive]
+pub struct SettlementShutdown {
+    /// Held writes that landed during the shutdown flush.
+    pub settled: usize,
+    /// Held writes given up (see [`FlushReport::dropped`]).
+    pub dropped: Vec<(String, JobError)>,
+    /// Jobs that finished but could not be stored: "finished, unsettled". Those with
+    /// [`UnsettledJob::durable`] are applied at the next open; the others are lost with the
+    /// process, and the next open sees them as unfinished.
+    pub unsettled: Vec<UnsettledJob>,
+}
+
+impl SettlementShutdown {
+    /// Nothing finished is left unstored.
+    pub fn is_clean(&self) -> bool {
+        self.unsettled.is_empty()
+    }
+}
+
+struct Entry {
+    job_id: String,
+    generation: Option<i64>,
+    transition: Transition,
+    event: Option<LifecycleEvent>,
+    claim: Option<JobLock>,
+    sink: Option<EventSink>,
+    last_error: String,
+    attempts: u32,
+    last_try: Instant,
+    durable: bool,
+    bytes: usize,
+}
+
+impl Entry {
+    fn due(&self, force: bool) -> bool {
+        force || self.attempts < FAST_RETRIES || self.last_try.elapsed() >= SLOW_RETRY
+    }
+}
+
+/// Snapshot of an entry taken to write it without holding the pending lock.
+struct Work {
+    job_id: String,
+    generation: Option<i64>,
+    transition: Transition,
+    event: Option<LifecycleEvent>,
+}
+
+pub(super) struct SettleState {
+    pending: Mutex<Vec<Entry>>,
+    /// `pending.len()`, readable without the lock: the check every write makes.
+    len: AtomicUsize,
+    /// Serialises flushes; an opportunistic flush skips when one is running.
+    flush: Mutex<()>,
+    /// Jobs whose runner is still announcing a terminal state: not prunable meanwhile.
+    delivering: Mutex<HashMap<String, usize>>,
+    /// `<database file>.settlements/`, or `None` for a database without a file name.
+    dir: Option<PathBuf>,
+}
+
+impl SettleState {
+    pub(super) fn new(db: &Path) -> Self {
+        let dir = db
+            .file_name()
+            .and_then(|n| n.to_str())
+            .filter(|n| !n.is_empty() && *n != ":memory:" && !n.starts_with("file:"))
+            .map(|n| db.with_file_name(format!("{n}.settlements")));
+        Self {
+            pending: Mutex::new(Vec::new()),
+            len: AtomicUsize::new(0),
+            flush: Mutex::new(()),
+            delivering: Mutex::new(HashMap::new()),
+            dir,
+        }
+    }
+}
+
+/// Keeps a job out of `prune` until dropped: its terminal state is written but its runner has
+/// not finished announcing it.
+pub(crate) struct DeliveryPin<'a> {
+    store: &'a JobStore,
+    id: String,
+}
+
+impl Drop for DeliveryPin<'_> {
+    fn drop(&mut self) {
+        let mut m = lk(&self.store.settle.delivering);
+        if let Some(n) = m.get_mut(&self.id) {
+            *n -= 1;
+            if *n == 0 {
+                m.remove(&self.id);
+            }
+        }
+    }
+}
+
+/// The row as it will read once `t` lands: `base` with the status, error and result of `t`.
+pub(crate) fn projected(base: &Job, t: &Transition) -> Job {
+    let mut job = base.clone();
+    if let Some(to) = &t.to {
+        job.status = to.clone();
+    }
+    if let Some(e) = &t.error {
+        job.error = e.clone();
+    }
+    if let Some(r) = &t.result {
+        job.result = Some(r.clone());
+    }
+    job.updated_at = now();
+    job
+}
+
+/// A write worth holding: the database or the disk refused it.
+fn is_storage_error(e: &JobError) -> bool {
+    matches!(e.code.as_str(), "db" | "io")
+}
+
+/// File-name-safe job id (the rule `JobLocks` applies).
+fn journal_safe(job_id: &str) -> bool {
+    !job_id.is_empty() && !job_id.contains(['/', '\\', '.'])
+}
+
+fn entry_bytes(job_id: &str, t: &Transition, ev: &Option<LifecycleEvent>) -> usize {
+    let mut n = 256 + job_id.len();
+    if let Some(Some(e)) = &t.error {
+        n += e.to_string().len();
+    }
+    if let Some(r) = &t.result {
+        n += r.to_string().len();
+    }
+    n += Value::Object(t.ext.clone()).to_string().len();
+    if let Some(e) = ev {
+        n += e.stage.len() + e.message.as_ref().map_or(0, String::len);
+    }
+    n
+}
+
+fn entry_json(e: &Entry) -> Value {
+    let t = &e.transition;
+    let mut m = Map::new();
+    m.insert("version".into(), json!(1));
+    m.insert("job_id".into(), json!(e.job_id));
+    m.insert("generation".into(), json!(e.generation));
+    m.insert("to".into(), json!(t.to));
+    if let Some(err) = &t.error {
+        m.insert("error".into(), err.clone().unwrap_or(Value::Null));
+    }
+    if let Some(r) = &t.result {
+        m.insert("result".into(), r.clone());
+    }
+    if !t.ext.is_empty() {
+        m.insert("ext".into(), Value::Object(t.ext.clone()));
+    }
+    if let Some(ev) = &e.event {
+        m.insert(
+            "event".into(),
+            json!({"stage": ev.stage, "progress": ev.progress, "message": ev.message}),
+        );
+    }
+    m.insert("recorded_at".into(), json!(now()));
+    Value::Object(m)
+}
+
+type Parsed = (String, Option<i64>, Transition, Option<LifecycleEvent>);
+
+fn parse_entry(v: &Value) -> Option<Parsed> {
+    let o = v.as_object()?;
+    if o.get("version").and_then(Value::as_i64) != Some(1) {
+        return None;
+    }
+    let job_id = o.get("job_id")?.as_str()?.to_string();
+    if !journal_safe(&job_id) {
+        return None;
+    }
+    let to = o.get("to")?.as_str()?.to_string();
+    if !StatusModel::is_terminal(&to) {
+        return None;
+    }
+    let mut t = Transition::to(to);
+    t.error = match o.get("error") {
+        None => None,
+        Some(Value::Null) => Some(None),
+        Some(e) => Some(Some(e.clone())),
+    };
+    t.result = o.get("result").cloned();
+    if let Some(Value::Object(x)) = o.get("ext") {
+        t.ext = x.clone();
+    }
+    let event = o.get("event").and_then(|e| {
+        Some(LifecycleEvent {
+            stage: e.get("stage")?.as_str()?.to_string(),
+            progress: e.get("progress").and_then(Value::as_f64),
+            message: e.get("message").and_then(Value::as_str).map(String::from),
+        })
+    });
+    Some((
+        job_id,
+        o.get("generation").and_then(Value::as_i64),
+        t,
+        event,
+    ))
+}
+
+impl JobStore {
+    /// Apply `t` to `job_id` (inside one write transaction with the hook), together with an
+    /// optional lifecycle event. `Ok(None)` when the job is already terminal. The shared body of
+    /// [`JobStore::transition`] and the settle-later path.
+    pub(super) fn transition_event_in(
+        &self,
+        job_id: &str,
+        fence: Option<i64>,
+        t: &Transition,
+        event: Option<&LifecycleEvent>,
+    ) -> JobResult<Option<(JobRecord, Option<Event>)>> {
+        let mut conn = self.c();
+        let tx = write_txn(&mut conn)?;
+        check_fence(&tx, job_id, fence)?;
+        let before = self.load(&tx, job_id)?;
+        if before.job.is_terminal() {
+            return Ok(None);
+        }
+        // Latest coalesced progress lands before the state change, in the same durable commit.
+        self.flush_pending_in(&tx, job_id)?;
+        let after = self.exec(&tx, &before, t)?;
+        let ev = match event {
+            Some(e) => Some(add_event_on(
+                &tx,
+                job_id,
+                None,
+                &e.stage,
+                None,
+                e.progress,
+                e.message.as_deref(),
+            )?),
+            None => None,
+        };
+        tx.commit()?;
+        drop(conn);
+        if after.job.is_terminal() {
+            self.settle(job_id, after.job.status == CANCELLED);
+        }
+        Ok(Some((after, ev)))
+    }
+
+    /// Write the terminal transition `t` (`complete`, `failed` or `cancelled`) of `job_id`. If
+    /// the database refuses it on storage (`db` or `io`), the transition is kept instead of
+    /// lost and `Settlement::Deferred` is returned: it is retried when the store next completes a
+    /// write and on [`JobStore::flush_pending_settlements`], and journaled so a restart applies
+    /// it (see the module notes). Any other error is returned and nothing is kept. A job that
+    /// already has a held write keeps it: the first outcome stands.
+    pub fn settle_terminal(&self, job_id: &str, t: &Transition) -> JobResult<Settlement> {
+        self.settle_terminal_in(job_id, None, t)
+    }
+
+    /// [`JobStore::settle_terminal`] for the attempt holding `generation` (fenced).
+    pub fn settle_terminal_fenced(
+        &self,
+        job_id: &str,
+        generation: i64,
+        t: &Transition,
+    ) -> JobResult<Settlement> {
+        self.settle_terminal_in(job_id, Some(generation), t)
+    }
+
+    fn settle_terminal_in(
+        &self,
+        job_id: &str,
+        fence: Option<i64>,
+        t: &Transition,
+    ) -> JobResult<Settlement> {
+        match t.to.as_deref() {
+            Some(s) if StatusModel::is_terminal(s) => {}
+            _ => {
+                return Err(JobError::bad_input(
+                    "a settlement moves to complete, failed or cancelled",
+                ))
+            }
+        }
+        let out = self.settle_request(SettleRequest {
+            job_id: job_id.into(),
+            fence,
+            transition: t.clone(),
+            event: None,
+            claim: None,
+            sink: None,
+            defer: true,
+        })?;
+        Ok(match out {
+            Settle::Written { record, .. } => Settlement::Written(record),
+            Settle::Deferred => Settlement::Deferred,
+        })
+    }
+
+    /// The runner's terminal write: commit it, or hold it.
+    pub(crate) fn settle_request(&self, req: SettleRequest) -> JobResult<Settle> {
+        let SettleRequest {
+            job_id,
+            fence,
+            transition,
+            event,
+            claim,
+            sink,
+            defer,
+        } = req;
+        let (claim, sink) = if defer {
+            // An outcome already held for this job stands; a second write never replaces it.
+            match self.adopt(&job_id, claim, sink) {
+                Ok(_) => return Ok(Settle::Deferred),
+                Err(back) => back,
+            }
+        } else {
+            (claim, sink)
+        };
+        match self.transition_event_in(&job_id, fence, &transition, event.as_ref()) {
+            Ok(Some((record, ev))) => {
+                self.after_write();
+                Ok(Settle::Written {
+                    record: Some(record),
+                    event: ev,
+                })
+            }
+            Ok(None) => Ok(Settle::Written {
+                record: None,
+                event: None,
+            }),
+            Err(e) if defer && is_storage_error(&e) => {
+                let bytes = entry_bytes(&job_id, &transition, &event);
+                let entry = Entry {
+                    job_id,
+                    generation: fence,
+                    transition,
+                    event,
+                    claim,
+                    sink,
+                    last_error: e.message.clone(),
+                    attempts: 0,
+                    last_try: Instant::now(),
+                    durable: false,
+                    bytes,
+                };
+                if self.push_entry(entry, true) {
+                    Ok(Settle::Deferred)
+                } else {
+                    Err(e)
+                }
+            }
+            Err(e) => Err(e),
+        }
+    }
+
+    /// Merge `claim` and `sink` into the held write of `job_id` and return its transition. When
+    /// there is none, hand both back.
+    #[allow(clippy::type_complexity)]
+    fn adopt(
+        &self,
+        job_id: &str,
+        claim: Option<JobLock>,
+        sink: Option<EventSink>,
+    ) -> Result<Transition, (Option<JobLock>, Option<EventSink>)> {
+        if self.settle.len.load(Ordering::Relaxed) == 0 {
+            return Err((claim, sink));
+        }
+        let mut p = lk(&self.settle.pending);
+        match p.iter_mut().find(|e| e.job_id == job_id) {
+            Some(e) => {
+                if e.claim.is_none() {
+                    e.claim = claim;
+                }
+                if e.sink.is_none() {
+                    e.sink = sink;
+                }
+                Ok(e.transition.clone())
+            }
+            None => Err((claim, sink)),
+        }
+    }
+
+    /// The runner finished a handler and found a write held for the job (the handler deferred it
+    /// through `JobControl::settle`): the runner writes nothing, takes over the claim, and
+    /// returns the held transition. `Err` gives the claim back.
+    pub(crate) fn adopt_claim(
+        &self,
+        job_id: &str,
+        claim: JobLock,
+        sink: Option<EventSink>,
+    ) -> Result<Transition, JobLock> {
+        match self.adopt(job_id, Some(claim), sink) {
+            Ok(t) => Ok(t),
+            Err((claim, _)) => Err(claim.expect("the claim was passed in")),
+        }
+    }
+
+    /// The held transition of `job_id`, if any.
+    pub(crate) fn pending_transition(&self, job_id: &str) -> Option<Transition> {
+        if self.settle.len.load(Ordering::Relaxed) == 0 {
+            return None;
+        }
+        lk(&self.settle.pending)
+            .iter()
+            .find(|e| e.job_id == job_id)
+            .map(|e| e.transition.clone())
+    }
+
+    /// Whether a terminal write is held for `job_id`.
+    pub(crate) fn has_pending_settlement(&self, job_id: &str) -> bool {
+        self.pending_transition(job_id).is_some()
+    }
+
+    /// Attach the lifecycle event that announces the held write of `job_id` when it lands
+    /// (and journal it again), unless it already has one.
+    pub(crate) fn set_pending_event(&self, job_id: &str, event: LifecycleEvent) {
+        let mut p = lk(&self.settle.pending);
+        if let Some(e) = p.iter_mut().find(|e| e.job_id == job_id) {
+            if e.event.is_none() {
+                e.event = Some(event);
+                e.bytes = entry_bytes(&e.job_id, &e.transition, &e.event);
+                if self.write_journal(e) {
+                    e.durable = true;
+                }
+            }
+        }
+    }
+
+    /// Give up a held write that came from the journal (no runner holds it) so the job is
+    /// recovered as unfinished. True when one was discarded.
+    pub(crate) fn discard_unclaimed_settlement(&self, job_id: &str) -> bool {
+        let entry = {
+            let mut p = lk(&self.settle.pending);
+            match p
+                .iter()
+                .position(|e| e.job_id == job_id && e.claim.is_none())
+            {
+                Some(i) => {
+                    let e = p.remove(i);
+                    self.settle.len.store(p.len(), Ordering::Relaxed);
+                    Some(e)
+                }
+                None => None,
+            }
+        };
+        match entry {
+            Some(e) => {
+                self.remove_journal(&e.job_id);
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// Insert `entry`, journal it, and keep the count. False when the bounds are reached (a
+    /// replayed entry is never refused: it is already on disk).
+    fn push_entry(&self, mut entry: Entry, bounded: bool) -> bool {
+        let mut p = lk(&self.settle.pending);
+        if p.iter().any(|e| e.job_id == entry.job_id) {
+            return true;
+        }
+        if bounded {
+            let held: usize = p.iter().map(|e| e.bytes).sum();
+            if p.len() >= MAX_PENDING_SETTLEMENTS
+                || held.saturating_add(entry.bytes) > MAX_PENDING_SETTLEMENT_BYTES
+            {
+                return false;
+            }
+        }
+        if !entry.durable {
+            entry.durable = self.write_journal(&entry);
+        }
+        p.push(entry);
+        self.settle.len.store(p.len(), Ordering::Relaxed);
+        true
+    }
+
+    fn write_journal(&self, e: &Entry) -> bool {
+        let Some(dir) = &self.settle.dir else {
+            return false;
+        };
+        if !journal_safe(&e.job_id) {
+            return false;
+        }
+        let bytes = serde_json::to_vec(&entry_json(e)).unwrap_or_default();
+        let options = rightkit_fs::AtomicOptions {
+            private: true,
+            create_parents: true,
+            durable: true,
+        };
+        rightkit_fs::atomic_write_with(&dir.join(format!("{}.json", e.job_id)), options, |f| {
+            f.write_all(&bytes)
+        })
+        .is_ok()
+    }
+
+    fn remove_journal(&self, job_id: &str) {
+        if let Some(dir) = &self.settle.dir {
+            if journal_safe(job_id) {
+                let _ = std::fs::remove_file(dir.join(format!("{job_id}.json")));
+            }
+        }
+    }
+
+    fn take_entry(&self, job_id: &str) -> Option<Entry> {
+        let entry = {
+            let mut p = lk(&self.settle.pending);
+            let i = p.iter().position(|e| e.job_id == job_id)?;
+            let e = p.remove(i);
+            self.settle.len.store(p.len(), Ordering::Relaxed);
+            e
+        };
+        self.remove_journal(&entry.job_id);
+        Some(entry)
+    }
+
+    /// Run after a store write completed: retry the held writes that are due. Cheap when nothing
+    /// is held. Never called with the connection locked.
+    pub(super) fn after_write(&self) {
+        if self.settle.len.load(Ordering::Relaxed) == 0 {
+            return;
+        }
+        let _ = self.flush_impl(false);
+    }
+
+    /// Try every held terminal write now, regardless of how recently it was tried. Stops at the
+    /// first storage error (the rest would meet the same one) and reports what is still
+    /// pending. Safe to call at any time and from any thread; a write that lands removes its
+    /// journal file, drops the job's claim and delivers its lifecycle event to the runner's sink.
+    pub fn flush_pending_settlements(&self) -> FlushReport {
+        self.flush_impl(true)
+    }
+
+    fn flush_impl(&self, force: bool) -> FlushReport {
+        let mut report = FlushReport::default();
+        let guard = if force {
+            lk(&self.settle.flush)
+        } else {
+            match self.settle.flush.try_lock() {
+                Ok(g) => g,
+                Err(TryLockError::Poisoned(p)) => p.into_inner(),
+                Err(TryLockError::WouldBlock) => return report,
+            }
+        };
+        let work: Vec<Work> = lk(&self.settle.pending)
+            .iter()
+            .filter(|e| e.due(force))
+            .map(|e| Work {
+                job_id: e.job_id.clone(),
+                generation: e.generation,
+                transition: e.transition.clone(),
+                event: e.event.clone(),
+            })
+            .collect();
+        let mut deliveries: Vec<(EventSink, Event, DeliveryPin<'_>)> = Vec::new();
+        for w in work {
+            let pin = self.pin_delivery(&w.job_id);
+            match self.transition_event_in(&w.job_id, w.generation, &w.transition, w.event.as_ref())
+            {
+                Ok(done) => {
+                    let entry = self.take_entry(&w.job_id);
+                    if let (Some(Some(sink)), Some((_, Some(ev)))) =
+                        (entry.as_ref().map(|e| e.sink.clone()), done)
+                    {
+                        deliveries.push((sink, ev, pin));
+                    }
+                    report.settled += 1;
+                }
+                Err(e) if is_storage_error(&e) => {
+                    let mut p = lk(&self.settle.pending);
+                    if let Some(entry) = p.iter_mut().find(|x| x.job_id == w.job_id) {
+                        entry.attempts += 1;
+                        entry.last_try = Instant::now();
+                        entry.last_error = e.message.clone();
+                    }
+                    break;
+                }
+                Err(e) => {
+                    self.take_entry(&w.job_id);
+                    report.dropped.push((w.job_id.clone(), e));
+                }
+            }
+        }
+        report.pending = lk(&self.settle.pending).len();
+        drop(guard);
+        for (sink, ev, _pin) in deliveries {
+            let _ = catch_unwind(AssertUnwindSafe(|| sink(&ev)));
+        }
+        report
+    }
+
+    /// Jobs whose handler finished but whose terminal state is not stored: "finished,
+    /// unsettled". Empty when nothing is held.
+    pub fn pending_settlements(&self) -> Vec<UnsettledJob> {
+        lk(&self.settle.pending)
+            .iter()
+            .map(|e| UnsettledJob {
+                job_id: e.job_id.clone(),
+                status: e.transition.to.clone().unwrap_or_default(),
+                durable: e.durable,
+                claimed: e.claim.is_some(),
+                attempts: e.attempts,
+                last_error: e.last_error.clone(),
+            })
+            .collect()
+    }
+
+    /// The last chance to store what is held: one flush, then the report of what could not be
+    /// stored. Call it when the process is about to exit. Entries that are
+    /// [`UnsettledJob::durable`] are applied by the next open; the others are lost with the
+    /// process. `Runner::shutdown_detailed` and `StagedPool::shutdown_detailed` call this.
+    pub fn shutdown_detailed(&self) -> SettlementShutdown {
+        let report = self.flush_pending_settlements();
+        SettlementShutdown {
+            settled: report.settled,
+            dropped: report.dropped,
+            unsettled: self.pending_settlements(),
+        }
+    }
+
+    /// Read the journal left by an earlier run and write what it recorded. Run at open.
+    pub(super) fn replay_journal(&self) {
+        let Some(dir) = self.settle.dir.clone() else {
+            return;
+        };
+        let Ok(rd) = std::fs::read_dir(&dir) else {
+            return;
+        };
+        let mut loaded = false;
+        for item in rd.flatten() {
+            let path = item.path();
+            // Temp files of an interrupted atomic write carry another extension.
+            if path.extension().and_then(|x| x.to_str()) != Some("json") {
+                continue;
+            }
+            let parsed = std::fs::read(&path)
+                .ok()
+                .and_then(|b| serde_json::from_slice::<Value>(&b).ok())
+                .and_then(|v| parse_entry(&v));
+            let Some((job_id, generation, transition, event)) = parsed else {
+                // Not ours or unreadable: set it aside, never delete it.
+                let _ = std::fs::rename(&path, path.with_extension("json.bad"));
+                continue;
+            };
+            let bytes = entry_bytes(&job_id, &transition, &event);
+            loaded |= self.push_entry(
+                Entry {
+                    job_id,
+                    generation,
+                    transition,
+                    event,
+                    claim: None,
+                    sink: None,
+                    last_error: "recorded by an earlier run".into(),
+                    attempts: 0,
+                    last_try: Instant::now(),
+                    durable: true,
+                    bytes,
+                },
+                false,
+            );
+        }
+        if loaded {
+            let _ = self.flush_impl(true);
+        }
+    }
+
+    /// Keep `job_id` out of `prune` until the returned pin drops.
+    pub(crate) fn pin_delivery(&self, job_id: &str) -> DeliveryPin<'_> {
+        *lk(&self.settle.delivering)
+            .entry(job_id.to_string())
+            .or_insert(0) += 1;
+        DeliveryPin {
+            store: self,
+            id: job_id.to_string(),
+        }
+    }
+
+    /// Jobs a runner is still announcing (see [`DeliveryPin`]).
+    pub(super) fn delivering_ids(&self) -> HashSet<String> {
+        lk(&self.settle.delivering).keys().cloned().collect()
+    }
+}
