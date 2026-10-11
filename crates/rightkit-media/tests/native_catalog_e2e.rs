@@ -65,6 +65,41 @@ fn embedded_catalog_pins_one_version_per_library_and_covers_all_eight_libraries(
 }
 
 #[test]
+fn ffmpeg_licence_admits_only_toolchain_runtime_terms_after_lgpl() {
+    let catalog = NativeCatalog::embedded().unwrap();
+    // The Windows decode binary is a static MinGW-w64 build: its record names the runtime too.
+    let windows = catalog
+        .approved(NativeLibrary::Ffmpeg, "windows", "x86_64")
+        .unwrap();
+    assert_eq!(
+        windows.license_spdx,
+        "LGPL-2.1-or-later AND LicenseRef-MinGW-w64-runtime AND MIT AND BSD-3-Clause \
+         AND GPL-3.0-or-later WITH GCC-exception-3.1"
+    );
+    windows.validate().unwrap();
+    for arch in ["aarch64", "x86_64"] {
+        let mac = catalog
+            .approved(NativeLibrary::Ffmpeg, "macos", arch)
+            .unwrap();
+        assert_eq!(mac.license_spdx, "LGPL-2.1-or-later");
+    }
+
+    // Nothing but the toolchain runtime may follow FFmpeg's own licence.
+    for refused in [
+        "LGPL-2.1-or-later AND ISC",
+        "LGPL-2.1-or-later AND GPL-3.0-or-later",
+        "LGPL-2.1-or-later AND GPL-2.0-only WITH GCC-exception-2.0",
+        "MIT AND LGPL-2.1-or-later",
+        "GPL-3.0-or-later WITH GCC-exception-3.1",
+        "MIT",
+    ] {
+        let mut record = windows.clone();
+        record.license_spdx = refused.into();
+        assert!(record.validate().is_err(), "{refused}");
+    }
+}
+
+#[test]
 fn mixed_versions_gpl_and_unverifiable_approvals_fail_closed() {
     let mut value: serde_json::Value = serde_json::from_str(NATIVE_CATALOG_JSON).unwrap();
     let libs = value["libraries"].as_array_mut().unwrap();

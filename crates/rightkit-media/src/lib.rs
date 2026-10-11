@@ -1402,7 +1402,19 @@ mod tests {
             assert_eq!(artifact.id, id);
             assert_eq!(artifact.sha256.as_deref(), Some(digest));
             assert_eq!(artifact.version, "7.1.5");
-            assert_eq!(artifact.attribution.license_spdx, "LGPL-2.1-or-later");
+            // The Windows binary is a static MinGW-w64 build: its row also names the toolchain
+            // runtime the linker carries in. The macOS builds link no such code.
+            let (license, runtime_components) = if os == "windows" {
+                (
+                    "LGPL-2.1-or-later AND LicenseRef-MinGW-w64-runtime AND MIT AND BSD-3-Clause \
+                     AND GPL-3.0-or-later WITH GCC-exception-3.1",
+                    TOOLCHAIN_RUNTIME_COMPONENTS.len(),
+                )
+            } else {
+                ("LGPL-2.1-or-later", 0)
+            };
+            assert_eq!(artifact.attribution.license_spdx, license);
+            assert_eq!(artifact.attribution.components.len(), runtime_components);
         }
     }
 
