@@ -146,6 +146,8 @@ export interface SpawnOwnedProcessOptions {
   /** Default 'ignore'. 'pipe' exposes child.stdout and child.stderr. */
   stdio?: 'ignore' | 'pipe';
   windowsHide?: boolean;
+  /** Run through the platform shell (needed for .cmd shims such as npm on Windows). Default false. */
+  shell?: boolean;
 }
 
 /**
@@ -172,6 +174,7 @@ export function spawnOwnedProcess(command: string, args: string[] = [], options:
     stdio: options.stdio === 'pipe' ? ['ignore', 'pipe', 'pipe'] : 'ignore',
     windowsHide: options.windowsHide ?? true,
     detached: process.platform !== 'win32',
+    shell: options.shell ?? false,
   });
   // Spawn failures arrive as 'error'; surface them through the missing pid, not as an unhandled event.
   child.on('error', () => {});

@@ -105,6 +105,29 @@ try {
 
 `freePort()` returns a free `127.0.0.1` port by binding port 0 and releasing it. Another process can take the port before use.
 
+## Dev-server launcher
+
+`startDevServer({ command, args?, cwd?, env?, shell?, windowsHide?, ports?, portFloor?, portEnv?, maxPortAttempts?, readiness })` starts a dev server hidden, gives it a port, and waits until it answers.
+
+- The port goes to the process as the environment variable `portEnv` (default `PORT`), and every `{port}` in `args` is replaced with it.
+- `readiness`: `urls` (an array, or a function of the port) that must each answer 2xx, or a `check(port)` predicate. `attemptTimeoutMs` bounds one request, `totalTimeoutMs` one launch's wait, `intervalMs` the delay between rounds.
+- Port choice: `ports` in order (a held port is skipped before anything is spawned on it); otherwise the first free port at or above `portFloor`, probed by binding; otherwise `freePort()`. A collision (EADDRINUSE in the output) moves to the next candidate.
+- Result: `{ pid, port, url, attempts, stop(), output() }`. `stop()` kills the whole process tree the launch started and reports `leftoverPids`.
+- A failed launch stops its whole tree before it throws `DevServerError` (`reason`, `pid`, `port`, `attempts`, `leftoverPids`, and a bounded `output` tail). The message includes the last 2 KB of output.
+
+```ts
+const dev = await startDevServer({
+  command: process.execPath,
+  args: [viteBin, "--host", "127.0.0.1", "--port", "{port}", "--strictPort"],
+  portFloor: 5173,
+  cwd: root,
+  env: { VITE_MAILRIGHT_QA: "1" },
+  readiness: { urls: (port) => [`http://127.0.0.1:${port}/`], attemptTimeoutMs: 2500, totalTimeoutMs: 20_000, intervalMs: 300 },
+});
+// ... run the tests against dev.url ...
+await dev.stop();
+```
+
 ## Keyboard keys
 
 `page.keyboard.press(chord)` accepts named keys (`Enter`, `Tab`, `Escape`, arrows, `Home`, `End`, `PageUp`, `PageDown`, `Backspace`, `Delete`, `Space`, `Shift`, `Control`, `Alt`, `Meta`), function keys `F1` through `F24`, letters, digits, and every printable US-layout symbol, including backslash.

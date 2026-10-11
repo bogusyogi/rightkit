@@ -1,5 +1,6 @@
 export * from './chrome.js';
 export * from './evidence.js';
+export * from './devserver.js';
 export * from './frames.js';
 export * from './guard.js';
 export * from './loopback.js';

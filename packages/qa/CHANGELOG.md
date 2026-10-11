@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.4.7 — 2026-10-11
+
+Additive.
+
+- Add `startDevServer(options)` (dev-server launcher on the `spawnOwnedProcess` registry). It starts the command hidden (`windowsHide` default true), sets the chosen port under `portEnv` (default `PORT`) and substitutes `{port}` in `args`, then polls every readiness URL (or a `check` predicate) with a per-attempt timeout until each answers 2xx, within `totalTimeoutMs`. It returns `{ pid, port, url, attempts, stop(), output() }`.
+- Ports: `ports` are tried in order, and a listed port that is already held is skipped before anything is spawned on it (a foreign listener would otherwise answer the readiness probe); without them, `portFloor` probes upward from the floor for a free port (the bind test `freePort` uses), otherwise `freePort()`. A port collision (EADDRINUSE in the output) retries the next candidate, up to `maxPortAttempts` (default 5).
+- Every failed launch, including a collision, stops the whole process tree it started before the error is thrown: the POSIX process group, or `taskkill /T /F` on Windows. `DevServerError` carries `reason` (`exited`, `timeout`, `port-in-use`, `check-failed`, `start-failed`), `pid`, `port`, `attempts`, `leftoverPids` and a bounded output tail (16 KiB; the last 2 KB go in the message).
+- `stop()` stops the tree and reports `leftoverPids`; it is idempotent.
+- `spawnOwnedProcess` takes `shell?: boolean` (for .cmd shims such as npm on Windows).
+
 ## 0.4.6 — 2026-10-11
 
 Additive. Depends on `@rightkit/qa-chrome` 0.1.5 (settled close report, `observedExitingPids`).
