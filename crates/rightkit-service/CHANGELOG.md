@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Windows: `Client::connect_expecting` verifies the host instead of refusing with `Unverified`. After the same-user check it opens the pipe's server process and keeps the handle (so the pid cannot be reused), reads the creation time, the image path (`QueryFullProcessImageNameW`) and the creation time again, checks the process still runs and the pipe still reports the same pid, then compares the canonical path without regard to case, or the file identity (volume serial and file index), with the expected executables. `HostProcess::sid` carries the host's user SID. A signature check goes in `with_verifier`.
+- Windows: `Suite::per_user_default()` (and `ignore_env_overrides`) returns `<local app data>\Orthic Labs\shared` from `SHGetKnownFolderPath(FOLDERID_LocalAppData)`, never from `%LOCALAPPDATA%`.
+
 - Additive: verify the HOST from the client. `Client::connect_expecting(&ClientConfig, &HostExpectation)
   -> Result<Client, ConnectError>` asks the kernel who is on the listening end of the connected socket
   and refuses any program that is not an expected executable, before the `hello` or any request is
