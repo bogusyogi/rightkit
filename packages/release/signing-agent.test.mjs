@@ -9,6 +9,9 @@ import { AGENT_LABEL, authenticateSigningToken, validateSigningRequest, executeS
 import { requestSigningAgent, requestSigningAgentSync } from "./signing-agent-client.mjs";
 import { installSigningAgent, uninstallSigningAgent, signingAgentPlist, signingAgentStatus } from "./signing-agent-install.mjs";
 
+// Not run on Windows: the signing agent runs on macOS (codesign, POSIX ownership and modes).
+const WINDOWS_SKIP = process.platform === "win32" ? "the signing agent runs on macOS (codesign, POSIX ownership and modes)" : false;
+
 function fixture(t) {
   const home = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "rk-agent-test-")));
   t.after(() => fs.rmSync(home, { recursive: true, force: true }));
@@ -20,7 +23,7 @@ function fixture(t) {
     items: [{ path: app, identity: "Developer ID Fixture", force: true, runtime: true, timestamp: true, entitlements: entitlement }] };
   return { home, workspace, managed, outside, app, artifact, entitlement, request, policy: { roots: [workspace, managed] } };
 }
-test("protocol rejects arbitrary execution, secrets, unknown fields & unsafe options", (t) => {
+test("protocol rejects arbitrary execution, secrets, unknown fields & unsafe options", { skip: WINDOWS_SKIP }, (t) => {
   const f = fixture(t);
   assert.equal(validateSigningRequest(f.request, f.policy).items[0].path, f.app);
   for (const change of [{ type: "shell" }, { schema: 2 }, { command: "sh" }, { env: { SECRET: "secret" } }, { timeoutMs: Infinity }, { timeoutMs: 180001 },
@@ -31,7 +34,7 @@ test("protocol rejects arbitrary execution, secrets, unknown fields & unsafe opt
   assert.deepEqual(validateSigningRequest({ schema: 1, type: "health", token: "x" }, f.policy), { schema: 1, type: "health", token: "x" });
   assert.throws(() => validateSigningRequest({ schema: 1, type: "health", token: "x", command: "sh" }, f.policy), { code: "MAC_SIGNING_AGENT_PROTOCOL" });
 });
-test("caller allow-list narrows installed roots; traversal, prefix siblings & symlink escapes rejected", (t) => {
+test("caller allow-list narrows installed roots; traversal, prefix siblings & symlink escapes rejected", { skip: WINDOWS_SKIP }, (t) => {
   const f = fixture(t);
   for (const target of ["relative", path.join(f.workspace, "../outside/app"), path.join(f.outside, "app")]) {
     assert.throws(() => validateSigningRequest({ ...f.request, items: [{ path: target, identity: "real" }] }, f.policy), { code: "MAC_SIGNING_AGENT_PATH_DENIED" });
@@ -48,7 +51,7 @@ test("caller allow-list narrows installed roots; traversal, prefix siblings & sy
   staged.items[0].path = path.join(staging, "e.plist");
   assert.throws(() => validateSigningRequest(staged, { ...f.policy, stagingRoot: staging }), { code: "MAC_SIGNING_AGENT_PATH_DENIED" });
 });
-test("updater signature output symlinks, including dangling links, denied", (t) => {
+test("updater signature output symlinks, including dangling links, denied", { skip: WINDOWS_SKIP }, (t) => {
   const f = fixture(t);
   const request = { ...f.request, type: "updater", files: [f.artifact] }; delete request.items;
   assert.equal(validateSigningRequest(request, f.policy).files[0], f.artifact);
@@ -60,14 +63,14 @@ test("token authentication requires exact random token & rejects missing/wrong/m
   assert.doesNotThrow(() => authenticateSigningToken(token, token));
   for (const candidate of [undefined, "", token.slice(1), "b".repeat(64), "A".repeat(64), { token }]) assert.throws(() => authenticateSigningToken(candidate, token), { code: "MAC_SIGNING_AGENT_AUTH" });
 });
-test("client verifies private directory/token/socket uid, mode & symlinks", (t) => {
+test("client verifies private directory/token/socket uid, mode & symlinks", { skip: WINDOWS_SKIP }, (t) => {
   const f = fixture(t); const file = path.join(f.home, "token");
   fs.writeFileSync(file, "token", { mode: 0o600 }); privatePath(file, 0o600);
   assert.throws(() => privatePath(file, 0o600, { uid: process.getuid() + 1 }), { code: "MAC_SIGNING_AGENT_UNSAFE_PATH" });
   fs.chmodSync(file, 0o644); assert.throws(() => privatePath(file, 0o600), { code: "MAC_SIGNING_AGENT_UNSAFE_PATH" });
   fs.symlinkSync(file, path.join(f.home, "link")); assert.throws(() => privatePath(path.join(f.home, "link"), 0o600), { code: "MAC_SIGNING_AGENT_UNSAFE_PATH" });
 });
-test("codesign execution reconstructs fixed argv, preserves order & bounds duration", (t) => {
+test("codesign execution reconstructs fixed argv, preserves order & bounds duration", { skip: WINDOWS_SKIP }, (t) => {
   const f = fixture(t), calls = [];
   const request = validateSigningRequest({ ...f.request, items: [...f.request.items, { path: f.artifact, identity: "SHA1", preserveEntitlements: true }] }, f.policy);
   const report = executeSigningRequest(request, { home: f.home, environmentPath: "/usr/bin", run(command, args, options) {
@@ -111,7 +114,7 @@ function mockClient(report, { raw, error } = {}) {
   return { paths: { directory: "directory", socket: "socket", token: "token", plist: "plist" }, io, timeoutMs: 100,
     connect() { queueMicrotask(() => socket.emit("connect")); return socket; }, frame: () => frame };
 }
-test("socket client frames typed JSON with local token & rejects invalid/incomplete/secret-bearing reports", async () => {
+test("socket client frames typed JSON with local token & rejects invalid/incomplete/secret-bearing reports", { skip: WINDOWS_SKIP }, async () => {
   const request = { schema: 1, type: "updater", files: ["/artifact"] }, success = { schema: 1, ok: true, results: [{ status: 0, stdout: "", stderr: "" }] };
   const f = mockClient(success);
   assert.deepEqual(await requestSigningAgent(request, f), success);
@@ -122,7 +125,7 @@ test("socket client frames typed JSON with local token & rejects invalid/incompl
   await assert.rejects(requestSigningAgent(request, mockClient(null, { error: { code: "ECONNREFUSED" } })), { code: "MAC_SIGNING_AGENT_UNAVAILABLE" });
   await assert.rejects(requestSigningAgent(request, mockClient({ schema: 1, ok: false, code: "MAC_SIGNING_AGENT_AUTH", message: "SECRET" })), (e) => e.code === "MAC_SIGNING_AGENT_AUTH" && !e.message.includes("SECRET"));
 });
-test("codesign-argv socket client accepts nonzero exits verbatim & rejects malformed results", async () => {
+test("codesign-argv socket client accepts nonzero exits verbatim & rejects malformed results", { skip: WINDOWS_SKIP }, async () => {
   const request = { schema: 1, type: "codesign-argv", argv: ["-d", "/artifact"], targets: ["/artifact"] };
   const report = { schema: 1, ok: true, results: [{ status: 36, stdout: " untrimmed\n", stderr: "\nerror\r\n" }] };
   assert.deepEqual(await requestSigningAgent(request, mockClient(report)), report);
@@ -140,7 +143,7 @@ test("sync client sends no inherited secrets or token in environment/argv", () =
     return { status: 0, stdout: JSON.stringify(report) };
   } });
 });
-test("LaunchAgent install writes private standalone runtime & required invisible Aqua plist, bootstraps gui uid", (t) => {
+test("LaunchAgent install writes private standalone runtime & required invisible Aqua plist, bootstraps gui uid", { skip: WINDOWS_SKIP }, (t) => {
   const f = fixture(t), calls = []; let attempts = 0, clock = 0;
   const run = (command, args) => { calls.push([command, args]); return { status: args[0] === "print" && args[1].includes(AGENT_LABEL) ? 113 : 0, stdout: command === "/usr/bin/which" ? "/fixed/pnpm\n" : "" }; };
   const installed = installSigningAgent({ home: f.home, uid: process.getuid(), username: "fixture", platform: "darwin", io: fs, run, managedRoot: f.managed,
@@ -155,14 +158,14 @@ test("LaunchAgent install writes private standalone runtime & required invisible
   assert.deepEqual(fs.readdirSync(paths.runtime).sort(), ["background-process.mjs", "codesign-argv.mjs", "managed-roots.mjs", "rightkit-signing-agent.mjs"]);
   assert.match(signingAgentPlist({ paths, home: "<&'", node: '/<&"node' }), /&lt;&amp;&quot;node/);
 });
-test("install rejects no-GUI session without writing anything; failed bootstrap remains typed", (t) => {
+test("install rejects no-GUI session without writing anything; failed bootstrap remains typed", { skip: WINDOWS_SKIP }, (t) => {
   const f = fixture(t);
   assert.throws(() => installSigningAgent({ home: f.home, platform: "darwin", run: () => ({ status: 113 }) }), { code: "MAC_SIGNING_NO_GUI_SESSION" });
   assert.ok(!fs.existsSync(signingAgentPaths(f.home).directory));
   assert.throws(() => installSigningAgent({ home: f.home, platform: "darwin", managedRoot: f.managed,
     run(command, args) { return { status: args[0] === "bootstrap" || (args[0] === "print" && args[1].includes(AGENT_LABEL)) ? 1 : 0, stdout: command === "/usr/bin/which" ? "/fixed/pnpm" : "" }; } }), { code: "MAC_SIGNING_AGENT_INSTALL_FAILED" });
 });
-test("status reports GUI & health separately; uninstall bootouts only owned agent & preserves siblings", (t) => {
+test("status reports GUI & health separately; uninstall bootouts only owned agent & preserves siblings", { skip: WINDOWS_SKIP }, (t) => {
   const f = fixture(t), paths = signingAgentPaths(f.home);
   fs.mkdirSync(paths.directory, { recursive: true, mode: 0o700 }); fs.mkdirSync(path.dirname(paths.plist), { recursive: true }); fs.writeFileSync(paths.plist, "plist", { mode: 0o600 });
   const sibling = path.join(path.dirname(paths.directory), "other-service"); fs.mkdirSync(sibling);
@@ -180,7 +183,7 @@ function serverSocket() {
   socket.end = (frame) => { socket.report = JSON.parse(frame); socket.destroyed = true; };
   return socket;
 }
-test("agent rotates token, rejects unauthenticated requests, logs metadata only & runs jobs serially", async (t) => {
+test("agent rotates token, rejects unauthenticated requests, logs metadata only & runs jobs serially", { skip: WINDOWS_SKIP }, async (t) => {
   const f = fixture(t), paths = signingAgentPaths(f.home), logs = [], calls = [];
   fs.mkdirSync(paths.directory, { recursive: true, mode: 0o700 }); fs.writeFileSync(paths.config, "{}", { mode: 0o600 });
   fs.writeFileSync(paths.token, "stale-token", { mode: 0o600 });
@@ -204,7 +207,7 @@ test("agent rotates token, rejects unauthenticated requests, logs metadata only 
   assert.deepEqual(logs.filter((e) => /request\.(started|completed)/.test(e.event)).map((e) => e.event), ["request.started", "request.completed", "request.started", "request.completed"]);
   assert.doesNotMatch(JSON.stringify(logs), new RegExp(`${token}|stale-token|Developer ID|${f.entitlement}`));
 });
-test("agent rejects arbitrary requests before spawning & suppresses thrown updater diagnostics", async (t) => {
+test("agent rejects arbitrary requests before spawning & suppresses thrown updater diagnostics", { skip: WINDOWS_SKIP }, async (t) => {
   const f = fixture(t), paths = signingAgentPaths(f.home), logs = [];
   fs.mkdirSync(paths.directory, { recursive: true, mode: 0o700 }); fs.writeFileSync(paths.config, "{}", { mode: 0o600 });
   let connection, calls = 0;
@@ -221,7 +224,7 @@ test("agent rejects arbitrary requests before spawning & suppresses thrown updat
   await new Promise((resolve) => setImmediate(resolve));
   assert.equal(socket.report.ok, false); assert.equal(calls, 1); assert.doesNotMatch(JSON.stringify(socket.report) + JSON.stringify(logs), /FAKE-PRIVATE-KEY/);
 });
-test("codesign-argv jobs log unique ids plus exit status, never argv/output/secrets", async (t) => {
+test("codesign-argv jobs log unique ids plus exit status, never argv/output/secrets", { skip: WINDOWS_SKIP }, async (t) => {
   const f = fixture(t), paths = signingAgentPaths(f.home), logs = [], calls = [];
   fs.mkdirSync(paths.directory, { recursive: true, mode: 0o700 }); fs.writeFileSync(paths.config, "{}", { mode: 0o600 });
   let connection;
@@ -243,7 +246,7 @@ test("codesign-argv jobs log unique ids plus exit status, never argv/output/secr
   assert.ok(completed.every((event) => event.type === "codesign-argv" && event.status === 36));
   assert.doesNotMatch(JSON.stringify(logs), /fixture-private|--sign/); assert.ok(!JSON.stringify(logs).includes(token));
 });
-test("managed request log is private & rotates at bounded size", (t) => {
+test("managed request log is private & rotates at bounded size", { skip: WINDOWS_SKIP }, (t) => {
   const f = fixture(t), file = path.join(f.home, "requests.jsonl");
   managedSigningLog(file, { event: "request.completed", id: "fixture", type: "codesign" });
   assert.equal(fs.statSync(file).mode & 0o777, 0o600);

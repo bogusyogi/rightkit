@@ -269,7 +269,7 @@ test("what stays opaque after packing is reported: NSIS payload and compressed D
   writeFileSync(join(dir, "plain.exe"), without(PE));
   const { findings, stats } = scanWithStats([dir]);
   assert.deepEqual(findings, []);
-  assert.deepEqual(stats.opaque.map((o) => [o.file.split("/").pop(), o.kind]).sort(), [["App.dmg", "dmg"], ["setup.exe", "nsis"]]);
+  assert.deepEqual(stats.opaque.map((o) => [o.file.split(/[\\/]/).pop(), o.kind]).sort(), [["App.dmg", "dmg"], ["setup.exe", "nsis"]]);
 });
 
 test("a sealed MSIX with a marked PE inside fails verification", async () => {

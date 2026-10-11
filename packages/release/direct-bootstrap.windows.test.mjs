@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "./background-process.mjs";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -17,7 +17,8 @@ const bootstrap = () => renderPowerShellBootstrap({
 });
 
 function runProbe(shell, body) {
-  const root = mkdtempSync(join(tmpdir(), "rightrelease-process-"));
+  // The long form of the temp directory: the script compares junction targets, which Windows reports in long form.
+  const root = mkdtempSync(join(realpathSync.native(tmpdir()), "rightrelease-process-"));
   try {
     const script = join(root, "install.ps1");
     const child = join(root, "child with spaces.cjs");
@@ -52,7 +53,7 @@ ${body}
     return JSON.parse(line.slice(7));
   } finally {
     // root is a freshly allocated fixture, never the real install root.
-    assert.ok(root.startsWith(join(tmpdir(), "rightrelease-process-")));
+    assert.ok(root.startsWith(join(realpathSync.native(tmpdir()), "rightrelease-process-")));
     rmSync(root, { recursive: true, force: true });
   }
 }

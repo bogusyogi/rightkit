@@ -107,7 +107,9 @@ const configPath = path.resolve(configName);
 const invocationRoot = path.dirname(configPath);
 const repoRoot = git(invocationRoot, ["rev-parse", "--show-toplevel"]);
 assertPrimaryReleaseCheckout(repoRoot);
-const relativeConfig = path.relative(repoRoot, configPath).replaceAll("\\", "/");
+// Native real paths: Git reports the long form of a Windows short name (RUNNER~1).
+const nativeReal = (file) => { try { return realpathSync.native(file); } catch { return file; } };
+const relativeConfig = path.relative(nativeReal(repoRoot), nativeReal(configPath)).replaceAll("\\", "/");
 if (relativeConfig.startsWith("../")) fail("release config must live inside the Git repository");
 const appRoot = path.dirname(configPath);
 const layout = resolveReleaseLayout({ repoRoot, configPath });

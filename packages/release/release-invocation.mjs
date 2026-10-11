@@ -12,8 +12,9 @@ function git(cwd, args) {
   return result.stdout;
 }
 
+// The native call expands Windows 8.3 short names (RUNNER~1), which Git reports in long form.
 function canonical(file) {
-  return path.normalize(realpathSync(file)).toLowerCase();
+  return path.normalize(realpathSync.native(file)).toLowerCase();
 }
 
 export function assertPrimaryReleaseCheckout(repoRoot, env = process.env) {

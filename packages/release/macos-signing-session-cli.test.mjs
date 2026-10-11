@@ -6,6 +6,9 @@ import { fileURLToPath } from "node:url";
 import test from "node:test";
 import { spawnSync } from "./background-process.mjs";
 
+// Not run on Windows: the macOS signing session runs on macOS.
+const WINDOWS_SKIP = process.platform === "win32" ? "the macOS signing session runs on macOS" : false;
+
 const packageRoot = path.dirname(fileURLToPath(import.meta.url));
 function fixture(t) {
   const root = realpathSync(mkdtempSync(path.join(os.tmpdir(), "rightkit-sign-cli-test-")));
@@ -60,7 +63,7 @@ childProcess.spawnSync = (command, args, options) => {
   return { root, app, artifact, invoke };
 }
 
-test("release CLI routes timestamped Developer ID signing through agent, verifies from SSH & writes receipt", (t) => {
+test("release CLI routes timestamped Developer ID signing through agent, verifies from SSH & writes receipt", { skip: WINDOWS_SKIP }, (t) => {
   const f = fixture(t);
   const receipt = path.join(f.root, "receipt.json");
   const calls = f.invoke("sign-macos.mjs", ["--receipt", receipt, f.app]);
@@ -72,7 +75,7 @@ test("release CLI routes timestamped Developer ID signing through agent, verifie
   assert.equal(JSON.parse(readFileSync(receipt, "utf8")).files[0].timestampPresent, true);
 });
 
-test("release CLI in Aqua keeps codesign direct", (t) => {
+test("release CLI in Aqua keeps codesign direct", { skip: WINDOWS_SKIP }, (t) => {
   const f = fixture(t);
   const calls = f.invoke("sign-macos.mjs", ["--receipt", path.join(f.root, "receipt.json"), f.app], false);
   assert.equal(calls.find((c) => c.args.includes("--sign")).command, "codesign");
@@ -80,7 +83,7 @@ test("release CLI in Aqua keeps codesign direct", (t) => {
 });
 
 for (const helper of ["sign-updater.mjs", "create-mac-updater.mjs"]) {
-  test(`${helper} keeps SSH updater key read & signing inside agent`, (t) => {
+  test(`${helper} keeps SSH updater key read & signing inside agent`, { skip: WINDOWS_SKIP }, (t) => {
     const f = fixture(t);
     const args = helper === "sign-updater.mjs" ? ["--file", f.artifact] : ["--app", f.app, "--output", f.artifact, "--cwd", f.root];
     const calls = f.invoke(helper, args);

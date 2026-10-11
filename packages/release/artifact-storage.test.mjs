@@ -13,9 +13,14 @@ import {
   resolveArtifactDir,
   artifactProcessIdentity,
 } from "./artifact-storage.mjs";
+import fs from "node:fs";
+import os from "node:os";
+
+// macOS: /private/tmp is the real path behind /tmp. Elsewhere: the system temp directory in its real, long form.
+const TEST_TMP = process.platform === "darwin" ? "/private/tmp" : fs.realpathSync.native(os.tmpdir());
 
 function fixture() {
-  const root = mkdtempSync(path.join("/private/tmp", "rightkit-artifact-storage-"));
+  const root = mkdtempSync(path.join(TEST_TMP, "rightkit-artifact-storage-"));
   return { root, managedRoot: path.join(root, "managed") };
 }
 

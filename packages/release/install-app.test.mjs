@@ -6,6 +6,9 @@ import test from "node:test";
 import { EventEmitter } from "node:events";
 import { createSwapPaths, resolveSwapHelper, recoverApp, recoverInstalls, journalPathFor, installApp, matchPids, mountPointsFromAttach, parseArgs, parseTeamId, parsePlist, trashName, main } from "./install-app.mjs";
 
+// Not run on Windows: installs a macOS app bundle and signals processes the POSIX way.
+const WINDOWS_SKIP = process.platform === "win32" ? "installs a macOS app bundle and signals processes the POSIX way" : false;
+
 const PLIST = `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict><key>system-entities</key><array>
@@ -121,7 +124,7 @@ function harness({ team = "TEAM1", installedTeam = "TEAM1", fail = {}, running =
   return { root, mount, dest, home, deps, fakeSwap, opts, calls, kills, events, marker: () => fs.readFileSync(path.join(dest, "Pulse.app", "Contents", "marker"), "utf8") };
 }
 
-test("happy path replaces, trashes old, quits with SIGTERM, relaunches hidden because it was running", async () => {
+test("happy path replaces, trashes old, quits with SIGTERM, relaunches hidden because it was running", { skip: WINDOWS_SKIP }, async () => {
   const h = harness({ running: true });
   const r = await installApp(h.opts, h.deps);
   assert.equal(r.ok, true);
@@ -135,7 +138,7 @@ test("happy path replaces, trashes old, quits with SIGTERM, relaunches hidden be
   assert.ok(!h.calls.some((c) => /osascript/.test(c[0])));
 });
 
-test("not running and --no-relaunch: no open call; SIGKILL after stubborn process", async () => {
+test("not running and --no-relaunch: no open call; SIGKILL after stubborn process", { skip: WINDOWS_SKIP }, async () => {
   const h = harness();
   h.opts.relaunch = false;
   await installApp(h.opts, h.deps);
@@ -215,7 +218,7 @@ test("parseArgs --dev accepts dmg, zip, or app, exclusively; zip/app need --dev"
   assert.equal(parseArgs(["--dmg", "a.dmg"]).dev, false);
 });
 
-test("--dev zip install: skips spctl/stapler, clears quarantine on the new bundle only, flags dev", async () => {
+test("--dev zip install: skips spctl/stapler, clears quarantine on the new bundle only, flags dev", { skip: WINDOWS_SKIP }, async () => {
   const h = harness({ running: true });
   h.opts = { ...h.opts, dmg: null, zip: path.join(h.root, "p.zip"), dev: true };
   const r = await installApp(h.opts, h.deps);
@@ -350,7 +353,7 @@ for (const [name, at, expectMarker] of [
   ["after backup rename, before staged rename", (from, to) => (to.includes(".rightkit-backup-") ? "after" : null), "old"],
   ["after staged rename, before trash", (from, to) => (to.endsWith("/Pulse.app") && from.includes(".rightkit-install-") ? "after" : null), "new"],
 ]) {
-  test(`kill ${name}: recovery leaves exactly one valid bundle, idempotently`, async () => {
+  test(`kill ${name}: recovery leaves exactly one valid bundle, idempotently`, { skip: WINDOWS_SKIP }, async () => {
     const h = harness();
     const c = crashing(h, { at });
     await assert.rejects(installApp(h.opts, c.deps), /kill after rename/);
@@ -366,7 +369,7 @@ for (const [name, at, expectMarker] of [
   });
 }
 
-test("kill after staged rename with a bad new bundle rolls back to the backup", async () => {
+test("kill after staged rename with a bad new bundle rolls back to the backup", { skip: WINDOWS_SKIP }, async () => {
   const h = harness();
   const c = crashing(h, { at: (from, to) => (to.endsWith("/Pulse.app") && from.includes(".rightkit-install-") ? "after" : null) });
   await assert.rejects(installApp(h.opts, c.deps), /kill after rename/);

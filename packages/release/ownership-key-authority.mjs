@@ -37,7 +37,7 @@ function validateAuthority(authority) {
   if (typeof authority.checkoutPath !== "string" || !path.isAbsolute(authority.checkoutPath) || authority.checkoutPath.includes("\0")) throw new Error("protected key authority checkoutPath must be absolute");
   const repositoryIdentity = canonicalRepositoryIdentity(authority.repositoryIdentity);
   if (repositoryIdentity !== authority.repositoryIdentity) throw new Error("protected key authority identity must be canonical");
-  const checkoutPath = realpathSync(authority.checkoutPath);
+  const checkoutPath = realpathSync.native(authority.checkoutPath);
   if (!statSync(checkoutPath).isDirectory()) throw new Error("protected key authority checkoutPath must be a directory");
   return { repositoryIdentity, checkoutPath };
 }

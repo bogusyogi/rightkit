@@ -9,6 +9,9 @@ import { requestSigningAgent, requestSigningAgentSync } from "./signing-agent-cl
 import { runMacGuiNotarization } from "./macos-signing-session.mjs";
 import { notarizeMacosArtifact, stapleMacosArtifact, validateNotarizationReceipt } from "./macos-notarization.mjs";
 
+// Not run on Windows: notarization runs on macOS (POSIX ownership and modes).
+const WINDOWS_SKIP = process.platform === "win32" ? "notarization runs on macOS (POSIX ownership and modes)" : false;
+
 const submissionId = "12345678-1234-1234-1234-123456789abc";
 const jobId = "abcdef12-1234-1234-1234-123456789abc";
 const secret = "FAKE-API-PRIVATE-SECRET";
@@ -98,7 +101,7 @@ test("deadline kills stalled xcrun & reports timeout with submit exit", async (t
   assert.equal(mock.children[0].killed, "SIGKILL");
 });
 
-test("Accepted ZIP staples app bundle; PKG staples container", async (t) => {
+test("Accepted ZIP staples app bundle; PKG staples container", { skip: WINDOWS_SKIP }, async (t) => {
   const f = fixture(t), app = path.join(f.root, "App.app"); fs.mkdirSync(app);
   for (const extension of ["zip", "pkg"]) {
     const file = path.join(f.root, `signed.${extension}`); fs.writeFileSync(file, "signed");
@@ -121,7 +124,7 @@ for (const [options, steps] of [[{ stapleExit: 65 }, ["submit", "staple"]], [{ v
   });
 }
 
-test("SSH/non-Aqua routing preserves seal receipt schema & final-byte digest; GUI retains API auth", (t) => {
+test("SSH/non-Aqua routing preserves seal receipt schema & final-byte digest; GUI retains API auth", { skip: WINDOWS_SKIP }, (t) => {
   const f = fixture(t), receiptPath = path.join(f.root, "macos-notarization.json"), calls = [];
   const env = { SSH_CONNECTION: "ssh", APPLE_API_KEY_PATH: secret, APPLE_API_KEY: secret, APPLE_API_ISSUER: secret };
   const request = (plan) => {
@@ -148,7 +151,7 @@ test("SSH/non-Aqua routing preserves seal receipt schema & final-byte digest; GU
   assert.equal(calls.length, 2);
 });
 
-test("missing or old agent installs once & retries; no GUI remains typed; timeout never installs", (t) => {
+test("missing or old agent installs once & retries; no GUI remains typed; timeout never installs", { skip: WINDOWS_SKIP }, (t) => {
   const f = fixture(t);
   for (const old of [false, true]) {
     let attempts = 0, installs = 0;
@@ -165,7 +168,7 @@ test("missing or old agent installs once & retries; no GUI remains typed; timeou
     request: () => { throw Object.assign(new Error(), { code: "MAC_SIGNING_AGENT_TIMEOUT" }); }, install: () => assert.fail() }), { code: "MAC_SIGNING_AGENT_TIMEOUT" });
 });
 
-test("SSH standalone stapling goes through agent & failed jobs never write sealable receipts", (t) => {
+test("SSH standalone stapling goes through agent & failed jobs never write sealable receipts", { skip: WINDOWS_SKIP }, (t) => {
   const f = fixture(t), receiptPath = path.join(f.root, "receipt.json");
   const options = { env: { SSH_TTY: "ssh" }, cwd: f.root, allowedRoots: [f.root], run: guiRun };
   const stapled = stapleMacosArtifact(f.file, { ...options, request(plan) {
@@ -177,7 +180,7 @@ test("SSH standalone stapling goes through agent & failed jobs never write seala
   assert.equal(fs.existsSync(receiptPath), false);
 });
 
-test("SSH receipt preserves caller path spelling across symlinked roots", (t) => {
+test("SSH receipt preserves caller path spelling across symlinked roots", { skip: WINDOWS_SKIP }, (t) => {
   const f = fixture(t), alias = path.join(f.root, "alias"); fs.symlinkSync(f.root, alias);
   const archive = path.join(alias, "signed.dmg"), receiptPath = path.join(f.root, "receipt.json");
   const receipt = notarizeMacosArtifact({ archive, receiptPath, env: { SSH_CONNECTION: "ssh" }, cwd: f.root,
@@ -197,7 +200,7 @@ function socketClient(frames, onProgress = () => {}) {
       isDirectory: () => file === "directory", isSocket: () => file === "socket", isFile: () => ["plist", "token"].includes(file) }), readFileSync: () => "a".repeat(64) },
     connect() { queueMicrotask(() => socket.emit("connect")); return socket; } };
 }
-test("client handles split/coalesced progress frames & failure reports without secret diagnostics", async () => {
+test("client handles split/coalesced progress frames & failure reports without secret diagnostics", { skip: WINDOWS_SKIP }, async () => {
   const frames = [{ schema: 1, event: "status", step: "submit", id: jobId }, { schema: 1, event: "heartbeat", id: jobId }];
   const progress = [], report = success("/tmp/test.dmg");
   assert.deepEqual(await requestSigningAgent({ type: "notarize" }, socketClient([...frames, report], (frame) => progress.push(frame))), report);
@@ -213,7 +216,7 @@ test("client handles split/coalesced progress frames & failure reports without s
   assert.throws(sync, (error) => error.report?.id === jobId);
 });
 
-test("agent emits live heartbeats with per-job ids during silent xcrun & queued jobs; logs only metadata", async (t) => {
+test("agent emits live heartbeats with per-job ids during silent xcrun & queued jobs; logs only metadata", { skip: WINDOWS_SKIP }, async (t) => {
   const f = fixture(t), paths = signingAgentPaths(f.root), logs = [], mock = mockXcrun({ delay: 15 });
   fs.mkdirSync(paths.directory, { recursive: true, mode: 0o700 }); fs.writeFileSync(paths.config, "{}", { mode: 0o600 });
   let connection;

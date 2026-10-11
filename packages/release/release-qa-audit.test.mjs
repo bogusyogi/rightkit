@@ -7,6 +7,7 @@ import { spawnSync } from "./background-process.mjs";
 import {
   admitInstalledQa, admitSourceQa, auditMain, auditQa, formatAuditTable, installedQaRecordPath,
 } from "./release-qa-audit.mjs";
+import { fileURLToPath } from "node:url";
 
 const SHA = (c) => c.repeat(64);
 const refusingKey = { read() { throw new Error("no key in test"); } };
@@ -136,7 +137,7 @@ test("right-release qa audit is wired through the CLI", () => {
   const root = repo();
   try {
     seal(root, "app-1.0.0-aaaaaaaa", "mac", { status: "passed", sourceReceiptDigest: SHA("1"), floorDigest: SHA("2") });
-    const cli = path.join(path.dirname(new URL(import.meta.url).pathname), "cli", "right-release.mjs");
+    const cli = path.join(path.dirname(fileURLToPath(import.meta.url)), "cli", "right-release.mjs");
     const result = spawnSync(process.execPath, [cli, "qa", "audit", "--app", root], { encoding: "utf8" });
     assert.equal(result.status, 0, result.stderr);
     assert.match(result.stdout, /app-1\.0\.0-aaaaaaaa/);

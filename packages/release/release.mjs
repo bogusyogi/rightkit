@@ -138,7 +138,8 @@ if (opts.resumeFrom && !MAC_RESUME_PHASES.includes(opts.resumeFrom)) usage(2, `i
 const sccacheVersion = assertSharedSccachePrerequisite();
 
 const requestedConfigPath = path.resolve(opts.config);
-const configPath = opts.doctor ? realpathSync(requestedConfigPath) : requestedConfigPath;
+// Native: expands a Windows short name (RUNNER~1), so the path compares with Git's long root below.
+const configPath = opts.doctor ? realpathSync.native(requestedConfigPath) : requestedConfigPath;
 let doctorInvocation;
 if (opts.doctor) {
   const invocationRoot = path.dirname(configPath);

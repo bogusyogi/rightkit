@@ -7,6 +7,10 @@ import test from "node:test";
 import { spawnSync } from "./background-process.mjs";
 import { MANAGED_HOST_ENV_SECRET_REFUSED } from "./managed-host-secrets.mjs";
 import { appleProfileAuth, configuredAppleProfile, decodeAppleProfile, describeAppleProfile, entitlementsSuperset, main, renewAppleProfile, signAppleApiJwt } from "./apple-profile-renew.mjs";
+import { fileURLToPath } from "node:url";
+
+// Not run on Windows: Apple profile renewal runs on macOS.
+const WINDOWS_SKIP = process.platform === "win32" ? "Apple profile renewal runs on macOS" : false;
 
 // Synthetic public certificate fixtures; no Apple private signing material.
 const releaseCertificate = "MIIDizCCAnOgAwIBAgIUOVtNhnSONprpVGyOy5KS4rF7WawwDQYJKoZIhvcNAQELBQAwVTE+MDwGA1UEAww1RGV2ZWxvcGVyIElEIEFwcGxpY2F0aW9uOiBBZHJpYW4gRCdzb3V6YSAoNktMR0QzTExLRikxEzARBgNVBAsMCjZLTEdEM0xMS0YwHhcNMjYxMDA4MDY0NzExWhcNMzYxMDA1MDY0NzExWjBVMT4wPAYDVQQDDDVEZXZlbG9wZXIgSUQgQXBwbGljYXRpb246IEFkcmlhbiBEJ3NvdXphICg2S0xHRDNMTEtGKTETMBEGA1UECwwKNktMR0QzTExLRjCCASIwDQYJKoZIhvcNAQEBBQADggEPADCCAQoCggEBAJhlP4N8VQKkkHb7DA6vupCpMfdcN7cSXxo58PxZs0aVx+wGm+UIcTWoVzOtc+A2j1Jt+XCu2kum+fzeem9N0qWbxbLpMZD/2nh2EixN7cKtHIi+BM+1K1RGLWNQ7SHov36k6xUFueeWAkgs/h415yB/Wvl3m9htBjy2VnNpykEN1xoZ67WofhC39gxgP016xxFHHGHuieefPCkZ32xlc8dIfeWKlaiIzmJ1QSTIVQob94NKnehn+17S6uuSNxxt3sr+5Pp9vmHAqE3rzbVeLmwo1HP3jaduXpZxE1WgAlS0i9P4ZIrwvqU+zyQ8o1Ry9Sukq7KhFJPEivZIyfQLO7sCAwEAAaNTMFEwHQYDVR0OBBYEFD+GLnlvn6meULbXJax7aj4cQXUcMB8GA1UdIwQYMBaAFD+GLnlvn6meULbXJax7aj4cQXUcMA8GA1UdEwEB/wQFMAMBAf8wDQYJKoZIhvcNAQELBQADggEBAEvWu0nBG5Y3GGqSBp3JAjfcDsZ6xtaDbidWHuBWjrCMOGBSu4uGf0ytWGRJo3G0BGBi8vnr1TwTOQ6Pe0deEoMyqycMqGYxBNF8xhblBJ2aWLRyJPe64NNlwbvKZTBrnJuqOVVKLAwxixgbFE6LYj+QODBxIy2z7dAPBcpLuIiBHcVxncKIteoZRyxOqvq47z8QdEFUqo4XruqkkZ97BajLwkpfoMnM57gXQglvNWPOFsmXS26PV1K0LEsCu90VXyRs9SVaSrWkBvuTo1n55+/OLyLNYPTLJhkF8a9XyXQWTBcL+qpWDDv+4Js+PoNTyv2IDu8oiDQ/JvXTAv6lhHc=";
@@ -226,14 +230,14 @@ test("concurrent profile change cannot be overwritten", async (t) => {
   assert.equal(readFileSync(f.file, "utf8"), "other writer's profile");
 });
 
-test("CLI parser runs mocked dry-run from config & rejects malformed options", async (t) => {
+test("CLI parser runs mocked dry-run from config & rejects malformed options", { skip: WINDOWS_SKIP }, async (t) => {
   const f = fixture(t);
   const configFile = path.join(f.root, "right-release.config.mjs");
   writeFileSync(configFile, `export default ${JSON.stringify(f.options.config)}`);
   const result = await main(["profile", "renew", "--config", configFile, "--dry-run"], f.options);
   assert.equal(result.dryRun, true);
   await assert.rejects(main(["profile", "renew", "--profile"]), { code: "APPLE_PROFILE_USAGE" });
-  const cli = spawnSync(process.execPath, [new URL("./cli/right-release.mjs", import.meta.url).pathname, "apple", "profile", "renew", "--help"], { encoding: "utf8" });
+  const cli = spawnSync(process.execPath, [fileURLToPath(new URL("./cli/right-release.mjs", import.meta.url)), "apple", "profile", "renew", "--help"], { encoding: "utf8" });
   assert.equal(cli.status, 0, cli.stderr);
   assert.match(cli.stdout, /APPLE_API_ISSUER/);
   assert.match(cli.stdout, /GET discovery only/);
