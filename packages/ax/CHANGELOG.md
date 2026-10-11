@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.3.1
+
+Fixes to argument parsing across the CLI. No new commands; exports unchanged.
+
+- `--help` or `-h` anywhere after a command prints that command's usage and exits 0 without touching the filesystem. Previously `plugin init --help` treated `--help` as the target directory and wrote `plugin.json` and `skills/rightkit-shared/SKILL.md` into the current directory.
+- Every subcommand now declares its options. An unknown flag, a stray positional, or a target starting with `-` exits 2 before any write.
+- `plugin init` requires an explicit target directory; it no longer defaults to the current directory. It creates a missing target (recursively), removing the directory again if scaffolding then fails. It refuses to write into a directory that already has `plugin.json` unless `--force` is given.
+- `adopt <repo-path>` now uses the positional target. Previously the target was ignored and the current directory was adopted. `adopt --dry-run` as the last argument no longer writes `.rightax.json`.
+- `plugin init` on a missing directory now succeeds instead of exiting 1 with "repo path does not exist".
+- New tests in `plugin-init-args.test.mjs`; `cli.test.mjs` replaces the missing-path test.
+
 ## 0.3.0
 
 Additive. Existing commands, exports and the `ax static` gates behave as before.

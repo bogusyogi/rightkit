@@ -12,7 +12,7 @@ Agent-experience (AX) conformance gates and agent-plugins.org packaging checks f
 ## What it does
 
 - `right-ax plugin init|validate`: scaffold and validate an agent-plugins.org layout (`plugin.json`, `skills/<name>/SKILL.md`, optional `mcp.json`, optional `hooks/hooks.json`) and the Claude (`.claude-plugin/`) and Codex (`.codex-plugin/`) host manifests. `plugin validate` includes the skill description gate.
-- `right-ax marketplace build|validate`: generate and check the one suite marketplace from `marketplace/plugins.json`. See "Suite plugins".
+- `right-ax marketplace build|validate`: generate and check a plugin marketplace from a source list (`marketplace/plugins.json`). The suite marketplace lives in the `Orthic-Labs/right-plugins` repository, not in RightKit. See "Suite plugins".
 - `right-ax ax static`: static contract checks over an MCP surface. MCP gates need `--artifact-root`, an external clean-room directory.
 - `right-ax ax conformance`: spawn the product's MCP server over stdio and probe it.
 - `right-ax ax behavioral`: scenario suites. `--matrix` needs a configured real-agent matrix.
@@ -72,6 +72,8 @@ pnpm exec right-ax plugin validate .
 
 This writes `plugin.json` (agent-plugins.org), `.claude-plugin/plugin.json`, `.codex-plugin/plugin.json` and `skills/<name>/SKILL.md`. It writes no `mcp.json`. The generated skill body is a seed: it tells the agent to check the binary is installed and to read `--help`. Replace it with the real commands, flags, output shapes and exit codes of your CLI, and keep every command in it true for the installed app, not a dev checkout. Scaffolding throws if the description fails the gate, so a vague description cannot be scaffolded.
 
+`plugin init` argument rules: the target directory is required (there is no default to the current directory), and it is created, recursively, when it is missing. If `plugin.json` already exists there, `plugin init` refuses and writes nothing; pass `--force` to overwrite it. `--help` or `-h` anywhere on a command prints that command's usage and exits 0 without touching the filesystem. An unknown flag, a stray positional, or a target starting with `-` exits 2 before anything is written.
+
 ### The description rule
 
 A skill is used only if its one-line description matches the request, so `plugin validate` gates it. It fails when any of these hold:
@@ -94,16 +96,25 @@ The gate checks form, not truth. Test a new description by asking whether a real
 
 ### How it lands in the suite marketplace
 
-`marketplace/plugins.json` lists plugin sources: git URL, `ref`, optional `sha`, `version`, and a `path` per host. An entry appears only when its plugin exists and is pushed. Add yours, then from the repository root:
+The suite marketplace is its own small public repository, `Orthic-Labs/right-plugins` (local checkout `right-plugins` beside the others). It holds only the plugins and the marketplace manifest; the apps' source repositories stay private, and RightKit no longer carries a marketplace.
+
+Flow:
+
+1. The app chat authors `plugins/<app>/` in its own repository and validates it with `pnpm exec right-ax plugin validate plugins/<app>`.
+2. The RightKit lead copies the committed plugin (`git archive HEAD plugins/<app>`) into `right-plugins/plugins/<app>/`, records the source commit in `SOURCES.json`, rebuilds the manifest, and pushes.
+
+In `right-plugins`, `marketplace/plugins.json` lists plugin sources: git URL, `ref`, optional `sha`, `version`, and a `path` per host. Then from its root:
 
 ```sh
-pnpm exec right-ax marketplace build
-pnpm exec right-ax marketplace validate --workspace <dir holding one checkout per repo>   # or --fetch
+right-ax marketplace build
+right-ax marketplace validate --workspace <dir holding one checkout per repo>   # or --fetch
 ```
 
-`build` writes `.claude-plugin/marketplace.json` (the path Claude Code reads in a marketplace repository; `build --check` reports drift). A Codex `.agents/plugins/marketplace.json` is written only for plugins vendored in this repository (`hosts.codex.local`), because only the `local` source is evidenced in Pulse. `validate` checks the list, that the generated file is current, and that every listed plugin resolves and passes `plugin validate` on every host path; its manifest name must equal the entry name and its version the entry version. `--fetch` clones the listed `ref` (or `sha`) from the network; `--workspace` validates working trees and says so. `knownIssues` on an entry waives plugin-validate errors visibly (never identity or resolution errors) until the plugin's owner fixes them.
+`build` writes `.claude-plugin/marketplace.json` (the path Claude Code reads in a marketplace repository; `build --check` reports drift). A Codex `.agents/plugins/marketplace.json` is written only for plugins vendored in the repository (`hosts.codex.local`), because only the `local` source is evidenced in Pulse. `validate` checks the list, that the generated file is current, and that every listed plugin resolves and passes `plugin validate` on every host path; its manifest name must equal the entry name and its version the entry version. `--fetch` clones the listed `ref` (or `sha`) from the network; `--workspace` validates working trees and says so (the directory holds one checkout per repository, named after the repository). `knownIssues` on an entry waives plugin-validate errors visibly (never identity or resolution errors) until the plugin's owner fixes them.
 
-Users add the whole suite once: `/plugin marketplace add Orthic-Labs/rightkit`, then install any listed plugin.
+Gap: `build` can only emit remote sources (`url`, `git-subdir`), but `right-plugins` vendors its plugins and uses the relative-path form Pulse and Legion use. Its `.claude-plugin/marketplace.json` is therefore rewritten by hand after `build`, and `validate` reports drift on that file (use `--no-drift`) until `build` learns a vendored source.
+
+Users add the whole suite once: `/plugin marketplace add Orthic-Labs/right-plugins`, then install any listed plugin.
 
 Remote sources in the Claude manifest use `{ "source": "url" | "git-subdir", ... }`. These two shapes are from Claude Code's marketplace documentation, not from a file in this workspace (Pulse and Legion use relative-path sources). Confirm with a real `/plugin marketplace add` before relying on it.
 

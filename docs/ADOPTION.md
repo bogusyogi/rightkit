@@ -84,7 +84,7 @@ Status values compare each pin with the latest published version (registry-recor
 | `rightkit-watch` | crates.io | 0.4.0 | 0.3.1 | 2 | coderight, viewright | 1 vendored copy |
 | `@rightkit/agent-room-mcp` | private | 0.1.0 | none recorded | 0 | none | - |
 | `@rightkit/app-shell` | npm | 0.6.4 | 0.6.2 | 7 | coderight, cutright, genright, heardright, postright, scraperight, viewright | 5 stale |
-| `@rightkit/ax` | npm | 0.3.0 | 0.2.4 | 2 | coderight, legion | - |
+| `@rightkit/ax` | npm | 0.3.1 | 0.2.4 | 2 | coderight, legion | - |
 | `@rightkit/build-control-policy` | private | 0.1.1-phase1 | none recorded | 0 | none | - |
 | `@rightkit/doc-render` | npm | 0.1.6 | 0.1.6 | 1 | viewright | - |
 | `@rightkit/git` | npm | 0.2.42 | 0.2.42 | 2 | coderight, legion | 2 stale |
