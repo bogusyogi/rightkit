@@ -407,19 +407,19 @@ test("upload (real npm) builds the publish command from the sealed tarball and i
   assert.deepEqual(doc.receipts[0], { ...doc.receipts[0], unit: "@rightkit/a", published: true, registryVerified: true, sha256: sealed.manifest.units[0].sha256, commit: SHA, registry: "npm", dryRun: false });
   // credentials missing or crossed
   await assert.rejects(executeUpload({ env: actionsEnv({ ...oidc }), packDir: sealed.dir, receiptsDir, outDir, dryRun: false, spawn, fetchImpl: npmFetch(sealed) }), /NODE_AUTH_TOKEN is not set/);
-  await assert.rejects(executeUpload({ env: actionsEnv({ NODE_AUTH_TOKEN: "t", CARGO_REGISTRY_TOKEN: "c", ...oidc }), packDir: sealed.dir, receiptsDir, outDir, dryRun: false, spawn, fetchImpl: npmFetch(sealed) }), /CARGO_REGISTRY_TOKEN must not be present/);
-  await assert.rejects(executeUpload({ env: actionsEnv({ NODE_AUTH_TOKEN: "t" }), packDir: sealed.dir, receiptsDir, outDir, dryRun: false, spawn, fetchImpl: npmFetch(sealed) }), /needs id-token: write/);
+  await assert.rejects(executeUpload({ env: actionsEnv({ NODE_AUTH_TOKEN: "npm-secret-token", CARGO_REGISTRY_TOKEN: "crate-secret-token", ...oidc }), packDir: sealed.dir, receiptsDir, outDir, dryRun: false, spawn, fetchImpl: npmFetch(sealed) }), /CARGO_REGISTRY_TOKEN must not be present/);
+  await assert.rejects(executeUpload({ env: actionsEnv({ NODE_AUTH_TOKEN: "npm-secret-token" }), packDir: sealed.dir, receiptsDir, outDir, dryRun: false, spawn, fetchImpl: npmFetch(sealed) }), /needs id-token: write/);
 });
 
 test("upload refuses a registry that serves different bytes than the sealed tarball", async () => {
   const sealed = sealNpm();
   const { spawn } = spy({ npm: () => ({ status: 0, stdout: "", stderr: "" }) });
   const fetchImpl = async () => ({ status: 200, ok: true, text: async () => JSON.stringify({ dist: { shasum: "0".repeat(40), integrity: "sha512-x" } }) });
-  await assert.rejects(executeUpload({ env: actionsEnv({ NODE_AUTH_TOKEN: "t", ...oidc }), packDir: sealed.dir, receiptsDir: receipts(sealed.dir, sealed.manifest), outDir: tmp("out"), dryRun: false, spawn, fetchImpl, pause: 1 }), /serves different bytes/);
+  await assert.rejects(executeUpload({ env: actionsEnv({ NODE_AUTH_TOKEN: "npm-secret-token", ...oidc }), packDir: sealed.dir, receiptsDir: receipts(sealed.dir, sealed.manifest), outDir: tmp("out"), dryRun: false, spawn, fetchImpl, pause: 1 }), /serves different bytes/);
 });
 
 test("upload refuses when the sealed bytes, the commit or the receipts do not bind", async () => {
-  const run = (sealed, receiptsDir, env = actionsEnv({ NODE_AUTH_TOKEN: "t", ...oidc })) => executeUpload({ env, packDir: sealed.dir, receiptsDir, outDir: tmp("out"), dryRun: false, spawn: spy({ npm: () => ({ status: 0, stdout: "", stderr: "" }) }).spawn, fetchImpl: npmFetch(sealed), pause: 1 });
+  const run = (sealed, receiptsDir, env = actionsEnv({ NODE_AUTH_TOKEN: "npm-secret-token", ...oidc })) => executeUpload({ env, packDir: sealed.dir, receiptsDir, outDir: tmp("out"), dryRun: false, spawn: spy({ npm: () => ({ status: 0, stdout: "", stderr: "" }) }).spawn, fetchImpl: npmFetch(sealed), pause: 1 });
   // a tarball changed after packing
   let sealed = sealNpm();
   const receiptsDir = receipts(sealed.dir, sealed.manifest);
@@ -465,17 +465,17 @@ test("upload refuses when the sealed bytes, the commit or the receipts do not bi
   await assert.rejects(run(sealed, receipts(sealed.dir, sealed.manifest, { override: { runAttempt: "x" } })), /not a positive integer/);
   await assert.rejects(run(sealed, receipts(sealed.dir, sealed.manifest, { override: { manifestRunAttempt: "9" } })), /it verified manifest run 77\/9/);
   const rerun = rewrite({ runAttempt: "1" });
-  await run(rerun, receipts(rerun.dir, rerun.manifest, { override: { runAttempt: "2" } }), actionsEnv({ GITHUB_RUN_ATTEMPT: "2", NODE_AUTH_TOKEN: "t", ...oidc })); // a re-run may reuse attempt 1's bytes
-  await assert.rejects(run(sealed, receipts(sealed.dir, sealed.manifest), actionsEnv({ GITHUB_RUN_ID: "", NODE_AUTH_TOKEN: "t", ...oidc })), /GITHUB_RUN_ID and GITHUB_RUN_ATTEMPT must be set/);
+  await run(rerun, receipts(rerun.dir, rerun.manifest, { override: { runAttempt: "2" } }), actionsEnv({ GITHUB_RUN_ATTEMPT: "2", NODE_AUTH_TOKEN: "npm-secret-token", ...oidc })); // a re-run may reuse attempt 1's bytes
+  await assert.rejects(run(sealed, receipts(sealed.dir, sealed.manifest), actionsEnv({ GITHUB_RUN_ID: "", NODE_AUTH_TOKEN: "npm-secret-token", ...oidc })), /GITHUB_RUN_ID and GITHUB_RUN_ATTEMPT must be set/);
   const rerunReceipts = receipts(rerun.dir, rerun.manifest, { override: { runAttempt: "1" } });
-  await run(rerun, rerunReceipts, actionsEnv({ GITHUB_RUN_ATTEMPT: "2", NODE_AUTH_TOKEN: "t", ...oidc }));
+  await run(rerun, rerunReceipts, actionsEnv({ GITHUB_RUN_ATTEMPT: "2", NODE_AUTH_TOKEN: "npm-secret-token", ...oidc }));
   assert.deepEqual(loadSealed({ packDir: rerun.dir, registry: "npm", unitsText: "@rightkit/a", run: { runId: "77", runAttempt: "2" } }).problems, []);
   // wrong commit, branch, repository, unit list
   const ok = receipts(sealed.dir, sealed.manifest);
-  await assert.rejects(run(sealed, ok, actionsEnv({ GITHUB_SHA: "c".repeat(40), NODE_AUTH_TOKEN: "t", ...oidc })), /not the dispatched commit/);
-  await assert.rejects(run(sealed, ok, actionsEnv({ GITHUB_REF: "refs/heads/dev", NODE_AUTH_TOKEN: "t", ...oidc })), /refs\/heads\/main only/);
-  await assert.rejects(run(sealed, ok, actionsEnv({ GITHUB_REPOSITORY: "someone/rightkit", NODE_AUTH_TOKEN: "t", ...oidc })), /in Orthic-Labs\/rightkit only/);
-  await assert.rejects(run(sealed, ok, actionsEnv({ PUBLISH_UNITS: "@rightkit/a @rightkit/z", NODE_AUTH_TOKEN: "t", ...oidc })), /differ from the planned units/);
+  await assert.rejects(run(sealed, ok, actionsEnv({ GITHUB_SHA: "c".repeat(40), NODE_AUTH_TOKEN: "npm-secret-token", ...oidc })), /not the dispatched commit/);
+  await assert.rejects(run(sealed, ok, actionsEnv({ GITHUB_REF: "refs/heads/dev", NODE_AUTH_TOKEN: "npm-secret-token", ...oidc })), /refs\/heads\/main only/);
+  await assert.rejects(run(sealed, ok, actionsEnv({ GITHUB_REPOSITORY: "someone/rightkit", NODE_AUTH_TOKEN: "npm-secret-token", ...oidc })), /in Orthic-Labs\/rightkit only/);
+  await assert.rejects(run(sealed, ok, actionsEnv({ PUBLISH_UNITS: "@rightkit/a @rightkit/z", NODE_AUTH_TOKEN: "npm-secret-token", ...oidc })), /differ from the planned units/);
 });
 
 test("upload re-checks provenance preconditions in the sealed tarball in both modes", async () => {
@@ -485,7 +485,7 @@ test("upload re-checks provenance preconditions in the sealed tarball in both mo
   const noEntry = sealNpm({ packageJson: (name, dir) => npmPackageJson(name, dir, { main: "dist/missing.js" }) });
   for (const [sealed, pattern] of [[wrong, /must name https:\/\/github\.com\/Orthic-Labs\/rightkit/], [missing, /repository must be an object/], [workspaceDep, /workspace:/], [noEntry, /dist\/missing\.js, which is not in the tarball/]]) {
     for (const dryRun of [true, false]) {
-      const env = dryRun ? actionsEnv() : actionsEnv({ NODE_AUTH_TOKEN: "t", ...oidc });
+      const env = dryRun ? actionsEnv() : actionsEnv({ NODE_AUTH_TOKEN: "npm-secret-token", ...oidc });
       await assert.rejects(executeUpload({ env, packDir: sealed.dir, receiptsDir: receipts(sealed.dir, sealed.manifest), outDir: tmp("out"), dryRun, spawn: spy().spawn, fetchImpl: async () => { throw new Error("no network"); } }), pattern);
     }
   }
@@ -545,7 +545,7 @@ test("upload (crates) PUTs the sealed bytes to the publish API with the token on
   await assert.rejects(executeUpload({ env, packDir: sealed.dir, receiptsDir, outDir: tmp("out"), dryRun: false, spawn, fetchImpl: refused }), (error) => /HTTP 403/.test(error.message) && !error.message.includes("crate-secret-token"));
   const dry = await executeUpload({ env: actionsEnv({ PUBLISH_REGISTRY: "crates", PUBLISH_UNITS: "rightkit-a rightkit-b" }), packDir: sealed.dir, receiptsDir, outDir: tmp("out"), dryRun: true, spawn, fetchImpl: async () => { throw new Error("no network"); }, log: () => {} });
   assert.equal(dry.receipts.length, 2);
-  await assert.rejects(executeUpload({ env: actionsEnv({ PUBLISH_REGISTRY: "crates", PUBLISH_UNITS: "rightkit-a rightkit-b", NODE_AUTH_TOKEN: "n", CARGO_REGISTRY_TOKEN: "c" }), packDir: sealed.dir, receiptsDir, outDir: tmp("out"), dryRun: false, spawn, fetchImpl }), /NODE_AUTH_TOKEN must not be present/);
+  await assert.rejects(executeUpload({ env: actionsEnv({ PUBLISH_REGISTRY: "crates", PUBLISH_UNITS: "rightkit-a rightkit-b", NODE_AUTH_TOKEN: "npm-secret-token", CARGO_REGISTRY_TOKEN: "crate-secret-token" }), packDir: sealed.dir, receiptsDir, outDir: tmp("out"), dryRun: false, spawn, fetchImpl }), /NODE_AUTH_TOKEN must not be present/);
 });
 
 // ---- a retry of failed jobs: partial publication is reconciled, never erased, never republished --
@@ -553,7 +553,7 @@ test("upload (crates) PUTs the sealed bytes to the publish API with the token on
 test("upload retry: the second unit failed, the retry starts from the earlier receipt and publishes only the rest", async () => {
   const sealed = sealNpm({ units: [["@rightkit/a", "packages/a"], ["@rightkit/b", "packages/b"]] });
   const receiptsDir = receipts(sealed.dir, sealed.manifest);
-  const env1 = actionsEnv({ PUBLISH_UNITS: "@rightkit/a @rightkit/b", NODE_AUTH_TOKEN: "t", ...oidc });
+  const env1 = actionsEnv({ PUBLISH_UNITS: "@rightkit/a @rightkit/b", NODE_AUTH_TOKEN: "npm-secret-token", ...oidc });
   const out1 = tmp("out1");
   const first = fakeNpm(sealed, { failing: ["@rightkit/b"] });
   await assert.rejects(executeUpload({ env: env1, packDir: sealed.dir, receiptsDir, previousDir: tmp("none"), outDir: out1, dryRun: false, spawn: first.spawn, fetchImpl: first.fetchImpl, pause: 1, log: () => {} }), /npm publish failed for @rightkit\/b@0\.1\.0/);
@@ -582,7 +582,7 @@ test("upload retry: the second unit failed, the retry starts from the earlier re
 test("upload retry: a version already on the registry with different bytes is refused before anything is sent", async () => {
   const sealed = sealNpm({ units: [["@rightkit/a", "packages/a"], ["@rightkit/b", "packages/b"]] });
   const receiptsDir = receipts(sealed.dir, sealed.manifest);
-  const env = actionsEnv({ PUBLISH_UNITS: "@rightkit/a @rightkit/b", NODE_AUTH_TOKEN: "t", ...oidc });
+  const env = actionsEnv({ PUBLISH_UNITS: "@rightkit/a @rightkit/b", NODE_AUTH_TOKEN: "npm-secret-token", ...oidc });
   const [a] = sealed.manifest.units;
   // b is first in nothing: a is absent, b has other bytes. Nothing may be published, not even a.
   const fake = fakeNpm(sealed, { present: { "@rightkit/b": { shasum: "0".repeat(40), integrity: "sha512-other" } } });
@@ -601,7 +601,7 @@ test("upload retry: a version already on the registry with different bytes is re
 test("upload retry: refuses a previous receipt that is not this run's, or that says verified what the registry no longer serves", async () => {
   const sealed = sealNpm();
   const receiptsDir = receipts(sealed.dir, sealed.manifest);
-  const env = { ...actionsEnv({ NODE_AUTH_TOKEN: "t", ...oidc }), GITHUB_RUN_ATTEMPT: "2" };
+  const env = { ...actionsEnv({ NODE_AUTH_TOKEN: "npm-secret-token", ...oidc }), GITHUB_RUN_ATTEMPT: "2" };
   const unit = sealed.manifest.units[0];
   const prior = (patch = {}, rows) => {
     const dir = tmp("prior");
@@ -625,7 +625,7 @@ test("upload retry: refuses a previous receipt that is not this run's, or that s
 test("upload retry (crates): a crate already indexed with the sealed checksum is not PUT again; another checksum is refused", async () => {
   const sealed = sealCrates(["rightkit-a", "rightkit-b"]);
   const receiptsDir = receipts(sealed.dir, sealed.manifest);
-  const env = actionsEnv({ PUBLISH_REGISTRY: "crates", PUBLISH_UNITS: "rightkit-a rightkit-b", CARGO_REGISTRY_TOKEN: "c", GITHUB_RUN_ATTEMPT: "2" });
+  const env = actionsEnv({ PUBLISH_REGISTRY: "crates", PUBLISH_UNITS: "rightkit-a rightkit-b", CARGO_REGISTRY_TOKEN: "crate-secret-token", GITHUB_RUN_ATTEMPT: "2" });
   const held = new Map([["rightkit-a", sealed.manifest.units[0].sha256]]);
   const puts = [];
   const fetchImpl = async (url, options = {}) => {
@@ -680,9 +680,9 @@ test("ledger records each verified publication, reads the ledger back, and fails
 });
 
 test("child environments are an allow-list, never process.env wholesale", () => {
-  const source = { PATH: "/bin", HOME: "/h", GITHUB_SHA: "s", RUNNER_TEMP: "/t", ACTIONS_ID_TOKEN_REQUEST_URL: "u", NODE_AUTH_TOKEN: "n", CARGO_REGISTRY_TOKEN: "c", GITHUB_TOKEN: "g", AWS_SECRET_ACCESS_KEY: "k", INPUT_UNITS: "x", npm_config_registry: "evil" };
+  const source = { PATH: "/bin", HOME: "/h", GITHUB_SHA: "s", RUNNER_TEMP: "/t", ACTIONS_ID_TOKEN_REQUEST_URL: "u", NODE_AUTH_TOKEN: "npm-secret-token", CARGO_REGISTRY_TOKEN: "crate-secret-token", GITHUB_TOKEN: "g", AWS_SECRET_ACCESS_KEY: "k", INPUT_UNITS: "x", npm_config_registry: "evil" };
   assert.deepEqual(Object.keys(childEnv(source)).sort(), ["ACTIONS_ID_TOKEN_REQUEST_URL", "GITHUB_SHA", "HOME", "PATH", "RUNNER_TEMP"]);
-  assert.equal(childEnv(source, { NODE_AUTH_TOKEN: "n" }).NODE_AUTH_TOKEN, "n");
+  assert.equal(childEnv(source, { NODE_AUTH_TOKEN: "npm-secret-token" }).NODE_AUTH_TOKEN, "n");
 });
 
 test("the crates.io publish body is length-prefixed metadata then the crate", () => {
@@ -738,7 +738,7 @@ test("pack (npm) runs pnpm pack per unit with no credential, seals the bytes, an
   assert.equal(manifest.commit, SHA);
   const onDisk = JSON.parse(fs.readFileSync(path.join(outRoot, "rk-pack", "manifest.json"), "utf8"));
   assert.equal(onDisk.units[0].sha256, sha256(fs.readFileSync(path.join(outRoot, "rk-pack", onDisk.units[0].file))));
-  assert.throws(() => commandPack({ env: { ...env, NODE_AUTH_TOKEN: "t" }, spawn, root }), /pack and verify must not receive secrets/);
+  assert.throws(() => commandPack({ env: { ...env, NODE_AUTH_TOKEN: "npm-secret-token" }, spawn, root }), /pack and verify must not receive secrets/);
   assert.throws(() => commandPack({ env: { ...env, ...oidc }, spawn, root }), /must not request id-token/);
   assert.throws(() => commandPack({ env: { ...env, GITHUB_REF: "refs/heads/x" }, spawn, root }), /refs\/heads\/main only/);
   badRepo = true;
@@ -779,7 +779,7 @@ test("pack (crates) runs one cargo package, reads the packaged manifest, and sea
   assert.equal(upload.readme, "# rightkit-b\n");
   assert.deepEqual(upload.deps.map((d) => [d.name, d.version_req, d.kind]), [["rightkit-a", "^0.1", "normal"]]);
   assert.equal(manifest.units[1].metaSha256, sha256(fs.readFileSync(path.join(outRoot, "rk-pack", manifest.units[1].metaFile))));
-  assert.throws(() => commandPack({ env: { ...env, CARGO_REGISTRY_TOKEN: "c" }, spawn, root }), /must not receive secrets/);
+  assert.throws(() => commandPack({ env: { ...env, CARGO_REGISTRY_TOKEN: "crate-secret-token" }, spawn, root }), /must not receive secrets/);
 });
 
 test("verify re-hashes the sealed bytes, requires gate evidence, and binds the receipt to the manifest", () => {
@@ -807,7 +807,7 @@ test("verify re-hashes the sealed bytes, requires gate evidence, and binds the r
   assert.equal(receipt.manifestSha256, sha256(fs.readFileSync(path.join(sealed.dir, "manifest.json"))));
   assert.deepEqual(receipt.units.map((u) => [u.name, u.status, u.bytesVerified]), [["@rightkit/a", "pass", true]]);
   assert.ok(fs.existsSync(path.join(runTemp, "verify-receipt", "verify-windows.json")));
-  assert.throws(() => run({ NODE_AUTH_TOKEN: "t" }), /must not receive secrets/);
+  assert.throws(() => run({ NODE_AUTH_TOKEN: "npm-secret-token" }), /must not receive secrets/);
   assert.throws(() => run({}, "linux"), /macOS or Windows/);
   writeEvidence({ host: "macos" });
   assert.throws(() => run(), /gate evidence is for npm on macos/);
