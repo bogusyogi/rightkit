@@ -16,7 +16,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     sha256_file, Artifact, ArtifactCatalog, ArtifactStatus, MediaError, Tool,
-    APPROVED_CATALOG_JSON, DECODE_VARIANT,
+    APPROVED_CATALOG_JSON, DECODE_VARIANT, TOOLCHAIN_RUNTIME_COMPONENTS,
 };
 
 pub const NATIVE_CATALOG_JSON: &str = include_str!("../catalog/native-libraries.json");
@@ -247,7 +247,9 @@ impl NativeRecord {
                 return Err(invalid(&self.id, format!("missing {field}")));
             }
         }
-        if !ALLOWED_LICENSES.contains(&self.license_spdx.as_str()) {
+        let ffmpeg_with_runtime =
+            self.library == NativeLibrary::Ffmpeg && is_ffmpeg_license(&self.license_spdx);
+        if !ffmpeg_with_runtime && !ALLOWED_LICENSES.contains(&self.license_spdx.as_str()) {
             return Err(invalid(
                 &self.id,
                 format!("unapproved licence {}", self.license_spdx),
@@ -272,7 +274,7 @@ impl NativeRecord {
             }
         }
         if self.library == NativeLibrary::Ffmpeg {
-            if self.license_spdx != "LGPL-2.1-or-later" {
+            if !is_ffmpeg_license(&self.license_spdx) {
                 return Err(invalid(&self.id, "FFmpeg must be LGPL-2.1-or-later"));
             }
             let flags: Vec<String> = self
@@ -588,6 +590,18 @@ impl NativeCatalog {
         }
         Ok(first)
     }
+}
+
+/// FFmpeg's own licence, optionally followed by the licences of the toolchain runtime a static
+/// MinGW-w64 link carries into the binary, and by nothing else.
+fn is_ffmpeg_license(expression: &str) -> bool {
+    let mut terms = expression.split(" AND ").map(str::trim);
+    terms.next() == Some("LGPL-2.1-or-later")
+        && terms.all(|term| {
+            TOOLCHAIN_RUNTIME_COMPONENTS
+                .iter()
+                .any(|(_, license)| license.split(" AND ").any(|allowed| allowed == term))
+        })
 }
 
 fn ffmpeg_record(a: &Artifact) -> NativeRecord {

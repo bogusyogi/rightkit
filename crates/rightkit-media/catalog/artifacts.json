@@ -13,7 +13,7 @@
       "contentSha256": "293f16076954e8b53ac70908b1b29ae49a1bed2f9b0dc9fccb7f95aef49d297a",
       "sourceSha256": "de668509caf9e35e3cd162473441fdb29538c6d96ed080292b3cf9e6fc5d558f",
       "attribution": {
-        "licenseSpdx": "LGPL-2.1-or-later",
+        "licenseSpdx": "LGPL-2.1-or-later AND LicenseRef-MinGW-w64-runtime AND MIT AND BSD-3-Clause AND GPL-3.0-or-later WITH GCC-exception-3.1",
         "sourceUrl": "https://ffmpeg.org/releases/ffmpeg-7.1.5.tar.xz",
         "buildProvenance": "third-party/BUILD-NOTES.txt",
         "noticeFiles": [
@@ -22,6 +22,32 @@
           "third-party/MinGW-w64-runtime-COPYING.txt",
           "third-party/winpthreads-COPYING.txt",
           "third-party/GCC-RUNTIME-LIBRARY-EXCEPTION.txt"
+        ],
+        "components": [
+          {
+            "name": "mingw-w64-runtime",
+            "version": "14.0.0.r98.g19f5121a2-1",
+            "licenseSpdx": "LicenseRef-MinGW-w64-runtime",
+            "sourceUrl": "https://mirror.msys2.org/mingw/mingw64/mingw-w64-x86_64-crt-14.0.0.r98.g19f5121a2-1-any.pkg.tar.zst",
+            "sourceSha256": "7615a1dba7bb216bccee0d2698567005451a0ab557caa64a45f9ee7aabcd5d20",
+            "noticeFile": "third-party/MinGW-w64-runtime-COPYING.txt"
+          },
+          {
+            "name": "winpthreads",
+            "version": "14.0.0.r98.g19f5121a2-1",
+            "licenseSpdx": "MIT AND BSD-3-Clause",
+            "sourceUrl": "https://mirror.msys2.org/mingw/mingw64/mingw-w64-x86_64-winpthreads-14.0.0.r98.g19f5121a2-1-any.pkg.tar.zst",
+            "sourceSha256": "34bb7b5c7ca110084e2e9ef2ecc478091d112084bd34e8d90d8154439c4dc53f",
+            "noticeFile": "third-party/winpthreads-COPYING.txt"
+          },
+          {
+            "name": "gcc-runtime",
+            "version": "16.1.0-5",
+            "licenseSpdx": "GPL-3.0-or-later WITH GCC-exception-3.1",
+            "sourceUrl": "https://mirror.msys2.org/mingw/mingw64/mingw-w64-x86_64-gcc-16.1.0-5-any.pkg.tar.zst",
+            "sourceSha256": "10f7c55275f7fbe7924209d61c368a1a6fcf775cffbdeac2eef1f5ccacdd35cd",
+            "noticeFile": "third-party/GCC-RUNTIME-LIBRARY-EXCEPTION.txt"
+          }
         ]
       },
       "requiredConfigureFlags": [

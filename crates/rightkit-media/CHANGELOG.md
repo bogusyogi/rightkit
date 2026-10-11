@@ -18,8 +18,12 @@
   expression. The two new Windows rows list all three with their notice files.
 - The approved `ffmpeg-7.1.5-windows-x64` decode row was built the same way and shipped without
   the mingw-w64 runtime, winpthreads and GCC runtime notices. Its `noticeFiles` now list the three
-  files; id, digests, licence expression and components are unchanged (the components follow
-  separately). Apps that ship this binary must ship the three notices with it.
+  files and its `components` name the three toolchain runtime components, so its licence expression
+  is now `LGPL-2.1-or-later AND LicenseRef-MinGW-w64-runtime AND MIT AND BSD-3-Clause AND
+  GPL-3.0-or-later WITH GCC-exception-3.1`; id and digests are unchanged. The native catalog
+  (`native::NativeRecord::validate`) accepts FFmpeg's licence followed by toolchain runtime terms
+  only. Apps that ship this binary must ship the three notices with it; a caller comparing the
+  row's licence string with `LGPL-2.1-or-later` must compare the first term instead.
 - `bundled::verify_bundled_ffmpeg(path, variant, timeout)` / `verify_bundled_ffprobe(...)`: one
   call from a bundled binary path plus the expected variant to a `VerifiedFfmpeg` /
   `VerifiedFfprobe` (embedded catalog, this host's OS and architecture, content digest, then the
