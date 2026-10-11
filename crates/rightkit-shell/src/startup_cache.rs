@@ -81,8 +81,27 @@ pub fn user_cache_root() -> Option<PathBuf> {
 
 /// Repair `<user cache root>/<identifier>` so a plugin can create its cookie or HTTP cache there.
 /// `identifier` is one path component (usually the bundle identifier): empty values, separators,
-/// `.` and `..` are refused.
+/// `.` and `..` are refused. The root is [`user_cache_root`]; an app whose Tauri resolves the cache
+/// directory differently (for example through `dirs::cache_dir()` or the Tauri path resolver) uses
+/// [`ensure_http_cache_dir_with`].
 pub fn ensure_http_cache_dir(identifier: &str) -> io::Result<CacheDirOutcome> {
+    ensure_http_cache_dir_with(identifier, user_cache_root)
+}
+
+/// [`ensure_http_cache_dir`] with a caller-supplied cache root, so the repaired directory is exactly
+/// the one the app's Tauri resolves:
+///
+/// ```ignore
+/// ensure_http_cache_dir_with(identifier, dirs::cache_dir)?;
+/// // or, once an AppHandle exists: || app.path().cache_dir().ok()
+/// ```
+///
+/// `root` returns `None` when it cannot resolve a cache directory (reported as `NotFound`). The
+/// identifier rules are the same, and are checked before `root` is called.
+pub fn ensure_http_cache_dir_with<F>(identifier: &str, root: F) -> io::Result<CacheDirOutcome>
+where
+    F: FnOnce() -> Option<PathBuf>,
+{
     let valid = !identifier.is_empty()
         && identifier != "."
         && identifier != ".."
@@ -93,7 +112,7 @@ pub fn ensure_http_cache_dir(identifier: &str) -> io::Result<CacheDirOutcome> {
             "cache identifier must be one path component",
         ));
     }
-    let root = user_cache_root().ok_or_else(|| {
+    let root = root().ok_or_else(|| {
         io::Error::new(io::ErrorKind::NotFound, "user cache directory unavailable")
     })?;
     ensure_cache_dir(&root.join(identifier))

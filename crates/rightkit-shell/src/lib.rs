@@ -69,7 +69,7 @@ use tauri::{AppHandle, Manager, Wry};
 
 pub use autostart::{AutostartMigration, AutostartOptions, LegacyAutostartNames};
 pub use broker::PathBroker;
-pub use clipboard::{ClipboardItem, ClipboardPolicy};
+pub use clipboard::{ClipboardItem, ClipboardOptions, ClipboardPolicy, ImagePreference};
 pub use error::ShellError;
 pub use harden::{Devtools, Hardening, HardeningScript};
 pub use idle::{
@@ -87,7 +87,7 @@ pub use single_instance::{
     SingleInstance, SingleInstanceGuard,
 };
 pub use site::SitePolicy;
-pub use stream::StreamPolicy;
+pub use stream::{StreamEvent, StreamEventKind, StreamObserver, StreamPolicy};
 pub use tray::{LeftClick, TraySpec};
 pub use watchdog::{ShellRuntimeStatus, StallReport, WatchdogConfig, WatchdogStatus};
 
@@ -174,6 +174,8 @@ pub struct ShellState {
     /// Modules this app installed (see [`Module`]).
     pub modules: ModuleSet,
     pub clipboard: clipboard::ClipboardPolicy,
+    /// Read-side clipboard options (Windows image preference, opt-in unknown formats).
+    pub clipboard_options: clipboard::ClipboardOptions,
     /// Per-app temp directory for clipboard images.
     pub clipboard_dir: PathBuf,
 }
@@ -215,6 +217,7 @@ pub struct ShellBuilder {
     site: Option<(String, site::SitePolicy)>,
     modules: ModuleSet,
     clipboard: clipboard::ClipboardPolicy,
+    clipboard_options: clipboard::ClipboardOptions,
     idle_on_error: Option<idle::IdleErrorCallback>,
     idle_on_transition: Option<idle::IdleTransitionCallback>,
     autostart: autostart::AutostartOptions,
@@ -270,6 +273,7 @@ impl Shell {
             site: None,
             modules: ModuleSet::all(),
             clipboard: clipboard::ClipboardPolicy::default(),
+            clipboard_options: clipboard::ClipboardOptions::default(),
             idle_on_error: None,
             idle_on_transition: None,
             autostart: autostart::AutostartOptions::default(),
@@ -522,6 +526,13 @@ impl ShellBuilder {
     /// Age after which clipboard temp images are purged (default one hour; see [`clipboard`]).
     pub fn clipboard_purge_after(mut self, age: std::time::Duration) -> Self {
         self.clipboard.purge_after = age;
+        self
+    }
+    /// Read-side clipboard options for `rk_shell_clipboard_read` and `rk_shell_clipboard_item`: the
+    /// Windows bitmap preference and the opt-in capture of unknown pasteboard types (see
+    /// [`clipboard::ClipboardOptions`]). The default captures no unknown types and prefers PNG.
+    pub fn clipboard_options(mut self, options: clipboard::ClipboardOptions) -> Self {
+        self.clipboard_options = options;
         self
     }
     /// Enable crash-safe setup recovery commands (see [`recovery`]).
@@ -991,6 +1002,7 @@ fn setup(
             .unwrap_or_default(),
         modules: cfg.modules,
         clipboard: cfg.clipboard,
+        clipboard_options: cfg.clipboard_options,
         clipboard_dir: clipboard::clipboard_temp_dir(&cfg.app_id),
     });
 

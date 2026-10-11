@@ -35,12 +35,12 @@ Illustrative; not compiled as a doctest. The compiled references are `tests/poli
 - The Cargo.toml comment ties 0.38 to Tauri 2.11 and 0.39 to Tauri 2.12. The Tauri lock versions are not checked here: the example app's `Cargo.lock` is stale and records rightkit-shell 0.2.0 (`example-app/Cargo.lock:2692`; the crate is 0.3.0).
 - WebView2 hardening (`src/harden.rs`, `windows_impl`): sets devtools, status bar, zoom control, pinch zoom, swipe navigation and browser accelerator keys (F5, Ctrl+R, Alt+Left, F12). It registers `ContextMenuRequested` through `ICoreWebView2_11`. That handler suppresses the menu unless the target is editable and `allow_editable_menu` is set.
 - Idle (`src/idle.rs`): `ICoreWebView2_3::TrySuspend` and `SetIsVisible` on the controller.
-- Clipboard (`src/clipboard.rs`): `OpenClipboard` with 10 retries at 20 ms. Reads `CF_UNICODETEXT` and `CF_HDROP`, with file lists read through `DragQueryFileW`.
+- Clipboard (`src/clipboard.rs`): `OpenClipboard` with 10 retries at 20 ms. Reads `CF_UNICODETEXT`, `HTML Format`, `PNG`, `CF_HDROP` (file lists through `DragQueryFileW`) and `CF_DIB`. A write owns the clipboard through a message-only window, because `SetClipboardData` fails after `EmptyClipboard` with a NULL owner. `ClipboardOptions::image_preference` chooses `PNG` first (default) or `CF_DIB` first for the typed image.
 - Notifications: WinRT toasts through `tauri-winrt-notification` 0.7, as described below.
 - Registry and shell: autostart reads and writes `HKCU\...\CurrentVersion\Run` through `reg.exe`. Scheme registration writes under `HKCU\Software\Classes` through `reg.exe`. Both use `CREATE_NO_WINDOW`. `opener` launches `rundll32.exe url.dll,FileProtocolHandler`.
 - Single instance uses the rightkit-service named pipe (`src/instance.rs`). Broker entropy comes from `SystemFunction036` in advapi32 (`src/broker.rs`).
-- Dependencies: `windows_061`/`windows_062` and `webview2_com_038`/`webview2_com_039` are optional. They enable Win32 features `Win32_Foundation`, `Win32_System_Com`, `Win32_System_DataExchange`, `Win32_System_Memory`, `Win32_System_Ole` and `Win32_UI_Shell`. Consumers select only a `wv2-*` feature.
-- Caveat: `harden.rs`, `clipboard.rs` and `idle.rs` each say they are not compiled or not exercised on the macOS host (`src/idle.rs:9`). Run `rightkit cargo check -p rightkit-shell` on Windows before relying on them.
+- Dependencies: `windows_061`/`windows_062` and `webview2_com_038`/`webview2_com_039` are optional. They enable Win32 features `Win32_Foundation`, `Win32_System_Com`, `Win32_System_DataExchange`, `Win32_System_Memory`, `Win32_System_Ole`, `Win32_UI_Shell` and `Win32_UI_WindowsAndMessaging`. Consumers select only a `wv2-*` feature.
+- Caveat: `harden.rs`, `clipboard.rs` and `idle.rs` are not compiled or exercised on the macOS host (`src/idle.rs:9`); the windows-2025 CI job compiles them. The clipboard backend has not been run against a live Windows clipboard, so verify copy and paste on a Windows machine before relying on it.
 
 ## Hidden hosts: never_show, reopen opt-out, idle options
 
@@ -111,6 +111,19 @@ subresources beneath a site root. The app grants it for a document it already ho
 - `SingleInstance::claim(id, on_message)` returns `ClaimOutcome::{Primary, Forwarded, Failed}`.
   Treat `Forwarded` and `Failed` as exit paths. `Failed` never becomes a second primary.
 - `startup_cache::ensure_http_cache_dir(identifier)` repairs the user cache directory for the app.
+  `ensure_http_cache_dir_with(identifier, || dirs::cache_dir())` does the same under the root your
+  Tauri resolves (`dirs::cache_dir`, or the path resolver once an `AppHandle` exists).
+- Clipboard reads: `clipboard::read` no longer copies bytes of unrecognised pasteboard types. Opt in with
+  `ClipboardOptions { custom_max_bytes: Some(n), .. }` through `clipboard::read_with` or
+  `ShellBuilder::clipboard_options`. On macOS text also falls back to the other plain-text types
+  (`NSPasteboardTypeString` coercion, `NSStringPboardType`, UTF-16 and generic plain text), as `pbpaste` does.
+  `ClipboardItem::None` still serialises as `"none"`; an app whose front end expects `"empty"` maps it.
+- `StreamPolicy::default().observer(|event| ..)` receives `StreamEvent { mime, kind }` with
+  `StreamEventKind::{Resolved, Head, RangeServed, FullServed, RangeRejected, BytesRead}`. Unset costs one
+  branch per request; a panicking observer is caught and never reaches the response.
+- `frameless::TrafficLights` is a plain value (`Default`, `Clone`). An app without the shell plugin can
+  `app.manage(TrafficLights::default())`, call `set_offset` from its own command and forward window events
+  to `handle_window_event`; no `ShellState`, lifecycle hook or single-instance claim is needed.
 
 ### Relaunch for update, and the legacy plugins' names
 

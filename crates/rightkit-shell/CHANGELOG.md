@@ -5,6 +5,37 @@ version is `0.x`, a minor bump may carry breaking changes.
 
 ## Unreleased
 
+Gaps ViewRight reported, closed additively (CutRight, PostRight, GenRight and ScrapeRight need no change):
+
+- **`TrafficLights` works without `ShellState`.** `set_offset` and `reapply` now fall back, when the shell
+  plugin is not installed, to running inline on the macOS main thread (`pthread_main_np`) or queueing to it
+  (fire and forget). New: `Clone`, `Debug`, `new()` and `handle_window_event(window, event)` (re-applies on
+  resize, focus gain and scale change). With the plugin installed the old dispatch is unchanged.
+- **`StreamPolicy::observer(|event| ..)`.** Typed `StreamEvent { mime, kind: StreamEventKind }`: `Resolved`
+  (size), `Head`, `RangeServed`, `FullServed`, `RangeRejected`, `BytesRead { bytes, ranged }`. Zero cost
+  when unset; an observer panic is caught and dropped. `StreamPolicy` gains the public field `observer`
+  (full struct literals add `observer: None`, or use `..Default::default()`).
+- **`startup_cache::ensure_http_cache_dir_with(identifier, root_resolver)`**: repair under a caller-supplied
+  cache root (for example `dirs::cache_dir`). `ensure_http_cache_dir` is unchanged and delegates with
+  `user_cache_root`.
+- **Clipboard.**
+  - macOS text read falls back to `NSStringPboardType`, `public.utf16-external-plain-text`,
+    `public.plain-text` and `public.text`, asking the board first (AppKit coercion, as `pbpaste -Prefer txt`).
+  - **Behaviour change:** `clipboard::read` (and `rk_shell_clipboard_read`) no longer copies bytes of
+    unrecognised pasteboard types into `custom`. Opt in with `ClipboardOptions::custom_max_bytes`
+    (per-type cap) through `clipboard::read_with` or `ShellBuilder::clipboard_options`. Windows never read
+    unknown formats.
+  - `ClipboardOptions { image_preference: ImagePreference::{PngFirst, DibFirst}, custom_max_bytes }`,
+    `read_with`, `take_item_with`, `ShellBuilder::clipboard_options`, `ShellState::clipboard_options`.
+    `DibFirst` (Windows) takes `CF_DIB` as BMP and falls back to `PNG`.
+  - Windows review: a write now owns the clipboard through a message-only window (a NULL owner makes
+    `SetClipboardData` fail after `EmptyClipboard`); new Cargo feature `Win32_UI_WindowsAndMessaging` on the
+    `windows` crates. Not run against a live Windows clipboard.
+  - `dib_to_bmp`: `BI_BITFIELDS`/`BI_ALPHABITFIELDS` masks are separate only after a 40-byte header; V4/V5
+    headers carry them inside, so the pixel offset was too large and such DIBs were refused.
+  - `ClipboardItem::None` still serialises as `"none"` (unchanged). ViewRight's own type said `"empty"`; map it
+    in the app, because serde cannot alias a serialised name.
+
 - **Webview idle matches ScrapeRight's WebView2 ordering.** Suspend is one operation on the WebView2
   thread, `SetIsVisible(false)` then `TrySuspend`; a failed hide means no suspend, the webview stays
   visible and running, the failure goes to `webview_idle_on_error`, and the next hide starts a fresh timer.

@@ -213,7 +213,7 @@ pub fn rk_shell_clipboard_read(
     state: State<'_, ShellState>,
 ) -> Result<ClipboardPayload, String> {
     require(&state, Module::Clipboard).map_err(|e| e.to_string())?;
-    let c = crate::clipboard::read(&board_of(&board))?;
+    let c = crate::clipboard::read_with(&board_of(&board), &state.clipboard_options)?;
     Ok(ClipboardPayload {
         text: c.text,
         html: c.html,
@@ -265,7 +265,12 @@ pub async fn rk_shell_clipboard_item(app: AppHandle<Wry>) -> Result<ClipboardIte
         let state = app.state::<ShellState>();
         require(&state, Module::Clipboard)?;
         require(&state, Module::Broker)?;
-        crate::clipboard::take_item(&state.broker, &state.clipboard_dir, state.clipboard)
+        crate::clipboard::take_item_with(
+            &state.broker,
+            &state.clipboard_dir,
+            state.clipboard,
+            &state.clipboard_options,
+        )
     })
     .await
 }

@@ -14,6 +14,9 @@
 //!   files, then a bitmap (written to a granted temp file), then text, then nothing. Files and
 //!   temp images are granted through the [`PathBroker`]; nothing else reaches the renderer.
 //!   [`item_from_snapshot`] runs the same policy on any snapshot, so it is testable on every host.
+//! * [`ClipboardOptions`] (read side, all optional): the Windows bitmap format preference
+//!   ([`ImagePreference`]) and the opt-in capture of unknown formats ([`ClipboardOptions::custom_max_bytes`]).
+//!   [`read_with`] and [`take_item_with`] take them; [`read`] and [`take_item`] use the defaults.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -60,6 +63,30 @@ pub enum ClipboardItem {
     None,
 }
 
+/// Which Windows bitmap format wins when the clipboard offers both `PNG` and `CF_DIB`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ImagePreference {
+    /// `PNG` (lossless, keeps alpha) when the copier provided it, else `CF_DIB` as BMP.
+    #[default]
+    PngFirst,
+    /// `CF_DIB` as BMP when present, else `PNG`. ViewRight's behaviour: every copier offers `CF_DIB`.
+    DibFirst,
+}
+
+/// Read-side clipboard options. Defaults reproduce the pre-option behaviour except that unknown
+/// formats are no longer copied (see [`ClipboardOptions::custom_max_bytes`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct ClipboardOptions {
+    /// Windows only: `PNG` or `CF_DIB` first for the typed image (`take_item_with`). macOS always
+    /// takes PNG, coercing from TIFF when needed.
+    pub image_preference: ImagePreference,
+    /// macOS only: also copy the bytes of pasteboard types the reader does not recognise into
+    /// [`ClipboardContent::custom`], skipping any type larger than this many bytes. `None` (the
+    /// default) copies nothing: a pasteboard can carry arbitrary private data, and a reader that
+    /// wants it must ask. Dynamic (`dyn.`) types are never copied. Windows never reads unknown formats.
+    pub custom_max_bytes: Option<usize>,
+}
+
 /// A bitmap taken from the clipboard, with the extension its temp file should carry.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct ClipboardImage {
@@ -98,8 +125,13 @@ pub fn clipboard_temp_dir(app_id: &str) -> PathBuf {
 pub fn write(board: &Board, c: &ClipboardContent) -> Result<(), String> {
     imp::write(board, c)
 }
+/// Read the board with default [`ClipboardOptions`] (unknown formats are not copied).
 pub fn read(board: &Board) -> Result<ClipboardContent, String> {
-    imp::read(board)
+    imp::read(board, &ClipboardOptions::default())
+}
+/// Read the board with explicit [`ClipboardOptions`].
+pub fn read_with(board: &Board, options: &ClipboardOptions) -> Result<ClipboardContent, String> {
+    imp::read(board, options)
 }
 /// Raw type/format names currently on the board (diagnostics).
 pub fn formats(board: &Board) -> Result<Vec<String>, String> {
@@ -112,7 +144,17 @@ pub fn take_item(
     temp_dir: &Path,
     policy: ClipboardPolicy,
 ) -> Result<ClipboardItem, ShellError> {
-    let snapshot = platform_snapshot(temp_dir)?;
+    take_item_with(broker, temp_dir, policy, &ClipboardOptions::default())
+}
+
+/// [`take_item`] with explicit [`ClipboardOptions`] (for example `DibFirst` on Windows).
+pub fn take_item_with(
+    broker: &PathBroker,
+    temp_dir: &Path,
+    policy: ClipboardPolicy,
+    options: &ClipboardOptions,
+) -> Result<ClipboardItem, ShellError> {
+    let snapshot = platform_snapshot(temp_dir, options)?;
     item_from_snapshot(&snapshot, broker, temp_dir, policy)
 }
 
@@ -230,10 +272,11 @@ pub fn dib_to_bmp(dib: &[u8]) -> Option<Vec<u8>> {
     let bit_count = u16::from_le_bytes([dib[14], dib[15]]) as usize;
     let compression = u32::from_le_bytes([dib[16], dib[17], dib[18], dib[19]]);
     let clr_used = u32::from_le_bytes([dib[32], dib[33], dib[34], dib[35]]) as usize;
-    // BI_BITFIELDS (3) and BI_ALPHABITFIELDS (6) store colour masks after the header.
-    let mask_bytes = match compression {
-        3 => 12,
-        6 => 16,
+    // BI_BITFIELDS (3) and BI_ALPHABITFIELDS (6) store colour masks after a 40-byte
+    // BITMAPINFOHEADER. The larger V4/V5 (and 52/56-byte) headers carry the masks inside the header.
+    let mask_bytes = match (header_size, compression) {
+        (40, 3) => 12,
+        (40, 6) => 16,
         _ => 0,
     };
     let palette_colors = if bit_count <= 8 {
@@ -260,9 +303,12 @@ pub fn dib_to_bmp(dib: &[u8]) -> Option<Vec<u8>> {
 }
 
 #[cfg(target_os = "macos")]
-fn platform_snapshot(temp_dir: &Path) -> Result<ClipboardSnapshot, ShellError> {
+fn platform_snapshot(
+    temp_dir: &Path,
+    options: &ClipboardOptions,
+) -> Result<ClipboardSnapshot, ShellError> {
     let general = Board::General;
-    let raw = read(&general)?;
+    let raw = read_with(&general, options)?;
     let types = formats(&general)?;
     let mut files: Vec<PathBuf> = raw.files.iter().map(PathBuf::from).collect();
     // The API saw a file-URL item but produced no path: ask AppKit through osascript.
@@ -297,20 +343,34 @@ fn platform_snapshot(temp_dir: &Path) -> Result<ClipboardSnapshot, ShellError> {
 }
 
 #[cfg(windows)]
-fn platform_snapshot(_temp_dir: &Path) -> Result<ClipboardSnapshot, ShellError> {
-    let raw = read(&Board::General)?;
-    // PNG when the copier provided it (lossless, alpha); otherwise the classic CF_DIB as BMP.
-    let image = match raw.png {
-        Some(png) => Some(ClipboardImage {
-            extension: "png".into(),
-            bytes: png,
-        }),
-        None => imp::dib_bytes()?
+fn platform_snapshot(
+    _temp_dir: &Path,
+    options: &ClipboardOptions,
+) -> Result<ClipboardSnapshot, ShellError> {
+    let raw = read_with(&Board::General, options)?;
+    let png = raw.png.map(|bytes| ClipboardImage {
+        extension: "png".into(),
+        bytes,
+    });
+    let bmp = || -> Result<Option<ClipboardImage>, String> {
+        Ok(imp::dib_bytes()?
             .and_then(|dib| dib_to_bmp(&dib))
             .map(|bytes| ClipboardImage {
                 extension: "bmp".into(),
                 bytes,
-            }),
+            }))
+    };
+    let image = match options.image_preference {
+        // PNG when the copier provided it (lossless, alpha); otherwise the classic CF_DIB as BMP.
+        ImagePreference::PngFirst => match png {
+            Some(png) => Some(png),
+            None => bmp()?,
+        },
+        // CF_DIB when it converts; a PNG-only clipboard still yields its PNG.
+        ImagePreference::DibFirst => match bmp()? {
+            Some(bmp) => Some(bmp),
+            None => png,
+        },
     };
     Ok(ClipboardSnapshot {
         files: raw.files.iter().map(PathBuf::from).collect(),
@@ -320,7 +380,10 @@ fn platform_snapshot(_temp_dir: &Path) -> Result<ClipboardSnapshot, ShellError> 
 }
 
 #[cfg(not(any(target_os = "macos", windows)))]
-fn platform_snapshot(_temp_dir: &Path) -> Result<ClipboardSnapshot, ShellError> {
+fn platform_snapshot(
+    _temp_dir: &Path,
+    _options: &ClipboardOptions,
+) -> Result<ClipboardSnapshot, ShellError> {
     Ok(ClipboardSnapshot::default())
 }
 
@@ -426,6 +489,16 @@ mod imp {
     const T_HTML: &str = "public.html";
     const T_PNG: &str = "public.png";
     const T_FILE: &str = "public.file-url";
+    /// Plain-text types tried, in order, when no item carried `public.utf8-plain-text`. The first is
+    /// asked of the board (`NSPasteboardTypeString`), which lets AppKit coerce from the other text
+    /// forms, as `pbpaste -Prefer txt` does; the rest are the legacy and sibling types.
+    const TEXT_FALLBACKS: [&str; 5] = [
+        T_TEXT,
+        "NSStringPboardType",
+        "public.utf16-external-plain-text",
+        "public.plain-text",
+        "public.text",
+    ];
 
     fn board(b: &Board) -> Retained<NSPasteboard> {
         match b {
@@ -476,7 +549,7 @@ mod imp {
         }
     }
 
-    pub fn read(b: &Board) -> Result<ClipboardContent, String> {
+    pub fn read(b: &Board, options: &ClipboardOptions) -> Result<ClipboardContent, String> {
         let pb = board(b);
         let mut out = ClipboardContent::default();
         let Some(items) = pb.pasteboardItems() else {
@@ -517,13 +590,27 @@ mod imp {
                                 | "public.url"
                                 | "public.url-name"
                                 | "public.utf16-external-plain-text"
+                                | "public.plain-text"
+                                | "public.text"
                         );
-                        if !known && !dynamic {
+                        if let (Some(max), false, false) =
+                            (options.custom_max_bytes, known, dynamic)
+                        {
                             if let Some(d) = item.dataForType(&ty) {
-                                out.custom.entry(t.clone()).or_insert_with(|| d.to_vec());
+                                if d.len() <= max {
+                                    out.custom.entry(t.clone()).or_insert_with(|| d.to_vec());
+                                }
                             }
                         }
                     }
+                }
+            }
+        }
+        if out.text.is_none() {
+            for ty in TEXT_FALLBACKS {
+                if let Some(text) = pb.stringForType(&NSString::from_str(ty)) {
+                    out.text = Some(text.to_string());
+                    break;
                 }
             }
         }
@@ -541,8 +628,9 @@ mod imp {
 
 #[cfg(windows)]
 mod imp {
-    //! NOT compiled on the macOS host: verify with `rightkit cargo check -p rightkit-shell` on the
-    //! Windows agent (see README).
+    //! Win32 clipboard backend. Not compiled or run on the macOS development host; the windows-2025
+    //! CI job compiles it. Behaviour against a live Windows clipboard has not been exercised here, so
+    //! treat the paths below as written against the API documentation, not field-tested.
     use super::*;
     use crate::winapi::windows::core::PCWSTR;
     use crate::winapi::windows::Win32::Foundation::{HANDLE, HGLOBAL, HWND};
@@ -551,17 +639,54 @@ mod imp {
         GlobalAlloc, GlobalLock, GlobalSize, GlobalUnlock, GMEM_MOVEABLE,
     };
     use crate::winapi::windows::Win32::UI::Shell::{DragQueryFileW, HDROP};
+    use crate::winapi::windows::Win32::UI::WindowsAndMessaging::{
+        CreateWindowExW, DestroyWindow, HWND_MESSAGE, WINDOW_EX_STYLE, WINDOW_STYLE,
+    };
 
     const CF_UNICODETEXT: u32 = 13;
     const CF_HDROP: u32 = 15;
     const CF_DIB: u32 = 8;
 
+    /// A message-only window that owns the clipboard while we write. `OpenClipboard(NULL)` followed
+    /// by `EmptyClipboard` leaves the clipboard with a NULL owner, and `SetClipboardData` then fails
+    /// (documented Win32 behaviour), so a write needs a real owner. Real data handles outlive the
+    /// window, so destroying it after the write does not clear what was set.
+    struct Owner(HWND);
+    impl Owner {
+        fn create() -> Option<Self> {
+            let class = wide("STATIC");
+            let hwnd = unsafe {
+                CreateWindowExW(
+                    WINDOW_EX_STYLE::default(),
+                    PCWSTR(class.as_ptr()),
+                    PCWSTR::null(),
+                    WINDOW_STYLE::default(),
+                    0,
+                    0,
+                    0,
+                    0,
+                    Some(HWND_MESSAGE),
+                    None,
+                    None,
+                    None,
+                )
+            }
+            .ok()?;
+            Some(Owner(hwnd))
+        }
+    }
+    impl Drop for Owner {
+        fn drop(&mut self) {
+            let _ = unsafe { DestroyWindow(self.0) };
+        }
+    }
+
     struct Open;
     impl Open {
-        fn new() -> Result<Self, String> {
+        fn new(owner: Option<HWND>) -> Result<Self, String> {
             // The clipboard can be briefly held by another process: retry a few times.
             for _ in 0..10 {
-                if unsafe { OpenClipboard(Some(HWND::default())) }.is_ok() {
+                if unsafe { OpenClipboard(owner) }.is_ok() {
                     return Ok(Open);
                 }
                 std::thread::sleep(std::time::Duration::from_millis(20));
@@ -645,7 +770,10 @@ mod imp {
         if matches!(b, Board::Named(_)) {
             return Err("named boards are macOS-only".into());
         }
-        let _open = Open::new()?;
+        // Declared before `_open`, so it is dropped (destroyed) after the clipboard is closed. When
+        // no window can be created the write is attempted with a NULL owner, as before.
+        let owner = Owner::create();
+        let _open = Open::new(owner.as_ref().map(|o| o.0))?;
         unsafe { EmptyClipboard() }.map_err(|e| e.to_string())?;
         if let Some(t) = &c.text {
             set(CF_UNICODETEXT, &utf16_bytes(t))?;
@@ -665,11 +793,11 @@ mod imp {
         Ok(())
     }
 
-    pub fn read(b: &Board) -> Result<ClipboardContent, String> {
+    pub fn read(b: &Board, _options: &ClipboardOptions) -> Result<ClipboardContent, String> {
         if matches!(b, Board::Named(_)) {
             return Err("named boards are macOS-only".into());
         }
-        let _open = Open::new()?;
+        let _open = Open::new(None)?;
         let mut out = ClipboardContent::default();
         if let Some(raw) = get(CF_UNICODETEXT) {
             let u: Vec<u16> = raw
@@ -710,12 +838,12 @@ mod imp {
 
     /// The raw `CF_DIB` blob (BITMAPINFO plus pixels), copied out under its own open/close.
     pub fn dib_bytes() -> Result<Option<Vec<u8>>, String> {
-        let _open = Open::new()?;
+        let _open = Open::new(None)?;
         Ok(get(CF_DIB))
     }
 
     pub fn formats(_b: &Board) -> Result<Vec<String>, String> {
-        let _open = Open::new()?;
+        let _open = Open::new(None)?;
         let mut out = Vec::new();
         let mut f = 0u32;
         loop {
@@ -741,7 +869,7 @@ mod imp {
     pub fn write(_: &Board, _: &ClipboardContent) -> Result<(), String> {
         Err("rich clipboard is not implemented on this platform".into())
     }
-    pub fn read(_: &Board) -> Result<ClipboardContent, String> {
+    pub fn read(_: &Board, _: &ClipboardOptions) -> Result<ClipboardContent, String> {
         Err("rich clipboard is not implemented on this platform".into())
     }
     pub fn formats(_: &Board) -> Result<Vec<String>, String> {

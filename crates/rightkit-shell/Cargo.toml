@@ -48,6 +48,7 @@ windows_061 = { package = "windows", version = "0.61", optional = true, features
   "Win32_System_Memory",
   "Win32_System_Ole",
   "Win32_UI_Shell",
+  "Win32_UI_WindowsAndMessaging",
 ] }
 webview2_com_038 = { package = "webview2-com", version = "0.38", optional = true }
 windows_062 = { package = "windows", version = "0.62", optional = true, features = [
@@ -57,6 +58,7 @@ windows_062 = { package = "windows", version = "0.62", optional = true, features
   "Win32_System_Memory",
   "Win32_System_Ole",
   "Win32_UI_Shell",
+  "Win32_UI_WindowsAndMessaging",
 ] }
 webview2_com_039 = { package = "webview2-com", version = "0.39", optional = true }
 

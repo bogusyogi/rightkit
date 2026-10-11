@@ -8,14 +8,78 @@
 //! [`crate::broker::PathBroker::grant_stream`]. Revoking the file revokes its ids for good.
 
 use std::collections::BTreeMap;
+use std::fmt;
 use std::fs::File;
 use std::io::{Read, Seek, SeekFrom};
+use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::path::Path;
+use std::sync::Arc;
 
 use tauri::http::response::Builder;
 use tauri::http::{header, Method, Request, Response, StatusCode};
 
 use crate::broker::PathBroker;
+
+/// What happened to one stream request (see [`StreamPolicy::observer`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StreamEventKind {
+    /// The id resolved, the type is allowed and the file is within its size cap. `size` is the
+    /// file length. Emitted once per request that gets this far; refused requests emit nothing.
+    Resolved { size: u64 },
+    /// A HEAD request was answered. `range` is the inclusive range when the request carried a
+    /// valid `Range` header.
+    Head {
+        size: u64,
+        range: Option<(u64, u64)>,
+    },
+    /// A GET with a valid single range was accepted (emitted before the read). `end` is inclusive.
+    RangeServed { start: u64, end: u64, size: u64 },
+    /// A GET without a `Range` header was accepted (emitted before the read).
+    FullServed { size: u64 },
+    /// A `Range` header was malformed, multi-range or unsatisfiable; the answer is 416.
+    RangeRejected { size: u64 },
+    /// The body was read and handed to the responder: `bytes` is the body length, `ranged` is true
+    /// for a range response. Emitted from the reader thread.
+    BytesRead { bytes: u64, ranged: bool },
+}
+
+/// One observed stream event with the content type of the file it concerns.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct StreamEvent {
+    /// The MIME type from [`mime_for`] (for example `application/pdf`), so an observer can ignore
+    /// kinds it does not care about.
+    pub mime: &'static str,
+    pub kind: StreamEventKind,
+}
+
+/// A shared callback receiving [`StreamEvent`]s. Cheap to clone. A panic inside it is caught and
+/// dropped; it never reaches the response. It runs inline on the request path (and on the reader
+/// thread for `BytesRead`), so keep it quick: bump a counter, do not do I/O.
+#[derive(Clone)]
+pub struct StreamObserver(Arc<dyn Fn(&StreamEvent) + Send + Sync>);
+
+impl StreamObserver {
+    pub fn new(f: impl Fn(&StreamEvent) + Send + Sync + 'static) -> Self {
+        Self(Arc::new(f))
+    }
+
+    fn emit(&self, mime: &'static str, kind: StreamEventKind) {
+        let event = StreamEvent { mime, kind };
+        let _ = catch_unwind(AssertUnwindSafe(|| (self.0)(&event)));
+    }
+}
+
+impl fmt::Debug for StreamObserver {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("StreamObserver(..)")
+    }
+}
+
+fn emit(observer: &Option<StreamObserver>, mime: &'static str, kind: StreamEventKind) {
+    if let Some(o) = observer {
+        o.emit(mime, kind);
+    }
+}
 
 /// Policy for what a stream scheme will serve.
 #[derive(Debug, Clone)]
@@ -29,6 +93,9 @@ pub struct StreamPolicy {
     /// extension, then full MIME, then family; a file matching no key uses `max_bytes`. Empty by
     /// default, so behaviour is unchanged until a cap is added with [`StreamPolicy::with_kind_cap`].
     pub max_bytes_by_kind: BTreeMap<String, u64>,
+    /// Optional observer of served requests; `None` (the default) costs one branch per request. Set
+    /// it with [`StreamPolicy::observer`].
+    pub observer: Option<StreamObserver>,
 }
 
 impl Default for StreamPolicy {
@@ -37,6 +104,7 @@ impl Default for StreamPolicy {
             max_bytes: 150 * 1024 * 1024,
             extensions: None,
             max_bytes_by_kind: BTreeMap::new(),
+            observer: None,
         }
     }
 }
@@ -47,6 +115,13 @@ impl StreamPolicy {
     pub fn with_kind_cap(mut self, kind: &str, max_bytes: u64) -> Self {
         self.max_bytes_by_kind
             .insert(normalize_kind(kind), max_bytes);
+        self
+    }
+
+    /// Observe requests served under this policy: resolved size, HEAD, range served, full served,
+    /// rejected range and bytes read (see [`StreamEventKind`]). A panicking observer is contained.
+    pub fn observer(mut self, f: impl Fn(&StreamEvent) + Send + Sync + 'static) -> Self {
+        self.observer = Some(StreamObserver::new(f));
         self
     }
 
@@ -246,10 +321,17 @@ where
     }
     let total = meta.len();
     let head = method_is_head(request);
+    let observer = &policy.observer;
+    emit(observer, mime, StreamEventKind::Resolved { size: total });
 
     if let Some(range) = request.headers().get(header::RANGE) {
         let parsed = range.to_str().ok().and_then(|r| parse_range(r, total));
         let Some((start, end)) = parsed else {
+            emit(
+                observer,
+                mime,
+                StreamEventKind::RangeRejected { size: total },
+            );
             return respond(finish(
                 cors(StatusCode::RANGE_NOT_SATISFIABLE)
                     .header(header::CONTENT_RANGE, format!("bytes */{total}")),
@@ -261,22 +343,70 @@ where
             format!("bytes {start}-{end}/{total}"),
         );
         if head {
+            emit(
+                observer,
+                mime,
+                StreamEventKind::Head {
+                    size: total,
+                    range: Some((start, end)),
+                },
+            );
             return respond(finish(builder, Vec::new()));
         }
+        emit(
+            observer,
+            mime,
+            StreamEventKind::RangeServed {
+                start,
+                end,
+                size: total,
+            },
+        );
+        let observer = observer.clone();
         std::thread::spawn(move || {
             respond(match read_range(&path, start, end) {
-                Ok(bytes) => finish(builder, bytes),
+                Ok(bytes) => {
+                    emit(
+                        &observer,
+                        mime,
+                        StreamEventKind::BytesRead {
+                            bytes: bytes.len() as u64,
+                            ranged: true,
+                        },
+                    );
+                    finish(builder, bytes)
+                }
                 Err(_) => empty(StatusCode::NOT_FOUND),
             })
         });
         return;
     }
     if head {
+        emit(
+            observer,
+            mime,
+            StreamEventKind::Head {
+                size: total,
+                range: None,
+            },
+        );
         return respond(finish(ranged(StatusCode::OK, mime, total), Vec::new()));
     }
+    emit(observer, mime, StreamEventKind::FullServed { size: total });
+    let observer = observer.clone();
     std::thread::spawn(move || {
         respond(match std::fs::read(&path) {
-            Ok(bytes) => finish(ranged(StatusCode::OK, mime, bytes.len() as u64), bytes),
+            Ok(bytes) => {
+                emit(
+                    &observer,
+                    mime,
+                    StreamEventKind::BytesRead {
+                        bytes: bytes.len() as u64,
+                        ranged: false,
+                    },
+                );
+                finish(ranged(StatusCode::OK, mime, bytes.len() as u64), bytes)
+            }
             Err(_) => empty(StatusCode::NOT_FOUND),
         })
     });

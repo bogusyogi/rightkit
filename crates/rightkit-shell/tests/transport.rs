@@ -8,13 +8,15 @@ use std::time::{Duration, SystemTime};
 
 use rightkit_shell::broker::PathBroker;
 use rightkit_shell::clipboard::{
-    dib_to_bmp, item_from_snapshot, purge_stale, ClipboardImage, ClipboardItem, ClipboardPolicy,
-    ClipboardSnapshot, DEFAULT_PURGE_AFTER,
+    dib_to_bmp, item_from_snapshot, purge_stale, ClipboardImage, ClipboardItem, ClipboardOptions,
+    ClipboardPolicy, ClipboardSnapshot, ImagePreference, DEFAULT_PURGE_AFTER,
 };
 use rightkit_shell::idle::{IdleFailure, IdleHost, IdlePhase};
 use rightkit_shell::recovery::{MigrationOutcome, RecoverySpec, RecoveryStore};
-use rightkit_shell::startup_cache::{ensure_cache_dir, ensure_http_cache_dir, CacheDirOutcome};
-use rightkit_shell::stream::{mime_for, serve, StreamPolicy};
+use rightkit_shell::startup_cache::{
+    ensure_cache_dir, ensure_http_cache_dir, ensure_http_cache_dir_with, CacheDirOutcome,
+};
+use rightkit_shell::stream::{mime_for, serve, StreamEvent, StreamEventKind, StreamPolicy};
 use rightkit_shell::watchdog::{StallDetector, WatchdogConfig, DEFAULT_POLL_INTERVAL};
 use rightkit_shell::{Module, ModuleSet, Shell, ShellError, ShellPlugin};
 use tauri::http::{Request, Response, StatusCode};
@@ -105,6 +107,122 @@ fn max_bytes_for_resolves_the_most_specific_cap() {
         StreamPolicy::default().max_bytes_for(Path::new("a.mp4")),
         150 * 1024 * 1024
     );
+}
+
+// ---------------------------------------------------------------------------------------------
+// Stream observer
+// ---------------------------------------------------------------------------------------------
+
+fn stream_request(
+    broker: &PathBroker,
+    policy: &StreamPolicy,
+    id: &str,
+    method: &str,
+    range: Option<&str>,
+) -> Response<Vec<u8>> {
+    let mut b = Request::builder()
+        .method(method)
+        .uri(format!("demo-stream://localhost/{id}"));
+    if let Some(r) = range {
+        b = b.header("Range", r);
+    }
+    let request = b.body(Vec::new()).unwrap();
+    let (tx, rx) = mpsc::channel();
+    serve(broker, policy, &request, move |r| {
+        let _ = tx.send(r);
+    });
+    rx.recv_timeout(Duration::from_secs(5)).unwrap()
+}
+
+fn recording_policy() -> (StreamPolicy, Arc<Mutex<Vec<StreamEvent>>>) {
+    let seen = Arc::new(Mutex::new(Vec::new()));
+    let sink = Arc::clone(&seen);
+    let policy = StreamPolicy::default().observer(move |e| sink.lock().unwrap().push(*e));
+    (policy, seen)
+}
+
+#[test]
+fn the_observer_sees_resolved_size_full_range_head_rejected_and_bytes() {
+    let dir = tempfile::tempdir().unwrap();
+    let (broker, id) = granted_file(&dir, "doc.pdf", 100);
+    let (policy, seen) = recording_policy();
+
+    assert_eq!(
+        stream_request(&broker, &policy, &id, "GET", None).status(),
+        StatusCode::OK
+    );
+    assert_eq!(
+        stream_request(&broker, &policy, &id, "GET", Some("bytes=10-19")).status(),
+        StatusCode::PARTIAL_CONTENT
+    );
+    assert_eq!(
+        stream_request(&broker, &policy, &id, "HEAD", None).status(),
+        StatusCode::OK
+    );
+    assert_eq!(
+        stream_request(&broker, &policy, &id, "GET", Some("bytes=500-")).status(),
+        StatusCode::RANGE_NOT_SATISFIABLE
+    );
+
+    let kinds: Vec<StreamEventKind> = seen.lock().unwrap().iter().map(|e| e.kind).collect();
+    assert!(seen
+        .lock()
+        .unwrap()
+        .iter()
+        .all(|e| e.mime == "application/pdf"));
+    for expected in [
+        StreamEventKind::Resolved { size: 100 },
+        StreamEventKind::FullServed { size: 100 },
+        StreamEventKind::BytesRead {
+            bytes: 100,
+            ranged: false,
+        },
+        StreamEventKind::RangeServed {
+            start: 10,
+            end: 19,
+            size: 100,
+        },
+        StreamEventKind::BytesRead {
+            bytes: 10,
+            ranged: true,
+        },
+        StreamEventKind::Head {
+            size: 100,
+            range: None,
+        },
+        StreamEventKind::RangeRejected { size: 100 },
+    ] {
+        assert!(
+            kinds.contains(&expected),
+            "missing {expected:?} in {kinds:?}"
+        );
+    }
+}
+
+#[test]
+fn a_panicking_observer_does_not_break_the_response() {
+    let dir = tempfile::tempdir().unwrap();
+    let (broker, id) = granted_file(&dir, "doc.pdf", 8);
+    let policy = StreamPolicy::default().observer(|_| panic!("observer bug"));
+    let full = stream_request(&broker, &policy, &id, "GET", None);
+    assert_eq!(full.status(), StatusCode::OK);
+    assert_eq!(full.body().len(), 8);
+    let part = stream_request(&broker, &policy, &id, "GET", Some("bytes=0-3"));
+    assert_eq!(part.status(), StatusCode::PARTIAL_CONTENT);
+    assert_eq!(part.body().len(), 4);
+}
+
+#[test]
+fn refused_requests_and_unset_observers_emit_nothing_and_change_nothing() {
+    let dir = tempfile::tempdir().unwrap();
+    let (broker, _id) = granted_file(&dir, "doc.pdf", 8);
+    let (policy, seen) = recording_policy();
+    assert_eq!(
+        stream_request(&broker, &policy, "unknown-id", "GET", None).status(),
+        StatusCode::FORBIDDEN
+    );
+    assert!(seen.lock().unwrap().is_empty());
+    assert!(StreamPolicy::default().observer.is_none());
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -215,6 +333,54 @@ fn clipboard_items_serialise_with_a_kind_tag() {
         })
         .unwrap(),
         serde_json::json!({"kind": "image", "path": "/tmp/x.png"})
+    );
+}
+
+#[test]
+fn clipboard_options_default_to_png_first_and_no_unknown_formats() {
+    let o = ClipboardOptions::default();
+    assert_eq!(o.image_preference, ImagePreference::PngFirst);
+    assert_eq!(o.custom_max_bytes, None);
+}
+
+#[test]
+fn the_none_item_keeps_its_wire_name() {
+    // ViewRight's own type said "empty"; the shared contract says "none" and is not changed.
+    assert_eq!(
+        serde_json::to_value(ClipboardItem::None).unwrap()["kind"],
+        "none"
+    );
+}
+
+#[test]
+fn v5_dib_with_bitfields_has_no_extra_mask_bytes_before_the_pixels() {
+    // BITMAPV5HEADER (124 bytes), BI_BITFIELDS, 32 bpp: the masks live inside the header.
+    let mut dib = vec![0u8; 124];
+    dib[0..4].copy_from_slice(&124u32.to_le_bytes());
+    dib[4..8].copy_from_slice(&1i32.to_le_bytes());
+    dib[8..12].copy_from_slice(&1i32.to_le_bytes());
+    dib[12..14].copy_from_slice(&1u16.to_le_bytes());
+    dib[14..16].copy_from_slice(&32u16.to_le_bytes());
+    dib[16..20].copy_from_slice(&3u32.to_le_bytes());
+    dib.extend_from_slice(&[0, 0, 255, 255]);
+    let bmp = dib_to_bmp(&dib).unwrap();
+    assert_eq!(
+        u32::from_le_bytes(bmp[10..14].try_into().unwrap()),
+        14 + 124
+    );
+
+    // The same compression with a 40-byte header keeps the three separate masks.
+    let mut info = vec![0u8; 40];
+    info[0..4].copy_from_slice(&40u32.to_le_bytes());
+    info[12..14].copy_from_slice(&1u16.to_le_bytes());
+    info[14..16].copy_from_slice(&32u16.to_le_bytes());
+    info[16..20].copy_from_slice(&3u32.to_le_bytes());
+    info.extend_from_slice(&[0u8; 12]);
+    info.extend_from_slice(&[0, 0, 255, 255]);
+    let bmp = dib_to_bmp(&info).unwrap();
+    assert_eq!(
+        u32::from_le_bytes(bmp[10..14].try_into().unwrap()),
+        14 + 40 + 12
     );
 }
 
@@ -420,6 +586,33 @@ fn http_cache_identifier_must_be_one_path_component() {
         let err = ensure_http_cache_dir(bad).unwrap_err();
         assert_eq!(err.kind(), std::io::ErrorKind::InvalidInput, "{bad:?}");
     }
+}
+
+#[test]
+fn http_cache_dir_with_uses_the_caller_root_and_validates_the_identifier() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().to_path_buf();
+    let outcome = ensure_http_cache_dir_with("com.example.app", || Some(root.clone())).unwrap();
+    assert_eq!(outcome, CacheDirOutcome::Created);
+    assert!(root.join("com.example.app").is_dir());
+    assert_eq!(
+        ensure_http_cache_dir_with("com.example.app", || Some(root.clone())).unwrap(),
+        CacheDirOutcome::Existing
+    );
+    // A file where the directory belongs is repaired under the supplied root.
+    std::fs::remove_dir(root.join("com.example.app")).unwrap();
+    std::fs::write(root.join("com.example.app"), b"stray").unwrap();
+    assert_eq!(
+        ensure_http_cache_dir_with("com.example.app", || Some(root.clone())).unwrap(),
+        CacheDirOutcome::Repaired
+    );
+    let none = ensure_http_cache_dir_with("x", || None).unwrap_err();
+    assert_eq!(none.kind(), std::io::ErrorKind::NotFound);
+    let bad = ensure_http_cache_dir_with("../x", || -> Option<std::path::PathBuf> {
+        panic!("root must not be resolved for an invalid identifier")
+    })
+    .unwrap_err();
+    assert_eq!(bad.kind(), std::io::ErrorKind::InvalidInput);
 }
 
 #[test]
@@ -633,4 +826,16 @@ fn stall_detector_reports_each_episode_once_with_the_stall_duration() {
         .observe(8_500, 20_000)
         .expect("a new episode is reported");
     assert_eq!(next.stalled_ms, 11_500);
+}
+
+// ---------------------------------------------------------------------------------------------
+// Traffic lights without the shell plugin
+// ---------------------------------------------------------------------------------------------
+
+#[test]
+fn traffic_lights_is_a_plain_value_that_needs_no_shell_state() {
+    use rightkit_shell::frameless::TrafficLights;
+    let lights = TrafficLights::new();
+    let shared = lights.clone();
+    assert_eq!(format!("{shared:?}"), "TrafficLights { .. }");
 }
