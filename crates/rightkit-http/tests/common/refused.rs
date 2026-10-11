@@ -1,23 +1,31 @@
-//! A loopback port that refuses connections for as long as the value lives.
+//! A loopback port that refuses connections and that no other test server can be given.
 //!
-//! The socket is bound and never listens. The port stays taken, so no other test or process
-//! can be given it, and a connect to it is refused because nothing accepts there. Binding a
-//! listener, reading its port and dropping it does not give this: the freed port can be handed
-//! to the next server that binds port 0, and the "refused" request then gets an answer.
+//! Binding a listener on port 0, reading its port and dropping it does not give this: the
+//! system hands port-0 requests out of its dynamic range, so the freed port can go to the next
+//! test server that binds port 0, and the "refused" request then gets an answer (seen on the
+//! Windows CI runner).
+//!
+//! * Windows: the port is held. A socket is bound with exclusive address use and never
+//!   listens, until the value drops; a connect to it is refused.
+//! * Unix: the port cannot be held that way. On macOS a connect to a bound socket that does
+//!   not listen is not refused, it hangs until the timeout (seen on the macOS CI runner). So
+//!   the port is taken from below every system's dynamic range (Linux starts at 32768, macOS
+//!   at 49152), where a port-0 bind never lands, and it is checked before use: it can be bound
+//!   here, so nothing has it, and a connect to it is refused.
 #![allow(dead_code)]
 
 pub struct RefusedPort {
-    socket: sys::Socket,
+    held: sys::Held,
     port: u16,
 }
 
 impl RefusedPort {
-    /// Bind `127.0.0.1` on a port the system picks and hold it. Panics if that fails.
+    /// A port on `127.0.0.1` that refuses connections for as long as the value lives. Panics
+    /// if none can be had.
     pub fn hold() -> Self {
-        let (socket, port) =
-            sys::bind_loopback().expect("bind a loopback socket that never listens");
+        let (held, port) = sys::refused_port().expect("a loopback port that refuses connections");
         assert_ne!(port, 0);
-        Self { socket, port }
+        Self { held, port }
     }
 
     pub fn port(&self) -> u16 {
@@ -31,7 +39,7 @@ impl RefusedPort {
 
 impl Drop for RefusedPort {
     fn drop(&mut self) {
-        sys::close(self.socket);
+        sys::release(&mut self.held);
     }
 }
 
@@ -39,7 +47,7 @@ impl Drop for RefusedPort {
 mod sys {
     use std::io;
 
-    pub type Socket = usize;
+    pub type Held = usize;
     const INVALID_SOCKET: usize = usize::MAX;
     const AF_INET: i32 = 2;
     const SOCK_STREAM: i32 = 1;
@@ -65,7 +73,7 @@ mod sys {
         fn closesocket(socket: usize) -> i32;
     }
 
-    pub fn bind_loopback() -> io::Result<(Socket, u16)> {
+    pub fn refused_port() -> io::Result<(Held, u16)> {
         // The standard library starts Winsock on its first socket; this one is dropped at once.
         drop(std::net::UdpSocket::bind("127.0.0.1:0")?);
         // SAFETY: plain Winsock calls on a socket this function owns; every pointer is to a live
@@ -101,47 +109,50 @@ mod sys {
         }
     }
 
-    pub fn close(socket: Socket) {
-        // SAFETY: the socket came from `bind_loopback` and is closed once.
-        unsafe { closesocket(socket) };
+    pub fn release(socket: &mut Held) {
+        // SAFETY: the socket came from `refused_port` and is closed once.
+        unsafe { closesocket(*socket) };
     }
 }
 
 #[cfg(unix)]
 mod sys {
-    use std::io;
+    use std::io::{self, ErrorKind};
+    use std::net::{Ipv4Addr, SocketAddr, TcpListener, TcpStream};
+    use std::sync::atomic::{AtomicU32, Ordering};
+    use std::time::Duration;
 
-    pub type Socket = libc::c_int;
+    /// Nothing is held on Unix; the port is one no port-0 bind is given.
+    pub type Held = ();
 
-    pub fn bind_loopback() -> io::Result<(Socket, u16)> {
-        // SAFETY: plain socket calls on a descriptor this function owns; every pointer is to a
-        // live local of the stated size.
-        unsafe {
-            let socket = libc::socket(libc::AF_INET, libc::SOCK_STREAM, 0);
-            if socket < 0 {
-                return Err(io::Error::last_os_error());
+    /// Candidate ports: 20000..30000, below every dynamic range and above the well-known ones.
+    const FIRST: u32 = 20_000;
+    const SPAN: u32 = 10_000;
+    /// A refusal on loopback comes at once; this bounds a port that answers nothing.
+    const CONNECT_WAIT: Duration = Duration::from_secs(2);
+
+    pub fn refused_port() -> io::Result<(Held, u16)> {
+        static CALLS: AtomicU32 = AtomicU32::new(0);
+        // Different tests and different test processes start at different candidates.
+        let start = std::process::id()
+            .wrapping_mul(2_654_435_761)
+            .wrapping_add(CALLS.fetch_add(1, Ordering::Relaxed).wrapping_mul(7_919));
+        for step in 0..SPAN {
+            let port = (FIRST + start.wrapping_add(step) % SPAN) as u16;
+            let address = SocketAddr::from((Ipv4Addr::LOCALHOST, port));
+            // Free: nothing else is bound to it. The listener is dropped before the connect.
+            if TcpListener::bind(address).is_err() {
+                continue;
             }
-            let fail = |socket: libc::c_int| {
-                let error = io::Error::last_os_error();
-                libc::close(socket);
-                Err(error)
-            };
-            let mut address: libc::sockaddr_in = std::mem::zeroed();
-            address.sin_family = libc::AF_INET as libc::sa_family_t;
-            address.sin_addr.s_addr = u32::from_ne_bytes([127, 0, 0, 1]);
-            let mut len = std::mem::size_of::<libc::sockaddr_in>() as libc::socklen_t;
-            if libc::bind(socket, (&raw const address).cast(), len) != 0 {
-                return fail(socket);
+            if let Err(error) = TcpStream::connect_timeout(&address, CONNECT_WAIT) {
+                if error.kind() == ErrorKind::ConnectionRefused {
+                    return Ok(((), port));
+                }
             }
-            if libc::getsockname(socket, (&raw mut address).cast(), &mut len) != 0 {
-                return fail(socket);
-            }
-            Ok((socket, u16::from_be(address.sin_port)))
+            // Something answered, or nothing did: not a port to assert a refusal on.
         }
+        Err(io::Error::other("no refused loopback port in 20000..30000"))
     }
 
-    pub fn close(socket: Socket) {
-        // SAFETY: the descriptor came from `bind_loopback` and is closed once.
-        unsafe { libc::close(socket) };
-    }
+    pub fn release(_held: &mut Held) {}
 }

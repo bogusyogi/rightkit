@@ -2,8 +2,11 @@
 
 ## Unreleased
 
-- Tests: a refused connection is now produced by a loopback socket that is bound, never listens and is held until the
-  assertions are done (`tests/common/refused.rs`, exclusive address use on Windows). The eight places in six test
+- Tests: a refused connection now comes from `tests/common/refused.rs`. On Windows a loopback socket is bound with
+  exclusive address use, never listens and is held until the assertions are done. On Unix that cannot be used (on
+  macOS a connect to a bound socket that does not listen hangs; it is not refused), so the port is taken from
+  20000..30000, below every system's dynamic range, after checking that it can be bound and that a connect to it is
+  refused. The eight places in six test
   files that bound a listener, read its port and dropped it assumed the freed port stayed closed; on the Windows CI
   leg another test's server was given that port, and `tests/phases.rs` `connection_refused_is_the_connect_phase` got a
   302 and `a_connect_failure_on_the_first_request_stays_retryable_for_post` got a 200. No product change.
