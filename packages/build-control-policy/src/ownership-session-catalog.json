@@ -2359,6 +2359,17 @@
       ]
     },
     {
+      "package": "rightkit-send",
+      "capability": "nearby-sharing",
+      "summary": "Nearby file and text sharing over the open LocalSend v2 protocol: TLS identity pinning, per-device trust, macOS Bonjour discovery. Product-neutral; the host supplies identity, paths and policy.; declaration-only detection (no precise implementation fingerprint)",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Package contract retained; dependency declarations do not verify integration.",
+        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
+      ]
+    },
+    {
       "package": "rightkit-service",
       "capability": "local-services",
       "summary": "One discovery/auth convention for Right Suite local services: service.json, ranking and takeover, current-user-only Unix socket / named pipe, per-app request allowlist.",
@@ -4062,6 +4073,17 @@
       "policyNotes": [
         "Package contract retained; dependency declarations do not verify integration.",
         "Fingerprints identify review candidates (competing dependencies and distinctive implementation code); published two-host replacement qualification is not recorded."
+      ]
+    },
+    {
+      "package": "@rightkit/update",
+      "capability": "dependency-updates",
+      "summary": "Per-repo dependency updater: check, apply, gate and land for cargo, pnpm, swiftpm and external-tool pins, plus a scheduled run (launchd, Task Scheduler).; declaration-only detection (no precise implementation fingerprint)",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Package contract retained; dependency declarations do not verify integration.",
+        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
       ]
     },
     {
