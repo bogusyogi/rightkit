@@ -16,6 +16,178 @@ use rightkit_shell::devtools::{
 };
 use rightkit_shell::{Hardening, Shell};
 
+/// A native DevTools switch that can reject the call or ignore it.
+struct FakeSwitch {
+    enabled: bool,
+    reject_set: bool,
+    ignore_set: bool,
+    reject_get: bool,
+}
+
+impl FakeSwitch {
+    fn on() -> Self {
+        Self {
+            enabled: true,
+            reject_set: false,
+            ignore_set: false,
+            reject_get: false,
+        }
+    }
+}
+
+impl rightkit_shell::devtools::DevToolsSwitch for FakeSwitch {
+    fn set(&mut self, enabled: bool) -> Result<(), String> {
+        if self.reject_set {
+            return Err("E_FAIL".to_owned());
+        }
+        if !self.ignore_set {
+            self.enabled = enabled;
+        }
+        Ok(())
+    }
+    fn get(&self) -> Result<bool, String> {
+        if self.reject_get {
+            return Err("E_FAIL".to_owned());
+        }
+        Ok(self.enabled)
+    }
+}
+
+fn enforce(decision: WebviewDecision, switch: Option<&mut FakeSwitch>) -> Result<(), String> {
+    use rightkit_shell::devtools::{enforce_switch, DevToolsSwitch};
+    enforce_switch(
+        "main",
+        decision,
+        switch.map(|s| s as &mut dyn DevToolsSwitch),
+    )
+    .map_err(|e| e.code().to_owned())
+}
+
+#[test]
+fn a_denied_webview_is_refused_unless_devtools_are_off_and_read_back_off() {
+    let refused = Err("native_policy_not_applied".to_owned());
+    let mut switch = FakeSwitch::on();
+    assert_eq!(enforce(WebviewDecision::Deny, Some(&mut switch)), Ok(()));
+    assert!(!switch.enabled);
+
+    assert_eq!(enforce(WebviewDecision::Deny, None), refused);
+    let mut switch = FakeSwitch {
+        reject_set: true,
+        ..FakeSwitch::on()
+    };
+    assert_eq!(enforce(WebviewDecision::Deny, Some(&mut switch)), refused);
+    let mut switch = FakeSwitch {
+        ignore_set: true,
+        ..FakeSwitch::on()
+    };
+    assert_eq!(enforce(WebviewDecision::Deny, Some(&mut switch)), refused);
+    let mut switch = FakeSwitch {
+        reject_get: true,
+        ..FakeSwitch::on()
+    };
+    assert_eq!(enforce(WebviewDecision::Deny, Some(&mut switch)), refused);
+}
+
+#[test]
+fn a_content_webview_is_allowed_and_never_refused_by_the_native_switch() {
+    let mut switch = FakeSwitch {
+        enabled: false,
+        ..FakeSwitch::on()
+    };
+    assert_eq!(
+        enforce(WebviewDecision::AllowContent, Some(&mut switch)),
+        Ok(())
+    );
+    assert!(switch.enabled);
+    let mut switch = FakeSwitch {
+        reject_set: true,
+        ..FakeSwitch::on()
+    };
+    assert_eq!(
+        enforce(WebviewDecision::AllowContent, Some(&mut switch)),
+        Ok(())
+    );
+    assert_eq!(enforce(WebviewDecision::AllowContent, None), Ok(()));
+}
+
+fn blocked(key: u32, mods: &str, rules: rightkit_shell::devtools::KeyRules) -> bool {
+    use rightkit_shell::devtools::{is_blocked_accelerator, KeyModifiers};
+    let held = KeyModifiers {
+        ctrl: mods.contains('c'),
+        shift: mods.contains('s'),
+        alt: mods.contains('a'),
+    };
+    is_blocked_accelerator(key, held, rules)
+}
+
+const F5: u32 = 0x74;
+const F12: u32 = 0x7B;
+
+#[test]
+fn a_denied_webview_blocks_only_the_inspector_and_view_source_keys() {
+    use rightkit_shell::devtools::KeyRules;
+    let denied = KeyRules {
+        devtools: true,
+        ..KeyRules::default()
+    };
+    let key = |c: char| c as u32;
+    assert!(blocked(F12, "", denied) && blocked(F12, "cs", denied));
+    for c in ['I', 'J', 'C'] {
+        assert!(blocked(key(c), "cs", denied), "Ctrl+Shift+{c}");
+    }
+    assert!(blocked(key('U'), "c", denied));
+    // Ctrl+C is copy, and a plain letter is typing.
+    assert!(!blocked(key('C'), "c", denied) && !blocked(key('I'), "", denied));
+    // Reload, print, find, zoom and history keys are not this rule's.
+    assert!(!blocked(F5, "", denied) && !blocked(key('R'), "c", denied));
+    for c in ['P', 'F', '0'] {
+        assert!(!blocked(key(c), "c", denied), "Ctrl+{c}");
+    }
+    assert!(!blocked(0xBB, "c", denied) && !blocked(0x25, "a", denied));
+    // A webview that may be inspected has no rule at all.
+    assert!(!blocked(F12, "", KeyRules::default()));
+}
+
+#[test]
+fn with_block_reload_ctrl_p_still_reaches_the_page_and_f5_does_not() {
+    use rightkit_shell::devtools::KeyRules;
+    let reload = KeyRules {
+        reload: true,
+        ..KeyRules::default()
+    };
+    let key = |c: char| c as u32;
+    assert!(blocked(F5, "", reload) && blocked(F5, "c", reload));
+    assert!(blocked(key('R'), "c", reload) && blocked(key('R'), "cs", reload));
+    assert!(!blocked(key('R'), "", reload));
+    assert!(!blocked(key('P'), "c", reload) && !blocked(key('F'), "c", reload));
+    assert!(
+        !blocked(F12, "", reload) && !blocked(0x25, "a", reload) && !blocked(0xBB, "c", reload)
+    );
+}
+
+#[test]
+fn history_and_zoom_keys_are_blocked_only_by_their_own_rule() {
+    use rightkit_shell::devtools::KeyRules;
+    let history = KeyRules {
+        history: true,
+        ..KeyRules::default()
+    };
+    let zoom = KeyRules {
+        zoom: true,
+        ..KeyRules::default()
+    };
+    // Alt+Left, Alt+Right, browser back and forward; a plain arrow moves the caret.
+    assert!(blocked(0x25, "a", history) && blocked(0x27, "a", history));
+    assert!(blocked(0xA6, "", history) && blocked(0xA7, "", history));
+    assert!(!blocked(0x25, "", history) && !blocked(0xBB, "c", history));
+    // Ctrl with plus, minus, zero, also on the number pad; a plain zero is typing.
+    for k in [0xBB, 0xBD, 0x30, 0x6B, 0x6D, 0x60] {
+        assert!(blocked(k, "c", zoom), "{k:#x}");
+        assert!(!blocked(k, "", zoom) && !blocked(k, "c", history), "{k:#x}");
+    }
+    assert!(!blocked(0x25, "a", zoom) && !blocked('P' as u32, "c", zoom));
+}
+
 fn dbg_port() -> String {
     ["--remote-", "debugging-", "port"].concat()
 }
@@ -706,4 +878,95 @@ fn the_release_scanner_and_the_shell_agree_on_the_marker() {
             "qa-control-scan.mjs must define the same marker"
         );
     }
+}
+
+fn reg(name: &str, value: &str) -> RegValue {
+    RegValue {
+        name: name.to_owned(),
+        value: value.to_owned(),
+    }
+}
+
+#[test]
+fn a_policy_value_applies_only_under_the_wildcard_or_this_programs_executable_name() {
+    use rightkit_shell::devtools::policy_value_applies as applies;
+    assert!(applies("*", "MailRight.exe"));
+    assert!(applies("mailright.EXE", "MailRight.exe"));
+    assert!(applies(" MailRight.exe ", "MailRight.exe"));
+    assert!(!applies("Teams.exe", "MailRight.exe"));
+    assert!(!applies("Orthic.MailRight", "MailRight.exe"));
+    assert!(!applies("MailRight", "MailRight.exe"));
+    // This program's own name is unknown: nothing can be ruled out.
+    assert!(applies("Teams.exe", ""));
+}
+
+#[test]
+fn the_runtime_folder_environment_variable_is_refused_when_it_is_set() {
+    use rightkit_shell::devtools::{runtime_folder_env_name, runtime_folder_env_violation};
+    let name = runtime_folder_env_name();
+    assert!(
+        name.starts_with("WEBVIEW2_") && name.ends_with("_FOLDER"),
+        "{name}"
+    );
+    assert_eq!(runtime_folder_env_violation(None), None);
+    assert_eq!(runtime_folder_env_violation(Some("")), None);
+    assert_eq!(runtime_folder_env_violation(Some("   ")), None);
+    let refused = runtime_folder_env_violation(Some(r"C:\Planted\Runtime")).expect("refused");
+    assert_eq!(refused.code(), "browser_runtime_redirected");
+    let text = refused.to_string();
+    assert!(
+        text.contains(&name) && text.contains(r"C:\Planted\Runtime"),
+        "{text}"
+    );
+}
+
+#[test]
+fn a_browser_executable_folder_policy_for_this_program_is_refused() {
+    use rightkit_shell::devtools::runtime_folder_violations as violations;
+    let values = [
+        reg("Teams.exe", r"C:\Other\Runtime"),
+        reg("*", r" C:\Planted\Runtime "),
+        reg("MailRight.exe", ""),
+    ];
+    let found = violations(&values, "HKLM policy (64-bit view)", "MailRight.exe");
+    assert_eq!(found.len(), 1, "{found:?}");
+    assert_eq!(found[0].code(), "browser_runtime_redirected");
+    let text = found[0].to_string();
+    assert!(
+        text.contains(r"C:\Planted\Runtime") && text.contains("value `*`"),
+        "{text}"
+    );
+    // Another program's fixed runtime is not this program's business.
+    assert!(violations(&values[..1], "HKCU policy", "MailRight.exe").is_empty());
+}
+
+#[test]
+fn a_user_data_folder_policy_adds_its_expanded_folder_to_the_tripwire() {
+    use rightkit_shell::devtools::{expand_env_refs, policy_user_data_dirs};
+    let env = |name: &str| match name {
+        "LOCALAPPDATA" => Some(r"C:\Users\u\AppData\Local".to_owned()),
+        _ => None,
+    };
+    assert_eq!(
+        expand_env_refs(r"%LOCALAPPDATA%\wv2\%UNKNOWN%\50%", env),
+        r"C:\Users\u\AppData\Local\wv2\%UNKNOWN%\50%"
+    );
+    assert_eq!(expand_env_refs("%%", env), "%%");
+    let values = [
+        reg("*", r"%LOCALAPPDATA%\Policy\Data"),
+        reg("Teams.exe", r"C:\Teams\Data"),
+    ];
+    let dirs = policy_user_data_dirs(&values, "MailRight.exe", env);
+    assert_eq!(
+        dirs,
+        vec![std::path::PathBuf::from(
+            r"C:\Users\u\AppData\Local\Policy\Data"
+        )]
+    );
+
+    // A fresh port file in such a folder trips the wire.
+    let dir = tempfile::tempdir().unwrap();
+    let start = SystemTime::now();
+    std::fs::write(dir.path().join(DEBUG_PORT_FILE), "9222\n").unwrap();
+    assert!(live_debug_port_file(&[dir.path().to_path_buf()], start).is_some());
 }

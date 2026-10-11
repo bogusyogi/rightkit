@@ -1969,9 +1969,24 @@ mod tests {
             catalog.approved_for(Tool::Ffmpeg, EXPORT_ASS_VARIANT, "macos", "x86_64"),
             Err(MediaError::ArtifactPending { .. })
         ));
-        // The Windows ffprobe row is pending: no silent fallback to another platform.
+        // Windows has its own ffprobe and export-ass-zimg rows: never another platform's.
+        assert_eq!(
+            catalog
+                .approved_for(Tool::Ffprobe, DECODE_VARIANT, "windows", "x86_64")
+                .unwrap()
+                .id,
+            "ffprobe-7.1.5-windows-x64"
+        );
+        assert_eq!(
+            catalog
+                .approved_for(Tool::Ffmpeg, EXPORT_ASS_ZIMG_VARIANT, "windows", "x86_64")
+                .unwrap()
+                .id,
+            "ffmpeg-7.1.5-export-ass-zimg-windows-x64"
+        );
+        // Windows has no plain export-ass row.
         assert!(catalog
-            .approved_for(Tool::Ffprobe, DECODE_VARIANT, "windows", "x86_64")
+            .approved_for(Tool::Ffmpeg, EXPORT_ASS_VARIANT, "windows", "x86_64")
             .is_err());
     }
 

@@ -127,9 +127,11 @@ fn engine_target(
         cfg.engine_binary()?
     };
     Ok(binary.map(|binary| EngineTarget {
-        binary,
         env,
         data_dir_env: cfg.engine.data_dir_env.clone(),
+        data_dir_arg: cfg.engine.data_dir_arg.clone(),
+        forbidden_args: cfg.engine.forbidden_args.clone(),
+        ..EngineTarget::new(binary)
     }))
 }
 

@@ -22,6 +22,15 @@ const DEFAULT_EVENT_LIMIT: usize = 2_048;
 /// Bytes of engine stderr kept unless [`Sidecar::set_stderr_limit`] changes it.
 const DEFAULT_STDERR_LIMIT: usize = 256 * 1024;
 
+/// An engine binary and how to launch it without touching real user data.
+///
+/// Every launch (`cli`, `run`, `start_sidecar`) must name an isolated data directory, or it is
+/// refused before the process starts with a [`crate::userdata::UserDataViolation`] (rule
+/// `no-isolated-data-dir`). A directory is named when the caller's `CliOptions::data_dir` reaches
+/// the engine through `data_dir_env`, or `data_dir_env` is set in the launch environment, or
+/// `data_dir_arg` appears in the arguments, and the directory passes
+/// [`crate::userdata::check_engine_dirs`]. A `data_dir` on a target that declares neither is not
+/// named: the engine would never see it.
 #[derive(Debug, Clone)]
 pub struct EngineTarget {
     pub binary: PathBuf,
@@ -29,6 +38,15 @@ pub struct EngineTarget {
     pub env: Vec<(String, String)>,
     /// Env var that receives the per-scenario data dir (e.g. `GENRIGHT_APP_DATA`).
     pub data_dir_env: Option<String>,
+    /// Flag the engine takes its data dir under (e.g. `--data-dir`). Declaring it lets a caller
+    /// name the isolated directory in the launch arguments; the harness only judges the value.
+    pub data_dir_arg: Option<String>,
+    /// Flags that select the real library (e.g. `--use-user-library`). A launch whose arguments
+    /// contain one, as `flag` or `flag=value`, is refused. Empty by default; the product declares
+    /// its own, this crate hard-codes none.
+    pub forbidden_args: Vec<String>,
+    /// Set by [`EngineTarget::allow_no_data_dir_for_refusal_probe`]; read it as a warning label.
+    pub allow_no_data_dir_for_refusal_probe: bool,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -58,6 +76,66 @@ impl CliResult {
 }
 
 impl EngineTarget {
+    /// A target with no environment, no data-dir variable or flag, and no deny list. Such a target
+    /// cannot be launched until it declares `data_dir_env` or `data_dir_arg` (or the probe
+    /// opt-out is used).
+    pub fn new(binary: impl Into<PathBuf>) -> Self {
+        Self {
+            binary: binary.into(),
+            env: Vec::new(),
+            data_dir_env: None,
+            data_dir_arg: None,
+            forbidden_args: Vec::new(),
+            allow_no_data_dir_for_refusal_probe: false,
+        }
+    }
+
+    /// Env var that receives the data dir (e.g. `GENRIGHT_APP_DATA`).
+    pub fn with_data_dir_env(mut self, var: &str) -> Self {
+        self.data_dir_env = Some(var.into());
+        self
+    }
+
+    /// Flag the engine takes its data dir under (e.g. `--data-dir`).
+    pub fn with_data_dir_arg(mut self, flag: &str) -> Self {
+        self.data_dir_arg = Some(flag.into());
+        self
+    }
+
+    /// Flags that select the real library; a launch carrying one is refused.
+    pub fn forbid_args(mut self, flags: &[&str]) -> Self {
+        self.forbidden_args = flags.iter().map(|f| (*f).to_owned()).collect();
+        self
+    }
+
+    /// Let launches of this target name no data directory, ONLY to assert the engine's own
+    /// refusal to run without one. Use it on a dedicated clone of the target, never on the target
+    /// that runs real scenarios. A second barrier is still required: on Unix the launch
+    /// environment (`CliOptions::env` or the target's `env`) must redirect `HOME` into a QA
+    /// directory, and `XDG_DATA_HOME` / `XDG_CONFIG_HOME` too wherever they are set or inherited;
+    /// on Windows the Known Folder API ignores the environment, so the launch is refused
+    /// whatever the caller passes. See [`crate::userdata::check_engine_launch`].
+    pub fn allow_no_data_dir_for_refusal_probe(mut self) -> Self {
+        self.allow_no_data_dir_for_refusal_probe = true;
+        self
+    }
+
+    /// The guard every launch path runs before it spawns anything.
+    fn check_launch(&self, args: &[String], opts: &CliOptions) -> Result<()> {
+        let env = self.env_for(opts.data_dir.as_deref(), &opts.env);
+        crate::userdata::check_engine_launch(&crate::userdata::EngineLaunch {
+            binary: &self.binary,
+            args,
+            data_dir: opts.data_dir.as_deref(),
+            data_dir_env: self.data_dir_env.as_deref(),
+            data_dir_arg: self.data_dir_arg.as_deref(),
+            forbidden_args: &self.forbidden_args,
+            env: &env,
+            refusal_probe: self.allow_no_data_dir_for_refusal_probe,
+        })?;
+        Ok(())
+    }
+
     fn env_for(
         &self,
         data_dir: Option<&Path>,
@@ -78,10 +156,7 @@ impl EngineTarget {
                 self.binary.display()
             ));
         }
-        crate::userdata::check_engine_dirs(
-            opts.data_dir.as_deref(),
-            &self.env_for(None, &opts.env),
-        )?;
+        self.check_launch(args, opts)?;
         let mut argv = args.to_vec();
         if let Some(input) = &opts.input {
             argv.push("--input".into());
@@ -334,10 +409,7 @@ impl StderrBuf {
 
 impl Sidecar {
     fn start(engine: &EngineTarget, opts: &CliOptions, tracker: &Tracker) -> Result<Self> {
-        crate::userdata::check_engine_dirs(
-            opts.data_dir.as_deref(),
-            &engine.env_for(None, &opts.env),
-        )?;
+        engine.check_launch(&["--stdio".to_string()], opts)?;
         let mut cmd = Command::new(&engine.binary);
         cmd.arg("--stdio")
             .stdin(Stdio::piped())
@@ -997,5 +1069,72 @@ mod frame_shape_tests {
         buf.push(&"é".repeat(40));
         assert!(buf.retained().chars().all(|c| c == 'é'));
         assert!(buf.bytes() <= 7);
+    }
+}
+
+#[cfg(test)]
+mod launch_guard_tests {
+    use super::*;
+    use crate::userdata::Rule;
+
+    fn target() -> EngineTarget {
+        EngineTarget::new("/nonexistent/engine")
+            .with_data_dir_env("APP_DATA")
+            .forbid_args(&["--use-user-library"])
+    }
+
+    fn refusal(r: Result<()>) -> String {
+        r.unwrap_err().0
+    }
+
+    #[test]
+    fn a_launch_without_a_data_dir_is_refused_for_cli_and_sidecar_alike() {
+        let t = target();
+        let words = vec!["doctor".to_string()];
+        let e = refusal(t.check_launch(&words, &CliOptions::default()));
+        assert!(e.contains(&Rule::NoIsolatedDataDir.to_string()), "{e}");
+        assert!(e.contains("/nonexistent/engine"), "{e}");
+        let e = refusal(t.check_launch(&["--stdio".to_string()], &CliOptions::default()));
+        assert!(e.contains(&Rule::NoIsolatedDataDir.to_string()), "{e}");
+    }
+
+    #[test]
+    fn a_data_dir_reaches_the_engine_only_through_a_declared_variable() {
+        let dir = crate::storage::app_temp_dir().join("rkqa-engine-guard-never-created");
+        let opts = CliOptions {
+            data_dir: Some(dir),
+            ..Default::default()
+        };
+        let words = vec!["doctor".to_string()];
+        target().check_launch(&words, &opts).unwrap();
+        let mut undeclared = target();
+        undeclared.data_dir_env = None;
+        let e = refusal(undeclared.check_launch(&words, &opts));
+        assert!(e.contains(&Rule::NoIsolatedDataDir.to_string()), "{e}");
+    }
+
+    #[test]
+    fn a_forbidden_flag_is_refused_whatever_the_data_dir() {
+        let dir = crate::storage::app_temp_dir().join("rkqa-engine-guard-never-created");
+        let opts = CliOptions {
+            data_dir: Some(dir),
+            ..Default::default()
+        };
+        let words = vec!["doctor".to_string(), "--use-user-library".to_string()];
+        let e = refusal(target().check_launch(&words, &opts));
+        assert!(e.contains(&Rule::ForbiddenArgument.to_string()), "{e}");
+        // The target's deny list is its own: a bare target forbids nothing.
+        let mut bare = target();
+        bare.forbidden_args.clear();
+        bare.check_launch(&words, &opts).unwrap();
+    }
+
+    #[test]
+    fn the_probe_label_alone_never_opens_a_launch() {
+        let t = target().allow_no_data_dir_for_refusal_probe();
+        assert!(t.allow_no_data_dir_for_refusal_probe);
+        // No HOME redirect in the launch environment: still refused (on Windows always).
+        let e = refusal(t.check_launch(&["doctor".to_string()], &CliOptions::default()));
+        assert!(e.contains(&Rule::ProbeUnavailable.to_string()), "{e}");
     }
 }

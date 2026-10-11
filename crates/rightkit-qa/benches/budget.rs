@@ -48,14 +48,21 @@ fn main() {
     let idle_s: u64 = args.get(1).and_then(|v| v.parse().ok()).unwrap_or(30);
 
     let before = process_usage().expect("process usage");
-    let target = EngineTarget {
-        binary: std::env::current_exe().unwrap(),
-        env: vec![],
-        data_dir_env: None,
-    };
+    // The guard refuses an engine launch that names no isolated data directory, even for this
+    // synthetic engine, which reads and writes nothing: give it a scratch directory under the temp root.
+    let scratch = std::env::temp_dir().join(format!("rightkit-qa-budget-{}", std::process::id()));
+    std::fs::create_dir_all(&scratch).expect("scratch data dir");
+    let target = EngineTarget::new(std::env::current_exe().unwrap())
+        .with_data_dir_env("RIGHTKIT_QA_BUDGET_DATA");
     let tracker = Tracker::new();
     let mut sidecar = target
-        .start_sidecar(&CliOptions::default(), &tracker)
+        .start_sidecar(
+            &CliOptions {
+                data_dir: Some(scratch.clone()),
+                ..Default::default()
+            },
+            &tracker,
+        )
         .expect("sidecar");
     let started = Instant::now();
     for i in 0..commands {
@@ -80,4 +87,5 @@ fn main() {
     println!("RESULT stderr_bytes_buffered={} bytes", end.stderr_bytes);
     print!("{}", idle.result_lines(&warm, &BudgetLabels { krate: "rightkit-qa", version: env!("CARGO_PKG_VERSION"), scale_unit: "commands", scale: commands, what: "echo commands to a stdio sidecar (one event frame and one stderr line each), sidecar open and idle", scope: "synthetic" }));
     sidecar.close();
+    let _ = std::fs::remove_dir_all(&scratch);
 }

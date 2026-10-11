@@ -158,6 +158,9 @@ pub enum DevToolsError {
     RemoteDebuggingArgument { arg: String },
     /// A machine or user policy injects a debugging browser argument into WebView2.
     BrowserPolicyInjects { source: String, switch: String },
+    /// A machine or user policy makes WebView2 start a browser from another folder than the
+    /// installed runtime.
+    BrowserRuntimeRedirected { source: String, folder: String },
     /// The Windows policy registry could not be read, so the policy cannot be ruled out.
     RegistryUnreadable { detail: String },
     /// A remote-debugging port file written by this process's WebView2 exists.
@@ -182,6 +185,8 @@ pub enum DevToolsError {
     NotInstalled,
     /// The webview does not exist.
     WebviewMissing { label: String },
+    /// DevTools could not be disabled in a denied webview, so the webview is refused.
+    NativePolicyNotApplied { label: String, detail: String },
 }
 
 impl DevToolsError {
@@ -189,6 +194,7 @@ impl DevToolsError {
         match self {
             Self::RemoteDebuggingArgument { .. } => "remote_debugging_argument",
             Self::BrowserPolicyInjects { .. } => "browser_policy_injects",
+            Self::BrowserRuntimeRedirected { .. } => "browser_runtime_redirected",
             Self::RegistryUnreadable { .. } => "registry_unreadable",
             Self::RemoteDebugPortLive { .. } => "remote_debug_port_live",
             Self::NotContentOnly => "not_content_only",
@@ -201,6 +207,7 @@ impl DevToolsError {
             Self::NotAContentWebview { .. } => "not_a_content_webview",
             Self::NotInstalled => "not_installed",
             Self::WebviewMissing { .. } => "webview_missing",
+            Self::NativePolicyNotApplied { .. } => "native_policy_not_applied",
         }
     }
 }
@@ -211,6 +218,7 @@ impl fmt::Display for DevToolsError {
         match self {
             Self::RemoteDebuggingArgument { arg } => write!(f, "refusing to start, the process was launched with a debugging argument ({arg})"),
             Self::BrowserPolicyInjects { source, switch } => write!(f, "refusing to create a webview, {source} injects a debugging browser argument ({switch}); an application cannot override a machine policy"),
+            Self::BrowserRuntimeRedirected { source, folder } => write!(f, "refusing to create a webview, {source} makes WebView2 start a browser from `{folder}` instead of the installed runtime; an application cannot override a machine policy"),
             Self::RegistryUnreadable { detail } => write!(f, "refusing to create a webview, the WebView2 policy registry could not be read ({detail})"),
             Self::RemoteDebugPortLive { path } => write!(f, "refusing to run, a remote-debugging port is live ({})", path.display()),
             Self::NotContentOnly => write!(f, "content webviews are registered but the policy is Denied; select DevToolsPolicy::ContentOnly explicitly"),
@@ -223,6 +231,7 @@ impl fmt::Display for DevToolsError {
             Self::NotAContentWebview { label } => write!(f, "`{label}` is not a registered content webview"),
             Self::NotInstalled => write!(f, "the shell is not installed"),
             Self::WebviewMissing { label } => write!(f, "webview `{label}` does not exist"),
+            Self::NativePolicyNotApplied { label, detail } => write!(f, "refusing webview `{label}`, DevTools could not be disabled in it ({detail})"),
         }
     }
 }
@@ -385,6 +394,112 @@ pub fn policy_violations(values: &[RegValue], source: &str) -> Vec<DevToolsError
         .collect()
 }
 
+/// Whether a WebView2 policy value named `name` applies to the program whose executable file is
+/// `exe_name`: the name is `*` (every application) or this program's executable file name,
+/// compared without regard to case. Every other name belongs to another program. When this
+/// program's own file name is unknown, every value is taken to apply.
+pub fn policy_value_applies(name: &str, exe_name: &str) -> bool {
+    let name = name.trim();
+    exe_name.is_empty() || name == "*" || name.eq_ignore_ascii_case(exe_name)
+}
+
+/// The name of the environment variable that makes WebView2 start a browser from another folder.
+pub fn runtime_folder_env_name() -> String {
+    unrev("REDLOF_ELBATUCEXE_RESWORB_2WEIVBEW")
+}
+
+/// The refusal for that variable's `value` in the process environment at start, if it is set to
+/// anything. A launcher controls the environment as it controls policy, so it is refused the
+/// same way.
+pub fn runtime_folder_env_violation(value: Option<&str>) -> Option<DevToolsError> {
+    let folder = value?.trim();
+    if folder.is_empty() {
+        return None;
+    }
+    Some(DevToolsError::BrowserRuntimeRedirected {
+        source: format!("the environment variable {}", runtime_folder_env_name()),
+        folder: folder.to_owned(),
+    })
+}
+
+/// Errors for every value of the WebView2 `BrowserExecutableFolder` policy that applies to this
+/// program. Such a value makes WebView2 start whatever browser is in that folder, with every
+/// argument and behaviour that browser was built with, so nothing this crate sets can be relied on.
+pub fn runtime_folder_violations(
+    values: &[RegValue],
+    source: &str,
+    exe_name: &str,
+) -> Vec<DevToolsError> {
+    values
+        .iter()
+        .filter(|v| !v.value.trim().is_empty() && policy_value_applies(&v.name, exe_name))
+        .map(|v| DevToolsError::BrowserRuntimeRedirected {
+            source: format!("{source} (value `{}`)", v.name),
+            folder: v.value.trim().to_owned(),
+        })
+        .collect()
+}
+
+/// `text` with every `%NAME%` that `env` knows replaced by its value. An unknown name and a lone
+/// `%` stay as they are.
+pub fn expand_env_refs(text: &str, env: impl Fn(&str) -> Option<String>) -> String {
+    let mut out = String::new();
+    let mut rest = text;
+    while let Some(open) = rest.find('%') {
+        out.push_str(&rest[..open]);
+        let after = &rest[open + 1..];
+        match after.find('%') {
+            Some(close) if close > 0 => match env(&after[..close]) {
+                Some(value) => {
+                    out.push_str(&value);
+                    rest = &after[close + 1..];
+                }
+                None => {
+                    out.push('%');
+                    rest = after;
+                }
+            },
+            _ => {
+                out.push('%');
+                rest = after;
+            }
+        }
+    }
+    out.push_str(rest);
+    out
+}
+
+/// The user data folders the WebView2 `UserDataFolder` policy names for this program, with
+/// environment references expanded. The browser writes its port file there, not in the folder
+/// the application chose, so the tripwire has to look there too.
+pub fn policy_user_data_dirs(
+    values: &[RegValue],
+    exe_name: &str,
+    env: impl Fn(&str) -> Option<String>,
+) -> Vec<PathBuf> {
+    values
+        .iter()
+        .filter(|v| !v.value.trim().is_empty() && policy_value_applies(&v.name, exe_name))
+        .map(|v| PathBuf::from(expand_env_refs(v.value.trim(), &env)))
+        .collect()
+}
+
+/// Further folders the port-file tripwire looks in, besides the app's local and roaming data.
+static EXTRA_USER_DATA_DIRS: std::sync::Mutex<Vec<PathBuf>> = std::sync::Mutex::new(Vec::new());
+
+/// Tell the tripwire about a user data folder the application gives a webview itself (Tauri's
+/// `data_directory`). Call it before the webview is created. The folders a policy or the WebView2
+/// user-data environment variable names are added by [`guard_process_start`].
+pub fn register_user_data_dir(dir: impl Into<PathBuf>) {
+    let dir = dir.into();
+    let mut dirs = EXTRA_USER_DATA_DIRS
+        .lock()
+        .unwrap_or_else(|poison| poison.into_inner());
+    if !dirs.contains(&dir) {
+        dirs.push(dir);
+    }
+}
+
 /// The result of [`guard_process_start`].
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct GuardReport {
@@ -405,6 +520,11 @@ static PROCESS_START: OnceLock<SystemTime> = OnceLock::new();
 /// 3. Refuses to continue when the WebView2 `AdditionalBrowserArguments` policy (HKLM, HKCU,
 ///    WOW6432Node) injects a debugging switch. WebView2 appends policy arguments to whatever the
 ///    application passes, so the application cannot override them (Windows).
+/// 4. Refuses to continue when the WebView2 `BrowserExecutableFolder` policy, or the environment
+///    variable of the same purpose, makes WebView2 start a browser from another folder for this
+///    program (Windows).
+/// 5. Records the folders the `UserDataFolder` policy and the WebView2 user-data environment
+///    variable name, so the port-file tripwire looks there too (Windows).
 ///
 /// A build compiled with the `dev-inspect` feature does none of this: it prints one loud stderr
 /// line saying developer inspection is active and returns an empty report.
@@ -432,8 +552,37 @@ fn run_guard() -> Result<GuardReport, DevToolsError> {
         std::env::remove_var(name);
     }
     #[cfg(windows)]
-    if let Some(err) = registry_policy_violations()?.into_iter().next() {
-        return Err(err);
+    {
+        if let Some(err) = registry_policy_violations()?.into_iter().next() {
+            return Err(err);
+        }
+        let folder = std::env::var_os(runtime_folder_env_name());
+        let folder = folder.as_ref().map(|value| value.to_string_lossy());
+        if let Some(err) = runtime_folder_env_violation(folder.as_deref()) {
+            return Err(err);
+        }
+        let exe = current_exe_name();
+        for (source, values) in read_policy("BrowserExecutableFolder")? {
+            if let Some(err) = runtime_folder_violations(&values, source, &exe)
+                .into_iter()
+                .next()
+            {
+                return Err(err);
+            }
+        }
+        let env = |name: &str| std::env::var(name).ok();
+        for (_, values) in read_policy("UserDataFolder")? {
+            for dir in policy_user_data_dirs(&values, &exe, env) {
+                register_user_data_dir(dir);
+            }
+        }
+        // The variable is left in place (a test harness may set it to keep runs apart); the
+        // folder it names is watched like the others.
+        if let Some(dir) = std::env::var_os(unrev("REDLOF_ATAD_RESU_2WEIVBEW")) {
+            if !dir.is_empty() {
+                register_user_data_dir(PathBuf::from(dir));
+            }
+        }
     }
     Ok(GuardReport { scrubbed_env })
 }
@@ -582,7 +731,32 @@ mod registry {
 /// guard refuses to start: what an unreadable policy says is not known, so it is not assumed empty.
 #[cfg(windows)]
 fn registry_policy_violations() -> Result<Vec<DevToolsError>, DevToolsError> {
-    const PATH: &str = r"Software\Policies\Microsoft\Edge\WebView2\AdditionalBrowserArguments";
+    let mut out = Vec::new();
+    for (source, values) in read_policy("AdditionalBrowserArguments")? {
+        out.extend(policy_violations(&values, source));
+    }
+    Ok(out)
+}
+
+/// This program's executable file name, or empty when it cannot be determined.
+#[cfg(windows)]
+fn current_exe_name() -> String {
+    std::env::current_exe()
+        .ok()
+        .and_then(|path| {
+            path.file_name()
+                .map(|name| name.to_string_lossy().into_owned())
+        })
+        .unwrap_or_default()
+}
+
+/// The text values of one WebView2 policy, from the machine policy in both registry views and the
+/// user policy, each with the name of where it was read. A key that does not exist contributes
+/// nothing; a key that cannot be opened or read is [`DevToolsError::RegistryUnreadable`].
+#[cfg(windows)]
+fn read_policy(policy: &str) -> Result<Vec<(&'static str, Vec<RegValue>)>, DevToolsError> {
+    let path = format!(r"Software\Policies\Microsoft\Edge\WebView2\{policy}");
+    let path = path.as_str();
     let keys = [
         (
             "HKLM policy (64-bit view)",
@@ -602,12 +776,12 @@ fn registry_policy_violations() -> Result<Vec<DevToolsError>, DevToolsError> {
     ];
     let mut out = Vec::new();
     for (source, root, view) in keys {
-        match registry::text_values(root, PATH, view) {
+        match registry::text_values(root, path, view) {
             Ok(None) => {}
-            Ok(Some(values)) => out.extend(policy_violations(&values, source)),
+            Ok(Some(values)) => out.push((source, values)),
             Err(detail) => {
                 return Err(DevToolsError::RegistryUnreadable {
-                    detail: format!("{source}, {PATH}: {detail}"),
+                    detail: format!("{source}, {path}: {detail}"),
                 })
             }
         }
@@ -667,6 +841,13 @@ pub fn verify_not_remote_debuggable<R: Runtime>(app: &AppHandle<R>) -> Result<()
         if let Ok(d) = app.path().app_data_dir() {
             dirs.push(d);
         }
+        dirs.extend(
+            EXTRA_USER_DATA_DIRS
+                .lock()
+                .unwrap_or_else(|poison| poison.into_inner())
+                .iter()
+                .cloned(),
+        );
         if let Some(path) = live_debug_port_file(&dirs, start) {
             return Err(DevToolsError::RemoteDebugPortLive { path });
         }
@@ -674,6 +855,17 @@ pub fn verify_not_remote_debuggable<R: Runtime>(app: &AppHandle<R>) -> Result<()
     #[cfg(not(windows))]
     let _ = app;
     Ok(())
+}
+
+/// The tripwire once more, the first time a page has finished loading; later calls return `Ok`
+/// without looking. The browser process can write its port file after the webview is ready, which
+/// is when [`verify_not_remote_debuggable`] first runs.
+pub fn verify_after_first_navigation<R: Runtime>(app: &AppHandle<R>) -> Result<(), DevToolsError> {
+    static DONE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+    if DONE.swap(true, std::sync::atomic::Ordering::SeqCst) {
+        return Ok(());
+    }
+    verify_not_remote_debuggable(app)
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -952,9 +1144,101 @@ pub fn open_content_devtools<R: Runtime>(
 // Native, per-webview settings
 // ---------------------------------------------------------------------------------------------
 
+/// The native DevTools setting of one webview, as [`enforce_switch`] needs it.
+pub trait DevToolsSwitch {
+    fn set(&mut self, enabled: bool) -> Result<(), String>;
+    fn get(&self) -> Result<bool, String>;
+}
+
+/// Set the native DevTools switch for `decision`. A denied webview is accepted only when the
+/// switch was set to off and reads back off; a missing settings object, a failed call or a value
+/// that is still on is [`DevToolsError::NativePolicyNotApplied`]. A webview that may be inspected
+/// is never refused here: failing to turn inspection on is not a security failure.
+pub fn enforce_switch(
+    label: &str,
+    decision: WebviewDecision,
+    switch: Option<&mut dyn DevToolsSwitch>,
+) -> Result<(), DevToolsError> {
+    let deny = decision == WebviewDecision::Deny;
+    let refuse = |detail: String| DevToolsError::NativePolicyNotApplied {
+        label: label.to_owned(),
+        detail,
+    };
+    let Some(switch) = switch else {
+        return if deny {
+            Err(refuse("the webview has no settings object".to_owned()))
+        } else {
+            Ok(())
+        };
+    };
+    let set = switch.set(!deny);
+    if !deny {
+        return Ok(());
+    }
+    set.map_err(|e| refuse(format!("the setting was rejected: {e}")))?;
+    match switch.get() {
+        Ok(false) => Ok(()),
+        Ok(true) => Err(refuse(
+            "the setting is still on after it was turned off".to_owned(),
+        )),
+        Err(e) => Err(refuse(format!("the setting could not be read back: {e}"))),
+    }
+}
+
+/// Which groups of browser keys one webview does not act on. Each group is switched by one rule:
+/// `devtools` by the DevTools decision (a denied webview), the others by the hardening options of
+/// the same name. A key in no active group is left to the browser.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct KeyRules {
+    /// F12, Ctrl+Shift+I / J / C (inspector) and Ctrl+U (view source).
+    pub devtools: bool,
+    /// F5, Ctrl+R and Ctrl+Shift+R, and the keyboard's refresh key.
+    pub reload: bool,
+    /// Alt+Left, Alt+Right and the keyboard's back and forward keys.
+    pub history: bool,
+    /// Ctrl with plus, minus or zero, on the main block or the number pad.
+    pub zoom: bool,
+}
+
+/// The modifier keys held while a key went down.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct KeyModifiers {
+    pub ctrl: bool,
+    pub shift: bool,
+    pub alt: bool,
+}
+
+/// Whether a webview with `rules` must not act on this key (a Windows virtual-key code). Find,
+/// print and every key outside the active groups always pass.
+pub fn is_blocked_accelerator(virtual_key: u32, held: KeyModifiers, rules: KeyRules) -> bool {
+    let KeyModifiers { ctrl, shift, alt } = held;
+    match virtual_key {
+        // F12; I, J, C; U.
+        0x7B => rules.devtools,
+        0x49 | 0x4A | 0x43 => rules.devtools && ctrl && shift,
+        0x55 => rules.devtools && ctrl,
+        // F5, browser refresh; R.
+        0x74 | 0xA8 => rules.reload,
+        0x52 => rules.reload && ctrl,
+        // Left, Right; browser back, forward.
+        0x25 | 0x27 => rules.history && alt,
+        0xA6 | 0xA7 => rules.history,
+        // Plus, minus, zero; number pad add, subtract, zero.
+        0xBB | 0xBD | 0x30 | 0x6B | 0x6D | 0x60 => rules.zoom && ctrl,
+        _ => false,
+    }
+}
+
 /// Apply the DevTools decision to one live webview. Runs for every webview, whatever other
 /// hardening modules the app opted out of.
-pub fn apply_native<R: Runtime>(webview: &Webview<R>, decision: WebviewDecision) {
+///
+/// `Err` (Windows only) means DevTools could not be disabled in a denied webview; the webview has
+/// been closed and the caller must not go on setting it up. See `windows_impl::apply` for when
+/// the refusal happens after this function has returned.
+pub fn apply_native<R: Runtime>(
+    webview: &Webview<R>,
+    decision: WebviewDecision,
+) -> Result<(), DevToolsError> {
     // Close an inspector that already exists, where the build has one.
     #[cfg(any(
         debug_assertions,
@@ -967,9 +1251,10 @@ pub fn apply_native<R: Runtime>(webview: &Webview<R>, decision: WebviewDecision)
     #[cfg(target_os = "macos")]
     macos::apply(webview, decision);
     #[cfg(windows)]
-    windows_impl::apply(webview, decision);
+    windows_impl::apply(webview, decision)?;
     #[cfg(not(any(target_os = "macos", windows)))]
     let _ = (webview, decision);
+    Ok(())
 }
 
 #[cfg(target_os = "macos")]
@@ -1001,23 +1286,96 @@ mod macos {
 }
 
 #[cfg(windows)]
+pub(crate) use windows_impl::set_hardening_keys;
+
+#[cfg(windows)]
 mod windows_impl {
     use super::*;
-    use crate::winapi::webview2_com::ContextMenuRequestedEventHandler;
     use crate::winapi::webview2_com::Microsoft::Web::WebView2::Win32::{
         ICoreWebView2ContextMenuItem, ICoreWebView2ContextMenuItemCollection,
-        ICoreWebView2Settings3, ICoreWebView2_11,
+        ICoreWebView2Settings, ICoreWebView2_11, COREWEBVIEW2_KEY_EVENT_KIND_KEY_DOWN,
+        COREWEBVIEW2_KEY_EVENT_KIND_SYSTEM_KEY_DOWN,
+    };
+    use crate::winapi::webview2_com::{
+        AcceleratorKeyPressedEventHandler, ContextMenuRequestedEventHandler,
     };
     use crate::winapi::windows::core::{Interface, PWSTR};
+    use std::collections::HashMap;
+    use std::sync::Mutex;
+    use tauri::webview::PlatformWebview;
+
+    #[link(name = "ole32")]
+    unsafe extern "system" {
+        fn CoTaskMemFree(block: *const core::ffi::c_void);
+    }
+    #[link(name = "user32")]
+    unsafe extern "system" {
+        fn GetKeyState(virtual_key: i32) -> i16;
+    }
+    const VK_SHIFT: i32 = 0x10;
+    const VK_CONTROL: i32 = 0x11;
+    const VK_MENU: i32 = 0x12;
+
+    /// The key rules of each webview, by label. The one key handler of a webview reads them when
+    /// a key goes down, so a rule set after the handler was added still applies.
+    static KEY_RULES: Mutex<Option<HashMap<String, KeyRules>>> = Mutex::new(None);
+
+    fn update_key_rules(label: &str, change: impl FnOnce(&mut KeyRules)) {
+        let mut rules = KEY_RULES
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner());
+        change(
+            rules
+                .get_or_insert_with(HashMap::new)
+                .entry(label.to_owned())
+                .or_default(),
+        );
+    }
+
+    fn key_rules(label: &str) -> KeyRules {
+        let rules = KEY_RULES
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner());
+        rules
+            .as_ref()
+            .and_then(|map| map.get(label).copied())
+            .unwrap_or_default()
+    }
+
+    /// The hardening layer's key groups for one webview. It adds no key handler of its own and
+    /// never turns all browser keys off.
+    pub(crate) fn set_hardening_keys(label: &str, reload: bool, history: bool, zoom: bool) {
+        update_key_rules(label, |rules| {
+            rules.reload = reload;
+            rules.history = history;
+            rules.zoom = zoom;
+        });
+    }
+
+    fn key_is_down(virtual_key: i32) -> bool {
+        // SAFETY: GetKeyState takes a virtual-key code and has no other precondition.
+        unsafe { GetKeyState(virtual_key) < 0 }
+    }
+
+    /// Event registrations this module made, by webview label: (context menu, accelerator keys).
+    /// A webview that becomes ready again gets its old handlers removed before the new ones are
+    /// added, so each webview has one of each.
+    static HANDLERS: Mutex<Option<HashMap<String, Registered>>> = Mutex::new(None);
+
+    /// The event tokens of one webview: (context menu, accelerator keys).
+    type Registered = (Option<i64>, Option<i64>);
 
     fn is_inspect_item(item: &ICoreWebView2ContextMenuItem) -> bool {
         let mut name = PWSTR::null();
-        // SAFETY: Name writes a CoTaskMem string; the few bytes per menu are left unfreed on purpose.
-        let ok = unsafe { item.Name(&mut name) }.is_ok() && !name.is_null();
-        ok && unsafe { name.to_string() }
-            .unwrap_or_default()
-            .to_ascii_lowercase()
-            .contains("inspect")
+        // SAFETY: Name writes a CoTaskMem string, which is copied and then freed here.
+        unsafe {
+            if item.Name(&mut name).is_err() || name.is_null() {
+                return false;
+            }
+            let text = name.to_string().unwrap_or_default();
+            CoTaskMemFree(name.0 as *const core::ffi::c_void);
+            text.to_ascii_lowercase().contains("inspect")
+        }
     }
 
     /// Remove the items for which `remove` is true.
@@ -1043,31 +1401,139 @@ mod windows_impl {
         left as usize
     }
 
-    /// WebView2 side of the policy. NOT compiled on the macOS host: the windows-2025 CI job
-    /// compiles it, and nobody has run it on a Windows machine.
-    pub fn apply<R: Runtime>(webview: &Webview<R>, decision: WebviewDecision) {
+    struct LiveSwitch<'a>(&'a ICoreWebView2Settings);
+
+    impl DevToolsSwitch for LiveSwitch<'_> {
+        fn set(&mut self, enabled: bool) -> Result<(), String> {
+            // SAFETY: a live settings object, used on the thread WebView2 gave it to us on.
+            unsafe { self.0.SetAreDevToolsEnabled(enabled) }.map_err(|e| e.to_string())
+        }
+        fn get(&self) -> Result<bool, String> {
+            let mut enabled = Default::default();
+            // SAFETY: as above; `enabled` is a valid out pointer.
+            unsafe { self.0.AreDevToolsEnabled(&mut enabled) }.map_err(|e| e.to_string())?;
+            Ok(enabled.as_bool())
+        }
+    }
+
+    /// WebView2 side of the policy. Compiled by the windows-2025 CI job; nobody has run it against
+    /// a live WebView2 on a Windows machine.
+    ///
+    /// `Err` means DevTools could not be disabled in a denied webview. The webview is then closed
+    /// by this function. When Tauri runs the native closure later rather than at once, the result
+    /// here is `Ok` and the closure closes the webview itself on failure.
+    pub fn apply<R: Runtime>(
+        webview: &Webview<R>,
+        decision: WebviewDecision,
+    ) -> Result<(), DevToolsError> {
+        let label = webview.label().to_owned();
+        let refused = webview.clone();
+        let (report, reported) = std::sync::mpsc::channel();
+        let on_main = label.clone();
+        let dispatched = webview.with_webview(move |platform| {
+            let outcome = apply_on_main(&platform, &on_main, decision);
+            if let Err(error) = &outcome {
+                eprintln!("{error}");
+                // Closed from another thread: this closure still holds the platform webview.
+                std::thread::spawn(move || {
+                    let _ = refused.close();
+                });
+            }
+            let _ = report.send(outcome);
+        });
+        if let Err(error) = dispatched {
+            if decision != WebviewDecision::Deny {
+                return Ok(());
+            }
+            let error = DevToolsError::NativePolicyNotApplied {
+                label,
+                detail: format!("the webview could not be reached: {error}"),
+            };
+            eprintln!("{error}");
+            let _ = webview.close();
+            return Err(error);
+        }
+        reported.try_recv().unwrap_or(Ok(()))
+    }
+
+    fn apply_on_main(
+        platform: &PlatformWebview,
+        label: &str,
+        decision: WebviewDecision,
+    ) -> Result<(), DevToolsError> {
         let allow = decision != WebviewDecision::Deny;
         // Developer inspection leaves the context menu exactly as WebView2 has it.
         let dev = decision == WebviewDecision::AllowDev;
-        let _ = webview.with_webview(move |platform| unsafe {
-            let Ok(core) = platform.controller().CoreWebView2() else {
-                return;
+        // SAFETY: Tauri hands over the live controller; used only inside this main-thread call.
+        unsafe {
+            let controller = platform.controller();
+            let core = controller.CoreWebView2().ok();
+            let settings = core.as_ref().and_then(|core| core.Settings().ok());
+            let mut live = settings.as_ref().map(LiveSwitch);
+            enforce_switch(
+                label,
+                decision,
+                live.as_mut().map(|live| live as &mut dyn DevToolsSwitch),
+            )?;
+            let Some(core) = core else {
+                return Ok(());
             };
-            if let Ok(settings) = core.Settings() {
-                let _ = settings.SetAreDevToolsEnabled(allow);
-                if !allow {
-                    // F12, Ctrl+Shift+I / J / C are browser accelerator keys.
-                    if let Ok(s3) = settings.cast::<ICoreWebView2Settings3>() {
-                        let _ = s3.SetAreBrowserAcceleratorKeysEnabled(false);
-                    }
+            let wv11 = core.cast::<ICoreWebView2_11>().ok();
+
+            let mut handlers = HANDLERS.lock().unwrap_or_else(|poison| poison.into_inner());
+            let (old_menu, old_keys) = handlers
+                .get_or_insert_with(HashMap::new)
+                .remove(label)
+                .unwrap_or((None, None));
+            if let (Some(wv11), Some(token)) = (&wv11, old_menu) {
+                let _ = wv11.remove_ContextMenuRequested(token);
+            }
+            if let Some(token) = old_keys {
+                let _ = controller.remove_AcceleratorKeyPressed(token);
+            }
+
+            // One key handler per webview, for the whole shell. It stops exactly the keys this
+            // webview's rules name (inspector and view-source keys when denied; reload, history
+            // and zoom keys when the hardening asks) and leaves every other key to WebView2.
+            update_key_rules(label, |rules| rules.devtools = !allow);
+            let mut keys = None;
+            {
+                let label = label.to_owned();
+                let handler =
+                    AcceleratorKeyPressedEventHandler::create(Box::new(move |_sender, args| {
+                        let Some(args) = args else { return Ok(()) };
+                        let mut kind = Default::default();
+                        args.KeyEventKind(&mut kind)?;
+                        if kind != COREWEBVIEW2_KEY_EVENT_KIND_KEY_DOWN
+                            && kind != COREWEBVIEW2_KEY_EVENT_KIND_SYSTEM_KEY_DOWN
+                        {
+                            return Ok(());
+                        }
+                        let mut key: u32 = 0;
+                        args.VirtualKey(&mut key)?;
+                        let held = KeyModifiers {
+                            ctrl: key_is_down(VK_CONTROL),
+                            shift: key_is_down(VK_SHIFT),
+                            alt: key_is_down(VK_MENU),
+                        };
+                        if is_blocked_accelerator(key, held, key_rules(&label)) {
+                            args.SetHandled(true)?;
+                        }
+                        Ok(())
+                    }));
+                let mut token: i64 = 0;
+                if controller
+                    .add_AcceleratorKeyPressed(&handler, &mut token)
+                    .is_ok()
+                {
+                    keys = Some(token);
                 }
             }
+
             // The default context menu carries "Inspect". Denied: remove it from every menu.
             // Content: keep only it, and show no menu when it is absent.
-            if dev {
-                return;
-            }
-            if let Ok(wv11) = core.cast::<ICoreWebView2_11>() {
+            let mut menu = None;
+            if let (false, Some(wv11)) = (dev, &wv11) {
                 let handler =
                     ContextMenuRequestedEventHandler::create(Box::new(move |_sender, args| {
                         let Some(args) = args else { return Ok(()) };
@@ -1083,8 +1549,14 @@ mod windows_impl {
                         Ok(())
                     }));
                 let mut token: i64 = 0;
-                let _ = wv11.add_ContextMenuRequested(&handler, &mut token);
+                if wv11.add_ContextMenuRequested(&handler, &mut token).is_ok() {
+                    menu = Some(token);
+                }
             }
-        });
+            if let Some(map) = handlers.as_mut() {
+                map.insert(label.to_owned(), (menu, keys));
+            }
+            Ok(())
+        }
     }
 }

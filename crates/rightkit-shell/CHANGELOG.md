@@ -5,6 +5,51 @@ version is `0.x`, a minor bump may carry breaking changes.
 
 ## Unreleased
 
+- **Clipboard: `take_item_from_with(&Board, ..)` reads a private pasteboard without touching the user's clipboard.**
+  New `clipboard::take_item_from_with(board, broker, temp_dir, policy, options)`; `take_item_with` is now its
+  `Board::General` wrapper and behaves as before. For `Board::Named` on macOS the whole read stays on that pasteboard:
+  the two AppleScript fallbacks (`public.file-url` without a path, PNG coerced from TIFF or an image type) read the
+  general clipboard, so they are skipped for a named board (decided by the pure `fallback_allowed`,
+  `needs_file_fallback`, `needs_png_fallback`, and each osascript helper now takes the board and does nothing for a
+  named one). `platform_snapshot` takes the board; it no longer reads `Board::General` unconditionally. Windows and other
+  platforms: `Board::Named` returns the reader's "named boards are macOS-only" error; `Board::General` is unchanged.
+  Also: a `Board::Named` whose name is empty or in the `Apple CFPasteboard ...` family (the system boards, including
+  the general pasteboard, which `pasteboardWithName` would otherwise return) is now refused by `read`, `write` and
+  `formats` on macOS, and Windows `formats(Named)` now returns the same error as `read` instead of listing the user's
+  clipboard formats. Tests: pure fallback-decision tests on every platform, and macOS tests on uniquely named
+  pasteboards (`rightkit-shell-test-<pid>-<n>`) that are released afterwards.
+- **Windows: a policy that substitutes the browser runtime is refused, and the port-file tripwire looks where the browser
+  really writes (ledger 180, findings 7 and 8).** `guard_process_start` now refuses the WebView2 `BrowserExecutableFolder`
+  policy when a value applies to this program (`DevToolsError::BrowserRuntimeRedirected { source, folder }`, code
+  `browser_runtime_redirected`); only `*` and this program's executable file name match, without regard to case. The
+  environment variable of the same purpose is refused the same way when set at start. The folders a `UserDataFolder`
+  policy and the WebView2 user-data environment variable name are added to the tripwire's folders, and an app that gives
+  a webview its own `data_directory` registers it with the new `devtools::register_user_data_dir`. The tripwire runs once
+  more when the first page has finished loading (`verify_after_first_navigation`), because the browser can write its port
+  file after the webview is ready. An unreadable policy key refuses the start, as before. New: `policy_value_applies`,
+  `runtime_folder_violations`, `runtime_folder_env_violation`, `runtime_folder_env_name`, `policy_user_data_dirs`,
+  `expand_env_refs`. README: the pipe form of remote debugging leaves no port file, and which WebView2 environment
+  variables the guard inspects.
+- **Windows: a denied webview whose DevTools cannot be disabled is refused (ledger 180, findings 3 to 6).**
+  `apply_native` ignored the result of `SetAreDevToolsEnabled(false)`. It now sets the value, reads it back, and when the
+  webview has no settings object, the call fails or the value is still on, it closes the webview and reports the new
+  `DevToolsError::NativePolicyNotApplied { label, detail }` (code `native_policy_not_applied`); the shell sets nothing
+  else up for that webview. **API change:** `devtools::apply_native` returns `Result<(), DevToolsError>` (always `Ok`
+  off Windows). When Tauri runs the native step later instead of at once, the function has already returned `Ok` and
+  the refusal is the printed error and the closed webview. A webview that may be inspected is never refused.
+  New: `DevToolsSwitch`, `enforce_switch`, `is_blocked_accelerator`.
+- **Windows: browser keys are stopped one by one, never all at once (ledger 180; MailRight lost Ctrl+P and keyboard zoom).**
+  The DevTools layer turned every WebView2 browser accelerator key off in a denied webview, and the hardening did the
+  same for `block_reload` or `block_history_nav`. Neither calls `SetAreBrowserAcceleratorKeysEnabled(false)` any more.
+  Each webview has one `AcceleratorKeyPressed` handler that stops exactly the keys its active rules name: F12,
+  Ctrl+Shift+I / J / C and Ctrl+U in a denied webview; F5, Ctrl+R, Ctrl+Shift+R and the refresh key only with
+  `block_reload`; Alt+Left / Right and the back and forward keys only with `block_history_nav`; Ctrl with plus, minus
+  or zero only with `block_zoom` (Ctrl+wheel stays with `IsZoomControlEnabled`). Ctrl+P, Ctrl+F and every other key
+  pass. **Behaviour change:** a denied webview without `block_reload` now reloads on F5, and without
+  `block_history_nav` goes back on Alt+Left. New: `KeyRules`, `KeyModifiers`.
+- Windows: the context-menu item name is freed after it is read, and a webview that becomes ready again has its previous
+  context-menu and key handlers removed before new ones are added. The hardening layer's own context-menu handler is
+  unchanged.
 - **Windows: the WebView2 policy check no longer fails open (ledger 180, findings 1, 2, 8).** The guard read the
   `AdditionalBrowserArguments` policy keys by running `reg.exe query` and treated exit code 1 as "no policy". `reg.exe`
   exits 1 for a missing key and for a key it could not read alike, and a program started by name is looked up in the

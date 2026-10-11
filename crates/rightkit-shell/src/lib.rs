@@ -745,6 +745,16 @@ pub(crate) fn install(cfg: ShellBuilder) -> TauriPlugin<Wry> {
     };
 
     let mut plugin = PluginBuilder::<Wry>::new("rightkit-shell");
+    // The browser process may write its port file after the webview is ready: look once more
+    // when the first page has loaded.
+    plugin = plugin.on_page_load(|webview, payload| {
+        if matches!(payload.event(), tauri::webview::PageLoadEvent::Finished) {
+            if let Err(e) = devtools::verify_after_first_navigation(webview.app_handle()) {
+                eprintln!("{e}");
+                webview.app_handle().exit(1);
+            }
+        }
+    });
     if modules.contains(Module::NavigationPolicy) {
         plugin = plugin.on_navigation(move |_webview, url| match nav_hook.decide(url) {
             NavDecision::Allow => true,
@@ -759,7 +769,11 @@ pub(crate) fn install(cfg: ShellBuilder) -> TauriPlugin<Wry> {
         .on_webview_ready(move |webview| {
             let decision = gate_for_views.decide(webview.label());
             // The DevTools policy is not a module: it applies to every webview, always.
-            devtools::apply_native(&webview, decision);
+            // A denied webview whose DevTools could not be disabled is refused: it has been
+            // closed and reported, and nothing else is set up for it.
+            if devtools::apply_native(&webview, decision).is_err() {
+                return;
+            }
             if harden_webviews {
                 harden::apply_native(&webview, &hardening_for_views, decision);
             }

@@ -14,7 +14,9 @@
 //! binary = { darwin = "target/debug/genright-engine", windows = "target/debug/genright-engine.exe" }
 //! package = "genright-engine"
 //! build = ["rightkit", "cargo", "build", "-p", "genright-engine"]
-//! data_dir_env = "GENRIGHT_APP_DATA"
+//! data_dir_env = "GENRIGHT_APP_DATA"     # required: a launch with no isolated data dir is refused
+//! # data_dir_arg = "--data-dir"          # or name the dir in the step's arguments
+//! # forbidden_args = ["--use-user-library"]   # flags that select the real library: refused
 //!
 //! [ui]
 //! binaries = { darwin = "target/debug/genright", windows = "target/debug/genright.exe" }
@@ -51,7 +53,16 @@ pub struct EngineConfig {
     pub package: Option<String>,
     #[serde(default)]
     pub build: Vec<String>,
+    /// Env var that receives the per-scenario data dir. Required for any engine step: a launch
+    /// that names no isolated data directory is refused (see `userdata::check_engine_launch`).
     pub data_dir_env: Option<String>,
+    /// Flag the engine takes its data dir under (e.g. `--data-dir`), when a step names the
+    /// isolated directory in its arguments instead of through `data_dir_env`.
+    pub data_dir_arg: Option<String>,
+    /// Flags that select the real library (e.g. `--use-user-library`); a step whose arguments
+    /// contain one is refused.
+    #[serde(default)]
+    pub forbidden_args: Vec<String>,
     #[serde(default)]
     pub env: BTreeMap<String, String>,
 }

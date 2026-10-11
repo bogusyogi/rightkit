@@ -70,8 +70,17 @@ describe.skipIf(!chrome)("platform-ui headless hooks in real headless Chrome", (
 
     it("a press inside the panel does not close it (and mousedown default is prevented by the app's own markup)", async () => {
       await openMenu();
-      await page.click("[role=menu]");
+      // Press on one item and release on another: the press is inside the panel, and the click lands on the
+      // panel itself (the items' common ancestor), so no item runs. A click on the panel's centre is a click
+      // on "Copy", which closes the menu after its 80 ms exit: asserting right after such a click only held
+      // while the DOM was read inside that exit.
+      const first = await page.rect("[role=menu] button:first-child");
+      const last = await page.rect("[role=menu] button:last-child");
+      await page.drag(first.x + 20, first.y + 10, last.x + 20, last.y + 10);
+      await page.sleep(300); // longer than the exit: a menu that had started to close would be gone
       expect(await exists("[role=menu]")).toBe(true);
+      expect(await attr("[role=menu]", "data-closing")).toBe("false");
+      expect(await logLines()).toEqual([]);
     });
 
     it("right-clicking the backdrop closes it and suppresses the native menu: no second menu opens", async () => {

@@ -346,12 +346,13 @@ struct Expect<'a> {
 /// Verify `expects` under `dir`. A file missing from `dir` is an error. Sizes are always checked
 /// when pinned; a SHA-256 pass runs for any pinned file whose (size, mtime) is not in the cache,
 /// and records it on success. `full = true` ignores the cache. Cache entries for other files are
-/// kept.
+/// kept. The cache file is written only when its content changes.
 fn verify_files(dir: &Path, expects: &[Expect<'_>], full: bool) -> Result<(), String> {
     let cache_path = dir.join(".verified.json");
-    let cache: VerifiedCache = std::fs::read_to_string(&cache_path)
-        .ok()
-        .and_then(|s| serde_json::from_str(&s).ok())
+    let stored = std::fs::read_to_string(&cache_path).ok();
+    let cache: VerifiedCache = stored
+        .as_deref()
+        .and_then(|s| serde_json::from_str(s).ok())
         .unwrap_or_default();
     let mut out = VerifiedCache::default();
     for f in expects {
@@ -390,8 +391,12 @@ fn verify_files(dir: &Path, expects: &[Expect<'_>], full: bool) -> Result<(), St
             .into_iter()
             .filter(|old| !expects.iter().any(|f| f.name == old.name)),
     );
+    // A check that learned nothing writes nothing: the cache file is rewritten only when its
+    // content changes, so verifying an already-verified folder does not touch it.
     if let Ok(s) = serde_json::to_string(&out) {
-        let _ = std::fs::write(&cache_path, s);
+        if stored.as_deref() != Some(s.as_str()) {
+            let _ = std::fs::write(&cache_path, s);
+        }
     }
     Ok(())
 }
