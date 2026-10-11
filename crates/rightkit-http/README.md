@@ -152,7 +152,7 @@ let client = Client::new(ClientConfig::default().address_policy(policy));
 
 ## Proxies
 
-`ClientConfig::proxy` takes a `ProxyMode`: `None` (default), `Environment` (`ALL_PROXY`, `HTTPS_PROXY`, `HTTP_PROXY` in that order, either case, plus `NO_PROXY`) or `Explicit("http://10.0.0.5:3128")`. Only `http` and `https` proxies are accepted. `ProxyMode::None` stays the default, and environment variables are ignored unless `Environment` is chosen.
+`ClientConfig::proxy` takes a `ProxyMode`: `None` (default), `Environment` (`ALL_PROXY`, `HTTPS_PROXY`, `HTTP_PROXY` in that order, either case, plus `NO_PROXY`) or `Explicit("http://10.0.0.5:3128")`. Only `http` and `https` proxies are accepted. `ProxyMode::None` stays the default, and environment variables are ignored unless `Environment` is chosen. `System` uses the operating system's proxy for the current user: on Windows the static proxy and bypass list of the system proxy settings (a proxy auto-config script and auto-detection are not evaluated); with no static proxy, and on other systems, it behaves as `Environment`.
 
 **Proxy mode is weaker than a direct connection by construction.** The proxy resolves the destination name itself, so this crate cannot see or pin the address a proxied connection reaches. What it enforces is name- and literal-based:
 
