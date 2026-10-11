@@ -161,18 +161,28 @@ impl StderrTail {
     /// inherited stderr can keep the stream open after the child is gone) and
     /// returns what was captured so far.
     pub fn finish_within(&mut self, timeout: std::time::Duration) -> String {
-        // Sleeps on the condition the drain thread signals when it ends: one wake-up, however
-        // long the stream stays open.
-        let finished = {
+        let deadline = std::time::Instant::now() + timeout;
+        // Sleeps on the condition the drain thread signals when its body ends: one wake-up,
+        // however long the stream stays open.
+        {
             let guard = self.done.0.lock().unwrap_or_else(|e| e.into_inner());
-            let (guard, _) = self
+            let _ = self
                 .done
                 .1
                 .wait_timeout_while(guard, timeout, |over| !*over)
                 .unwrap_or_else(|e| e.into_inner());
-            *guard
-        };
-        if finished {
+        }
+        // The signal says the body is over, not that the thread has ended: the captured `map`
+        // and `on_line` are dropped after it, and their destructors are the caller's code (one
+        // may wait on a lock the caller holds right now). So join only a thread that has really
+        // ended, and never wait past the deadline for one that has not. The tail is complete
+        // either way: every line was retained before the signal.
+        while self.handle.as_ref().is_some_and(|h| !h.is_finished())
+            && std::time::Instant::now() < deadline
+        {
+            thread::sleep(std::time::Duration::from_millis(1));
+        }
+        if self.handle.as_ref().is_some_and(|h| h.is_finished()) {
             if let Some(h) = self.handle.take() {
                 let _ = h.join();
             }
@@ -268,6 +278,40 @@ mod tests {
         let seen = seen.lock().unwrap().clone();
         let forwarded = forwarded.lock().unwrap().clone();
         (snapshot, seen, forwarded)
+    }
+
+    /// Comparative review, 2026-10-12: the bounded finish joined as soon as the drain body was
+    /// over, but the callback is dropped after that, and its destructor here waits on a lock
+    /// the caller holds. 0.3.3 returned at the deadline; so must this.
+    #[test]
+    fn finish_within_returns_while_the_callback_is_still_being_dropped() {
+        struct WaitsOnDrop(Arc<Mutex<()>>);
+        impl Drop for WaitsOnDrop {
+            fn drop(&mut self) {
+                drop(self.0.lock().unwrap_or_else(|e| e.into_inner()));
+            }
+        }
+        let gate = Arc::new(Mutex::new(()));
+        let held = gate.lock().unwrap();
+        let captured = WaitsOnDrop(Arc::clone(&gate));
+        let mut tail = StderrTail::capture(
+            Cursor::new(b"kept\n".to_vec()),
+            64,
+            |l| Some(l.to_string()),
+            move |_| {
+                let _ = &captured;
+            },
+        );
+        let started = std::time::Instant::now();
+        let snapshot = tail.finish_within(std::time::Duration::from_millis(100));
+        assert_eq!(snapshot, "kept");
+        assert!(
+            started.elapsed() < std::time::Duration::from_secs(5),
+            "finish_within waited for the callback's destructor"
+        );
+        // Released: the thread ends and an unbounded finish joins it.
+        drop(held);
+        assert_eq!(tail.finish(), "kept");
     }
 
     #[test]
