@@ -36,7 +36,7 @@ function rights(field: string): [boolean, boolean] {
     const all = has(GENERIC_ALL);
     return [all || has(GENERIC_READ) || has(READ), all || has(GENERIC_EXECUTE) || has(EXECUTE)];
   }
-  const pairs = text.match(/../g) ?? [];
+  const pairs: string[] = text.match(/../g) ?? [];
   const all = pairs.includes('FA') || pairs.includes('GA');
   return [all || pairs.includes('FR') || pairs.includes('GR'), all || pairs.includes('FX') || pairs.includes('GX')];
 }
@@ -51,7 +51,8 @@ export function missingSandboxGrants(sddl: string): string[] {
   for (const ace of sddl.split('(').slice(1)) {
     const fields = (ace.split(')')[0] ?? '').split(';');
     if (fields.length < 6 || fields[0]!.trim() !== 'A') continue;
-    if ((fields[1]!.match(/../g) ?? []).includes('IO')) continue;
+    const flags: string[] = fields[1]!.match(/../g) ?? [];
+    if (flags.includes('IO')) continue;
     const sid = fields[5]!.trim() === 'AC' ? ALL_APPLICATION_PACKAGES : fields[5]!.trim();
     const have = granted.get(sid);
     if (!have) continue;
