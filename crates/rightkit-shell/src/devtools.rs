@@ -314,32 +314,57 @@ where
         .collect()
 }
 
-/// One value of a registry key as printed by `reg.exe query`.
+/// One string value of a registry key.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RegValue {
     pub name: String,
     pub value: String,
 }
 
-/// Parse `reg.exe query <key>` output: lines of `<name>    REG_SZ    <data>`.
-pub fn parse_reg_query(output: &str) -> Vec<RegValue> {
-    let mut values = Vec::new();
-    for line in output.lines() {
-        let t = line.trim();
-        if t.is_empty() || t.to_ascii_uppercase().starts_with("HKEY_") {
-            continue;
-        }
-        for ty in ["REG_EXPAND_SZ", "REG_MULTI_SZ", "REG_SZ"] {
-            if let Some(i) = t.find(ty) {
-                values.push(RegValue {
-                    name: t[..i].trim().to_owned(),
-                    value: t[i + ty.len()..].trim().to_owned(),
-                });
-                break;
-            }
+/// `REG_SZ`, `REG_EXPAND_SZ` and `REG_MULTI_SZ`: the registry types that hold text.
+const REG_TEXT_TYPES: [u32; 3] = [1, 2, 7];
+
+/// The text of a registry value from its type and raw bytes (UTF-16LE), or `None` for a type that
+/// holds no text (a number or binary data cannot carry a browser argument). The strings of a
+/// `REG_MULTI_SZ` are joined with spaces; the terminating NULs are dropped.
+pub fn decode_reg_text(kind: u32, data: &[u8]) -> Option<String> {
+    if !REG_TEXT_TYPES.contains(&kind) {
+        return None;
+    }
+    let units: Vec<u16> = data
+        .chunks_exact(2)
+        .map(|pair| u16::from_le_bytes([pair[0], pair[1]]))
+        .collect();
+    let text = String::from_utf16_lossy(&units);
+    Some(
+        text.split('\0')
+            .filter(|part| !part.is_empty())
+            .collect::<Vec<_>>()
+            .join(" "),
+    )
+}
+
+/// What opening a policy key means for the guard, from the status `RegOpenKeyExW` returned.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PolicyKeyOpen {
+    /// The key is open and its values are to be read.
+    Opened,
+    /// `ERROR_FILE_NOT_FOUND`: the key does not exist, so there is no policy. The only status
+    /// that means that.
+    Absent,
+    /// Anything else (access denied, a registry failure): what the policy says is unknown, and
+    /// the guard refuses to start.
+    Unreadable(u32),
+}
+
+impl PolicyKeyOpen {
+    pub fn from_status(status: u32) -> Self {
+        match status {
+            0 => Self::Opened,
+            2 => Self::Absent,
+            other => Self::Unreadable(other),
         }
     }
-    values
 }
 
 /// Errors for every value of a policy key that injects a debugging switch. A value named for a
@@ -431,42 +456,169 @@ fn announce_dev_inspect() -> GuardReport {
     GuardReport::default()
 }
 
+/// Windows: the registry, read through the registry API. No `reg.exe`: a program started by name
+/// is found in the application's directory and the working directory before the system's, and its
+/// exit code cannot tell a missing key from one that could not be read.
+#[cfg(windows)]
+mod registry {
+    use super::{decode_reg_text, PolicyKeyOpen, RegValue};
+
+    pub(super) const HKEY_CURRENT_USER: isize = 0x8000_0001_u32 as i32 as isize;
+    pub(super) const HKEY_LOCAL_MACHINE: isize = 0x8000_0002_u32 as i32 as isize;
+    /// The 64-bit and the 32-bit registry view, named explicitly so a 32-bit and a 64-bit build
+    /// read the same two keys.
+    pub(super) const VIEW_64: u32 = 0x0100;
+    pub(super) const VIEW_32: u32 = 0x0200;
+    const KEY_READ: u32 = 0x0002_0019;
+    const ERROR_MORE_DATA: u32 = 234;
+    const ERROR_NO_MORE_ITEMS: u32 = 259;
+    /// The longest value name the registry allows, in UTF-16 units, plus the terminator.
+    const NAME_UNITS: usize = 16_384;
+
+    #[link(name = "advapi32")]
+    unsafe extern "system" {
+        fn RegOpenKeyExW(
+            key: isize,
+            sub_key: *const u16,
+            options: u32,
+            access: u32,
+            result: *mut isize,
+        ) -> u32;
+        fn RegEnumValueW(
+            key: isize,
+            index: u32,
+            name: *mut u16,
+            name_len: *mut u32,
+            reserved: *mut u32,
+            kind: *mut u32,
+            data: *mut u8,
+            data_len: *mut u32,
+        ) -> u32;
+        fn RegCloseKey(key: isize) -> u32;
+    }
+
+    struct Key(isize);
+
+    impl Drop for Key {
+        fn drop(&mut self) {
+            // SAFETY: the handle came from RegOpenKeyExW and is closed once.
+            unsafe { RegCloseKey(self.0) };
+        }
+    }
+
+    /// The text values of `root\path` in `view`. `Ok(None)`: the key does not exist. `Err`: the
+    /// key could not be opened or read; the text names the step and the Win32 status.
+    pub(super) fn text_values(
+        root: isize,
+        path: &str,
+        view: u32,
+    ) -> Result<Option<Vec<RegValue>>, String> {
+        let wide: Vec<u16> = path.encode_utf16().chain([0]).collect();
+        let mut handle: isize = 0;
+        // SAFETY: `wide` is NUL-terminated and outlives the call; `handle` is a valid
+        // out-parameter.
+        let status = unsafe { RegOpenKeyExW(root, wide.as_ptr(), 0, KEY_READ | view, &mut handle) };
+        match PolicyKeyOpen::from_status(status) {
+            PolicyKeyOpen::Opened => {}
+            PolicyKeyOpen::Absent => return Ok(None),
+            PolicyKeyOpen::Unreadable(code) => {
+                return Err(format!("open failed with Win32 error {code}"))
+            }
+        }
+        let key = Key(handle);
+        let mut values = Vec::new();
+        let mut name = vec![0u16; NAME_UNITS];
+        let mut data = vec![0u8; 4096];
+        let mut index = 0u32;
+        loop {
+            let mut name_len = name.len() as u32;
+            let mut data_len = data.len() as u32;
+            let mut kind = 0u32;
+            // SAFETY: both buffers are writable for the lengths passed, which the call updates;
+            // the reserved pointer is null as documented.
+            let status = unsafe {
+                RegEnumValueW(
+                    key.0,
+                    index,
+                    name.as_mut_ptr(),
+                    &mut name_len,
+                    std::ptr::null_mut(),
+                    &mut kind,
+                    data.as_mut_ptr(),
+                    &mut data_len,
+                )
+            };
+            match status {
+                0 => {
+                    if let Some(value) = decode_reg_text(kind, &data[..data_len as usize]) {
+                        values.push(RegValue {
+                            name: String::from_utf16_lossy(&name[..name_len as usize]),
+                            value,
+                        });
+                    }
+                    index += 1;
+                }
+                // The data did not fit: `data_len` now holds the size needed. Same index again.
+                ERROR_MORE_DATA => {
+                    let needed = (data_len as usize).max(data.len() * 2);
+                    data.resize(needed, 0);
+                }
+                ERROR_NO_MORE_ITEMS => return Ok(Some(values)),
+                other => {
+                    return Err(format!(
+                        "reading value {index} failed with Win32 error {other}"
+                    ))
+                }
+            }
+        }
+    }
+}
+
+/// Every debugging switch the WebView2 `AdditionalBrowserArguments` policy injects, from the
+/// machine policy in both registry views and the user policy. A key that does not exist is no
+/// policy; a key that cannot be opened or read is [`DevToolsError::RegistryUnreadable`], and the
+/// guard refuses to start: what an unreadable policy says is not known, so it is not assumed empty.
 #[cfg(windows)]
 fn registry_policy_violations() -> Result<Vec<DevToolsError>, DevToolsError> {
-    use std::os::windows::process::CommandExt;
-    let tail = r"Software\Policies\Microsoft\Edge\WebView2\AdditionalBrowserArguments";
+    const PATH: &str = r"Software\Policies\Microsoft\Edge\WebView2\AdditionalBrowserArguments";
     let keys = [
-        ("HKLM policy", format!(r"HKLM\{tail}")),
-        ("HKCU policy", format!(r"HKCU\{tail}")),
         (
-            "HKLM WOW6432Node policy",
-            r"HKLM\Software\WOW6432Node\Policies\Microsoft\Edge\WebView2\AdditionalBrowserArguments".to_owned(),
+            "HKLM policy (64-bit view)",
+            registry::HKEY_LOCAL_MACHINE,
+            registry::VIEW_64,
+        ),
+        (
+            "HKLM policy (32-bit view)",
+            registry::HKEY_LOCAL_MACHINE,
+            registry::VIEW_32,
+        ),
+        (
+            "HKCU policy",
+            registry::HKEY_CURRENT_USER,
+            registry::VIEW_64,
         ),
     ];
     let mut out = Vec::new();
-    for (source, key) in keys {
-        let output = std::process::Command::new("reg.exe")
-            .creation_flags(0x0800_0000)
-            .args(["query", key.as_str()])
-            .output()
-            .map_err(|e| DevToolsError::RegistryUnreadable {
-                detail: format!("run reg.exe: {e}"),
-            })?;
-        match output.status.code() {
-            // 1: the key does not exist, so there is no policy.
-            Some(1) => continue,
-            Some(0) => {
-                let text = String::from_utf8_lossy(&output.stdout);
-                out.extend(policy_violations(&parse_reg_query(&text), source));
-            }
-            other => {
+    for (source, root, view) in keys {
+        match registry::text_values(root, PATH, view) {
+            Ok(None) => {}
+            Ok(Some(values)) => out.extend(policy_violations(&values, source)),
+            Err(detail) => {
                 return Err(DevToolsError::RegistryUnreadable {
-                    detail: format!("reg.exe query {key} exited with {other:?}"),
+                    detail: format!("{source}, {PATH}: {detail}"),
                 })
             }
         }
     }
     Ok(out)
+}
+
+/// Test support (Windows): read the text values of a key under `HKEY_CURRENT_USER` the way the
+/// guard reads the policy keys. `Ok(None)` when the key does not exist.
+#[cfg(windows)]
+#[doc(hidden)]
+pub fn read_user_key_text_values(path: &str) -> Result<Option<Vec<RegValue>>, String> {
+    registry::text_values(registry::HKEY_CURRENT_USER, path, registry::VIEW_64)
 }
 
 /// The file name Chromium writes into the user data folder when remote debugging is on.
