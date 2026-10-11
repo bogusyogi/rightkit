@@ -8,6 +8,9 @@ import { buildDmg, parseDmgArguments } from "./dmg-build.mjs";
 import { dmgDSStore, backgroundAlias } from "./dmg-layout.mjs";
 import { fileURLToPath } from "node:url";
 
+// Not run on Windows: disk images are built on macOS (hdiutil, POSIX paths).
+const WINDOWS_SKIP = process.platform === "win32" ? "disk images are built on macOS (hdiutil, POSIX paths)" : false;
+
 function fixture(t) {
   const root = realpathSync(mkdtempSync(path.join(os.tmpdir(), "rk-dmg-test-"))), app = path.join(root, "Tést App.app"), out = path.join(root, "out.dmg");
   mkdirSync(path.join(app, "Contents"), { recursive: true });
@@ -104,7 +107,7 @@ function mockCommands(f, calls, failPhase) {
   };
 }
 
-test("headless builder uses hdiutil, stages Applications, verifies UDZO & cleans work", (t) => {
+test("headless builder uses hdiutil, stages Applications, verifies UDZO & cleans work", { skip: WINDOWS_SKIP }, (t) => {
   const f = fixture(t), calls = [], events = [];
   // Mock uses no background so alias never queries non-HFS+ fixture inodes.
   const result = buildDmg({ ...f, background: undefined }, { platform: "darwin", run: mockCommands(f, calls), log: (e) => events.push(e) });
@@ -115,7 +118,7 @@ test("headless builder uses hdiutil, stages Applications, verifies UDZO & cleans
   assert.equal(events.at(-1).event, "dmg-build-completed"); assert.ok(!readdirSync(f.root).some((n) => n.startsWith(".rightkit-dmg-")));
 });
 
-test("mocked branded DMG stages background & writes alias to mounted layout", (t) => {
+test("mocked branded DMG stages background & writes alias to mounted layout", { skip: WINDOWS_SKIP }, (t) => {
   const f = fixture(t), calls = [];
   buildDmg(f, { platform: "darwin", run: mockCommands(f, calls), log() {},
     makeAlias(options) {
@@ -126,7 +129,7 @@ test("mocked branded DMG stages background & writes alias to mounted layout", (t
   assert.ok(existsSync(f.out));
 });
 
-for (const phase of ["attach", "detach", "convert", "verify"]) test(`DMG ${phase} failure preserves old output & detaches before cleanup`, (t) => {
+for (const phase of ["attach", "detach", "convert", "verify"]) test(`DMG ${phase} failure preserves old output & detaches before cleanup`, { skip: WINDOWS_SKIP }, (t) => {
   const f = fixture(t), calls = [], events = []; writeFileSync(f.out, "previous");
   assert.throws(() => buildDmg({ ...f, background: undefined }, { platform: "darwin", run: mockCommands(f, calls, phase), log: (e) => events.push(e), sleep() {} }), { code: "DMG_COMMAND_FAILED" });
   assert.equal(readFileSync(f.out, "utf8"), "previous"); assert.equal(events.some((e) => e.event === "dmg-build-failed"), true);
@@ -168,7 +171,7 @@ test("real native headless DMG roundtrip", { skip: process.platform !== "darwin"
   } finally { assert.equal(spawnSync("/usr/bin/hdiutil", ["detach", mount]).status, 0); }
 });
 
-test("DMG detach retries 'Resource busy' with backoff, logs each retry, then succeeds without -force", (t) => {
+test("DMG detach retries 'Resource busy' with backoff, logs each retry, then succeeds without -force", { skip: WINDOWS_SKIP }, (t) => {
   const f = fixture(t), calls = [], events = [], sleeps = []; let busy = 3;
   const base = mockCommands(f, calls);
   const run = (tool, args, options) => (args[0] === "detach" && !args.includes("-force") && busy-- > 0
@@ -180,7 +183,7 @@ test("DMG detach retries 'Resource busy' with backoff, logs each retry, then suc
   assert.equal(events.filter((e) => e.event === "hdiutil-detach-retry").length, 3);
 });
 
-test("DMG detach exhausts 5 tries then uses -force as last resort", (t) => {
+test("DMG detach exhausts 5 tries then uses -force as last resort", { skip: WINDOWS_SKIP }, (t) => {
   const f = fixture(t), calls = [], events = [], sleeps = [];
   const base = mockCommands(f, calls);
   const run = (tool, args, options) => (args[0] === "detach" && !args.includes("-force")
@@ -199,7 +202,7 @@ test("DS_Store records the window position when one is given (default stays 100,
   assert.equal(bounds({ window: [640, 420], windowPosition: [50, 60] }), "{{50, 60}, {640, 420}}");
 });
 
-test("an appdmg-style spec drives the layout; explicit options win over it", (t) => {
+test("an appdmg-style spec drives the layout; explicit options win over it", { skip: WINDOWS_SKIP }, (t) => {
   const f = fixture(t), specFile = path.join(f.root, "appdmg.json");
   writeFileSync(specFile, JSON.stringify({ title: "From Spec", "icon-size": 96, window: { position: { x: 70, y: 80 }, size: { width: 640, height: 420 } },
     contents: [{ x: 180, y: 210, type: "file", path: path.basename(f.app) }, { x: 460, y: 210, type: "link", path: "/Applications" }] }));

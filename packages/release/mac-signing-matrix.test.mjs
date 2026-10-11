@@ -6,6 +6,9 @@ import test from "node:test";
 import { macCodesignArgs, parseSignManifest, signMacosEntries, validateCodesignIdentifier } from "./mac-sign-core.mjs";
 import { hasNonDefaultSettings, matrixReceiptProblems, planMacSigning, validateMacSigningConfig } from "./mac-signing-matrix.mjs";
 
+// Not run on Windows: macOS signing uses POSIX bundle paths.
+const WINDOWS_SKIP = process.platform === "win32" ? "macOS signing uses POSIX bundle paths" : false;
+
 const PLIST = '<?xml version="1.0" encoding="UTF-8"?>\n<plist version="1.0"><dict/></plist>\n';
 const MACHO = Buffer.from("cffaedfe00000000", "hex");
 
@@ -90,7 +93,7 @@ test("nestedCode keys must be bundle-relative Contents/ paths and need exactly o
   bad(t, { prePackageFiles: ["a.app"], nestedCode: { "Contents/Helpers/x": "runtime" } }, /must be an object/);
 });
 
-test("plan signs nested code deepest first, matrix items interleaved, then the app entry", (t) => {
+test("plan signs nested code deepest first, matrix items interleaved, then the app entry", { skip: WINDOWS_SKIP }, (t) => {
   const f = pulseFixture(t);
   const { entries, nestedCode } = validateMacSigningConfig(pulseSign(), { root: f.root });
   const plan = planMacSigning({ entries: entries.map((entry) => ({ ...entry, file: path.join(f.root, entry.file) })), nestedCode });
@@ -118,7 +121,7 @@ test("plan without nestedCode is the legacy discovery with default settings", (t
   assert.equal(plan.nested.some(hasNonDefaultSettings), false);
 });
 
-test("plan adds a nestedCode path discovery does not find, and orders it by depth", (t) => {
+test("plan adds a nestedCode path discovery does not find, and orders it by depth", { skip: WINDOWS_SKIP }, (t) => {
   const f = pulseFixture(t);
   f.put("dist/Pulse.app/Contents/Resources/a/b/c/d/script.sh", "#!/bin/sh\n");
   const sign = { prePackageFiles: ["dist/Pulse.app"], nestedCode: { "Contents/Resources/a/b/c/d/script.sh": { options: ["library"] } } };
@@ -142,7 +145,7 @@ test("plan fails before signing for missing, symlinked, escaping or main-executa
   assert.throws(run("Contents/Resources-link/entitlements.plist"), /resolves outside the bundle/);
 });
 
-test("fake signer receives codesign invocations inside-out with the matrix applied", (t) => {
+test("fake signer receives codesign invocations inside-out with the matrix applied", { skip: WINDOWS_SKIP }, (t) => {
   const f = pulseFixture(t);
   const { entries, nestedCode } = validateMacSigningConfig(pulseSign(), { root: f.root });
   const plan = planMacSigning({ entries: entries.map((entry) => ({ ...entry, file: path.join(f.root, entry.file) })), nestedCode });
@@ -185,13 +188,13 @@ test("a failing codesign or verification stops the sequence", () => {
   assert.throws(() => signMacosEntries(entries, { identity: "id", signOne: () => ({ status: 0 }), inspect: (cmd, args) => (args[0] === "--verify" ? "invalid" : ""), evidence: () => ({}) }), /strict codesign verification failed for \/a/);
 });
 
-test("codesign argv: defaults are the historical form; options extend runtime", () => {
+test("codesign argv: defaults are the historical form; options extend runtime", { skip: WINDOWS_SKIP }, () => {
   assert.deepEqual(macCodesignArgs({ file: "/x", identity: "id" }), ["--force", "--options", "runtime", "--timestamp", "--sign", "id", "/x"]);
   assert.deepEqual(macCodesignArgs({ file: "/x", identity: "id", options: ["library", "runtime"], entitlements: "/e.plist" }),
     ["--force", "--options", "runtime,library", "--timestamp", "--sign", "id", "--entitlements", "/e.plist", "/x"]);
 });
 
-test("codesign argv: an identifier adds --identifier between --timestamp and --sign; absent changes nothing", () => {
+test("codesign argv: an identifier adds --identifier between --timestamp and --sign; absent changes nothing", { skip: WINDOWS_SKIP }, () => {
   assert.deepEqual(macCodesignArgs({ file: "/x", identity: "id", identifier: "app.example.engine" }),
     ["--force", "--options", "runtime", "--timestamp", "--identifier", "app.example.engine", "--sign", "id", "/x"]);
   assert.deepEqual(macCodesignArgs({ file: "/x", identity: "id", identifier: "app.example", entitlements: "/e.plist", options: ["library"] }),

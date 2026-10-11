@@ -5,6 +5,10 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
+import fs from "node:fs";
+
+// macOS: /private/tmp is the real path behind /tmp. Elsewhere: the system temp directory in its real, long form.
+const TEST_TMP = process.platform === "darwin" ? "/private/tmp" : fs.realpathSync.native(os.tmpdir());
 
 const helper = fileURLToPath(new URL("./mirror-root-artifact.mjs", import.meta.url));
 
@@ -58,7 +62,7 @@ test("copies a main-worktree artifact into managed storage", () => {
 });
 
 test("routes build-time mirror into managed artifact directory", () => {
-  const temp = mkdtempSync(path.join("/private/tmp", "right-release-mirror-managed-"));
+  const temp = mkdtempSync(path.join(TEST_TMP, "right-release-mirror-managed-"));
   try {
     git(temp, "init", "app");
     const root = path.join(temp, "app");
@@ -75,7 +79,7 @@ test("routes build-time mirror into managed artifact directory", () => {
 });
 
 test("fails closed without managed output or when output is inside repository", () => {
-  const temp = mkdtempSync(path.join("/private/tmp", "right-release-mirror-required-"));
+  const temp = mkdtempSync(path.join(TEST_TMP, "right-release-mirror-required-"));
   try {
     git(temp, "init", "app");
     const root = path.join(temp, "app");
@@ -88,7 +92,7 @@ test("fails closed without managed output or when output is inside repository", 
 });
 
 test("rejects unsafe names and symlinked managed ancestors", () => {
-  const temp = mkdtempSync(path.join("/private/tmp", "right-release-mirror-guards-"));
+  const temp = mkdtempSync(path.join(TEST_TMP, "right-release-mirror-guards-"));
   try {
     git(temp, "init", "app");
     const root = path.join(temp, "app");

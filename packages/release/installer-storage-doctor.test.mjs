@@ -4,9 +4,14 @@ import path from "node:path";
 import test from "node:test";
 import { execFileSync } from "./background-process.mjs";
 import { DEFAULT_STORAGE_THRESHOLD_BYTES, findInstallerCopyScripts, findLargeRepositorySubdirectories } from "./installer-storage-doctor.mjs";
+import fs from "node:fs";
+import os from "node:os";
+
+// macOS: /private/tmp is the real path behind /tmp. Elsewhere: the system temp directory in its real, long form.
+const TEST_TMP = process.platform === "darwin" ? "/private/tmp" : fs.realpathSync.native(os.tmpdir());
 
 test("doctor reports installer-copy scripts without blocking", () => {
-  const root = mkdtempSync(path.join("/private/tmp", "rightkit-installer-doctor-"));
+  const root = mkdtempSync(path.join(TEST_TMP, "rightkit-installer-doctor-"));
   try {
     writeFileSync(path.join(root, "package.json"), JSON.stringify({ scripts: { package: "cp target/App.dmg ." } }));
     const known = path.join(root, "package.sh");
@@ -18,7 +23,7 @@ test("doctor reports installer-copy scripts without blocking", () => {
 });
 
 test("doctor matches installer destination while ignoring helper and managed copies", () => {
-  const root = mkdtempSync(path.join("/private/tmp", "rightkit-installer-doctor-"));
+  const root = mkdtempSync(path.join(TEST_TMP, "rightkit-installer-doctor-"));
   try {
     writeFileSync(path.join(root, "package.sh"), [
       'cp "$HELPER_DYLIB" "$STAGE/"',
@@ -33,7 +38,7 @@ test("doctor matches installer destination while ignoring helper and managed cop
 });
 
 test("known app script is scoped to selected app root", () => {
-  const root = mkdtempSync(path.join("/private/tmp", "rightkit-installer-doctor-"));
+  const root = mkdtempSync(path.join(TEST_TMP, "rightkit-installer-doctor-"));
   try {
     mkdirSync(path.join(root, "scraperight"), { recursive: true });
     mkdirSync(path.join(root, "other"), { recursive: true });
@@ -43,7 +48,7 @@ test("known app script is scoped to selected app root", () => {
 });
 
 test("ownership scanner reports large repository directories and ignores managed root", () => {
-  const root = mkdtempSync(path.join("/private/tmp", "rightkit-storage-doctor-"));
+  const root = mkdtempSync(path.join(TEST_TMP, "rightkit-storage-doctor-"));
   try {
     const managed = path.join(root, "managed");
     const repoCache = path.join(root, "cache");
@@ -61,7 +66,7 @@ test("ownership scanner reports large repository directories and ignores managed
 });
 
 test("managed root inside repository is skipped only when Git ignores it", () => {
-  const root = mkdtempSync(path.join("/private/tmp", "rightkit-storage-doctor-git-"));
+  const root = mkdtempSync(path.join(TEST_TMP, "rightkit-storage-doctor-git-"));
   try {
     execFileSync("git", ["init", "-q", root]);
     const managed = path.join(root, "managed");

@@ -31,13 +31,13 @@ test("macOS without a terminal uses the system admin dialog via osascript argv",
 
 const NASTY = ["plain", "with space", "it's", 'say "hi"', "back\\slash", "mix ' \" \\ $HOME `x` ; &", "''", ""];
 
-test("shell quoting round-trips spaces, quotes and backslashes exactly through /bin/sh", () => {
+test("shell quoting round-trips spaces, quotes and backslashes exactly through /bin/sh", { skip: process.platform === "win32" ? "runs /bin/sh; the elevation it quotes for is macOS-only" : false }, () => {
   const cmd = `printf '%s\\n' ${NASTY.map(shellQuote).join(" ")}`;
   const r = spawnSync("/bin/sh", ["-c", cmd], { encoding: "utf8" });
   assert.equal(r.stdout, NASTY.map((v) => `${v}\n`).join(""));
 });
 
-test("AppleScript literal escaping and full command survive both layers", () => {
+test("AppleScript literal escaping and full command survive both layers", { skip: process.platform === "win32" ? "runs /bin/sh; the elevation it quotes for is macOS-only" : false }, () => {
   assert.equal(appleScriptString('a"b\\c'), '"a\\"b\\\\c"');
   assert.throws(() => appleScriptString("a\nb"), /line break/);
   assert.throws(() => shellQuote("a\0b"), /NUL/);
