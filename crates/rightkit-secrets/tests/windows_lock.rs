@@ -7,6 +7,11 @@ use std::io::Write;
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
+mod common;
+
+/// Every credential this file writes is named under this prefix.
+const SERVICE_PREFIX: &str = "dev.rightkit.secrets.lock.";
+
 const ROLE: &str = "RIGHTKIT_SECRETS_LOCK_CHILD";
 const ACCOUNT: &str = "db-key";
 
@@ -31,6 +36,9 @@ impl Drop for Credential {
 
 #[test]
 fn eight_processes_observe_one_key() {
+    if !common::real_user_stores_allowed("eight_processes_observe_one_key") {
+        return;
+    }
     let service = format!(
         "dev.rightkit.secrets.lock.{}.{}",
         std::process::id(),
@@ -39,6 +47,7 @@ fn eight_processes_observe_one_key() {
             .unwrap()
             .as_nanos()
     );
+    common::assert_test_name(&service, SERVICE_PREFIX);
     let credential = Credential(Namespace::new(&service).unwrap());
     let dir = tempfile::tempdir().unwrap();
     let mut children = Children(Vec::new());
@@ -129,6 +138,8 @@ fn child_get_or_create() {
     assert!(index < 8, "unknown child index");
     let service =
         std::env::var("RIGHTKIT_SECRETS_LOCK_NAMESPACE").expect("missing child namespace");
+    // The child writes only the credential its parent named, and the parent ran the gate.
+    common::assert_test_name(&service, SERVICE_PREFIX);
     let dir = std::path::PathBuf::from(
         std::env::var_os("RIGHTKIT_SECRETS_LOCK_DIR").expect("missing child directory"),
     );

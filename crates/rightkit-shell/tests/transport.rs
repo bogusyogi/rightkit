@@ -616,23 +616,22 @@ fn http_cache_dir_with_uses_the_caller_root_and_validates_the_identifier() {
 }
 
 #[test]
-fn http_cache_dir_is_created_under_the_user_cache_root() {
-    // A managed, non-interactive session (a build host's job) may have no user cache root at all.
-    if rightkit_shell::startup_cache::user_cache_root().is_none() {
-        eprintln!(
-            "SKIP: this session has no user cache directory (no LOCALAPPDATA or HOME cache root)"
-        );
-        return;
-    }
+fn http_cache_dir_is_created_under_the_cache_root_it_is_given() {
+    // Under a temporary root, never the user's own cache folder. `ensure_http_cache_dir` itself
+    // is this call with `user_cache_root` as the root; tests call it only with identifiers it
+    // refuses before it resolves that root.
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().to_path_buf();
     let id = format!("rightkit-shell-test-{}", std::process::id());
-    let outcome = ensure_http_cache_dir(&id).unwrap();
-    assert!(matches!(
-        outcome,
-        CacheDirOutcome::Created | CacheDirOutcome::Existing
-    ));
-    let root = rightkit_shell::startup_cache::user_cache_root().unwrap();
+    assert_eq!(
+        ensure_http_cache_dir_with(&id, || Some(root.clone())).unwrap(),
+        CacheDirOutcome::Created
+    );
     assert!(root.join(&id).is_dir());
-    let _ = std::fs::remove_dir(root.join(&id));
+    assert_eq!(
+        ensure_http_cache_dir_with(&id, || Some(root.clone())).unwrap(),
+        CacheDirOutcome::Existing
+    );
 }
 
 // ---------------------------------------------------------------------------------------------

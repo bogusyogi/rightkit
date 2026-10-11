@@ -16,6 +16,9 @@ use rightkit_shell::devtools::{
 };
 use rightkit_shell::{Hardening, Shell};
 
+#[cfg(windows)]
+mod common;
+
 /// A native DevTools switch that can reject the call or ignore it.
 struct FakeSwitch {
     enabled: bool,
@@ -366,7 +369,11 @@ fn only_a_missing_key_means_no_policy() {
 #[test]
 fn a_real_registry_key_is_read_value_by_value() {
     use rightkit_shell::devtools::read_user_key_text_values;
+    if !common::real_user_stores_allowed("a_real_registry_key_is_read_value_by_value") {
+        return;
+    }
     let key = format!(r"Software\RightKitTest\devtools-{}", std::process::id());
+    common::assert_test_name(&key, r"Software\RightKitTest\devtools-");
     assert_eq!(read_user_key_text_values(&key), Ok(None));
 
     let reg = |args: &[&str]| {
@@ -384,6 +391,23 @@ fn a_real_registry_key_is_read_value_by_value() {
         assert!(status.success(), "reg {args:?}");
     };
     let full = format!(r"HKCU\{key}");
+    /// Removes the test key however the test ends.
+    struct Cleanup(String);
+    impl Drop for Cleanup {
+        fn drop(&mut self) {
+            let system = std::env::var_os("SystemRoot").unwrap_or_else(|| r"C:\Windows".into());
+            let _ = std::process::Command::new(
+                std::path::Path::new(&system)
+                    .join("System32")
+                    .join("reg.exe"),
+            )
+            .args(["delete", &self.0, "/f"])
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status();
+        }
+    }
+    let _cleanup = Cleanup(full.clone());
     let long = format!("--long={}", "x".repeat(9000));
     reg(&[
         "add",

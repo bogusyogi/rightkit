@@ -5,6 +5,8 @@ use keyring_core::api::CredentialStoreApi;
 use keyring_core::Entry;
 use rightkit_secrets::{system_backend, Error, Interaction, Namespace, Secret, WindowsTarget};
 
+mod common;
+
 const ACCOUNT: &str = "compat-probe";
 const FAKE: &str = "fake-secret caf\u{e9} \u{1f511}";
 
@@ -18,6 +20,7 @@ impl Drop for Cleanup {
 
 fn namespace(tag: &str) -> Namespace {
     let service = format!("dev.rightkit.secrets.compat.{tag}.{}", std::process::id());
+    common::assert_test_name(&service, "dev.rightkit.secrets.compat.");
     Namespace::new(service)
         .unwrap()
         .windows_target(WindowsTarget::KeyringCompat)
@@ -30,6 +33,9 @@ fn keyring_entry(ns: &Namespace) -> Entry {
 
 #[test]
 fn keyring_writes_rightkit_reads() {
+    if !common::real_user_stores_allowed("keyring_writes_rightkit_reads") {
+        return;
+    }
     let ns = namespace("k2r");
     let _c = Cleanup(ns.clone());
     keyring_entry(&ns).set_password(FAKE).unwrap();
@@ -42,6 +48,9 @@ fn keyring_writes_rightkit_reads() {
 
 #[test]
 fn rightkit_writes_keyring_reads() {
+    if !common::real_user_stores_allowed("rightkit_writes_keyring_reads") {
+        return;
+    }
     let ns = namespace("r2k");
     let _c = Cleanup(ns.clone());
     system_backend()
@@ -61,6 +70,11 @@ const AMBIGUOUS: &str = "\u{4142}\u{4344}";
 
 #[test]
 fn utf16_text_whose_bytes_are_also_valid_utf8_round_trips_both_ways() {
+    if !common::real_user_stores_allowed(
+        "utf16_text_whose_bytes_are_also_valid_utf8_round_trips_both_ways",
+    ) {
+        return;
+    }
     let ns = namespace("ambiguous");
     let _c = Cleanup(ns.clone());
     let ni = Interaction::NonInteractive;
@@ -78,6 +92,11 @@ fn utf16_text_whose_bytes_are_also_valid_utf8_round_trips_both_ways() {
 
 #[test]
 fn a_secret_that_is_not_text_cannot_be_stored_in_the_keyring_layout() {
+    if !common::real_user_stores_allowed(
+        "a_secret_that_is_not_text_cannot_be_stored_in_the_keyring_layout",
+    ) {
+        return;
+    }
     let ns = namespace("binary");
     let _c = Cleanup(ns.clone());
     let ni = Interaction::NonInteractive;
@@ -93,6 +112,11 @@ fn a_secret_that_is_not_text_cannot_be_stored_in_the_keyring_layout() {
 
 #[test]
 fn legacy_utf8_blobs_are_read_through_the_explicit_migration_namespace_only() {
+    if !common::real_user_stores_allowed(
+        "legacy_utf8_blobs_are_read_through_the_explicit_migration_namespace_only",
+    ) {
+        return;
+    }
     let compat = namespace("legacy");
     let _c = Cleanup(compat.clone());
     let legacy = Namespace::new(compat.service())

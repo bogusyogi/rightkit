@@ -14,6 +14,8 @@ use rightkit_shell::autostart::{
     AutostartSpec, RegistryKeys,
 };
 
+mod common;
+
 const ENABLED: &str = "020000000000000000000000";
 const DISABLED: &str = "030000000102030405060708";
 
@@ -36,6 +38,7 @@ impl Scratch {
             r"HKCU\Software\RightKitShellTest\{}-{case}",
             std::process::id()
         );
+        common::assert_test_name(&root, r"HKCU\Software\RightKitShellTest\");
         let keys = RegistryKeys {
             run: format!(r"{root}\Run"),
             startup_approved: format!(r"{root}\StartupApproved\Run"),
@@ -127,6 +130,11 @@ fn the_flag_rule_matches_auto_launch() {
 
 #[test]
 fn an_enabled_legacy_flag_migrates_without_disabling_the_new_entry() {
+    if !common::real_user_stores_allowed(
+        "an_enabled_legacy_flag_migrates_without_disabling_the_new_entry",
+    ) {
+        return;
+    }
     let s = Scratch::new("enabled");
     s.put_run(LEGACY, r"C:\old\demo.exe --x");
     s.put_approved(LEGACY, ENABLED);
@@ -144,6 +152,9 @@ fn an_enabled_legacy_flag_migrates_without_disabling_the_new_entry() {
 
 #[test]
 fn a_disabled_legacy_flag_is_carried_to_the_new_entry() {
+    if !common::real_user_stores_allowed("a_disabled_legacy_flag_is_carried_to_the_new_entry") {
+        return;
+    }
     let s = Scratch::new("disabled");
     s.put_run(LEGACY, r"C:\old\demo.exe");
     s.put_approved(LEGACY, DISABLED);
@@ -160,6 +171,9 @@ fn a_disabled_legacy_flag_is_carried_to_the_new_entry() {
 
 #[test]
 fn an_absent_legacy_flag_migrates_cleanly() {
+    if !common::real_user_stores_allowed("an_absent_legacy_flag_migrates_cleanly") {
+        return;
+    }
     let s = Scratch::new("absent");
     s.put_run(LEGACY, r"C:\old\demo.exe");
     migrate_plugin_entry_in(&s.keys, &spec(NEW), LEGACY).unwrap();
@@ -170,6 +184,11 @@ fn an_absent_legacy_flag_migrates_cleanly() {
 
 #[test]
 fn no_legacy_run_value_means_nothing_to_migrate_and_nothing_is_touched() {
+    if !common::real_user_stores_allowed(
+        "no_legacy_run_value_means_nothing_to_migrate_and_nothing_is_touched",
+    ) {
+        return;
+    }
     let s = Scratch::new("none");
     s.put_approved(LEGACY, DISABLED);
     let outcome = migrate_plugin_entry_in(&s.keys, &spec(NEW), LEGACY).unwrap();
@@ -180,6 +199,11 @@ fn no_legacy_run_value_means_nothing_to_migrate_and_nothing_is_touched() {
 
 #[test]
 fn when_the_new_entry_has_the_legacy_name_the_flag_stays_and_still_applies() {
+    if !common::real_user_stores_allowed(
+        "when_the_new_entry_has_the_legacy_name_the_flag_stays_and_still_applies",
+    ) {
+        return;
+    }
     let s = Scratch::new("same-name");
     s.put_run(LEGACY, r"C:\old\demo.exe");
     s.put_approved(LEGACY, DISABLED);
