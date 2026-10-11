@@ -209,8 +209,10 @@ EOF
   unset CFLAGS CXXFLAGS
 fi
 # Fully static: no libwinpthread-1.dll, libgcc or libstdc++ DLL. The PE timestamp is zeroed so
-# two builds of the same sources are comparable.
+# two builds of the same sources are comparable: --no-insert-timestamp covers the link, and
+# SOURCE_DATE_EPOCH covers FFmpeg's `strip` step, which otherwise stamps the current time.
 ffmpeg_flags+=(--extra-ldflags="-static -static-libgcc -Wl,--no-insert-timestamp")
+export SOURCE_DATE_EPOCH=0
 
 src="$(unpack ffmpeg)"
 (cd "$src" && ./configure "${ffmpeg_flags[@]}" && make -j"$jobs" "$tool.exe")
