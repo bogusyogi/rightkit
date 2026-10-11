@@ -31,8 +31,10 @@ pub use backend::{
 pub use error::{Error, Result};
 pub use migrate::{
     migrate_between, migrate_plaintext_file, EnvImport, EnvMap, EnvReader, FileMigration,
-    MigrationReport, Source,
+    LegacyFile, MigrationReport, Source,
 };
-pub use namespace::{Namespace, WindowsTarget};
+pub use namespace::{
+    macos_credential_identity, windows_credential_identity, Namespace, WindowsTarget,
+};
 pub use secret::Secret;
-pub use store::{Config, Diagnostics, GuardMode, Store, UNIVERSAL_GUARD_ENV};
+pub use store::{Config, Diagnostics, GuardMode, Store, WriteIntent, UNIVERSAL_GUARD_ENV};

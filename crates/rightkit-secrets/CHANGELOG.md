@@ -2,6 +2,55 @@
 
 ## 0.1.4
 
+- **Fourth independent read (2026-10-11): seven fixes, each applied to the whole class of defect
+  (`docs/audits/2026-10-11-astra-secrets-fourth-read.md`). API changes are breaking; 0.1.4 is unreleased.**
+  - **Destructive replacement needs typed intent (finding 8).** Every operation that can remove or
+    overwrite a persistent credential is now reached through one guarded primitive.
+    `Store::put(account, secret, WriteIntent::{CreateOnly, Replace})` is the only write (`set` is
+    `Replace`, `add_if_absent` is `CreateOnly`); a presence check followed by a write is gone from the
+    crate. `migrate_between` refuses a destination that is not durable (new `Store::is_durable`, new
+    `Backend::durable`, default `false`; OS backends `true`; `MemoryBackend::simulating_durable()` for
+    tests) and lists the accounts in the new `MigrationReport::refused`, copying and removing nothing,
+    so a guarded (memory or deny) destination can no longer cost the only persistent copy. The source
+    is removed in exactly one function, `remove_copied_source`, which re-checks durability and that the
+    destination still holds the copy, then uses `delete_if_equals`. `migrate_legacy_namespaces` writes
+    no marker while any account is `refused`. Sites reviewed: see the report; none else can replace or
+    remove a credential.
+  - **`import_env(overwrite: bool)` is now `import_env(intent: WriteIntent)` (finding 9).**
+    `CreateOnly` is one `add_if_absent` under the target's exclusion, so a credential saved between the
+    old `exists` and `set` is no longer overwritten by a stale environment value. `Store::add_if_absent`
+    now also rejects an empty secret, like `set`.
+  - **Native naming has one function per platform (finding 10).** New `Backend::credential_identity`
+    (default: the Windows identity) is what `Store` keys its mutation exclusion on. macOS uses the new
+    public `macos_credential_identity` (`macos:<folded service>\u{1f}<folded account>`, Windows prefix
+    ignored), Windows `windows_credential_identity` (`windows:<normalised target>`, also the lock
+    name's input), `MemoryBackend` its exact key. The native macOS calls take service and account only
+    from `Namespace::keychain_item`. Tests pin the strings. A custom backend that does not address by
+    Windows target must override `credential_identity`.
+  - **macOS exclusion is per keychain file (finding 2).** The user-default target and an explicit
+    target on the same file used different identities; both now use the canonical keychain path.
+  - **Explicit-keychain writes are not compiled into production builds (finding 1).** The fixture
+    exemption keyed on a file name is gone: `IsolatedKeychain` and `open_isolated_file` exist only for
+    this crate's tests and the non-default `isolated-test-keychain` feature (used by `tests/e2e.rs` and
+    the CLI's `--isolated-keychain`). Without it `write_is_refused` holds for every explicit keychain.
+  - **Plaintext file retirement (finding 4).** `migrate_plaintext_file` takes a `LegacyFile` choice.
+    `Retain` leaves the file untouched (`FileMigration::Retained`); `RetireIfUnchanged` moves the file
+    aside, re-verifies it there and wipes only the moved file, so a replacement arriving after the final
+    comparison is never wiped or deleted (it is put back, or kept under a hidden name if the name was
+    taken). A writer already holding the file open and writing in place cannot be excluded: the caller
+    asserts there is none by choosing `RetireIfUnchanged`. The store write is `CreateOnly`; a
+    non-durable store is `StoreUnavailable`. The tests now inject the replacement AFTER the comparison.
+  - **Zeroization probe replaced (finding 6).** The allocator-wide scan is deleted. A decoded `value` is
+    held in `SecretBuf`, whose `Drop` wipes the initialised bytes and, under test, reports `len`,
+    capacity at creation and at drop (equal: no growth, so no unwiped copy), and that every byte it
+    wrote reads zero afterwards. Only bytes the program wrote are ever read. Error paths are tested.
+  - **Tests (in-memory and fake backends only):** durability refusal for Memory and Deny guards and a
+    plain memory backend; the moving case with a durable fake; `put` semantics; import race with a
+    fake that saves between check and write; macOS-style naming across Windows prefixes with a stalled
+    call; pinned identity strings; plaintext races after the comparison; a source-scan guard that
+    `migrate.rs` reaches writers only through the guarded primitives. macOS-only tests (identity of
+    default versus explicit target) need `--features isolated-test-keychain`.
+
 - **Third independent read (2026-10-11): six fixes (`docs/audits/2026-10-11-astra-license-secrets-third-read.md`).**
   - **macOS, explicit keychains are never written (finding 1).** The "is it the current default"
     check before the add could not be made atomic with the add (another process can switch the

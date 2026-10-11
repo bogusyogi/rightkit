@@ -15,7 +15,7 @@ use crate::backend::{Backend, ConditionalDelete, Interaction};
 use crate::error::{Error, Result};
 use crate::keyring_compat;
 use crate::locked::{self, CredentialOps};
-use crate::namespace::{check_target, BlobCodec, Namespace};
+use crate::namespace::{check_target, windows_credential_identity, BlobCodec, Namespace};
 use crate::secret::Secret;
 use std::sync::OnceLock;
 use windows_sys::Win32::Foundation::{
@@ -305,6 +305,13 @@ impl Backend for CredentialManagerBackend {
     fn exclusion_identity(&self) -> Option<String> {
         // Every instance addresses the one per-user Credential Manager.
         Some("windows-credential-manager".to_string())
+    }
+    fn credential_identity(&self, ns: &Namespace, account: &str) -> Result<String> {
+        // The same normalised target the per-target lock is named by.
+        windows_credential_identity(ns, account)
+    }
+    fn durable(&self) -> bool {
+        true
     }
     fn get(&self, ns: &Namespace, account: &str, _: Interaction) -> Result<Option<Secret>> {
         check_target(ns, account)?;

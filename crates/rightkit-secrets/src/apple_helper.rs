@@ -35,8 +35,89 @@ struct WriteRequest<'a> {
 struct ReadReply {
     ok: Option<bool>,
     error: Option<String>,
-    /// Decoded straight from the zeroised reply line into a zeroising buffer.
-    value: Option<Zeroizing<String>>,
+    /// Decoded straight from the zeroised reply line into a wiping buffer.
+    value: Option<SecretBuf>,
+}
+
+/// The bytes of a decoded secret. It is allocated once at its final size and never grows, and
+/// it wipes itself on every path that drops it (success, a malformed reply, a failed UTF-8
+/// check). It is the ONLY buffer the decoder puts secret bytes in, so a wipe of it is a wipe of
+/// every decoded copy.
+///
+/// Under test, `Drop` reports what it wiped to a thread-local log (see `wipe_probe`). The
+/// report reads only the `len` bytes this program initialised, never the allocation at large,
+/// so it makes no claim about uninitialised memory and reads none.
+struct SecretBuf {
+    bytes: Vec<u8>,
+    #[cfg(test)]
+    reserved: usize,
+}
+
+impl SecretBuf {
+    fn with_capacity(capacity: usize) -> Self {
+        let bytes = Vec::with_capacity(capacity);
+        Self {
+            #[cfg(test)]
+            reserved: bytes.capacity(),
+            bytes,
+        }
+    }
+    fn as_bytes(&self) -> &[u8] {
+        &self.bytes
+    }
+}
+
+impl Drop for SecretBuf {
+    fn drop(&mut self) {
+        #[cfg(test)]
+        let held_data = self.bytes.iter().any(|b| *b != 0);
+        // Wipe the initialised bytes in place first, so they can be inspected afterwards.
+        self.bytes.as_mut_slice().zeroize();
+        #[cfg(test)]
+        wipe_probe::record(wipe_probe::Wiped {
+            len: self.bytes.len(),
+            held_data,
+            reserved: self.reserved,
+            capacity: self.bytes.capacity(),
+            zeroed: self.bytes.iter().all(|b| *b == 0),
+        });
+        // Then the spare capacity, and clear.
+        self.bytes.zeroize();
+    }
+}
+
+/// What each dropped [`SecretBuf`] looked like after its wipe: a controlled, per-buffer hook in
+/// place of scanning the allocator.
+#[cfg(test)]
+mod wipe_probe {
+    use std::cell::RefCell;
+
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    pub struct Wiped {
+        /// Initialised bytes the buffer held.
+        pub len: usize,
+        /// Some initialised byte was non-zero before the wipe.
+        pub held_data: bool,
+        /// Capacity at creation, and at drop (equal: it never reallocated, so no unwiped copy
+        /// was left behind by a growth).
+        pub reserved: usize,
+        pub capacity: usize,
+        /// Every initialised byte was zero after the wipe.
+        pub zeroed: bool,
+    }
+
+    thread_local! {
+        static LOG: RefCell<Vec<Wiped>> = const { RefCell::new(Vec::new()) };
+    }
+
+    pub fn record(entry: Wiped) {
+        LOG.with(|log| log.borrow_mut().push(entry));
+    }
+
+    /// Everything dropped on this thread since the last call.
+    pub fn take() -> Vec<Wiped> {
+        LOG.with(|log| std::mem::take(&mut *log.borrow_mut()))
+    }
 }
 
 /// The reply was not the expected JSON object.
@@ -47,7 +128,7 @@ struct Malformed;
 ///
 /// `read` replies carry the secret, and `serde_json` decodes a string that contains an escape
 /// (`\n`, `\"`, `é`, ...) through a scratch buffer it owns and frees without wiping. So the
-/// `value` field is decoded here instead: the unescaped bytes go into one `Zeroizing` buffer that
+/// `value` field is decoded here instead: the unescaped bytes go into one [`SecretBuf`] that
 /// is allocated at its final size (an unescaped string is never longer than its source), so it
 /// never reallocates and no smaller copy is left behind, and every error path drops it
 /// zeroised. The rest of the object is parsed only as far as needed to find the three fields.
@@ -176,22 +257,17 @@ impl Scan<'_> {
     }
 
     /// The `value` string, or `null`.
-    fn secret_or_null(&mut self) -> std::result::Result<Option<Zeroizing<String>>, Malformed> {
+    fn secret_or_null(&mut self) -> std::result::Result<Option<SecretBuf>, Malformed> {
         if self.peek() == Some(b'n') {
             self.literal(b"null")?;
             return Ok(None);
         }
-        let mut out = Zeroizing::new(Vec::with_capacity(self.b.len().saturating_sub(self.i)));
-        self.string_into(&mut out)?;
-        // Moves the buffer into the String without copying it.
-        let bytes = std::mem::take(&mut *out);
-        String::from_utf8(bytes)
-            .map(|text| Some(Zeroizing::new(text)))
-            .map_err(|e| {
-                let mut bytes = e.into_bytes();
-                bytes.zeroize();
-                Malformed
-            })
+        // Room for the rest of the input, so decoding never reallocates.
+        let mut out = SecretBuf::with_capacity(self.b.len().saturating_sub(self.i));
+        self.string_into(&mut out.bytes)?;
+        // Validated in place; `out` wipes itself on this error and on every earlier one.
+        std::str::from_utf8(out.as_bytes()).map_err(|_| Malformed)?;
+        Ok(Some(out))
     }
 
     fn string_or_null(&mut self) -> std::result::Result<Option<String>, Malformed> {
@@ -572,7 +648,7 @@ mod tests {
         parse_read_reply(line)
             .unwrap()
             .value
-            .map(|text| text.as_str().to_string())
+            .map(|text| String::from_utf8(text.as_bytes().to_vec()).unwrap())
     }
 
     #[test]
@@ -595,6 +671,62 @@ mod tests {
         let line = r#"{"ok":true,"value":"éé😀\/\b"}"#;
         let expected: String = serde_json::from_str(r#""éé😀\/\b""#).unwrap();
         assert_eq!(value_of(line).as_deref(), Some(expected.as_str()));
+    }
+
+    /// Audit finding 6: the earlier test scanned every allocation made while it ran, which reads
+    /// bytes this program never initialised. This one observes the one buffer that holds the
+    /// decoded secret, through its own drop hook, and reads only the bytes written to it.
+    #[test]
+    fn an_escaped_secret_is_decoded_into_one_buffer_that_never_grew_and_is_wiped() {
+        let _ = wipe_probe::take();
+        let wire = r#"{"ok":true,"value":"rk-wipe-marker\nsecond\u0041line \"quoted\""}"#;
+        let expected = "rk-wipe-marker\nsecondAline \"quoted\"";
+        let reply = parse_read_reply(wire).unwrap();
+        assert_eq!(
+            reply.value.as_ref().unwrap().as_bytes(),
+            expected.as_bytes()
+        );
+        assert!(
+            wipe_probe::take().is_empty(),
+            "the buffer was dropped while still in use"
+        );
+        drop(reply);
+        let log = wipe_probe::take();
+        assert_eq!(log.len(), 1, "exactly one buffer holds the secret: {log:?}");
+        let wiped = &log[0];
+        assert_eq!(wiped.len, expected.len());
+        assert!(wiped.held_data, "the probe saw no secret before the wipe");
+        assert!(wiped.zeroed, "initialised bytes survived the wipe");
+        assert_eq!(
+            wiped.capacity, wiped.reserved,
+            "decoding reallocated, which would leave an unwiped copy behind"
+        );
+    }
+
+    #[test]
+    fn a_reply_rejected_after_part_of_the_secret_was_decoded_wipes_that_part() {
+        for bad in [
+            r#"{"value":"partial-secret\q"}"#,
+            r#"{"value":"partial-secret\ud800 lone"}"#,
+            r#"{"value":"partial-secret\u12g4"}"#,
+            r#"{"value":"partial-secret"} trailing"#,
+        ] {
+            let _ = wipe_probe::take();
+            assert!(parse_read_reply(bad).is_err(), "{bad:?}");
+            let log = wipe_probe::take();
+            assert_eq!(log.len(), 1, "{bad:?}: {log:?}");
+            assert!(log[0].held_data && log[0].zeroed, "{bad:?}: {log:?}");
+            assert_eq!(log[0].capacity, log[0].reserved, "{bad:?}");
+        }
+    }
+
+    #[test]
+    fn a_null_value_allocates_no_secret_buffer() {
+        let _ = wipe_probe::take();
+        let reply = parse_read_reply(r#"{"ok":true,"value":null}"#).unwrap();
+        assert!(reply.value.is_none());
+        drop(reply);
+        assert!(wipe_probe::take().is_empty());
     }
 
     #[test]
@@ -644,100 +776,6 @@ newline"}"#,
 #[cfg(unix)]
 mod process_tests {
     use super::*;
-    use std::alloc::{GlobalAlloc, Layout, System};
-    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-    use std::sync::Mutex;
-
-    // ---- a heap that reports freed blocks that still hold a marker ----
-    //
-    // Reading a freed block is only sound if every byte of it is initialised, and a general heap
-    // block is not (spare `Vec` capacity, padding). So the probe never reads a block it did not
-    // initialise itself: while armed, every allocation is made ZEROED (`alloc_zeroed`) and its
-    // address is recorded in a fixed table; only a recorded block is scanned when it is freed,
-    // and every byte of it has been initialised (zero, or written by the program). Blocks
-    // allocated while disarmed are never read.
-
-    const MARKER: &[u8] = b"rk-wipe-marker-7f3a91";
-    static ARMED: AtomicBool = AtomicBool::new(false);
-    static UNWIPED_FREES: AtomicUsize = AtomicUsize::new(0);
-    /// Only one test arms the probe at a time.
-    static PROBE: Mutex<()> = Mutex::new(());
-
-    const SLOTS: usize = 1 << 16;
-    const EMPTY: usize = 0;
-    const TOMBSTONE: usize = usize::MAX;
-    /// Addresses of live blocks allocated (zeroed) while armed. Open addressing, no allocation.
-    static TRACKED: [AtomicUsize; SLOTS] = [const { AtomicUsize::new(EMPTY) }; SLOTS];
-
-    fn slot_of(addr: usize) -> usize {
-        (addr >> 4).wrapping_mul(0x9E37_79B9_7F4A_7C15_u64 as usize) % SLOTS
-    }
-
-    /// Record `addr`; `false` if the table is full (the block is then simply never scanned).
-    fn track(addr: usize) -> bool {
-        let start = slot_of(addr);
-        for step in 0..SLOTS {
-            let slot = &TRACKED[(start + step) % SLOTS];
-            let seen = slot.load(Ordering::Acquire);
-            if (seen == EMPTY || seen == TOMBSTONE)
-                && slot
-                    .compare_exchange(seen, addr, Ordering::AcqRel, Ordering::Relaxed)
-                    .is_ok()
-            {
-                return true;
-            }
-        }
-        false
-    }
-
-    /// Forget `addr`; `true` if it was recorded (so every byte of its block is initialised).
-    fn untrack(addr: usize) -> bool {
-        let start = slot_of(addr);
-        for step in 0..SLOTS {
-            let slot = &TRACKED[(start + step) % SLOTS];
-            match slot.load(Ordering::Acquire) {
-                EMPTY => return false,
-                seen if seen == addr => {
-                    return slot
-                        .compare_exchange(addr, TOMBSTONE, Ordering::AcqRel, Ordering::Relaxed)
-                        .is_ok();
-                }
-                _ => {}
-            }
-        }
-        false
-    }
-
-    struct Probe;
-
-    // SAFETY: every call is forwarded to the system allocator; the extra work is (a) zero-filling
-    // blocks allocated while armed, and (b) reading, on free, only a block this allocator itself
-    // zero-filled and recorded, which the caller owns and which is fully initialised.
-    unsafe impl GlobalAlloc for Probe {
-        unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
-            if ARMED.load(Ordering::Relaxed) {
-                let ptr = System.alloc_zeroed(layout);
-                if !ptr.is_null() && layout.size() >= MARKER.len() {
-                    track(ptr as usize);
-                }
-                return ptr;
-            }
-            System.alloc(layout)
-        }
-        unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
-            if layout.size() >= MARKER.len() && untrack(ptr as usize) {
-                let block = std::slice::from_raw_parts(ptr, layout.size());
-                if block.windows(MARKER.len()).any(|w| w == MARKER) {
-                    UNWIPED_FREES.fetch_add(1, Ordering::Relaxed);
-                }
-            }
-            System.dealloc(ptr, layout)
-        }
-    }
-
-    #[global_allocator]
-    static HEAP: Probe = Probe;
-
     fn sh(script: &str, timeout: Duration) -> AppleHelper {
         AppleHelper::new("/bin/sh")
             .args(["-c", script])
@@ -827,42 +865,5 @@ mod process_tests {
             .unwrap()
             .success();
         assert!(!alive, "helper {} is still running", pid.trim());
-    }
-
-    /// Audit finding: a reply string with JSON escapes was decoded through serde_json's ordinary
-    /// scratch buffer, which is freed without being wiped. The probe heap reports any freed block
-    /// that still holds the decoded secret.
-    #[test]
-    fn an_escaped_secret_leaves_no_unwiped_copy_on_the_heap() {
-        let _one_probe_at_a_time = PROBE.lock().unwrap_or_else(|e| e.into_inner());
-        let dir = tempfile::tempdir().unwrap();
-        let reply_file = dir.path().join("reply.json");
-        // The wire text has escapes, so the decoded value differs from it.
-        let wire = format!(
-            "{{\"ok\":true,\"value\":\"{}\\nsecond\\u0041line \\\"quoted\\\"\"}}\n",
-            std::str::from_utf8(MARKER).unwrap()
-        );
-        std::fs::write(&reply_file, &wire).unwrap();
-        let expected = format!(
-            "{}\nsecondAline \"quoted\"",
-            std::str::from_utf8(MARKER).unwrap()
-        );
-        // The script text and its arguments never contain the marker; only the pipe does.
-        let helper = AppleHelper::new("/bin/sh")
-            .args(["-c", "cat >/dev/null; cat \"$1\"", "sh"])
-            .args([reply_file.as_os_str()]);
-
-        UNWIPED_FREES.store(0, Ordering::SeqCst);
-        ARMED.store(true, Ordering::SeqCst);
-        let secret = helper.read(Scope::Device, "acct");
-        ARMED.store(false, Ordering::SeqCst);
-
-        let secret = secret.unwrap().expect("a value");
-        assert_eq!(secret.expose_str().unwrap(), expected);
-        assert_eq!(
-            UNWIPED_FREES.load(Ordering::SeqCst),
-            0,
-            "a heap block holding the decoded secret was freed without being wiped"
-        );
     }
 }
