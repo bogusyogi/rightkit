@@ -2951,7 +2951,6 @@ dependencies = [
  "rightkit-jobs",
  "rightkit-logs",
  "rightkit-process",
- "rightkit-service",
  "rightkit-shell",
  "rightkit-tauri",
  "serde_json",

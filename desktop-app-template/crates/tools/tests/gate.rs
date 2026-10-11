@@ -74,3 +74,24 @@ fn init_renames_the_template_and_the_result_still_passes() {
     assert!(cargo.contains("name = \"acme-engine\"") && !cargo.to_lowercase().contains("rightapp"), "{cargo}");
     let _ = fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn engine_scripts_must_be_two_top_level_managed_calls() {
+    let dir = template_copy("engine-scripts");
+    let pkg_path = dir.join("package.json");
+    let original = fs::read_to_string(&pkg_path).unwrap();
+    let release = original.lines().find(|l| l.contains("\"build:engine\":")).unwrap().to_string();
+    // The retired one-call shape must fail the gate.
+    let retired = "    \"build:engine\": \"rightkit cargo run -q --manifest-path Cargo.toml -p rightapp-tools -- build-engine\",";
+    fs::write(&pkg_path, original.replace(&release, retired)).unwrap();
+    let bad = run(&dir, &["check"]);
+    assert!(!bad.status.success() && text(&bad).contains("scripts.build:engine must be exactly"), "{}", text(&bad));
+    fs::write(&pkg_path, &original).unwrap();
+    // The dev override in right-release must select the release-iterate pair.
+    let rel_path = dir.join("right-release.config.mjs");
+    let rel = fs::read_to_string(&rel_path).unwrap();
+    fs::write(&rel_path, rel.replace("pnpm build:engine:dev", "pnpm build:engine")).unwrap();
+    let bad = run(&dir, &["check"]);
+    assert!(!bad.status.success() && text(&bad).contains("build:engine:dev"), "{}", text(&bad));
+    let _ = fs::remove_dir_all(&dir);
+}

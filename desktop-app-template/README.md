@@ -21,7 +21,7 @@ and the updater endpoint/key).
 | Release | `right-release.config.mjs`, `package.json` scripts | `@rightkit/release` 0.2.151 (`right-release build|upload|dev|doctor`) |
 | Brand | `assets/brand/brand.json` -> `src/brand.css` | token file generated into Tailwind v4 `@theme` |
 | E2E | `rightkit-qa.toml`, `tests/scenarios/`, `crates/engine/tests`, `src-tauri/tests` | Rust `rightkit-qa` engine black-box scenarios (real binary, isolated data dir, muted audio) plus real-process Rust tests of the supervisor; no Node harness |
-| Helpers + gate | `crates/tools` (`rightapp-tools brand-sync|build-engine|check|init`) | Rust helpers; `check` rejects Node harnesses, loose or non-published pins, and any placeholder whose package is listed in `rightkit-versions.json` |
+| Helpers + gate | `crates/tools` (`rightapp-tools brand-sync|stage-engine|check|init`) | Rust helpers; `check` rejects Node harnesses, loose or non-published pins, and any placeholder whose package is listed in `rightkit-versions.json` |
 
 Unlicensed: `@rightkit/license`, `@rightkit/legal`, `@rightkit/legal-ui` are an add-on (below).
 
@@ -70,7 +70,14 @@ before any Rust command.
    Each `tauri-plugin-*` crate is pinned `=x.y.z` to the same version as its npm counterpart
    (`@tauri-apps/plugin-*`, exact); `check` fails on any mismatch, so `right-release dev` never meets two
    Tauri plugin generations.
-5. **Engine.** Domain work is a job kind: add the kind to `DomainJobs` in `crates/engine/src/main.rs`
+5. **Engine.** Staging the sidecar is two top-level managed calls, never one that nests a broker call
+   (a managed RightKit request refuses nested broker calls, exit 125). `pnpm build:engine` (release) runs
+   `rightkit cargo build -p <engine> --release` then `rightkit cargo run -p rightapp-tools -- stage-engine --release`;
+   `pnpm build:engine:dev` does the same with `--profile release-iterate`. `stage-engine` makes no process
+   calls: it finds the built engine beside its own tools binary and copies it to
+   `src-tauri/binaries/<engine>-<triple>`. `right-release dev` runs `tauri build`; its dev config overrides
+   `beforeBuildCommand` to `pnpm build && pnpm build:engine:dev`, so dev uses `release-iterate` and release
+   uses `--release`. Domain work is a job kind: add the kind to `DomainJobs` in `crates/engine/src/main.rs`
    (the `job.submit` path). A synchronous command goes in `DomainCommands` (the same table feeds the
    CLI and the sidecar). Keep names in `crates/protocol` (`METHOD_*`, `JOB_KIND_*`). Large payloads go
    through files, not frames. Document the CLI contract (`docs/CLI-<NAME>.md`) before other apps call it.

@@ -15,6 +15,11 @@ const windowsInstaller = path.join(windowsBundle, `RightApp_${version}_x64-setup
 const windowsRawExe = path.join(targetRoot, "release", "rightapp.exe");
 const macDmg = `RightApp_${version}_aarch64.dmg`;
 
+// right-release dev runs `tauri build`, whose beforeBuildCommand reaches the engine. Dev selects the
+// release-iterate engine by overriding that command to the dev pair (the env RIGHTKIT_BUILD_MODE=dev
+// is set on the child but no script can branch on it portably).
+const DEVELOPMENT_BEFORE_BUILD = "pnpm build && pnpm build:engine:dev";
+
 export default {
   schema: 1,
   app: "rightapp",
@@ -67,14 +72,14 @@ export default {
       win: {
         build: [{
           cmd: "pnpm",
-          args: ["exec", "tauri", "build", "--target", "x86_64-pc-windows-msvc", "--bundles", "nsis", "--no-sign", "--config", JSON.stringify({ bundle: { createUpdaterArtifacts: false, windows: { signCommand: null } } }), "--", "--profile", "release-iterate", "--locked"],
+          args: ["exec", "tauri", "build", "--target", "x86_64-pc-windows-msvc", "--bundles", "nsis", "--no-sign", "--config", JSON.stringify({ build: { beforeBuildCommand: DEVELOPMENT_BEFORE_BUILD }, bundle: { createUpdaterArtifacts: false, windows: { signCommand: null } } }), "--", "--profile", "release-iterate", "--locked"],
         }],
         install: { kind: "tauri", productName: "RightApp", manifestPath: "src-tauri/Cargo.toml", targetTriple: "x86_64-pc-windows-msvc", expectedInstalledPath: path.join(process.env.LOCALAPPDATA || "", "RightApp", "rightapp.exe") },
       },
       mac: {
         build: [{
           cmd: "pnpm",
-          args: ["exec", "tauri", "build", "--target", "aarch64-apple-darwin", "--bundles", "app", "--no-sign", "--config", JSON.stringify({ bundle: { createUpdaterArtifacts: false, macOS: { signingIdentity: "-" } } }), "--", "--profile", "release-iterate", "--locked"],
+          args: ["exec", "tauri", "build", "--target", "aarch64-apple-darwin", "--bundles", "app", "--no-sign", "--config", JSON.stringify({ build: { beforeBuildCommand: DEVELOPMENT_BEFORE_BUILD }, bundle: { createUpdaterArtifacts: false, macOS: { signingIdentity: "-" } } }), "--", "--profile", "release-iterate", "--locked"],
         }],
         // PLACEHOLDER script: copy scripts/install-macos-development.mjs from GenRight/ScrapeRight.
         install: { kind: "command", cmd: "node", args: ["scripts/install-macos-development.mjs"] },

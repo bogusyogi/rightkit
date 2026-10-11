@@ -1,11 +1,13 @@
 //! App helpers in Rust: no Node, no shell scripts.
 //!
 //!   rightapp-tools brand-sync                       assets/brand/brand.json -> src/brand.css
-//!   rightapp-tools build-engine                     build the engine sidecar and stage it for Tauri
+//!   rightapp-tools stage-engine --release|--profile <p>  copy the built engine into src-tauri/binaries
+//!   rightapp-tools build-engine                     retired: refuses; use the two-call pair in package.json
 //!   rightapp-tools check                            manifest-consistency gate (no install, no network)
 //!   rightapp-tools init --slug s --name N [--org o] rename the template into a real app
 //!
 //! Run through managed RightKit Cargo: `rightkit cargo run -q -p rightapp-tools -- <command>`.
+//! No command here calls the RightKit broker: a managed request refuses nested broker calls.
 mod brand;
 mod check;
 mod engine;
@@ -40,10 +42,11 @@ fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let result = match args.first().map(String::as_str) {
         Some("brand-sync") => app_root().and_then(|r| brand::sync(&r)),
-        Some("build-engine") => app_root().and_then(|r| engine::build(&r)),
+        Some("stage-engine") => app_root().and_then(|r| engine::stage(&r, &args[1..])),
+        Some("build-engine") => engine::build_retired(),
         Some("check") => app_root().and_then(|r| check::run(&r)),
         Some("init") => app_root().and_then(|r| init::run(&r, &args[1..])),
-        _ => Err("usage: rightapp-tools brand-sync | build-engine | check | init --slug <s> --name <N> [--org <o>]".into()),
+        _ => Err("usage: rightapp-tools brand-sync | stage-engine --release|--profile <p> | check | init --slug <s> --name <N> [--org <o>]".into()),
     };
     if let Err(e) = result {
         eprintln!("{e}");

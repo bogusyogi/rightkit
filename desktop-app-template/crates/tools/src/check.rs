@@ -78,6 +78,23 @@ pub fn run(root: &Path) -> Result<()> {
     need(ext == [format!("binaries/{engine_bin}").as_str()], format!("externalBin must be binaries/{engine_bin}"));
     need(read(root, "src-tauri/src/lib.rs")?.contains(&engine_bin), "src-tauri/src/lib.rs does not name the engine binary (the supervisor spawns it)".into());
 
+    // 2b. Engine staging is two top-level managed calls per profile: build, then stage. A nested broker
+    // call is refused (exit 125), so the scripts must be exactly this shape and nothing else may name the
+    // retired one-call builder or a raw rustc query.
+    let tools_pkg = field(&read(root, "crates/tools/Cargo.toml")?, "name").unwrap_or_default();
+    let engine_pkg = field(&engine_toml, "name").unwrap_or_default();
+    need(read(root, "Cargo.toml")?.contains("[profile.release-iterate]"), "Cargo.toml has no [profile.release-iterate] (the dev engine profile)".into());
+    for (script, flags) in [("build:engine", "--release"), ("build:engine:dev", "--profile release-iterate")] {
+        let want = engine_script(&engine_pkg, &tools_pkg, flags);
+        need(pkg["scripts"][script].as_str() == Some(want.as_str()), format!("scripts.{script} must be exactly: {want}"));
+    }
+    for (key, cmd) in pkg["scripts"].as_object().into_iter().flatten() {
+        let cmd = cmd.as_str().unwrap_or("");
+        need(!cmd.contains("build-engine") && !cmd.contains("rightkit rustc"), format!("script {key} nests a retired or broker-nesting engine call ({cmd})"));
+    }
+    need(tauri["build"]["beforeDevCommand"].as_str().is_some_and(|c| c.contains("build:engine")), "tauri build.beforeDevCommand must stage the engine through build:engine".into());
+    need(tauri["build"]["beforeBuildCommand"].as_str().is_some_and(|c| c.contains("build:engine")), "tauri build.beforeBuildCommand must stage the engine through build:engine".into());
+
     // 3. Dev server port agrees: tauri devUrl, vite, package dev script.
     let dev_url = tauri["build"]["devUrl"].as_str().unwrap_or("");
     let port = dev_url.rsplit(':').next().unwrap_or("").trim_end_matches('/').to_string();
@@ -223,6 +240,8 @@ pub fn run(root: &Path) -> Result<()> {
         }
     }
 
+    // 10a. right-release dev builds the release-iterate engine: its dev build overrides beforeBuildCommand.
+    need(read(root, "right-release.config.mjs")?.contains("pnpm build:engine:dev"), "right-release.config.mjs dev builds must override beforeBuildCommand to use pnpm build:engine:dev".into());
     // 10. Release config names this app (right-release owns the rest and validates it itself).
     let release = read(root, "right-release.config.mjs")?;
     need(release.contains(&format!("app: \"{name}\"")), format!("right-release.config.mjs app != {name}"));
@@ -239,6 +258,11 @@ pub fn run(root: &Path) -> Result<()> {
         if manifest.is_some() { "checked against rightkit-versions.json" } else { "version manifest not reachable" }
     );
     Ok(())
+}
+
+/// The one script shape for an engine profile: a managed build, then a managed stage. Two top-level calls.
+fn engine_script(engine: &str, tools: &str, flags: &str) -> String {
+    format!("rightkit cargo build --locked --manifest-path Cargo.toml -p {engine} {flags} && rightkit cargo run -q --manifest-path Cargo.toml -p {tools} -- stage-engine {flags}")
 }
 
 fn collect(dir: &Path, out: &mut Vec<std::path::PathBuf>, exts: &[&str]) {

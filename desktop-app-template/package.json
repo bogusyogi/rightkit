@@ -12,7 +12,8 @@
     "build": "pnpm brand:sync && tsc --noEmit && vite build",
     "typecheck": "tsc --noEmit",
     "brand:sync": "rightkit cargo run -q --manifest-path Cargo.toml -p rightapp-tools -- brand-sync",
-    "build:engine": "rightkit cargo run -q --manifest-path Cargo.toml -p rightapp-tools -- build-engine",
+    "build:engine": "rightkit cargo build --locked --manifest-path Cargo.toml -p rightapp-engine --release && rightkit cargo run -q --manifest-path Cargo.toml -p rightapp-tools -- stage-engine --release",
+    "build:engine:dev": "rightkit cargo build --locked --manifest-path Cargo.toml -p rightapp-engine --profile release-iterate && rightkit cargo run -q --manifest-path Cargo.toml -p rightapp-tools -- stage-engine --profile release-iterate",
     "tauri": "tauri",
     "tauri:dev": "tauri dev",
     "tauri:build": "tauri build",
@@ -38,9 +39,9 @@
     "rightkit:package:win": "node scripts/package-placeholder.mjs win"
   },
   "dependencies": {
-    "@rightkit/app-shell": "0.4.1",
+    "@rightkit/app-shell": "0.6.2",
     "@rightkit/logs": "0.1.4",
-    "@rightkit/platform-ui": "0.2.0",
+    "@rightkit/platform-ui": "0.2.7",
     "@rightkit/tauri": "0.2.0",
     "@rightkit/updates": "0.2.5",
     "@tauri-apps/api": "^2.11.1",
