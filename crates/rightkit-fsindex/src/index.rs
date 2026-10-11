@@ -175,6 +175,13 @@ pub struct ResidentBytes {
 }
 
 /// Process CPU time (user plus system) in seconds, or 0 if unavailable.
+#[cfg(not(unix))]
+fn cpu_seconds() -> f64 {
+    0.0
+}
+
+/// Process CPU time (user plus system) in seconds, or 0 if unavailable.
+#[cfg(unix)]
 fn cpu_seconds() -> f64 {
     let mut ru: libc::rusage = unsafe { std::mem::zeroed() };
     if unsafe { libc::getrusage(libc::RUSAGE_SELF, &mut ru) } != 0 {

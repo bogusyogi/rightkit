@@ -77,6 +77,7 @@ pub(crate) struct RunControl<'a> {
 }
 
 impl RunControl<'_> {
+    #[cfg(test)]
     pub fn none() -> Self {
         RunControl { cancel: None, total_deadline: None, window_deadline: None, progress: None }
     }

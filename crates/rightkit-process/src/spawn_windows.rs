@@ -325,6 +325,7 @@ fn child_pipe(parent_reads: bool) -> io::Result<(OwnedHandle, OwnedHandle)> {
     Ok((parent, unsafe { OwnedHandle::from_raw_handle(child) }))
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn spawn(
     command: &Command,
     mut config: WindowsSpawnConfig,
