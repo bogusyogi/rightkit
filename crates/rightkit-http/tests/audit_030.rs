@@ -5,6 +5,8 @@
 mod common;
 
 use std::io::Write;
+
+use sha2::Digest;
 use std::time::Duration;
 
 use common::RawServer;
@@ -33,9 +35,13 @@ fn scratch(name: &str) -> std::path::PathBuf {
     dir
 }
 
+/// A resumed prefix left by an earlier call is only extended when `expected_sha256` is set
+/// (nothing else proves it unchanged). Tests whose outcome is decided before the hash is
+/// checked pass a placeholder; the one that completes passes the real digest.
 fn resume_opts() -> DownloadOptions<'static> {
     DownloadOptions {
         resume: true,
+        expected_sha256: Some("0".repeat(64)),
         ..DownloadOptions::default()
     }
 }
@@ -81,8 +87,21 @@ fn f4_range_that_reaches_the_advertised_total_still_completes() {
     let dir = scratch("f4ok");
     let dest = dir.join("out.bin");
     std::fs::write(dir.join("out.bin.part"), vec![b'x'; 80]).unwrap();
+    let mut whole = vec![b'x'; 80];
+    whole.extend_from_slice(&[b'y'; 120]);
+    let digest: String = sha2::Sha256::digest(&whole)
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect();
     let report = Client::new(cfg())
-        .download_to_path(&server.url("/f"), &dest, resume_opts())
+        .download_to_path(
+            &server.url("/f"),
+            &dest,
+            DownloadOptions {
+                expected_sha256: Some(digest),
+                ..resume_opts()
+            },
+        )
         .unwrap();
     assert_eq!(report.bytes, 200);
 }

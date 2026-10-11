@@ -6,6 +6,47 @@
 //! OS lock on `<dest>.lock`) from before `.part` is opened until the rename or cleanup.
 //! Every request goes through the same policy layer as [`Client::send`]: timeouts,
 //! retry/backoff, redirect and size settings.
+//!
+//! # Resume and restart decisions
+//!
+//! Rule: bytes from an earlier representation are never published unless a strong validator
+//! proves the representation is unchanged. The validators compared are the strong `ETag`
+//! (sent as `If-Range`; a `W/` tag is never strong), `Last-Modified` (compared for
+//! contradiction only: a date is not a strong validator here), the `Content-Length` of a
+//! `200` and the `Content-Range` total of a `206`/`416` (the saved total), the saved resource
+//! key (final URL, query kept, fragment dropped), and the caller's `expected_sha256`, which
+//! proves the finished file whatever its history. "Proven" below means: a strong ETag saw this
+//! call, or `expected_sha256` is set. `expected_bytes` is never proof.
+//!
+//! Before a request, with N > 0 bytes on disk:
+//!
+//! | Prefix | Decision |
+//! |---|---|
+//! | Proven | Send `Range: bytes=N-`, plus `If-Range` with the strong ETag when there is one |
+//! | Not proven (a `.part` from an earlier call without `expected_sha256`; a `200` with no ETag or a weak one) | Discard it and request from zero, with no `Range` |
+//!
+//! Answer to a ranged request (everything "restart" truncates `.part` and forgets all saved
+//! validators, then asks again from zero):
+//!
+//! | Server answer | Decision |
+//! |---|---|
+//! | `200` full body | Restart: this body replaces the prefix; its validators are saved |
+//! | `206`, same resource, no contradiction, `start == N` | Append |
+//! | `206`, other resource (redirect landed elsewhere) | Restart |
+//! | `206`, ETag or `Last-Modified` differs from the saved one | Restart |
+//! | `206`, total differs from the saved total (shrank or grew), or range ends past it | Restart |
+//! | `206`, malformed `Content-Range`, `start != N`, or `Content-Length` disagrees | Error, nothing published |
+//! | `206` with no validators at all, prefix proven | Append (the `If-Range` or the hash decides) |
+//! | `416`, total equals N, total agrees with the saved one | Complete: verify only, publish if length and hash pass |
+//! | `416`, total differs from the saved total (even when it equals N) | Restart |
+//! | `416`, from another resource | Restart |
+//! | `416`, total not N, or no total | Restart once; a second one is an error |
+//! | `304` | Error, nothing published (no conditional header except `If-Range` is sent) |
+//! | redirect to a different resource | Followed by the redirect policy; the answer is then one of the rows above and the resource key decides |
+//! | any other status | Error, nothing published |
+//!
+//! After the body: length against the advertised total, `expected_bytes`, then
+//! `expected_sha256` over the whole file; any mismatch deletes `.part`.
 
 use std::fmt;
 use std::fs::{self, File, OpenOptions, TryLockError};
@@ -129,6 +170,8 @@ struct FetchState {
     /// `Content-Length` of a `200`.
     limit: Option<u64>,
     etag: Option<String>,
+    /// `Last-Modified` of the representation that supplied the bytes on disk.
+    last_modified: Option<String>,
     /// Resource (final URL without query) that supplied the bytes on disk and the ETag.
     source: Option<String>,
     attempts: u32,
@@ -136,16 +179,56 @@ struct FetchState {
     restarted: bool,
 }
 
+impl FetchState {
+    /// The saved ETag when it is a strong validator (not `W/`), the only kind `If-Range`
+    /// accepts and the only one that can prove the bytes on disk are unchanged.
+    fn strong_etag(&self) -> Option<&str> {
+        self.etag.as_deref().filter(|t| is_strong_etag(t))
+    }
+
+    /// Forget the prefix and every validator that described it.
+    fn forget_prefix(&mut self) {
+        self.written = 0;
+        self.resumed_from = 0;
+        self.etag = None;
+        self.last_modified = None;
+        self.source = None;
+        self.total = None;
+        self.limit = None;
+    }
+}
+
+/// An entity tag is strong when it is a quoted opaque tag without the `W/` prefix.
+fn is_strong_etag(tag: &str) -> bool {
+    let tag = tag.trim();
+    !tag.starts_with("W/") && tag.starts_with('"')
+}
+
+/// Both values present and different: the new response describes another representation.
+fn contradicts(saved: &Option<String>, seen: Option<&str>) -> bool {
+    matches!((saved.as_deref(), seen), (Some(a), Some(b)) if a.trim() != b.trim())
+}
+
+/// Truncate `.part` and drop everything known about it, so the next request starts at zero.
+fn restart_from_zero(file: &mut File, st: &mut FetchState) -> Result<(), DownloadError> {
+    file.set_len(0).map_err(io_error("truncate partial file"))?;
+    st.forget_prefix();
+    Ok(())
+}
+
 impl Client {
     /// Download `url` to `dest`, resuming a `.part` file when `opts.resume` is set.
     ///
-    /// Resume rules: a non-empty `.part` is requested with `Range: bytes=<len>-`, plus
-    /// `If-Range` with the first ETag seen in this call. A `206` appends. A `200` truncates
-    /// and restarts. A `416` whose `Content-Range` total equals the local length verifies
-    /// the file without fetching bytes. Any other `416` restarts once from zero. A
-    /// mid-body failure reconnects from the current length, up to `max_reconnects` times.
-    /// The saved prefix and its ETag belong to the resource (final URL without its query)
-    /// that supplied them: a reconnect that lands on another resource restarts from zero.
+    /// Resume rules (the full decision table is in the module docs): a non-empty `.part` is
+    /// extended only when something proves it unchanged, which is a strong ETag seen in this
+    /// call (sent as `If-Range`) or `expected_sha256`; otherwise it is discarded and the
+    /// download starts from zero. A `206` appends. A `200` truncates and restarts. A `416`
+    /// whose `Content-Range` total equals the local length (and agrees with any total seen
+    /// earlier) verifies the file without fetching bytes. Any other `416` restarts once from
+    /// zero. A mid-body failure reconnects from the current length, up to `max_reconnects`
+    /// times. The saved prefix and its validators belong to the resource (final URL, query
+    /// kept) that supplied them: a reconnect that lands on another resource, or whose ETag,
+    /// `Last-Modified` or total contradicts what was saved, restarts from zero.
     ///
     /// Safety rules: the URL is checked against the address policy before any file is
     /// opened. The destination is then locked: an exclusive OS lock on `<dest>.lock` (created
@@ -166,8 +249,9 @@ impl Client {
     /// describe decoded data; so is one whose head was not observed on the wire, because then
     /// an encoding cannot be ruled out.
     ///
-    /// Note: `If-Range` is only sent once this call has seen an ETag. Resuming a `.part`
-    /// left by an earlier call is protected only by `expected_sha256`.
+    /// Note: validators are not stored on disk. A `.part` left by an earlier call is resumed
+    /// only when `expected_sha256` is set (the hash then decides what is published); without
+    /// it the file is discarded and the download restarts.
     pub fn download_to_path(
         &self,
         url: &str,
@@ -291,6 +375,11 @@ impl Client {
                     partial_bytes: st.written,
                 });
             }
+            // A prefix nothing proves is not extended: see the decision table in the module
+            // docs. It is discarded before a ranged request can splice it onto other bytes.
+            if st.written > 0 && !prefix_is_proven(st, opts) {
+                restart_from_zero(file, st)?;
+            }
             let offset = st.written;
             let mut req = Request::get(url);
             for (k, v) in &opts.headers {
@@ -305,8 +394,8 @@ impl Client {
             }
             if offset > 0 {
                 req = req.set_header("Range", format!("bytes={offset}-"));
-                if let Some(tag) = &st.etag {
-                    req = req.set_header("If-Range", tag.clone());
+                if let Some(tag) = st.strong_etag() {
+                    req = req.set_header("If-Range", tag.to_string());
                 }
             }
             let raw: Raw = self.execute(&req, self.config.stream_timeout, opts.cancel)?;
@@ -355,63 +444,66 @@ impl Client {
                             ));
                         }
                     }
-                    if st.source.as_deref().is_some_and(|s| s != source) {
-                        // The saved prefix came from another resource: start over.
-                        file.set_len(0).map_err(io_error("truncate partial file"))?;
-                        st.written = 0;
-                        st.resumed_from = 0;
-                        st.etag = None;
-                        st.source = None;
-                        st.total = None;
-                        st.limit = None;
+                    let seen_etag = header_of(&headers, "etag");
+                    let seen_modified = header_of(&headers, "last-modified");
+                    let other_representation = st.source.as_deref().is_some_and(|s| s != source)
+                        || contradicts(&st.etag, seen_etag)
+                        || contradicts(&st.last_modified, seen_modified)
+                        || matches!((st.total, range.total), (Some(a), Some(b)) if a != b)
+                        || st.total.is_some_and(|t| end_exclusive > t);
+                    if other_representation {
+                        // Another resource, other validators, or a length that grew or
+                        // shrank: the saved prefix describes something else. Start over.
+                        restart_from_zero(file, st)?;
                         continue;
                     }
-                    st.total = range.total;
+                    if range.total.is_some() {
+                        st.total = range.total;
+                    }
                     st.limit = Some(end_exclusive);
                     if st.etag.is_none() {
-                        st.etag = header_of(&headers, "etag").map(str::to_string);
+                        st.etag = seen_etag.map(str::to_string);
+                    }
+                    if st.last_modified.is_none() {
+                        st.last_modified = seen_modified.map(str::to_string);
                     }
                     st.source.get_or_insert(source);
                 }
                 200 => {
                     if offset > 0 {
-                        file.set_len(0).map_err(io_error("truncate partial file"))?;
-                        st.written = 0;
-                        st.resumed_from = 0;
+                        restart_from_zero(file, st)?;
                     }
                     st.total = header_of(&headers, "content-length")
                         .and_then(|v| v.trim().parse::<u64>().ok());
                     st.limit = st.total;
                     st.etag = header_of(&headers, "etag").map(str::to_string);
+                    st.last_modified = header_of(&headers, "last-modified").map(str::to_string);
                     st.source = Some(source);
                 }
                 416 => {
-                    if offset > 0 && st.source.as_deref().is_some_and(|s| s != source) {
-                        // The prefix came from another resource; this 416 describes that
-                        // other one, so it says nothing about the saved bytes. Start over.
-                        file.set_len(0).map_err(io_error("truncate partial file"))?;
-                        st.written = 0;
-                        st.resumed_from = 0;
-                        st.etag = None;
-                        st.source = None;
-                        st.total = None;
-                        st.limit = None;
-                        continue;
-                    }
                     let range_total = header_of(&headers, "content-range")
                         .and_then(parse_content_range)
                         .and_then(|r| r.total);
+                    if offset > 0
+                        && (st.source.as_deref().is_some_and(|s| s != source)
+                            || matches!((st.total, range_total), (Some(a), Some(b)) if a != b))
+                    {
+                        // This 416 describes another resource, or a total that contradicts
+                        // the one already seen (the object shrank or grew): it says nothing
+                        // about the saved bytes. Start over.
+                        restart_from_zero(file, st)?;
+                        continue;
+                    }
                     if offset > 0 && range_total == Some(offset) {
-                        // The local file is the whole object: verify only.
+                        // The saved prefix (proven before the request) is the whole object:
+                        // verify only.
                         st.total = Some(offset);
                         st.limit = Some(offset);
                         return Ok(());
                     }
                     if offset > 0 && !st.restarted {
                         st.restarted = true;
-                        file.set_len(0).map_err(io_error("truncate partial file"))?;
-                        st.written = 0;
-                        st.resumed_from = 0;
+                        restart_from_zero(file, st)?;
                         continue;
                     }
                     let bytes = read_error_body(body, opts.cancel);
@@ -486,6 +578,14 @@ impl Client {
             }
         }
     }
+}
+
+/// Whether the bytes already on disk may be extended: a strong ETag seen in this call (the
+/// server then checks it through `If-Range`), or an expected SHA-256 that the finished file
+/// must match. Anything else (a `.part` left by an earlier call, or a `200` with no or only a
+/// weak ETag) could be an older representation, so it is not extended.
+fn prefix_is_proven(st: &FetchState, opts: &DownloadOptions<'_>) -> bool {
+    st.strong_etag().is_some() || opts.expected_sha256.is_some()
 }
 
 /// Final URL without its fragment: the identity of the resource that answered. The query is
@@ -662,23 +762,73 @@ impl Drop for DestLock {
     }
 }
 
-/// Refuse a destination whose name ends in `.lock` or `.part` (compared ignoring ASCII case,
-/// because macOS and Windows volumes usually fold case). Those suffixes name the lock and
-/// partial files this module creates beside every destination, so a download to `out.lock`
-/// would rename over the lock another download of `out` is holding. Runs before any
-/// filesystem access.
+/// Refuse a destination whose file name could alias the lock or partial file of another
+/// download, or another destination altogether. Runs before any filesystem access.
+///
+/// The names this module creates beside `dest` end in `.lock` and `.part`, so a destination
+/// ending in either (ignoring ASCII case, because macOS and Windows volumes fold it) would
+/// be renamed over another download's lock. Windows also normalizes names before it looks at
+/// the disk, so the check is made on the name the filesystem will use: see
+/// [`destination_name_problem`].
 fn reject_reserved_destination(dest: &Path) -> Result<(), DownloadError> {
-    let name = dest
-        .file_name()
-        .map(|n| n.to_string_lossy().to_ascii_lowercase())
-        .unwrap_or_default();
-    if name.ends_with(".lock") || name.ends_with(".part") {
+    let Some(name) = dest.file_name() else {
         return Err(DownloadError::Io(
-            "destination names ending in .lock or .part are reserved for the download's own files"
-                .into(),
+            "destination has no file name (it ends in `..` or is a root)".into(),
         ));
+    };
+    match destination_name_problem(&name.to_string_lossy(), cfg!(windows)) {
+        Some(why) => Err(DownloadError::Io(why.into())),
+        None => Ok(()),
     }
-    Ok(())
+}
+
+/// Why `name` (a final path component) may not be a download destination, or `None`.
+///
+/// Rules, each for a way two names reach one file:
+/// - A trailing dot or space is refused on every platform. Windows drops them before the
+///   lookup, so `out.lock.` is `out.lock` there while its staging names (`out.lock..part`,
+///   `out.lock..lock`) stay distinct and the lock check would never fire.
+/// - A name ending in `.lock` or `.part` (ASCII case-insensitive) is refused on every platform.
+/// - With `windows` set: a colon (an alternate data stream: `out.lock::$DATA` is `out.lock`),
+///   a device name (`NUL`, `COM1`, `con.txt`: the device, whatever the extension), and a
+///   `~` followed by a digit (an 8.3 short name such as `OUT~1.LOC` may be the long name
+///   `out.lock`) are refused.
+///
+/// `windows` is a parameter so the Windows rules are exercised on every platform.
+fn destination_name_problem(name: &str, windows: bool) -> Option<&'static str> {
+    if name.ends_with('.') || name.ends_with(' ') {
+        return Some(
+            "destination names ending in a dot or space are refused: Windows drops them, so the \
+             name would alias another destination or one of the download's own files",
+        );
+    }
+    let folded = name.to_ascii_lowercase();
+    if folded.ends_with(".lock") || folded.ends_with(".part") {
+        return Some(
+            "destination names ending in .lock or .part are reserved for the download's own files",
+        );
+    }
+    if windows {
+        if name.contains(':') {
+            return Some("destination names containing ':' are refused (alternate data streams)");
+        }
+        let stem = folded.split('.').next().unwrap_or("").trim_end();
+        let device = matches!(stem, "con" | "prn" | "aux" | "nul" | "conin$" | "conout$")
+            || (stem.len() == 4
+                && (stem.starts_with("com") || stem.starts_with("lpt"))
+                && stem.as_bytes()[3].is_ascii_digit());
+        if device {
+            return Some("destination names that are Windows device names are refused");
+        }
+        let bytes = folded.as_bytes();
+        if bytes
+            .windows(2)
+            .any(|w| w[0] == b'~' && w[1].is_ascii_digit())
+        {
+            return Some("destination names with ~<digit> are refused (8.3 short-name aliases)");
+        }
+    }
+    None
 }
 
 fn lock_path(dest: &Path) -> PathBuf {
@@ -991,6 +1141,67 @@ mod tests {
         }
         for ok in ["out", "out.bin", "lock", "out.locked", "out.lock.bin"] {
             assert!(reject_reserved_destination(Path::new(ok)).is_ok(), "{ok}");
+        }
+    }
+
+    #[test]
+    fn names_that_windows_normalizes_onto_a_reserved_name_are_refused() {
+        // Trailing dots and spaces are refused everywhere, so the check does not depend on
+        // the platform that runs it.
+        for bad in [
+            "out.lock.",
+            "out.lock..",
+            "out.lock ",
+            "OUT.LOCK. ",
+            "out.part.",
+            "out.part ",
+            "out.",
+            "out ",
+            ".",
+        ] {
+            assert!(destination_name_problem(bad, false).is_some(), "{bad:?}");
+            assert!(destination_name_problem(bad, true).is_some(), "{bad:?}");
+        }
+        for bad in [
+            "out.lock::$DATA",
+            "out.lock:stream",
+            "NUL",
+            "nul.txt",
+            "Com1",
+            "lpt9.log",
+            "CON",
+            "OUT~1.LOC",
+            "x~2",
+        ] {
+            assert!(destination_name_problem(bad, true).is_some(), "{bad:?}");
+            // The extra rules are Windows-only: a Unix name may hold ':' or '~1'.
+            assert!(destination_name_problem(bad, false).is_none(), "{bad:?}");
+        }
+        for ok in [
+            "out",
+            "out.bin",
+            "lock",
+            "out.locked",
+            "out.lock.bin",
+            "a~b",
+            "com",
+            "com10",
+        ] {
+            assert!(destination_name_problem(ok, true).is_none(), "{ok:?}");
+            assert!(destination_name_problem(ok, false).is_none(), "{ok:?}");
+        }
+    }
+
+    #[test]
+    fn a_destination_without_a_file_name_is_refused() {
+        for bad in ["..", "dir/..", "/"] {
+            assert!(
+                matches!(
+                    reject_reserved_destination(Path::new(bad)),
+                    Err(DownloadError::Io(_))
+                ),
+                "{bad}"
+            );
         }
     }
 

@@ -100,6 +100,7 @@ fn resume_appends_on_206() {
             &dest,
             DownloadOptions {
                 resume: true,
+                expected_sha256: Some(sha_hex(&data)),
                 ..DownloadOptions::default()
             },
         )
@@ -129,6 +130,7 @@ fn restart_on_200_truncates_partial_file() {
             &dest,
             DownloadOptions {
                 resume: true,
+                expected_sha256: Some(sha_hex(&data)),
                 ..DownloadOptions::default()
             },
         )
