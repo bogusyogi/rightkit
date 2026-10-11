@@ -9,7 +9,8 @@
   { conn, method, kind, limit }` (`kind` is "response" or "event"; an oversized emitted event is
   still not sent, and is now reported). Exhaustive matches on `ServiceEvent` need an arm.
 - Additive: `CallContext::peer()` returns the `PeerIdentity` the OS verified for the connection
-  (uid on Unix, user SID on Windows, pid on Linux and Windows) before any byte was read.
+  (uid on Unix, user SID on Windows, pid on Linux, macOS and Windows) before any byte was read.
+  The macOS pid is new: it is read with the `LOCAL_PEERPID` socket option.
   `CallContext::app()` is documented as what it is: a label the client declares. The label is a
   claim; the peer identity is the fact.
 - Fix (gap ledger row 167): a legal 48-byte service name can now claim its endpoint on macOS and

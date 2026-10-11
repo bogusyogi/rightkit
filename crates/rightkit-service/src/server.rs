@@ -45,7 +45,7 @@ impl CallContext {
     }
     /// Who the OS says is on the other end of this connection, from the peer check that ran
     /// before any byte was read: the uid on Unix, the user SID on Windows, and the process id
-    /// where the platform reports it (Linux and Windows; not macOS).
+    /// where the platform reports it (Linux, macOS and Windows).
     ///
     /// This is the fact, as opposed to the [`app`](Self::app) label. The user is always the
     /// current user, since any other peer was refused. A pid identifies the process only while

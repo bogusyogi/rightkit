@@ -176,8 +176,7 @@ fn the_handler_sees_the_verified_peer_beside_the_declared_label() {
             .is_some_and(|sid| sid.starts_with("S-1-")),
         "{peer:?}"
     );
-    #[cfg(any(windows, target_os = "linux"))]
+    // Linux (SO_PEERCRED), macOS (LOCAL_PEERPID) and Windows (the pipe's client process).
+    #[cfg(any(windows, target_os = "linux", target_os = "macos"))]
     assert_eq!(peer.pid, Some(std::process::id()), "{peer:?}");
-    #[cfg(target_os = "macos")]
-    assert_eq!(peer.pid, None, "{peer:?}");
 }
