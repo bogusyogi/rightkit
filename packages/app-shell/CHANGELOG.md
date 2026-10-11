@@ -11,6 +11,7 @@ Added:
 - `ActionDialog` and `DialogAction`: a titled dialog with any number of actions (label, `onClick`, `variant`, `className`, `autoFocus`, `disabled`) and an explicit `role`. `ConfirmDialog` is built on it and takes `role`.
 - `CommandPalette`: `labels.inputAriaLabel`, `enterDelayMs`, `rank` and the exported `rankCommands`, `searchIcon`, `renderIcon`, `slots.icon`.
 - `ToastViewport`: `renderGlyph`, `renderRow` (`ToastRowContext`), `rowClassName`, `exitClassName`, `exitMs`, `roles` (`ToastRoles`), `slots.glyph`; CSS variable `--rk-toast-width`.
+- `ContextMenu` `keyboard="escape-only"`; IME guard on the window key handler; re-opening during an exit animation is a new menu (`useContextMenu` remounts per open); `ToastViewport` timers survive `exitMs` changes; `dismissOn="click"` guards both drag directions.
 - CSS: `.rk-menu.is-closing` and `.rk-menu-scrim.is-closing` (used only when `exitMs > 0`).
 
 Changed:

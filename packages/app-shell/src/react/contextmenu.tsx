@@ -49,12 +49,23 @@ export interface ContextMenuProps {
    * while the menu is open, so it stays keyboard operable. Chords with Ctrl/Cmd/Alt pass through.
    */
   autoFocus?: boolean;
+  /**
+   * Keyboard model. `"menu"` (default): roving highlight with arrows, Home, End, Enter, Space and Tab
+   * handled by the component. `"escape-only"`: the component handles only Escape (close, focus
+   * restored), sets no highlight and captures no other key anywhere, so Tab, arrows, Space and Enter
+   * stay native. Items must then be real buttons: it requires `itemAs="button"` (a dev-mode warning
+   * fires otherwise) and the buttons stay in the Tab order. Escape is also read from the window while
+   * the menu is open, with an IME-composition guard.
+   */
+  keyboard?: "menu" | "escape-only";
   /** Row highlighted on open: `"first"` (default, first enabled row) or `"none"` (ArrowDown/Up start from the ends). */
   initialHighlight?: "first" | "none";
   /**
    * Exit animation length in ms. Default 0: unmount immediately. When above 0, closing first adds
    * `exitClassName` to the menu and scrim and calls `onExitStart`, then calls `onClose` after `exitMs`.
    * A chosen item's `run` fires at once, not after the animation. Input is ignored while exiting.
+   * Re-rendering with a new `x`, `y` or `items` array during the exit counts as a new open and cancels
+   * the exit, so pass a stable `items` (useMemo) or use `useContextMenu`, which remounts per open.
    */
   exitMs?: number;
   /** Class added to the menu and scrim while exiting. Default `is-closing`. */
@@ -85,6 +96,7 @@ export function ContextMenu({
   showLead = true,
   autoFocus = true,
   initialHighlight = "first",
+  keyboard = "menu",
   exitMs = 0,
   exitClassName = "is-closing",
   onExitStart,
@@ -92,7 +104,8 @@ export function ContextMenu({
   const ref = useRef<HTMLDivElement>(null);
   const menuId = useRef(`rk-menu-${Math.random().toString(36).slice(2, 8)}`);
   const opener = useRef<HTMLElement | null>(typeof document !== "undefined" ? (document.activeElement as HTMLElement | null) : null);
-  const [active, setActive] = useState(() => (initialHighlight === "none" ? -1 : enabled(items)[0] ?? -1));
+  const escapeOnly = keyboard === "escape-only";
+  const [active, setActive] = useState(() => (initialHighlight === "none" || escapeOnly ? -1 : enabled(items)[0] ?? -1));
   const [closing, setClosing] = useState(false);
   const closingRef = useRef(false);
   const exitTimer = useRef<number | null>(null);
@@ -137,6 +150,23 @@ export function ContextMenu({
     [],
   );
 
+  // A directly rendered menu that is re-opened while exiting is a new menu: drop the old exit (its
+  // timer would otherwise close the new one). Keyed on x, y and the `items` array identity, so with
+  // exitMs the host must pass a stable array (useMemo) or give the element a per-open `key`;
+  // `useContextMenu` does both.
+  const lastOpen = useRef({ x, y, items });
+  useEffect(() => {
+    const last = lastOpen.current;
+    if (last.x === x && last.y === y && last.items === items) return;
+    lastOpen.current = { x, y, items };
+    if (exitTimer.current != null) window.clearTimeout(exitTimer.current);
+    exitTimer.current = null;
+    closingRef.current = false;
+    setClosing(false);
+    setActive(initialHighlight === "none" || escapeOnly ? -1 : enabled(items)[0] ?? -1);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [x, y, items]);
+
   useEffect(() => {
     if (autoFocus) ref.current?.focus({ preventScroll: true });
     const onResize = () => onClose();
@@ -159,6 +189,14 @@ export function ContextMenu({
 
   const handleKey = (e: { key: string; preventDefault: () => void; stopPropagation: () => void }) => {
     if (closingRef.current) return;
+    if (escapeOnly) {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        e.stopPropagation();
+        dismiss({ restoreFocus: true });
+      }
+      return;
+    }
     const idx = enabled(items);
     const at = idx.indexOf(active);
     if (e.key === "Escape") {
@@ -190,17 +228,27 @@ export function ContextMenu({
   const keyHandler = useRef(handleKey);
   keyHandler.current = handleKey;
   useEffect(() => {
-    if (autoFocus) return;
+    if (autoFocus && !escapeOnly) return;
     const onWindowKey = (e: KeyboardEvent) => {
       if (e.ctrlKey || e.metaKey || e.altKey || e.defaultPrevented) return;
+      if (e.isComposing || e.keyCode === 229) return; // IME composition: never act on or swallow these keys
       if (ref.current?.contains(e.target as Node | null)) return; // the menu's own onKeyDown already handled it
       keyHandler.current(e);
     };
     window.addEventListener("keydown", onWindowKey, true);
     return () => window.removeEventListener("keydown", onWindowKey, true);
-  }, [autoFocus]);
+  }, [autoFocus, escapeOnly]);
 
-  const onKeyDown = (e: React.KeyboardEvent) => handleKey(e);
+  useEffect(() => {
+    if (escapeOnly && itemAs !== "button" && (globalThis as { process?: { env?: { NODE_ENV?: string } } }).process?.env?.NODE_ENV !== "production") {
+      console.warn('[app-shell] ContextMenu keyboard="escape-only" relies on native button semantics; set itemAs="button".');
+    }
+  }, [escapeOnly, itemAs]);
+
+  const onKeyDown = (e: React.KeyboardEvent) => {
+    if (e.nativeEvent.isComposing || e.nativeEvent.keyCode === 229) return;
+    handleKey(e);
+  };
   const exitStyle = exitMs > 0 ? ({ "--rk-menu-exit-ms": `${exitMs}ms` } as React.CSSProperties) : undefined;
   const Row = itemAs;
 
@@ -226,13 +274,13 @@ export function ContextMenu({
           <div key={item.id}>
             {item.separatorBefore ? <div className={cx("rk-menu__sep", slots?.separator)} role="separator" /> : null}
             <Row
-              {...(itemAs === "button" ? { type: "button" as const, disabled: item.disabled, tabIndex: -1 } : {})}
+              {...(itemAs === "button" ? { type: "button" as const, disabled: item.disabled, ...(escapeOnly ? {} : { tabIndex: -1 }) } : {})}
               id={`${menuId.current}-${i}`}
               role={item.checked === undefined ? "menuitem" : "menuitemcheckbox"}
               aria-checked={item.checked}
               aria-disabled={itemAs === "div" ? item.disabled || undefined : undefined}
               className={cx("rk-menu__item", i === active && "is-active", item.danger && "is-danger", item.disabled && "is-disabled", slots?.item)}
-              onMouseMove={() => !item.disabled && setActive(i)}
+              onMouseMove={() => !escapeOnly && !item.disabled && setActive(i)}
               onClick={() => run(item)}
             >
               {renderItem ? (
@@ -254,6 +302,8 @@ export function ContextMenu({
 }
 
 export interface OpenMenu<T> {
+  /** Open counter; each open mounts a fresh `ContextMenu` (so a re-open during an exit animation is a new menu). */
+  n?: number;
   x: number;
   y: number;
   context: T;
@@ -270,13 +320,14 @@ export function useContextMenu<T = undefined>(
   menuProps?: Omit<ContextMenuProps, "x" | "y" | "items" | "label" | "onClose">,
 ) {
   const [menu, setMenu] = useState<OpenMenu<T> | null>(null);
+  const opens = useRef(0);
   const close = useCallback(() => setMenu(null), []);
   const open = useCallback((event: ReactMouseEvent | MouseEvent, context?: T) => {
     event.preventDefault();
     event.stopPropagation();
-    setMenu({ x: event.clientX, y: event.clientY, context: context as T });
+    setMenu({ n: ++opens.current, x: event.clientX, y: event.clientY, context: context as T });
   }, []);
   const items = useMemo(() => (menu ? buildItems(menu.context) : []), [menu, buildItems]);
-  const element = menu && items.length ? <ContextMenu {...menuProps} x={menu.x} y={menu.y} items={items} label={label} onClose={close} /> : null;
+  const element = menu && items.length ? <ContextMenu key={menu.n} {...menuProps} x={menu.x} y={menu.y} items={items} label={label} onClose={close} /> : null;
   return { open, close, isOpen: menu !== null, element };
 }

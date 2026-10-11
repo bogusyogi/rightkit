@@ -203,6 +203,109 @@ describe.skipIf(!chrome)("opt-in options in real headless Chrome", () => {
       await page.waitFor("!document.querySelector('[role=menu]')");
     });
 
+    it("B1: a second right-click during an exit animation opens a new menu that the old exit does not close", async () => {
+      await openMenu("exit=250");
+      await page.press("Escape");
+      await page.sleep(20);
+      await page.click("#area", "right"); // lands on the page: the exiting scrim is click-through
+      await page.sleep(500);
+      expect(await count("[role=menu]")).toBe(1);
+      expect(await count("[role=menu].is-closing")).toBe(0);
+      expect((await log()).split("menu:closed").length - 1).toBe(0); // the old exit was cancelled; onClose never fired for the new menu
+      await page.press("ArrowDown");
+      expect(await activeLabel()).toBe("Paste");
+      await page.press("Enter");
+      await page.waitFor("!document.querySelector('[role=menu]')");
+      expect(await log()).toContain("menu:paste");
+    });
+
+    it("B1 (useContextMenu): re-opening during the exit mounts a fresh menu that the old exit cannot close", async () => {
+      await open("demo=hook");
+      await page.click("#area", "right");
+      await page.waitFor("document.querySelector('[role=menu]')");
+      await page.press("Escape");
+      await page.sleep(20);
+      await page.click("#area", "right");
+      await page.sleep(500);
+      expect(await count("[role=menu]")).toBe(1);
+      expect(await count("[role=menu].is-closing")).toBe(0);
+      await page.press("Enter");
+      expect(await log()).toContain("hook:alpha");
+    });
+
+    it("N1: a composing Space/Enter (IME) is neither prevented nor runs the highlighted item when autoFocus=false", async () => {
+      await open("demo=menu&autoFocus=0");
+      await page.click("#area", "right");
+      await page.waitFor("document.querySelector('[role=menu]')");
+      const prevented = await page.eval<boolean[]>(`(() => {
+        const out = [];
+        for (const init of [{ key: 'Enter', isComposing: true }, { key: ' ', isComposing: true }, { key: 'Process', keyCode: 229 }]) {
+          const e = new KeyboardEvent('keydown', { ...init, bubbles: true, cancelable: true });
+          document.getElementById('field').dispatchEvent(e);
+          out.push(e.defaultPrevented);
+        }
+        return out;
+      })()`);
+      expect(prevented).toEqual([false, false, false]);
+      expect(await count("[role=menu]")).toBe(1);
+      expect(await log()).not.toContain("menu:copy");
+    });
+
+    describe("keyboard=escape-only", () => {
+      const eo = "keyboard=escape-only&itemAs=button&autoFocus=0";
+      it("no highlight, items are tabbable buttons, Tab/Space/Enter are native, Escape closes", async () => {
+        await open(`demo=menu&${eo}`);
+        await page.eval("document.getElementById('page-btn').focus()");
+        await page.eval("document.getElementById('area').dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 120, clientY: 120 }))");
+        await page.waitFor("document.querySelector('[role=menu]')");
+        expect(await count(".rk-menu__item.is-active")).toBe(0);
+        expect(await attr("[role=menu]", "aria-activedescendant")).toBe(null);
+        expect(await count(".rk-menu__item[tabindex]")).toBe(0);
+        // Space on a focused page button outside the menu still activates it (nothing captured page-wide).
+        await page.press(" ");
+        expect(await log()).toContain("page:btn");
+        expect(await count("[role=menu]")).toBe(1);
+        // Tab walks into the item buttons (Cut is disabled and skipped natively).
+        await page.eval("document.getElementById('field').focus()");
+        const seen: string[] = [];
+        for (let i = 0; i < 6 && seen.length < 3; i++) {
+          await page.press("Tab");
+          const t = await page.eval<string>("document.activeElement.closest('.rk-menu__item') ? document.activeElement.textContent : ''");
+          if (t) seen.push(t);
+        }
+        expect(seen.map((t) => t.replace(/^c/, "").replace(/⌘C$/, ""))).toEqual(["Copy", "Paste", "Select all"]);
+        expect(await count("[role=menu]")).toBe(1);
+        // Enter on the focused item activates it exactly once.
+        await page.press("Enter");
+        await page.waitFor("!document.querySelector('[role=menu]')");
+        expect((await log()).split("menu:all").length - 1).toBe(1);
+      });
+
+      it("Escape closes from the page, restores focus, and the listener is gone afterwards", async () => {
+        await open(`demo=menu&${eo}`);
+        await page.eval("document.getElementById('field').focus()");
+        await page.eval("document.getElementById('area').dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 120, clientY: 120 }))");
+        await page.waitFor("document.querySelector('[role=menu]')");
+        await page.press("Escape");
+        await page.waitFor("!document.querySelector('[role=menu]')");
+        expect(await page.eval<string>("document.activeElement.id")).toBe("field");
+        const prevented = await page.eval<boolean>("(() => { const e = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }); document.getElementById('field').dispatchEvent(e); return e.defaultPrevented; })()");
+        expect(prevented).toBe(false);
+      });
+
+      it("IME guard applies to Escape; arrows and Enter on the page are not captured", async () => {
+        await open(`demo=menu&${eo}`);
+        await page.click("#area", "right");
+        await page.waitFor("document.querySelector('[role=menu]')");
+        const r = await page.eval<boolean[]>(`(() => {
+          const send = (init) => { const e = new KeyboardEvent('keydown', { ...init, bubbles: true, cancelable: true }); document.getElementById('field').dispatchEvent(e); return e.defaultPrevented; };
+          return [send({ key: 'Escape', isComposing: true }), send({ key: 'ArrowDown' }), send({ key: 'Enter' }), send({ key: ' ' }), send({ key: 'Tab' })];
+        })()`);
+        expect(r).toEqual([false, false, false, false, false]);
+        expect(await count("[role=menu]")).toBe(1);
+      });
+    });
+
     it("default (no exitMs): closes immediately, no exit class or variable", async () => {
       await openMenu("");
       await page.press("Escape");
@@ -369,6 +472,16 @@ describe.skipIf(!chrome)("opt-in options in real headless Chrome", () => {
       expect(await page.eval<boolean>("document.querySelector('.my-row').classList.contains('rk-toast--error')")).toBe(true);
       await page.click(".my-row");
       await page.waitFor("!document.querySelector('.my-row')", 2000);
+    });
+
+    it("N3: changing exitMs while a toast is exiting does not strand it", async () => {
+      await open("demo=toast&exit=600&rerender=1");
+      await push("success");
+      await page.waitFor("document.querySelector('.rk-toast')");
+      await page.click(".rk-toast__x");
+      await page.sleep(100);
+      await page.eval("window.__setExit(50)");
+      await page.waitFor("!document.querySelector('.rk-toast')", 3000);
     });
 
     it("--rk-toast-width sets the stack width; the default stays 26rem", async () => {

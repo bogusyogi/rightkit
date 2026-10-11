@@ -77,6 +77,9 @@ export function ToastViewport({ bus = defaultToastBus, className, slots, roles, 
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [leaving, setLeaving] = useState<ReadonlySet<number>>(() => new Set());
   const timers = useRef(new Map<number, number>());
+  // Read at call time so changing `exitMs` never re-runs the subscription effect (which clears pending timers).
+  const exitMsRef = useRef(exitMs);
+  exitMsRef.current = exitMs;
 
   const dismiss = useCallback((id: number) => {
     const ttl = timers.current.get(id);
@@ -90,8 +93,8 @@ export function ToastViewport({ bus = defaultToastBus, className, slots, roles, 
         return n;
       });
       timers.current.delete(id);
-    }, exitMs));
-  }, [exitMs]);
+    }, exitMsRef.current));
+  }, []);
 
   useEffect(() => {
     const pending = timers.current;

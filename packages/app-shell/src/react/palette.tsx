@@ -88,6 +88,8 @@ export function CommandPalette({ commands, onClose, registry, labels: labelOverr
   const run = (command?: Command) => {
     if (!command) return;
     close();
+    // The timer is deliberately not cleared on unmount: the usual host unmounts the palette from onClose
+    // and the chosen command must still run.
     // Run after the exit animation so a command that opens another modal keeps the focus it asks for.
     window.setTimeout(() => command.run(), enterDelayMs);
   };

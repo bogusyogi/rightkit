@@ -195,11 +195,12 @@ To take structure only, import `shell.structure.css` (optionally `layer(rk)`), s
 | | `showLead` | `true` | `false` drops the lead column (`span.rk-menu__lead`). |
 | | `scrimClassName`, `slots.scrim` | none | Class on the click-away scrim. |
 | | `autoFocus` | `true` | `false` leaves focus and the document selection where they are. Arrows, Home, End, Enter, Space, Escape and Tab are read from the window while the menu is open; chords with Ctrl, Cmd or Alt pass through. |
+| | `keyboard` | `"menu"` | `"escape-only"`: the component handles only Escape (close, focus restored, IME-guarded), sets no highlight and captures no other key; Tab, arrows, Space and Enter stay native. It relies on native button semantics, so it requires `itemAs="button"` (dev-mode warning otherwise); item buttons stay in the Tab order. |
 | | `initialHighlight` | `"first"` | `"none"` opens with no row highlighted; ArrowDown goes to the first row, ArrowUp to the last. |
-| | `exitMs`, `exitClassName`, `onExitStart` | `0`, `"is-closing"`, none | With `exitMs > 0` closing adds the class to the menu and scrim, sets `--rk-menu-exit-ms`, calls `onExitStart`, and calls `onClose` after `exitMs`. The chosen item's `run` fires immediately. Input is ignored while exiting. |
+| | `exitMs`, `exitClassName`, `onExitStart` | `0`, `"is-closing"`, none | With `exitMs > 0` closing adds the class to the menu and scrim, sets `--rk-menu-exit-ms`, calls `onExitStart`, and calls `onClose` after `exitMs`. The chosen item's `run` fires immediately. Input is ignored while exiting. Passing a new `x`, `y` or `items` array while exiting counts as a new open and cancels the exit: memoise `items`, or use `useContextMenu`, which remounts the menu per open. |
 | `useContextMenu` | third argument | none | Any of the above options for the menu it renders. |
 | `ModalShell`, `Dialog` | `overlayClassName`, `overlayStyle`, `slots.overlay` | none | Class and inline style on the backdrop. |
-| | `dismissOn` | `"mousedown"` | `"click"` closes on release and only when the press also started on the backdrop (a selection drag that ends outside does not close). |
+| | `dismissOn` | `"mousedown"` | `"click"` closes on click and only when both the press and the release landed on the backdrop itself; a drag that crosses between the dialog and the backdrop in either direction never closes. |
 | | `ariaLabel` | none | Sets `aria-label` and removes `aria-labelledby`, even when a title is rendered. |
 | `ActionDialog` (new) | `actions: DialogAction[]` | required | Any number of footer buttons: `label`, `onClick`, `variant`, `className`, `autoFocus`, `disabled`, `id`. |
 | | `role` | `"dialog"` | `"alertdialog"` for interruptions. |
@@ -215,6 +216,8 @@ To take structure only, import `shell.structure.css` (optionally `layer(rk)`), s
 | | `exitClassName`, `exitMs` | none, `150` | Class added next to `is-leaving`; exit length before removal. |
 | | `roles` | error `alert`, others `status` | Per kind; `null` omits the role. |
 | | `--rk-toast-width` | `26rem` | CSS variable for the stack width. |
+
+**Page-wide key capture with `autoFocus: false` (default `keyboard`).** While such a menu is open, plain Space, Enter, ArrowUp/Down, Home, End and Tab, and Shift+arrows, are captured from the window and prevented even when a page input or button has focus (Ctrl/Cmd/Alt chords and IME composition pass through). Use `keyboard="escape-only"` with `itemAs="button"` when the page must keep those keys.
 
 Keyboard and focus: every option combination keeps Escape, the focus trap and focus return (modals), arrow/Home/End/Enter navigation (menu, palette) and `aria-activedescendant`. `e2e/options.e2e.test.ts` drives these with real key events.
 

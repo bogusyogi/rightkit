@@ -6,6 +6,7 @@ import {
   ActionDialog,
   CommandPalette,
   ContextMenu,
+  useContextMenu,
   ModalShell,
   ToastViewport,
   createToastBus,
@@ -24,8 +25,8 @@ const log = (line: string) => {
 };
 
 function MenuDemo() {
-  const [at, setAt] = useState<{ x: number; y: number } | null>(null);
-  const items: MenuItem[] = [
+  const [at, setAt] = useState<{ x: number; y: number; items: MenuItem[] } | null>(null);
+  const makeItems = (): MenuItem[] => [
     { id: "cut", label: "Cut", disabled: true, run: () => log("menu:cut") },
     { id: "copy", label: "Copy", shortcut: "mod+c", icon: <b>c</b>, run: () => log("menu:copy") },
     { id: "paste", label: "Paste", run: () => log("menu:paste") },
@@ -34,12 +35,13 @@ function MenuDemo() {
   return (
     <div style={{ padding: 24 }}>
       <input id="field" defaultValue="hello world" />
-      <div id="area" style={{ marginTop: 20, height: 200, background: "#eee" }} onContextMenu={(e) => { e.preventDefault(); setAt({ x: e.clientX, y: e.clientY }); }}>right-click</div>
+      <button type="button" id="page-btn" onClick={() => log("page:btn")}>page button</button>
+      <div id="area" style={{ marginTop: 20, height: 200, background: "#eee" }} onContextMenu={(e) => { e.preventDefault(); setAt({ x: e.clientX, y: e.clientY, items: makeItems() }); }}>right-click</div>
       {at ? (
         <ContextMenu
           x={at.x}
           y={at.y}
-          items={items}
+          items={at.items}
           label="Edit"
           onClose={() => { log("menu:closed"); setAt(null); }}
           itemAs={(q.get("itemAs") as "div" | "button" | null) ?? undefined}
@@ -47,6 +49,7 @@ function MenuDemo() {
           scrimClassName={q.get("scrim") ?? undefined}
           autoFocus={q.get("autoFocus") === "0" ? false : undefined}
           initialHighlight={(q.get("highlight") as "first" | "none" | null) ?? undefined}
+          keyboard={(q.get("keyboard") as "menu" | "escape-only" | null) ?? undefined}
           exitMs={num("exit")}
           exitClassName={q.get("exitClass") ?? undefined}
           onExitStart={q.has("exit") ? () => log("menu:exit-start") : undefined}
@@ -54,6 +57,13 @@ function MenuDemo() {
         />
       ) : null}
     </div>
+  );
+}
+
+function HookMenuDemo() {
+  const menu = useContextMenu<undefined>(() => [{ id: "a", label: "Alpha", run: () => log("hook:alpha") }, { id: "b", label: "Beta", run: () => log("hook:beta") }], "Hook", { exitMs: 250, onExitStart: () => log("hook:exit") });
+  return (
+    <div id="area" style={{ margin: 24, height: 200, background: "#eee" }} onContextMenu={(e) => menu.open(e)}>right-click{menu.element}</div>
   );
 }
 
@@ -121,6 +131,8 @@ const bus = createToastBus();
 (window as unknown as { __bus: typeof bus }).__bus = bus;
 
 function ToastDemo() {
+  const [exit, setExit] = useState(num("exit"));
+  (window as unknown as { __setExit: (n: number) => void }).__setExit = setExit;
   let glyph: ((t: { kind: string }) => ReactNode) | undefined;
   if (q.get("glyph")) glyph = (t) => <svg className="my-glyph" data-kind={t.kind} width="10" height="10" />;
   return (
@@ -129,7 +141,7 @@ function ToastDemo() {
       roles={q.get("roles") === "vr" ? { error: "alert", info: null, success: null, warning: null } : q.get("roles") === "log" ? { success: "log" } : undefined}
       rowClassName={q.get("rowClass") ? (t, { leaving }) => `row-${t.kind}${leaving ? " row-leaving" : ""}` : undefined}
       exitClassName={q.get("exitClass") ?? undefined}
-      exitMs={num("exit")}
+      exitMs={exit}
       renderGlyph={glyph as never}
       renderRow={q.get("row") ? ({ toast, role, className, dismiss, leaving }) => <div className={`${className} my-row`} role={role} data-leaving={leaving} onClick={dismiss}>{toast.message}</div> : undefined}
     />
@@ -138,7 +150,7 @@ function ToastDemo() {
 
 createRoot(document.getElementById("root")!).render(
   <>
-    {demo === "menu" ? <MenuDemo /> : demo === "modal" ? <ModalDemo /> : demo === "action" ? <ActionDemo /> : demo === "palette" ? <PaletteDemo /> : <ToastDemo />}
+    {demo === "hook" ? <HookMenuDemo /> : demo === "menu" ? <MenuDemo /> : demo === "modal" ? <ModalDemo /> : demo === "action" ? <ActionDemo /> : demo === "palette" ? <PaletteDemo /> : <ToastDemo />}
     <pre id="log" style={{ position: "fixed", left: -9999, top: 0 }} />
   </>,
 );

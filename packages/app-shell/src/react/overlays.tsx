@@ -16,8 +16,9 @@ export interface ModalShellProps {
   dismissOnBackdrop?: boolean;
   /**
    * Which pointer event on the backdrop dismisses. `"mousedown"` (default) closes as the button goes
-   * down. `"click"` closes on release and only when the press also started on the backdrop, so
-   * dragging a text selection out of the dialog never closes it.
+   * down. `"click"` closes on click and only when both the press and the release landed on the
+   * backdrop itself, so a drag that starts inside the dialog and ends on the backdrop, or starts on
+   * the backdrop and ends inside, never closes it.
    */
   dismissOn?: "mousedown" | "click";
   /** `id` of a visible heading inside; replaces `label` for aria-labelledby. */
@@ -44,6 +45,7 @@ export interface ModalShellProps {
 export function ModalShell({ label, onClose, width = 440, align = "center", autoFocus = true, role = "dialog", dismissOnBackdrop = true, dismissOn = "mousedown", labelledBy, describedBy, ariaLabel, className, overlayClassName, overlayStyle, slots, children }: ModalShellProps) {
   const ref = useRef<HTMLDivElement>(null);
   const pressedOnBackdrop = useRef(false);
+  const releasedOnBackdrop = useRef(false);
   const { closing, close } = useModalDismiss(onClose, { escape: true });
   useFocusTrap(ref, true, { autoFocus });
   const named = ariaLabel !== undefined;
@@ -59,12 +61,14 @@ export function ModalShell({ label, onClose, width = 440, align = "center", auto
           pressedOnBackdrop.current = e.target === e.currentTarget;
         }
       }}
+      onMouseUp={byMouseDown ? undefined : (e) => { releasedOnBackdrop.current = e.target === e.currentTarget; }}
       onClick={
         byMouseDown
           ? undefined
           : (e) => {
-              const started = pressedOnBackdrop.current;
+              const started = pressedOnBackdrop.current && releasedOnBackdrop.current;
               pressedOnBackdrop.current = false;
+              releasedOnBackdrop.current = false;
               if (started && e.target === e.currentTarget && dismissOnBackdrop) close();
             }
       }
