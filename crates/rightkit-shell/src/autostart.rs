@@ -312,6 +312,8 @@ fn legacy_login_item_path(stem: &str, config_home: Option<&Path>) -> Option<Path
 
 /// The stem of the shell's own entry: `<app_id>.autostart` on macOS (the LaunchAgent label), the
 /// app id elsewhere.
+// Not used by the Windows backend.
+#[cfg_attr(not(unix), allow(dead_code))]
 fn our_stem(spec: &AutostartSpec) -> String {
     #[cfg(target_os = "macos")]
     {

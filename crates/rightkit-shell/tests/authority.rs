@@ -8,7 +8,9 @@ use std::sync::mpsc;
 use std::time::Duration;
 
 use rightkit_shell::broker::PathBroker;
-use rightkit_shell::site::{resolve_in_root, serve_site_request, SitePolicy};
+#[cfg(unix)]
+use rightkit_shell::site::resolve_in_root;
+use rightkit_shell::site::{serve_site_request, SitePolicy};
 use rightkit_shell::stream::{serve as serve_stream, StreamPolicy};
 use tauri::http::{Request, Response, StatusCode};
 

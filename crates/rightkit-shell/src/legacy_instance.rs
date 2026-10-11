@@ -43,6 +43,8 @@ pub(crate) fn socket_stem(identifier: &str) -> String {
 }
 
 /// Candidate socket paths for `identifier`: the exact name first, then `<stem>_*_si.sock` variants.
+// Used by the Unix socket path only.
+#[cfg_attr(not(unix), allow(dead_code))]
 pub(crate) fn socket_candidates(identifier: &str) -> Vec<PathBuf> {
     let stem = socket_stem(identifier);
     let mut out = vec![PathBuf::from(format!("/tmp/{stem}_si.sock"))];
@@ -62,6 +64,8 @@ pub(crate) fn socket_candidates(identifier: &str) -> Vec<PathBuf> {
 }
 
 /// The macOS launch payload: `cwd`, `\0\0`, then the argv joined by `\0`.
+// Used by the Unix socket path only.
+#[cfg_attr(not(unix), allow(dead_code))]
 pub(crate) fn socket_payload(argv: &[String], cwd: &str) -> Vec<u8> {
     let mut out = cwd.as_bytes().to_vec();
     out.extend_from_slice(b"\0\0");

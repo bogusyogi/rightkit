@@ -24,6 +24,8 @@ fn main() {
     let idle_s: u64 = args.first().and_then(|v| v.parse().ok()).unwrap_or(30);
 
     let before = process_usage().expect("process usage");
+    // Only the macOS activation-policy call below mutates the app.
+    #[cfg_attr(not(target_os = "macos"), allow(unused_mut))]
     let mut app = tauri::Builder::<tauri::Wry>::new()
         .build(tauri::test::mock_context(tauri::test::noop_assets()))
         .expect("build the Tauri app");

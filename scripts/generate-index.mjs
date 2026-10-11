@@ -612,7 +612,8 @@ export function generate(options = {}) {
 export function driftOf(root, outputs) {
   return Object.keys(outputs).filter((rel) => {
     const file = path.join(root, rel);
-    return !existsSync(file) || readFileSync(file, "utf8") !== outputs[rel];
+    // A Windows checkout may hold the committed LF file with CRLF: that is not drift.
+    return !existsSync(file) || readFileSync(file, "utf8").replace(/\r\n/g, "\n") !== outputs[rel];
   });
 }
 

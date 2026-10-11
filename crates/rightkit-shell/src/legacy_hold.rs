@@ -47,6 +47,8 @@ pub(crate) fn parse_window_payload(bytes: &[u8]) -> Option<(String, Vec<String>)
 }
 
 /// Parse the macOS socket payload: `cwd`, `\0\0`, then the argv joined by `\0`.
+// Used by the Unix socket path only.
+#[cfg_attr(not(unix), allow(dead_code))]
 pub(crate) fn parse_socket_payload(bytes: &[u8]) -> Option<(String, Vec<String>)> {
     if bytes.len() > MAX_PAYLOAD {
         return None;
