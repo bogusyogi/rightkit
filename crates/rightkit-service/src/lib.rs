@@ -84,5 +84,6 @@ pub use suite::{
     SUITE_DIR_NAME,
 };
 pub use transport::{
-    endpoint_for, open_stream, pid_alive, probe_endpoint, Stream, DEFAULT_MAX_PIPE_INSTANCES,
+    endpoint_candidates, endpoint_for, find_live_endpoint, open_stream, pid_alive, probe_endpoint,
+    try_endpoint_for, EndpointError, Stream, DEFAULT_MAX_PIPE_INSTANCES, MAX_UNIX_SOCKET_PATH,
 };

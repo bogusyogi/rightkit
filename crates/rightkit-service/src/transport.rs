@@ -44,31 +44,164 @@ fn fnv(s: &str) -> u32 {
     h
 }
 
-/// Endpoint for `service` on `suite`. Windows: a pipe name that carries the
-/// user and a hash of the suite root, so an isolated suite never collides with
-/// the user's installed host. Unix: a socket in the private service dir, or in
-/// the per-user temp dir when the path would exceed the `sockaddr_un` limit.
-pub fn endpoint_for(suite: &Suite, service: &str) -> String {
-    let tag = format!("{:08x}", fnv(&suite.root().to_string_lossy()));
+/// Longest Unix socket path this crate will bind: `sockaddr_un.sun_path` is 104 bytes on macOS
+/// and 108 on Linux, each including the trailing NUL, so 103 is the portable ceiling.
+pub const MAX_UNIX_SOCKET_PATH: usize = 103;
+
+/// In-suite socket paths longer than this move to the per-user temp dir. Kept below
+/// [`MAX_UNIX_SOCKET_PATH`] on purpose: it is the historical threshold and changing it would move
+/// the endpoint of services that bind today.
+const IN_SUITE_PATH_LIMIT: usize = 100;
+
+/// The endpoint for a service cannot be named within the OS socket path limit, even at the
+/// short fallback location. Names the offending path, its length and the limit.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EndpointError {
+    pub path: String,
+    pub len: usize,
+    pub limit: usize,
+}
+
+impl std::fmt::Display for EndpointError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "service socket path {:?} is {} bytes, over the {}-byte limit; set a shorter TMPDIR",
+            self.path, self.len, self.limit
+        )
+    }
+}
+impl std::error::Error for EndpointError {}
+
+/// 64-bit FNV-1a. Stable across Rust versions and processes (std's hashers are not), so a
+/// client and a server derive the same fallback name.
+fn fnv1a64(s: &str) -> u64 {
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    for b in s.bytes() {
+        h ^= u64::from(b);
+        h = h.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    h
+}
+
+/// File name of the bounded fallback socket: `rk-<tag>-<fnv1a64(service)>.sock`, 33 bytes
+/// whatever the service name length (the tag is 8 hex digits, the hash 16).
+fn fallback_file_name(tag: &str, service: &str) -> String {
+    format!("rk-{tag}-{:016x}.sock", fnv1a64(service))
+}
+
+/// The fallback name used before the bounded form existed: `rk-<tag>-<service>.sock`.
+fn legacy_fallback_file_name(tag: &str, service: &str) -> String {
+    format!("rk-{tag}-{service}.sock")
+}
+
+fn suite_tag(suite: &Suite) -> String {
+    format!("{:08x}", fnv(&suite.root().to_string_lossy()))
+}
+
+/// Unix endpoint with the temp dir injected (the seam tests use). Returns the in-suite path when
+/// it fits, else the bounded fallback under `temp`, else a typed error.
+fn unix_endpoint_in(
+    suite: &Suite,
+    service: &str,
+    temp: &std::path::Path,
+) -> Result<String, EndpointError> {
+    let p = suite.service_dir(service).join(format!("{service}.sock"));
+    if p.as_os_str().len() <= IN_SUITE_PATH_LIMIT {
+        return Ok(p.to_string_lossy().into_owned());
+    }
+    let f = temp
+        .join(fallback_file_name(&suite_tag(suite), service))
+        .to_string_lossy()
+        .into_owned();
+    if f.len() <= MAX_UNIX_SOCKET_PATH {
+        Ok(f)
+    } else {
+        Err(EndpointError {
+            len: f.len(),
+            path: f,
+            limit: MAX_UNIX_SOCKET_PATH,
+        })
+    }
+}
+
+/// The pre-upgrade fallback path, only when it would have fitted the socket limit (so an old
+/// host could actually have bound it). `None` means there is nothing to stay compatible with.
+fn legacy_unix_endpoint_in(suite: &Suite, service: &str, temp: &std::path::Path) -> Option<String> {
+    let p = suite.service_dir(service).join(format!("{service}.sock"));
+    if p.as_os_str().len() <= IN_SUITE_PATH_LIMIT {
+        return None;
+    }
+    let f = temp
+        .join(legacy_fallback_file_name(&suite_tag(suite), service))
+        .to_string_lossy()
+        .into_owned();
+    (f.len() <= MAX_UNIX_SOCKET_PATH).then_some(f)
+}
+
+/// Endpoint for `service` on `suite`, or the typed reason none can be named. Windows: a pipe
+/// name that carries the user and a hash of the suite root, so an isolated suite never collides
+/// with the user's installed host (at most 96 characters for a 48-byte service name and a
+/// 20-character user, far under the 256-character pipe name limit). Unix: a socket in the
+/// private service dir, or, when that path would exceed the `sockaddr_un` limit, a bounded
+/// `rk-<tag>-<hash>.sock` in the per-user temp dir.
+///
+/// This is the single place an endpoint is computed; the host binds it and publishes it in its
+/// discovery record, and clients connect to the recorded endpoint.
+pub fn try_endpoint_for(suite: &Suite, service: &str) -> Result<String, EndpointError> {
     if cfg!(windows) {
+        let tag = suite_tag(suite);
         let user: String = std::env::var("USERNAME")
             .unwrap_or_default()
             .chars()
             .filter(|c| c.is_ascii_alphanumeric())
             .take(20)
             .collect();
-        format!(r"\\.\pipe\rightkit-{service}-{user}-{tag}")
+        Ok(format!(r"\\.\pipe\rightkit-{service}-{user}-{tag}"))
     } else {
-        let p = suite.service_dir(service).join(format!("{service}.sock"));
-        if p.as_os_str().len() <= 100 {
-            p.to_string_lossy().into_owned()
-        } else {
-            std::env::temp_dir()
-                .join(format!("rk-{tag}-{service}.sock"))
-                .to_string_lossy()
-                .into_owned()
+        unix_endpoint_in(suite, service, &std::env::temp_dir())
+    }
+}
+
+/// [`try_endpoint_for`] for callers that cannot handle the error: on failure it returns the path
+/// that did not fit, so a bind attempt fails with the OS error rather than panicking here.
+pub fn endpoint_for(suite: &Suite, service: &str) -> String {
+    try_endpoint_for(suite, service).unwrap_or_else(|e| e.path)
+}
+
+/// Endpoints a client may find a live host on, in order: the current endpoint, then (Unix only)
+/// the pre-upgrade long fallback name when it would have fitted. Compatibility decision: for one
+/// release a new client still finds an old host on the old fallback name; that name is
+/// connect-only and is never bound. Where the old name never fitted the limit no old host could
+/// have bound it, so there is no second candidate.
+pub fn endpoint_candidates(suite: &Suite, service: &str) -> Vec<String> {
+    candidates_in(suite, service, &std::env::temp_dir())
+}
+
+fn candidates_in(suite: &Suite, service: &str, temp: &std::path::Path) -> Vec<String> {
+    let mut v = Vec::new();
+    if cfg!(windows) {
+        if let Ok(e) = try_endpoint_for(suite, service) {
+            v.push(e);
+        }
+        return v;
+    }
+    if let Ok(e) = unix_endpoint_in(suite, service, temp) {
+        v.push(e);
+    }
+    if let Some(old) = legacy_unix_endpoint_in(suite, service, temp) {
+        if !v.contains(&old) {
+            v.push(old);
         }
     }
+    v
+}
+
+/// The first of [`endpoint_candidates`] that answers a connect.
+pub fn find_live_endpoint(suite: &Suite, service: &str) -> Option<String> {
+    endpoint_candidates(suite, service)
+        .into_iter()
+        .find(|e| probe_endpoint(e))
 }
 
 /// Does something answer at `endpoint`? (Connect, then drop.)
@@ -809,5 +942,124 @@ mod tests {
         let id = verify_pipe_server_is_current_user(client.as_raw_handle()).unwrap();
         assert_eq!(id.pid, Some(std::process::id()));
         let _ = unsafe { windows::Win32::Foundation::CloseHandle(server) };
+    }
+
+    // ---- endpoint naming (gap ledger row 167) ----
+
+    fn long_service() -> String {
+        format!("{}-instance", "a".repeat(39))
+    }
+
+    #[test]
+    fn fallback_file_name_is_pinned_and_bounded() {
+        // FNV-1a 64 of the service name; changing this string breaks client/server agreement.
+        assert_eq!(
+            fallback_file_name("0badc0de", &long_service()),
+            "rk-0badc0de-3a43f919c4e992b6.sock"
+        );
+        assert_eq!(
+            fallback_file_name("0badc0de", "speech"),
+            "rk-0badc0de-c1d6288e168cb0d7.sock"
+        );
+        assert_eq!(fallback_file_name("0badc0de", &long_service()).len(), 33);
+        assert_eq!(fnv1a64(""), 0xcbf2_9ce4_8422_2325);
+    }
+
+    #[cfg(unix)]
+    fn long_root() -> tempfile::TempDir {
+        // About 60 bytes: long enough that the old `rk-<tag>-<service>.sock` (65 bytes for a
+        // 48-byte name) never fitted, short enough for the bounded name (33 bytes).
+        let d = tempfile::Builder::new()
+            .prefix(&"r".repeat(49))
+            .tempdir_in("/tmp")
+            .unwrap();
+        let n = d.path().as_os_str().len();
+        assert!((50..=69).contains(&n), "root is {n} bytes");
+        d
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_48_byte_service_name_binds_and_connects_under_a_long_temp_root() {
+        let suite = Suite::per_run_temp("ep-long").unwrap();
+        let service = long_service();
+        assert_eq!(service.len(), 48);
+        let root = long_root();
+        let ep = unix_endpoint_in(&suite, &service, root.path()).unwrap();
+        assert!(ep.starts_with(root.path().to_str().unwrap()));
+        assert!(
+            ep.len() <= MAX_UNIX_SOCKET_PATH,
+            "{ep} is {} bytes",
+            ep.len()
+        );
+        // The pre-fix name for the same inputs would not have fitted.
+        assert_eq!(legacy_unix_endpoint_in(&suite, &service, root.path()), None);
+        let l = Listener::bind(&ep, DEFAULT_MAX_PIPE_INSTANCES).unwrap();
+        assert!(connect(&ep).is_ok());
+        l.cleanup();
+        // Both ends derive the same path from the same inputs.
+        assert_eq!(
+            candidates_in(&suite, &service, root.path()),
+            vec![ep.clone()]
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_new_client_still_finds_an_old_host_on_the_old_fallback_name() {
+        let suite = Suite::per_run_temp("ep-old").unwrap();
+        // A 20-byte name with a short temp root: the old name fitted, so an old host may hold it.
+        let service = "legacy-fallback-name";
+        let root = tempfile::Builder::new()
+            .prefix("rk")
+            .tempdir_in("/tmp")
+            .unwrap();
+        // Only reachable when the in-suite path is too long, as under a long $TMPDIR.
+        if suite
+            .service_dir(service)
+            .join(format!("{service}.sock"))
+            .as_os_str()
+            .len()
+            <= IN_SUITE_PATH_LIMIT
+        {
+            return;
+        }
+        let new = unix_endpoint_in(&suite, service, root.path()).unwrap();
+        let old = legacy_unix_endpoint_in(&suite, service, root.path()).expect("old name fitted");
+        assert_ne!(new, old);
+        assert_eq!(
+            candidates_in(&suite, service, root.path()),
+            vec![new.clone(), old.clone()]
+        );
+        // An old host holds only the old name.
+        let _old_host = std::os::unix::net::UnixListener::bind(&old).unwrap();
+        let live = candidates_in(&suite, service, root.path())
+            .into_iter()
+            .find(|e| probe_endpoint(e));
+        assert_eq!(live.as_deref(), Some(old.as_str()));
+        // A new host on the new name wins over the old one (it is listed first).
+        let l = Listener::bind(&new, DEFAULT_MAX_PIPE_INSTANCES).unwrap();
+        let live = candidates_in(&suite, service, root.path())
+            .into_iter()
+            .find(|e| probe_endpoint(e));
+        assert_eq!(live.as_deref(), Some(new.as_str()));
+        l.cleanup();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn an_unfittable_temp_root_is_a_typed_error_naming_path_length_and_limit() {
+        let suite = Suite::per_run_temp("ep-absurd").unwrap();
+        let service = long_service();
+        let temp = std::path::PathBuf::from(format!("/{}", "t".repeat(90)));
+        let e = unix_endpoint_in(&suite, &service, &temp).unwrap_err();
+        assert_eq!(e.limit, MAX_UNIX_SOCKET_PATH);
+        assert_eq!(e.len, e.path.len());
+        assert!(e.len > e.limit);
+        assert!(e.path.starts_with(temp.to_str().unwrap()));
+        let msg = e.to_string();
+        assert!(msg.contains(&e.path) && msg.contains(&e.len.to_string()) && msg.contains("103"));
+        assert!(legacy_unix_endpoint_in(&suite, &service, &temp).is_none());
+        assert!(candidates_in(&suite, &service, &temp).is_empty());
     }
 }

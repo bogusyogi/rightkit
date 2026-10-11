@@ -2,6 +2,26 @@
 
 ## Unreleased
 
+- Fix (gap ledger row 167): a legal 48-byte service name can now claim its endpoint on macOS and
+  Linux. The Unix socket fallback used when the in-suite path is over 100 bytes was
+  `<tmp>/rk-<tag>-<service>.sock`, about 65 bytes for a 48-byte name, so under macOS's ~49-byte
+  `$TMPDIR` it exceeded `sun_path` (104 on macOS, 108 on Linux) and bind failed. It is now the
+  bounded `<tmp>/rk-<tag>-<fnv1a64(service) as 16 hex>.sock` (33 bytes whatever the name length).
+  The hash is FNV-1a 64, stable across Rust versions and processes; the exact string is pinned
+  by a test.
+- Additive: `try_endpoint_for` returns `EndpointError { path, len, limit }` when even the short
+  fallback cannot fit (absurdly long temp dir); `HostError` gains a variant `Endpoint(EndpointError)`
+  (exhaustive matches on `HostError` need an arm). `endpoint_for` keeps its signature and returns
+  the path that did not fit on failure. New `MAX_UNIX_SOCKET_PATH` (103).
+- Upgrade compatibility (one release): a host records its endpoint in its discovery record and
+  clients connect to the recorded endpoint, so an old host is found whatever its name. For callers
+  that look up by name, `endpoint_candidates` / `find_live_endpoint` try the current endpoint, then
+  the OLD long fallback name, connect-only and never bound, and only for names where that old path
+  fitted the socket limit (otherwise no old host could have bound it, so there is nothing to find).
+  The old-name lookup is removed in the next release.
+- Windows: pipe names are `\\.\pipe\rightkit-<service>-<user>-<tag>`, at most 96 characters for a
+  48-byte service name and 20-character user; the limit is 256. No change.
+
 - Additive: `valid_service_name(&str) -> bool` and `MAX_SERVICE_NAME_LEN` (48) are now public, so callers
   can check a derived name against the exact rule `host` enforces (non-empty, <= 48 bytes, ASCII
   `[a-z0-9-]`). The rule itself is unchanged.

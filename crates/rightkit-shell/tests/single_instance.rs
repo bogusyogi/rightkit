@@ -194,29 +194,16 @@ fn an_id_that_cannot_name_a_service_is_a_typed_failure() {
             describe(&outcome)
         );
     }
-    // The longest legal id (39 bytes -> a 48-byte service name). Whether it can bind depends on the
-    // Unix socket path limit (`sockaddr_un.sun_path`: 104 bytes on macOS, 108 on Linux), which the
-    // temp dir of the machine running the test can exceed. Where the endpoint cannot fit, the claim
-    // must still be a typed host failure, never a silent non-primary and never a panic.
+    // The longest legal id (39 bytes -> a 48-byte service name) must bind on every host: the
+    // socket fallback is a bounded name, so no $TMPDIR the machine has can push it over the
+    // `sockaddr_un.sun_path` limit.
     let longest = "a".repeat(39);
-    let service = format!("{longest}-instance");
-    let endpoint = rightkit_service::endpoint_for(&suite, &service);
     let outcome = SingleInstance::claim_in(&suite, &longest, InstanceMessage::default(), |_| {});
-    if cfg!(unix) && endpoint.len() > 103 {
-        assert!(
-            matches!(outcome, ClaimOutcome::Failed(ClaimFailure::Host(_))),
-            "endpoint {endpoint:?} is {} bytes, over the socket path limit: got {}",
-            endpoint.len(),
-            describe(&outcome)
-        );
-    } else {
-        assert!(
-            outcome.is_primary(),
-            "endpoint {endpoint:?} ({} bytes) fits: got {}",
-            endpoint.len(),
-            describe(&outcome)
-        );
-    }
+    assert!(
+        outcome.is_primary(),
+        "a 39-byte id must be primary: got {}",
+        describe(&outcome)
+    );
 }
 
 /// Secondary-process entry point. Does nothing unless the parent set the suite root.
