@@ -216,3 +216,15 @@ Per `docs/rules/rightkit.md`, builds are subject to the 30-minute idle rule and 
 
 ---
 Source: Sage adjudication, 2026-10-11, against the CutRight contract `cutright/docs/contracts/measured-media-checks.md`. Third wave; not started. Gap ledger row 91.
+
+## Addendum: GenRight fit check (2026-10-11, accepted by the RightKit lead)
+
+GenRight checked section 5 against `genright-studio/src/pipeline_workflows/media.rs:293-343` and `compose.rs:343-371`. Five adjustments, all accepted; none changes the home or the verdict model. They bind lanes L1 to L3.
+
+1. **ffprobe is optional.** `measure(ffmpeg, ffprobe: Option<&dyn FfmpegBinary>, ..)`. With `None`, `ProbeFacts` is derived from `ffmpeg -i` stderr (GenRight's fallback, media.rs:201-227) and marked as such in evidence; facts that source cannot give are `None`, and checks that need them are `Unverified`. Reason: no catalogued Windows ffprobe today (ledger #27).
+2. **Passes follow the policy.** `video: None` runs no black or freeze pass; an `AudioPolicy` enables loudness, silence and clip individually; `clip_stream = false` means no clip pass. A pass that policy did not ask for is absent from `Measurements` (`Pass::NotRequested`), never run and never judged.
+3. **`Ebur128Summary` fields:** integrated (`Integrated::{Value, BelowGate}`), `lra_lu: Option<f64>`, `true_peak_dbtp: Option<f64>`, `sample_peak_dbfs: Option<f64>`.
+4. **A failed pass does not sink the run when the caller says so.** `MeasureOptions.on_pass_failure: {FailRun (default, CutRight's behaviour), Record}`; with `Record` a pass that exits non-zero is `Pass::Failed(reason)` and the remaining passes run. Likewise `after_unclean_decode: {SkipDependent (default), KeepMeasuring}`. Whole-run `Err` is then only: tool cannot start, timeout, cancel, input is not a regular file. Decode-clean rule, shared: exit 0 and empty stderr under `-v error`.
+5. **No stream is per pass, not an error:** audio passes are `Pass::Skipped(NoStream)` on a video-only file and video passes on an audio-only file.
+
+Confirmed fine as sketched: mandatory timeout and cancel, `&dyn FfmpegBinary`, `ffmpeg_identity` in the result, `judge()` optional for a caller that applies its own rule.
