@@ -9,7 +9,7 @@ use std::io::Write;
 use sha2::Digest;
 use std::time::Duration;
 
-use common::RawServer;
+use common::{plant_part, RawServer};
 use rightkit_http::testing::{loopback_config, MockResponse, MockServer};
 use rightkit_http::*;
 
@@ -57,7 +57,7 @@ fn f4_short_resumed_range_is_not_a_complete_download() {
     });
     let dir = scratch("f4");
     let dest = dir.join("out.bin");
-    std::fs::write(dir.join("out.bin.part"), vec![b'x'; 80]).unwrap();
+    plant_part(&dest, &[b'x'; 80]);
     let err = Client::new(cfg())
         .download_to_path(&server.url("/f"), &dest, resume_opts())
         .unwrap_err();
@@ -86,7 +86,7 @@ fn f4_range_that_reaches_the_advertised_total_still_completes() {
     });
     let dir = scratch("f4ok");
     let dest = dir.join("out.bin");
-    std::fs::write(dir.join("out.bin.part"), vec![b'x'; 80]).unwrap();
+    plant_part(&dest, &[b'x'; 80]);
     let mut whole = vec![b'x'; 80];
     whole.extend_from_slice(&[b'y'; 120]);
     let digest: String = sha2::Sha256::digest(&whole)
@@ -151,7 +151,7 @@ fn f7_content_range_ending_at_u64_max_is_rejected_not_wrapped() {
     });
     let dir = scratch("f7");
     let dest = dir.join("out.bin");
-    std::fs::write(dir.join("out.bin.part"), b"x").unwrap();
+    plant_part(&dest, b"x");
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         Client::new(cfg()).download_to_path(&server.url("/f"), &dest, resume_opts())
     }));

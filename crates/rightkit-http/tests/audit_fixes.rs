@@ -8,7 +8,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use common::TestProxy;
+use common::{part_of, plant_part, TestProxy};
 use rightkit_http::testing::{
     loopback_config, loopback_policy, MockBody, MockResponse, MockServer,
 };
@@ -250,10 +250,14 @@ fn f6_part_symlink_is_never_followed_and_policy_runs_first() {
     let victim = dir.join("victim.txt");
     std::fs::write(&victim, b"precious").unwrap();
     let dest = dir.join("out.bin");
-    let part = dir.join("out.bin.part");
+    // The claim record vouches for the partial file, so the link at its path reaches the
+    // no-follow open itself (an unclaimed partial file is simply removed first).
+    common::plant_claim(&dest);
+    let part = part_of(&dest);
 
     // (a) A denied URL must not touch the filesystem at all.
     symlink(&victim, &part).unwrap();
+    let before = std::fs::metadata(common::claim_of(&dest)).unwrap().len();
     let denied = Client::new(ClientConfig {
         retry: RetryPolicy::none(),
         ..ClientConfig::default()
@@ -270,6 +274,10 @@ fn f6_part_symlink_is_never_followed_and_policy_runs_first() {
         .unwrap()
         .file_type()
         .is_symlink());
+    assert_eq!(
+        std::fs::metadata(common::claim_of(&dest)).unwrap().len(),
+        before
+    );
 
     // (b) An allowed download replaces the link and never writes through it.
     let c = Client::new(cfg());
@@ -282,9 +290,9 @@ fn f6_part_symlink_is_never_followed_and_policy_runs_first() {
     assert!(!part.exists());
 
     // (c) Resume with a link in place: the link is removed, the victim untouched.
-    symlink(&victim, &part).unwrap();
     let dest2 = dir.join("out2.bin");
-    let part2 = dir.join("out2.bin.part");
+    common::plant_claim(&dest2);
+    let part2 = part_of(&dest2);
     symlink(&victim, &part2).unwrap();
     c.download_to_path(
         &server.url("/f"),
@@ -300,7 +308,8 @@ fn f6_part_symlink_is_never_followed_and_policy_runs_first() {
 
     // (d) A directory at the partial path is refused.
     let dest3 = dir.join("out3.bin");
-    std::fs::create_dir(dir.join("out3.bin.part")).unwrap();
+    common::plant_claim(&dest3);
+    std::fs::create_dir(part_of(&dest3)).unwrap();
     let err = c
         .download_to_path(&server.url("/f"), &dest3, DownloadOptions::default())
         .unwrap_err();
@@ -454,11 +463,7 @@ fn f16_incomplete_or_malformed_content_range_is_not_published() {
         ("end beyond total", "bytes 80-300/200"),
     ] {
         let dest = dir.join(format!("{}.bin", label.replace(' ', "_")));
-        std::fs::write(
-            dir.join(format!("{}.bin.part", label.replace(' ', "_"))),
-            &payload[..80],
-        )
-        .unwrap();
+        plant_part(&dest, &payload[..80]);
         let cr = content_range.to_string();
         let server = MockServer::start(move |_, _| {
             MockResponse::new(206)
@@ -533,7 +538,7 @@ fn f18_download_stops_at_expected_bytes_while_writing() {
         "{err:?}"
     );
     assert!(started.elapsed() < Duration::from_secs(2));
-    assert!(!dest.exists() && !dir.join("out.bin.part").exists());
+    assert!(!dest.exists() && !part_of(&dest).exists());
 }
 
 // ---------------------------------------------------------------- finding 19
