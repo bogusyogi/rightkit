@@ -5,6 +5,7 @@
 //! * [`hold`] — press/release pairing for press-only APIs; [`register_status`] — typed registration failures.
 //! * [`ptt`] — pure push-to-talk policy and the start/end handoff state machine.
 //! * [`decision`] — pure predicates shared by the platform hooks (fn chord gate, middle button).
+//! * [`hook_chord`] — pure chord matcher over raw key events, for chords the OS refuses to register.
 //! * [`macos`] — `CGEventTap` primitive, fn chord tap, middle-mouse tap, Carbon global hotkeys.
 //! * [`windows`] — `WH_KEYBOARD_LL` hook and `RegisterHotKey` registration.
 //!
@@ -14,6 +15,7 @@ pub mod chord;
 pub mod conflict;
 pub mod decision;
 pub mod hold;
+pub mod hook_chord;
 pub mod ptt;
 pub mod register_status;
 
@@ -29,4 +31,5 @@ pub use chord::{
 };
 pub use conflict::{ChordRegistry, HotkeyConflict, RegistryConflict};
 pub use hold::{HoldKeys, HoldTracker, HotkeyState, KeyStateSource};
+pub use hook_chord::{AlreadyBound, HookChords, HookOutcome};
 pub use register_status::RegisterFailure;
