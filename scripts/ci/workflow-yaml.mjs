@@ -1,9 +1,13 @@
 // A strict parser for the YAML subset GitHub Actions workflows in this repository use: block
-// mappings, block sequences, `|`/`>` block scalars, flow sequences of scalars, quoted and plain
-// scalars, comments. It parses structure so a contract test can assert on it. It REJECTS what it
-// does not understand (tabs, anchors, aliases, tags, multi-line plain scalars, flow mappings,
-// duplicate keys) instead of guessing, so an unparsed construct can never pass as "absent".
-// Every scalar is returned as a string.
+// mappings, block sequences, literal block scalars (`|` and `|-`, no indentation indicator), flow
+// sequences of scalars on one line, quoted and plain single-line scalars, comments. It parses
+// structure so a contract test can assert on it. It REJECTS everything it does not implement exactly
+// instead of guessing, so an unparsed construct can never pass as "absent" and no scalar can mean
+// something different to GitHub than to the contract: tabs anywhere, folded scalars (`>`) in any
+// form, block scalars with an indentation indicator or `+` chomping, anchors, aliases, tags, merge
+// keys, explicit keys, document markers, flow mappings, flow collections that span lines, multi-line
+// scalars, duplicate keys. Every scalar is returned as a string. Literal block scalars follow the
+// spec: `|` keeps one trailing newline, `|-` none.
 
 function fail(no, message) { throw new Error(`yaml line ${no}: ${message}`); }
 
@@ -22,6 +26,8 @@ function scalar(raw, no) {
   const text = raw.trim();
   if (text === "") return "";
   if (/^[&*!]/.test(text)) fail(no, `anchors, aliases and tags are not supported: ${text.slice(0, 40)}`);
+  if (/^[|>]/.test(text)) fail(no, `block scalar header ${JSON.stringify(text.slice(0, 12))} is not supported here (only "|" and "|-" after a mapping key)`);
+  if (/^(?:[-?:](?:\s|$)|[%@`])/.test(text)) fail(no, `YAML indicator at the start of a plain scalar is not supported: ${text.slice(0, 40)}`);
   if (text.startsWith("{")) fail(no, "flow mappings are not supported");
   if (text.startsWith('"')) {
     if (!/^"(?:[^"\\]|\\.)*"$/.test(text)) fail(no, `unterminated or trailing text after a quoted scalar: ${text.slice(0, 40)}`);
@@ -54,19 +60,23 @@ function scalar(raw, no) {
 
 export function parseYaml(source) {
   const raw = String(source).replace(/\r\n/g, "\n").split("\n");
-  raw.forEach((line, i) => { if (/^\s*\t/.test(line) || /^ *\t/.test(line)) fail(i + 1, "tab indentation is not allowed"); });
+  raw.forEach((line, i) => { if (line.includes("\t")) fail(i + 1, "tabs are not allowed"); });
   const lines = raw.map((text, i) => ({ no: i + 1, raw: text, indent: /^( *)/.exec(text)[1].length, body: stripComment(text).trim() }));
   let cursor = 0;
 
   const skipBlank = () => { while (cursor < lines.length && lines[cursor].body === "") cursor += 1; };
 
   function blockScalar(parentIndent, header, no) {
-    const fold = header[0] === ">";
+    const strip = header === "|-";
     const body = [];
     let blockIndent = null;
     while (cursor < lines.length) {
       const line = lines[cursor];
-      if (line.raw.trim() === "") { body.push(""); cursor += 1; continue; }
+      if (line.raw.trim() === "") {
+        // A blank line deeper than the block indentation carries content (its spaces); not modeled.
+        if (blockIndent !== null && line.raw.length > blockIndent) fail(line.no, "whitespace-only line inside a block scalar is indented past the block; not supported");
+        body.push(""); cursor += 1; continue;
+      }
       if (line.indent <= parentIndent) break;
       if (blockIndent === null) blockIndent = line.indent;
       if (line.indent < blockIndent) fail(line.no, "block scalar line is indented less than its first line");
@@ -74,7 +84,8 @@ export function parseYaml(source) {
       cursor += 1;
     }
     while (body.length && body.at(-1) === "") body.pop();
-    return fold ? body.join(" ") : body.join("\n");
+    if (body.length === 0) return "";
+    return body.join("\n") + (strip ? "" : "\n");
   }
 
   function parseBlock(indent) {
@@ -143,8 +154,10 @@ export function parseYaml(source) {
         if (next && next.indent > indent) out[key] = parseBlock(next.indent);
         else if (next && next.indent === indent && /^-(\s|$)/.test(next.body)) out[key] = parseSequence(indent);
         else out[key] = "";
-      } else if (/^[|>][+-]?\d*$/.test(value)) {
+      } else if (value === "|" || value === "|-") {
         out[key] = blockScalar(indent, value, line.no);
+      } else if (/^[|>]/.test(value)) {
+        fail(line.no, `block scalar header ${JSON.stringify(value.slice(0, 12))} is not supported (indentation indicators, "+" chomping and folded scalars are rejected)`);
       } else {
         const next = (skipBlank(), lines[cursor]);
         if (next && next.indent > indent) fail(next.no, "multi-line plain scalars are not supported");

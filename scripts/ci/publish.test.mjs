@@ -5,8 +5,12 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 import { buildCrateUploadMetadata, commandPack, commandVerify, crateIndexPath, crateSourceProblems, crateWorkspaceFromMetadata, parseAllowList, parseUnitNames, planPublication, readNpmWorkspace, satisfies } from "./publish.mjs";
-import { buildCratePublishBody, checkNpmTarball, CRATES_PUBLISH_URL, childEnv, executeUpload, NPM_REGISTRY_URL, repositoryProblems } from "./upload.mjs";
+import { buildCratePublishBody, checkNpmTarball, CRATES_PUBLISH_URL, childEnv, executeUpload, loadSealed, NPM_REGISTRY_URL, parseCratesResponse, repositoryProblems } from "./upload.mjs";
+import { consumeCrates, consumeNpm, declaredEntries, npmCliCommand, skipImportList } from "./consume.mjs";
+import { assertPublishDoc, MUTATIONS, proveMutations } from "./workflow-contract.mjs";
+import { pinFor, recordPin } from "./provision-chrome.mjs";
 import { parseYaml } from "./workflow-yaml.mjs";
 
 const SHA = "a".repeat(40);
@@ -273,7 +277,7 @@ const npmPackageJson = (name, dir, extra = {}) => ({ name, version: "0.1.0", mai
 
 function sealNpm({ units = [["@rightkit/a", "packages/a"]], packageJson = npmPackageJson } = {}) {
   const dir = tmp("sealed");
-  const manifest = { schema: 1, registry: "npm", commit: SHA, units: [] };
+  const manifest = { schema: 1, registry: "npm", commit: SHA, runId: "77", runAttempt: "1", units: [] };
   for (const [name, unitDir] of units) {
     const file = `${name.replace(/^@/, "").replace("/", "-")}-0.1.0.tgz`;
     makeTgz(path.join(dir, file), "package", { "package.json": JSON.stringify(packageJson(name, unitDir)), "dist/index.js": "export {};\n" });
@@ -286,7 +290,7 @@ function sealNpm({ units = [["@rightkit/a", "packages/a"]], packageJson = npmPac
 
 function sealCrates(names = ["rightkit-a"]) {
   const dir = tmp("sealed-crates");
-  const manifest = { schema: 1, registry: "crates", commit: SHA, units: [] };
+  const manifest = { schema: 1, registry: "crates", commit: SHA, runId: "77", runAttempt: "1", units: [] };
   for (const name of names) {
     const file = `${name}-0.1.0.crate`; const metaFile = `${name}-0.1.0.upload.json`;
     makeTgz(path.join(dir, file), `${name}-0.1.0`, { "Cargo.toml": `[package]\nname = "${name}"\n`, "Cargo.toml.orig": `[package]\nname = "${name}"\n`, "src/lib.rs": "pub fn a() {}\n" });
@@ -306,8 +310,9 @@ function receipts(packDir, manifest, { skip = [], override = {}, unitOverride = 
     if (skip.includes(host)) continue;
     fs.mkdirSync(path.join(dir, `publish-receipt-verify-${host}`), { recursive: true });
     const doc = {
-      schema: 1, kind: "verify", host, registry: manifest.registry, commit: manifest.commit, manifestSha256, runId: "77", allowHostExclusion: [], allowNoTest: [],
-      units: manifest.units.map((u) => ({ name: u.name, version: u.version, file: u.file, sha256: u.sha256, bytesVerified: true, status: "pass", ...unitOverride })),
+      schema: 1, kind: "verify", host, registry: manifest.registry, commit: manifest.commit, manifestSha256, runId: "77", runAttempt: "1", manifestRunId: manifest.runId, manifestRunAttempt: manifest.runAttempt,
+      allowHostExclusion: [], allowNoTest: [], allowIgnored: [], allowMissingAssets: [],
+      units: manifest.units.map((u) => ({ name: u.name, version: u.version, file: u.file, sha256: u.sha256, bytesVerified: true, status: "pass", executed: 3, ignored: 0, skipped: 0, consumer: { verified: true }, ...unitOverride })),
       ...override,
     };
     fs.writeFileSync(path.join(dir, `publish-receipt-verify-${host}`, `verify-${host}.json`), JSON.stringify(doc));
@@ -412,6 +417,33 @@ test("upload refuses when the sealed bytes, the commit or the receipts do not bi
   await assert.rejects(run(sealed, receipts(sealed.dir, sealed.manifest, { unitOverride: { status: "allowed-exclusion" } })), /without allow_host_exclusion/);
   await assert.rejects(run(sealed, receipts(sealed.dir, sealed.manifest, { unitOverride: { status: "allowed-no-test" } })), /not named in allow_no_test/);
   await assert.rejects(run(sealed, receipts(sealed.dir, sealed.manifest, { override: { allowNoTest: ["@rightkit/a"] } })), /different allow_no_test/);
+  await assert.rejects(run(sealed, receipts(sealed.dir, sealed.manifest, { override: { allowIgnored: ["@rightkit/a"] } })), /different allow_ignored/);
+  await assert.rejects(run(sealed, receipts(sealed.dir, sealed.manifest, { override: { allowMissingAssets: ["@rightkit/a"] } })), /different allow_missing_assets/);
+  // structured results: a pass needs executed tests and nothing ignored or skipped; an allowance must be requested
+  await assert.rejects(run(sealed, receipts(sealed.dir, sealed.manifest, { unitOverride: { executed: 0 } })), /without a positive executed count/);
+  await assert.rejects(run(sealed, receipts(sealed.dir, sealed.manifest, { unitOverride: { skipped: 2 } })), /status pass without a positive executed count and zero ignored\/skipped/);
+  await assert.rejects(run(sealed, receipts(sealed.dir, sealed.manifest, { unitOverride: { status: "allowed-skips", skipped: 2 } })), /not named in allow_missing_assets/);
+  await assert.rejects(run(sealed, receipts(sealed.dir, sealed.manifest, { unitOverride: { status: "allowed-skips", ignored: 2 } })), /not named in allow_ignored/);
+  await assert.rejects(run(sealed, receipts(sealed.dir, sealed.manifest, { unitOverride: { consumer: { verified: false } } })), /not consumer-verified/);
+  // the sealed artifact and the receipts bind to THIS run and its attempts
+  const unbound = JSON.parse(fs.readFileSync(path.join(sealed.dir, "manifest.json"), "utf8"));
+  const rewrite = (patch) => { const d = sealNpm(); const m = { ...JSON.parse(fs.readFileSync(path.join(d.dir, "manifest.json"), "utf8")), ...patch }; fs.writeFileSync(path.join(d.dir, "manifest.json"), JSON.stringify(m)); return { dir: d.dir, manifest: m }; };
+  assert.equal(unbound.runId, "77");
+  let other = rewrite({ runId: "78" });
+  await assert.rejects(run(other, receipts(other.dir, other.manifest)), /manifest run 78 is not this run 77/);
+  other = rewrite({ runId: undefined });
+  await assert.rejects(run(other, receipts(other.dir, other.manifest)), /manifest\.runId is missing/);
+  other = rewrite({ runAttempt: "2" });
+  await assert.rejects(run(other, receipts(other.dir, other.manifest)), /manifest run attempt 2 is later than this attempt 1/);
+  await assert.rejects(run(sealed, receipts(sealed.dir, sealed.manifest, { override: { runAttempt: "2" } })), /run attempt 2 is later than this attempt 1/);
+  await assert.rejects(run(sealed, receipts(sealed.dir, sealed.manifest, { override: { runAttempt: "x" } })), /not a positive integer/);
+  await assert.rejects(run(sealed, receipts(sealed.dir, sealed.manifest, { override: { manifestRunAttempt: "9" } })), /it verified manifest run 77\/9/);
+  const rerun = rewrite({ runAttempt: "1" });
+  await run(rerun, receipts(rerun.dir, rerun.manifest, { override: { runAttempt: "2" } }), actionsEnv({ GITHUB_RUN_ATTEMPT: "2", NODE_AUTH_TOKEN: "t", ...oidc })); // a re-run may reuse attempt 1's bytes
+  await assert.rejects(run(sealed, receipts(sealed.dir, sealed.manifest), actionsEnv({ GITHUB_RUN_ID: "", NODE_AUTH_TOKEN: "t", ...oidc })), /GITHUB_RUN_ID and GITHUB_RUN_ATTEMPT must be set/);
+  const rerunReceipts = receipts(rerun.dir, rerun.manifest, { override: { runAttempt: "1" } });
+  await run(rerun, rerunReceipts, actionsEnv({ GITHUB_RUN_ATTEMPT: "2", NODE_AUTH_TOKEN: "t", ...oidc }));
+  assert.deepEqual(loadSealed({ packDir: rerun.dir, registry: "npm", unitsText: "@rightkit/a", run: { runId: "77", runAttempt: "2" } }).problems, []);
   // wrong commit, branch, repository, unit list
   const ok = receipts(sealed.dir, sealed.manifest);
   await assert.rejects(run(sealed, ok, actionsEnv({ GITHUB_SHA: "c".repeat(40), NODE_AUTH_TOKEN: "t", ...oidc })), /not the dispatched commit/);
@@ -459,6 +491,22 @@ test("upload (crates) PUTs the sealed bytes to the publish API with the token on
   assert.ok(requests.filter((r) => r.options.method !== "PUT").every((r) => !JSON.stringify(r.options.headers).includes("crate-secret-token")), "no other request carries the token");
   assert.ok(calls.every((c) => c.command === "tar"), "no cargo, no compiler, no install: only tar for the integrity listing");
   assert.deepEqual(doc.receipts.map((r) => [r.unit, r.published, r.registryVerified]), [["rightkit-a", true, true], ["rightkit-b", true, true]]);
+  assert.equal(puts[0].options.headers.accept, "application/json", "the documented Accept header is sent");
+  // HTTP 200 with an errors array is a failure, recorded as not published; warnings are surfaced; a non-JSON body is refused
+  const answering = (body, status = 200) => async (url, options = {}) => (String(url) === CRATES_PUBLISH_URL ? { status, ok: status < 400, text: async () => body } : fetchImpl(url, options));
+  const published = [];
+  const one = { env: actionsEnv({ PUBLISH_REGISTRY: "crates", PUBLISH_UNITS: "rightkit-a rightkit-b", CARGO_REGISTRY_TOKEN: "crate-secret-token" }), packDir: sealed.dir, receiptsDir, dryRun: false, spawn, pause: 1 };
+  await assert.rejects(executeUpload({ ...one, outDir: tmp("out"), fetchImpl: answering(JSON.stringify({ errors: [{ detail: "crate version `0.1.0` is already uploaded crate-secret-token" }] })) }), (error) => /with errors for rightkit-a@0\.1\.0; not recorded as published: crate version `0\.1\.0` is already uploaded/.test(error.message) && !error.message.includes("crate-secret-token"));
+  const outErr = tmp("out");
+  await assert.rejects(executeUpload({ ...one, outDir: outErr, fetchImpl: answering(JSON.stringify({ errors: [{ detail: "nope" }] })) }), /with errors/);
+  assert.deepEqual(JSON.parse(fs.readFileSync(path.join(outErr, "publication-receipt.json"), "utf8")).receipts, [], "an errors body records no publication");
+  await assert.rejects(executeUpload({ ...one, outDir: tmp("out"), fetchImpl: answering("<html>ok</html>") }), /not the documented JSON/);
+  const warned = await executeUpload({ ...one, outDir: tmp("out"), log: (l) => published.push(l), fetchImpl: answering(JSON.stringify({ warnings: { invalid_categories: ["bogus"], invalid_badges: [], other: ["readme is empty"] } })) });
+  assert.match(published.join("\n"), /warnings for rightkit-a@0\.1\.0: invalid_categories: bogus; other: readme is empty/);
+  assert.deepEqual(warned.receipts[0].warnings, ["invalid_categories: bogus", "other: readme is empty"]);
+  assert.deepEqual(parseCratesResponse('{"warnings":{"invalid_categories":[],"invalid_badges":[],"other":[]}}'), { errors: [], warnings: [], unreadable: false });
+  assert.deepEqual(parseCratesResponse('{"errors":["plain"]}').errors, ["plain"]);
+  assert.equal(parseCratesResponse("[]").unreadable, true);
   // a refusal carries the status and never the token; a dry run sends nothing
   const refused = async () => ({ status: 403, ok: false, text: async () => "forbidden crate-secret-token" });
   await assert.rejects(executeUpload({ env, packDir: sealed.dir, receiptsDir, outDir: tmp("out"), dryRun: false, spawn, fetchImpl: refused }), (error) => /HTTP 403/.test(error.message) && !error.message.includes("crate-secret-token"));
@@ -578,9 +626,20 @@ test("verify re-hashes the sealed bytes, requires gate evidence, and binds the r
   const writeEvidence = (patch = {}, status = "pass") => fs.writeFileSync(path.join(evidenceDir, "unit-evidence.json"), JSON.stringify({ schema: 1, host: "windows", registry: "npm", sha: SHA, units: [{ name: "@rightkit/a", status, steps: [] }], ...patch }));
   writeEvidence();
   const env = actionsEnv({ RUNNER_TEMP: runTemp, PUBLISH_PACK_DIR: sealed.dir });
-  const run = (over = {}, host = "windows") => commandVerify({ env: { ...env, ...over }, spawn: spy({ git: () => ({ status: 0, stdout: `${SHA}\n` }) }).spawn, host });
+  let consumerProblems = [];
+  const consume = { npm: ({ units }) => new Map(units.map((u) => [u.name, { problems: [...consumerProblems], report: { entries: 1, imported: [u.name] } }])), crates: () => { throw new Error("not used"); } };
+  const run = (over = {}, host = "windows") => commandVerify({ env: { ...env, ...over }, spawn: spy({ git: () => ({ status: 0, stdout: `${SHA}\n` }) }).spawn, host, consume });
   const receipt = run();
   assert.equal(receipt.host, "windows");
+  assert.equal(receipt.manifestRunId, "77");
+  assert.equal(receipt.manifestRunAttempt, "1");
+  assert.equal(receipt.runAttempt, "1");
+  assert.equal(receipt.units[0].consumer.verified, true);
+  consumerProblems = ["@rightkit/a: ./dist/index.js did not resolve or import: boom"];
+  assert.throws(() => run(), /did not resolve or import: boom/);
+  consumerProblems = [];
+  assert.throws(() => run({ GITHUB_RUN_ID: "78" }), /manifest run 77 is not this run 78/);
+  assert.throws(() => run({ GITHUB_RUN_ATTEMPT: "" }), /GITHUB_RUN_ATTEMPT is not set/);
   assert.equal(receipt.manifestSha256, sha256(fs.readFileSync(path.join(sealed.dir, "manifest.json"))));
   assert.deepEqual(receipt.units.map((u) => [u.name, u.status, u.bytesVerified]), [["@rightkit/a", "pass", true]]);
   assert.ok(fs.existsSync(path.join(runTemp, "verify-receipt", "verify-windows.json")));
@@ -649,12 +708,24 @@ jobs:
   assert.equal(doc.jobs.a.if, "${{ x == 'y' }}");
   assert.equal(doc.jobs.a.steps[0].uses, "act/x@abc");
   assert.equal(doc.jobs.a.steps[0].with.k, "v: w");
-  assert.equal(doc.jobs.a.steps[1].run, 'echo "# kept"\nif true; then\n  exit 1\nfi');
+  assert.equal(doc.jobs.a.steps[1].run, 'echo "# kept"\nif true; then\n  exit 1\nfi\n', "a literal block keeps one trailing newline");
+  assert.equal(parseYaml("a: |-\n  x\n  y\n\nb: |\n  z\n\n\nc: d\n").a, "x\ny");
+  assert.equal(parseYaml("b: |\n  z\n\n\nc: d\n").b, "z\n");
   assert.equal(doc.jobs.a.steps[1].env.E, "${{ secrets.T }}");
   assert.equal(doc.jobs.a.steps[2].run, "single line");
   for (const [bad, pattern] of [
     ["a:\n\tb: 1\n", /tab/], ["a: &x 1\n", /anchors/], ["a: 1\na: 2\n", /duplicate key/], ["a: one\n  two\n", /multi-line plain/],
     ["a: {b: 1}\n", /flow mappings/], ["a: [b, [c]]\n", /nested flow/], ["a: *x\n", /anchors/], ["a:\n  b: 1\n c: 2\n", /indent/],
+    // the review's example: an indentation indicator makes YAML keep the newlines a naive parser folds away
+    ["run: >1\n  node scripts/ci/upload.mjs\n  run\n", /block scalar header ">1"/],
+    ["run: >\n  a\n  b\n", /block scalar header ">"/], ["run: >-\n  a\n", /block scalar header/], ["run: >+\n  a\n", /block scalar header/],
+    ["run: |2\n   a\n", /block scalar header "\|2"/], ["run: |1-\n  a\n", /block scalar header/], ["run: |+\n  a\n", /block scalar header/], ["run: |-2\n  a\n", /block scalar header/],
+    ["a:\n  - |\n    x\n", /block scalar header/], ["a:\n  - >\n    x\n", /block scalar header/],
+    ["&x a: 1\n", /cannot parse/], ["a:\n  - &x b\n", /anchors/], ["a: !!str b\n", /anchors, aliases and tags/], ["<<: *x\n", /anchors/],
+    ["a: [b,\n  c]\n", /multi-line plain|flow sequence must close/], ["a: [b\n", /flow sequence must close/], ["a: \"b\n  c\"\n", /multi-line plain|unterminated/],
+    ["a:\t1\n", /tabs are not allowed/], ["a:\n  b: |\n    x\n\ty\n", /tabs are not allowed/],
+    ["a:\n  b: 1\n  b: 2\n", /duplicate key "b"/], ["a: 1\n---\nb: 2\n", /cannot parse/], ["? a\n: b\n", /cannot parse/], ["a:\n  - - b\n", /indicator/],
+    ["a: |\n  x\n  \n    \n  y\n", /whitespace-only line/],
   ]) assert.throws(() => parseYaml(bad), pattern, JSON.stringify(bad));
 });
 
@@ -664,4 +735,226 @@ test("the real publish workflow parses, and it is the sealed-upload shape", () =
   assert.deepEqual(Object.keys(doc.jobs), ["guard", "plan", "pack", "verify", "seal-check", "upload"]);
   assert.deepEqual([...doc.jobs.verify.strategy.matrix.os].sort(), ["windows-2025", "xcode-27"]);
   assert.equal(doc.jobs.upload.environment, "release");
+});
+
+// ---- the publish contract: structural conditions, every secret expression form ------------------
+
+const realDoc = () => parseYaml(fs.readFileSync(new URL("../../.github/workflows/publish.yml", import.meta.url), "utf8"));
+
+test("the real publish workflow holds the contract and every mutation is rejected", () => {
+  const doc = realDoc();
+  assert.equal(assertPublishDoc(doc), true);
+  assert.deepEqual(proveMutations(doc), []);
+  const names = MUTATIONS.map(([name]) => name);
+  for (const required of ["upload condition gains || true after the expression", "upload condition gains || true inside the expression", "pack reads a bracket-form secret", "verify reads a double-quoted bracket-form secret", "verify reads toJSON(secrets)", "pack reads the bare secrets context", "plan calls secrets: inherit", "workflow-level env holds a secret"]) assert.ok(names.includes(required), required);
+});
+
+test("the contract compares conditions exactly and finds every secret expression", () => {
+  const broken = (edit) => { const doc = structuredClone(realDoc()); edit(doc); return () => assertPublishDoc(doc); };
+  assert.throws(broken((d) => { d.jobs.upload.if = `${d.jobs.upload.if} || true`; }), /upload's condition must be exactly/);
+  assert.throws(broken((d) => { d.jobs.upload.if = `  ${d.jobs.upload.if.replace(" }}", " || true }}")}`; }), /upload's condition must be exactly/);
+  assert.doesNotThrow(broken((d) => { d.jobs.upload.if = `  ${d.jobs.upload.if}  `; }), "surrounding whitespace is not a different condition");
+  for (const form of ["${{ secrets.X }}", "${{ secrets['X'] }}", '${{ secrets["X"] }}', "${{ toJSON(secrets) }}", "${{ secrets }}", "${{ SECRETS.X }}", "${{ format('{0}', secrets.X) }}"]) {
+    for (const job of ["guard", "plan", "pack", "verify", "seal-check"]) {
+      assert.throws(broken((d) => { const step = d.jobs[job].steps.at(-1); step.env = { ...(step.env ?? {}), T: form }; }), /secrets context|secret/, `${job}: ${form}`);
+    }
+  }
+  assert.throws(broken((d) => { d.jobs.verify.secrets = "inherit"; }), /secrets/);
+});
+
+test("the YAML parser reads the real workflow's run blocks as the spec does", () => {
+  const doc = realDoc();
+  const upload = doc.jobs.upload.steps.find((s) => s.name === "Upload to npm");
+  assert.equal(upload.run, "node scripts/ci/upload.mjs run");
+  assert.match(doc.jobs.guard.steps[0].run, /exit 1\nfi\n$/);
+});
+
+// ---- shipped-byte consumer verification ------------------------------------------------------
+
+test("package.json entry points are enumerated from exports, main, types and bin", () => {
+  const d = declaredEntries({ name: "@rightkit/x", main: "dist/index.js", types: "dist/index.d.ts", bin: { x: "./cli/x.mjs" }, exports: { ".": { types: "./dist/index.d.ts", import: "./dist/index.js" }, "./styles.css": "./styles.css", "./only-types": { types: "./t.d.ts" }, "./feature/*": "./dist/feature/*.js", "./package.json": "./package.json" } });
+  assert.deepEqual(d.subpaths.map((s) => [s.spec, s.runtime, s.types]), [
+    ["@rightkit/x", ["dist/index.js"], ["dist/index.d.ts"]], ["@rightkit/x/styles.css", ["styles.css"], []], ["@rightkit/x/only-types", [], ["t.d.ts"]], ["@rightkit/x/package.json", ["package.json"], []],
+  ]);
+  assert.deepEqual(d.patterns, ["./feature/*"]);
+  assert.deepEqual(d.bins, ["cli/x.mjs"]);
+  for (const f of ["dist/index.js", "dist/index.d.ts", "cli/x.mjs", "styles.css", "t.d.ts"]) assert.ok(d.files.includes(f), f);
+  assert.deepEqual(declaredEntries({ name: "p", main: "lib/a.mjs" }).subpaths.map((s) => [s.spec, s.runtime]), [["p", ["lib/a.mjs"]]]);
+  assert.equal(declaredEntries({ name: "p", bin: "cli.mjs" }).subpaths.length, 0);
+  assert.equal(declaredEntries({ name: "p", exports: { import: "./i.js", require: "./r.cjs" } }).subpaths[0].runtime.length, 2, "a conditions-only exports object is the root entry");
+  const declared = declaredEntries({ name: "p", exports: { ".": "./a.js" } });
+  assert.deepEqual(skipImportList({ name: "p", rightkit: { publishCheck: { skipImport: ["."] } } }, declared), { list: ["."], problems: [] });
+  assert.match(skipImportList({ name: "p", rightkit: { publishCheck: { skipImport: ["./nope"] } } }, declared).problems.join(), /does not export/);
+  assert.match(skipImportList({ name: "p", rightkit: { publishCheck: { skipImport: "." } } }, declared).problems.join(), /array/);
+  assert.deepEqual(skipImportList({ name: "p" }, declared), { list: [], problems: [] });
+});
+
+test("npm CLI is run through node when it ships beside it, else through the shim", () => {
+  assert.deepEqual(npmCliCommand({ execPath: "/n/bin/node", platform: "linux", exists: (p) => p.replaceAll("\\", "/") === "/n/lib/node_modules/npm/bin/npm-cli.js" }).prefix.length, 1);
+  assert.deepEqual(npmCliCommand({ execPath: "C:\\n\\node.exe", platform: "win32", exists: () => false }), { command: "npm.cmd", prefix: [], shell: true });
+  assert.deepEqual(npmCliCommand({ execPath: "/n/bin/node", platform: "darwin", exists: () => false }), { command: "npm", prefix: [], shell: false });
+});
+
+/** A fake npm + node: `install` unpacks each tarball into node_modules/<name>; the check script answers from `answer`. */
+function consumerSpawn({ installStatus = 0, answer = (plan) => plan.items.map((i) => ({ spec: i.spec, ok: true, imported: i.import })) } = {}) {
+  const calls = [];
+  const spawn = (command, args, options = {}) => {
+    calls.push({ command, args: [...args], options });
+    if (command === "fake-npm") {
+      if (installStatus) return { status: installStatus, stdout: "", stderr: "E404 not found" };
+      for (const tgz of args.filter((a) => a.endsWith(".tgz"))) {
+        const manifest = JSON.parse(spawnSync("tar", ["-xOzf", path.basename(tgz), "package/package.json"], { cwd: path.dirname(tgz), encoding: "utf8" }).stdout);
+        const dest = path.join(options.cwd, "node_modules", ...manifest.name.split("/"));
+        fs.mkdirSync(dest, { recursive: true });
+        assert.equal(spawnSync("tar", ["-xzf", path.basename(tgz), "--strip-components=1", "-C", dest], { cwd: path.dirname(tgz) }).status, 0);
+      }
+      return { status: 0, stdout: "", stderr: "" };
+    }
+    if (command === "fake-node") {
+      const plan = JSON.parse(fs.readFileSync(args[1], "utf8"));
+      calls.at(-1).plan = plan;
+      return { status: 0, stdout: `noise\nRK_CONSUME ${JSON.stringify(answer(plan))}\n`, stderr: "" };
+    }
+    throw new Error(`unexpected child process: ${command}`);
+  };
+  return { spawn, calls };
+}
+
+test("consumeNpm installs every sealed tarball together with --ignore-scripts and imports each entry from the installed copy", () => {
+  const sealed = sealNpm({ units: [["@rightkit/a", "packages/a"], ["@rightkit/b", "packages/b"]] });
+  const { spawn, calls } = consumerSpawn();
+  const result = consumeNpm({ units: sealed.manifest.units, packDir: sealed.dir, scratchRoot: tmp("scratch"), spawn, env: { PATH: "x" }, npm: { command: "fake-npm", prefix: [], shell: false }, node: "fake-node" });
+  const install = calls.find((c) => c.command === "fake-npm");
+  assert.deepEqual(install.args.slice(0, 5), ["install", "--ignore-scripts", "--no-audit", "--no-fund", "--no-package-lock"]);
+  assert.deepEqual(install.args.slice(5).map((a) => path.basename(a)), sealed.manifest.units.map((u) => u.file), "one install of all tarballs, so they resolve each other");
+  assert.equal(install.options.env.npm_config_userconfig.endsWith("npmrc"), true);
+  for (const unit of sealed.manifest.units) {
+    const r = result.get(unit.name);
+    assert.deepEqual(r.problems, []);
+    assert.deepEqual(r.report.imported, [unit.name]);
+  }
+  // an entry that throws, one that does not resolve, a missing file and a failed install are all problems
+  const failing = consumerSpawn({ answer: (plan) => plan.items.map((i) => ({ spec: i.spec, ok: false, imported: false, error: "ReferenceError: window is not defined" })) });
+  const bad = consumeNpm({ units: sealed.manifest.units, packDir: sealed.dir, scratchRoot: tmp("scratch"), spawn: failing.spawn, env: {}, npm: { command: "fake-npm", prefix: [], shell: false }, node: "fake-node" });
+  assert.match(bad.get("@rightkit/a").problems.join(), /@rightkit\/a did not resolve or import: ReferenceError: window is not defined/);
+  const dead = consumerSpawn({ installStatus: 1 });
+  const none = consumeNpm({ units: sealed.manifest.units, packDir: sealed.dir, scratchRoot: tmp("scratch"), spawn: dead.spawn, env: {}, npm: { command: "fake-npm", prefix: [], shell: false }, node: "fake-node" });
+  assert.match(none.get("@rightkit/b").problems.join(), /npm install --ignore-scripts of the sealed tarballs failed: E404/);
+  const noFile = sealNpm({ packageJson: (name, dir) => npmPackageJson(name, dir, { main: "dist/gone.js", exports: { ".": "./dist/index.js" } }) });
+  const m = consumeNpm({ units: noFile.manifest.units, packDir: noFile.dir, scratchRoot: tmp("scratch"), spawn: consumerSpawn().spawn, env: {}, npm: { command: "fake-npm", prefix: [], shell: false }, node: "fake-node" });
+  assert.match(m.get("@rightkit/a").problems.join(), /dist\/gone\.js, which the installed package does not contain/);
+});
+
+test("a package declares skipImport for subpaths that need a DOM host; the entry is still resolved", () => {
+  const sealed = sealNpm({ packageJson: (name, dir) => npmPackageJson(name, dir, { rightkit: { publishCheck: { skipImport: ["."] } } }) });
+  const { spawn, calls } = consumerSpawn();
+  const result = consumeNpm({ units: sealed.manifest.units, packDir: sealed.dir, scratchRoot: tmp("scratch"), spawn, env: {}, npm: { command: "fake-npm", prefix: [], shell: false }, node: "fake-node" });
+  assert.deepEqual(result.get("@rightkit/a").problems, []);
+  assert.deepEqual(result.get("@rightkit/a").report.resolvedOnly, ["@rightkit/a"]);
+  assert.equal(calls.find((c) => c.command === "fake-node").plan.items[0].import, false);
+});
+
+test("consumeCrates checks the packaged crate, patches request siblings, and compares the sealed upload metadata", () => {
+  const sealed = sealCrates(["rightkit-a", "rightkit-b"]);
+  const root = tmp("crates-consume");
+  const checks = [];
+  let failB = false;
+  const pathEnv = { PATH: process.env.PATH ?? "", ...(process.env.SystemRoot ? { SystemRoot: process.env.SystemRoot } : {}) };
+  const pkgOf = (name) => ({ name, version: "0.1.0", dependencies: name === "rightkit-b" ? [{ name: "rightkit-a", req: "^0.1", kind: null, optional: false }] : [], features: {}, authors: [], keywords: [], categories: [], readme: null });
+  const cargo = (args, options) => {
+    if (args[0] === "metadata") { const name = path.basename(path.dirname(args[args.indexOf("--manifest-path") + 1])).replace(/-0\.1\.0$/, ""); return { status: 0, stdout: JSON.stringify({ packages: [pkgOf(name)] }) }; }
+    checks.push({ args, options });
+    return { status: failB && args.join(" ").includes("rightkit-b") ? 101 : 0, stdout: "", stderr: "error[E0432]: unresolved import" };
+  };
+  const { spawn } = spy({ cargo });
+  // the sealed metadata is what pack would derive from the packaged manifest
+  for (const unit of sealed.manifest.units) fs.writeFileSync(path.join(sealed.dir, unit.metaFile), `${JSON.stringify(buildCrateUploadMetadata(pkgOf(unit.name), null))}\n`);
+  const result = consumeCrates({ units: sealed.manifest.units, packDir: sealed.dir, scratchRoot: root, spawn, env: pathEnv, uploadMetadata: buildCrateUploadMetadata });
+  assert.deepEqual([...result.values()].flatMap((r) => r.problems), []);
+  assert.equal(checks.length, 2);
+  const [a, b] = checks.map((c) => c.args);
+  assert.deepEqual(a.slice(0, 2), ["check", "--manifest-path"], "no Cargo.lock in the fixture, so no --locked");
+  assert.ok(b.includes("--config") && b.some((x) => /^patch\.crates-io\.rightkit-a\.path=".*rightkit-a-0\.1\.0"$/.test(x)), "the sibling of the same request is patched in from its sealed crate");
+  assert.ok(!b.includes("--locked"));
+  assert.equal(checks[0].options.env.CARGO_TARGET_DIR.includes("rk-consume-crates-"), true);
+  // metadata drift, a failing check, and a host exclusion
+  fs.writeFileSync(path.join(sealed.dir, sealed.manifest.units[0].metaFile), `${JSON.stringify({ name: "rightkit-a", vers: "0.1.0", deps: [] })}\n`);
+  checks.length = 0; failB = true;
+  const drift = consumeCrates({ units: sealed.manifest.units, packDir: sealed.dir, scratchRoot: root, spawn, env: pathEnv, uploadMetadata: buildCrateUploadMetadata });
+  assert.match(drift.get("rightkit-a").problems.join(), /sealed upload metadata .* does not match the packaged Cargo\.toml/);
+  assert.match(drift.get("rightkit-b").problems.join(), /cargo check of the packaged crate failed/);
+  checks.length = 0;
+  const excluded = consumeCrates({ units: sealed.manifest.units, packDir: sealed.dir, scratchRoot: root, spawn, env: pathEnv, excluded: ["rightkit-a", "rightkit-b"], uploadMetadata: buildCrateUploadMetadata });
+  assert.equal(checks.length, 0);
+  assert.equal(excluded.get("rightkit-a").report.checked, false);
+});
+
+test("a packaged Cargo.lock is honoured with --locked when no sibling needs patching", () => {
+  const sealed = sealCrates(["rightkit-a"]);
+  const dir = tmp("lock");
+  makeTgz(path.join(dir, "rightkit-a-0.1.0.crate"), "rightkit-a-0.1.0", { "Cargo.toml": "x", "Cargo.lock": "# lock\n", "src/lib.rs": "" });
+  const unit = { ...sealed.manifest.units[0], file: "rightkit-a-0.1.0.crate", metaFile: sealed.manifest.units[0].metaFile };
+  fs.copyFileSync(path.join(sealed.dir, unit.metaFile), path.join(dir, unit.metaFile));
+  const seen = [];
+  const cargo = (args) => (args[0] === "metadata" ? { status: 0, stdout: JSON.stringify({ packages: [{ name: "rightkit-a", version: "0.1.0", dependencies: [], features: {}, authors: [], keywords: [], categories: [], readme: null }] }) } : (seen.push(args), { status: 0 }));
+  const r = consumeCrates({ units: [unit], packDir: dir, scratchRoot: tmp("scratch"), spawn: spy({ cargo }).spawn, env: { PATH: process.env.PATH ?? "" }, uploadMetadata: () => ({ name: "rightkit-a", vers: "0.1.0", deps: [], features: {} }) });
+  assert.deepEqual(r.get("rightkit-a").problems, []);
+  assert.ok(seen[0].includes("--locked"));
+  assert.equal(r.get("rightkit-a").report.locked, true);
+});
+
+// ---- assets, allow inputs and Chrome for Testing -------------------------------------------------
+
+test("a unit that needs unprovisioned assets must be named in allow_missing_assets, and only such units may be", async () => {
+  const root = fixture();
+  fs.writeFileSync(path.join(root, "ci", "asset-gated.json"), JSON.stringify({ crates: { "rightkit-asr": "models" }, npm: { "@rightkit/qa": "checkouts" } }));
+  const workspace = new Map([crate("rightkit-asr", "0.1.0"), crate("rightkit-plain", "0.1.0")]);
+  await assert.rejects(planPublication({ registry: "crates", unitsText: "rightkit-asr", dryRun: true, root, workspace, fetchImpl: registry({}) }), /rightkit-asr: its tests need assets this workflow does not provision \(models\); name it in allow_missing_assets/);
+  const ok = await planPublication({ registry: "crates", unitsText: "rightkit-asr rightkit-plain", allowMissingAssetsText: "rightkit-asr", allowIgnoredText: "rightkit-plain", dryRun: true, root, workspace, fetchImpl: registry({}) });
+  assert.deepEqual([ok.allowMissingAssets, ok.allowIgnored], [["rightkit-asr"], ["rightkit-plain"]]);
+  await assert.rejects(planPublication({ registry: "crates", unitsText: "rightkit-plain", allowMissingAssetsText: "rightkit-plain", dryRun: true, root, workspace, fetchImpl: registry({}) }), /allow_missing_assets names rightkit-plain, which ci\/asset-gated\.json does not list/);
+  await assert.rejects(planPublication({ registry: "crates", unitsText: "rightkit-plain", allowIgnoredText: "rightkit-other", dryRun: true, root, workspace, fetchImpl: registry({}) }), /allow_ignored names .*rightkit-other.*not units of this request/);
+});
+
+test("ci/asset-gated.json lists every crate and package whose tests read RIGHTKIT_REQUIRE_ASSETS", () => {
+  const repo = fileURLToPath(new URL("../..", import.meta.url));
+  const gated = JSON.parse(fs.readFileSync(path.join(repo, "ci", "asset-gated.json"), "utf8"));
+  const reads = (dir) => {
+    const hits = [];
+    const walk = (d) => { for (const e of fs.readdirSync(d, { withFileTypes: true })) { if (["node_modules", "target", "dist", ".git"].includes(e.name)) continue; const full = path.join(d, e.name); if (e.isDirectory()) walk(full); else if (/\.(rs|mjs|ts|tsx|js)$/.test(e.name) && fs.readFileSync(full, "utf8").includes("RIGHTKIT_REQUIRE_ASSETS")) hits.push(full); } };
+    walk(dir);
+    return hits.length > 0;
+  };
+  for (const entry of fs.readdirSync(path.join(repo, "crates"), { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue;
+    const toml = path.join(repo, "crates", entry.name, "Cargo.toml");
+    if (!fs.existsSync(toml)) continue;
+    const name = /^\[package\][^[]*?^name\s*=\s*"([^"]+)"/ms.exec(fs.readFileSync(toml, "utf8"))?.[1];
+    if (reads(path.join(repo, "crates", entry.name))) assert.ok(Object.hasOwn(gated.crates, name), `${name} reads RIGHTKIT_REQUIRE_ASSETS but is not in ci/asset-gated.json`);
+  }
+  for (const entry of fs.readdirSync(path.join(repo, "packages"), { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue;
+    const manifest = path.join(repo, "packages", entry.name, "package.json");
+    if (!fs.existsSync(manifest)) continue;
+    const name = JSON.parse(fs.readFileSync(manifest, "utf8")).name;
+    if (reads(path.join(repo, "packages", entry.name))) assert.ok(Object.hasOwn(gated.npm, name), `${name} reads RIGHTKIT_REQUIRE_ASSETS but is not in ci/asset-gated.json`);
+  }
+});
+
+test("the Chrome for Testing pin: URL derives from the version; an empty sha256 can only be recorded in a dry run", async () => {
+  const pins = { version: "130.0.6723.58", platforms: { win64: { sha256: "a".repeat(64) }, "mac-arm64": { sha256: "" } } };
+  assert.deepEqual(pinFor(pins, "win64"), { url: "https://storage.googleapis.com/chrome-for-testing-public/130.0.6723.58/win64/chrome-win64.zip", sha256: "a".repeat(64) });
+  assert.equal(pinFor(pins, "mac-arm64").sha256, "");
+  assert.throws(() => pinFor({ version: "", platforms: {} }, "win64"), /no pinned version/);
+  assert.throws(() => pinFor(pins, "linux64"), /no entry for linux64/);
+  assert.throws(() => pinFor({ ...pins, platforms: { win64: { sha256: "XYZ" } } }, "win64"), /not 64 lowercase hex/);
+  const body = Buffer.from("chrome bytes");
+  const fetchImpl = async (url) => ({ ok: true, status: 200, body: (async function* () { yield body.subarray(0, 5); yield body.subarray(5); })(), url });
+  const tmpDir = tmp("pin");
+  const line = await recordPin({ version: pins.version, key: "mac-arm64", url: pinFor(pins, "mac-arm64").url, dryRun: true, fetchImpl, tmpDir });
+  assert.equal(line, `CHROME_PIN mac-arm64 130.0.6723.58 ${sha256(body)} ${body.length}`);
+  assert.equal(fs.existsSync(tmpDir), false, "the downloaded file is deleted");
+  await assert.rejects(recordPin({ version: pins.version, key: "mac-arm64", url: "u", dryRun: false, fetchImpl: async () => { throw new Error("must not download"); }, tmpDir: tmp("pin") }), /not a dry run/);
+  const real = JSON.parse(fs.readFileSync(new URL("../../ci/chrome-for-testing.json", import.meta.url), "utf8"));
+  assert.deepEqual(Object.keys(real.platforms).sort(), ["mac-arm64", "win64"]);
 });

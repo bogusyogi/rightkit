@@ -11,17 +11,22 @@
 //
 // Publish verification (.github/workflows/publish.yml) names its units explicitly:
 //   gate.mjs --registry npm|crates --units "<names>" [--allow-host-exclusion "<names>"] [--allow-no-test "<names>"]
+//            [--allow-ignored "<names>"] [--allow-missing-assets "<names>"]
 // That mode selects exactly those units (no diff, no dependents, no root or Swift suites) and
 // treats every red unit as a failure: known-red is not a waiver for publishing. Nothing is skipped
 // silently: a unit this host would not run, or an npm package with no test script, fails the run
-// unless the request names it; a unit whose tests reported a skip fails; a unit with no executed
-// test step fails. It writes unit-evidence.json, one explicit status per requested unit, which the
+// unless the request names it. Test results are READ from the runners' own summaries (libtest, node:test,
+// vitest) and SKIP markers, never inferred from an exit code: a unit that executed no test fails, an
+// ignored test fails unless the unit is in allow_ignored, a skipped test or SKIP marker fails unless the
+// unit is in allow_missing_assets (and a unit not named there runs with RIGHTKIT_REQUIRE_ASSETS=1, so a
+// missing asset is a failure rather than a skip). It writes unit-evidence.json, one explicit status per requested unit, which the
 // publish verify step turns into this host's receipt.
 import { spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { judgeUnit, mergeCounts, ResultScanner, TEST_COMMAND } from "./test-results.mjs";
 import { changedConfigCrates, changedLockNames, parseLock, selectByPaths, selectNpm, selectRust, selectUnits } from "./select.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
@@ -93,11 +98,12 @@ function unitPlan() {
   const packages = npmPackages();
   const names = (flag) => (argOf(flag) ?? "").split(/\s+/).filter(Boolean);
   let picked;
-  try { picked = selectUnits({ registry: argOf("--registry"), units, members: rustMembers(config), packages, host: HOST, config, allowHostExclusion: names("--allow-host-exclusion"), allowNoTest: names("--allow-no-test") }); } catch (error) {
+  const allowIgnored = names("--allow-ignored"); const allowMissingAssets = names("--allow-missing-assets");
+  try { picked = selectUnits({ registry: argOf("--registry"), units, members: rustMembers(config), packages, host: HOST, config, allowHostExclusion: names("--allow-host-exclusion"), allowNoTest: names("--allow-no-test"), allowIgnored, allowMissingAssets, assetGated: readJson("ci/asset-gated.json", {}) }); } catch (error) {
     console.error(`gate: ${error.message}. Usage: --registry npm|crates --units "<names>"`);
     process.exit(2);
   }
-  return { host: HOST, base: null, all: false, changedPaths: 0, config, packages, rust: picked.rust, npm: picked.npm, root: [], swift: [], unitRequest: { registry: argOf("--registry"), units, excluded: picked.excluded, noTest: picked.noTest } };
+  return { host: HOST, base: null, all: false, changedPaths: 0, config, packages, rust: picked.rust, npm: picked.npm, root: [], swift: [], unitRequest: { registry: argOf("--registry"), units, excluded: picked.excluded, noTest: picked.noTest, allowIgnored, allowMissingAssets } };
 }
 
 function plan() {
@@ -145,8 +151,9 @@ function run(unit, command, args, { cwd = ROOT, env = {}, timeoutMinutes = 25, d
     const log = fs.createWriteStream(logFile, { flags: "a" });
     log.write(`\n$ ${command} ${args.join(" ")}\n`);
     console.log(`::group::${label}`);
-    let timedOut = false; let settled = false; let skipped = 0;
-    const countSkips = (chunk) => { skipped += (String(chunk).match(/^\s*(SKIP |# skipped [1-9]|ℹ skipped [1-9]|Tests\s.*\b[1-9]\d* skipped|.*\u2193 .*\[skipped\])/gm) ?? []).length; };
+    let timedOut = false; let settled = false;
+    // Line-buffered, so a marker or summary split across two chunks is still read as one line.
+    const outScan = new ResultScanner(); const errScan = new ResultScanner();
     const finish = (code, note) => {
       if (settled) return; settled = true;
       clearTimeout(timer);
@@ -156,7 +163,8 @@ function run(unit, command, args, { cwd = ROOT, env = {}, timeoutMinutes = 25, d
       log.end();
       console.log("::endgroup::");
       console.log(`${ok ? "PASS" : "FAIL"} ${label} (${seconds}s${timedOut ? ", timed out" : ""})`);
-      results.push({ unit, command: `${command} ${args.join(" ")}`, ok, code, timedOut, seconds, skipped });
+      const counts = mergeCounts(outScan.finish(), errScan.finish());
+      results.push({ unit, command: `${command} ${args.join(" ")}`, ok, code, timedOut, seconds, isTest: TEST_COMMAND.test(`${command} ${args.join(" ")}`), ...counts });
       // Written after every step: a job that is cancelled at its time limit still uploads what ran.
       fs.writeFileSync(path.join(EVIDENCE, "progress.json"), JSON.stringify(results, null, 1));
       resolve(ok);
@@ -164,8 +172,8 @@ function run(unit, command, args, { cwd = ROOT, env = {}, timeoutMinutes = 25, d
     // pnpm is a .cmd shim on Windows and needs a shell there; the arguments here never contain spaces.
     const child = spawn(command, args, { cwd, env: { ...process.env, CARGO_TERM_COLOR: "always", ...(UNIT_MODE ? { RIGHTKIT_REQUIRE_ASSETS: "1" } : {}), ...env }, stdio: ["ignore", "pipe", "pipe"], shell: WIN && command === "pnpm", detached: !WIN });
     const timer = setTimeout(() => { timedOut = true; killTree(child); }, timeoutMinutes * MINUTE);
-    child.stdout.on("data", (chunk) => { if (!discardStdout) { countSkips(chunk); process.stdout.write(chunk); log.write(chunk); } });
-    child.stderr.on("data", (chunk) => { countSkips(chunk); process.stdout.write(chunk); log.write(chunk); });
+    child.stdout.on("data", (chunk) => { if (!discardStdout) { outScan.push(chunk); process.stdout.write(chunk); log.write(chunk); } });
+    child.stderr.on("data", (chunk) => { errScan.push(chunk); process.stdout.write(chunk); log.write(chunk); });
     child.on("error", (error) => finish(1, `could not start: ${error.message}`));
     child.on("close", (code) => finish(code ?? 1, timedOut ? `timed out after ${timeoutMinutes} minutes` : ""));
   });
@@ -181,6 +189,9 @@ function savePatch(name, pathspec) {
   console.log("::endgroup::");
   return true;
 }
+
+/** Unit mode is strict (a missing asset fails) unless the request names the unit in allow_missing_assets. */
+const assetEnv = (selection, name) => (UNIT_MODE && selection.unitRequest?.allowMissingAssets?.includes(name) ? { RIGHTKIT_REQUIRE_ASSETS: "0" } : {});
 
 async function rustGate(selection, config) {
   const { rust } = selection;
@@ -210,9 +221,10 @@ async function rustGate(selection, config) {
     const entry = config.rust?.[name] ?? {};
     const featureSets = entry.featureSets ?? [[]];
     const timeoutMinutes = entry.timeoutMinutes ?? 25;
+    const env = assetEnv(selection, name);
     for (const features of featureSets) {
-      await run(`rust:${name}`, "cargo", ["test", "-p", name, ...features, "--no-fail-fast", "--", "--show-output"], { timeoutMinutes });
-      if (entry.alsoSerial) await run(`rust:${name}`, "cargo", ["test", "-p", name, ...features, "--no-fail-fast", "--", "--test-threads=1", "--show-output"], { timeoutMinutes });
+      await run(`rust:${name}`, "cargo", ["test", "-p", name, ...features, "--no-fail-fast", "--", "--show-output"], { timeoutMinutes, env });
+      if (entry.alsoSerial) await run(`rust:${name}`, "cargo", ["test", "-p", name, ...features, "--no-fail-fast", "--", "--test-threads=1", "--show-output"], { timeoutMinutes, env });
     }
     await run(`rust:${name}`, "cargo", ["clippy", "-p", name, "--no-deps", "--all-targets", ...featureSets[0], "--", "-D", "warnings"], { timeoutMinutes });
   }
@@ -234,7 +246,7 @@ async function npmGate(selection) {
         continue;
       }
       if (!built) { results.push({ unit: `npm:${dir}`, command: "not run: workspace build failed", ok: false, code: 1, seconds: 0 }); continue; }
-      await run(`npm:${dir}`, "pnpm", ["--dir", dir, "run", "test"], { timeoutMinutes: 30 });
+      await run(`npm:${dir}`, "pnpm", ["--dir", dir, "run", "test"], { timeoutMinutes: 30, env: assetEnv(selection, pkg.name) });
     }
   }
   for (const id of root) {
@@ -256,23 +268,37 @@ async function swiftGate(selection) {
   }
 }
 
-/** One explicit status per requested unit: pass, allowed-exclusion, allowed-no-test, or fail (never absent). */
-function writeUnitEvidence(selection, rows, ok) {
+const unitId = (selection, name) => (selection.unitRequest.registry === "crates" ? `rust:${name}` : `npm:${selection.packages.find((p) => p.name === name)?.dir}`);
+
+/** The runner-reported verdict of every requested unit that was actually run on this host. */
+function unitVerdicts(selection) {
+  const { units, excluded, noTest, allowIgnored, allowMissingAssets } = selection.unitRequest;
+  const verdicts = new Map();
+  for (const name of units) {
+    if (excluded.includes(name) || noTest.includes(name)) continue;
+    const id = unitId(selection, name);
+    verdicts.set(id, judgeUnit({ name, steps: results.filter((r) => r.unit === id), allowIgnored, allowMissingAssets }));
+  }
+  return verdicts;
+}
+
+/** One explicit status per requested unit: pass, allowed-skips, allowed-exclusion, allowed-no-test, or fail (never absent). */
+function writeUnitEvidence(selection, rows, ok, verdicts) {
   const { registry, units, excluded, noTest } = selection.unitRequest;
   const byId = new Map(rows.map((r) => [r.id, r]));
   const evidence = units.map((name) => {
-    const id = registry === "crates" ? `rust:${name}` : `npm:${selection.packages.find((p) => p.name === name)?.dir}`;
+    const id = unitId(selection, name);
     const row = byId.get(id);
-    const steps = results.filter((r) => r.unit === id).map((r) => ({ command: r.command, ok: r.ok, seconds: r.seconds }));
-    const ranTests = steps.some((s) => /\b(cargo test|run test)\b/.test(s.command));
+    const verdict = verdicts.get(id);
+    const steps = results.filter((r) => r.unit === id).map((r) => ({ command: r.command, ok: r.ok, seconds: r.seconds, ...(r.isTest ? { executed: r.executed, failed: r.failed, ignored: r.ignored, skipped: r.skipped, binaries: r.binaries } : {}) }));
     let status = "fail";
     if (excluded.includes(name)) status = "allowed-exclusion";
     else if (noTest.includes(name)) status = "allowed-no-test";
-    else if (row?.ok && ranTests) status = "pass";
-    return { name, id, status, steps };
+    else if (row?.ok && verdict && verdict.status !== "fail") status = verdict.status;
+    return { name, id, status, executed: verdict?.executed ?? 0, ignored: verdict?.ignored ?? 0, skipped: verdict?.skipped ?? 0, problems: verdict?.problems ?? [], steps };
   });
   fs.mkdirSync(EVIDENCE, { recursive: true });
-  fs.writeFileSync(path.join(EVIDENCE, "unit-evidence.json"), JSON.stringify({ schema: 1, host: HOST, registry, sha: process.env.GITHUB_SHA ?? null, ok: ok && evidence.every((e) => e.status !== "fail"), units: evidence }, null, 2));
+  fs.writeFileSync(path.join(EVIDENCE, "unit-evidence.json"), JSON.stringify({ schema: 2, host: HOST, registry, sha: process.env.GITHUB_SHA ?? null, ok: ok && evidence.every((e) => e.status !== "fail"), units: evidence }, null, 2));
   if (evidence.some((e) => e.status === "fail")) console.log(`No pass evidence for: ${evidence.filter((e) => e.status === "fail").map((e) => e.name).join(", ")}`);
 }
 
@@ -285,10 +311,11 @@ function report(selection) {
     if (!result.ok) unit.failed.push(result.command + (result.timedOut ? " (timed out)" : ""));
     units.set(result.unit, unit);
   }
-  if (UNIT_MODE) {
-    for (const unit of units.values()) {
-      if (unit.skipped) { unit.ok = false; unit.failed.push(`${unit.skipped} test(s) reported as skipped; a skipped test is not a pass`); }
-    }
+  const verdicts = UNIT_MODE ? unitVerdicts(selection) : new Map();
+  for (const [id, verdict] of verdicts) {
+    const unit = units.get(id);
+    if (!unit) continue; // never ran: the missing-evidence check below names it
+    if (verdict.status === "fail") { unit.ok = false; unit.failed.push(...verdict.problems); }
   }
   const rows = [...units].map(([id, unit]) => ({ id, ...unit, known: Object.hasOwn(knownRed, id) }));
   const unexpected = rows.filter((r) => !r.ok && !r.known);
@@ -302,19 +329,19 @@ function report(selection) {
     "|---|---|---|---|",
     ...rows.map((r) => `| ${r.id} | ${r.ok ? "pass" : r.known ? "known red" : "**FAIL**"} | ${r.seconds} | ${r.failed.join("; ").replaceAll("|", "\\|")} |`),
     "",
-    rows.some((r) => r.skipped) ? `Unproven on this runner (tests skipped for a missing asset or precondition; skipped is not passed): ${rows.filter((r) => r.skipped).map((r) => `${r.id} (${r.skipped})`).join(", ")}` : "",
+    rows.some((r) => r.skipped) ? `Unproven on this runner (tests skipped for a missing asset or precondition; skipped is not passed${UNIT_MODE ? " unless the unit is named in allow_missing_assets" : ""}): ${rows.filter((r) => r.skipped).map((r) => `${r.id} (${r.skipped})`).join(", ")}` : "",
     nowGreen.length ? `Now green, remove from ci/known-red.json (${HOST}): ${nowGreen.map((r) => r.id).join(", ")}` : "",
     "Not covered by this gate: desktop-app-template, swift/ios-app-template, spikes.",
   ].join("\n");
   fs.mkdirSync(EVIDENCE, { recursive: true });
   fs.writeFileSync(path.join(EVIDENCE, "summary.md"), lines);
   fs.writeFileSync(path.join(EVIDENCE, "summary.json"), JSON.stringify({ host: HOST, sha: process.env.GITHUB_SHA ?? null, base: selection.base, rows, results }, null, 2));
-  if (UNIT_MODE) writeUnitEvidence(selection, rows, unexpected.length === 0);
+  if (UNIT_MODE) writeUnitEvidence(selection, rows, unexpected.length === 0, verdicts);
   if (process.env.GITHUB_STEP_SUMMARY) fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, `${lines}\n`);
   console.log(lines);
   if (UNIT_MODE) {
     const missing = selection.unitRequest.units.filter((name) => {
-      const id = selection.unitRequest.registry === "crates" ? `rust:${name}` : `npm:${selection.packages.find((p) => p.name === name)?.dir}`;
+      const id = unitId(selection, name);
       return !selection.unitRequest.excluded.includes(name) && !selection.unitRequest.noTest.includes(name) && !(units.get(id)?.ok);
     });
     if (missing.length) { console.log(`Requested units with no passing evidence: ${missing.join(", ")}`); return false; }
