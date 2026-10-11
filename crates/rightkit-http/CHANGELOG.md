@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- **Added:** `ProxyMode::System`: the proxy the operating system is configured with for the current user. On Windows it reads the static proxy and bypass list of the system proxy settings (`WinHttpGetIEProxyConfigForCurrentUser`); an `http`/`https` proxy is used and the bypass list becomes the `NO_PROXY` list where it can be expressed (`<local>` and patterns such as `10.*` are dropped, so those hosts go through the proxy). A proxy auto-config script and auto-detection are **not** evaluated. With no static proxy, and on other systems, it behaves as `ProxyMode::Environment`. The default is unchanged (`ProxyMode::None`). `ProxyMode` gained a variant: add an arm to any exhaustive `match`.
+
 - **Fixed:** a bodiless GET, HEAD or DELETE no longer sends `Content-Length: 0` (the blocking client's ureq framed every request with a body; the async client now matches it). POST, PUT and PATCH with an empty body still send `Content-Length: 0`.
 
 - **Breaking:** `HttpError`, `Phase`, `ErrorClass` and `DownloadError` are `#[non_exhaustive]`: add a fallback arm to any exhaustive `match`. Later variants are then not breaking.
