@@ -77,6 +77,8 @@ pub(crate) struct RunControl<'a> {
 }
 
 impl RunControl<'_> {
+    // Outside macOS only the tests build a control from this.
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
     pub fn none() -> Self {
         RunControl { cancel: None, total_deadline: None, window_deadline: None, progress: None }
     }
