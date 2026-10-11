@@ -10,3 +10,5 @@ OPERATING MODEL FROM ADRIAN, effective now (relayed by Right Mac; Adrian coordin
 5. SUBAGENTS: use Haiku subagents for the work, as many in parallel as there are independent items; Sonnet only where it is absolutely necessary (a mistake that would compile and still be wrong or unsafe). Do the maximum amount of work per turn.
 6. Unchanged: dev builds only, no signing, no release, no publication; no new chats, worktrees or task chips: fix issues in line; report RightKit gaps to me.
 First action now: write both files, then start working. Reply to me once with one line: both files written, item counts in each, and what you started.
+
+7. STAYING AWAKE: a chat only acts when something wakes it. Schedule your own 10-minute wake-up (your scheduling tool or loop) so that every 10 minutes you refresh both files and take the next item, even when no message or build event arrives. A chat that is waiting on a long build still refreshes its files on that wake-up and says what it is waiting for.
