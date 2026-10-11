@@ -90,7 +90,7 @@ function createEvidence(repoRoot, {
     : { ok: false, problems: ["protected ownership floor is unavailable until trust registry enrollment"] };
   if (bundleProblem) { floor.ok = false; floor.problems = [bundleProblem, ...floor.problems.filter((problem) => !problem.startsWith("ownership policy bundle"))]; }
   // Real paths on both sides: Git's root is resolved (macOS /private/var), callers may pass /var or /tmp.
-  const real = (p) => { try { return realpathSync(p); } catch { return path.resolve(p); } };
+  const real = (p) => { try { return realpathSync.native(p); } catch { return path.resolve(p); } };
   const requestedRoot = path.relative(real(root), real(scanRoot)).replaceAll("\\", "/") || ".";
   if (requestedRoot.startsWith("../") || requestedRoot === ".." || path.isAbsolute(requestedRoot)) throw new Error("ownership evidence scan root must be inside repository");
   const evidenceDiagnostics = [];

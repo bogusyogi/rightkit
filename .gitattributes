@@ -7,3 +7,5 @@ crates/rightkit-qts-ggml-sys/vendor/** -text
 # The vendored plugin schemas are pinned by digest (packages/ax/plugin/schemas/pins.json, invariant I4):
 # a converted line ending changes the hash and right-ax refuses to run from the checkout.
 packages/ax/plugin/schemas/*.json -text
+# The ownership fixtures are compared byte for byte with what generate.mjs writes (LF): never convert them.
+packages/release/fixtures/ownership/** -text
