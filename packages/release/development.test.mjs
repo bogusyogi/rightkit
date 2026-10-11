@@ -247,7 +247,7 @@ function swapFixture({ installedExecutable = "signed-binary" } = {}) {
       else files.set("/Apps/Fixture.app/Contents/MacOS/Fixture", installedExecutable);
     }
   };
-  return { files, fs, args: { staging: "/Apps/Fixture.app.stage", destination: "/Apps/Fixture.app", backup: "/Apps/Fixture.app.backup" } };
+  return { files, fs, args: { staging: "/Apps/Fixture.app.stage", destination: "/Apps/Fixture.app", backup: "/Apps/Fixture.app.backup", executableName: "Fixture" } };
 }
 
 test("macOS dev install removes the backup when the installed executable hash matches the staged one", () => {
