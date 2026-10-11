@@ -16,6 +16,12 @@
 //! | active + token omitted or identical, cached token absent or lapsed | `TokenDropped` | untouched |
 //! | active + token unusable (bad signature, replayed anchor, not active, ...) | `Rejected` | untouched |
 //!
+//! ## Pure judgement
+//! [`judge_refresh_response`] makes the response-level decision with no I/O (status,
+//! authentication, lifecycle at the token's own `iat`, requirement, ledger replay/missing via
+//! [`crate::plan_reanchor`]); [`refresh_and_reanchor`] is that judgement plus the transport
+//! call, the ledger write and the cached-token verdict, so the two cannot drift.
+//!
 //! ## Ordering contract
 //! The clock is persisted **before** this function returns `TokenReplaced`; the caller
 //! must then persist the new license record. If the second write is interrupted, the
@@ -37,7 +43,10 @@ use std::fmt;
 
 use serde::{Deserialize, Serialize};
 
-use crate::clock::{AntiRollbackClock, ClockError, ClockStore, Reanchored};
+use crate::clock::{
+    plan_reanchor, AnchorRefusal, AntiRollbackClock, ClockError, ClockState, ClockStore,
+    ReanchorPlan, Reanchored,
+};
 use crate::lifecycle::{
     evaluate_lifecycle, Lifecycle, LifecycleContext, LifecyclePolicy, StoredCredential,
 };
@@ -225,11 +234,165 @@ impl RefreshOutcome {
     }
 }
 
+/// The claims of a fresh token that was authentic but not accepted, for messages and
+/// diagnostics (for example "this token expired at ..., issued at ...").
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct RejectedToken {
+    /// The token's `iat`.
+    pub iat: i64,
+    /// The token's `exp`.
+    pub exp: i64,
+    /// How the token classifies at its own issue time.
+    pub lifecycle: Lifecycle,
+}
+
+/// The pure verdict on a refresh response; see [`judge_refresh_response`].
+#[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
+pub enum RefreshJudgement {
+    /// `status != "active"`: the server is authoritative.
+    Revoked { message: Option<String> },
+    /// The server said active but its token cannot be used. `token` carries the claims
+    /// when the token authenticated (so `NotActive` and `RequirementNotMet` and
+    /// `ReplayedServerTime` have exp/iat; `InvalidToken` has none).
+    Rejected {
+        rejection: RefreshRejection,
+        token: Option<RejectedToken>,
+    },
+    /// The token is acceptable and the ledger should move to `anchor`
+    /// ([`ReanchorPlan::into_state`] gives the record). Writing it is the caller's job
+    /// (or [`refresh_and_reanchor`]'s), and is re-checked against the ledger at write time.
+    ReplaceToken {
+        token: String,
+        entitlement: Box<Entitlement>,
+        lifecycle: Lifecycle,
+        anchor: ReanchorPlan,
+    },
+    /// Active, and no different token arrived. Whether the cached token still grants
+    /// access depends on the clock (a stateful judgement), so it is decided by
+    /// [`evaluate_lifecycle`], not here.
+    NoNewToken { reason: TokenKeptReason },
+    /// A new token would be accepted but the ledger of an initialised install is missing:
+    /// fail closed ([`ClockError::Missing`]).
+    LedgerMissing,
+}
+
+/// The fresh token worth judging: present, non-blank, and different from the cached one.
+fn replacement_token<'r>(
+    params: &RefreshParams<'_>,
+    response: &'r RefreshResponse,
+) -> Option<&'r str> {
+    response
+        .signed_token
+        .as_deref()
+        .filter(|token| !token.trim().is_empty())
+        .filter(|token| params.cached_token != Some(*token))
+}
+
+/// Judge a refresh response with **no I/O**: the same decision [`refresh_and_reanchor`]
+/// makes, which calls this function internally so the two cannot drift.
+///
+/// `prior` is the ledger as currently stored (`ClockStore::load`), used only for the
+/// replay check and the missing-ledger check on a replacement token; pass `None` when
+/// there is none. The order is fixed: status, then (for a different fresh token)
+/// authentication, lifecycle at the token's own `iat`, requirement, and finally the
+/// ledger (missing, then replay via [`plan_reanchor`]).
+///
+/// What it does not decide: the transport result (`Stale` is decided before a response
+/// exists) and the keep-or-drop verdict on the cached token, which needs the live clock
+/// reading. Those are [`RefreshJudgement::NoNewToken`] here and are completed by
+/// [`refresh_and_reanchor`] with `evaluate_lifecycle`.
+pub fn judge_refresh_response(
+    params: &RefreshParams<'_>,
+    response: &RefreshResponse,
+    prior: Option<&ClockState>,
+) -> RefreshJudgement {
+    if response.status != "active" {
+        return RefreshJudgement::Revoked {
+            message: response.message.clone(),
+        };
+    }
+    let Some(token) = replacement_token(params, response) else {
+        let has_token = response
+            .signed_token
+            .as_deref()
+            .is_some_and(|token| !token.trim().is_empty());
+        return RefreshJudgement::NoNewToken {
+            reason: if has_token {
+                TokenKeptReason::ServerReturnedSameToken
+            } else {
+                TokenKeptReason::ServerOmittedToken
+            },
+        };
+    };
+
+    let entitlement = match authenticate_token(token, params.pubkey, params.app, params.device_id) {
+        Ok(entitlement) => entitlement,
+        Err(error) => {
+            return RefreshJudgement::Rejected {
+                rejection: RefreshRejection::InvalidToken(error),
+                token: None,
+            }
+        }
+    };
+    // Judge the fresh token at its own issue time: it is the server's statement of "now".
+    let lifecycle = entitlement.lifecycle(entitlement.iat, &params.policy);
+    let claims = RejectedToken {
+        iat: entitlement.iat,
+        exp: entitlement.exp,
+        lifecycle,
+    };
+    if !lifecycle.grants_access() {
+        return RefreshJudgement::Rejected {
+            rejection: RefreshRejection::NotActive(lifecycle),
+            token: Some(claims),
+        };
+    }
+    if let Some(requirement) = params.requirement {
+        if !entitlement.satisfies(requirement) {
+            return RefreshJudgement::Rejected {
+                rejection: RefreshRejection::RequirementNotMet,
+                token: Some(claims),
+            };
+        }
+    }
+    match plan_reanchor(
+        prior,
+        entitlement.iat,
+        params.wall_now,
+        params.clock_initialized,
+    ) {
+        Ok(anchor) => RefreshJudgement::ReplaceToken {
+            token: token.to_string(),
+            entitlement: Box::new(entitlement),
+            lifecycle,
+            anchor,
+        },
+        Err(AnchorRefusal::Missing) => RefreshJudgement::LedgerMissing,
+        Err(AnchorRefusal::Replayed {
+            last_server_iat,
+            got,
+        }) => RefreshJudgement::Rejected {
+            rejection: RefreshRejection::ReplayedServerTime {
+                last_server_iat,
+                got,
+            },
+            token: Some(claims),
+        },
+    }
+}
+
 /// Refresh the license from the server and re-anchor the clock on the server time.
 ///
 /// `Err` is reserved for the local clock store failing or the ledger of an initialised
 /// install being missing ([`ClockError::Missing`], checked *before* any network call);
 /// every server-side situation is an `Ok(RefreshOutcome)`.
+///
+/// The decision is [`judge_refresh_response`]; this function adds the transport call, the
+/// ledger load/write and the cached-token verdict. A `Rejected(NotActive(..))` outcome
+/// carries only the lifecycle; the token's `exp`/`iat` for a message are in
+/// [`RefreshJudgement::Rejected`], obtained by judging the same response again (it is pure).
 pub fn refresh_and_reanchor<S, T>(
     params: &RefreshParams<'_>,
     transport: &T,
@@ -258,82 +421,49 @@ where
         }
     };
 
-    if response.status != "active" {
-        return Ok(RefreshOutcome::Revoked {
-            message: response.message.clone(),
-        });
-    }
-
-    let fresh = response
-        .signed_token
-        .clone()
-        .filter(|token| !token.trim().is_empty());
-    match fresh {
-        Some(token) if params.cached_token != Some(token.as_str()) => {
-            replace_token(params, clock, token, response)
-        }
-        Some(_) => keep_or_drop(
-            params,
-            clock,
-            TokenKeptReason::ServerReturnedSameToken,
-            response,
-        ),
-        None => keep_or_drop(params, clock, TokenKeptReason::ServerOmittedToken, response),
-    }
-}
-
-fn replace_token<S: ClockStore>(
-    params: &RefreshParams<'_>,
-    clock: &AntiRollbackClock<S>,
-    token: String,
-    response: RefreshResponse,
-) -> Result<RefreshOutcome, ClockError<S::Error>> {
-    let entitlement = match authenticate_token(&token, params.pubkey, params.app, params.device_id)
-    {
-        Ok(entitlement) => entitlement,
-        Err(error) => {
-            return Ok(RefreshOutcome::Rejected(RefreshRejection::InvalidToken(
-                error,
-            )))
-        }
+    // The ledger is read only when a different fresh token is in play.
+    let prior = if response.status == "active" && replacement_token(params, &response).is_some() {
+        clock.load()?
+    } else {
+        None
     };
-    // Judge the fresh token at its own issue time: it is the server's statement of "now".
-    let lifecycle = entitlement.lifecycle(entitlement.iat, &params.policy);
-    if !lifecycle.grants_access() {
-        return Ok(RefreshOutcome::Rejected(RefreshRejection::NotActive(
+    match judge_refresh_response(params, &response, prior.as_ref()) {
+        RefreshJudgement::Revoked { message } => Ok(RefreshOutcome::Revoked { message }),
+        RefreshJudgement::Rejected { rejection, .. } => Ok(RefreshOutcome::Rejected(rejection)),
+        RefreshJudgement::LedgerMissing => Err(ClockError::Missing),
+        RefreshJudgement::NoNewToken { reason } => keep_or_drop(params, clock, reason, response),
+        RefreshJudgement::ReplaceToken {
+            token,
+            entitlement,
             lifecycle,
-        )));
-    }
-    if let Some(requirement) = params.requirement {
-        if !entitlement.satisfies(requirement) {
-            return Ok(RefreshOutcome::Rejected(
-                RefreshRejection::RequirementNotMet,
-            ));
-        }
-    }
-    let reanchored =
-        match clock.reanchor(entitlement.iat, params.wall_now, params.clock_initialized) {
-            Ok(reanchored) => reanchored,
-            Err(ClockError::ReplayedAnchor {
-                last_server_iat,
-                got,
-            }) => {
-                return Ok(RefreshOutcome::Rejected(
-                    RefreshRejection::ReplayedServerTime {
+            ..
+        } => {
+            // The write re-plans against the ledger as it is at write time.
+            let reanchored =
+                match clock.reanchor(entitlement.iat, params.wall_now, params.clock_initialized) {
+                    Ok(reanchored) => reanchored,
+                    Err(ClockError::ReplayedAnchor {
                         last_server_iat,
                         got,
-                    },
-                ))
-            }
-            Err(other) => return Err(other),
-        };
-    Ok(RefreshOutcome::TokenReplaced {
-        token,
-        entitlement: Box::new(entitlement),
-        lifecycle,
-        reanchored,
-        response,
-    })
+                    }) => {
+                        return Ok(RefreshOutcome::Rejected(
+                            RefreshRejection::ReplayedServerTime {
+                                last_server_iat,
+                                got,
+                            },
+                        ))
+                    }
+                    Err(other) => return Err(other),
+                };
+            Ok(RefreshOutcome::TokenReplaced {
+                token,
+                entitlement,
+                lifecycle,
+                reanchored,
+                response,
+            })
+        }
+    }
 }
 
 fn keep_or_drop<S: ClockStore>(

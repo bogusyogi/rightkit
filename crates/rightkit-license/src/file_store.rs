@@ -7,6 +7,7 @@
 //! can never interleave and move the trusted mark backwards. [`CrossProcessLock`] is the
 //! same lock as a guard, for hosts that keep the ledger somewhere else (a keychain item, a
 //! credential entry) and want to serialise their own `compare_and_save` with it.
+//! [`ClosureClockStore`] packages that for a host that can supply `get` and `set` closures.
 
 use std::fmt;
 use std::fs::{self, File, OpenOptions};
@@ -199,6 +200,132 @@ impl ClockStore for FileClockStore {
             return Ok(false);
         }
         self.write_unlocked(new)?;
+        Ok(true)
+    }
+}
+
+/// Failure of a [`ClosureClockStore`] operation.
+#[derive(Debug)]
+pub enum ClosureClockStoreError<E> {
+    /// The cross-process lock file could not be opened or locked. Nothing was read or
+    /// written.
+    Lock(io::Error),
+    /// The host's `get` or `set` closure failed.
+    Store(E),
+}
+
+impl<E: fmt::Display> fmt::Display for ClosureClockStoreError<E> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Lock(error) => write!(f, "license clock lock failed: {error}"),
+            Self::Store(error) => write!(f, "license clock store failed: {error}"),
+        }
+    }
+}
+
+impl<E: fmt::Debug + fmt::Display> std::error::Error for ClosureClockStoreError<E> {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Lock(error) => Some(error),
+            Self::Store(_) => None,
+        }
+    }
+}
+
+/// A [`ClockStore`] over two host closures, made atomic across processes by an OS lock.
+///
+/// For a host whose ledger lives somewhere this crate cannot reach (a keychain item, a
+/// credential-manager entry): supply `get` (read the stored record, `Ok(None)` when there
+/// is none, an `Err` for any read failure) and `set` (write it), plus the path of a lock
+/// file that every process of the app uses. [`load`](ClockStore::load) takes the lock
+/// shared; [`save`](ClockStore::save) and [`compare_and_save`](ClockStore::compare_and_save)
+/// take it exclusively, and `compare_and_save` runs `get`, the comparison and `set` under
+/// that one lock, which is what [`AntiRollbackClock`](crate::AntiRollbackClock) and
+/// [`refresh_and_reanchor`](crate::refresh_and_reanchor) require.
+///
+/// ```no_run
+/// use rightkit_license::{ClockState, ClosureClockStore};
+///
+/// # fn read_keychain() -> Result<Option<String>, String> { Ok(None) }
+/// # fn write_keychain(_: &str) -> Result<(), String> { Ok(())}
+/// let store = ClosureClockStore::new(
+///     "/path/to/app-data/clock.lock",
+///     || Ok::<_, String>(match read_keychain()? {
+///         Some(raw) => Some(ClockState::decode(&raw).map_err(|e| e.to_string())?),
+///         None => None,
+///     }),
+///     |state: &ClockState| write_keychain(&state.encode()),
+/// );
+/// # let _ = store;
+/// ```
+///
+/// Rules for the closures: `get` must report a failure as `Err` and a missing entry as
+/// `Ok(None)` (a damaged record is an `Err`, never `None`); neither closure may call back
+/// into this store or take the same lock (it is not re-entrant); every process must pass
+/// the same lock path. The lock is advisory, so it orders cooperating writers only, and it
+/// protects against interleaving, not against someone editing the keychain by hand.
+pub struct ClosureClockStore<G, S> {
+    lock_path: PathBuf,
+    get: G,
+    set: S,
+}
+
+impl<G, S> fmt::Debug for ClosureClockStore<G, S> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ClosureClockStore")
+            .field("lock_path", &self.lock_path)
+            .finish_non_exhaustive()
+    }
+}
+
+impl<G, S> ClosureClockStore<G, S> {
+    /// A store over `get` and `set`, serialised on the OS lock of `lock_path`. Nothing is
+    /// created until the first operation.
+    pub fn new(lock_path: impl Into<PathBuf>, get: G, set: S) -> Self {
+        Self {
+            lock_path: lock_path.into(),
+            get,
+            set,
+        }
+    }
+
+    /// The lock file shared by every process.
+    pub fn lock_path(&self) -> &Path {
+        &self.lock_path
+    }
+}
+
+impl<G, S, E> ClockStore for ClosureClockStore<G, S>
+where
+    G: Fn() -> Result<Option<ClockState>, E>,
+    S: Fn(&ClockState) -> Result<(), E>,
+{
+    type Error = ClosureClockStoreError<E>;
+
+    fn load(&self) -> Result<Option<ClockState>, Self::Error> {
+        let _lock = CrossProcessLock::acquire_shared(&self.lock_path)
+            .map_err(ClosureClockStoreError::Lock)?;
+        (self.get)().map_err(ClosureClockStoreError::Store)
+    }
+
+    fn save(&self, state: &ClockState) -> Result<(), Self::Error> {
+        let _lock =
+            CrossProcessLock::acquire(&self.lock_path).map_err(ClosureClockStoreError::Lock)?;
+        (self.set)(state).map_err(ClosureClockStoreError::Store)
+    }
+
+    fn compare_and_save(
+        &self,
+        expected: Option<&ClockState>,
+        new: &ClockState,
+    ) -> Result<bool, Self::Error> {
+        let _lock =
+            CrossProcessLock::acquire(&self.lock_path).map_err(ClosureClockStoreError::Lock)?;
+        let current = (self.get)().map_err(ClosureClockStoreError::Store)?;
+        if current.as_ref() != expected {
+            return Ok(false);
+        }
+        (self.set)(new).map_err(ClosureClockStoreError::Store)?;
         Ok(true)
     }
 }

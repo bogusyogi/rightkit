@@ -5,10 +5,10 @@ use std::cell::{Cell, RefCell};
 use common::{pubkey, Claims, APP, DEVICE};
 
 use rightkit_license::{
-    evaluate_lifecycle, reconcile_clock, AntiRollbackClock, ClockDecision, ClockDecodeError,
-    ClockError, ClockReading, ClockRefusal, ClockState, ClockStore, Lifecycle, LifecycleContext,
-    MemoryClockStore, ProcessAnchor, StoredCredential, SystemClock, TrustedClock,
-    CLOCK_ROLLBACK_TOLERANCE_SECS, CLOCK_WRITE_INTERVAL_SECS,
+    evaluate_lifecycle, plan_reanchor, reconcile_clock, AnchorRefusal, AntiRollbackClock,
+    ClockDecision, ClockDecodeError, ClockError, ClockReading, ClockRefusal, ClockState,
+    ClockStore, Lifecycle, LifecycleContext, MemoryClockStore, ProcessAnchor, StoredCredential,
+    SystemClock, TrustedClock, CLOCK_ROLLBACK_TOLERANCE_SECS, CLOCK_WRITE_INTERVAL_SECS,
 };
 
 fn state(highest_seen: i64, trusted_process: &str, last_server_iat: i64) -> ClockState {
@@ -738,4 +738,96 @@ fn concurrent_clocks_on_one_ledger_never_move_the_stored_mark_backwards() {
         "no concurrent call ever succeeded"
     );
     assert!(stored.highest_seen >= max_ok - CLOCK_WRITE_INTERVAL_SECS);
+}
+
+// ------------------------------------------------------------------ pure re-anchor plan
+
+#[test]
+fn plan_reanchor_is_the_decision_reanchor_writes() {
+    for (prior, server, wall, initialised) in [
+        (None, 9_500, 10_000, false),
+        (None, 12_000, 10_000, false),
+        (Some(state(10_000, "x", 9_000)), 10_040, 10_050, true),
+        (Some(state(900_000, "x", 9_000)), 10_040, 10_050, true),
+    ] {
+        let store = MemoryClockStore::new();
+        if let Some(prior) = &prior {
+            store.save(prior).unwrap();
+        }
+        let plan = plan_reanchor(prior.as_ref(), server, wall, initialised).unwrap();
+        let done = clock(&store, "a", wall)
+            .reanchor(server, wall, initialised)
+            .unwrap();
+        assert_eq!(done.state, plan.into_state("a"));
+        assert_eq!(done.lowered, plan.lowered);
+    }
+}
+
+#[test]
+fn plan_reanchor_refusals_match_the_clock_errors() {
+    let prior = state(10_000, "x", 9_000);
+    for got in [9_000, 8_999] {
+        assert_eq!(
+            plan_reanchor(Some(&prior), got, 10_000, true),
+            Err(AnchorRefusal::Replayed {
+                last_server_iat: 9_000,
+                got
+            })
+        );
+    }
+    assert_eq!(
+        plan_reanchor(None, 12_000, 10_000, true),
+        Err(AnchorRefusal::Missing)
+    );
+    let as_error: ClockError<std::convert::Infallible> = AnchorRefusal::Missing.into();
+    assert_eq!(as_error, ClockError::Missing);
+}
+
+/// A first anchor must not be weaker than a ledger-less start: a valid but old token
+/// (restored backup, replay before any ledger exists) must not let the clock be set back
+/// to its era.
+#[test]
+fn first_anchor_with_an_old_token_still_detects_a_clock_set_back_to_its_era() {
+    let store = MemoryClockStore::new();
+    let first = clock(&store, "a", 1_000_000);
+    // Token issued long ago (iat 100_000), device wall clock is now 1_000_000.
+    let anchored = first.reanchor(100_000, 1_000_000, false).unwrap();
+    assert_eq!(anchored.state, state(1_000_000, "a", 100_000));
+
+    // After a restart the clock is set back to the token's era: rollback, not trusted.
+    let restarted = clock(&store, "b", 100_500);
+    assert_eq!(
+        restarted.reconcile(100_500, true).unwrap(),
+        ClockReading::Rollback {
+            highest_seen: 1_000_000
+        }
+    );
+}
+
+/// The cost of that rule is bounded: a first run on a clock wrong far into the future
+/// starts the ledger ahead, and the next online refresh (newer `iat`) lowers it again.
+#[test]
+fn a_first_anchor_ahead_of_real_time_is_repaired_by_the_next_refresh() {
+    let store = MemoryClockStore::new();
+    // Wall clock is a year ahead of the server's signed time.
+    let ahead = 40_000_000;
+    clock(&store, "a", ahead)
+        .reanchor(10_000_000, ahead, false)
+        .unwrap();
+    assert_eq!(store.load().unwrap(), Some(state(ahead, "a", 10_000_000)));
+
+    // User fixes the clock: repair is required...
+    let fixed = clock(&store, "b", 10_000_500);
+    assert!(matches!(
+        fixed.reconcile(10_000_500, true).unwrap(),
+        ClockReading::Rollback { .. }
+    ));
+    // ...and one online refresh with a newer server time lowers the mark.
+    let repaired = fixed.reanchor(10_000_600, 10_000_600, true).unwrap();
+    assert!(repaired.lowered);
+    assert_eq!(repaired.state, state(10_000_600, "b", 10_000_600));
+    assert!(matches!(
+        fixed.reconcile(10_000_700, true).unwrap(),
+        ClockReading::Trusted { .. }
+    ));
 }

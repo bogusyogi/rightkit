@@ -5,10 +5,10 @@ use std::cell::{Cell, RefCell};
 use common::{pubkey, Claims, APP, DEVICE};
 use ed25519_dalek::SigningKey;
 use rightkit_license::{
-    refresh_and_reanchor, AntiRollbackClock, ClockError, ClockState, ClockStore,
-    LicenseRequirement, Lifecycle, MemoryClockStore, ProcessAnchor, RefreshOutcome, RefreshParams,
-    RefreshRejection, RefreshRequest, RefreshResponse, RefreshTransport, TokenDropReason,
-    TokenKeptReason, TransportError, VerifyError,
+    judge_refresh_response, refresh_and_reanchor, AntiRollbackClock, ClockError, ClockState,
+    ClockStore, LicenseRequirement, Lifecycle, MemoryClockStore, ProcessAnchor, RefreshJudgement,
+    RefreshOutcome, RefreshParams, RefreshRejection, RefreshRequest, RefreshResponse,
+    RefreshTransport, TokenDropReason, TokenKeptReason, TransportError, VerifyError,
 };
 
 /// A scripted server.
@@ -493,4 +493,163 @@ fn outcome_names_match_the_js_client() {
     assert_eq!(replaced.as_str(), "tokenReplaced");
     let rejected = RefreshOutcome::Rejected(RefreshRejection::RequirementNotMet);
     assert_eq!(rejected.as_str(), "rejected");
+}
+
+// ------------------------------------------------------------------ pure judgement
+
+fn response(status: &str, token: Option<&str>) -> RefreshResponse {
+    match token {
+        Some(token) => RefreshResponse::from_json(&format!(
+            r#"{{"status":"{status}","signedToken":"{token}"}}"#
+        )),
+        None => RefreshResponse::from_json(&format!(r#"{{"status":"{status}"}}"#)),
+    }
+    .unwrap()
+}
+
+#[test]
+fn judge_covers_every_server_answer_without_touching_a_store() {
+    let key = pubkey();
+    let p = params(&key, 10_030);
+    let fresh = Claims::trial(10_020, 30_000).token();
+
+    assert_eq!(
+        judge_refresh_response(&p, &response("not_found", None), None),
+        RefreshJudgement::Revoked { message: None }
+    );
+    assert_eq!(
+        judge_refresh_response(&p, &response("active", None), None),
+        RefreshJudgement::NoNewToken {
+            reason: TokenKeptReason::ServerOmittedToken
+        }
+    );
+    let mut cached = params(&key, 10_030);
+    cached.cached_token = Some(&fresh);
+    assert_eq!(
+        judge_refresh_response(&cached, &response("active", Some(&fresh)), None),
+        RefreshJudgement::NoNewToken {
+            reason: TokenKeptReason::ServerReturnedSameToken
+        }
+    );
+
+    let RefreshJudgement::ReplaceToken {
+        token,
+        lifecycle,
+        anchor,
+        ..
+    } = judge_refresh_response(&p, &response("active", Some(&fresh)), None)
+    else {
+        panic!("expected ReplaceToken");
+    };
+    assert_eq!(token, fresh);
+    assert_eq!(lifecycle, Lifecycle::Trial);
+    assert_eq!(anchor.into_state("proc"), state(10_030, "proc", 10_020));
+}
+
+#[test]
+fn judge_reports_exp_and_iat_of_a_token_that_is_not_active_on_arrival() {
+    let key = pubkey();
+    let p = params(&key, 10_030);
+    let expired = Claims::legacy(10_020, 10_020).token();
+    let RefreshJudgement::Rejected { rejection, token } =
+        judge_refresh_response(&p, &response("active", Some(&expired)), None)
+    else {
+        panic!("expected Rejected");
+    };
+    assert_eq!(rejection, RefreshRejection::NotActive(Lifecycle::Expired));
+    let claims = token.expect("an authentic token reports its claims");
+    assert_eq!((claims.iat, claims.exp), (10_020, 10_020));
+    assert_eq!(claims.lifecycle, Lifecycle::Expired);
+
+    // A token that does not authenticate has no trustworthy claims.
+    let forged = Claims::trial(10_020, 30_000).token_signed_by(&SigningKey::from_bytes(&[9; 32]));
+    assert!(matches!(
+        judge_refresh_response(&p, &response("active", Some(&forged)), None),
+        RefreshJudgement::Rejected {
+            rejection: RefreshRejection::InvalidToken(_),
+            token: None
+        }
+    ));
+}
+
+#[test]
+fn judge_applies_the_ledger_rules_to_the_prior_it_is_given() {
+    let key = pubkey();
+    let fresh = Claims::trial(10_020, 30_000).token();
+    let mut p = params(&key, 10_030);
+    p.clock_initialized = true;
+
+    assert_eq!(
+        judge_refresh_response(&p, &response("active", Some(&fresh)), None),
+        RefreshJudgement::LedgerMissing
+    );
+    let replayed = state(10_000, "old", 10_020);
+    let RefreshJudgement::Rejected { rejection, token } =
+        judge_refresh_response(&p, &response("active", Some(&fresh)), Some(&replayed))
+    else {
+        panic!("expected Rejected");
+    };
+    assert_eq!(
+        rejection,
+        RefreshRejection::ReplayedServerTime {
+            last_server_iat: 10_020,
+            got: 10_020
+        }
+    );
+    assert_eq!(token.unwrap().exp, 30_000);
+
+    let inflated = state(900_000, "old", 8_000);
+    let RefreshJudgement::ReplaceToken { anchor, .. } =
+        judge_refresh_response(&p, &response("active", Some(&fresh)), Some(&inflated))
+    else {
+        panic!("expected ReplaceToken");
+    };
+    assert!(anchor.lowered);
+}
+
+/// The outcome and the pure judgement agree on every scenario, because the first is built
+/// on the second: judge against the ledger as it was before, then compare with the run.
+#[test]
+fn refresh_and_reanchor_agrees_with_the_pure_judgement() {
+    let key = pubkey();
+    let fresh = Claims::trial(10_020, 30_000).token();
+    let expired = Claims::legacy(10_020, 10_020).token();
+    let ledgers = [
+        None,
+        Some(state(900_000, "old", 8_000)),
+        Some(state(10_000, "old", 10_020)),
+        Some(state(10_000, "old", 8_000)),
+    ];
+    for ledger in ledgers {
+        for token in [&fresh, &expired] {
+            let store = MemoryClockStore::new();
+            if let Some(ledger) = &ledger {
+                store.save(ledger).unwrap();
+            }
+            let mut p = params(&key, 10_030);
+            p.clock_initialized = ledger.is_some();
+            let body = response("active", Some(token));
+            let judged = judge_refresh_response(&p, &body, ledger.as_ref());
+            let outcome = refresh_and_reanchor(
+                &p,
+                &FakeServer::token("active", token),
+                &clock(&store, 10_030),
+            )
+            .unwrap();
+            match (judged, outcome) {
+                (
+                    RefreshJudgement::Rejected { rejection, .. },
+                    RefreshOutcome::Rejected(actual),
+                ) => assert_eq!(rejection, actual),
+                (
+                    RefreshJudgement::ReplaceToken { anchor, .. },
+                    RefreshOutcome::TokenReplaced { reanchored, .. },
+                ) => {
+                    assert_eq!(reanchored.state, anchor.into_state("proc"));
+                    assert_eq!(reanchored.lowered, anchor.lowered);
+                }
+                (judged, outcome) => panic!("diverged: {judged:?} vs {outcome:?}"),
+            }
+        }
+    }
 }

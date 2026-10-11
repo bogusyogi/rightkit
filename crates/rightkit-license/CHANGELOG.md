@@ -1,5 +1,46 @@
 # Changelog
 
+## Unreleased
+
+Additive. Closes consumer gaps 5 to 8 reported from ViewRight (its licence code stayed local because of
+them). No existing signature, field or match changes. The version number is not bumped here.
+
+### Added
+
+- **Cross-process-atomic store from closures (gap 5a).** `ClosureClockStore::new(lock_path, get, set)`
+  implements `ClockStore` over two host closures (a keychain item, a credential entry) and serialises
+  `load` (shared), `save` and `compare_and_save` (exclusive, `get` + compare + `set` under one lock) on
+  the OS lock of `lock_path`, using the crate's existing `CrossProcessLock` (no new dependency).
+  `ClosureClockStoreError::{Lock(io::Error), Store(E)}`.
+- **Pure judgement (gap 5b).** `judge_refresh_response(params, response, prior: Option<&ClockState>) ->
+  RefreshJudgement` decides a refresh response with no I/O; `refresh_and_reanchor` now calls it, and
+  the re-anchor decision both use is the pure `plan_reanchor(prior, iat, wall_now, was_initialized) ->
+  Result<ReanchorPlan, AnchorRefusal>` (`AntiRollbackClock::reanchor` calls it too). `AnchorRefusal`
+  converts into `ClockError`. Behaviour of `refresh_and_reanchor` and `reanchor` is unchanged; a test
+  compares the outcome with the judgement across ledger states. The cached-token keep-or-drop verdict
+  depends on the live clock and remains in `refresh_and_reanchor` (`RefreshJudgement::NoNewToken`).
+- **Message overrides (gap 6).** `LifecycleMessages` (`#[non_exhaustive]`, all `Option<&'static str>`,
+  default `None` = unchanged text) attached with `LifecycleContext::with_messages`. Placed on
+  `LifecycleContext` and not on `LifecyclePolicy` because `LifecyclePolicy` is built with full struct
+  literals (including `const`s) by callers and a new field there would break them.
+- **`Rejected(NotActive)` detail (gap 6).** `RefreshRejection` and `RefreshOutcome::Rejected(..)` are
+  exhaustive tuple shapes, so they are unchanged. The token's claims are available as
+  `RefreshJudgement::Rejected { rejection, token: Option<RejectedToken { iat, exp, lifecycle }> }`
+  (`#[non_exhaustive]` struct), obtained by judging the same response (pure).
+
+### Decided (gap 7, no behaviour change)
+
+- A first re-anchor with no ledger keeps starting at `max(wall_now, iat)`. Storing `iat` alone would
+  make the first anchor weaker than a ledger-less start (which trusts `max(wall, monotonic)`): a valid
+  but old token would let the clock be set back to its era. The wrong-future-wall cost is bounded and
+  self-repairing (the next online refresh carries a newer `iat` and lowers the mark). Reasoning is in the
+  `plan_reanchor` docs; tests pin both halves.
+
+### Tests
+
+- `tests/file_store.rs` already spawns with `move` closures in the current file (no E0373 found by
+  inspection); closure-store tests added in the same style.
+
 ## 0.2.0
 
 - **Test coverage (third Astra read, note 7).** No library change. The concurrent-clock test in

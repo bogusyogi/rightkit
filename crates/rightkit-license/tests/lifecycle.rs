@@ -4,8 +4,8 @@ use common::{pubkey, Claims, APP, DEVICE};
 use rightkit_license::{
     authenticate_token, evaluate_lifecycle, verify_token, AntiRollbackClock, ClockError,
     ClockState, ClockStore, Entitlement, EntitlementStage, LicenseKind, LicenseRequirement,
-    Lifecycle, LifecycleContext, LifecyclePolicy, MemoryClockStore, ProcessAnchor,
-    StoredCredential, VerifyError,
+    Lifecycle, LifecycleContext, LifecycleMessages, LifecyclePolicy, MemoryClockStore,
+    ProcessAnchor, StoredCredential, VerifyError,
 };
 
 fn ent(
@@ -681,4 +681,129 @@ fn legacy_scalar_ledger_fails_closed_on_a_backward_clock() {
     };
     let report = evaluate_lifecycle(&ctx, &clock, credential, 9_000).unwrap();
     assert_eq!(report.lifecycle, Lifecycle::ClockRepairRequired);
+}
+
+// ------------------------------------------------------------------ message overrides
+
+#[allow(clippy::field_reassign_with_default)]
+fn custom_messages() -> LifecycleMessages {
+    let mut messages = LifecycleMessages::default();
+    messages.revoked = Some("m-revoked");
+    messages.migration_required = Some("m-migration");
+    messages.unsigned = Some("m-unsigned");
+    messages.invalid_token = Some("m-invalid-token");
+    messages.clock_repair_required = Some("m-clock");
+    messages.issued_in_the_future = Some("m-future");
+    messages.expired = Some("m-expired");
+    messages.invalid_lifecycle = Some("m-invalid-lifecycle");
+    messages
+}
+
+#[test]
+fn default_messages_are_unchanged() {
+    let key = pubkey();
+    let plain = LifecycleContext::new(&key, APP, DEVICE);
+    let explicit = plain.with_messages(LifecycleMessages::default());
+    let store = MemoryClockStore::new();
+    let c = clock_at(&store, "p", 5_000);
+    for (credential, text) in [
+        (
+            StoredCredential::Revoked,
+            "The server no longer considers this license active.",
+        ),
+        (
+            StoredCredential::LegacyUnsigned,
+            "This older paid record needs one signed online refresh.",
+        ),
+        (
+            StoredCredential::Unsigned,
+            "A current signed license is required.",
+        ),
+    ] {
+        for ctx in [&plain, &explicit] {
+            let report = evaluate_lifecycle(ctx, &c, credential, 5_000).unwrap();
+            assert_eq!(report.message.as_deref(), Some(text));
+        }
+    }
+}
+
+#[test]
+fn message_overrides_replace_every_user_facing_text() {
+    let key = pubkey();
+    let ctx = LifecycleContext::new(&key, APP, DEVICE).with_messages(custom_messages());
+    let store = MemoryClockStore::new();
+    let c = clock_at(&store, "p", 5_000);
+    fn message_of(
+        ctx: &LifecycleContext<'_>,
+        c: &AntiRollbackClock<&MemoryClockStore>,
+        credential: StoredCredential<'_>,
+    ) -> Option<String> {
+        evaluate_lifecycle(ctx, c, credential, 5_000)
+            .unwrap()
+            .message
+    }
+
+    assert_eq!(
+        message_of(&ctx, &c, StoredCredential::Revoked).as_deref(),
+        Some("m-revoked")
+    );
+    assert_eq!(
+        message_of(&ctx, &c, StoredCredential::LegacyUnsigned).as_deref(),
+        Some("m-migration")
+    );
+    assert_eq!(
+        message_of(&ctx, &c, StoredCredential::Unsigned).as_deref(),
+        Some("m-unsigned")
+    );
+    assert_eq!(
+        message_of(
+            &ctx,
+            &c,
+            StoredCredential::Signed {
+                token: "garbage",
+                clock_initialized: false
+            }
+        )
+        .as_deref(),
+        Some("m-invalid-token")
+    );
+
+    let expired = Claims::legacy(1_000, 2_000).token();
+    assert_eq!(
+        message_of(&ctx, &c, signed(&expired)).as_deref(),
+        Some("m-expired")
+    );
+
+    let inconsistent = Claims {
+        kind: Some("lifetime"),
+        ..Claims::legacy(1_000, 9_000)
+    }
+    .token();
+    assert_eq!(
+        message_of(&ctx, &c, signed(&inconsistent)).as_deref(),
+        Some("m-invalid-lifecycle")
+    );
+
+    let future = Claims::legacy(100_000, 200_000).token();
+    assert_eq!(
+        message_of(&ctx, &c, signed(&future)).as_deref(),
+        Some("m-future")
+    );
+}
+
+#[test]
+fn clock_repair_message_override_applies_and_does_not_change_the_verdict() {
+    let key = pubkey();
+    let ctx = LifecycleContext::new(&key, APP, DEVICE).with_messages(custom_messages());
+    let store = MemoryClockStore::new();
+    let token = Claims::trial(9_000, 20_000).token();
+    evaluate_lifecycle(&ctx, &clock_at(&store, "a", 10_000), signed(&token), 10_000).unwrap();
+
+    let again = StoredCredential::Signed {
+        token: &token,
+        clock_initialized: true,
+    };
+    let report = evaluate_lifecycle(&ctx, &clock_at(&store, "b", 5_000), again, 5_000).unwrap();
+    assert_eq!(report.lifecycle, Lifecycle::ClockRepairRequired);
+    assert_eq!(report.message.as_deref(), Some("m-clock"));
 }

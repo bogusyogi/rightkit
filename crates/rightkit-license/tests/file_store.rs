@@ -14,7 +14,8 @@ use std::time::{Duration, Instant};
 
 use rightkit_license::{
     AntiRollbackClock, ClockDecodeError, ClockReading, ClockRefusal, ClockState, ClockStore,
-    CrossProcessLock, FileClockStore, FileClockStoreError, ProcessAnchor, TrustedClock,
+    ClosureClockStore, ClosureClockStoreError, CrossProcessLock, FileClockStore,
+    FileClockStoreError, ProcessAnchor, TrustedClock,
 };
 
 fn state(highest_seen: i64, trusted_process: &str, last_server_iat: i64) -> ClockState {
@@ -376,4 +377,134 @@ fn a_store_reports_an_unusable_lock_path_instead_of_writing_unlocked() {
     ));
     assert!(store.compare_and_save(None, &state(1, "a", 0)).is_err());
     assert!(store.load().is_err());
+}
+
+// ------------------------------------------------------------------ ClosureClockStore
+
+/// A "keychain" the closures read and write: one record behind a mutex, like an item.
+#[derive(Default)]
+struct FakeKeychain(std::sync::Mutex<Option<String>>);
+
+impl FakeKeychain {
+    fn get(&self) -> Result<Option<ClockState>, String> {
+        match self.0.lock().unwrap().as_deref() {
+            Some(raw) => ClockState::decode(raw).map(Some).map_err(|e| e.to_string()),
+            None => Ok(None),
+        }
+    }
+    fn set(&self, state: &ClockState) -> Result<(), String> {
+        *self.0.lock().unwrap() = Some(state.encode());
+        Ok(())
+    }
+}
+
+#[test]
+fn a_closure_store_round_trips_and_compares_before_it_writes() {
+    let dir = TempDir::new();
+    let keychain = FakeKeychain::default();
+    let store = ClosureClockStore::new(
+        dir.0.join("nested").join("clock.lock"),
+        || keychain.get(),
+        |state: &ClockState| keychain.set(state),
+    );
+    assert_eq!(store.load().unwrap(), None);
+    assert!(store.compare_and_save(None, &state(900, "a", 0)).unwrap());
+    // `None` no longer matches, and a stale expectation writes nothing.
+    assert!(!store.compare_and_save(None, &state(5, "x", 0)).unwrap());
+    assert!(!store
+        .compare_and_save(Some(&state(800, "a", 0)), &state(1_000, "b", 0))
+        .unwrap());
+    assert_eq!(store.load().unwrap(), Some(state(900, "a", 0)));
+    assert!(store
+        .compare_and_save(Some(&state(900, "a", 0)), &state(1_000, "b", 0))
+        .unwrap());
+    store.save(&state(2_000, "c", 0)).unwrap();
+    assert_eq!(keychain.get().unwrap(), Some(state(2_000, "c", 0)));
+}
+
+#[test]
+fn closure_failures_are_errors_and_never_an_empty_ledger() {
+    let dir = TempDir::new();
+    let store = ClosureClockStore::new(
+        dir.0.join("clock.lock"),
+        || Err::<Option<ClockState>, _>("keychain locked".to_string()),
+        |_: &ClockState| Err("keychain locked".to_string()),
+    );
+    assert!(matches!(
+        store.load(),
+        Err(ClosureClockStoreError::Store(ref e)) if e == "keychain locked"
+    ));
+    assert!(store.compare_and_save(None, &state(1, "a", 0)).is_err());
+    assert!(store.save(&state(1, "a", 0)).is_err());
+}
+
+#[test]
+fn a_closure_store_with_an_unusable_lock_path_does_not_run_the_closures() {
+    let dir = TempDir::new();
+    let blocker = dir.0.join("blocker");
+    fs::write(&blocker, "x").unwrap();
+    let calls = std::cell::Cell::new(0_u32);
+    let store = ClosureClockStore::new(
+        blocker.join("clock.lock"),
+        || {
+            calls.set(calls.get() + 1);
+            Ok::<_, String>(None)
+        },
+        |_: &ClockState| {
+            calls.set(calls.get() + 1);
+            Ok(())
+        },
+    );
+    assert!(matches!(store.load(), Err(ClosureClockStoreError::Lock(_))));
+    assert!(matches!(
+        store.compare_and_save(None, &state(1, "a", 0)),
+        Err(ClosureClockStoreError::Lock(_))
+    ));
+    assert_eq!(calls.get(), 0, "no read or write happened without the lock");
+}
+
+/// The point of the lock: a closure-backed store waits for another holder of the same lock
+/// file (another process) and then compares against what that holder wrote.
+#[test]
+fn a_closure_store_waits_for_the_cross_process_lock_and_then_sees_the_other_write() {
+    let dir = TempDir::new();
+    let lock_path = dir.0.join("nested").join("clock.lock");
+    let keychain = FakeKeychain::default();
+    keychain.set(&state(900, "p", 0)).unwrap();
+    let store = ClosureClockStore::new(
+        &lock_path,
+        || keychain.get(),
+        |state: &ClockState| keychain.set(state),
+    );
+    let stale = state(900, "p", 0);
+
+    thread::scope(|scope| {
+        // Another process is inside its write: it holds the lock.
+        let other_process = CrossProcessLock::acquire(&lock_path).unwrap();
+
+        let (started_tx, started_rx) = mpsc::channel();
+        let (done_tx, done_rx) = mpsc::channel();
+        let store = &store;
+        let stale = &stale;
+        scope.spawn(move || {
+            started_tx.send(()).unwrap();
+            let committed = store
+                .compare_and_save(Some(stale), &state(1_000, "a", 0))
+                .unwrap();
+            done_tx.send(committed).unwrap();
+        });
+        started_rx.recv().unwrap();
+        assert!(
+            matches!(
+                done_rx.recv_timeout(Duration::from_millis(300)),
+                Err(mpsc::RecvTimeoutError::Timeout)
+            ),
+            "compare_and_save must wait while another process holds the lock"
+        );
+
+        keychain.set(&state(1_100, "b", 0)).unwrap();
+        drop(other_process);
+        assert_eq!(done_rx.recv_timeout(Duration::from_secs(30)), Ok(false));
+    });
+    assert_eq!(keychain.get().unwrap(), Some(state(1_100, "b", 0)));
 }

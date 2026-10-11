@@ -676,7 +676,11 @@ impl<S: ClockStore> AntiRollbackClock<S> {
     ///    error) changes neither the ledger nor the reference.
     ///
     /// 4. **No ledger.** With `was_initialized`: [`ClockError::Missing`] (fail closed).
-    ///    Otherwise the ledger starts at `max(wall_now, server_time)`.
+    ///    Otherwise the ledger starts at `max(wall_now, server_time)`. This is deliberately
+    ///    not just `server_time`; see [`plan_reanchor`] for the reasoning.
+    ///
+    /// The decision itself is the pure [`plan_reanchor`]; this method adds only the load,
+    /// the compare-and-save and the in-memory bookkeeping.
     ///
     /// Other clocks in the same process lose their memory on their next reconcile (a newer
     /// server anchor supersedes it) but keep their own process reference; a process that
@@ -690,33 +694,9 @@ impl<S: ClockStore> AntiRollbackClock<S> {
         let _guard = ledger_lock();
         for _ in 0..CLOCK_WRITE_ATTEMPTS {
             let prior = self.load()?;
-            let (state, lowered) = match &prior {
-                Some(prior) => {
-                    if server_time <= prior.last_server_iat {
-                        return Err(ClockError::ReplayedAnchor {
-                            last_server_iat: prior.last_server_iat,
-                            got: server_time,
-                        });
-                    }
-                    (
-                        ClockState {
-                            highest_seen: server_time,
-                            trusted_process: self.anchor.id().to_string(),
-                            last_server_iat: server_time,
-                        },
-                        server_time < prior.highest_seen,
-                    )
-                }
-                None if was_initialized => return Err(ClockError::Missing),
-                None => (
-                    ClockState {
-                        highest_seen: wall_now.max(server_time),
-                        trusted_process: self.anchor.id().to_string(),
-                        last_server_iat: server_time,
-                    },
-                    false,
-                ),
-            };
+            let plan = plan_reanchor(prior.as_ref(), server_time, wall_now, was_initialized)?;
+            let lowered = plan.lowered;
+            let state = plan.into_state(self.anchor.id());
             if self
                 .store
                 .compare_and_save(prior.as_ref(), &state)
@@ -728,6 +708,105 @@ impl<S: ClockStore> AntiRollbackClock<S> {
             }
         }
         Err(ClockError::Contended)
+    }
+}
+
+/// Why [`plan_reanchor`] refused an anchor. Converts into [`ClockError`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AnchorRefusal {
+    /// The install is initialised but there is no ledger (tampering; fail closed).
+    Missing,
+    /// The anchor is not strictly newer than the last one (replay guard).
+    Replayed { last_server_iat: i64, got: i64 },
+}
+
+impl<E> From<AnchorRefusal> for ClockError<E> {
+    fn from(refusal: AnchorRefusal) -> Self {
+        match refusal {
+            AnchorRefusal::Missing => Self::Missing,
+            AnchorRefusal::Replayed {
+                last_server_iat,
+                got,
+            } => Self::ReplayedAnchor {
+                last_server_iat,
+                got,
+            },
+        }
+    }
+}
+
+/// The ledger a successful re-anchor would write, minus the process identity.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ReanchorPlan {
+    pub highest_seen: i64,
+    pub last_server_iat: i64,
+    /// The mark moves below the previous one (the clock-repair path).
+    pub lowered: bool,
+}
+
+impl ReanchorPlan {
+    /// The ledger to persist, trusted to `process_id` ([`ProcessAnchor::id`]).
+    pub fn into_state(self, process_id: &str) -> ClockState {
+        ClockState {
+            highest_seen: self.highest_seen,
+            trusted_process: process_id.to_string(),
+            last_server_iat: self.last_server_iat,
+        }
+    }
+}
+
+/// Pure re-anchor decision: what [`AntiRollbackClock::reanchor`] would write for a
+/// signature-verified server `iat`, given the ledger as it is (`prior`). No I/O.
+/// `reanchor` calls exactly this, so a preview and the real write cannot disagree.
+///
+/// * `prior` present: `server_time` must be strictly greater than its `last_server_iat`
+///   ([`AnchorRefusal::Replayed`] otherwise); the mark becomes `server_time` even if that
+///   lowers it (`lowered`).
+/// * `prior` absent and `was_initialized`: [`AnchorRefusal::Missing`].
+/// * `prior` absent, not initialised (first activation): the mark starts at
+///   `max(wall_now, server_time)`.
+///
+/// ## Why the first anchor is `max(wall_now, server_time)` and not `server_time`
+/// Without a ledger, [`reconcile_clock`] already trusts the wall clock; a first anchor
+/// below `wall_now` would therefore be *weaker* than not anchoring at all. The `iat` is
+/// signed, but it is not necessarily fresh: a valid old token (restored backup, replay
+/// before any ledger exists) carries an old `iat`, and storing it would let the clock be
+/// set back to that era with the token still unexpired. Taking the later of the two means
+/// the first anchor never lowers what a ledger-less start would have trusted, while a
+/// wall clock behind the signed time is still lifted to it.
+///
+/// The cost is bounded and self-repairing: a first run on a clock that is wrong far into
+/// the future starts the ledger ahead, and once the clock is fixed the install reports
+/// `ClockRepairRequired` until one online refresh. That refresh carries a newer `iat` and
+/// *lowers* the mark to it (rule 2 of [`AntiRollbackClock::reanchor`]), so the
+/// ahead-anchor is never permanent. A user who sets the clock forward gains nothing from
+/// it (trials and terms only end sooner).
+pub fn plan_reanchor(
+    prior: Option<&ClockState>,
+    server_time: i64,
+    wall_now: i64,
+    was_initialized: bool,
+) -> Result<ReanchorPlan, AnchorRefusal> {
+    match prior {
+        Some(prior) => {
+            if server_time <= prior.last_server_iat {
+                return Err(AnchorRefusal::Replayed {
+                    last_server_iat: prior.last_server_iat,
+                    got: server_time,
+                });
+            }
+            Ok(ReanchorPlan {
+                highest_seen: server_time,
+                last_server_iat: server_time,
+                lowered: server_time < prior.highest_seen,
+            })
+        }
+        None if was_initialized => Err(AnchorRefusal::Missing),
+        None => Ok(ReanchorPlan {
+            highest_seen: wall_now.max(server_time),
+            last_server_iat: server_time,
+            lowered: false,
+        }),
     }
 }
 

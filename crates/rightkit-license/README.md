@@ -75,7 +75,7 @@ if report.grants_access() { /* unlock */ }
 
 #### Clock rules
 
-- No ledger yet: trust `max(wall, monotonic)` and start the ledger there.
+- No ledger yet: trust `max(wall, monotonic)` and start the ledger there. The first server anchor on a fresh install does the same: the ledger starts at `max(wall, iat)`, never at `iat` alone (see the `plan_reanchor` docs: a valid but old token must not let the clock be set back to its era; a first run on a clock wrong far into the future is repaired by the next online refresh, which lowers the mark to its newer `iat`).
 - Wall clock more than 300 seconds behind the high-water mark: rollback. `Lifecycle::ClockRepairRequired`, ledger untouched.
 - A restarted process must see wall time strictly past the mark. Restarting at the same wall second cannot freeze expiry.
 - Inside one process, a wall clock that falls behind keeps advancing on the monotonic offset instead.
@@ -83,6 +83,8 @@ if report.grants_access() { /* unlock */ }
 - `reanchor` accepts a server `iat` only if it is strictly newer than the last anchor, checked against the ledger at write time. It may lower the mark (`Reanchored::lowered`), which repairs a ledger inflated by a clock once set far ahead, and it also re-bases the clock's monotonic reference on the new mark so the old, too-far-ahead process anchor cannot pull time back up. It is never called on unauthenticated time: the caller passes the `iat` of a token it has already verified (`refresh_and_reanchor` does).
 - Every observation is kept in memory for the life of the clock; only the durable write is throttled (`CLOCK_WRITE_INTERVAL_SECS`). Writes are serialised across all clocks in the process and go through `ClockStore::compare_and_save`, so a stale writer can only move the mark forward and cannot overwrite a newer `last_server_iat`.
 - `ClockStore::compare_and_save` is a **required** method with no default. A load followed by a save is not atomic against another process (A checks 900, B saves 1100, A saves 1000, and trusted time has moved backwards), and the in-process lock cannot cover another process. An implementation must make the comparison and the write one atomic step against every writer in any process: a real compare-and-swap, or an OS lock around read, compare and write. `FileClockStore` does this for a ledger kept in a file (OS file lock on `<ledger>.lock`, flushed temporary file, atomic rename). A host that keeps the ledger in a keychain or credential entry implements `ClockStore` over it and takes a `CrossProcessLock` on a lock file shared by all its processes inside `compare_and_save`. `MemoryClockStore` is atomic but process-local, for tests only.
+- `ClosureClockStore::new(lock_path, get, set)` is that keychain case packaged: `get` returns `Result<Option<ClockState>, E>`, `set` writes a `&ClockState`, and every operation runs under the OS lock of `lock_path` (shared for `load`, exclusive for writes, with `compare_and_save` doing `get`, compare and `set` under one lock). Every process of the app must pass the same lock path. Errors are `ClosureClockStoreError::{Lock, Store}`; a failed `get` is an error, never an empty ledger.
+- `plan_reanchor(prior, iat, wall_now, was_initialized)` is the pure re-anchor decision `AntiRollbackClock::reanchor` writes (`ReanchorPlan`, or `AnchorRefusal::{Missing, Replayed}`), for previews and tests with no store.
 
 **Residual risk.** The replay guard is the last anchored `iat` only. A user who can intercept TLS on their own device could withhold a genuine refresh response, wind the clock back, and later deliver that older response to lower the mark. Closing it needs a freshness nonce in the signed token (a signer change). Until then re-anchoring is a convenience for honest clock errors, not a defence against a determined local attacker, as with any offline licence check.
 
@@ -106,6 +108,12 @@ match refresh_and_reanchor(&params, &my_transport, &clock)? {
 ```
 
 `RefreshTransport::refresh` must return `Ok` for any authoritative answer (including an HTTP 4xx whose body is `ok:false` with a non-`active` status) and `Err` for no network, 5xx or an unparsable body. Persist the clock before the record. See the module docs in `src/refresh.rs` for the full outcome table.
+
+`judge_refresh_response(&params, &response, prior_ledger)` is the same judgement with no I/O and no clock (`RefreshJudgement`: `Revoked`, `Rejected { rejection, token }`, `ReplaceToken { .., anchor }`, `NoNewToken`, `LedgerMissing`); `refresh_and_reanchor` calls it internally, so the two cannot drift. `Rejected { token: Some(RejectedToken { iat, exp, lifecycle }) }` carries the claims of an authentic token that was refused (for `NotActive`: "expired at .."); `RefreshOutcome::Rejected(RefreshRejection::NotActive(..))` is unchanged, so judge the same response to get them. The cached-token keep-or-drop verdict needs the live clock and stays in `refresh_and_reanchor`.
+
+#### Message texts
+
+`LifecycleContext::with_messages(LifecycleMessages)` replaces any of the report's user-facing `message` strings (`revoked`, `migration_required`, `unsigned`, `invalid_token`, `clock_repair_required`, `issued_in_the_future`, `expired`, `invalid_lifecycle`); unset fields keep the built-in English text exactly as before. `Lifecycle` itself remains the machine-readable verdict.
 
 ### Device-lease envelopes
 

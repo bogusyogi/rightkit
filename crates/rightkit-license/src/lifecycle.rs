@@ -126,6 +126,44 @@ pub struct LifecyclePolicy {
     pub lifetime_survives_rollback: bool,
 }
 
+/// Overrides for the user-facing `message` strings of a [`LifecycleReport`]. Every field
+/// defaults to `None`, which keeps the built-in English text exactly as before.
+///
+/// An override replaces the whole string: the two built-in texts that interpolate a value
+/// (the rollback text, which names the last trusted time, and the invalid-token text, which
+/// is the [`crate::VerifyError`] description) lose that value, so an override should stand
+/// on its own. The strings are `&'static str` so the type stays `Copy`; an app that
+/// localises at runtime can map [`Lifecycle`] to its own text and ignore `message`.
+/// `#[non_exhaustive]`: start from [`Default`] and assign the fields you need.
+///
+/// Attach with [`LifecycleContext::with_messages`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[non_exhaustive]
+pub struct LifecycleMessages {
+    /// [`StoredCredential::Revoked`]. Default: "The server no longer considers this license
+    /// active."
+    pub revoked: Option<&'static str>,
+    /// [`StoredCredential::LegacyUnsigned`]. Default: "This older paid record needs one
+    /// signed online refresh."
+    pub migration_required: Option<&'static str>,
+    /// [`StoredCredential::Unsigned`]. Default: "A current signed license is required."
+    pub unsigned: Option<&'static str>,
+    /// A signed token that failed authentication. Default: the `VerifyError` description.
+    pub invalid_token: Option<&'static str>,
+    /// [`Lifecycle::ClockRepairRequired`]. Default: "device clock moved backwards or stopped
+    /// advancing after restart (last trusted time N)".
+    pub clock_repair_required: Option<&'static str>,
+    /// The token's issue time is later than the device clock allows
+    /// ([`Lifecycle::Invalid`]). Default: "The license issue time is later than the device
+    /// clock."
+    pub issued_in_the_future: Option<&'static str>,
+    /// [`Lifecycle::Expired`]. Default: "The signed license has expired."
+    pub expired: Option<&'static str>,
+    /// [`Lifecycle::Invalid`] from inconsistent lifecycle claims. Default: "The signed
+    /// license lifecycle is invalid."
+    pub invalid_lifecycle: Option<&'static str>,
+}
+
 impl Entitlement {
     /// Classify an **already authenticated** entitlement at `now` (use a trusted time,
     /// not the raw wall clock). Pure; does not check the signature, the clock or the
@@ -206,6 +244,8 @@ pub struct LifecycleContext<'a> {
     /// If set, an authentic, unexpired entitlement that does not satisfy it is reported as
     /// [`Lifecycle::Unlicensed`] (the apps' "free", e.g. a non-Pro token).
     pub requirement: Option<&'a LicenseRequirement>,
+    /// Message-text overrides (default: the built-in texts).
+    pub messages: LifecycleMessages,
 }
 
 impl<'a> LifecycleContext<'a> {
@@ -216,11 +256,18 @@ impl<'a> LifecycleContext<'a> {
             device_id,
             policy: LifecyclePolicy::default(),
             requirement: None,
+            messages: LifecycleMessages::default(),
         }
     }
 
     pub fn with_policy(mut self, policy: LifecyclePolicy) -> Self {
         self.policy = policy;
+        self
+    }
+
+    /// Override the report's user-facing message texts (see [`LifecycleMessages`]).
+    pub fn with_messages(mut self, messages: LifecycleMessages) -> Self {
+        self.messages = messages;
         self
     }
 
@@ -313,21 +360,33 @@ pub fn evaluate_lifecycle<S: ClockStore>(
         StoredCredential::Revoked => {
             return Ok(LifecycleReport::bare(
                 Lifecycle::Revoked,
-                Some("The server no longer considers this license active."),
+                Some(
+                    ctx.messages
+                        .revoked
+                        .unwrap_or("The server no longer considers this license active."),
+                ),
                 false,
             ))
         }
         StoredCredential::LegacyUnsigned => {
             return Ok(LifecycleReport::bare(
                 Lifecycle::MigrationRequired,
-                Some("This older paid record needs one signed online refresh."),
+                Some(
+                    ctx.messages
+                        .migration_required
+                        .unwrap_or("This older paid record needs one signed online refresh."),
+                ),
                 false,
             ))
         }
         StoredCredential::Unsigned => {
             return Ok(LifecycleReport::bare(
                 Lifecycle::Invalid,
-                Some("A current signed license is required."),
+                Some(
+                    ctx.messages
+                        .unsigned
+                        .unwrap_or("A current signed license is required."),
+                ),
                 false,
             ))
         }
@@ -340,11 +399,15 @@ pub fn evaluate_lifecycle<S: ClockStore>(
     let entitlement = match authenticate_token(token, ctx.pubkey, ctx.expected_app, ctx.device_id) {
         Ok(entitlement) => entitlement,
         Err(error) => {
+            let text = match ctx.messages.invalid_token {
+                Some(text) => text.to_string(),
+                None => error.to_string(),
+            };
             return Ok(LifecycleReport::bare(
                 Lifecycle::Invalid,
-                Some(&error.to_string()),
+                Some(&text),
                 was_initialized,
-            ))
+            ));
         }
     };
 
@@ -355,9 +418,12 @@ pub fn evaluate_lifecycle<S: ClockStore>(
             if ctx.policy.lifetime_survives_rollback && entitlement.is_final_lifetime() {
                 (*highest_seen, false)
             } else {
-                let message = format!(
-                    "device clock moved backwards or stopped advancing after restart (last trusted time {highest_seen})"
-                );
+                let message = match ctx.messages.clock_repair_required {
+                    Some(text) => text.to_string(),
+                    None => format!(
+                        "device clock moved backwards or stopped advancing after restart (last trusted time {highest_seen})"
+                    ),
+                };
                 return Ok(LifecycleReport::for_entitlement(
                     Lifecycle::ClockRepairRequired,
                     entitlement,
@@ -374,7 +440,12 @@ pub fn evaluate_lifecycle<S: ClockStore>(
             Lifecycle::Invalid,
             entitlement,
             Some(effective_now),
-            Some("The license issue time is later than the device clock.".to_string()),
+            Some(
+                ctx.messages
+                    .issued_in_the_future
+                    .unwrap_or("The license issue time is later than the device clock.")
+                    .to_string(),
+            ),
             was_initialized,
         ));
     }
@@ -396,8 +467,18 @@ pub fn evaluate_lifecycle<S: ClockStore>(
         clock.commit(&reading)?;
     }
     let message = match lifecycle {
-        Lifecycle::Expired => Some("The signed license has expired.".to_string()),
-        Lifecycle::Invalid => Some("The signed license lifecycle is invalid.".to_string()),
+        Lifecycle::Expired => Some(
+            ctx.messages
+                .expired
+                .unwrap_or("The signed license has expired.")
+                .to_string(),
+        ),
+        Lifecycle::Invalid => Some(
+            ctx.messages
+                .invalid_lifecycle
+                .unwrap_or("The signed license lifecycle is invalid.")
+                .to_string(),
+        ),
         _ => None,
     };
     Ok(LifecycleReport::for_entitlement(

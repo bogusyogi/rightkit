@@ -44,22 +44,27 @@ mod refresh;
 
 pub use clock::reconcile_clock;
 pub use clock::{
-    system_now_unix, AntiRollbackClock, ClockDecision, ClockDecodeError, ClockError, ClockReading,
-    ClockRefusal, ClockState, ClockStore, MemoryClockStore, ProcessAnchor, Reanchored, SystemClock,
-    TrustedClock, CLOCK_ROLLBACK_TOLERANCE_SECS, CLOCK_WRITE_ATTEMPTS, CLOCK_WRITE_INTERVAL_SECS,
+    plan_reanchor, system_now_unix, AnchorRefusal, AntiRollbackClock, ClockDecision,
+    ClockDecodeError, ClockError, ClockReading, ClockRefusal, ClockState, ClockStore,
+    MemoryClockStore, ProcessAnchor, ReanchorPlan, Reanchored, SystemClock, TrustedClock,
+    CLOCK_ROLLBACK_TOLERANCE_SECS, CLOCK_WRITE_ATTEMPTS, CLOCK_WRITE_INTERVAL_SECS,
 };
-pub use file_store::{CrossProcessLock, FileClockStore, FileClockStoreError};
+pub use file_store::{
+    ClosureClockStore, ClosureClockStoreError, CrossProcessLock, FileClockStore,
+    FileClockStoreError,
+};
 pub use lease::{
     canonical_lease_envelope, verify_lease_envelope, verify_lease_envelope_fields, LeaseEnvelope,
     LeaseError,
 };
 pub use lifecycle::{
-    evaluate_lifecycle, Lifecycle, LifecycleContext, LifecyclePolicy, LifecycleReport,
-    StoredCredential,
+    evaluate_lifecycle, Lifecycle, LifecycleContext, LifecycleMessages, LifecyclePolicy,
+    LifecycleReport, StoredCredential,
 };
 pub use refresh::{
-    refresh_and_reanchor, RefreshOutcome, RefreshParams, RefreshRejection, RefreshRequest,
-    RefreshResponse, RefreshTransport, TokenDropReason, TokenKeptReason, TransportError,
+    judge_refresh_response, refresh_and_reanchor, RefreshJudgement, RefreshOutcome, RefreshParams,
+    RefreshRejection, RefreshRequest, RefreshResponse, RefreshTransport, RejectedToken,
+    TokenDropReason, TokenKeptReason, TransportError,
 };
 
 use base64::Engine;
