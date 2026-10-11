@@ -13,6 +13,11 @@ pub enum Error {
     Config(String),
     /// Long-form decode stopped by the caller's cancellation flag.
     Cancelled,
+    /// A Whisper run stopped by the caller's [`CancelToken`](crate::whisper::CancelToken)
+    /// or by a deadline. Carries the windows that had completed. Use
+    /// [`Error::is_cancelled`] to test for a caller cancel and [`Error::interrupted`]
+    /// to reach the partial transcript.
+    Interrupted(Box<crate::whisper::WhisperInterrupted>),
     /// A single-window decode received more audio than the model window allows
     /// (`window_samples` plus one mel hop). Use the long-form route instead.
     WindowTooLong { samples: usize, max_samples: usize },
@@ -28,10 +33,42 @@ impl fmt::Display for Error {
             Error::Tokenizer(msg) => write!(f, "Tokenizer error: {msg}"),
             Error::Config(msg) => write!(f, "Config error: {msg}"),
             Error::Cancelled => write!(f, "cancelled"),
+            Error::Interrupted(i) => {
+                let what = match i.reason {
+                    crate::whisper::InterruptReason::Cancelled => "cancelled",
+                    crate::whisper::InterruptReason::DeadlineExceeded => "deadline exceeded",
+                };
+                write!(
+                    f,
+                    "whisper run {what} after {} of about {} window(s); partial transcript kept",
+                    i.windows_completed, i.windows_estimated
+                )
+            }
             Error::WindowTooLong { samples, max_samples } => write!(
                 f,
                 "window of {samples} samples exceeds the {max_samples}-sample limit (model window + one hop); use transcribe_long"
             ),
+        }
+    }
+}
+
+impl Error {
+    /// True for a caller cancel: [`Error::Cancelled`] or an [`Error::Interrupted`]
+    /// whose reason is `Cancelled`.
+    pub fn is_cancelled(&self) -> bool {
+        match self {
+            Error::Cancelled => true,
+            Error::Interrupted(i) => i.reason == crate::whisper::InterruptReason::Cancelled,
+            _ => false,
+        }
+    }
+
+    /// The interruption details (reason and partial transcript) for an
+    /// [`Error::Interrupted`].
+    pub fn interrupted(&self) -> Option<&crate::whisper::WhisperInterrupted> {
+        match self {
+            Error::Interrupted(i) => Some(i),
+            _ => None,
         }
     }
 }

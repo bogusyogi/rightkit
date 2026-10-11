@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- **Fixed:** a bodiless GET, HEAD or DELETE no longer sends `Content-Length: 0` (the blocking client's ureq framed every request with a body; the async client now matches it). POST, PUT and PATCH with an empty body still send `Content-Length: 0`.
+
 - **Breaking:** `HttpError`, `Phase`, `ErrorClass` and `DownloadError` are `#[non_exhaustive]`: add a fallback arm to any exhaustive `match`. Later variants are then not breaking.
 
 - **HTTP 408 is now `ErrorClass::Timeout` (behaviour change).** `HttpError::Status { status: 408 }` previously

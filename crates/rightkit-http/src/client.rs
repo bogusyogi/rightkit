@@ -1243,9 +1243,31 @@ impl Client {
         for (k, v) in headers {
             builder = builder.header(k.as_str(), v.as_str());
         }
-        let request = builder
-            .body(body.to_vec())
-            .map_err(|_| HttpError::InvalidRequest("request could not be built".into()))?;
+        // ureq frames a `Vec` body, even an empty one, with `Content-Length: 0`, which GET,
+        // HEAD and DELETE must not carry. `()` has no body and no body headers. POST, PUT and
+        // PATCH always send their body, so an empty one keeps `Content-Length: 0`.
+        let bodiless =
+            body.is_empty() && !matches!(method, Method::Post | Method::Put | Method::Patch);
+        if bodiless {
+            let request = builder
+                .body(())
+                .map_err(|_| HttpError::InvalidRequest("request could not be built".into()))?;
+            self.run_hop(request, total, redirect_hop)
+        } else {
+            let request = builder
+                .body(body.to_vec())
+                .map_err(|_| HttpError::InvalidRequest("request could not be built".into()))?;
+            self.run_hop(request, total, redirect_hop)
+        }
+    }
+
+    /// One hop with a built request: the policy checks, the proxy scope and the ureq call.
+    fn run_hop<S: ureq::AsSendBody>(
+        &self,
+        request: ureq::http::Request<S>,
+        total: Option<Duration>,
+        redirect_hop: bool,
+    ) -> Result<Raw, HttpError> {
         if let Some(reason) = &self.config_error {
             return Err(HttpError::InvalidRequest(reason.clone()));
         }

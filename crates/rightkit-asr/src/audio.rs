@@ -19,6 +19,13 @@ pub enum AudioSource {
     Pcm16k(Vec<f32>),
 }
 
+/// Read a WAV file into interleaved `f32` samples in `[-1, 1]` plus its
+/// [`WavSpec`] (sample rate, channel count, format).
+///
+/// Accepts 16-bit integer PCM and 32-bit float WAV; other formats are an
+/// `Error::Audio`. Nothing is resampled or downmixed: for Whisper input use
+/// [`load_wav_mono_16k`](crate::load_wav_mono_16k), which also requires 16 kHz
+/// and averages channels to mono. This is the function [`AudioSource::Wav`] uses.
 pub fn load_audio<P: AsRef<Path>>(path: P) -> Result<(Vec<f32>, WavSpec)> {
     let mut reader = WavReader::open(path)?;
     let spec = reader.spec();

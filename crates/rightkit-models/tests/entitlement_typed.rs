@@ -45,8 +45,7 @@ fn serve(script: Vec<Reply>) -> Mock {
     let seen = Arc::new(Mutex::new(Vec::new()));
     let log = seen.clone();
     std::thread::spawn(move || {
-        let mut answered = 0usize;
-        for stream in listener.incoming().flatten() {
+        for (answered, stream) in listener.incoming().flatten().enumerate() {
             let mut reader = BufReader::new(stream.try_clone().unwrap());
             let mut authorization = None;
             loop {
@@ -63,7 +62,6 @@ fn serve(script: Vec<Reply>) -> Mock {
             }
             log.lock().unwrap().push(authorization);
             let answer = script[answered.min(script.len() - 1)].clone();
-            answered += 1;
             let mut out = stream;
             if answer.status == 0 {
                 continue;
