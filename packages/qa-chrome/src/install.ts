@@ -10,6 +10,7 @@ import { homedir } from 'node:os';
 import path from 'node:path';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
+import { grantSandboxAccess } from './sandbox-access.js';
 
 /** Environment variable overriding the managed Chrome for Testing folder. */
 export const CHROME_FOR_TESTING_ROOT_ENV = 'RIGHTKIT_CHROME_FOR_TESTING_ROOT';
@@ -95,6 +96,8 @@ export async function installChromeForTesting(options: InstallChromeForTestingOp
   const versionDir = path.join(root, entry.version);
   const exe = managedExecutable(versionDir, key);
   if (existsSync(exe)) {
+    // Windows: an install made before the grant existed is repaired here.
+    grantSandboxAccess(versionDir, exe);
     log(`Chrome for Testing ${entry.version} already installed: ${exe}`);
     return { version: entry.version, executablePath: exe, downloaded: false };
   }
@@ -123,6 +126,8 @@ export async function installChromeForTesting(options: InstallChromeForTestingOp
     writeFileSync(path.join(out, 'install.json'), `${JSON.stringify({ version: entry.version, platform: key, channel, url: download.url, sha256, installedAt: new Date().toISOString() }, null, 2)}\n`);
     rmSync(versionDir, { recursive: true, force: true });
     renameSync(out, versionDir);
+    // Windows: an unpacked Chrome is unreadable to its own sandbox until this grant (see sandbox-access.ts).
+    grantSandboxAccess(versionDir, exe);
     log(`installed Chrome for Testing ${entry.version}: ${exe}`);
     return { version: entry.version, executablePath: exe, downloaded: true };
   } finally {

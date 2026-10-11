@@ -21,6 +21,7 @@ mod page;
 mod policy;
 mod proc;
 mod proxy;
+mod sandbox_access;
 mod session;
 
 pub use config::{
