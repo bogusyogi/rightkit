@@ -24,6 +24,10 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { consumeCrates, consumeNpm } from "./consume.mjs";
 import { checkNpmTarball, childEnv, integrity, loadSealed, PASS_STATUSES, sha, TOKEN_VARS } from "./upload.mjs";
 
+// A directory for tar's -C. Git for Windows puts a GNU tar on PATH that reads a backslash as an escape, so
+// "C:\\x\\y" is not found; both it and the system bsdtar accept forward slashes.
+const tarDir = (dir) => (process.platform === "win32" ? dir.replaceAll("\\", "/") : dir);
+
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 
 export const NPM_NAME = /^(?:@[a-z0-9][a-z0-9._-]{0,63}\/)?[a-z0-9][a-z0-9._-]{0,63}$/;
@@ -488,7 +492,7 @@ function packCrates({ units, root, outDir, env, spawn, metadata }) {
       if (!fs.existsSync(source)) throw new Error(`cargo package did not produce ${crate} under ${metadata.target_directory}/package`);
       const file = path.join(outDir, crate);
       fs.copyFileSync(source, file);
-      const unpack = spawn("tar", ["-xzf", crate, "-C", scratch], { cwd: outDir, encoding: "utf8", env: childEnv(env) });
+      const unpack = spawn("tar", ["-xzf", crate, "-C", tarDir(scratch)], { cwd: outDir, encoding: "utf8", env: childEnv(env) });
       if (unpack.error || unpack.status !== 0) throw new Error(`cannot unpack ${crate}`);
       const inner = path.join(scratch, `${unit.name}-${unit.version}`);
       const meta = readCargoMetadata(inner, spawn, ["--manifest-path", path.join(inner, "Cargo.toml")]);
@@ -536,7 +540,7 @@ export function crateSourceProblems({ file, unit, commit, scratchRoot, spawn = s
   const problems = [];
   const scratch = fs.mkdtempSync(path.join(scratchRoot, "rk-verify-crate-"));
   try {
-    const unpack = spawn("tar", ["-xzf", path.basename(file), "-C", scratch], { cwd: path.dirname(file), encoding: "utf8", env: childEnv(process.env) });
+    const unpack = spawn("tar", ["-xzf", path.basename(file), "-C", tarDir(scratch)], { cwd: path.dirname(file), encoding: "utf8", env: childEnv(process.env) });
     if (unpack.error || unpack.status !== 0) return [`${unit.name}: cannot unpack ${path.basename(file)}`];
     const inner = path.join(scratch, `${unit.name}-${unit.version}`);
     if (!fs.existsSync(inner)) return [`${unit.name}: ${path.basename(file)} has no ${unit.name}-${unit.version}/ root`];
