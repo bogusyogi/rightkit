@@ -13,7 +13,7 @@
 // holds no secret, refuses to run with one in its environment, and never publishes.
 //
 // Inputs arrive only through the environment (PUBLISH_REGISTRY, PUBLISH_UNITS, PUBLISH_DRY_RUN,
-// PUBLISH_ALLOW_HOST_EXCLUSION, PUBLISH_ALLOW_NO_TEST), never through the command line and never
+// PUBLISH_ALLOW_HOST_EXCLUSION, PUBLISH_ALLOW_NO_TEST, PUBLISH_ALLOW_IGNORED, PUBLISH_ALLOW_MISSING_ASSETS), never through the command line and never
 // through shell interpolation. Every unit name is matched against a strict pattern and against the
 // workspace before any process starts.
 import { spawnSync } from "node:child_process";
@@ -21,6 +21,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { consumeCrates, consumeNpm } from "./consume.mjs";
 import { checkNpmTarball, childEnv, integrity, loadSealed, PASS_STATUSES, sha, TOKEN_VARS } from "./upload.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
@@ -224,21 +225,25 @@ export function parseAllowList(text, registry, units, label) {
  *   allowHostExclusion, allowNoTest }
  * or throws one Error listing every refusal.
  */
-export async function planPublication({ registry, unitsText, dryRun, allowHostExclusionText = "", allowNoTestText = "", root = ROOT, fetchImpl = fetch, workspace }) {
+export async function planPublication({ registry, unitsText, dryRun, allowHostExclusionText = "", allowNoTestText = "", allowIgnoredText = "", allowMissingAssetsText = "", root = ROOT, fetchImpl = fetch, workspace }) {
   if (registry !== "npm" && registry !== "crates") throw new Error(`registry must be npm or crates, got ${JSON.stringify(registry)}`);
   const names = parseUnitNames(unitsText, registry);
   const allowHostExclusion = parseAllowList(allowHostExclusionText, registry, names, "allow_host_exclusion");
   const allowNoTest = parseAllowList(allowNoTestText, registry, names, "allow_no_test");
+  const allowIgnored = parseAllowList(allowIgnoredText, registry, names, "allow_ignored");
+  const allowMissingAssets = parseAllowList(allowMissingAssetsText, registry, names, "allow_missing_assets");
   const style = registry === "npm" ? "npm" : "cargo";
   const members = workspace ?? (registry === "npm" ? readNpmWorkspace(root) : readCrateWorkspace(root));
   const lookup = registry === "npm" ? npmRegistryVersions : crateRegistryVersions;
   const knownRed = readJson(path.join(root, "ci", "known-red.json"), {});
   const gateConfig = readJson(path.join(root, "ci", "gate.config.json"), {});
+  // Units whose tests need assets the publish workflow does not provision (see ci/asset-gated.json).
+  const assetGated = readJson(path.join(root, "ci", "asset-gated.json"), {})[registry === "npm" ? "npm" : "crates"] ?? {};
   const redKeys = new Set(Object.values(knownRed).flatMap((host) => Object.keys(host ?? {})));
   const errors = [];
   const where = registry === "npm" ? "npm" : "crates.io";
 
-  const needed = { exclusion: new Set(), noTest: new Set() };
+  const needed = { exclusion: new Set(), noTest: new Set(), assets: new Set() };
   const requested = [];
   for (const name of names) {
     const unit = members.get(name);
@@ -258,8 +263,13 @@ export async function planPublication({ registry, unitsText, dryRun, allowHostEx
       needed.noTest.add(name);
       if (!allowNoTest.includes(name)) errors.push(`${name}: package.json has no test script, so nothing would verify it; name it in allow_no_test to publish it untested`);
     }
+    if (Object.hasOwn(assetGated, name)) {
+      needed.assets.add(name);
+      if (!allowMissingAssets.includes(name)) errors.push(`${name}: its tests need assets this workflow does not provision (${assetGated[name]}); name it in allow_missing_assets to publish it with those tests skipped and recorded`);
+    }
     requested.push(unit);
   }
+  for (const name of allowMissingAssets) if (!needed.assets.has(name)) errors.push(`allow_missing_assets names ${name}, which ci/asset-gated.json does not list`);
   for (const name of allowHostExclusion) if (!needed.exclusion.has(name)) errors.push(`allow_host_exclusion names ${name}, which no host excludes`);
   for (const name of allowNoTest) if (!needed.noTest.has(name)) errors.push(`allow_no_test names ${name}, which has a test script or is not an npm package of this request`);
 
@@ -332,6 +342,8 @@ export async function planPublication({ registry, unitsText, dryRun, allowHostEx
     skipped,
     allowHostExclusion: allowHostExclusion.filter((n) => planned.has(n)),
     allowNoTest: allowNoTest.filter((n) => planned.has(n)),
+    allowIgnored: allowIgnored.filter((n) => planned.has(n)),
+    allowMissingAssets: allowMissingAssets.filter((n) => planned.has(n)),
   };
 }
 
@@ -357,7 +369,7 @@ function dryRunInput(env) {
 }
 
 async function commandPlan(env = process.env) {
-  const plan = await planPublication({ registry: env.PUBLISH_REGISTRY ?? "", unitsText: env.PUBLISH_UNITS ?? "", dryRun: dryRunInput(env), allowHostExclusionText: env.PUBLISH_ALLOW_HOST_EXCLUSION ?? "", allowNoTestText: env.PUBLISH_ALLOW_NO_TEST ?? "" });
+  const plan = await planPublication({ registry: env.PUBLISH_REGISTRY ?? "", unitsText: env.PUBLISH_UNITS ?? "", dryRun: dryRunInput(env), allowHostExclusionText: env.PUBLISH_ALLOW_HOST_EXCLUSION ?? "", allowNoTestText: env.PUBLISH_ALLOW_NO_TEST ?? "", allowIgnoredText: env.PUBLISH_ALLOW_IGNORED ?? "", allowMissingAssetsText: env.PUBLISH_ALLOW_MISSING_ASSETS ?? "" });
   const names = new Set(plan.units.map((u) => u.name));
   const rows = [
     `## Publish plan (${plan.registry}, ${plan.dryRun ? "dry run" : "real publish"})`, "",
@@ -375,6 +387,8 @@ async function commandPlan(env = process.env) {
     skipped: plan.skipped.map((u) => u.name).join(" "),
     allow_host_exclusion: plan.allowHostExclusion.filter((n) => names.has(n)).join(" "),
     allow_no_test: plan.allowNoTest.filter((n) => names.has(n)).join(" "),
+    allow_ignored: plan.allowIgnored.filter((n) => names.has(n)).join(" "),
+    allow_missing_assets: plan.allowMissingAssets.filter((n) => names.has(n)).join(" "),
   }, env);
 }
 
@@ -556,20 +570,31 @@ function gateEvidence(env) {
  * checks the npm tarballs (name, version, entry points, provenance repository) or the crate sources,
  * requires the gate's explicit per-unit evidence, and binds all of it to the manifest hash.
  */
-export function commandVerify({ env = process.env, spawn = spawnSync, host = hostName() } = {}) {
+export function commandVerify({ env = process.env, spawn = spawnSync, host = hostName(), consume = { npm: consumeNpm, crates: consumeCrates } } = {}) {
   requireNoTokens(env);
   const registry = env.PUBLISH_REGISTRY;
   const commit = requireActionsOnMain(env, spawn);
   const dir = packDir(env);
-  const { manifest, manifestSha256, problems } = loadSealed({ packDir: dir, registry, unitsText: env.PUBLISH_UNITS });
+  const { manifest, manifestSha256, problems } = loadSealed({ packDir: dir, registry, unitsText: env.PUBLISH_UNITS, run: { runId: env.GITHUB_RUN_ID, runAttempt: env.GITHUB_RUN_ATTEMPT } });
+  if (!/^\d+$/.test(env.GITHUB_RUN_ATTEMPT ?? "")) problems.push("GITHUB_RUN_ATTEMPT is not set; the receipt cannot be bound to this attempt");
   if (manifest && manifest.commit !== commit) problems.push(`sealed commit ${manifest.commit} is not the dispatched commit ${commit}`);
   const hostId = host;
   if (!HOSTS.includes(hostId)) problems.push(`verify runs on macOS or Windows, not ${hostId}`);
   const allowHostExclusion = String(env.PUBLISH_ALLOW_HOST_EXCLUSION ?? "").split(/\s+/).filter(Boolean);
   const allowNoTest = String(env.PUBLISH_ALLOW_NO_TEST ?? "").split(/\s+/).filter(Boolean);
   const evidence = gateEvidence(env);
+  const splitList = (text) => String(text ?? "").split(/\s+/).filter(Boolean);
+  const allowIgnored = splitList(env.PUBLISH_ALLOW_IGNORED); const allowMissingAssets = splitList(env.PUBLISH_ALLOW_MISSING_ASSETS);
   if (evidence.host !== hostId || evidence.registry !== registry || evidence.sha !== commit) problems.push(`gate evidence is for ${evidence.registry} on ${evidence.host} at ${evidence.sha}, not ${registry} on ${hostId} at ${commit}`);
   const rows = [];
+  const scratchRoot = env.RUNNER_TEMP || os.tmpdir();
+  // Consumer verification: install/extract the SEALED artifacts together and use them as a consumer would.
+  let consumed = new Map();
+  if (manifest && problems.length === 0) {
+    const excluded = (evidence.units ?? []).filter((u) => u.status === "allowed-exclusion").map((u) => u.name);
+    const common = { units: manifest.units, packDir: dir, scratchRoot, spawn, env };
+    try { consumed = registry === "npm" ? consume.npm(common) : consume.crates({ ...common, excluded, uploadMetadata: buildCrateUploadMetadata }); } catch (error) { for (const unit of manifest.units) consumed.set(unit.name, { problems: [`${unit.name}: consumer verification crashed: ${error.message}`], report: {} }); }
+  }
   for (const unit of manifest?.units ?? []) {
     const file = path.join(dir, unit.file);
     let unitProblems;
@@ -578,14 +603,17 @@ export function commandVerify({ env = process.env, spawn = spawnSync, host = hos
         ? checkNpmTarball({ file, name: unit.name, version: unit.version, dir: unit.dir, spawn }).problems
         : crateSourceProblems({ file, unit, commit, scratchRoot: env.RUNNER_TEMP || os.tmpdir(), spawn });
     } catch (error) { unitProblems = [`${unit.name}: ${error.message}`]; }
+    const consumer = consumed.get(unit.name) ?? { problems: [], report: {}, missing: true };
+    const consumerOk = !consumer.missing && consumer.problems.length === 0;
+    unitProblems = [...unitProblems, ...consumer.problems];
     problems.push(...unitProblems);
     const row = (evidence.units ?? []).find((u) => u.name === unit.name);
     if (!row) problems.push(`${unit.name}: the gate left no evidence for it on ${hostId}`);
     else if (!PASS_STATUSES.includes(row.status)) problems.push(`${unit.name}: gate status ${JSON.stringify(row.status)} on ${hostId} is not a pass`);
-    rows.push({ name: unit.name, version: unit.version, file: unit.file, sha256: unit.sha256, bytesVerified: unitProblems.length === 0, status: row?.status ?? "missing", steps: row?.steps ?? [] });
+    rows.push({ name: unit.name, version: unit.version, file: unit.file, sha256: unit.sha256, bytesVerified: unitProblems.length === 0, status: row?.status ?? "missing", executed: row?.executed ?? 0, ignored: row?.ignored ?? 0, skipped: row?.skipped ?? 0, consumer: { verified: consumerOk, ...consumer.report }, steps: row?.steps ?? [] });
   }
   if (problems.length) throw new Error(`verification of the sealed artifacts failed on ${hostId}:\n  - ${problems.join("\n  - ")}`);
-  const receipt = { schema: 1, kind: "verify", host: hostId, registry, commit, manifestSha256, repository: env.GITHUB_REPOSITORY ?? "", runId: env.GITHUB_RUN_ID ?? "", runAttempt: env.GITHUB_RUN_ATTEMPT ?? "", allowHostExclusion, allowNoTest, units: rows };
+  const receipt = { schema: 1, kind: "verify", host: hostId, registry, commit, manifestSha256, manifestRunId: manifest.runId, manifestRunAttempt: manifest.runAttempt, repository: env.GITHUB_REPOSITORY ?? "", runId: env.GITHUB_RUN_ID ?? "", runAttempt: env.GITHUB_RUN_ATTEMPT ?? "", allowHostExclusion, allowNoTest, allowIgnored, allowMissingAssets, units: rows };
   const out = path.join(env.RUNNER_TEMP || os.tmpdir(), "verify-receipt");
   fs.mkdirSync(out, { recursive: true });
   fs.writeFileSync(path.join(out, `verify-${hostId}.json`), `${JSON.stringify(receipt, null, 2)}\n`);

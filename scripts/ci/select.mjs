@@ -130,13 +130,20 @@ export function changedConfigCrates(previous, next) {
  * `allowHostExclusion` names it; an npm package without a `test` script throws unless `allowNoTest`
  * names it; an allow entry naming a unit that is not in `units` throws.
  */
-export function selectUnits({ registry, units, members = [], packages = [], host = null, config = {}, allowHostExclusion = [], allowNoTest = [] }) {
+export function selectUnits({ registry, units, members = [], packages = [], host = null, config = {}, allowHostExclusion = [], allowNoTest = [], allowIgnored = [], allowMissingAssets = [], assetGated = {} }) {
   if (!Array.isArray(units) || units.length === 0) throw new Error("no units named");
   const unique = [...new Set(units)];
-  for (const [label, list] of [["allow_host_exclusion", allowHostExclusion], ["allow_no_test", allowNoTest]]) {
+  for (const [label, list] of [["allow_host_exclusion", allowHostExclusion], ["allow_no_test", allowNoTest], ["allow_ignored", allowIgnored], ["allow_missing_assets", allowMissingAssets]]) {
     const stray = list.filter((name) => !unique.includes(name));
     if (stray.length) throw new Error(`${label} names ${stray.join(", ")}, which are not units of this request`);
   }
+  // A unit whose tests need assets this workflow does not provision (ci/asset-gated.json) runs only when
+  // the request names it in allow_missing_assets; naming any other unit there is an error.
+  const gated = assetGated?.[registry] ?? {};
+  const unnamed = unique.filter((name) => Object.hasOwn(gated, name) && !allowMissingAssets.includes(name));
+  if (unnamed.length) throw new Error(`${unnamed.join(", ")} need assets the publish workflow does not provision (ci/asset-gated.json); name each in allow_missing_assets`);
+  const notGated = allowMissingAssets.filter((name) => !Object.hasOwn(gated, name));
+  if (notGated.length) throw new Error(`allow_missing_assets names ${notGated.join(", ")}, which ci/asset-gated.json does not list for ${registry}`);
   if (registry === "crates") {
     const known = new Set(members.map((m) => m.name));
     const unknown = unique.filter((name) => !known.has(name));

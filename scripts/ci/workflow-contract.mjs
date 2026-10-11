@@ -10,6 +10,14 @@ import { parseYaml } from "./workflow-yaml.mjs";
 export const VERIFY_HOSTS = ["windows-2025", "xcode-27"];
 const ALLOWED_UPLOAD_ACTIONS = ["actions/checkout@", "actions/setup-node@", "actions/download-artifact@"];
 const ALLOWED_UPLOAD_RUN = ["node scripts/ci/upload.mjs run"];
+// Conditions are compared as exact strings (after trimming), never matched by pattern: an appended
+// `|| true`, a reordered operand or a different operator is a different condition.
+export const UPLOAD_IF = "${{ needs.plan.outputs.count != '0' && needs.plan.outputs.dry_run == 'false' && github.ref == 'refs/heads/main' }}";
+export const NPM_STEP_IF = "${{ needs.plan.outputs.registry == 'npm' }}";
+export const CRATES_STEP_IF = "${{ needs.plan.outputs.registry == 'crates' }}";
+export const TOKEN_ENV = { NODE_AUTH_TOKEN: "${{ secrets.NPM_TOKEN }}", CARGO_REGISTRY_TOKEN: "${{ secrets.CARGO_REGISTRY_TOKEN }}" };
+const SEAL_CHECK_RUN = "node scripts/ci/upload.mjs run --dry-run";
+const SEAL_CHECK_ACTIONS = ["actions/checkout@", "actions/setup-node@", "actions/download-artifact@", "actions/upload-artifact@"];
 const ALL_JOBS = ["guard", "plan", "pack", "verify", "seal-check", "upload"];
 
 const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
@@ -26,6 +34,27 @@ function findKey(value, key, trail = "") {
   return hits;
 }
 
+/**
+ * Every place a string value or a KEY in `value` matches `pattern`. Context names are case-insensitive
+ * and cannot be built dynamically, so one word-match on `secrets` finds every expression form:
+ * secrets.NAME, secrets['NAME'], secrets["NAME"], toJSON(secrets), a bare `secrets`, ${{ secrets }} at
+ * workflow, job or step level, and the `secrets: inherit` key.
+ */
+export function findMatches(value, pattern, trail = "") {
+  const hits = [];
+  if (typeof value === "string") { if (pattern.test(value)) hits.push({ path: trail, text: value }); }
+  else if (Array.isArray(value)) value.forEach((v, i) => hits.push(...findMatches(v, pattern, `${trail}[${i}]`)));
+  else if (value && typeof value === "object") {
+    for (const [k, v] of Object.entries(value)) {
+      if (pattern.test(k)) hits.push({ path: `${trail}.${k}`, text: k });
+      hits.push(...findMatches(v, pattern, `${trail}.${k}`));
+    }
+  }
+  return hits;
+}
+export const SECRET_PATTERN = /\bsecrets\b/i;
+export const ID_TOKEN_PATTERN = /id-token/i;
+
 /** Throws one Error listing every violated property. `doc` is parseYaml output. */
 export function assertPublishDoc(doc, name = "publish.yml") {
   const problems = [];
@@ -40,7 +69,8 @@ export function assertPublishDoc(doc, name = "publish.yml") {
   const { guard, plan, pack, verify, upload } = jobs;
   const sealCheck = jobs["seal-check"];
   const rest = { ...doc }; delete rest.jobs;
-  check(!/secrets\.|id-token/.test(JSON.stringify(rest)), "no secret or id-token outside a job");
+  check(findMatches(rest, SECRET_PATTERN).length === 0 && findMatches(rest, ID_TOKEN_PATTERN).length === 0, `no secret or id-token outside a job (${[...findMatches(rest, SECRET_PATTERN), ...findMatches(rest, ID_TOKEN_PATTERN)].map((h) => h.path).join(", ")})`);
+  check(doc?.env === undefined && doc?.defaults === undefined, "no workflow-level env or defaults");
   check(findKey(doc, "continue-on-error").length === 0, `continue-on-error is forbidden (${findKey(doc, "continue-on-error").join(", ")})`);
   check(findKey(doc, "pull_request_target").length === 0, "pull_request_target is forbidden");
 
@@ -70,6 +100,8 @@ export function assertPublishDoc(doc, name = "publish.yml") {
   const gateAt = verifyRuns.findIndex((r) => /node scripts\/ci\/gate\.mjs --registry /.test(r) && /--allow-host-exclusion/.test(r) && /--allow-no-test/.test(r));
   const receiptAt = verifyRuns.findIndex((r) => /node scripts\/ci\/publish\.mjs verify/.test(r));
   check(gateAt >= 0 && receiptAt > gateAt, "verify must run the unit gate, then publish.mjs verify, on every host");
+  const chromeStep = stepsOf(verify).find((s) => /provision-chrome\.mjs/.test(s.run ?? ""));
+  check(chromeStep?.run?.trim() === "node scripts/ci/provision-chrome.mjs" && chromeStep?.env?.PUBLISH_DRY_RUN === "${{ needs.plan.outputs.dry_run }}", "the Chrome pin step must run the provision script with PUBLISH_DRY_RUN taken from the plan's dry_run output (an unpinned download may be recorded only in a dry run)");
   check(stepsOf(verify).some((s) => /actions\/download-artifact@/.test(s.uses ?? "") && s.with?.name === "publish-packed"), "verify must download the sealed publish-packed artifact");
   check(stepsOf(pack).some((s) => /node scripts\/ci\/publish\.mjs pack/.test(s.run ?? "")) && stepsOf(pack).some((s) => /actions\/upload-artifact@/.test(s.uses ?? "") && s.with?.name === "publish-packed"), "pack must seal and upload publish-packed");
   check(stepsOf(plan).some((s) => /node scripts\/ci\/workflow-contract\.mjs/.test(s.run ?? "")), "plan must run this contract before planning");
@@ -77,36 +109,49 @@ export function assertPublishDoc(doc, name = "publish.yml") {
   // Secrets and id-token exist only in upload, and nothing else is privileged.
   for (const [jobName, job] of Object.entries(jobs)) {
     if (jobName === "upload") continue;
-    const text = JSON.stringify(job);
-    check(!/secrets\./.test(text), `${jobName} must not reference a secret`);
-    check(!/id-token/.test(text), `${jobName} must not request id-token`);
+    const secretHits = findMatches(job, SECRET_PATTERN); const idHits = findMatches(job, ID_TOKEN_PATTERN);
+    check(secretHits.length === 0, `${jobName} must not reference the secrets context in any form (${secretHits.map((h) => h.path).join(", ")})`);
+    check(idHits.length === 0, `${jobName} must not request id-token (${idHits.map((h) => h.path).join(", ")})`);
     check(job.environment === undefined, `${jobName} must not use an environment`);
+    check(job.env === undefined && job.uses === undefined && job.secrets === undefined, `${jobName} has no job-level env, uses or secrets`);
     check(job.permissions === undefined || same(job.permissions, { contents: "read" }), `${jobName} permissions must be contents: read`);
   }
   check(upload?.environment === "release", "upload must use environment: release");
   check(same(upload?.permissions, { contents: "read", "id-token": "write" }), "upload permissions must be exactly contents: read and id-token: write");
-  const gate = String(upload?.if ?? "");
-  check(gate.includes("needs.plan.outputs.dry_run == 'false'") && gate.includes("github.ref == 'refs/heads/main'"), "upload must run only for a real publish from main");
-  check(!/\b(always|failure|cancelled|success)\(/.test(gate), "upload's condition must not override the needs result");
+  check(typeof upload?.if === "string" && upload.if.trim() === UPLOAD_IF, `upload's condition must be exactly ${UPLOAD_IF}`);
   check(upload?.["runs-on"] === "ubuntu-24.04", "upload runs on a fresh hosted runner");
+  const uploadSteps = stepsOf(upload);
+  const secretRefs = findMatches(upload, SECRET_PATTERN);
   const tokenSteps = [];
-  for (const step of stepsOf(upload)) {
+  uploadSteps.forEach((step, i) => {
     if (step.uses) check(ALLOWED_UPLOAD_ACTIONS.some((a) => step.uses.startsWith(a)) || /^actions\/upload-artifact@/.test(step.uses), `upload may not use ${step.uses}`);
     if (step.run !== undefined) check(ALLOWED_UPLOAD_RUN.includes(step.run.trim()), `upload may run only ${ALLOWED_UPLOAD_RUN.join(", ")}, not ${JSON.stringify(step.run.trim().slice(0, 60))}`);
-    if (/secrets\./.test(JSON.stringify(step))) tokenSteps.push(step);
-  }
-  const checkout = stepsOf(upload).find((s) => /^actions\/checkout@/.test(s.uses ?? ""));
+    const own = secretRefs.filter((h) => h.path.startsWith(`.steps[${i}]`));
+    if (own.length) tokenSteps.push({ step, i, own });
+    // Step conditions are exact: only the two token steps (own registry) and the always-run receipt upload may have one.
+    if (step.env?.NODE_AUTH_TOKEN !== undefined || step.env?.CARGO_REGISTRY_TOKEN !== undefined || own.length) return;
+    if (/^actions\/upload-artifact@/.test(step.uses ?? "")) check(step.if === undefined || step.if.trim() === "always()", `upload step ${i} may carry no condition other than always()`);
+    else check(step.if === undefined, `upload step ${i} (${step.name ?? step.uses ?? "run"}) may carry no condition`);
+  });
+  check(secretRefs.every((h) => /^\.steps\[\d+\]\.env\.(NODE_AUTH_TOKEN|CARGO_REGISTRY_TOKEN)$/.test(h.path)), `the secrets context may appear only as the value of NODE_AUTH_TOKEN or CARGO_REGISTRY_TOKEN in a step env (found ${secretRefs.map((h) => h.path).join(", ")})`);
+  check(upload?.env === undefined && upload?.defaults === undefined && upload?.uses === undefined && upload?.secrets === undefined, "upload has no job-level env, defaults, uses or secrets");
+  const checkout = uploadSteps.find((s) => /^actions\/checkout@/.test(s.uses ?? ""));
   check(checkout?.with?.["sparse-checkout"] === "scripts/ci/upload.mjs" && checkout?.with?.["sparse-checkout-cone-mode"] === "false", "upload must check out scripts/ci/upload.mjs and nothing else");
-  const byVar = Object.fromEntries(tokenSteps.flatMap((s) => Object.entries(s.env ?? {}).filter(([, v]) => /secrets\./.test(v)).map(([k, v]) => [k, { value: v, step: s }])));
-  check(same(sorted(Object.keys(byVar)), ["CARGO_REGISTRY_TOKEN", "NODE_AUTH_TOKEN"]), "upload must read exactly NODE_AUTH_TOKEN and CARGO_REGISTRY_TOKEN");
-  check(byVar.NODE_AUTH_TOKEN?.value === "${{ secrets.NPM_TOKEN }}" && byVar.CARGO_REGISTRY_TOKEN?.value === "${{ secrets.CARGO_REGISTRY_TOKEN }}", "tokens must come from secrets.NPM_TOKEN and secrets.CARGO_REGISTRY_TOKEN");
-  check(tokenSteps.length === 2 && tokenSteps.every((s) => Object.values(s.env ?? {}).filter((v) => /secrets\./.test(v)).length === 1), "each upload step may read exactly one token");
-  check(byVar.NODE_AUTH_TOKEN?.step?.if === "${{ needs.plan.outputs.registry == 'npm' }}" && byVar.CARGO_REGISTRY_TOKEN?.step?.if === "${{ needs.plan.outputs.registry == 'crates' }}", "each token step must run only for its own registry");
-  check(tokenSteps.every((s) => s.run?.trim() === "node scripts/ci/upload.mjs run"), "a token step may only run the upload script");
+  const tokenEnv = (vars) => tokenSteps.filter(({ step }) => Object.keys(step.env ?? {}).some((k) => vars.includes(k)));
+  check(tokenSteps.length === 2, "upload must have exactly two steps that read a secret (one per registry)");
+  const npmStep = tokenEnv(["NODE_AUTH_TOKEN"])[0]?.step; const cratesStep = tokenEnv(["CARGO_REGISTRY_TOKEN"])[0]?.step;
+  check(npmStep && npmStep.env.NODE_AUTH_TOKEN === TOKEN_ENV.NODE_AUTH_TOKEN && !("CARGO_REGISTRY_TOKEN" in npmStep.env), "the npm step must read exactly NODE_AUTH_TOKEN from secrets.NPM_TOKEN");
+  check(cratesStep && cratesStep.env.CARGO_REGISTRY_TOKEN === TOKEN_ENV.CARGO_REGISTRY_TOKEN && !("NODE_AUTH_TOKEN" in cratesStep.env), "the crates step must read exactly CARGO_REGISTRY_TOKEN from secrets.CARGO_REGISTRY_TOKEN");
+  check(tokenSteps.every(({ own }) => own.length === 1), "each upload step may read exactly one token");
+  check(npmStep?.if?.trim() === NPM_STEP_IF && cratesStep?.if?.trim() === CRATES_STEP_IF, "each token step must run only for its own registry (exact condition)");
+  check(tokenSteps.every(({ step }) => step.run?.trim() === "node scripts/ci/upload.mjs run"), "a token step may only run the upload script");
 
   // The dry run: same script, no secret, no id-token, nothing sent.
-  check(stepsOf(sealCheck).some((s) => s.run?.trim() === "node scripts/ci/upload.mjs run --dry-run"), "seal-check must run the upload script with --dry-run");
-  check(stepsOf(sealCheck).every((s) => !/upload\.mjs run\s*$/.test(s.run ?? "")), "seal-check must never run the upload script without --dry-run");
+  const dryStep = stepsOf(sealCheck).find((s) => s.run?.trim() === SEAL_CHECK_RUN);
+  check(dryStep && dryStep.if === undefined, "seal-check must run the upload script with --dry-run, unconditionally");
+  check(stepsOf(sealCheck).every((s) => s.run === undefined || s.run.trim() === SEAL_CHECK_RUN), `seal-check may run only ${SEAL_CHECK_RUN}`);
+  check(stepsOf(sealCheck).every((s) => s.run !== undefined || SEAL_CHECK_ACTIONS.some((a) => (s.uses ?? "").startsWith(a))), "seal-check may use only checkout, setup-node and the artifact actions");
+  check(plan?.outputs?.dry_run === "${{ steps.plan.outputs.dry_run }}", "plan's dry_run output must be the plan step's");
   const sealCheckout = stepsOf(sealCheck).find((s) => /^actions\/checkout@/.test(s.uses ?? ""));
   check(sealCheckout?.with?.["sparse-checkout"] === "scripts/ci/upload.mjs", "seal-check must check out only the upload script");
 
@@ -173,6 +218,35 @@ export const MUTATIONS = [
   ["verify skips the receipt", edit((j) => { j.verify.steps = j.verify.steps.filter((s) => !/publish\.mjs verify/.test(s.run ?? "")); })],
   ["verify may be skipped by a condition", edit((j) => { j.verify.if = "${{ always() }}"; })],
   ["a job has no timeout", edit((j) => { delete j.pack["timeout-minutes"]; })],
+  // Condition and secret-expression bypasses (each is valid GitHub expression syntax).
+  ["upload condition gains || true after the expression", edit((j) => { j.upload.if = `${j.upload.if} || true`; })],
+  ["upload condition gains || true inside the expression", edit((j) => { j.upload.if = j.upload.if.replace(" }}", " || true }}"); })],
+  ["upload condition is wrapped in a negation", edit((j) => { j.upload.if = j.upload.if.replace("${{ ", "${{ !(!(").replace(" }}", ")) }}"); })],
+  ["upload condition drops the count test", edit((j) => { j.upload.if = "${{ needs.plan.outputs.dry_run == 'false' && github.ref == 'refs/heads/main' }}"; })],
+  ["a token step condition gains || true", edit((j) => { const s = j.upload.steps.find((x) => x.env?.NODE_AUTH_TOKEN); s.if = s.if.replace(" }}", " || true }}"); })],
+  ["the receipt step gains a condition other than always()", edit((j) => { j.upload.steps.at(-1).if = "${{ success() }}"; })],
+  ["an upload checkout is conditional", edit((j) => { j.upload.steps[0].if = "${{ false }}"; })],
+  ["pack reads a bracket-form secret", edit((j) => { j.pack.steps.at(-2).env = { ...(j.pack.steps.at(-2).env ?? {}), T: "${{ secrets['CARGO_REGISTRY_TOKEN'] }}" }; })],
+  ["verify reads a double-quoted bracket-form secret", edit((j) => { j.verify.steps.at(-3).env = { ...(j.verify.steps.at(-3).env ?? {}), T: '${{ secrets["CARGO_REGISTRY_TOKEN"] }}' }; })],
+  ["verify reads toJSON(secrets)", edit((j) => { j.verify.steps.at(-3).env = { ...(j.verify.steps.at(-3).env ?? {}), ALL: "${{ toJSON(secrets) }}" }; })],
+  ["pack reads the bare secrets context", edit((j) => { j.pack.steps.at(-2).env = { ...(j.pack.steps.at(-2).env ?? {}), ALL: "${{ secrets }}" }; })],
+  ["seal-check reads a mixed-case secret", edit((j) => { j["seal-check"].steps.find((s) => s.run).env.T = "${{ Secrets.NPM_TOKEN }}"; })],
+  ["a verify step condition reads a secret", edit((j) => { j.verify.steps[1].if = "${{ secrets.NPM_TOKEN != '' }}"; })],
+  ["a verify checkout takes a secret as with.token", edit((j) => { j.verify.steps[0].with.token = "${{ secrets.NPM_TOKEN }}"; })],
+  ["plan calls secrets: inherit", edit((j) => { j.plan.secrets = "inherit"; })],
+  ["a job calls a reusable workflow", edit((j) => { j.pack.uses = "./.github/workflows/other.yml"; })],
+  ["workflow-level env holds a secret", edit((_, d) => { d.env = { T: "${{ secrets.NPM_TOKEN }}" }; })],
+  ["a job-level env holds a secret", edit((j) => { j["seal-check"].env = { T: "${{ secrets.NPM_TOKEN }}" }; })],
+  ["the npm token step reads a bracket-form secret", edit((j) => { j.upload.steps.find((x) => x.env?.NODE_AUTH_TOKEN).env.NODE_AUTH_TOKEN = "${{ secrets['NPM_TOKEN'] }}"; })],
+  ["an upload step reads toJSON(secrets)", edit((j) => { j.upload.steps.splice(2, 0, { name: "leak", env: { ALL: "${{ toJSON(secrets) }}" } }); })],
+  ["the download step takes a secret token", edit((j) => { j.upload.steps.find((x) => /download-artifact/.test(x.uses ?? "")).with["github-token"] = "${{ secrets.NPM_TOKEN }}"; })],
+  ["seal-check runs the uploader without --dry-run after the dry run", edit((j) => { const s = j["seal-check"].steps.find((x) => x.run); s.run = `${s.run.trim()} || node scripts/ci/upload.mjs run`; })],
+  ["seal-check dry run is conditional", edit((j) => { j["seal-check"].steps.find((x) => x.run).if = "${{ false }}"; })],
+  ["seal-check adds a second run step", edit((j) => { j["seal-check"].steps.push({ name: "extra", run: "echo hi" }); })],
+  ["seal-check uses an unlisted action", edit((j) => { j["seal-check"].steps.splice(2, 0, actionStep("pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86")); })],
+  ["the Chrome pin step is told it is always a dry run", edit((j) => { j.verify.steps.find((x) => /provision-chrome/.test(x.run ?? "")).env.PUBLISH_DRY_RUN = "true"; })],
+  ["the Chrome pin step loses its dry-run flag", edit((j) => { delete j.verify.steps.find((x) => /provision-chrome/.test(x.run ?? "")).env.PUBLISH_DRY_RUN; })],
+  ["plan's dry_run output is rewritten", edit((j) => { j.plan.outputs.dry_run = "false"; })],
 ];
 
 /** Returns the names of mutations the contract failed to reject (empty when every one is caught). */

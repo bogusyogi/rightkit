@@ -266,7 +266,7 @@ fn watchdog_fires_once_per_stall() {
     );
     assert_eq!(
         instance::service_name("dev.rightapps.viewright"),
-        "dev.rightapps.viewright-shell"
+        "dev-rightapps-viewright-shell"
     );
 }
 

@@ -25,7 +25,7 @@ export const NPM_REGISTRY_URL = "https://registry.npmjs.org/";
 export const CRATES_PUBLISH_URL = "https://crates.io/api/v1/crates/new";
 export const CRATES_INDEX_URL = "https://index.crates.io/";
 export const TOKEN_VARS = ["NODE_AUTH_TOKEN", "CARGO_REGISTRY_TOKEN"];
-export const PASS_STATUSES = ["pass", "allowed-exclusion", "allowed-no-test"];
+export const PASS_STATUSES = ["pass", "allowed-skips", "allowed-exclusion", "allowed-no-test"];
 const USER_AGENT = `rightkit-publish (https://github.com/${REPOSITORY})`;
 const SAFE_FILE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,200}$/;
 
@@ -128,7 +128,7 @@ export function listFiles(root) {
 }
 
 /** Read manifest.json and re-hash every sealed file. Returns { manifest, manifestSha256, problems }. */
-export function loadSealed({ packDir, registry, unitsText }) {
+export function loadSealed({ packDir, registry, unitsText, run = {} }) {
   const problems = [];
   const manifestFile = path.join(packDir, "manifest.json");
   if (!fs.existsSync(manifestFile)) return { manifest: null, manifestSha256: null, problems: [`no manifest.json in ${packDir}`] };
@@ -139,6 +139,13 @@ export function loadSealed({ packDir, registry, unitsText }) {
   if (manifest.schema !== 1) problems.push(`unknown manifest schema ${manifest.schema}`);
   if (manifest.registry !== registry) problems.push(`manifest registry ${manifest.registry} is not ${registry}`);
   if (!isSha(manifest.commit)) problems.push("manifest.commit is not a 40-hex commit");
+  // The sealed artifact must come from THIS run (downloads default to the current run; this makes it checked, not assumed).
+  if (run.runId !== undefined) {
+    if (!/^\d+$/.test(String(manifest.runId ?? ""))) problems.push("manifest.runId is missing; the sealed bytes are not bound to a run");
+    else if (String(manifest.runId) !== String(run.runId)) problems.push(`manifest run ${manifest.runId} is not this run ${run.runId}`);
+    if (!/^\d+$/.test(String(manifest.runAttempt ?? ""))) problems.push("manifest.runAttempt is missing");
+    else if (run.runAttempt !== undefined && Number(manifest.runAttempt) > Number(run.runAttempt)) problems.push(`manifest run attempt ${manifest.runAttempt} is later than this attempt ${run.runAttempt}`);
+  }
   const names = (manifest.units ?? []).map((u) => u.name);
   const wanted = splitNames(unitsText);
   if (JSON.stringify(names) !== JSON.stringify(wanted)) problems.push(`sealed units [${names.join(", ")}] differ from the planned units [${wanted.join(", ")}]`);
@@ -171,6 +178,9 @@ export function checkReceipts({ manifest, manifestSha256, receiptsDir, allow = {
     try { const doc = JSON.parse(fs.readFileSync(file, "utf8")); if (doc?.kind === "verify") docs.push({ file, doc }); } catch { problems.push(`unreadable receipt ${path.basename(file)}`); }
   }
   const allowExcl = new Set(allow.hostExclusion ?? []); const allowNoTest = new Set(allow.noTest ?? []);
+  const allowIgnored = new Set(allow.ignored ?? []); const allowAssets = new Set(allow.missingAssets ?? []);
+  const sameSet = (a, b) => JSON.stringify([...(a ?? [])].sort()) === JSON.stringify([...b].sort());
+  if (!run.runId) problems.push("this run's id is unknown; receipts cannot be bound to it");
   const statusByUnit = new Map(manifest.units.map((u) => [u.name, []]));
   for (const host of REQUIRED_HOSTS) {
     const mine = docs.filter((d) => d.doc.host === host);
@@ -182,8 +192,20 @@ export function checkReceipts({ manifest, manifestSha256, receiptsDir, allow = {
     if (doc.registry !== manifest.registry) bad(`registry ${doc.registry} is not ${manifest.registry}`);
     if (doc.manifestSha256 !== manifestSha256) bad("it verified a different manifest than the one being uploaded");
     if (run.runId && String(doc.runId) !== String(run.runId)) bad(`run ${doc.runId} is not this run ${run.runId}`);
-    if (JSON.stringify([...(doc.allowHostExclusion ?? [])].sort()) !== JSON.stringify([...allowExcl].sort())) bad("it ran with different allow_host_exclusion than this request");
-    if (JSON.stringify([...(doc.allowNoTest ?? [])].sort()) !== JSON.stringify([...allowNoTest].sort())) bad("it ran with different allow_no_test than this request");
+    // Attempts: a re-run may reuse the sealed bytes (same run id, earlier attempt), but a receipt can neither
+    // predate the manifest's attempt nor come from an attempt that has not happened, and it must name the
+    // manifest attempt it verified.
+    const attempt = Number(doc.runAttempt);
+    if (!Number.isInteger(attempt) || attempt < 1) bad(`run attempt ${JSON.stringify(doc.runAttempt)} is not a positive integer`);
+    else {
+      if (manifest.runAttempt !== undefined && attempt < Number(manifest.runAttempt)) bad(`run attempt ${attempt} predates the sealed attempt ${manifest.runAttempt}`);
+      if (run.runAttempt !== undefined && attempt > Number(run.runAttempt)) bad(`run attempt ${attempt} is later than this attempt ${run.runAttempt}`);
+    }
+    if (String(doc.manifestRunId ?? "") !== String(manifest.runId ?? "") || String(doc.manifestRunAttempt ?? "") !== String(manifest.runAttempt ?? "")) bad(`it verified manifest run ${doc.manifestRunId}/${doc.manifestRunAttempt}, not ${manifest.runId}/${manifest.runAttempt}`);
+    if (!sameSet(doc.allowHostExclusion, allowExcl)) bad("it ran with different allow_host_exclusion than this request");
+    if (!sameSet(doc.allowNoTest, allowNoTest)) bad("it ran with different allow_no_test than this request");
+    if (!sameSet(doc.allowIgnored, allowIgnored)) bad("it ran with different allow_ignored than this request");
+    if (!sameSet(doc.allowMissingAssets, allowAssets)) bad("it ran with different allow_missing_assets than this request");
     const byName = new Map((doc.units ?? []).map((u) => [u.name, u]));
     if ((doc.units ?? []).length !== manifest.units.length) bad(`covers ${(doc.units ?? []).length} units, the manifest has ${manifest.units.length}`);
     for (const unit of manifest.units) {
@@ -194,11 +216,19 @@ export function checkReceipts({ manifest, manifestSha256, receiptsDir, allow = {
       if (!PASS_STATUSES.includes(row.status)) bad(`${unit.name}: status ${JSON.stringify(row.status)} is not a pass`);
       if (row.status === "allowed-exclusion" && !allowExcl.has(unit.name)) bad(`${unit.name}: excluded from this host without allow_host_exclusion`);
       if (row.status === "allowed-no-test" && !allowNoTest.has(unit.name)) bad(`${unit.name}: has no test script and is not named in allow_no_test`);
+      if (row.status === "pass" && !(row.executed > 0 && (row.ignored ?? 0) === 0 && (row.skipped ?? 0) === 0)) bad(`${unit.name}: status pass without a positive executed count and zero ignored/skipped (executed ${row.executed}, ignored ${row.ignored}, skipped ${row.skipped})`);
+      if (row.status === "allowed-skips") {
+        if (!(row.executed > 0)) bad(`${unit.name}: allowed-skips without a positive executed count`);
+        if ((row.ignored ?? 0) > 0 && !allowIgnored.has(unit.name)) bad(`${unit.name}: ${row.ignored} ignored test(s) and not named in allow_ignored`);
+        if ((row.skipped ?? 0) > 0 && !allowAssets.has(unit.name)) bad(`${unit.name}: ${row.skipped} skipped test(s) and not named in allow_missing_assets`);
+        if (!((row.ignored ?? 0) > 0 || (row.skipped ?? 0) > 0)) bad(`${unit.name}: allowed-skips with nothing ignored or skipped`);
+      }
+      if (row.status !== "allowed-exclusion" && row.consumer?.verified !== true) bad(`${unit.name}: the installed or extracted shipped artifact was not consumer-verified on this host`);
       statusByUnit.get(unit.name)?.push(row.status);
     }
   }
   for (const [name, statuses] of statusByUnit) {
-    if (statuses.length && !statuses.includes("pass") && !statuses.every((s) => s === "allowed-no-test")) problems.push(`${name}: no host passed it (${statuses.join(", ")})`);
+    if (statuses.length && !statuses.some((s) => s === "pass" || s === "allowed-skips") && !statuses.every((s) => s === "allowed-no-test")) problems.push(`${name}: no host passed it (${statuses.join(", ")})`);
   }
   return problems;
 }
@@ -223,6 +253,26 @@ export async function waitForNpmBytes({ name, version, sha1, integrity: sri, fet
     await sleep(pause);
   }
   throw new Error(`${name}@${version} is not visible on npm after publishing`);
+}
+
+/**
+ * The crates.io publish answer (Cargo registry web API): `{"warnings":{"invalid_categories":[],"invalid_badges":[],"other":[]}}`
+ * on success, `{"errors":[{"detail":"..."}]}` on failure (which crates.io can send with HTTP 200). Returns
+ * { errors: [text], warnings: [text], unreadable }. Anything that is not a JSON object is "unreadable".
+ */
+export function parseCratesResponse(text) {
+  let doc;
+  try { doc = JSON.parse(String(text ?? "")); } catch { return { errors: [], warnings: [], unreadable: true }; }
+  if (!doc || typeof doc !== "object" || Array.isArray(doc)) return { errors: [], warnings: [], unreadable: true };
+  const errors = [];
+  if (doc.errors !== undefined) {
+    const list = Array.isArray(doc.errors) ? doc.errors : [doc.errors];
+    for (const e of list) errors.push(typeof e === "string" ? e : String(e?.detail ?? JSON.stringify(e)));
+  }
+  const warnings = [];
+  const w = doc.warnings;
+  if (w && typeof w === "object") for (const [kind, items] of Object.entries(w)) for (const item of Array.isArray(items) ? items : [items]) if (item !== undefined && item !== null && item !== "") warnings.push(`${kind}: ${typeof item === "string" ? item : JSON.stringify(item)}`);
+  return { errors, warnings, unreadable: false };
 }
 
 export function crateIndexPath(name) {
@@ -284,11 +334,13 @@ export async function executeUpload({ env, packDir, receiptsDir, outDir, dryRun,
     for (const variable of TOKEN_VARS) if (variable !== tokenVar && env[variable]) throw new Error(`${variable} must not be present while uploading to ${registry}`);
     if (registry === "npm" && !(env.ACTIONS_ID_TOKEN_REQUEST_URL && env.ACTIONS_ID_TOKEN_REQUEST_TOKEN)) throw new Error("npm provenance needs id-token: write; no OIDC request token is present");
   }
-  const allow = { hostExclusion: splitNames(env.PUBLISH_ALLOW_HOST_EXCLUSION), noTest: splitNames(env.PUBLISH_ALLOW_NO_TEST) };
-  const { manifest, manifestSha256, problems } = loadSealed({ packDir, registry, unitsText: env.PUBLISH_UNITS });
+  const allow = { hostExclusion: splitNames(env.PUBLISH_ALLOW_HOST_EXCLUSION), noTest: splitNames(env.PUBLISH_ALLOW_NO_TEST), ignored: splitNames(env.PUBLISH_ALLOW_IGNORED), missingAssets: splitNames(env.PUBLISH_ALLOW_MISSING_ASSETS) };
+  if (!/^\d+$/.test(env.GITHUB_RUN_ID ?? "") || !/^\d+$/.test(env.GITHUB_RUN_ATTEMPT ?? "")) throw new Error("GITHUB_RUN_ID and GITHUB_RUN_ATTEMPT must be set; the sealed bytes and receipts are bound to this run");
+  const run = { runId: env.GITHUB_RUN_ID, runAttempt: env.GITHUB_RUN_ATTEMPT };
+  const { manifest, manifestSha256, problems } = loadSealed({ packDir, registry, unitsText: env.PUBLISH_UNITS, run });
   if (manifest) {
     if (manifest.commit !== env.GITHUB_SHA) problems.push(`sealed commit ${manifest.commit} is not the dispatched commit ${env.GITHUB_SHA}`);
-    problems.push(...checkReceipts({ manifest, manifestSha256, receiptsDir, allow, run: { runId: env.GITHUB_RUN_ID } }));
+    problems.push(...checkReceipts({ manifest, manifestSha256, receiptsDir, allow, run }));
     if (registry === "npm") {
       for (const unit of manifest.units) {
         try { problems.push(...checkNpmTarball({ file: path.join(packDir, unit.file), name: unit.name, version: unit.version, dir: unit.dir, spawn }).problems); } catch (error) { problems.push(`${unit.name}: ${error.message}`); }
@@ -335,13 +387,16 @@ export async function executeUpload({ env, packDir, receiptsDir, outDir, dryRun,
       const base = { unit: unit.name, version: unit.version, artifact: unit.file, sha256: unit.sha256 };
       if (dryRun) { log(`dry run: would PUT ${CRATES_PUBLISH_URL} with ${body.length} bytes for ${unit.name}@${unit.version}`); receipt.record({ ...base, published: false, registryVerified: false }); continue; }
       // The token is passed to this one HTTP call. redirect: "error" keeps it from following a redirect elsewhere.
-      const response = await fetchImpl(CRATES_PUBLISH_URL, { method: "PUT", headers: { authorization: token, "content-type": "application/octet-stream", "user-agent": USER_AGENT }, body, redirect: "error", signal: AbortSignal.timeout(300_000) });
+      const response = await fetchImpl(CRATES_PUBLISH_URL, { method: "PUT", headers: { authorization: token, accept: "application/json", "content-type": "application/octet-stream", "user-agent": USER_AGENT }, body, redirect: "error", signal: AbortSignal.timeout(300_000) });
       const text = redact(await response.text());
       if (!response.ok) throw new Error(`crates.io refused ${unit.name}@${unit.version}: HTTP ${response.status} ${text.slice(0, 600)}`);
-      if (text) log(text.slice(0, 600));
-      receipt.record({ ...base, published: true, registryVerified: false });
+      const answer = parseCratesResponse(text);
+      if (answer.errors.length) throw new Error(`crates.io answered HTTP ${response.status} with errors for ${unit.name}@${unit.version}; not recorded as published: ${answer.errors.join("; ").slice(0, 600)}`);
+      if (answer.unreadable) throw new Error(`crates.io answered HTTP ${response.status} with a body that is not the documented JSON for ${unit.name}@${unit.version}; not recorded as published (inspect the registry): ${text.slice(0, 200)}`);
+      if (answer.warnings.length) log(`crates.io warnings for ${unit.name}@${unit.version}: ${answer.warnings.join("; ").slice(0, 600)}`);
+      receipt.record({ ...base, published: true, registryVerified: false, warnings: answer.warnings });
       await waitForCrateIndex({ name: unit.name, version: unit.version, cksum: unit.sha256, fetchImpl, pause: pause * 1.5 });
-      receipt.record({ ...base, published: true, registryVerified: true });
+      receipt.record({ ...base, published: true, registryVerified: true, warnings: answer.warnings });
     }
   }
   return receipt.doc;

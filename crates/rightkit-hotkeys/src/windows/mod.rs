@@ -14,8 +14,8 @@ use windows_sys::Win32::Foundation::{GetLastError, HINSTANCE, LPARAM, LRESULT, W
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows_sys::Win32::System::Threading::GetCurrentThreadId;
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
-    GetAsyncKeyState, RegisterHotKey, UnregisterHotKey, HOT_KEY_MODIFIERS, MOD_ALT, MOD_CONTROL,
-    MOD_NOREPEAT, MOD_SHIFT, MOD_WIN,
+    GetAsyncKeyState, RegisterHotKey, UnregisterHotKey, MOD_ALT, MOD_CONTROL, MOD_NOREPEAT,
+    MOD_SHIFT, MOD_WIN,
 };
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     CallNextHookEx, GetMessageW, KillTimer, PostThreadMessageW, SetTimer, SetWindowsHookExW,
@@ -23,10 +23,11 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
     WM_KEYUP, WM_QUIT, WM_SYSKEYDOWN, WM_SYSKEYUP, WM_TIMER,
 };
 
-use crate::chord::{Chord, Modifier};
-use crate::hold::{HoldKeys, HoldTracker, KeyStateSource};
+use crate::chord::Chord;
+use crate::hold::{HoldTracker, KeyStateSource};
 use crate::hook_chord::{AlreadyBound, HookChords};
 use crate::register_status::RegisterFailure;
+use crate::registration::{modifier_bits, HotkeyApi, Registrations, UnregisterFailure};
 
 pub use crate::hold::HotkeyState;
 
@@ -43,24 +44,40 @@ impl KeyStateSource for AsyncKeyState {
     }
 }
 
-fn hold_keys(chord: &Chord) -> HoldKeys {
-    const VK_SHIFT: u16 = 0x10;
-    const VK_CONTROL: u16 = 0x11;
-    const VK_MENU: u16 = 0x12;
-    const VK_LWIN: u16 = 0x5B;
-    const VK_RWIN: u16 = 0x5C;
-    let mut groups: Vec<Vec<u16>> = Vec::new();
-    for m in &chord.modifiers {
-        groups.push(match m {
-            Modifier::Ctrl => vec![VK_CONTROL],
-            Modifier::Alt => vec![VK_MENU],
-            Modifier::Shift => vec![VK_SHIFT],
-            _ => vec![VK_LWIN, VK_RWIN],
-        });
+// The portable flag values `Registrations` registers with are the ones Windows defines.
+const _: () = assert!(
+    modifier_bits::ALT == MOD_ALT
+        && modifier_bits::CONTROL == MOD_CONTROL
+        && modifier_bits::SHIFT == MOD_SHIFT
+        && modifier_bits::WIN == MOD_WIN
+        && modifier_bits::NOREPEAT == MOD_NOREPEAT
+);
+
+/// `RegisterHotKey` and `UnregisterHotKey` for the calling thread (no window).
+struct ThreadHotkeys;
+
+impl HotkeyApi for ThreadHotkeys {
+    fn register(&mut self, id: i32, modifiers: u32, vk: u32) -> Result<(), u32> {
+        // SAFETY: a null window registers for the calling thread; the call has no other
+        // preconditions. The error is read immediately after the failing call.
+        unsafe {
+            if RegisterHotKey(null_mut(), id, modifiers, vk) != 0 {
+                Ok(())
+            } else {
+                Err(GetLastError())
+            }
+        }
     }
-    HoldKeys {
-        key: chord.key.windows_vk(),
-        modifier_groups: groups,
+
+    fn unregister(&mut self, id: i32) -> Result<(), u32> {
+        // SAFETY: as for `register`.
+        unsafe {
+            if UnregisterHotKey(null_mut(), id) != 0 {
+                Ok(())
+            } else {
+                Err(GetLastError())
+            }
+        }
     }
 }
 
@@ -359,8 +376,8 @@ impl GlobalHotkeys {
             .name("rightkit-hotkey-loop".into())
             .spawn(move || unsafe {
                 let _ = ready_tx.send(GetCurrentThreadId());
-                let mut next_id = 1i32;
-                let mut ids: Vec<(String, i32, HoldKeys)> = Vec::new();
+                let mut registrations = Registrations::new();
+                let mut os = ThreadHotkeys;
                 let mut holds = HoldTracker::new();
                 let mut timer: usize = 0;
                 let mut msg = MSG::default();
@@ -368,68 +385,36 @@ impl GlobalHotkeys {
                     while let Ok(command) = cmd_rx.try_recv() {
                         match command {
                             Command::Register(chord, repeat, reply) => {
-                                let mut mods: HOT_KEY_MODIFIERS =
-                                    if repeat { 0 } else { MOD_NOREPEAT };
-                                for m in &chord.modifiers {
-                                    mods |= match m {
-                                        Modifier::Ctrl => MOD_CONTROL,
-                                        Modifier::Alt => MOD_ALT,
-                                        Modifier::Shift => MOD_SHIFT,
-                                        _ => MOD_WIN,
-                                    };
-                                }
-                                let id = next_id;
-                                let registered = RegisterHotKey(
-                                    null_mut(),
-                                    id,
-                                    mods,
-                                    chord.key.windows_vk() as u32,
-                                ) != 0;
-                                let result = if registered {
-                                    next_id += 1;
-                                    ids.push((chord.canonical(), id, hold_keys(&chord)));
-                                    Ok(id)
-                                } else {
-                                    // Read the error immediately after the failing call.
-                                    Err(RegisterError::from_win32(
-                                        chord.canonical(),
-                                        GetLastError(),
-                                    ))
-                                };
+                                let result =
+                                    registrations.register(&mut os, &chord, repeat).map_err(
+                                        |code| RegisterError::from_win32(chord.canonical(), code),
+                                    );
                                 let _ = reply.send(result);
                             }
                             Command::Unregister(chord, reply) => {
                                 let name = chord.canonical();
-                                let result = match ids.iter().position(|(n, _, _)| *n == name) {
-                                    None => Err(UnregisterError::NotRegistered { chord: name }),
-                                    Some(pos) => {
-                                        let id = ids[pos].1;
-                                        // A held chord ends before it disappears.
-                                        if holds.release(id) {
-                                            on_event(id, HotkeyState::Released);
-                                            if holds.is_idle() && timer != 0 {
-                                                let _ = KillTimer(null_mut(), timer);
-                                                timer = 0;
-                                            }
-                                        }
-                                        if UnregisterHotKey(null_mut(), id) != 0 {
-                                            ids.remove(pos);
-                                            Ok(id)
-                                        } else {
-                                            let code = GetLastError();
-                                            if code == 1419 {
-                                                // ERROR_HOTKEY_NOT_REGISTERED: already gone.
-                                                ids.remove(pos);
-                                                Err(UnregisterError::NotRegistered { chord: name })
-                                            } else {
-                                                Err(UnregisterError::Os {
-                                                    chord: name,
-                                                    message: os_error_message(code),
-                                                })
-                                            }
+                                // A held chord ends before it disappears.
+                                if let Some(id) = registrations.id_of(&chord) {
+                                    if holds.release(id) {
+                                        on_event(id, HotkeyState::Released);
+                                        if holds.is_idle() && timer != 0 {
+                                            let _ = KillTimer(null_mut(), timer);
+                                            timer = 0;
                                         }
                                     }
-                                };
+                                }
+                                let result =
+                                    registrations
+                                        .unregister(&mut os, &chord)
+                                        .map_err(|failure| match failure {
+                                            UnregisterFailure::NotRegistered => {
+                                                UnregisterError::NotRegistered { chord: name }
+                                            }
+                                            UnregisterFailure::Os(code) => UnregisterError::Os {
+                                                chord: name,
+                                                message: os_error_message(code),
+                                            },
+                                        });
                                 let _ = reply.send(result);
                             }
                         }
@@ -444,11 +429,7 @@ impl GlobalHotkeys {
                             on_event(id, HotkeyState::Pressed);
                             continue;
                         }
-                        let chord_keys = ids
-                            .iter()
-                            .find(|(_, i, _)| *i == id)
-                            .map(|(_, _, keys)| keys.clone());
-                        let Some(keys) = chord_keys else {
+                        let Some(keys) = registrations.hold_keys(id).cloned() else {
                             continue;
                         };
                         if holds.press(id, keys) {
@@ -480,9 +461,7 @@ impl GlobalHotkeys {
                 if timer != 0 {
                     let _ = KillTimer(null_mut(), timer);
                 }
-                for (_, id, _) in ids {
-                    let _ = UnregisterHotKey(null_mut(), id);
-                }
+                registrations.clear(&mut os);
             })
             .map_err(|e| e.to_string())?;
         let thread_id = ready_rx.recv().map_err(|e| e.to_string())?;

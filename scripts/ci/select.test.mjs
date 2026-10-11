@@ -125,3 +125,14 @@ test("an npm package without a test script fails the selection unless allow_no_t
   assert.throws(() => selectUnits({ registry: "npm", units: ["@rightkit/ui"], packages, allowNoTest: ["@rightkit/ui"] }), /not units|has a test script/);
   assert.throws(() => selectUnits({ registry: "npm", units: ["@rightkit/ui"], packages, allowHostExclusion: ["@rightkit/ui"] }), /crates only/);
 });
+
+test("asset-gated units need allow_missing_assets, and allow_ignored / allow_missing_assets must name requested units", () => {
+  const assetGated = { crates: { "rightkit-a": "models" }, npm: {} };
+  const base = { registry: "crates", units: ["rightkit-a", "rightkit-b"], members, assetGated };
+  assert.throws(() => selectUnits(base), /rightkit-a need assets the publish workflow does not provision.*allow_missing_assets/);
+  assert.deepEqual(selectUnits({ ...base, allowMissingAssets: ["rightkit-a"] }).rust.test, ["rightkit-a", "rightkit-b"]);
+  assert.throws(() => selectUnits({ ...base, allowMissingAssets: ["rightkit-a", "rightkit-b"] }), /allow_missing_assets names rightkit-b, which ci\/asset-gated\.json does not list/);
+  assert.throws(() => selectUnits({ ...base, allowMissingAssets: ["rightkit-a"], allowIgnored: ["rightkit-zzz"] }), /allow_ignored names rightkit-zzz, which are not units/);
+  assert.throws(() => selectUnits({ ...base, allowMissingAssets: ["rightkit-a", "rightkit-zzz"] }), /allow_missing_assets names rightkit-zzz, which are not units/);
+  assert.deepEqual(selectUnits({ registry: "crates", units: ["rightkit-b"], members, allowIgnored: ["rightkit-b"] }).rust.test, ["rightkit-b"]);
+});

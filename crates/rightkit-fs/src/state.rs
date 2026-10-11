@@ -749,6 +749,8 @@ mod sys {
         created: bool,
         policy: SyncPolicy,
     ) -> io::Result<()> {
+        // `st_dev` and `st_ino` differ in width across Unix targets.
+        #[allow(clippy::unnecessary_cast)]
         let key = fstat(child)
             .ok()
             .map(|st| (st.st_dev as u64, st.st_ino as u64));

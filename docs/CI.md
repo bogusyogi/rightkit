@@ -91,18 +91,28 @@ run is the same dispatch with `dry_run=false`. **Nothing waits for approval**: t
 environment has no required reviewers, so a real run uploads as soon as its checks pass (see "What
 protects a publication" below).
 
-Two optional inputs make a skip explicit instead of silent: `allow_host_exclusion` names crates that
-`ci/gate.config.json` keeps off one verify host, and `allow_no_test` names npm packages without a `test`
-script. A unit that a host would skip, or a package with nothing to run, fails the plan unless it is named.
+Four optional inputs make a skip explicit instead of silent; each name must be a unit of the request:
+
+- `allow_host_exclusion`: crates that `ci/gate.config.json` keeps off one verify host.
+- `allow_no_test`: npm packages without a `test` script.
+- `allow_ignored`: units that may have ignored tests (Rust `ignored` in a libtest summary). The count is recorded.
+- `allow_missing_assets`: units whose tests may skip for a missing asset, sibling checkout or platform (a
+  `SKIP` marker, a vitest or node:test skip). A unit listed in `ci/asset-gated.json` (tests that need models,
+  FFmpeg, a desktop session or sibling product checkouts the workflow does not provision) is refused unless it
+  is named here; naming any other unit is refused, and a named unit runs with `RIGHTKIT_REQUIRE_ASSETS=0`.
+  Every unit not named runs strict (`RIGHTKIT_REQUIRE_ASSETS=1`), so a missing asset fails instead of skipping.
+  A publish test fails when a crate or package reads `RIGHTKIT_REQUIRE_ASSETS` and is not listed.
+
+A unit that a host would skip, a package with nothing to run, or an asset-gated unit fails the plan unless it is named.
 
 | Job | Runs on | Proves | Secrets / id-token |
 |---|---|---|---|
 | `guard` | ubuntu | The ref is `refs/heads/main` and the repository is public | none |
 | `plan` | ubuntu | The publish contract (`scripts/ci/workflow-contract.mjs`, parsed structure plus mutation proofs) and the publish unit tests pass; every name matches a strict pattern and exists in the workspace (crates from `cargo metadata`, so quoted keys, inherited and renamed dependencies are resolved by Cargo); none is private, `publish = false` or in `ci/known-red.json`; versions already on the registry are skipped; each workspace dependency is on the registry at a version meeting its requirement (Cargo semantics: caret default, `~`, `1.2.*` = `>=1.2.0, <1.3.0`, comparison operators, comma lists) or earlier in the request; order is dependencies first | none |
 | `pack` | ubuntu (npm), `xcode-27` (crates) | Builds the artifacts once: `pnpm pack` tarballs, or `cargo package --locked` (which compiles and verifies each crate without any token). Seals them in `manifest.json` (name, version, size, sha256; npm also sha1 and integrity; crates also the upload metadata read from the packaged `Cargo.toml`) and uploads the artifact `publish-packed`. A packed `package.json` must name the unit, hold no `workspace:` specifier and carry the npm provenance `repository` | none |
-| `verify` | `xcode-27` **and** `windows-2025` | Downloads `publish-packed` and re-hashes it. `gate.mjs --registry <r> --units "<names>"` builds and tests exactly the planned units; every unit must end `pass`: a skipped test, a unit with no test step, a host exclusion or a missing test script not named in the allow inputs, and a red unit all fail. Then `publish.mjs verify` checks the sealed bytes (npm: name, version, entry points exist in the tarball, provenance `repository`; crates: every file equals the commit's blob and `Cargo.toml.orig` equals the crate's own manifest) and writes this host's receipt, bound to the manifest hash. | none |
+| `verify` | `xcode-27` **and** `windows-2025` | Downloads `publish-packed` and re-hashes it. `gate.mjs --registry <r> --units "<names>"` builds and tests exactly the planned units and READS the runners' own results (`test result:` per libtest binary, node:test and vitest summaries, `SKIP` markers with or without a prefix, line-buffered so a marker split across stream chunks counts): a unit passes only with a positive executed count and no ignored or skipped test the allow inputs did not name; a unit with no test step, a host exclusion or missing test script not named, and a red unit all fail. Then `publish.mjs verify` checks the sealed bytes (npm: name, version, entry points exist in the tarball, provenance `repository`; crates: every file equals the commit's blob and `Cargo.toml.orig` equals the crate's own manifest) and **consumes them**: npm installs the sealed tarballs of the request together (`npm install --ignore-scripts`, dependencies from the registry) into a scratch project and proves every `main`/`module`/`types`/`bin`/`exports` target exists and each exports subpath resolves and each JS entry imports without throwing (a package that cannot import in plain Node declares `rightkit.publishCheck.skipImport` in `package.json`; it is still resolved); crates extract each sealed `.crate`, require the packaged `Cargo.toml` to reproduce the sealed upload metadata, and run `cargo check` on the packaged crate (`--locked` when it ships a `Cargo.lock` and needs no sibling patch; unpublished siblings of the same request are patched in from their sealed crates; a host-excluded crate is not built there). It writes this host's receipt, bound to the manifest hash, run id and attempt, with the executed, ignored and skipped counts and the consumer report. | none |
 | `seal-check` | ubuntu | `upload.mjs run --dry-run`: re-hashes the sealed bytes, requires both hosts' receipts to name the same manifest, commit and run, re-checks provenance preconditions, and builds the exact publish commands and request bodies without sending them. Runs for dry and real dispatches | none |
-| `upload` | ubuntu, `environment: release`, only when `dry_run=false` | Fresh runner; checks out only `scripts/ci/upload.mjs`; installs and builds nothing; repeats the hash and receipt checks; uploads the sealed bytes; compares the registry's bytes with them | `NPM_TOKEN` or `CARGO_REGISTRY_TOKEN`, and `id-token: write`: this job only |
+| `upload` | ubuntu, `environment: release`, only when `dry_run=false` | Fresh runner; checks out only `scripts/ci/upload.mjs`; installs and builds nothing; repeats the hash and receipt checks (the manifest's run id must be this run; a receipt's attempt may not predate the manifest's or exceed this attempt, and it must name the manifest run and attempt it verified); uploads the sealed bytes; compares the registry's bytes with them | `NPM_TOKEN` or `CARGO_REGISTRY_TOKEN`, and `id-token: write`: this job only |
 
 - **npm.** `npm publish <sealed .tgz> --ignore-scripts --access public --provenance --registry
   https://registry.npmjs.org/`. Afterwards the registry's `dist.shasum` and `dist.integrity` must equal
@@ -113,8 +123,10 @@ script. A unit that a host would skip, or a package with nothing to run, fails t
   environment, so `upload.mjs` PUTs the sealed `.crate` to `https://crates.io/api/v1/crates/new` with the
   token on that one request (`redirect: "error"`). The body is the registry web API's: a 32-bit
   little-endian length, the JSON metadata, a 32-bit little-endian length, the `.crate` bytes. The JSON
-  comes from `cargo metadata` of the packaged manifest. The `.crate` sha256 must then equal the `cksum`
-  the sparse index serves. crates.io's publish rate limits apply to a large first publication; a refusal
+  comes from `cargo metadata` of the packaged manifest, and the request carries `Accept: application/json`.
+  The answer is parsed: an `errors` array (crates.io can send it with HTTP 200) or a body that is not the
+  documented JSON fails the run before anything is recorded as published, and `warnings` are logged and kept in the
+  receipt. The `.crate` sha256 must then equal the `cksum` the sparse index serves. crates.io's publish rate limits apply to a large first publication; a refusal
   stops the run with its status.
 - **Child processes.** Every child gets an allow-listed environment (runner basics, `GITHUB_*`, `RUNNER_*`,
   `ACTIONS_ID_TOKEN_*`), never `process.env`; only the `npm publish` child receives `NODE_AUTH_TOKEN`.
@@ -132,12 +144,29 @@ Stated as configured, not as hoped:
 - **Who can dispatch.** Anyone with write access to the repository can run `workflow_dispatch`, and the
   workflow runs from `main`'s workflow file only (`guard`). That is the whole gate; a collaborator with
   write access can publish.
-- **Secrets.** The workflow reads `NPM_TOKEN` and `CARGO_REGISTRY_TOKEN` as secrets of `release`, in the
-  `upload` job only. The owner is moving `NPM_TOKEN` into `release` (confirm it is gone from repository secrets). **`CARGO_REGISTRY_TOKEN` is still a
-  repository secret**, readable by any workflow job on a same-repository branch, with or without the
-  environment, until it is moved into `release`. Until then a collaborator who can push a branch can write
-  a workflow that reads it. Moving it needs no workflow change. Limit `release` deployment branches to
-  `main` in the environment settings (not verifiable from this repository).
+- **Secrets.** The workflow reads both tokens in the `upload` job only. `NPM_TOKEN` is an environment secret
+  of `release`, and the `release` environment's deployment branches are limited to `main`, so a workflow on
+  another branch cannot read it. `CARGO_REGISTRY_TOKEN` is a **repository secret**: it is readable by any
+  workflow job on a same-repository branch, with or without the environment, so a collaborator who can push a
+  branch can write a workflow that reads it. This is an accepted residual risk until the token moves into
+  `release`; the move needs no workflow change. These settings are stated from the owner's report; they cannot be
+  verified from this repository.
+- **Contract.** `scripts/ci/workflow-contract.mjs` runs in `plan` and asserts on the parsed workflow: the
+  `upload` job and step conditions equal exact strings (an appended `|| true` is a different condition), and any
+  use of the `secrets` context in any form (`secrets.X`, `secrets['X']`, `secrets["X"]`, `toJSON(secrets)`, a
+  bare `secrets`, `secrets: inherit`, workflow, job or step `env`/`with`) outside the two token variables of
+  the two upload steps is refused. The YAML subset parser rejects block scalars it does not model (folded `>`
+  scalars, indentation indicators, `+` chomping), anchors, aliases, tags, tabs, multi-line flow collections and
+  duplicate keys.
+- **Chrome for Testing.** `@rightkit/qa` and `@rightkit/qa-chrome` run real Chrome. `verify` installs the version
+  pinned in `ci/chrome-for-testing.json` through `scripts/ci/provision-chrome.mjs` (URL derived from the version under
+  Google's bucket, sha256 checked, cached by the pin file's hash, no secret) and sets
+  `RIGHTKIT_CHROME_FOR_TESTING_ROOT`. The workspace installer is not used because it downloads the moving Stable
+  build and does not check a digest. To fill a pin without a local download, set `version` and leave a platform's
+  `sha256` empty, then run a **dry run** that names a qa package: the step downloads to a temp file, prints
+  `CHROME_PIN <platform> <version> <sha256> <bytes>` to the log and job summary, deletes the file and fails with
+  "pin recorded above". An unpinned download is never installed or run, and a real publish refuses an empty
+  sha256 (the contract ties the step's `PUBLISH_DRY_RUN` to the plan's `dry_run`).
 - **What the checks do stop.** A red or missing verification on either host, bytes that differ from what
   was verified, a dependency installed or built in the privileged job, a token reaching a build step, a
   dry run touching a credential, and a workflow edit that weakens any of this on `main` (the contract
