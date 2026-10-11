@@ -1812,7 +1812,7 @@ mod tests {
             catalog.approved_for(Tool::Ffmpeg, EXPORT_ASS_VARIANT, "macos", "x86_64"),
             Err(MediaError::ArtifactPending { .. })
         ));
-        // Windows has no ffprobe artifact yet: no silent fallback to another platform.
+        // The Windows ffprobe row is pending: no silent fallback to another platform.
         assert!(catalog
             .approved_for(Tool::Ffprobe, DECODE_VARIANT, "windows", "x86_64")
             .is_err());

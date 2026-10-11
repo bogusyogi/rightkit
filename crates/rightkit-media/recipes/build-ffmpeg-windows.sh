@@ -222,6 +222,18 @@ cp "$src/COPYING.LGPLv2.1" "$out/$build_tag.notices/FFmpeg-COPYING.LGPLv2.1"
 for entry in "${notices[@]+"${notices[@]}"}"; do
   cp "${entry#*:}" "$out/$build_tag.notices/${entry%%:*}-$(basename "${entry#*:}")"
 done
+# -static also links toolchain runtime code into every exe: the mingw-w64 C runtime, winpthreads
+# and libgcc, plus libstdc++ when a C++ library (zimg, HarfBuzz) is linked. The mingw-w64 runtime
+# licence requires its notices with binaries; they come from the toolchain's own licence files.
+licenses=/mingw64/share/licenses
+toolchain_notice() {
+  local found; found="$(ls $1 2>/dev/null | awk 'NR==1')"
+  test -n "$found" || { echo "toolchain licence file not found: $1" >&2; exit 1; }
+  cp "$found" "$out/$build_tag.notices/$2"
+}
+toolchain_notice "$licenses/crt/COPYING.MinGW-w64-runtime.txt" MinGW-w64-runtime-COPYING.txt
+toolchain_notice "$licenses/*winpthread*/COPYING" winpthreads-COPYING.txt
+toolchain_notice "$licenses/gcc-libs/COPYING.RUNTIME" GCC-RUNTIME-LIBRARY-EXCEPTION.txt
 
 # Linkage gate: every imported DLL must be a Windows system DLL.
 imports="$(objdump -p "$artifact" | sed -n 's/^[[:space:]]*DLL Name: //p' | tr -d '\r' | sort -f)"

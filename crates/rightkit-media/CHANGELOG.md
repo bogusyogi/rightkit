@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Windows x86_64 catalog rows, both `pending`: `ffmpeg-7.1.5-export-ass-zimg-windows-x64` (libass
+  through DirectWrite, FreeType, HarfBuzz, FriBidi, zimg, zlib, Media Foundation `h264_mf`) and
+  `ffprobe-7.1.5-windows-x64` (`decode`). Recipe: `recipes/build-ffmpeg-windows.sh` (MSYS2
+  MINGW64); notes: `third-party/BUILD-NOTES-ffmpeg-export-ass-zimg-windows.txt`. Built once
+  locally; digests are recorded after the `ffmpeg-windows` CI workflow has built them twice.
+  The rows list the statically linked toolchain runtime notices (mingw-w64 runtime,
+  winpthreads, GCC Runtime Library Exception) in `noticeFiles`.
 - `bundled::verify_bundled_ffmpeg(path, variant, timeout)` / `verify_bundled_ffprobe(...)`: one
   call from a bundled binary path plus the expected variant to a `VerifiedFfmpeg` /
   `VerifiedFfprobe` (embedded catalog, this host's OS and architecture, content digest, then the

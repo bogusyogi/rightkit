@@ -58,7 +58,7 @@ let verified = verify_ffmpeg(resolved, Duration::from_secs(10))?;
 
 - macOS aarch64: `decode` (ffmpeg, ffprobe) and `export-ass` (ffmpeg) approved; `export-ass-zimg` pending.
 - macOS x86_64: `decode` (ffmpeg, ffprobe) approved; `export-ass` and `export-ass-zimg` pending.
-- Windows x86_64: `decode` (ffmpeg) approved.
+- Windows x86_64: `decode` (ffmpeg) approved; `decode` (ffprobe) and `export-ass-zimg` (ffmpeg) pending.
 - Production `cfg(unix)` and `cfg(not(unix))` branches exist only in `src/staging.rs`; `cfg(windows)` and `cfg(unix)` also appear in test modules (`src/lib.rs:1632`, `src/probe.rs:827`, `src/unverified.rs:540`).
 
 Availability is defined by `catalog/artifacts.json`, not by this README. Check the `status` field of each record.
