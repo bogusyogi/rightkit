@@ -1,9 +1,10 @@
 # RightKitSwift extraction contract
 
 Status (2026-10-08): **extracted and built on macOS.** `RightKitSwift/` is the
-canonical package source. Its version is the `RightKitSwift/VERSION` file (0.5.0).
-`Package.swift` declares 15 library products and 15 test targets (`RightKitSwift/Package.swift:11-25`). It is consumed as a
-private git package at `github.com/bogusyogi/rightkit-swift` by tag. The version consumers
+canonical package source. Its version is the `RightKitSwift/VERSION` file (0.7.0).
+`Package.swift` declares 15 library products and 15 test targets (`RightKitSwift/Package.swift:11-25`). It is consumed straight from the public repository: `.package(url: "https://github.com/Orthic-Labs/rightkit", exact: "<version>")`,
+resolved through the root `Package.swift` (same products, targets pointing into `RightKitSwift/`) at a plain semver tag
+(`0.7.0`). The former private mirror `github.com/bogusyogi/rightkit-swift` is retired once apps move. The version consumers
 may pin is recorded in the `swift` and `stagedSwift` sections of
 `packages/release/rightkit-versions.json`, not in `VERSION`. A version in `VERSION` is
 implemented but not published until the manifest records it as published (see the

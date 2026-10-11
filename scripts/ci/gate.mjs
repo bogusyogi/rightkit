@@ -39,9 +39,12 @@ const ROOT_SUITES = [
   { id: "test:swift-contracts", paths: ["swift/contracts"] },
 ];
 const SCRIPT_TESTS = { id: "scripts", paths: ["scripts"] };
+const SWIFT_ROOT_MANIFEST = "swift/root-manifest";
 const SWIFT_PACKAGES = [
   { id: "swift/RightKitSwift", paths: ["swift/RightKitSwift"] },
   { id: "swift/RightKitCloudKitHelper", paths: ["swift/RightKitCloudKitHelper"] },
+  // The repository-root Package.swift is what apps resolve by URL + tag; it reuses swift/RightKitSwift sources by path.
+  { id: SWIFT_ROOT_MANIFEST, paths: ["Package.swift", "swift/RightKitSwift"] },
 ];
 
 const git = (...args) => spawnSync("git", args, { cwd: ROOT, encoding: "utf8", maxBuffer: 256 * 1024 * 1024 });
@@ -242,6 +245,11 @@ async function npmGate(selection) {
 
 async function swiftGate(selection) {
   for (const dir of selection.swift) {
+    if (dir === SWIFT_ROOT_MANIFEST) {
+      // Resolves every target path, resource and product of the root manifest without compiling anything.
+      await run(`swift:${dir}`, "swift", ["package", "describe", "--type", "json"], { cwd: ROOT, timeoutMinutes: 10, discardStdout: true });
+      continue;
+    }
     const cwd = path.join(ROOT, dir);
     const built = await run(`swift:${dir}`, "swift", ["build"], { cwd, timeoutMinutes: 45 });
     if (built && fs.existsSync(path.join(cwd, "Tests"))) await run(`swift:${dir}`, "swift", ["test"], { cwd, timeoutMinutes: 60 });

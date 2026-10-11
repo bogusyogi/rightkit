@@ -30,7 +30,10 @@ everything runs.
 - **npm.** A changed package and every package that depends on it are tested after the whole
   workspace is built in dependency order.
 - **Swift.** `swift/RightKitSwift` and `swift/RightKitCloudKitHelper` build and test on the macOS
-  runner when their directory changed.
+  runner when their directory changed. The repository-root `Package.swift` (the manifest apps resolve by
+  URL and tag) is checked with `swift package describe --type json`, which validates every target path
+  without compiling; `scripts/swift-root-manifest.test.mjs` guards it against drift from
+  `swift/RightKitSwift/Package.swift`.
 - **Root suites.** `ownership-approval`, `characterization`, `infrastructure`, `swift/contracts`
   and `scripts` run when their directory changed.
 

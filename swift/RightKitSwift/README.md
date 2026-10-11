@@ -196,6 +196,10 @@ case .failure(let other): print(other)
 - The secret is read **by persistent reference** of the winning item, not by a second search.
 - `.noPrompt` (default) never presents UI and returns `.interactionRequired` instead.
   `.allowPrompt` lets the system ask, for an action the user just started.
+- `ReadError.accessDenied` is a merged status: it covers `errSecAuthFailed` (under `.allowPrompt`),
+  `errSecUserCanceled` (the user dismissed the prompt) and `errSecNotAvailable` (no usable Keychain or
+  session). A caller that must treat "user said no" differently from "Keychain unavailable" uses
+  `readDetailed`, whose `ReadFailure` also carries the raw `OSStatus`. Behavior is unchanged.
 - **Read-only for foreign items:** there is no write, update or delete here.
 - No-prompt mechanics (review point): `kSecUseAuthenticationUISkip` and `LAContext.interactionNotAllowed`
   do **not** stop the legacy ACL dialog (measured: a read of an item that trusts no application waited
@@ -260,11 +264,11 @@ the manifest records it.
 ```swift
 // Package.swift
 dependencies: [
-    .package(url: "https://github.com/bogusyogi/rightkit-swift.git", exact: "0.6.0"),
+    .package(url: "https://github.com/Orthic-Labs/rightkit", exact: "0.7.0"),
 ],
 targets: [
     .target(name: "YourApp", dependencies: [
-        .product(name: "RightKitLicense", package: "rightkit-swift"),
+        .product(name: "RightKitLicense", package: "rightkit"),
     ]),
 ]
 ```
@@ -274,9 +278,19 @@ In an XcodeGen `project.yml`:
 ```yaml
 packages:
   RightKitSwift:
-    url: https://github.com/bogusyogi/rightkit-swift.git
-    exactVersion: "0.3.8"
+    url: https://github.com/Orthic-Labs/rightkit
+    exactVersion: "0.7.0"
 ```
+
+The URL is the public repository `Orthic-Labs/rightkit`; its root `Package.swift` exposes the same products as
+`swift/RightKitSwift/Package.swift`, with each target pointing into `swift/RightKitSwift`. The tag is a plain semver tag
+(`0.7.0`, no `v`) on that repository, cut from the commit whose `swift/RightKitSwift/VERSION` matches. SwiftPM
+derives the package identity from the URL, so it is `rightkit` (not `RightKitSwift`): write
+`.product(name: "RightKitLicense", package: "rightkit")` in a `Package.swift`. SwiftPM clones the whole repository
+once per machine (a shared cache under `~/Library/Caches/org.swift.swiftpm`); only the resolved tag is checked out. The tools
+version is 6.1, so the consumer needs Xcode 16.3 or newer.
+
+The old mirror `github.com/bogusyogi/rightkit-swift` is retired once the apps have moved to this URL. Do not tag it again.
 
 A clone of a consuming app resolves this straight from GitHub — no workspace
 checkout required.
@@ -321,15 +335,12 @@ No host app, test plan or scheme-level StoreKit configuration is needed. What wa
 
 ## Source of truth
 
-This repo is the **consumption mirror**. The canonical source is
-`rightkit/swift/RightKitSwift` in the workspace repo; a release copies that
-tree here and tags it, exactly as the npm/crates packages publish from the same
-workspace. Do not edit here directly — change the workspace source, then cut a
-new tag.
+`swift/RightKitSwift` in `Orthic-Labs/rightkit` is both the source and the distribution: apps resolve the repository
+root `Package.swift` at a tag. The nested `swift/RightKitSwift/Package.swift` is what CI builds and tests; change both
+manifests together (`scripts/swift-root-manifest.test.mjs` fails on drift).
 
 ## Releasing a new version
 
-From the workspace: bump `RightKitSwift/VERSION`, re-run `swift test`, then mirror
-the tracked tree into this repo and tag `X.Y.Z`. Record the new version in
-`rightkit/packages/release/rightkit-versions.json` (`swift` section) so apps
-can bump their pin.
+Bump `RightKitSwift/VERSION`, date the changelog section, let CI pass on that commit, then tag the commit `X.Y.Z`
+(plain semver). Record the version in `packages/release/rightkit-versions.json` (`stagedSwift`, then `swift` once
+published) so apps can bump their pin. The retired mirror `bogusyogi/rightkit-swift` is not tagged any more.
