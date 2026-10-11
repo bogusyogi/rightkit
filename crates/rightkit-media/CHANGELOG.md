@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+- Catalog: the two Windows x86_64 rows are approved. `ffmpeg-7.1.5-export-ass-zimg-windows-x64`: sha256
+  `2ecd3ab3d313f1a09ad29491979f806faf98c38d150ab37ec2978627fcb9cdb9`, contentSha256
+  `34acae414d4397d37e8125fb4366e22426ad53aa06a15d6b8007efa7964afdcb`, 19,496,448 bytes.
+  `ffprobe-7.1.5-windows-x64`: sha256 `4c0ac1359dfaffb28b54a5f6e78e78185271516d50e23ee73807721b14188097`,
+  contentSha256 `a1cfb297e05d2ab426a2fb5d9d4fbc817834e1b2dba62f596646564ad738712a`, 16,198,656 bytes. Evidence, both
+  from `tests/promote_evidence_windows.rs` on the binary the `ffmpeg-windows` workflow built on windows-2025: run
+  38173732506 (ffprobe: digests and size equal to the row, content digest computed by `content_identity_file`, a WAV
+  read and its stream facts asserted) and run 38173734903 (ffmpeg: the same identity check; `h264_mf`, `subtitles`,
+  `drawtext` and `zscale` + `tonemap` each encoded, decoded back as H.264 and counted at 25 frames). The ffmpeg binary
+  was built four times and ffprobe three times with identical digests. Limits: `h264_mf` on the hosted runner is the
+  software encoder; zlib's signature was not checked (its digest matched the publisher's); the smokes show the filters
+  run and change the picture, not that colours are right. Supplementary, on a Dell (RTX 4070 Laptop GPU): digests
+  verified before running, then the four smokes through the hardware path ("NVIDIA H.264 Encoder MFT"), 25 frames
+  each; the software path matched CI; the CI ffprobe read those MP4/H.264 files. Not covered: Intel Quick Sync,
+  hevc_mf, aac_mf, long clips, real camera footage, colour accuracy. Details in the Windows build notes.
 - Tests: `tests/promote_evidence_windows.rs` produces the evidence a pending Windows catalogue row needs before it
   is approved, on the binary a build just made. With `RIGHTKIT_MEDIA_PROMOTE_FFPROBE` or
   `RIGHTKIT_MEDIA_PROMOTE_FFMPEG` set to the built executable it prints the SHA-256, size and
