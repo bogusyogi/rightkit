@@ -3,6 +3,7 @@
 ## Unreleased
 
 - **Added:** `ProxyMode::System`: the proxy the operating system is configured with for the current user. On Windows it reads the static proxy and bypass list of the system proxy settings (`WinHttpGetIEProxyConfigForCurrentUser`); an `http`/`https` proxy is used and the bypass list becomes the `NO_PROXY` list where it can be expressed (`<local>` and patterns such as `10.*` are dropped, so those hosts go through the proxy). A proxy auto-config script and auto-detection are **not** evaluated. With no static proxy, and on other systems, it behaves as `ProxyMode::Environment`. The default is unchanged (`ProxyMode::None`). `ProxyMode` gained a variant: add an arm to any exhaustive `match`.
+
 Fixes from the third read (docs/audits/2026-10-11-astra-http-third-read.md):
 
 - **Fixed:** `download_to_path` refuses a `.part` that has more than one hard link (Unix `nlink`, Windows link count) before any write or truncation, so a hard link to another file is never rewritten on resume.
