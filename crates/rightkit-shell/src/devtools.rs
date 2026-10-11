@@ -158,6 +158,9 @@ pub enum DevToolsError {
     RemoteDebuggingArgument { arg: String },
     /// A machine or user policy injects a debugging browser argument into WebView2.
     BrowserPolicyInjects { source: String, switch: String },
+    /// A machine or user policy makes WebView2 start a browser from another folder than the
+    /// installed runtime.
+    BrowserRuntimeRedirected { source: String, folder: String },
     /// The Windows policy registry could not be read, so the policy cannot be ruled out.
     RegistryUnreadable { detail: String },
     /// A remote-debugging port file written by this process's WebView2 exists.
@@ -191,6 +194,7 @@ impl DevToolsError {
         match self {
             Self::RemoteDebuggingArgument { .. } => "remote_debugging_argument",
             Self::BrowserPolicyInjects { .. } => "browser_policy_injects",
+            Self::BrowserRuntimeRedirected { .. } => "browser_runtime_redirected",
             Self::RegistryUnreadable { .. } => "registry_unreadable",
             Self::RemoteDebugPortLive { .. } => "remote_debug_port_live",
             Self::NotContentOnly => "not_content_only",
@@ -214,6 +218,7 @@ impl fmt::Display for DevToolsError {
         match self {
             Self::RemoteDebuggingArgument { arg } => write!(f, "refusing to start, the process was launched with a debugging argument ({arg})"),
             Self::BrowserPolicyInjects { source, switch } => write!(f, "refusing to create a webview, {source} injects a debugging browser argument ({switch}); an application cannot override a machine policy"),
+            Self::BrowserRuntimeRedirected { source, folder } => write!(f, "refusing to create a webview, {source} makes WebView2 start a browser from `{folder}` instead of the installed runtime; an application cannot override a machine policy"),
             Self::RegistryUnreadable { detail } => write!(f, "refusing to create a webview, the WebView2 policy registry could not be read ({detail})"),
             Self::RemoteDebugPortLive { path } => write!(f, "refusing to run, a remote-debugging port is live ({})", path.display()),
             Self::NotContentOnly => write!(f, "content webviews are registered but the policy is Denied; select DevToolsPolicy::ContentOnly explicitly"),
@@ -389,6 +394,112 @@ pub fn policy_violations(values: &[RegValue], source: &str) -> Vec<DevToolsError
         .collect()
 }
 
+/// Whether a WebView2 policy value named `name` applies to the program whose executable file is
+/// `exe_name`: the name is `*` (every application) or this program's executable file name,
+/// compared without regard to case. Every other name belongs to another program. When this
+/// program's own file name is unknown, every value is taken to apply.
+pub fn policy_value_applies(name: &str, exe_name: &str) -> bool {
+    let name = name.trim();
+    exe_name.is_empty() || name == "*" || name.eq_ignore_ascii_case(exe_name)
+}
+
+/// The name of the environment variable that makes WebView2 start a browser from another folder.
+pub fn runtime_folder_env_name() -> String {
+    unrev("REDLOF_ELBATUCEXE_RESWORB_2WEIVBEW")
+}
+
+/// The refusal for that variable's `value` in the process environment at start, if it is set to
+/// anything. A launcher controls the environment as it controls policy, so it is refused the
+/// same way.
+pub fn runtime_folder_env_violation(value: Option<&str>) -> Option<DevToolsError> {
+    let folder = value?.trim();
+    if folder.is_empty() {
+        return None;
+    }
+    Some(DevToolsError::BrowserRuntimeRedirected {
+        source: format!("the environment variable {}", runtime_folder_env_name()),
+        folder: folder.to_owned(),
+    })
+}
+
+/// Errors for every value of the WebView2 `BrowserExecutableFolder` policy that applies to this
+/// program. Such a value makes WebView2 start whatever browser is in that folder, with every
+/// argument and behaviour that browser was built with, so nothing this crate sets can be relied on.
+pub fn runtime_folder_violations(
+    values: &[RegValue],
+    source: &str,
+    exe_name: &str,
+) -> Vec<DevToolsError> {
+    values
+        .iter()
+        .filter(|v| !v.value.trim().is_empty() && policy_value_applies(&v.name, exe_name))
+        .map(|v| DevToolsError::BrowserRuntimeRedirected {
+            source: format!("{source} (value `{}`)", v.name),
+            folder: v.value.trim().to_owned(),
+        })
+        .collect()
+}
+
+/// `text` with every `%NAME%` that `env` knows replaced by its value. An unknown name and a lone
+/// `%` stay as they are.
+pub fn expand_env_refs(text: &str, env: impl Fn(&str) -> Option<String>) -> String {
+    let mut out = String::new();
+    let mut rest = text;
+    while let Some(open) = rest.find('%') {
+        out.push_str(&rest[..open]);
+        let after = &rest[open + 1..];
+        match after.find('%') {
+            Some(close) if close > 0 => match env(&after[..close]) {
+                Some(value) => {
+                    out.push_str(&value);
+                    rest = &after[close + 1..];
+                }
+                None => {
+                    out.push('%');
+                    rest = after;
+                }
+            },
+            _ => {
+                out.push('%');
+                rest = after;
+            }
+        }
+    }
+    out.push_str(rest);
+    out
+}
+
+/// The user data folders the WebView2 `UserDataFolder` policy names for this program, with
+/// environment references expanded. The browser writes its port file there, not in the folder
+/// the application chose, so the tripwire has to look there too.
+pub fn policy_user_data_dirs(
+    values: &[RegValue],
+    exe_name: &str,
+    env: impl Fn(&str) -> Option<String>,
+) -> Vec<PathBuf> {
+    values
+        .iter()
+        .filter(|v| !v.value.trim().is_empty() && policy_value_applies(&v.name, exe_name))
+        .map(|v| PathBuf::from(expand_env_refs(v.value.trim(), &env)))
+        .collect()
+}
+
+/// Further folders the port-file tripwire looks in, besides the app's local and roaming data.
+static EXTRA_USER_DATA_DIRS: std::sync::Mutex<Vec<PathBuf>> = std::sync::Mutex::new(Vec::new());
+
+/// Tell the tripwire about a user data folder the application gives a webview itself (Tauri's
+/// `data_directory`). Call it before the webview is created. The folders a policy or the WebView2
+/// user-data environment variable names are added by [`guard_process_start`].
+pub fn register_user_data_dir(dir: impl Into<PathBuf>) {
+    let dir = dir.into();
+    let mut dirs = EXTRA_USER_DATA_DIRS
+        .lock()
+        .unwrap_or_else(|poison| poison.into_inner());
+    if !dirs.contains(&dir) {
+        dirs.push(dir);
+    }
+}
+
 /// The result of [`guard_process_start`].
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct GuardReport {
@@ -409,6 +520,11 @@ static PROCESS_START: OnceLock<SystemTime> = OnceLock::new();
 /// 3. Refuses to continue when the WebView2 `AdditionalBrowserArguments` policy (HKLM, HKCU,
 ///    WOW6432Node) injects a debugging switch. WebView2 appends policy arguments to whatever the
 ///    application passes, so the application cannot override them (Windows).
+/// 4. Refuses to continue when the WebView2 `BrowserExecutableFolder` policy, or the environment
+///    variable of the same purpose, makes WebView2 start a browser from another folder for this
+///    program (Windows).
+/// 5. Records the folders the `UserDataFolder` policy and the WebView2 user-data environment
+///    variable name, so the port-file tripwire looks there too (Windows).
 ///
 /// A build compiled with the `dev-inspect` feature does none of this: it prints one loud stderr
 /// line saying developer inspection is active and returns an empty report.
@@ -436,8 +552,37 @@ fn run_guard() -> Result<GuardReport, DevToolsError> {
         std::env::remove_var(name);
     }
     #[cfg(windows)]
-    if let Some(err) = registry_policy_violations()?.into_iter().next() {
-        return Err(err);
+    {
+        if let Some(err) = registry_policy_violations()?.into_iter().next() {
+            return Err(err);
+        }
+        let folder = std::env::var_os(runtime_folder_env_name());
+        let folder = folder.as_ref().map(|value| value.to_string_lossy());
+        if let Some(err) = runtime_folder_env_violation(folder.as_deref()) {
+            return Err(err);
+        }
+        let exe = current_exe_name();
+        for (source, values) in read_policy("BrowserExecutableFolder")? {
+            if let Some(err) = runtime_folder_violations(&values, source, &exe)
+                .into_iter()
+                .next()
+            {
+                return Err(err);
+            }
+        }
+        let env = |name: &str| std::env::var(name).ok();
+        for (_, values) in read_policy("UserDataFolder")? {
+            for dir in policy_user_data_dirs(&values, &exe, env) {
+                register_user_data_dir(dir);
+            }
+        }
+        // The variable is left in place (a test harness may set it to keep runs apart); the
+        // folder it names is watched like the others.
+        if let Some(dir) = std::env::var_os(unrev("REDLOF_ATAD_RESU_2WEIVBEW")) {
+            if !dir.is_empty() {
+                register_user_data_dir(PathBuf::from(dir));
+            }
+        }
     }
     Ok(GuardReport { scrubbed_env })
 }
@@ -586,7 +731,32 @@ mod registry {
 /// guard refuses to start: what an unreadable policy says is not known, so it is not assumed empty.
 #[cfg(windows)]
 fn registry_policy_violations() -> Result<Vec<DevToolsError>, DevToolsError> {
-    const PATH: &str = r"Software\Policies\Microsoft\Edge\WebView2\AdditionalBrowserArguments";
+    let mut out = Vec::new();
+    for (source, values) in read_policy("AdditionalBrowserArguments")? {
+        out.extend(policy_violations(&values, source));
+    }
+    Ok(out)
+}
+
+/// This program's executable file name, or empty when it cannot be determined.
+#[cfg(windows)]
+fn current_exe_name() -> String {
+    std::env::current_exe()
+        .ok()
+        .and_then(|path| {
+            path.file_name()
+                .map(|name| name.to_string_lossy().into_owned())
+        })
+        .unwrap_or_default()
+}
+
+/// The text values of one WebView2 policy, from the machine policy in both registry views and the
+/// user policy, each with the name of where it was read. A key that does not exist contributes
+/// nothing; a key that cannot be opened or read is [`DevToolsError::RegistryUnreadable`].
+#[cfg(windows)]
+fn read_policy(policy: &str) -> Result<Vec<(&'static str, Vec<RegValue>)>, DevToolsError> {
+    let path = format!(r"Software\Policies\Microsoft\Edge\WebView2\{policy}");
+    let path = path.as_str();
     let keys = [
         (
             "HKLM policy (64-bit view)",
@@ -606,12 +776,12 @@ fn registry_policy_violations() -> Result<Vec<DevToolsError>, DevToolsError> {
     ];
     let mut out = Vec::new();
     for (source, root, view) in keys {
-        match registry::text_values(root, PATH, view) {
+        match registry::text_values(root, path, view) {
             Ok(None) => {}
-            Ok(Some(values)) => out.extend(policy_violations(&values, source)),
+            Ok(Some(values)) => out.push((source, values)),
             Err(detail) => {
                 return Err(DevToolsError::RegistryUnreadable {
-                    detail: format!("{source}, {PATH}: {detail}"),
+                    detail: format!("{source}, {path}: {detail}"),
                 })
             }
         }
@@ -671,6 +841,13 @@ pub fn verify_not_remote_debuggable<R: Runtime>(app: &AppHandle<R>) -> Result<()
         if let Ok(d) = app.path().app_data_dir() {
             dirs.push(d);
         }
+        dirs.extend(
+            EXTRA_USER_DATA_DIRS
+                .lock()
+                .unwrap_or_else(|poison| poison.into_inner())
+                .iter()
+                .cloned(),
+        );
         if let Some(path) = live_debug_port_file(&dirs, start) {
             return Err(DevToolsError::RemoteDebugPortLive { path });
         }
@@ -678,6 +855,17 @@ pub fn verify_not_remote_debuggable<R: Runtime>(app: &AppHandle<R>) -> Result<()
     #[cfg(not(windows))]
     let _ = app;
     Ok(())
+}
+
+/// The tripwire once more, the first time a page has finished loading; later calls return `Ok`
+/// without looking. The browser process can write its port file after the webview is ready, which
+/// is when [`verify_not_remote_debuggable`] first runs.
+pub fn verify_after_first_navigation<R: Runtime>(app: &AppHandle<R>) -> Result<(), DevToolsError> {
+    static DONE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+    if DONE.swap(true, std::sync::atomic::Ordering::SeqCst) {
+        return Ok(());
+    }
+    verify_not_remote_debuggable(app)
 }
 
 // ---------------------------------------------------------------------------------------------

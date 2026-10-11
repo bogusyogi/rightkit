@@ -5,6 +5,18 @@ version is `0.x`, a minor bump may carry breaking changes.
 
 ## Unreleased
 
+- **Windows: a policy that substitutes the browser runtime is refused, and the port-file tripwire looks where the browser
+  really writes (ledger 180, findings 7 and 8).** `guard_process_start` now refuses the WebView2 `BrowserExecutableFolder`
+  policy when a value applies to this program (`DevToolsError::BrowserRuntimeRedirected { source, folder }`, code
+  `browser_runtime_redirected`); only `*` and this program's executable file name match, without regard to case. The
+  environment variable of the same purpose is refused the same way when set at start. The folders a `UserDataFolder`
+  policy and the WebView2 user-data environment variable name are added to the tripwire's folders, and an app that gives
+  a webview its own `data_directory` registers it with the new `devtools::register_user_data_dir`. The tripwire runs once
+  more when the first page has finished loading (`verify_after_first_navigation`), because the browser can write its port
+  file after the webview is ready. An unreadable policy key refuses the start, as before. New: `policy_value_applies`,
+  `runtime_folder_violations`, `runtime_folder_env_violation`, `runtime_folder_env_name`, `policy_user_data_dirs`,
+  `expand_env_refs`. README: the pipe form of remote debugging leaves no port file, and which WebView2 environment
+  variables the guard inspects.
 - **Windows: a denied webview whose DevTools cannot be disabled is refused (ledger 180, findings 3 to 6).**
   `apply_native` ignored the result of `SetAreDevToolsEnabled(false)`. It now sets the value, reads it back, and when the
   webview has no settings object, the call fails or the value is still on, it closes the webview and reports the new
