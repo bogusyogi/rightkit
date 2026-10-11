@@ -3,6 +3,13 @@
 ## Unreleased
 
 - **Added:** `ProxyMode::System`: the proxy the operating system is configured with for the current user. On Windows it reads the static proxy and bypass list of the system proxy settings (`WinHttpGetIEProxyConfigForCurrentUser`); an `http`/`https` proxy is used and the bypass list becomes the `NO_PROXY` list where it can be expressed (`<local>` and patterns such as `10.*` are dropped, so those hosts go through the proxy). A proxy auto-config script and auto-detection are **not** evaluated. With no static proxy, and on other systems, it behaves as `ProxyMode::Environment`. The default is unchanged (`ProxyMode::None`). `ProxyMode` gained a variant: add an arm to any exhaustive `match`.
+Fixes from the third read (docs/audits/2026-10-11-astra-http-third-read.md):
+
+- **Fixed:** `download_to_path` refuses a `.part` that has more than one hard link (Unix `nlink`, Windows link count) before any write or truncation, so a hard link to another file is never rewritten on resume.
+- **Fixed (behaviour change):** destination file names ending in `.lock` or `.part` (ASCII case-insensitive) are refused with `DownloadError::Io` before any filesystem access or request; they collided with the internal lock and partial files and let one download replace another's active lock.
+- **Fixed (behaviour change):** the resource-change check now compares the full final URL including the query (fragment only dropped) and also applies to `416`, so a reconnect that lands on a different resource restarts instead of publishing the saved prefix. A redirect that re-signs its query on every request now restarts the download rather than resuming.
+- **Added:** `Request::secret_form(pairs, secret_names)`, `Request::redact_value(value)` and `Request::scrub(text)`. Values registered through them are scrubbed from error text and `Debug` like secret headers. `rightkit-oauth` must adopt them to stop echoing submitted tokens (the OAuth side of audit finding 4 lives in that crate and is not changed here).
+- **Tests:** the Windows link and swap tests now fail, instead of skipping, when the symlink or junction fixture cannot be created. Regression tests in `tests/third_read.rs`.
 
 - **Fixed:** a bodiless GET, HEAD or DELETE no longer sends `Content-Length: 0` (the blocking client's ureq framed every request with a body; the async client now matches it). POST, PUT and PATCH with an empty body still send `Content-Length: 0`.
 

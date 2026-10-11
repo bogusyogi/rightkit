@@ -20,13 +20,18 @@
 //!
 //! * The user-domain default target: the retry's destination IS the requested one (the default
 //!   keychain), so a write can only land where it was asked to.
-//! * Any other explicit keychain ([`KeychainBackend::open_file`]): a write is refused with
-//!   `Error::Unavailable` unless the keychain is the current default. Reads and deletes still
-//!   work on it.
-//! * Throwaway test keychains ([`IsolatedKeychain`], [`KeychainBackend::open_isolated_file`]):
-//!   writes are allowed. They hold fake data in the temp directory; the residual risk, that the
-//!   file is deleted in the instant between the pre-write checks and the add, would put a
-//!   fixture secret in the default keychain.
+//! * Any other explicit keychain ([`KeychainBackend::open_file`]): a write is ALWAYS refused with
+//!   `Error::Unavailable`. A "is it the current default" check is not enough: the default can be
+//!   switched and the file deleted by another process between the check and the add, and the add
+//!   would then store the secret in the new default. Creation is refused until it can be bound to
+//!   its destination. Reads and deletes still work on it.
+//! * Throwaway test keychains ([`IsolatedKeychain`], and [`KeychainBackend::open_isolated_file`],
+//!   which accepts only a fixture this crate made): writes are allowed. They hold fake data in the
+//!   temp directory; the residual risk, that the file is deleted in the instant between the
+//!   pre-write checks and the add, would put a fixture secret in the default keychain. This is
+//!   the one write path that is not destination-bound; it exists because the end-to-end suite and
+//!   the CLI's `--isolated-keychain` need to write, and it cannot be reached with an arbitrary
+//!   file.
 //!
 //! Before every write the destination is also checked to be a valid keychain reference whose
 //! file exists, and unlocked (a locked one is `Error::InteractionRequired` when the call is
@@ -158,9 +163,9 @@ enum Target {
 }
 
 impl Target {
-    /// True when a write may only go ahead if the keychain is the current default, because the
-    /// native add's fallback would otherwise put the secret in a different keychain.
-    fn write_needs_default_match(&self) -> bool {
+    /// True when a write must be refused, because the native add's fallback could put the secret
+    /// in a different keychain than the explicit one requested.
+    fn write_is_refused(&self) -> bool {
         matches!(self, Target::File { fixture: false, .. })
     }
 }
@@ -200,19 +205,6 @@ fn keychain_path(kc: *const c_void) -> Option<PathBuf> {
     }
     buf.truncate(len as usize);
     String::from_utf8(buf).ok().map(PathBuf::from)
-}
-
-fn same_file(a: &Path, b: &Path) -> bool {
-    match (a.canonicalize(), b.canonicalize()) {
-        (Ok(a), Ok(b)) => a == b,
-        _ => a == b,
-    }
-}
-
-/// File of the current user-domain default keychain, or `None` if it cannot be resolved.
-fn user_default_path() -> Option<PathBuf> {
-    let kc = user_default_keychain().ok()?;
-    keychain_path(kc.0)
 }
 
 /// The OS calls a write needs, behind a trait so the decision whether to make the add can be
@@ -258,8 +250,9 @@ impl Native for Os {
 
 /// Check the destination, then add. Every check happens BEFORE the add, because the add itself
 /// falls back to the default keychain when the requested one is unusable (module docs).
-/// `must_be_default` is the default-keychain probe for an explicit keychain that is not a test
-/// fixture: such a write is refused unless that keychain is the default.
+/// `refuse_write` is true for an explicit keychain that is not a test fixture: such a write is
+/// refused unconditionally (a default-keychain check would still race a concurrent change of the
+/// default and deletion of the file).
 fn add_checked<N: Native>(
     native: &N,
     dest: &Handle,
@@ -267,8 +260,14 @@ fn add_checked<N: Native>(
     account: &str,
     secret: &Secret,
     mode: Interaction,
-    must_be_default: Option<&dyn Fn() -> Option<PathBuf>>,
+    refuse_write: bool,
 ) -> Result<OSStatus> {
+    if refuse_write {
+        return Err(Error::Unavailable(
+            "refusing to write: a write to an explicit keychain cannot be guaranteed to stay in it"
+                .into(),
+        ));
+    }
     let bits = native.status(dest).map_err(|st| {
         Error::Unavailable(format!("destination keychain is not valid (code {st})"))
     })?;
@@ -278,17 +277,6 @@ fn add_checked<N: Native>(
         .ok_or_else(|| Error::Unavailable("destination keychain file is not available".into()))?;
     if bits & STATUS_UNLOCKED == 0 && mode == Interaction::NonInteractive {
         return Err(Error::InteractionRequired);
-    }
-    if let Some(default_path) = must_be_default {
-        match default_path() {
-            Some(default) if same_file(&path, &default) => {}
-            _ => {
-                return Err(Error::Unavailable(
-                    "refusing to write: a write to a keychain other than the user default cannot be guaranteed to stay in it"
-                        .into(),
-                ))
-            }
-        }
     }
     Ok(native.add(dest, ns, account, secret))
 }
@@ -314,6 +302,22 @@ impl KeychainBackend {
     /// file were deleted in the instant between the pre-write checks and the add, the OS would
     /// store the fixture secret in the default keychain.
     pub fn open_isolated_file(path: &Path, password: Option<&str>) -> Result<Self> {
+        // Only a fixture this crate made: `IsolatedKeychain::create` names the directory
+        // `rightkit-secrets-test-<hex>` and the file `isolated.keychain-db`.
+        let shaped = path
+            .file_name()
+            .is_some_and(|n| n == "isolated.keychain-db")
+            && path
+                .parent()
+                .and_then(|d| d.file_name())
+                .and_then(|n| n.to_str())
+                .is_some_and(|n| n.starts_with("rightkit-secrets-test-"));
+        if !shaped {
+            return Err(Error::Invalid {
+                what: "path",
+                reason: "not a keychain made by IsolatedKeychain::create".into(),
+            });
+        }
         let temp = std::env::temp_dir()
             .canonicalize()
             .map_err(|e| Error::Io(e.to_string()))?;
@@ -420,14 +424,15 @@ impl KeychainBackend {
         secret: &Secret,
         mode: Interaction,
     ) -> Result<OSStatus> {
-        let default_probe = user_default_path;
-        let must_be_default: Option<&dyn Fn() -> Option<PathBuf>> =
-            if self.target.write_needs_default_match() {
-                Some(&default_probe)
-            } else {
-                None
-            };
-        add_checked(&Os, kc, ns, account, secret, mode, must_be_default)
+        add_checked(
+            &Os,
+            kc,
+            ns,
+            account,
+            secret,
+            mode,
+            self.target.write_is_refused(),
+        )
     }
 }
 
@@ -517,6 +522,15 @@ impl ItemOps for KcOps<'_> {
 }
 
 impl Backend for KeychainBackend {
+    fn exclusion_identity(&self) -> Option<String> {
+        match &self.target {
+            Target::UserDefault => Some("macos-keychain:user-default".to_string()),
+            Target::File { handle, .. } => keychain_path(handle.0)
+                .map(|p| format!("macos-keychain-file:{}", p.to_string_lossy())),
+            #[cfg(test)]
+            Target::Resolved(_) => None,
+        }
+    }
     fn name(&self) -> &'static str {
         match self.target {
             Target::UserDefault => "macos-keychain",
@@ -974,11 +988,7 @@ mod tests {
         std::env::temp_dir().join("rightkit-secrets-no-such-keychain.keychain-db")
     }
 
-    fn try_add(
-        native: &FakeNative,
-        mode: Interaction,
-        must_be_default: Option<&dyn Fn() -> Option<PathBuf>>,
-    ) -> Result<OSStatus> {
+    fn try_add(native: &FakeNative, mode: Interaction, refuse_write: bool) -> Result<OSStatus> {
         let ns = Namespace::new("rightkit.test.gate").unwrap();
         add_checked(
             native,
@@ -987,7 +997,7 @@ mod tests {
             "acct",
             &secret("v"),
             mode,
-            must_be_default,
+            refuse_write,
         )
     }
 
@@ -996,7 +1006,7 @@ mod tests {
         let mut native = FakeNative::ready(existing_path());
         native.status = Err(NO_SUCH_KEYCHAIN);
         assert!(matches!(
-            try_add(&native, Interaction::Interactive, None),
+            try_add(&native, Interaction::Interactive, false),
             Err(Error::Unavailable(_))
         ));
         assert_eq!(native.adds.get(), 0);
@@ -1008,7 +1018,7 @@ mod tests {
             let mut native = FakeNative::ready(existing_path());
             native.path = path;
             assert!(matches!(
-                try_add(&native, Interaction::Interactive, None),
+                try_add(&native, Interaction::Interactive, false),
                 Err(Error::Unavailable(_))
             ));
             assert_eq!(native.adds.get(), 0);
@@ -1020,45 +1030,52 @@ mod tests {
         let mut native = FakeNative::ready(existing_path());
         native.status = Ok(0);
         assert!(matches!(
-            try_add(&native, Interaction::NonInteractive, None),
+            try_add(&native, Interaction::NonInteractive, false),
             Err(Error::InteractionRequired)
         ));
         assert_eq!(native.adds.get(), 0);
         // An explicit user action may let the OS prompt to unlock.
-        assert_eq!(try_add(&native, Interaction::Interactive, None), Ok(0));
+        assert_eq!(try_add(&native, Interaction::Interactive, false), Ok(0));
         assert_eq!(native.adds.get(), 1);
     }
 
     #[test]
     fn a_ready_destination_gets_exactly_one_native_add() {
         let native = FakeNative::ready(existing_path());
-        assert_eq!(try_add(&native, Interaction::NonInteractive, None), Ok(0));
+        assert_eq!(try_add(&native, Interaction::NonInteractive, false), Ok(0));
         assert_eq!(native.adds.get(), 1);
     }
 
     #[test]
-    fn an_explicit_keychain_that_is_not_the_default_is_never_written() {
-        let other = existing_path();
-        for probe in [
-            Some(missing_path()),
-            None, // the default cannot be resolved
-        ] {
-            let native = FakeNative::ready(other.clone());
-            let default_is = move || probe.clone();
-            assert!(matches!(
-                try_add(&native, Interaction::NonInteractive, Some(&default_is)),
-                Err(Error::Unavailable(_))
-            ));
-            assert_eq!(native.adds.get(), 0);
-        }
-        // The same keychain as the default: the add's fallback target is the requested one.
-        let native = FakeNative::ready(other.clone());
-        let default_is = || Some(other.clone());
-        assert_eq!(
-            try_add(&native, Interaction::NonInteractive, Some(&default_is)),
-            Ok(0)
-        );
-        assert_eq!(native.adds.get(), 1);
+    fn an_explicit_keychain_is_never_written_even_when_it_is_the_default() {
+        // No default-keychain probe exists any more: nothing to race. The refusal comes before
+        // any OS call, so the native add is never reached.
+        let native = FakeNative::ready(existing_path());
+        assert!(matches!(
+            try_add(&native, Interaction::NonInteractive, true),
+            Err(Error::Unavailable(_))
+        ));
+        assert!(matches!(
+            try_add(&native, Interaction::Interactive, true),
+            Err(Error::Unavailable(_))
+        ));
+        assert_eq!(native.adds.get(), 0);
+    }
+
+    #[test]
+    fn only_a_non_fixture_explicit_keychain_refuses_writes() {
+        let h = Arc::new(Handle(null_mut()));
+        let plain = Target::File {
+            handle: h.clone(),
+            fixture: false,
+        };
+        let fixture = Target::File {
+            handle: h,
+            fixture: true,
+        };
+        assert!(plain.write_is_refused());
+        assert!(!fixture.write_is_refused());
+        assert!(!Target::UserDefault.write_is_refused());
     }
 
     #[test]

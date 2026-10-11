@@ -7,25 +7,26 @@
 //! `Child::kill`).
 
 use std::{
-    collections::VecDeque,
     fmt,
     io::{self, BufRead, BufReader, Read},
     process::{ChildStdin, ExitStatus},
-    sync::{
-        mpsc::{self, RecvTimeoutError},
-        Arc, Mutex,
-    },
+    sync::mpsc::{self, RecvTimeoutError},
     thread::{self, JoinHandle},
     time::{Duration, Instant},
 };
 
-use rightkit_process::{OwnedChild, OwnedCommand};
+use rightkit_process::{OwnedChild, OwnedCommand, StderrTail, WaitOutcome};
 use std::path::{Path, PathBuf};
 
 use crate::{CancellationToken, FfmpegBinary, FfmpegCommand};
 
-const STDERR_TAIL_LINES: usize = 40;
+/// Retention cap for the stderr tail. `StderrTail` also bounds what it reads per line (four
+/// times this), so a child that never writes a newline cannot grow memory.
 const STDERR_TAIL_BYTES: usize = 8 * 1024;
+/// Longest stdout line the progress reader inspects. `-progress` lines are a few dozen bytes;
+/// anything longer is not progress and is read and dropped, so an unterminated stream cannot
+/// grow the buffer.
+const PROGRESS_LINE_LIMIT: usize = 64 * 1024;
 /// Cap on stderr kept for `run_capture` (loudnorm JSON, `-i` probe text).
 const CAPTURE_LIMIT: u64 = 4 << 20;
 /// Grace between the polite stop signal and the forced tree kill, unless a caller sets its own.
@@ -215,39 +216,85 @@ impl RunOptions<'_> {
     }
 }
 
-#[derive(Default)]
-struct Tail {
-    lines: VecDeque<String>,
-    bytes: usize,
-}
-
-impl Tail {
-    fn push(&mut self, line: String) {
-        self.bytes += line.len();
-        self.lines.push_back(line);
-        while self.lines.len() > STDERR_TAIL_LINES
-            || (self.bytes > STDERR_TAIL_BYTES && self.lines.len() > 1)
-        {
-            if let Some(old) = self.lines.pop_front() {
-                self.bytes -= old.len();
-            }
-        }
-    }
-
-    fn text(&self) -> String {
-        self.lines.iter().cloned().collect::<Vec<_>>().join("\n")
-    }
-}
-
+/// Reads `reader` line by line, handing each line of at most [`PROGRESS_LINE_LIMIT`] bytes to
+/// `each`. A longer line is read to its newline and dropped without being buffered whole.
 fn read_lines(reader: impl Read, mut each: impl FnMut(String)) {
     let mut r = BufReader::new(reader);
     let mut buf = Vec::new();
     loop {
         buf.clear();
-        match r.read_until(b'\n', &mut buf) {
+        match r
+            .by_ref()
+            .take(PROGRESS_LINE_LIMIT as u64 + 1)
+            .read_until(b'\n', &mut buf)
+        {
             Ok(0) | Err(_) => break,
-            Ok(_) => each(String::from_utf8_lossy(&buf).trim_end().to_string()),
+            Ok(_) => {}
         }
+        if buf.last() != Some(&b'\n') && buf.len() > PROGRESS_LINE_LIMIT {
+            if discard_rest_of_line(&mut r) {
+                break;
+            }
+            continue;
+        }
+        each(String::from_utf8_lossy(&buf).trim_end().to_string());
+    }
+}
+
+/// Reads and drops bytes up to and including the next newline. True when the stream ended
+/// first.
+fn discard_rest_of_line(reader: &mut impl BufRead) -> bool {
+    loop {
+        let (used, found) = match reader.fill_buf() {
+            Ok([]) => return true,
+            Ok(buffer) => match buffer.iter().position(|&byte| byte == b'\n') {
+                Some(index) => (index + 1, true),
+                None => (buffer.len(), false),
+            },
+            Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
+            Err(_) => return true,
+        };
+        reader.consume(used);
+        if found {
+            return false;
+        }
+    }
+}
+
+/// Passes reads through and tells the run loop once, when the stream ends (EOF or a read
+/// error). `StderrTail` owns its drain thread and does not report the end of the stream, so
+/// the end is observed on the reader it consumes.
+struct EndSignal<R> {
+    inner: R,
+    done: Option<mpsc::Sender<Event>>,
+}
+
+impl<R: Read> Read for EndSignal<R> {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        let result = self.inner.read(buf);
+        if matches!(result, Ok(0) | Err(_)) && !buf.is_empty() {
+            if let Some(done) = self.done.take() {
+                let _ = done.send(Event::StderrDone);
+            }
+        }
+        result
+    }
+}
+
+/// How the run ends the tree once the loop is over, then reaps the leader. After an abort
+/// `wait_or_kill` has already done both. Otherwise the leader has exited on its own but is
+/// still unreaped, and closed pipes do not mean the tree is gone: a descendant that
+/// redirected its output (or kept stdin) is still running. Reaping with a bare `wait` would
+/// end the group's killability on Unix and leave it behind; `wait_or_kill` kills the rest of
+/// the tree while the leader still pins the group (Unix) or terminates the retained job
+/// (Windows), and only then reaps. The caller does this before joining the stdin writer, which
+/// a descendant holding the pipe would otherwise block past the deadline.
+fn finish_tree(child: &mut OwnedChild, aborted: bool, grace: Duration) -> io::Result<ExitStatus> {
+    if aborted {
+        return child.wait();
+    }
+    match child.wait_or_kill(grace)? {
+        WaitOutcome::Exited(status) | WaitOutcome::Terminated(status) => Ok(status),
     }
 }
 
@@ -492,17 +539,24 @@ where
         });
         let _ = tx.send(Event::StdoutDone);
     });
-    let tail = Arc::new(Mutex::new(Tail::default()));
     let stderr = child.take_stderr().expect("stderr piped");
-    let err_tail = Arc::clone(&tail);
-    let err_thread = thread::spawn(move || {
-        read_lines(stderr, |line| {
-            if let Ok(mut t) = err_tail.lock() {
-                t.push(line);
-            }
-        });
-        let _ = stderr_tx.send(Event::StderrDone);
-    });
+    // Bounded on both axes: whole lines past four times the cap are discarded unbuffered, and
+    // retention never exceeds the cap (a single longer line is cut to its tail).
+    let mut tail = match StderrTail::try_capture(
+        EndSignal {
+            inner: stderr,
+            done: Some(stderr_tx),
+        },
+        STDERR_TAIL_BYTES,
+        |line| Some(line.trim_end().to_owned()),
+        |_| {},
+    ) {
+        Ok(tail) => tail,
+        Err(e) => {
+            let _ = child.terminate_tree();
+            return Err(RunError::Io(e));
+        }
+    };
 
     // The writer runs on a scoped thread so a blocked write can never stall the
     // cancel/timeout loop below; stopping the child is what unblocks it.
@@ -582,7 +636,7 @@ where
         }
         // Reap. When the run ended on its own the leader is still an unreaped zombie, kept so
         // the tree stayed killable until now; after an abort `wait_or_kill` already did it.
-        let status = match child.wait() {
+        let status = match finish_tree(&mut child, abort.is_some(), opts.kill_grace) {
             Ok(status) => status,
             Err(e) => {
                 let _ = child.terminate_tree();
@@ -590,7 +644,13 @@ where
             }
         };
         let _ = join_if_done(run.stdout_done, out_thread);
-        let _ = join_if_done(run.stderr_done, err_thread);
+        // The tree is down, so the stderr drain ends at once unless an escaped holder keeps
+        // it open; then it is left to end on its own and what it kept so far is used.
+        let stderr_tail = if run.stderr_done {
+            tail.finish()
+        } else {
+            tail.snapshot()
+        };
         let writer_result = match writer {
             Some(writer) => writer
                 .join()
@@ -614,7 +674,6 @@ where
             None => {}
         }
         if !status.success() {
-            let stderr_tail = tail.lock().map(|t| t.text()).unwrap_or_default();
             return Err(RunError::Failed {
                 status,
                 stderr_tail,
@@ -768,7 +827,7 @@ fn run_capture_inner(
             }
         }
     }
-    let status = match child.wait() {
+    let status = match finish_tree(&mut child, abort.is_some(), kill_grace) {
         Ok(status) => status,
         Err(e) => {
             let _ = child.terminate_tree();
@@ -1064,6 +1123,115 @@ mod tests {
                 .with_kill_grace(Duration::from_secs(5));
             run_capture_with(bin, &FfmpegCommand::base("error"), opts).unwrap_err()
         });
+    }
+
+    /// The leader exits 0 and both pipes close at once, yet a descendant that sent its output
+    /// elsewhere keeps running. A normal completion must take the group down: before, the final
+    /// reap was a bare `wait`, which ended the group's killability and left the sleeper behind.
+    fn redirected_descendant(dir: &Path, keep_stdin: bool) -> (DevFfmpeg, PathBuf) {
+        let pid_file = dir.join("sleeper.pid");
+        let stdin = if keep_stdin { "" } else { "</dev/null " };
+        let body = format!(
+            "sleep 600 {stdin}>/dev/null 2>&1 &\necho $! > '{}'\nexit 0",
+            pid_file.display()
+        );
+        (fake_ffmpeg(dir, &body), pid_file)
+    }
+
+    #[test]
+    fn a_normal_progress_run_does_not_leave_a_redirected_descendant_running() {
+        let dir = tempfile::tempdir().unwrap();
+        let (bin, pid_file) = redirected_descendant(dir.path(), false);
+        let opts = RunOptions::new(Duration::from_secs(20), CancellationToken::new());
+        run_with_progress(&bin, &FfmpegCommand::base("error"), opts).unwrap();
+        assert_dies_soon(read_pid_file(&pid_file), "completed progress run");
+    }
+
+    #[test]
+    fn a_normal_capture_run_does_not_leave_a_redirected_descendant_running() {
+        let dir = tempfile::tempdir().unwrap();
+        let (bin, pid_file) = redirected_descendant(dir.path(), false);
+        let opts = RunOptions::new(Duration::from_secs(20), CancellationToken::new());
+        run_capture_with(&bin, &FfmpegCommand::base("error"), opts).unwrap();
+        assert_dies_soon(read_pid_file(&pid_file), "completed capture run");
+    }
+
+    /// A descendant that kept stdin open blocks the feed once the pipe is full. The run must
+    /// stop that descendant before it joins the writer, so it returns promptly with the
+    /// descendant dead instead of waiting on a write nobody will read.
+    #[test]
+    fn a_descendant_holding_stdin_cannot_block_the_writer_join() {
+        let dir = tempfile::tempdir().unwrap();
+        let (bin, pid_file) = redirected_descendant(dir.path(), true);
+        let mut cmd = FfmpegCommand::base("error");
+        cmd.stdin_piped(true).texts(["-i", "pipe:0"]);
+        let opts = RunOptions::new(Duration::from_secs(20), CancellationToken::new());
+        let started = Instant::now();
+        let result = run_with_stdin(&bin, &cmd, opts, |mut stdin| {
+            let chunk = vec![0u8; 64 * 1024];
+            for _ in 0..256 {
+                stdin.write_all(&chunk)?;
+            }
+            Ok(())
+        });
+        let elapsed = started.elapsed();
+        assert!(result.is_ok(), "{result:?}");
+        assert!(
+            elapsed < Duration::from_secs(15),
+            "the writer join waited {elapsed:?} on a descendant holding stdin"
+        );
+        assert_dies_soon(read_pid_file(&pid_file), "run with a stdin holder");
+    }
+
+    /// stderr that never contains a newline must not grow the retained text or the reader's
+    /// buffer: one megabyte in, at most the cap out.
+    #[test]
+    fn unterminated_stderr_is_bounded_in_the_failure_tail() {
+        let dir = tempfile::tempdir().unwrap();
+        let bin = fake_ffmpeg(
+            dir.path(),
+            "head -c 1048576 /dev/zero | tr '\\0' x >&2\nexit 1",
+        );
+        let opts = RunOptions::new(Duration::from_secs(20), CancellationToken::new());
+        let error = run_with_progress(&bin, &FfmpegCommand::base("error"), opts).unwrap_err();
+        let RunError::Failed { stderr_tail, .. } = error else {
+            panic!("expected Failed, got {error:?}");
+        };
+        assert!(
+            stderr_tail.len() <= STDERR_TAIL_BYTES,
+            "kept {} bytes",
+            stderr_tail.len()
+        );
+        assert!(stderr_tail.contains("dropped"), "{stderr_tail}");
+    }
+
+    /// Many short lines keep only the newest ones, within the same byte cap.
+    #[test]
+    fn many_stderr_lines_keep_the_newest_within_the_cap() {
+        let dir = tempfile::tempdir().unwrap();
+        let bin = fake_ffmpeg(
+            dir.path(),
+            "i=0\nwhile [ $i -lt 3000 ]; do echo \"line $i\" >&2; i=$((i+1)); done\nexit 1",
+        );
+        let opts = RunOptions::new(Duration::from_secs(20), CancellationToken::new());
+        let error = run_with_progress(&bin, &FfmpegCommand::base("error"), opts).unwrap_err();
+        let RunError::Failed { stderr_tail, .. } = error else {
+            panic!("expected Failed, got {error:?}");
+        };
+        assert!(stderr_tail.len() <= STDERR_TAIL_BYTES);
+        assert!(stderr_tail.ends_with("line 2999"), "{stderr_tail}");
+        assert!(!stderr_tail.contains("line 0\n"));
+    }
+
+    /// An unterminated stdout line is read and dropped, never buffered whole, and does not
+    /// stop later progress from being parsed.
+    #[test]
+    fn an_oversized_unterminated_stdout_line_is_dropped_not_buffered() {
+        let mut seen = Vec::new();
+        let mut data = vec![b'x'; PROGRESS_LINE_LIMIT * 3];
+        data.extend_from_slice(b"\nframe=7\nprogress=end\n");
+        read_lines(io::Cursor::new(data), |line| seen.push(line));
+        assert_eq!(seen, ["frame=7", "progress=end"]);
     }
 
     #[test]

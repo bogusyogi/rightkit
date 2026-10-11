@@ -42,13 +42,24 @@
       "version": "1.24.4",
       "os": "windows",
       "arch": "x86_64",
-      "status": "planned",
+      "status": "pinned",
       "linkage": "dynamic-library",
       "artifactFileName": "onnxruntime.dll",
-      "sourceUrl": "https://github.com/microsoft/onnxruntime/releases/tag/v1.24.4",
+      "sha256": "e7eedec6a6f26dc39dc948276a75ef6d2bee3fff944d874ceed0bbd3b97bff40",
+      "archive": {
+        "url": "https://api.nuget.org/v3-flatcontainer/microsoft.ml.onnxruntime.directml/1.24.4/microsoft.ml.onnxruntime.directml.1.24.4.nupkg",
+        "sha256": "57e9f11b73437bef7a309496135d4c1f96b1a8e9ddba60013fa27bfc1d788681"
+      },
+      "sourceUrl": "https://www.nuget.org/packages/Microsoft.ML.OnnxRuntime.DirectML/1.24.4",
       "licenseSpdx": "MIT",
-      "noticeFiles": ["third-party/ONNXRuntime-MIT.txt"],
-      "verification": { "method": "none", "evidence": "DirectML build pinned by HeardRight (1.24.4 fusion workaround); digest to be recorded on the Windows host" }
+      "noticeFiles": [
+        "third-party/ONNXRuntime-MIT.txt",
+        "third-party/ONNXRuntime-1.24.4-ThirdPartyNotices.txt"
+      ],
+      "verification": {
+        "method": "file-sha256",
+        "evidence": "Microsoft.ML.OnnxRuntime.DirectML 1.24.4 from nuget.org: the nupkg (12458649 bytes) hashes to the SHA-512 nuget.org publishes (ZjOyv495vhfVXoTJp2utRyn8ir1TFIvCj0B9JP8QZGBXS0oFx+lY7ZCZqSdnVShQX6EtxYi2T3VOtYXcmBTV4A==); sha256 is runtimes/win-x64/native/onnxruntime.dll (17328152 bytes) extracted from it. Not loaded or run by rightkit-ort here yet, so it stays pinned. The DirectML execution provider also needs DirectML.dll from Microsoft.AI.DirectML (the package declares >= 1.15.4); that file is under Microsoft's DirectML licence terms, which the suite has not approved, so it has no record."
+      }
     },
     {
       "id": "pdfium-chromium-8021-macos-arm64",

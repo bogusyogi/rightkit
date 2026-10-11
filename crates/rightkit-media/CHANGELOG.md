@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+- Runner: a run that completes on its own now ends the process tree before it reaps and before it
+  joins the stdin writer (`wait_or_kill` on the unreaped leader), not a bare `wait`. A descendant that
+  redirected its output and kept running no longer outlives `run_with_progress`, `run_with_stdin`,
+  `run_capture` or `run_checked`, and one that kept stdin open can no longer hold the writer join
+  past the deadline. Needs the `rightkit-process` fix that makes `wait_or_kill` terminate the
+  retained job on Windows when the leader exits within the grace.
+- Runner: the stderr tail of `run_with_progress`/`run_with_stdin` uses `rightkit_process::StderrTail`.
+  A child that writes stderr without a newline no longer grows memory (a line over four times the
+  8 KiB cap is dropped unbuffered and replaced by a marker), and the retained tail never exceeds
+  8 KiB, including a single long line. The 40-line limit is gone; the byte cap is the bound. The
+  stdout progress reader likewise drops lines over 64 KiB instead of buffering them.
+- Native catalog: `onnxruntime-1.24.4-windows-x64-directml` moves from `planned` to `pinned`:
+  `onnxruntime.dll` from the NuGet package `Microsoft.ML.OnnxRuntime.DirectML` 1.24.4, with the
+  package and file digests and the package's own `ThirdPartyNotices.txt`. Not resolvable as
+  approved until rightkit-ort has loaded it. `DirectML.dll` has no record: its Microsoft licence
+  terms are not on the suite's approved list.
 - Windows x86_64 catalog rows, both `pending`: `ffmpeg-7.1.5-export-ass-zimg-windows-x64` (libass
   through DirectWrite, FreeType, HarfBuzz, FriBidi, zimg, zlib, Media Foundation `h264_mf`) and
   `ffprobe-7.1.5-windows-x64` (`decode`). Recipe: `recipes/build-ffmpeg-windows.sh` (MSYS2

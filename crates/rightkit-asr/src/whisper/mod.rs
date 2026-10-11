@@ -35,6 +35,8 @@
 //!   whisper.cpp's abort callback and between windows.
 //! - Progress: [`WhisperOptions::progress`] ([`ProgressCallback`]) reports
 //!   [`WhisperProgress`] per window and from whisper.cpp's own within-window callback.
+//!   [`WhisperOptions::progress_probe`] ([`ProgressProbe`]) gives the same figures as
+//!   atomics to poll from any thread, with no callback bound.
 //! - Whole-recording bound: [`WhisperOptions::total_deadline`], with the old
 //!   CLI-route policy as [`recording_deadline`]. Language detection takes
 //!   [`WhisperOptions::detect_deadline`] and the same cancel token.
@@ -71,7 +73,7 @@ pub use coreml::ComputeUnits;
 pub use coreml::WhisperCoreMl;
 pub use control::{
     audio_duration, recording_deadline, CancelToken, InterruptReason, ProgressCallback,
-    WhisperInterrupted, WhisperProgress, RECORDING_DEADLINE_AUDIO_FACTOR, RECORDING_DEADLINE_BASE,
+    ProgressProbe, WhisperInterrupted, WhisperProgress, RECORDING_DEADLINE_AUDIO_FACTOR, RECORDING_DEADLINE_BASE,
 };
 pub use languages::{
     is_unspaced_language, is_whisper_language, join_segment_text, validate_language,
@@ -194,6 +196,9 @@ pub struct WhisperOptions {
     /// The within-window events come from whisper.cpp's own progress callback
     /// (whisper.cpp backend only; CoreML reports once per window).
     pub progress: Option<ProgressCallback>,
+    /// Polled progress (default `None`): the same figures as [`progress`](Self::progress),
+    /// read from any thread through [`ProgressProbe`] with no callback. Both may be set.
+    pub progress_probe: Option<ProgressProbe>,
     /// Whole-recording time bound, started when the run begins (default `None`:
     /// only the per-window bound applies). On expiry the run returns
     /// [`Error::Interrupted`] with [`InterruptReason::DeadlineExceeded`] and the
@@ -289,6 +294,7 @@ impl Default for WhisperOptions {
             compute_units: ComputeUnits::default(),
             cancel: None,
             progress: None,
+            progress_probe: None,
             total_deadline: None,
             detect_deadline: None,
             quality: DecodeQuality::default(),
@@ -506,6 +512,11 @@ impl Whisper {
         self.options.progress = progress;
     }
 
+    /// Replace the polled progress probe for later calls.
+    pub fn set_progress_probe(&mut self, probe: Option<ProgressProbe>) {
+        self.options.progress_probe = probe;
+    }
+
     /// Replace the whole-recording bound for later calls (see
     /// [`WhisperOptions::total_deadline`], [`recording_deadline`]).
     pub fn set_total_deadline(&mut self, deadline: Option<Duration>) {
@@ -634,6 +645,7 @@ impl Whisper {
             total_deadline,
             window_deadline: opts.window_deadline,
             progress: opts.progress.as_ref(),
+            probe: opts.progress_probe.as_ref(),
         };
         let out = match windowing::transcribe_windowed(decoder, &audio, forced, decode, &ctl) {
             Ok(out) => out,
@@ -786,7 +798,7 @@ mod tests {
     #[test]
     fn option_defaults_keep_existing_values_and_add_nothing_active() {
         let o = WhisperOptions::default();
-        assert!(o.cancel.is_none() && o.progress.is_none());
+        assert!(o.cancel.is_none() && o.progress.is_none() && o.progress_probe.is_none());
         assert_eq!(o.total_deadline, None);
         assert_eq!(o.detect_deadline, None);
         assert_eq!(o.window_deadline, Some(Duration::from_secs(180)));

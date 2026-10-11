@@ -9,7 +9,7 @@
 use super::WhisperTranscript;
 use std::ffi::c_void;
 use std::fmt;
-use std::sync::atomic::{AtomicBool, AtomicPtr, AtomicU64, AtomicU8, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicPtr, AtomicU32, AtomicU64, AtomicU8, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -134,6 +134,81 @@ impl ProgressCallback {
 impl fmt::Debug for ProgressCallback {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str("ProgressCallback(..)")
+    }
+}
+
+/// Polled progress for a run, for callers that cannot or do not want a callback.
+///
+/// Create one, store a clone in [`WhisperOptions::progress_probe`], and read it from
+/// any thread while the run is in progress. The decode loop updates it with atomics,
+/// so the caller's code needs no `Send`, `Sync` or `'static` bound. Clones share one
+/// set of counters, and each run resets them when it starts.
+///
+/// Each getter reads one atomic, so values read in a row may come from different
+/// moments. `fraction` never decreases within a run, as with [`WhisperProgress::fraction`].
+///
+/// [`WhisperOptions::progress_probe`]: super::WhisperOptions::progress_probe
+#[derive(Debug, Clone, Default)]
+pub struct ProgressProbe(Arc<ProgressCounters>);
+
+#[derive(Debug, Default)]
+struct ProgressCounters {
+    windows_completed: AtomicUsize,
+    windows_estimated: AtomicUsize,
+    samples_completed: AtomicUsize,
+    samples_total: AtomicUsize,
+    /// `f32` bits of the fraction; non-negative floats order like their bits, so `fetch_max` keeps the largest.
+    fraction_bits: AtomicU32,
+}
+
+impl ProgressProbe {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Windows fully decoded so far in the current or most recent run.
+    pub fn completed_windows(&self) -> usize {
+        self.0.windows_completed.load(Ordering::SeqCst)
+    }
+
+    /// Windows needed at the nominal 30 s (see [`WhisperProgress::windows_estimated`]).
+    pub fn total_windows(&self) -> usize {
+        self.0.windows_estimated.load(Ordering::SeqCst)
+    }
+
+    /// Samples decoded so far.
+    pub fn samples_completed(&self) -> usize {
+        self.0.samples_completed.load(Ordering::SeqCst)
+    }
+
+    /// Samples in the audio of the current or most recent run.
+    pub fn samples_total(&self) -> usize {
+        self.0.samples_total.load(Ordering::SeqCst)
+    }
+
+    /// Share of the audio decoded, in `[0, 1]`.
+    pub fn fraction(&self) -> f32 {
+        f32::from_bits(self.0.fraction_bits.load(Ordering::SeqCst))
+    }
+
+    /// Reset for a run that will decode `samples_total` samples in about `windows_estimated` windows.
+    pub(crate) fn begin(&self, windows_estimated: usize, samples_total: usize) {
+        let c = &self.0;
+        c.windows_completed.store(0, Ordering::SeqCst);
+        c.windows_estimated.store(windows_estimated, Ordering::SeqCst);
+        c.samples_completed.store(0, Ordering::SeqCst);
+        c.samples_total.store(samples_total, Ordering::SeqCst);
+        c.fraction_bits.store(0f32.to_bits(), Ordering::SeqCst);
+    }
+
+    /// Record one progress event from the decode loop.
+    pub(crate) fn publish(&self, p: &WhisperProgress) {
+        let c = &self.0;
+        c.windows_completed.store(p.windows_completed, Ordering::SeqCst);
+        c.windows_estimated.store(p.windows_estimated, Ordering::SeqCst);
+        c.samples_completed.store(p.samples_completed, Ordering::SeqCst);
+        c.samples_total.store(p.samples_total, Ordering::SeqCst);
+        c.fraction_bits.fetch_max(p.fraction.to_bits(), Ordering::SeqCst);
     }
 }
 
@@ -367,6 +442,47 @@ mod tests {
         assert_eq!(deadline_after(now, None), None);
         assert_eq!(deadline_after(now, Some(Duration::from_secs(5))), Some(later));
         assert_eq!(deadline_after(now, Some(Duration::MAX)), None, "overflow means unbounded");
+    }
+
+    #[test]
+    fn progress_probe_is_send_sync_and_clones_share_counters() {
+        fn assert_send_sync<T: Send + Sync + 'static>() {}
+        assert_send_sync::<ProgressProbe>();
+        let a = ProgressProbe::new();
+        let b = a.clone();
+        assert_eq!(b.completed_windows(), 0);
+        assert_eq!(b.fraction(), 0.0);
+        a.begin(3, 480_000);
+        assert_eq!(b.total_windows(), 3);
+        assert_eq!(b.samples_total(), 480_000);
+        let from_thread = std::thread::spawn(move || b.total_windows()).join().unwrap();
+        assert_eq!(from_thread, 3, "readable from another thread");
+    }
+
+    #[test]
+    fn progress_probe_fraction_is_monotonic_and_begin_resets() {
+        let probe = ProgressProbe::new();
+        probe.begin(3, 100);
+        probe.publish(&WhisperProgress {
+            windows_completed: 1,
+            windows_estimated: 3,
+            samples_completed: 40,
+            samples_total: 100,
+            fraction: 0.4,
+        });
+        probe.publish(&WhisperProgress {
+            windows_completed: 1,
+            windows_estimated: 3,
+            samples_completed: 30,
+            samples_total: 100,
+            fraction: 0.3,
+        });
+        assert_eq!(probe.completed_windows(), 1);
+        assert_eq!(probe.samples_completed(), 30, "counts are the latest event");
+        assert_eq!(probe.fraction(), 0.4, "fraction never goes back within a run");
+        probe.begin(1, 10);
+        assert_eq!(probe.completed_windows(), 0);
+        assert_eq!(probe.fraction(), 0.0, "a new run starts from zero");
     }
 
     #[test]

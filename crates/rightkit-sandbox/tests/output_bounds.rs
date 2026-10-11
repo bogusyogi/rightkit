@@ -105,3 +105,41 @@ fn small_output_under_cap_is_not_truncated() {
     assert!(!out.truncated, "exactly at the cap is not truncation");
     assert_eq!(out.stdout, b"abc");
 }
+
+/// Whether `pid` is running and not merely a zombie awaiting a reaper.
+fn process_running(pid: i32) -> bool {
+    let state = std::process::Command::new("ps")
+        .args(["-o", "stat=", "-p", &pid.to_string()])
+        .output()
+        .map(|output| String::from_utf8_lossy(&output.stdout).trim().to_owned())
+        .unwrap_or_default();
+    !state.is_empty() && !state.starts_with('Z')
+}
+
+#[test]
+fn a_descendant_that_redirected_its_output_does_not_outlive_a_normal_run() {
+    // The leader exits 0 and both pipes close at once, but the sleeper keeps running with its
+    // output sent elsewhere. A normal completion must still take the group down; before, the
+    // final reap was a bare `wait`, which left the sleeper behind.
+    let child = sandbox()
+        .spawn_supervised(
+            sh("sleep 600 </dev/null >/dev/null 2>&1 & echo $!; exit 0"),
+            &EnvPolicy::default(),
+        )
+        .unwrap();
+    let out = child.wait_with_output(Duration::from_secs(10)).unwrap();
+    assert!(!out.timed_out);
+    assert!(out.status.unwrap().success());
+    let pid: i32 = String::from_utf8_lossy(&out.stdout)
+        .trim()
+        .parse()
+        .expect("the script prints the sleeper's pid");
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while process_running(pid) {
+        assert!(
+            Instant::now() < deadline,
+            "descendant {pid} survived a normal run"
+        );
+        std::thread::sleep(Duration::from_millis(10));
+    }
+}

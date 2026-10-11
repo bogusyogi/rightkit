@@ -23,7 +23,8 @@ use crate::suite::{paths, refs};
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum EntitlementError {
     /// Refused before any network call: the model does not use an entitlement, or the token is
-    /// empty, not ASCII, contains whitespace or control characters, or starts with `Bearer `.
+    /// empty once a leading `Bearer ` (any case) and surrounding whitespace are removed, or what
+    /// remains is not ASCII or contains whitespace or control characters.
     InvalidRequest(String),
     /// The server answered HTTP 401 or 403 to this token: the app is not entitled to the model,
     /// or the token is not accepted.
@@ -57,23 +58,26 @@ impl fmt::Display for EntitlementError {
 
 impl std::error::Error for EntitlementError {}
 
-/// Check that `token` is a bare token: the crate adds the `Bearer ` scheme itself.
-fn check_raw_token(token: &str) -> Result<(), EntitlementError> {
+/// Normalise `token` to the bare token the crate sends: the crate adds the `Bearer ` scheme
+/// itself. Surrounding whitespace is trimmed, one leading `Bearer ` (any case) is stripped, and the
+/// result is trimmed again. It is refused only if it is then empty, not ASCII, or contains
+/// whitespace or control characters.
+fn normalise_raw_token(token: &str) -> Result<&str, EntitlementError> {
     let invalid = |why: &str| EntitlementError::InvalidRequest(format!("entitlement token {why}"));
-    if token.is_empty() {
+    let trimmed = token.trim();
+    let bare = match trimmed.as_bytes().get(..7) {
+        Some(prefix) if prefix.eq_ignore_ascii_case(b"Bearer ") => trimmed[7..].trim(),
+        _ => trimmed,
+    };
+    if bare.is_empty() {
         return Err(invalid("is empty"));
     }
-    if token.len() >= 7 && token.as_bytes()[..7].eq_ignore_ascii_case(b"Bearer ") {
-        return Err(invalid(
-            "must be the raw token, not the Authorization value: remove the \"Bearer \" prefix",
-        ));
-    }
-    if !token.is_ascii() || token.chars().any(|c| c.is_whitespace() || c.is_control()) {
+    if !bare.is_ascii() || bare.chars().any(|c| c.is_whitespace() || c.is_control()) {
         return Err(invalid(
             "must be ASCII without whitespace or control characters",
         ));
     }
-    Ok(())
+    Ok(bare)
 }
 
 fn classify_entitlement_failure(message: String, last: Option<LastFailure>) -> EntitlementError {
@@ -280,9 +284,10 @@ impl ModelStore {
     }
 
     /// As [`ModelStore::ensure_entitled`], with a raw entitlement `token` (no `Bearer ` prefix;
-    /// the crate sends `Authorization: Bearer <token>`) and typed errors. A value that starts with
-    /// `Bearer ` (any case), is empty, or has whitespace or non-ASCII characters is refused with
-    /// [`EntitlementError::InvalidRequest`] before any network call. A ready model returns
+    /// the crate sends `Authorization: Bearer <token>`) and typed errors. One leading `Bearer `
+    /// (any case) and surrounding whitespace are stripped first, so a pasted `Authorization` value
+    /// works. A value that is then empty, or has whitespace or non-ASCII characters, is refused
+    /// with [`EntitlementError::InvalidRequest`] before any network call. A ready model returns
     /// without a request, and the token is still checked first.
     pub fn try_ensure_entitled(
         &self,
@@ -297,8 +302,8 @@ impl ModelStore {
                 spec.label
             )));
         }
-        check_raw_token(token)?;
-        let header = format!("Bearer {token}");
+        let bare = normalise_raw_token(token)?;
+        let header = format!("Bearer {bare}");
         let client = self.http.clone().unwrap_or_default();
         let slot = FailureSlot::default();
         let result = ensure_ready_recorded(

@@ -377,3 +377,44 @@ fn fresh_metadata_skips_the_clone_and_link_steps_and_makes_a_new_inode() {
         "the export is not the source's inode"
     );
 }
+
+/// The copy of a private source never sits in a wider temp. The bytes are written into a file that
+/// is created `0600` and given the source's bits only at the end, before publication; the mode
+/// seen by the replace hook is the source's, and the destination ends with it. (The window itself
+/// is not observable from a test; the temp's creation mode is fixed by the write options.)
+#[cfg(unix)]
+#[test]
+fn a_private_source_is_copied_through_an_owner_only_temp_and_ends_private() {
+    use rightkit_fs::atomic::testing::on_replace;
+    use std::os::unix::fs::PermissionsExt;
+    let (_g, dir) = tmp();
+    let (src, dst) = (source(&dir), dir.join("copy.bin"));
+    std::fs::set_permissions(&src, std::fs::Permissions::from_mode(0o600)).unwrap();
+    let _clone = override_clone(unavailable);
+    let _link = override_link(unavailable);
+    let at_publication = Rc::new(Cell::new(0u32));
+    let sink = at_publication.clone();
+    let _replace = on_replace(move |call| {
+        sink.set(std::fs::metadata(&call.temp).unwrap().permissions().mode() & 0o7777);
+        None
+    });
+    assert_eq!(
+        clone_or_link_or_copy_nofollow(&src, &dst).unwrap(),
+        CloneOutcome::Copied
+    );
+    assert_eq!(at_publication.get(), 0o600, "temp mode when published");
+    assert_eq!(
+        std::fs::metadata(&dst).unwrap().permissions().mode() & 0o7777,
+        0o600
+    );
+}
+
+#[test]
+fn a_destination_named_like_a_generated_temp_file_is_refused() {
+    let (_g, dir) = tmp();
+    let src = source(&dir);
+    let dst = dir.join(".copy.bin.rktmp-1-2-0");
+    let error = clone_or_link_or_copy_nofollow(&src, &dst).expect_err("reserved name");
+    assert!(matches!(error, FsError::BadName(_)), "{error:?}");
+    assert!(!dst.exists());
+}

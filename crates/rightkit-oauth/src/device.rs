@@ -194,11 +194,10 @@ impl OAuthClient {
         if let Some(secret) = &self.config.client_secret {
             pairs.push(("client_secret", secret.expose()));
         }
-        let response = self.http.send_any(
-            &Request::post(&self.config.token_url)
-                .header("Accept", "application/json")
-                .form(&pairs),
-        )?;
+        let request = Request::post(&self.config.token_url)
+            .header("Accept", "application/json")
+            .secret_form(&pairs, crate::SECRET_FORM_FIELDS);
+        let response = self.http.send_any(&request)?;
         let value: serde_json::Value = response.json().unwrap_or_default();
         // GitHub answers pending polls with HTTP 200 and an `error`; RFC servers use 400.
         match value.get("error").and_then(|e| e.as_str()) {
@@ -212,14 +211,16 @@ impl OAuthClient {
             }),
             Some("expired_token") => Err(OAuthError::DeviceCodeExpired),
             Some("access_denied") => Err(OAuthError::AccessDenied),
-            Some(error) => Err(provider_error(response.status, error, &value)),
+            Some(error) => Err(crate::scrub_provider(
+                &request,
+                provider_error(response.status, error, &value),
+            )),
             None if (200..300).contains(&response.status) => {
                 parse_tokens(&value, None).map(DevicePoll::Complete)
             }
-            None => Err(provider_error(
-                response.status,
-                "token_request_failed",
-                &value,
+            None => Err(crate::scrub_provider(
+                &request,
+                provider_error(response.status, "token_request_failed", &value),
             )),
         }
     }

@@ -2,11 +2,14 @@
 
 ## Unreleased
 
+- Crate root re-exports `ModelStore` and `EntitlementError` (`pub use suite::{...}`), so a wrapping
+  app imports them from one path. The README has a "Wrapping this crate" section.
 - Additive, no existing signature changed:
   - Typed entitlement download: `ModelStore::try_ensure_entitled(spec, token, cancelled,
     progress)` returns `Result<ModelStatus, EntitlementError>`. `token` is the raw
-    token; the crate sends `Authorization: Bearer <token>`. A value that starts with
-    `Bearer ` (any case), is empty, or has whitespace or non-ASCII characters is
+    token; the crate sends `Authorization: Bearer <token>`. Surrounding whitespace and one
+    leading `Bearer ` (any case) are stripped first, so a pasted `Authorization` value works.
+    A value that is then empty, or still has whitespace or non-ASCII characters, is
     refused with `EntitlementError::InvalidRequest` before any request. Variants:
     `NotEntitled { status }` (401 or 403), `Refused { status, message }` (other
     non-success statuses after the transient-status retries), `RateLimited(GrantError)`

@@ -556,6 +556,9 @@ impl OwnedChild {
     /// within `grace` the result is `Exited`, but descendants that outlived it (or ignored
     /// TERM) are killed before the leader is reaped, while it still pins the group id. If it
     /// does not exit in time the whole group is killed and the result is `Terminated`.
+    ///
+    /// Windows: if the leader exits within `grace` the result is `Exited` with its status, but
+    /// the retained job is terminated first, so descendants that outlived it do not survive.
     pub fn wait_or_kill(&mut self, grace: Duration) -> io::Result<WaitOutcome> {
         #[cfg(unix)]
         {
@@ -589,6 +592,10 @@ impl OwnedChild {
         #[cfg(windows)]
         {
             if let Some(status) = self.wait_timeout(grace)? {
+                // The leader left, but descendants may still be in the retained job (and hold
+                // the pipes). Bring the job down before reporting; the leader's own status,
+                // already collected, is what the caller gets.
+                self.force_kill(1)?;
                 return Ok(WaitOutcome::Exited(status));
             }
             self.terminate_tree().map(WaitOutcome::Terminated)

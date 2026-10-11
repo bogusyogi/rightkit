@@ -190,17 +190,50 @@ fn a_raw_token_is_sent_as_the_bearer_and_the_model_installs() {
 }
 
 #[test]
-fn a_token_with_the_bearer_prefix_is_refused_before_any_request() {
+fn a_leading_bearer_prefix_and_surrounding_space_are_stripped_before_the_request() {
+    let archive = tar_gz("wrap", &[("weights.bin", WEIGHTS)]);
+    for token in [
+        "Bearer tok-123",
+        "bearer tok-123",
+        "BEARER   tok-123",
+        "  Bearer tok-123  ",
+    ] {
+        let mock = serve(vec![reply(200, "", archive.clone())]);
+        let spec = gated_spec(
+            leak(format!("{}/m/model.tar.gz", mock.base)),
+            &archive,
+            true,
+        );
+        let root = tempfile::tempdir().unwrap();
+
+        let status = try_call(&store(root.path()), &spec, token).unwrap();
+
+        assert_eq!(status.state, EntryState::Ready, "{token:?}");
+        assert_eq!(
+            mock.seen.lock().unwrap().as_slice(),
+            &[Some("Bearer tok-123".to_string())],
+            "{token:?} is sent once as a single bearer"
+        );
+    }
+}
+
+#[test]
+fn a_bearer_value_with_nothing_or_a_second_token_left_is_refused_before_any_request() {
     let mock = serve(vec![reply(200, "", Vec::new())]);
     let spec = spec_for(&mock);
     let root = tempfile::tempdir().unwrap();
     let store = store(root.path());
 
-    for token in ["Bearer tok-123", "bearer tok-123", "BEARER tok-123"] {
+    for token in [
+        "Bearer ",
+        "bearer    ",
+        "Bearer tok 123",
+        "Bearer Bearer tok-123",
+    ] {
         let err = try_call(&store, &spec, token).unwrap_err();
         assert!(
-            matches!(&err, EntitlementError::InvalidRequest(m) if m.contains("Bearer")),
-            "{token}: {err:?}"
+            matches!(&err, EntitlementError::InvalidRequest(_)),
+            "{token:?}: {err:?}"
         );
     }
     assert!(mock.seen.lock().unwrap().is_empty(), "no request was sent");

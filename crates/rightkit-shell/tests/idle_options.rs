@@ -119,3 +119,35 @@ fn idle_events_are_gated_by_whether_the_platform_really_suspends() {
     assert!(!IdleEvents::NativeSuspendOnly.emits(false));
     assert!(IdleEvents::NativeSuspendOnly.emits(true));
 }
+
+#[test]
+fn the_minimise_trigger_takes_the_per_hide_delay_note_hidden_after_takes() {
+    use rightkit_shell::idle::{minimize_action, MinimizeAction};
+    let host = Duration::from_secs(30);
+    assert_eq!(
+        minimize_action(host, MinimizeStep::Start, Some(Duration::from_secs(3))),
+        MinimizeAction::Hide {
+            delay: Duration::from_secs(3)
+        }
+    );
+    assert_eq!(
+        minimize_action(host, MinimizeStep::Start, None),
+        MinimizeAction::Hide { delay: host }
+    );
+}
+
+#[test]
+fn a_failed_suspend_lets_the_next_hide_start_a_fresh_timer() {
+    let mut s = IdleState::default();
+    let (generation, _) = s.on_hidden();
+    assert_eq!(
+        s.on_timer(generation),
+        rightkit_shell::idle::IdleAction::SuspendNow
+    );
+    s.on_suspend_failed();
+    let (_, action) = s.on_hidden();
+    assert_eq!(
+        action,
+        rightkit_shell::idle::IdleAction::HideControllerAndStartTimer
+    );
+}

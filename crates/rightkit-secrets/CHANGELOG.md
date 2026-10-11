@@ -2,6 +2,55 @@
 
 ## 0.1.4
 
+- **Third independent read (2026-10-11): six fixes (`docs/audits/2026-10-11-astra-license-secrets-third-read.md`).**
+  - **macOS, explicit keychains are never written (finding 1).** The "is it the current default"
+    check before the add could not be made atomic with the add (another process can switch the
+    default and delete the file in between, and the OS add then stores the secret in the new
+    default). A write through `KeychainBackend::open_file` is now ALWAYS `Error::Unavailable`; reads
+    and deletes still work. `add_checked` no longer takes a default-keychain probe. The remaining
+    non-destination-bound write is the throwaway fixture path (`IsolatedKeychain::backend()` and
+    `open_isolated_file`), which holds fake data and is needed by the end-to-end suite and the CLI's
+    `--isolated-keychain`; `open_isolated_file` now accepts only a keychain `IsolatedKeychain::create`
+    made (directory `rightkit-secrets-test-*`, file `isolated.keychain-db`, under the temp directory),
+    not an arbitrary temp file, so the bypass cannot be pointed at real data.
+  - **All platforms, reopened `Store` (finding 2).** Mutation exclusion was keyed on the backend's
+    `Arc` address, so a `Store` reopened over a fresh `system_backend()` bypassed the timed-out-call
+    protection. New `Backend::exclusion_identity()` (default `None`, keeps the per-instance key, so
+    existing custom backends compile and behave as before) lets instances of one OS store share a
+    key. The macOS user-default keychain (and an explicit keychain by file path) and the Windows
+    Credential Manager implement it.
+  - **Windows, lock scope (finding 3).** The target mutex was `Local\`, scoped to one logon
+    session, while the credential is persisted `CRED_PERSIST_LOCAL_MACHINE` and visible to every
+    session of the user. It is now `Global\rightkit-secrets-t-<hash>`, the hash covering the user's
+    SID and the normalised target, created with a DACL that grants only that SID. Failure to create
+    it (including access denied because another user holds the name) is an error, never an unlocked
+    write. Needs the `windows-sys` features `Win32_Security` and `Win32_Security_Authorization`
+    (already pulled in by this crate; consumers enable nothing). The lock name changed, so a process
+    running an older 0.1.x does not exclude a 0.1.4 process during a mixed-version window.
+  - **Plaintext migration (finding 4).** `migrate_plaintext_file` opens the file once, stores exactly
+    those bytes, and zeroes and deletes only if the path still names that open file (device and inode
+    on Unix, content comparison elsewhere) and it still holds the bytes that were stored. A file
+    replaced or rewritten meanwhile is left untouched and reported as the new
+    `FileMigration::SourceChanged` (an enum variant added: exhaustive matches need an arm). The
+    wipe goes through the handle that was read, never through the path. A `Store` whose guard put it
+    in memory or deny mode returns `StoreUnavailable` and leaves the file, since copying into process
+    memory and deleting the only persistent copy loses the secret. The window is narrowed, not
+    closed: this crate shares no lock with the file's writers.
+    The already-stored path no longer deletes the file blindly either: it is zeroed and deleted only
+    if the store holds exactly its content; a differing file is kept and reported as `SourceChanged`.
+  - **Windows, decoded secret prefixes (finding 5).** `KeyringCompat` blobs are decoded into one
+    zeroizing buffer sized for the worst case (3 UTF-8 bytes per UTF-16 unit), so it never grows and
+    an unpaired surrogate after a long valid prefix leaves nothing unwiped. Previously
+    `String::from_utf16` grew a plain `String` and freed it on the error path.
+  - **Test-only, zeroization probe (finding 6).** The counting allocator in `apple_helper` scanned
+    entire freed blocks, including uninitialised capacity (undefined behaviour). While armed it now
+    allocates zeroed and scans only the blocks it recorded itself, so every byte read is initialised.
+  - **Test coverage (note 7, with `rightkit-license`).** New tests: explicit keychains refuse writes
+    even when default; reopened-store exclusion; migration with a rewritten file, a replaced file, a
+    guarded store, and the uncontended path; decoder allocates once; Windows lock is `Global\` and
+    SID-bound. Not covered (needs two real logon sessions or a hostile peer): cross-session Windows
+    exclusion and the access-denied squat case.
+
 - **Second independent read (2026-10-11): nine fixes. Behaviour consumers will see.**
   - **Windows, `WindowsTarget::KeyringCompat` (HeardRight).** The blob encoding is now chosen by the
     namespace and never guessed: UTF-16LE text for reads and writes, byte-compatible with the

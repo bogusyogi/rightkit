@@ -694,10 +694,12 @@ fn concurrent_clocks_on_one_ledger_never_move_the_stored_mark_backwards() {
     let store = MemoryClockStore::new();
     store.save(&state(1_000, "seed", 0)).unwrap();
     let max_ok = std::sync::atomic::AtomicI64::new(0);
+    let successes = std::sync::atomic::AtomicUsize::new(0);
     std::thread::scope(|scope| {
         for t in 0..8_i64 {
             let store = &store;
             let max_ok = &max_ok;
+            let successes = &successes;
             scope.spawn(move || {
                 let c = AntiRollbackClock::new(
                     store,
@@ -707,8 +709,16 @@ fn concurrent_clocks_on_one_ledger_never_move_the_stored_mark_backwards() {
                 for i in 0..200_i64 {
                     // Each step is a full write interval ahead, so every advance persists.
                     let wall = 1_100 + (i * 8 + t) * (CLOCK_WRITE_INTERVAL_SECS + 1);
-                    if let Ok(now) = c.trusted_now(wall, true) {
-                        max_ok.fetch_max(now, std::sync::atomic::Ordering::SeqCst);
+                    match c.trusted_now(wall, true) {
+                        Ok(now) => {
+                            max_ok.fetch_max(now, std::sync::atomic::Ordering::SeqCst);
+                            successes.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                        }
+                        // The only refusals this test accepts: another thread already moved the
+                        // mark past this wall time, or the ledger stayed contended. Anything
+                        // else (storage failure, missing ledger) is a bug, not noise.
+                        Err(ClockRefusal::Rollback { .. } | ClockRefusal::Unavailable(_)) => {}
+                        Err(other) => panic!("unexpected refusal: {other:?}"),
                     }
                     let seen = store.load().unwrap().unwrap().highest_seen;
                     assert!(
@@ -721,8 +731,11 @@ fn concurrent_clocks_on_one_ledger_never_move_the_stored_mark_backwards() {
         }
     });
     let stored = store.load().unwrap().unwrap();
+    let max_ok = max_ok.load(std::sync::atomic::Ordering::SeqCst);
+    // Without this, a clock that failed every call would still satisfy the inequality below.
     assert!(
-        stored.highest_seen
-            >= max_ok.load(std::sync::atomic::Ordering::SeqCst) - CLOCK_WRITE_INTERVAL_SECS
+        successes.load(std::sync::atomic::Ordering::SeqCst) > 0 && max_ok > 1_000,
+        "no concurrent call ever succeeded"
     );
+    assert!(stored.highest_seen >= max_ok - CLOCK_WRITE_INTERVAL_SECS);
 }

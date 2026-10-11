@@ -51,6 +51,12 @@ pub enum LlmError {
     Truncated {
         output_tokens: Option<u64>,
     },
+    /// The provider returned no text and no tool call, and either a refusal or a
+    /// `content_filter` finish reason. `message` is the refusal text when the provider sent
+    /// one, otherwise a fixed description. Not a failover trigger.
+    Refused {
+        message: String,
+    },
     /// A command-line assistant route failed (feature `cli`).
     #[cfg(feature = "cli")]
     Cli(crate::provider::cli::CliError),
@@ -176,6 +182,7 @@ impl fmt::Display for LlmError {
                 write!(f, "credential rejected: HTTP {status}: {message}")
             }
             LlmError::InvalidRequest(m) => write!(f, "invalid request: {m}"),
+            LlmError::Refused { message } => write!(f, "completion refused or filtered: {message}"),
             LlmError::Truncated {
                 output_tokens: Some(n),
             } => write!(f, "output truncated at the output limit after {n} tokens"),

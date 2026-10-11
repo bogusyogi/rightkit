@@ -86,9 +86,9 @@ use crate::inspect::{
 };
 use crate::model::{
     document_sha256, effective_pdf_edit_commands, ComposedCandidate, GapNumber, GlyphSourceAddress,
-    Matrix, PdfColor, PdfEditCommand, PdfEditError, PdfFontResolver, PdfOcrBackgroundProof,
-    PdfPoint, PdfRect, PdfSourceLocator, PdfSourceSpan, PdfTextAppearance, PdfTextEditState,
-    PdfTextIsland, ResolvedPdfFont, RunItem,
+    PdfColor, PdfEditCommand, PdfEditError, PdfFontResolver, PdfOcrBackgroundProof, PdfPoint,
+    PdfRect, PdfSourceLocator, PdfSourceSpan, PdfTextAppearance, PdfTextEditState, PdfTextIsland,
+    ResolvedPdfFont, RunItem,
 };
 
 /// Slack, in device-space points, when a replacement's measured width is compared with the
@@ -275,27 +275,27 @@ fn apply_replace_source_text(
     if island.locator.spans.is_empty() {
         return Err(PdfEditError::UnsupportedEncoding);
     }
-    for span in &locator.spans {
-        let matches = island.locator.spans.iter().any(|current| {
-            current.stream_ref == span.stream_ref
-                && current.contents_index == span.contents_index
-                && current.operator_index == span.operator_index
-                && current.operand_index == span.operand_index
-                && current.glyph_start == span.glyph_start
-                && current.glyph_end == span.glyph_end
-                && current.expected_digest == span.expected_digest
-        });
-        if !matches {
-            return Err(PdfEditError::SourceDigestMismatch);
-        }
+    // The caller's locator must name exactly the spans the page has now: same count, same order,
+    // each equal. Membership alone is not enough - a locator with a span removed still passes it
+    // and the edit would delete the named operands, leave the rest of the island and append the
+    // replacement. The spans every mutation below works from are the freshly inspected ones, never
+    // the caller's copy.
+    if locator.spans.len() != island.locator.spans.len()
+        || !locator
+            .spans
+            .iter()
+            .zip(&island.locator.spans)
+            .all(|(given, current)| spans_equal(given, current))
+    {
+        return Err(PdfEditError::SourceDigestMismatch);
     }
+    let spans: &[PdfSourceSpan] = &island.locator.spans;
 
     // This composer's sparse strategies only ever touch one content stream per command — every
     // span must agree on which one.
-    let stream_ref = locator.spans[0].stream_ref;
-    let contents_index = locator.spans[0].contents_index;
-    if !locator
-        .spans
+    let stream_ref = spans[0].stream_ref;
+    let contents_index = spans[0].contents_index;
+    if !spans
         .iter()
         .all(|s| s.stream_ref == stream_ref && s.contents_index == contents_index)
     {
@@ -334,7 +334,7 @@ fn apply_replace_source_text(
                 doc,
                 page_id,
                 stream_id,
-                &locator.spans,
+                spans,
                 after,
                 available_bounds,
                 fonts,
@@ -387,6 +387,18 @@ fn isolate_shared_content_stream(
         }
     }
     Ok(())
+}
+
+/// Whether two spans address the same operand range with the same content digest. `expected_text`
+/// is not compared: the digest binds it.
+fn spans_equal(a: &PdfSourceSpan, b: &PdfSourceSpan) -> bool {
+    a.stream_ref == b.stream_ref
+        && a.contents_index == b.contents_index
+        && a.operator_index == b.operator_index
+        && a.operand_index == b.operand_index
+        && a.glyph_start == b.glyph_start
+        && a.glyph_end == b.glyph_end
+        && a.expected_digest == b.expected_digest
 }
 
 fn pages_lookup(doc: &Document, page: u32) -> Result<ObjectId, PdfEditError> {
@@ -931,7 +943,6 @@ fn apply_local_text_object_rewrite(
     let resource_name = add_font_resource(doc, page_id, font_obj_id)?;
 
     let mut content = decode_stream_content(doc, stream_id)?;
-    let reset_ctm = inverse_matrix(content_ctm(&content.operations));
 
     // Blank covered glyph bytes from the end backward so earlier spans' byte offsets (captured
     // against the pristine operand) stay valid while later ones are removed.
@@ -953,17 +964,16 @@ fn apply_local_text_object_rewrite(
         )?;
     }
 
-    // §9.2 step 4/5: append the new run at a deterministic boundary (this module's own choice:
-    // the end of the stream's operator list — see module doc) rather than in the middle.
-    content.operations.extend(build_text_object_operations(
-        &resource_name,
-        &after.appearance,
-        anchor,
-        &cid_codes,
-        reset_ctm,
-    ));
+    write_stream_content(doc, stream_id, &content)?;
 
-    write_stream_content(doc, stream_id, &content)
+    // §9.2 step 4/5: the new run goes in its own stream at the end of the page's `/Contents`,
+    // outside the original content's graphics state. Appended inside the edited stream it would
+    // inherit that stream's clip, alpha and blend mode, and a clip cannot be reset from inside.
+    append_isolated_content(
+        doc,
+        page_id,
+        build_text_object_operations(&resource_name, &after.appearance, anchor, &cid_codes),
+    )
 }
 
 fn validate_layout_measured(
@@ -1027,17 +1037,12 @@ fn apply_add_text(
 
     let (font_obj_id, cid_codes) = embed_type0_font(doc, &resolved, text)?;
     let resource_name = add_font_resource(doc, page_id, font_obj_id)?;
-    let reset_ctm = inverse_matrix(page_content_ctm(doc, page_id)?);
 
-    let mut content = Content::decode(&[]).map_err(|_| PdfEditError::MalformedContent)?;
-    content.operations =
-        build_text_object_operations(&resource_name, appearance, anchor, &cid_codes, reset_ctm);
-    let encoded = content
-        .encode()
-        .map_err(|_| PdfEditError::MalformedContent)?;
-    let new_stream_id = doc.add_object(Stream::new(dictionary! {}, encoded));
-
-    append_content_stream(doc, page_id, new_stream_id)?;
+    append_isolated_content(
+        doc,
+        page_id,
+        build_text_object_operations(&resource_name, appearance, anchor, &cid_codes),
+    )?;
 
     Ok(page)
 }
@@ -1075,22 +1080,12 @@ fn apply_correct_ocr_text(
     }
     let (font_obj_id, cid_codes) = embed_type0_font(doc, &resolved, text)?;
     let resource_name = add_font_resource(doc, page_id, font_obj_id)?;
-    let reset_ctm = inverse_matrix(page_content_ctm(doc, page_id)?);
 
-    let mut content = Content::decode(&[]).map_err(|_| PdfEditError::MalformedContent)?;
-    content.operations = build_ocr_correction_operations(
-        &resource_name,
-        appearance,
-        rect,
-        cover_color,
-        &cid_codes,
-        reset_ctm,
-    );
-    let encoded = content
-        .encode()
-        .map_err(|_| PdfEditError::MalformedContent)?;
-    let new_stream_id = doc.add_object(Stream::new(dictionary! {}, encoded));
-    append_content_stream(doc, page_id, new_stream_id)?;
+    append_isolated_content(
+        doc,
+        page_id,
+        build_ocr_correction_operations(&resource_name, appearance, rect, cover_color, &cid_codes),
+    )?;
     Ok(page)
 }
 
@@ -1217,12 +1212,28 @@ fn inherited_page_number(doc: &Document, mut page_id: ObjectId, key: &[u8]) -> O
     None
 }
 
-/// Appends `new_stream_id` to the page's `/Contents` array without touching any existing stream
-/// object — §9.3: "Do not mutate existing content operators," and §5.2's stream-boundary rule.
-fn append_content_stream(
+/// Most unbalanced `Q` operators the original content may carry before the page is refused.
+const MAX_STRAY_RESTORES: i64 = 1 << 16;
+
+/// Appends `operations` to the page as a new stream, **isolated from the page's original
+/// content**.
+///
+/// Graphics state carries from one content stream into the next (ISO 32000-1 7.8.2), so a
+/// clipping path (`W n`), an `ExtGState` with `/ca 0` or a blend mode, or a leftover CTM in the
+/// original content applies to anything appended after it: the added text or OCR cover would be
+/// invisible while a structural read-back still succeeded. Resetting parameters from inside the
+/// new block cannot undo a clip. So the original streams are wrapped: a stream of `q` goes first
+/// and a stream of `Q` follows the last original stream, and the new stream runs in the default
+/// state. The wrapper is sized from the original content's own balance - one extra `q` for each
+/// stray `Q` the original would otherwise use to pop the wrapper, and enough `Q` to close every
+/// `q` the original left open - so the new stream always starts at nesting depth zero.
+///
+/// Original streams are not modified (§9.3: "Do not mutate existing content operators"). Content
+/// that cannot be parsed strictly cannot be counted, so it is refused as malformed.
+fn append_isolated_content(
     doc: &mut Document,
     page_id: ObjectId,
-    new_stream_id: ObjectId,
+    operations: Vec<Operation>,
 ) -> Result<(), PdfEditError> {
     let page_obj = doc
         .get_object(page_id)
@@ -1233,13 +1244,56 @@ fn append_content_stream(
 
     // `/Contents` may be an indirect reference to an array of streams; expand it so the new page
     // array lists streams, never the array object itself.
-    let mut ids: Vec<ObjectId> = match page_dict.get(b"Contents") {
+    let ids: Vec<ObjectId> = match page_dict.get(b"Contents") {
         Ok(contents) => content_stream_ids(doc, contents)?,
-        Err(_) => Vec::new(),
+        Err(_) => return Err(PdfEditError::MalformedContent),
     };
-    ids.push(new_stream_id);
 
-    let array = Object::Array(ids.into_iter().map(Object::Reference).collect());
+    // Nesting balance of the original content: the lowest point it reaches below its start
+    // (stray `Q`) and where it ends (unclosed `q`).
+    let mut net: i64 = 0;
+    let mut lowest: i64 = 0;
+    for id in &ids {
+        for operation in decode_stream_content(doc, *id)?.operations {
+            match operation.operator.as_str() {
+                "q" => net += 1,
+                "Q" => {
+                    net -= 1;
+                    lowest = lowest.min(net);
+                }
+                _ => {}
+            }
+        }
+    }
+    if -lowest > MAX_STRAY_RESTORES {
+        return Err(PdfEditError::MalformedContent);
+    }
+    let opening = 1 - lowest; // the wrapper's own `q` plus one per stray `Q`
+    let closing = opening + net; // every level still open when the original ends
+
+    let repeated = |operator: &str, count: i64| -> Vec<Operation> {
+        (0..count)
+            .map(|_| Operation::new(operator, vec![]))
+            .collect()
+    };
+    let mut add_stream = |operations: Vec<Operation>| -> Result<ObjectId, PdfEditError> {
+        let mut content = Content::decode(&[]).map_err(|_| PdfEditError::MalformedContent)?;
+        content.operations = operations;
+        let encoded = content
+            .encode()
+            .map_err(|_| PdfEditError::MalformedContent)?;
+        Ok(doc.add_object(Stream::new(dictionary! {}, encoded)))
+    };
+    let prefix_id = add_stream(repeated("q", opening))?;
+    let suffix_id = add_stream(repeated("Q", closing))?;
+    let new_stream_id = add_stream(operations)?;
+
+    let mut all: Vec<ObjectId> = Vec::with_capacity(ids.len() + 3);
+    all.push(prefix_id);
+    all.extend(ids);
+    all.push(suffix_id);
+    all.push(new_stream_id);
+    let array = Object::Array(all.into_iter().map(Object::Reference).collect());
     if let Ok(Object::Dictionary(dict)) = doc.get_object_mut(page_id) {
         dict.set("Contents", array);
     }
@@ -1427,127 +1481,6 @@ fn dict_entry_clone(doc: &Document, dict: &Dictionary, key: &[u8]) -> Dictionary
     }
 }
 
-fn matrix_from_operands(operands: &[Object]) -> Option<Matrix> {
-    let values: Vec<f64> = operands.iter().filter_map(object_number).collect();
-    match values.as_slice() {
-        [a, b, c, d, e, f] => Some(Matrix {
-            a: *a,
-            b: *b,
-            c: *c,
-            d: *d,
-            e: *e,
-            f: *f,
-        }),
-        _ => None,
-    }
-}
-
-fn content_ctm(operations: &[Operation]) -> Matrix {
-    let mut ctm = Matrix::IDENTITY;
-    let mut stack = Vec::new();
-    for operation in operations {
-        match operation.operator.as_str() {
-            "q" => stack.push(ctm),
-            "Q" => {
-                if let Some(saved) = stack.pop() {
-                    ctm = saved;
-                }
-            }
-            "cm" => {
-                if let Some(matrix) = matrix_from_operands(&operation.operands) {
-                    ctm = matrix.then(ctm);
-                }
-            }
-            _ => {}
-        }
-    }
-    ctm
-}
-
-fn page_content_ctm(doc: &Document, page_id: ObjectId) -> Result<Matrix, PdfEditError> {
-    let page = doc
-        .get_object(page_id)
-        .map_err(|_| PdfEditError::MalformedContent)?
-        .as_dict()
-        .map_err(|_| PdfEditError::MalformedContent)?;
-    let contents = page
-        .get(b"Contents")
-        .map_err(|_| PdfEditError::MalformedContent)?;
-    let ids = content_stream_ids(doc, contents)?;
-    let mut ctm = Matrix::IDENTITY;
-    let mut stack = Vec::new();
-    for id in ids {
-        let stream = doc
-            .get_object(id)
-            .map_err(|_| PdfEditError::MalformedContent)?
-            .as_stream()
-            .map_err(|_| PdfEditError::MalformedContent)?;
-        let bytes = stream
-            .decompressed_content_with_limit(inspect::MAX_DECOMPRESSED_BYTES)
-            .map_err(|_| PdfEditError::MalformedContent)?;
-        let content = Content::decode(&bytes).map_err(|_| PdfEditError::MalformedContent)?;
-        for operation in content.operations {
-            match operation.operator.as_str() {
-                "q" => stack.push(ctm),
-                "Q" => {
-                    if let Some(saved) = stack.pop() {
-                        ctm = saved;
-                    }
-                }
-                "cm" => {
-                    if let Some(matrix) = matrix_from_operands(&operation.operands) {
-                        ctm = matrix.then(ctm);
-                    }
-                }
-                _ => {}
-            }
-        }
-    }
-    Ok(ctm)
-}
-
-fn inverse_matrix(matrix: Matrix) -> Option<Matrix> {
-    if (matrix.a - 1.0).abs() < f64::EPSILON
-        && matrix.b.abs() < f64::EPSILON
-        && matrix.c.abs() < f64::EPSILON
-        && (matrix.d - 1.0).abs() < f64::EPSILON
-        && matrix.e.abs() < f64::EPSILON
-        && matrix.f.abs() < f64::EPSILON
-    {
-        return None;
-    }
-    let determinant = matrix.a * matrix.d - matrix.b * matrix.c;
-    if !determinant.is_finite() || determinant.abs() < f64::EPSILON {
-        return None;
-    }
-    let a = matrix.d / determinant;
-    let b = -matrix.b / determinant;
-    let c = -matrix.c / determinant;
-    let d = matrix.a / determinant;
-    Some(Matrix {
-        a,
-        b,
-        c,
-        d,
-        e: -(matrix.e * a + matrix.f * c),
-        f: -(matrix.e * b + matrix.f * d),
-    })
-}
-
-fn matrix_operation(matrix: Matrix) -> Operation {
-    Operation::new(
-        "cm",
-        vec![
-            Object::Real(matrix.a as f32),
-            Object::Real(matrix.b as f32),
-            Object::Real(matrix.c as f32),
-            Object::Real(matrix.d as f32),
-            Object::Real(matrix.e as f32),
-            Object::Real(matrix.f as f32),
-        ],
-    )
-}
-
 /// One isolated `q / BT / Tf / Tr Tc Tw Tz Ts / rg / Tm / Tj / ET / Q` block showing `cid_codes`
 /// (Identity-H, 2-byte-per-code) through `resource_name` at `anchor`, in
 /// `appearance.color`/`appearance.size_pt` - the shared building block for both §9.2's appended
@@ -1557,12 +1490,14 @@ fn matrix_operation(matrix: Matrix) -> Operation {
 /// state from leaking in: the text state parameters a page's last text object left behind (`3 Tr`
 /// is invisible text, a stray `Tc`/`Tw`/`Tz`/`Ts` moves or scales it) carry into a stream
 /// appended after it. So every parameter that changes how the string is drawn is set explicitly.
+/// What a block cannot reset - a clipping path, an `ExtGState` alpha or blend mode, a CTM - is
+/// removed by [`append_isolated_content`], which closes the original content's graphics state
+/// before the block runs.
 fn build_text_object_operations(
     resource_name: &[u8],
     appearance: &PdfTextAppearance,
     anchor: PdfPoint,
     cid_codes: &[u16],
-    reset_ctm: Option<Matrix>,
 ) -> Vec<Operation> {
     let mut hex_bytes = Vec::with_capacity(cid_codes.len() * 2);
     for code in cid_codes {
@@ -1570,9 +1505,6 @@ fn build_text_object_operations(
     }
 
     let mut operations = vec![Operation::new("q", vec![])];
-    if let Some(matrix) = reset_ctm {
-        operations.push(matrix_operation(matrix));
-    }
     operations.extend([
         Operation::new("BT", vec![]),
         Operation::new(
@@ -1625,12 +1557,8 @@ fn build_ocr_correction_operations(
     rect: PdfRect,
     cover_color: PdfColor,
     cid_codes: &[u16],
-    reset_ctm: Option<Matrix>,
 ) -> Vec<Operation> {
     let mut operations = vec![Operation::new("q", vec![])];
-    if let Some(matrix) = reset_ctm {
-        operations.push(matrix_operation(matrix));
-    }
     operations.extend([
         Operation::new(
             "rg",
@@ -1660,7 +1588,6 @@ fn build_ocr_correction_operations(
             y: rect.y + rect.height * 0.18,
         },
         cid_codes,
-        reset_ctm,
     ));
     operations
 }
@@ -2795,7 +2722,8 @@ mod tests {
             .expect("contents")
             .as_array()
             .expect("a direct array now");
-        assert_eq!(contents.len(), 3);
+        // q wrapper, the two original streams, Q wrapper, the added stream.
+        assert_eq!(contents.len(), 5);
         for item in contents {
             let id = item.as_reference().expect("reference");
             out.get_object(id)
@@ -3652,6 +3580,192 @@ mod tests {
                 "q", "BT", "Tf", "Tr", "Tc", "Tw", "Tz", "Ts", "rg", "Tm", "Tj", "ET", "Q"
             ]
         );
+    }
+
+    // -----------------------------------------------------------------------------------
+    // Third Astra read, 2026-10-11: findings 4 and 5
+    // -----------------------------------------------------------------------------------
+
+    /// Walks every `/Contents` stream of `page` in order and returns the nesting depth reached
+    /// just before the last stream, the lowest depth seen, and how many streams the page has.
+    fn nesting_before_last_stream(doc: &Document, page: u32) -> (i64, i64, usize) {
+        let page_id = doc.get_pages()[&page];
+        let contents = doc
+            .get_object(page_id)
+            .expect("page")
+            .as_dict()
+            .expect("dict")
+            .get(b"Contents")
+            .expect("contents");
+        let ids = content_stream_ids(doc, contents).expect("ids");
+        let (mut depth, mut lowest) = (0_i64, 0_i64);
+        for id in &ids[..ids.len() - 1] {
+            for op in decode_stream_content(doc, *id).expect("content").operations {
+                match op.operator.as_str() {
+                    "q" => depth += 1,
+                    "Q" => {
+                        depth -= 1;
+                        lowest = lowest.min(depth);
+                    }
+                    _ => {}
+                }
+            }
+        }
+        (depth, lowest, ids.len())
+    }
+
+    #[test]
+    fn finding4_added_text_runs_outside_the_original_graphics_state() {
+        // A leftover clip, a transparency ExtGState, unclosed `q`s and stray `Q`s: each leaks into
+        // a stream appended after it, and a clip cannot be undone from inside the new block.
+        let cases: [(&str, &[u8]); 5] = [
+            (
+                "clip",
+                b"0 0 1 1 re W n BT /F1 12 Tf 72 700 Td (Existing) Tj ET",
+            ),
+            ("alpha", b"/GS0 gs BT /F1 12 Tf 72 700 Td (Existing) Tj ET"),
+            (
+                "open q",
+                b"q q 0 0 1 1 re W n BT /F1 12 Tf 72 700 Td (Existing) Tj ET",
+            ),
+            ("stray Q", b"Q Q BT /F1 12 Tf 72 700 Td (Existing) Tj ET"),
+            (
+                "balanced",
+                b"q 2 0 0 2 0 0 cm BT /F1 12 Tf 36 350 Td (Existing) Tj ET Q",
+            ),
+        ];
+        for (label, content) in cases {
+            let doc = build_pdf(content);
+            let source = doc_bytes(&doc);
+            let candidate = compose_candidate(&source, &[add_hi("a")], &test_resolver())
+                .unwrap_or_else(|e| panic!("{label}: {e:?}"));
+            let (out, graph) = reinspect(&candidate, 1);
+            assert!(
+                graph.islands.iter().any(|island| island.text == "Hi"),
+                "{label}"
+            );
+            let (depth, lowest, streams) = nesting_before_last_stream(&out, 1);
+            assert_eq!(depth, 0, "{label}: the added stream starts at depth zero");
+            assert_eq!(lowest, 0, "{label}: the wrapper is never popped early");
+            assert_eq!(streams, 4, "{label}: q wrapper, original, Q wrapper, added");
+            // The added block itself is unchanged.
+            let names: Vec<String> = appended_operations(&out, 1)
+                .iter()
+                .map(|op| op.operator.clone())
+                .collect();
+            assert_eq!(
+                names,
+                ["q", "BT", "Tf", "Tr", "Tc", "Tw", "Tz", "Ts", "rg", "Tm", "Tj", "ET", "Q"],
+                "{label}"
+            );
+        }
+    }
+
+    #[test]
+    fn finding4_the_original_content_stream_is_not_modified() {
+        let doc = build_pdf(b"0 0 1 1 re W n BT /F1 12 Tf 72 700 Td (Existing) Tj ET");
+        let page_id = doc.get_pages()[&1];
+        let original_ids = content_stream_ids(
+            &doc,
+            doc.get_object(page_id)
+                .expect("page")
+                .as_dict()
+                .expect("dict")
+                .get(b"Contents")
+                .expect("contents"),
+        )
+        .expect("ids");
+        let original = decode_stream_content(&doc, original_ids[0]).expect("content");
+        let source = doc_bytes(&doc);
+        let candidate =
+            compose_candidate(&source, &[add_hi("a")], &test_resolver()).expect("composes");
+        let (out, _) = reinspect(&candidate, 1);
+        let kept = decode_stream_content(&out, original_ids[0]).expect("content");
+        assert_eq!(
+            kept.encode().expect("encode"),
+            original.encode().expect("encode")
+        );
+    }
+
+    #[test]
+    fn finding4_a_replacement_in_a_new_font_is_isolated_from_the_streams_clip() {
+        let doc = build_pdf(b"0 0 1 1 re W n BT /F1 12 Tf 72 700 Td (Hello) Tj ET");
+        let source = doc_bytes(&doc);
+        let sha = document_sha256(&source);
+        let island = locate_island(&doc, &sha, 1, "Hello");
+        let command = replace_cmd(
+            "new-font",
+            &island,
+            "Hi",
+            appearance("test-font", 24.0),
+            PdfRect {
+                x: 72.0,
+                y: 690.0,
+                width: 400.0,
+                height: 40.0,
+            },
+        );
+        let candidate = compose_candidate(&source, &[command], &test_resolver()).expect("composes");
+        let (out, graph) = reinspect(&candidate, 1);
+        assert!(graph.islands.iter().any(|isl| isl.text == "Hi"));
+        let (depth, lowest, _) = nesting_before_last_stream(&out, 1);
+        assert_eq!((depth, lowest), (0, 0));
+    }
+
+    #[test]
+    fn finding5_a_locator_missing_one_of_the_islands_spans_is_refused() {
+        let doc = build_pdf(b"BT /F1 12 Tf 72 700 Td (AB) Tj (CD) Tj ET");
+        let source = doc_bytes(&doc);
+        let sha = document_sha256(&source);
+        let island = locate_island(&doc, &sha, 1, "ABCD");
+        assert_eq!(island.locator.spans.len(), 2);
+        let bounds = PdfRect {
+            x: 72.0,
+            y: 690.0,
+            width: 400.0,
+            height: 40.0,
+        };
+        let changed_font = appearance("test-font", 24.0);
+
+        // The island digest is retained; only the second span is removed.
+        let mut partial = replace_cmd("partial", &island, "Hi", changed_font.clone(), bounds);
+        if let PdfEditCommand::ReplaceSourceText { locator, .. } = &mut partial {
+            locator.spans.truncate(1);
+        }
+        assert!(matches!(
+            compose_candidate(&source, &[partial], &test_resolver()),
+            Err(PdfEditError::SourceDigestMismatch)
+        ));
+
+        // The same holds for a reordered locator and for one with a repeated span.
+        let mut reordered = replace_cmd("reordered", &island, "Hi", changed_font.clone(), bounds);
+        if let PdfEditCommand::ReplaceSourceText { locator, .. } = &mut reordered {
+            locator.spans.reverse();
+        }
+        assert!(matches!(
+            compose_candidate(&source, &[reordered], &test_resolver()),
+            Err(PdfEditError::SourceDigestMismatch)
+        ));
+        let mut repeated = replace_cmd("repeated", &island, "Hi", changed_font.clone(), bounds);
+        if let PdfEditCommand::ReplaceSourceText { locator, .. } = &mut repeated {
+            let first = locator.spans[0].clone();
+            locator.spans = vec![first.clone(), first];
+        }
+        assert!(matches!(
+            compose_candidate(&source, &[repeated], &test_resolver()),
+            Err(PdfEditError::SourceDigestMismatch)
+        ));
+
+        // The complete locator still composes, and removes the whole island.
+        let whole = replace_cmd("whole", &island, "Hi", changed_font, bounds);
+        let candidate =
+            compose_candidate(&source, &[whole], &test_resolver()).expect("complete locator");
+        let (_, graph) = reinspect(&candidate, 1);
+        assert!(graph.islands.iter().any(|isl| isl.text == "Hi"));
+        assert!(!graph
+            .islands
+            .iter()
+            .any(|isl| isl.text.contains("AB") || isl.text.contains("CD")));
     }
 
     #[test]

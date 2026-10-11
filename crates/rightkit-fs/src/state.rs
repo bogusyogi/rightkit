@@ -736,6 +736,40 @@ mod sys {
         super::flush(dir, policy).map(Some)
     }
 
+    /// Makes the link to `child` in `parent` durable when it is not yet known to be.
+    ///
+    /// `created`: this call made the directory. It is recorded as unpublished before the sync
+    /// and forgotten only after the sync succeeds, so a sync that fails leaves it recorded and
+    /// any later caller that merely finds the directory (a retry, or a creator that raced the
+    /// first one) runs the sync itself instead of building on an unflushed link.
+    /// Directories the process never recorded cost one `fstat` only while some record exists.
+    fn publish_entry(
+        parent: &File,
+        child: &File,
+        created: bool,
+        policy: SyncPolicy,
+    ) -> io::Result<()> {
+        let key = fstat(child)
+            .ok()
+            .map(|st| (st.st_dev as u64, st.st_ino as u64));
+        let mut needed = created;
+        if let Some(key) = key {
+            if created {
+                crate::atomic::unpublished::insert(key);
+            } else if crate::atomic::unpublished::contains(key) {
+                needed = true;
+            }
+        }
+        if !needed {
+            return Ok(());
+        }
+        sync_dir_file(parent, policy)?;
+        if let Some(key) = key {
+            crate::atomic::unpublished::remove(key);
+        }
+        Ok(())
+    }
+
     fn verify(file: &File, shown: &Path) -> Result<libc::stat> {
         let st = fstat(file).map_err(|e| FsError::io(shown, e))?;
         if kind_of(st.st_mode as u32) != EntryKind::Dir {
@@ -782,22 +816,33 @@ mod sys {
                 let c = CString::new(name.as_bytes())
                     .map_err(|_| FsError::BadName(path.display().to_string()))?;
                 current = match open_dir_at(current.as_raw_fd(), &c, &walked) {
-                    Ok(next) => next,
                     Err(FsError::Io { source, .. })
                         if create && errno_is(&source, libc::ENOENT) =>
                     {
                         let created = mkdir_at(current.as_raw_fd(), &c, &walked)?;
                         let next = open_dir_at(current.as_raw_fd(), &c, &walked)?;
-                        if created {
-                            // The new directory's entry lives in `current`. Publish it before
-                            // descending, so a later durable write below cannot lose the link
-                            // to the directory it went into. A failed flush stops here.
-                            sync_dir_file(&current, options.sync).map_err(|source| {
-                                FsError::DirSyncFailed {
+                        // The new directory's entry lives in `current`. Publish it before
+                        // descending, so a later durable write below cannot lose the link
+                        // to the directory it went into. A failed flush stops here.
+                        publish_entry(&current, &next, created, options.sync).map_err(
+                            |source| FsError::DirSyncFailed {
+                                path: walked.clone(),
+                                source,
+                            },
+                        )?;
+                        next
+                    }
+                    Ok(next) => {
+                        // Found, not made by this call. When creating, it may still be the
+                        // product of an earlier or concurrent create whose publishing sync
+                        // failed or has not finished: complete that sync before accepting it.
+                        if create {
+                            publish_entry(&current, &next, false, options.sync).map_err(
+                                |source| FsError::DirSyncFailed {
                                     path: walked.clone(),
                                     source,
-                                }
-                            })?;
+                                },
+                            )?;
                         }
                         next
                     }
@@ -829,13 +874,15 @@ mod sys {
             };
             verify(&file, shown)?;
             let child = Dir(file);
-            if created {
-                // The new entry lives in this directory; make it durable like a write.
-                self.sync(policy).map_err(|source| FsError::DirSyncFailed {
+            // The entry lives in this directory; make it durable like a write. That includes a
+            // child that already exists but whose own publishing sync failed or is still running
+            // (an earlier or concurrent creator).
+            publish_entry(&self.0, &child.0, created, policy).map_err(|source| {
+                FsError::DirSyncFailed {
                     path: shown.to_path_buf(),
                     source,
-                })?;
-            }
+                }
+            })?;
             Ok(child)
         }
 

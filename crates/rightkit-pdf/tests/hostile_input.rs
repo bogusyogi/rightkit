@@ -552,6 +552,69 @@ fn hundreds_of_thousands_of_unbalanced_q_operators_are_refused_not_stacked() {
 }
 
 // -------------------------------------------------------------------------------------------
+// Decoded Unicode is bounded (third Astra read, finding 1)
+// -------------------------------------------------------------------------------------------
+
+/// Hex for `chars` repetitions of 'A' as UTF-16BE.
+fn a_run_hex(chars: usize) -> String {
+    "0041".repeat(chars)
+}
+
+fn cid_one_shown(times: usize, destination_chars: usize) -> Vec<u8> {
+    let map = cmap(&format!(
+        "1 beginbfchar\n<0001> <{}>\nendbfchar",
+        a_run_hex(destination_chars)
+    ));
+    let content = format!("BT /F1 12 Tf 72 700 Td <{}> Tj ET", "0001".repeat(times));
+    one_page(
+        |d| identity_h(d, vec![], &map),
+        content.as_bytes(),
+        false,
+        |_, _, _| {},
+    )
+}
+
+#[test]
+fn a_megabyte_cmap_destination_shown_fifty_thousand_times_does_not_allocate_gigabytes() {
+    // 1 MiB of 'A' behind one code, shown 50 000 times: 48 GiB if every glyph clones it.
+    let pdf = cid_one_shown(50_000, 1 << 20);
+    let outcome = guarded("giant_destination", move || {
+        page_graph_from_bytes(&pdf, 1).map(|graph| {
+            graph
+                .islands
+                .iter()
+                .map(|island| island.text.len())
+                .sum::<usize>()
+        })
+    });
+    // The over-long destination is not read, so nothing large is ever decoded.
+    if let Ok(total) = outcome {
+        assert!(total < 1 << 20, "{total}");
+    }
+}
+
+#[test]
+fn many_glyphs_each_with_a_legal_long_destination_hit_the_aggregate_decode_budget() {
+    // 60 characters is a legal destination; 200 000 glyphs of it is 12 MB, past the page budget.
+    let pdf = cid_one_shown(200_000, 60);
+    let outcome = guarded("aggregate_budget", move || {
+        page_graph_from_bytes(&pdf, 1)
+            .map(|graph| graph.islands.len())
+            .map_err(|error| error.code())
+    });
+    assert_eq!(outcome, Err("text_overflow"), "{outcome:?}");
+}
+
+#[test]
+fn ordinary_text_is_unaffected_by_the_decode_budget() {
+    let pdf = cid_one_shown(1_000, 1);
+    let outcome = guarded("ordinary_text", move || {
+        page_graph_from_bytes(&pdf, 1).map(|graph| graph.islands.len())
+    });
+    assert!(outcome.is_ok(), "{outcome:?}");
+}
+
+// -------------------------------------------------------------------------------------------
 // Sanity: the guard itself fails loudly
 // -------------------------------------------------------------------------------------------
 

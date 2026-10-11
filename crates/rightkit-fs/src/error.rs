@@ -12,9 +12,9 @@ pub enum PostPublishStep {
     /// unlink (the fallback where the kernel has no exclusive rename). The content is published and
     /// complete; a leftover temp name remains, which [`crate::sweep_stale_temps`] reclaims.
     TempCleanup,
-    /// Making the published file owner-only on Windows (`ReplaceFileW` keeps the destination's
-    /// ACL, so a private write re-applies the owner-only ACL after the replace). When this fails
-    /// the published file may be readable by more principals than the caller asked for.
+    /// Making the published file owner-only on Windows. No longer reported: a private write is
+    /// published by a move that carries the temp file's owner-only ACL, so there is no step after
+    /// publication. The variant stays for existing matches.
     OwnerOnlyAcl,
 }
 
@@ -83,8 +83,9 @@ pub enum FsError {
         source: io::Error,
     },
     /// A `StateDir` removal or directory creation took effect, but syncing the containing
-    /// directory failed, so it may not survive a power loss. Repeating the call is safe, but a
-    /// retry that finds the directory already present does not sync again.
+    /// directory failed, so it may not survive a power loss. Repeating the call is safe: a retry
+    /// that finds a directory this process made and has not yet published syncs it again, and
+    /// fails again if the sync still fails (a directory made by another process is not tracked).
     #[error("{} was changed, but syncing its directory failed: {source}", path.display())]
     DirSyncFailed {
         path: PathBuf,
@@ -103,6 +104,30 @@ pub enum FsError {
         #[source]
         source: io::Error,
     },
+    /// Windows `ReplaceFileW` failed after it had begun swapping names, so the destination is not
+    /// in a known state: it may be missing. Nothing was deleted by this crate. `new_content` is
+    /// the file that still holds the new bytes (the temp file) and `previous_content` the one that
+    /// holds the old bytes (the backup file, or the destination itself); each is `None` when no
+    /// such file exists. Both are left in place for recovery. [`FsError::target_replaced`] is
+    /// false: the new content is not at the destination.
+    #[error(
+        "replacing {} was interrupted; new content: {}, previous content: {}: {source}",
+        path.display(),
+        show_path(new_content),
+        show_path(previous_content)
+    )]
+    ReplaceInterrupted {
+        path: PathBuf,
+        new_content: Option<PathBuf>,
+        previous_content: Option<PathBuf>,
+        #[source]
+        source: io::Error,
+    },
+}
+
+fn show_path(path: &Option<PathBuf>) -> String {
+    path.as_ref()
+        .map_or_else(|| "gone".to_string(), |p| p.display().to_string())
 }
 
 impl FsError {
@@ -119,6 +144,7 @@ impl FsError {
             Self::Io { source, .. }
             | Self::ReplacedButDirSyncFailed { source, .. }
             | Self::ReplacedButPostStepFailed { source, .. }
+            | Self::ReplaceInterrupted { source, .. }
             | Self::DirSyncFailed { source, .. } => Some(source.kind()),
             Self::AlreadyExists(_) => Some(io::ErrorKind::AlreadyExists),
             _ => None,
@@ -135,5 +161,174 @@ impl FsError {
 
     pub fn is_not_found(&self) -> bool {
         self.kind() == Some(io::ErrorKind::NotFound)
+    }
+
+    /// The `io::ErrorKind` a caller of `std::io` should see for this failure (see the
+    /// `From<FsError> for io::Error` impl). Variants that carry an `io::Error` keep its kind.
+    fn io_kind(&self) -> io::ErrorKind {
+        use io::ErrorKind as K;
+        match self {
+            Self::Io { source, .. }
+            | Self::ReplacedButDirSyncFailed { source, .. }
+            | Self::ReplacedButPostStepFailed { source, .. }
+            | Self::ReplaceInterrupted { source, .. }
+            | Self::DirSyncFailed { source, .. } => source.kind(),
+            Self::Symlink(_) | Self::NotAFile(_) | Self::BadName(_) => K::InvalidInput,
+            Self::NotADirectory(_) => K::NotADirectory,
+            Self::NotOwned(_) | Self::TooPermissive(_) => K::PermissionDenied,
+            Self::IdentityChanged(_) => K::Other,
+            Self::AlreadyExists(_) => K::AlreadyExists,
+            Self::TooLarge { .. } => K::FileTooLarge,
+            Self::Locked { .. } => K::WouldBlock,
+            Self::LockTimeout { .. } => K::TimedOut,
+            Self::TooManyEntries(_) => K::Other,
+            Self::Corrupt { .. } => K::InvalidData,
+            Self::UnknownId(_) => K::NotFound,
+            Self::Unavailable(_) => K::Unsupported,
+        }
+    }
+}
+
+/// Lets a caller of `std::io` keep the kind (`AlreadyExists`, `NotFound`, `PermissionDenied`,
+/// and so on) without matching on message text. The original `FsError` is kept as the
+/// `io::Error`'s inner error, so `get_ref()` and `into_inner()` recover it and its `source()` chain
+/// still reaches the OS error.
+impl From<FsError> for io::Error {
+    fn from(err: FsError) -> Self {
+        let kind = err.io_kind();
+        io::Error::new(kind, err)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Convert and check that the kind is `expected` and the original `FsError` is kept inside.
+    fn assert_mapped(err: FsError, expected: io::ErrorKind) {
+        let label = format!("{err:?}");
+        let io_err: io::Error = err.into();
+        assert_eq!(io_err.kind(), expected, "{label}");
+        let inner = io_err
+            .get_ref()
+            .and_then(|e| e.downcast_ref::<FsError>())
+            .unwrap_or_else(|| panic!("{label}: original FsError not kept"));
+        assert_eq!(inner.io_kind(), expected, "{label}");
+    }
+
+    #[test]
+    fn io_variant_keeps_the_source_kind() {
+        let p = PathBuf::from("/x");
+        assert_mapped(
+            FsError::io(&p, io::Error::from(io::ErrorKind::PermissionDenied)),
+            io::ErrorKind::PermissionDenied,
+        );
+        assert_mapped(
+            FsError::io(&p, io::Error::from(io::ErrorKind::NotFound)),
+            io::ErrorKind::NotFound,
+        );
+    }
+
+    #[test]
+    fn already_exists_maps_to_already_exists() {
+        assert_mapped(
+            FsError::AlreadyExists(PathBuf::from("/x")),
+            io::ErrorKind::AlreadyExists,
+        );
+    }
+
+    #[test]
+    fn each_other_variant_maps_deliberately() {
+        let p = PathBuf::from("/x");
+        let cases: Vec<(FsError, io::ErrorKind)> = vec![
+            (FsError::Symlink(p.clone()), io::ErrorKind::InvalidInput),
+            (
+                FsError::NotADirectory(p.clone()),
+                io::ErrorKind::NotADirectory,
+            ),
+            (FsError::NotAFile(p.clone()), io::ErrorKind::InvalidInput),
+            (
+                FsError::NotOwned(p.clone()),
+                io::ErrorKind::PermissionDenied,
+            ),
+            (
+                FsError::TooPermissive(p.clone()),
+                io::ErrorKind::PermissionDenied,
+            ),
+            (FsError::IdentityChanged(p.clone()), io::ErrorKind::Other),
+            (FsError::BadName("a/b".into()), io::ErrorKind::InvalidInput),
+            (
+                FsError::TooLarge {
+                    path: p.clone(),
+                    size: 9,
+                    limit: 4,
+                },
+                io::ErrorKind::FileTooLarge,
+            ),
+            (
+                FsError::Locked {
+                    path: p.clone(),
+                    owner: "other".into(),
+                },
+                io::ErrorKind::WouldBlock,
+            ),
+            (
+                FsError::LockTimeout {
+                    path: p.clone(),
+                    waited_ms: 5,
+                },
+                io::ErrorKind::TimedOut,
+            ),
+            (FsError::TooManyEntries(3), io::ErrorKind::Other),
+            (
+                FsError::Corrupt {
+                    path: p.clone(),
+                    reason: "bad".into(),
+                },
+                io::ErrorKind::InvalidData,
+            ),
+            (FsError::UnknownId("id".into()), io::ErrorKind::NotFound),
+            (FsError::Unavailable("flock"), io::ErrorKind::Unsupported),
+        ];
+        for (err, kind) in cases {
+            assert_mapped(err, kind);
+        }
+    }
+
+    #[test]
+    fn post_publish_variants_keep_the_source_kind() {
+        let p = PathBuf::from("/x");
+        let source = || io::Error::from(io::ErrorKind::StorageFull);
+        assert_mapped(
+            FsError::ReplacedButDirSyncFailed {
+                path: p.clone(),
+                source: source(),
+            },
+            io::ErrorKind::StorageFull,
+        );
+        assert_mapped(
+            FsError::DirSyncFailed {
+                path: p.clone(),
+                source: source(),
+            },
+            io::ErrorKind::StorageFull,
+        );
+        assert_mapped(
+            FsError::ReplaceInterrupted {
+                path: p.clone(),
+                new_content: Some(PathBuf::from("/x.tmp")),
+                previous_content: None,
+                source: source(),
+            },
+            io::ErrorKind::StorageFull,
+        );
+        assert_mapped(
+            FsError::ReplacedButPostStepFailed {
+                path: p,
+                step: PostPublishStep::TempCleanup,
+                source: source(),
+            },
+            io::ErrorKind::StorageFull,
+        );
     }
 }

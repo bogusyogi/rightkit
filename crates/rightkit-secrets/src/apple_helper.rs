@@ -649,6 +649,13 @@ mod process_tests {
     use std::sync::Mutex;
 
     // ---- a heap that reports freed blocks that still hold a marker ----
+    //
+    // Reading a freed block is only sound if every byte of it is initialised, and a general heap
+    // block is not (spare `Vec` capacity, padding). So the probe never reads a block it did not
+    // initialise itself: while armed, every allocation is made ZEROED (`alloc_zeroed`) and its
+    // address is recorded in a fixed table; only a recorded block is scanned when it is freed,
+    // and every byte of it has been initialised (zero, or written by the program). Blocks
+    // allocated while disarmed are never read.
 
     const MARKER: &[u8] = b"rk-wipe-marker-7f3a91";
     static ARMED: AtomicBool = AtomicBool::new(false);
@@ -656,16 +663,69 @@ mod process_tests {
     /// Only one test arms the probe at a time.
     static PROBE: Mutex<()> = Mutex::new(());
 
+    const SLOTS: usize = 1 << 16;
+    const EMPTY: usize = 0;
+    const TOMBSTONE: usize = usize::MAX;
+    /// Addresses of live blocks allocated (zeroed) while armed. Open addressing, no allocation.
+    static TRACKED: [AtomicUsize; SLOTS] = [const { AtomicUsize::new(EMPTY) }; SLOTS];
+
+    fn slot_of(addr: usize) -> usize {
+        (addr >> 4).wrapping_mul(0x9E37_79B9_7F4A_7C15_u64 as usize) % SLOTS
+    }
+
+    /// Record `addr`; `false` if the table is full (the block is then simply never scanned).
+    fn track(addr: usize) -> bool {
+        let start = slot_of(addr);
+        for step in 0..SLOTS {
+            let slot = &TRACKED[(start + step) % SLOTS];
+            let seen = slot.load(Ordering::Acquire);
+            if (seen == EMPTY || seen == TOMBSTONE)
+                && slot
+                    .compare_exchange(seen, addr, Ordering::AcqRel, Ordering::Relaxed)
+                    .is_ok()
+            {
+                return true;
+            }
+        }
+        false
+    }
+
+    /// Forget `addr`; `true` if it was recorded (so every byte of its block is initialised).
+    fn untrack(addr: usize) -> bool {
+        let start = slot_of(addr);
+        for step in 0..SLOTS {
+            let slot = &TRACKED[(start + step) % SLOTS];
+            match slot.load(Ordering::Acquire) {
+                EMPTY => return false,
+                seen if seen == addr => {
+                    return slot
+                        .compare_exchange(addr, TOMBSTONE, Ordering::AcqRel, Ordering::Relaxed)
+                        .is_ok();
+                }
+                _ => {}
+            }
+        }
+        false
+    }
+
     struct Probe;
 
-    // SAFETY: every call is forwarded to the system allocator unchanged; the only extra work is
-    // reading the block that is about to be freed, which the caller owns.
+    // SAFETY: every call is forwarded to the system allocator; the extra work is (a) zero-filling
+    // blocks allocated while armed, and (b) reading, on free, only a block this allocator itself
+    // zero-filled and recorded, which the caller owns and which is fully initialised.
     unsafe impl GlobalAlloc for Probe {
         unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
+            if ARMED.load(Ordering::Relaxed) {
+                let ptr = System.alloc_zeroed(layout);
+                if !ptr.is_null() && layout.size() >= MARKER.len() {
+                    track(ptr as usize);
+                }
+                return ptr;
+            }
             System.alloc(layout)
         }
         unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
-            if ARMED.load(Ordering::Relaxed) && layout.size() >= MARKER.len() {
+            if layout.size() >= MARKER.len() && untrack(ptr as usize) {
                 let block = std::slice::from_raw_parts(ptr, layout.size());
                 if block.windows(MARKER.len()).any(|w| w == MARKER) {
                     UNWIPED_FREES.fetch_add(1, Ordering::Relaxed);

@@ -2,6 +2,13 @@
 
 ## 0.2.0
 
+- **Test coverage (third Astra read, note 7).** No library change. The concurrent-clock test in
+  `tests/clock.rs` no longer ignores every failed `trusted_now`: it accepts only a rollback or a
+  contended ledger, fails on any other refusal, and requires that calls succeeded. The "two
+  processes" ledger test in `tests/file_store.rs` now runs two real child processes (the test
+  binary re-run on `clock_child_process`, coordinated through marker files) instead of two handles
+  in one process.
+
 Additive release. `verify_token` and every existing item keep their behaviour and signatures. One
 derive was added to an existing type (`VerifyError` is now `Clone`). A source-level break is possible
 only for code that exhaustively matches a type marked `#[non_exhaustive]` below, all of which are new.

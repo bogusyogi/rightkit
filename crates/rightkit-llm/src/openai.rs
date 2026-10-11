@@ -182,7 +182,7 @@ pub fn build_body(req: &ChatRequest, stream: bool, field: MaxTokensField) -> Val
         messages.push(json!({"role": "system", "content": s}));
     }
     for m in &req.messages {
-        push_message(&mut messages, m);
+        push_message(&mut messages, m, req.keep_empty_messages);
     }
     body.insert("messages".into(), Value::Array(messages));
     let key = match field {
@@ -193,7 +193,7 @@ pub fn build_body(req: &ChatRequest, stream: bool, field: MaxTokensField) -> Val
         body.insert(key.into(), json!(req.max_tokens));
     }
     if let Some(t) = req.temperature {
-        body.insert("temperature".into(), json!(t));
+        body.insert("temperature".into(), f32_json(t));
     }
     if !req.stop_sequences.is_empty() {
         body.insert("stop".into(), json!(req.stop_sequences));
@@ -226,10 +226,13 @@ pub fn build_body(req: &ChatRequest, stream: bool, field: MaxTokensField) -> Val
     Value::Object(body)
 }
 
-fn push_message(out: &mut Vec<Value>, m: &Message) {
+/// Maps one message. A user message with no text and no tool result is dropped, unless
+/// `keep_empty` is set, in which case it is sent as an empty string.
+fn push_message(out: &mut Vec<Value>, m: &Message, keep_empty: bool) {
     match m.role {
         Role::User => {
             let mut text = String::new();
+            let mut sent_tool_result = false;
             for b in &m.content {
                 match b {
                     ContentBlock::Text { text: t } => text.push_str(t),
@@ -238,6 +241,7 @@ fn push_message(out: &mut Vec<Value>, m: &Message) {
                         content,
                         ..
                     } => {
+                        sent_tool_result = true;
                         out.push(json!({"role": "tool", "tool_call_id": tool_use_id, "content": content}));
                     }
                     ContentBlock::ToolUse { .. } => {}
@@ -245,6 +249,8 @@ fn push_message(out: &mut Vec<Value>, m: &Message) {
             }
             if !text.is_empty() {
                 out.push(json!({"role": "user", "content": text}));
+            } else if keep_empty && !sent_tool_result {
+                out.push(json!({"role": "user", "content": ""}));
             }
         }
         Role::Assistant => {
@@ -298,13 +304,23 @@ fn tool_input(args: &str) -> Result<Value, LlmError> {
 }
 
 pub fn parse_response(v: &Value) -> Result<ChatResponse, LlmError> {
-    let choice = v
-        .get("choices")
-        .and_then(|c| c.get(0))
-        .ok_or_else(|| LlmError::Malformed("missing choices[0]".into()))?;
+    let choices = match v.get("choices") {
+        None | Some(Value::Null) => {
+            return Err(LlmError::Malformed("missing choices field".into()))
+        }
+        Some(c) => c
+            .as_array()
+            .ok_or_else(|| LlmError::Malformed("choices is not an array".into()))?,
+    };
+    let choice = choices
+        .first()
+        .ok_or_else(|| LlmError::Malformed("empty choices array".into()))?;
     let msg = &choice["message"];
     let mut content = Vec::new();
-    if let Some(t) = msg["content"].as_str().filter(|t| !t.is_empty()) {
+    // `None` when `content` is null, absent or not a string; `Some("")` only for an explicit
+    // empty string.
+    let text = msg["content"].as_str();
+    if let Some(t) = text.filter(|t| !t.is_empty()) {
         content.push(ContentBlock::text(t));
     }
     if let Some(calls) = msg["tool_calls"].as_array() {
@@ -314,6 +330,25 @@ pub fn parse_response(v: &Value) -> Result<ChatResponse, LlmError> {
                 name: c["function"]["name"].as_str().unwrap_or_default().into(),
                 input: tool_input(c["function"]["arguments"].as_str().unwrap_or(""))?,
             });
+        }
+    }
+    let has_tool_use = content
+        .iter()
+        .any(|b| matches!(b, ContentBlock::ToolUse { .. }));
+    if !has_tool_use && text.is_none_or(str::is_empty) {
+        let refusal = msg["refusal"].as_str().filter(|r| !r.is_empty());
+        let filtered = choice["finish_reason"].as_str() == Some("content_filter");
+        if refusal.is_some() || filtered {
+            return Err(LlmError::Refused {
+                message: refusal
+                    .map(str::to_owned)
+                    .unwrap_or_else(|| "finish_reason content_filter".into()),
+            });
+        }
+        if text.is_none() {
+            return Err(LlmError::Malformed(
+                "empty completion: no text content and no tool call".into(),
+            ));
         }
     }
     Ok(ChatResponse {

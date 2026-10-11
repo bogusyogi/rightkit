@@ -40,6 +40,7 @@
 //! editable and fails at compose time with `PdfEditError::MissingGlyphs` naming the characters.
 #![cfg_attr(not(feature = "edit"), allow(dead_code))]
 
+use std::cell::Cell;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::rc::Rc;
 
@@ -57,6 +58,71 @@ use crate::model::{
 /// Mirrors `pdf_text_edit.rs`'s own bound: plenty for real ToUnicode CMaps / simple-font
 /// encodings while bounding malicious compressed font streams.
 const MAX_FONT_ENCODING_BYTES: usize = 16 * 1024 * 1024;
+
+/// Most content-stream operations one page may walk, across all its streams. Real pages (vector
+/// maps included) stay well under a million; a hostile stream of one-byte operators does not.
+/// A page past it is refused as malformed content before the walk starts on that stream.
+const MAX_OPERATIONS_PER_PAGE: usize = 1 << 24;
+
+/// Most glyphs one page may decode. A dense page holds tens of thousands; a hostile content stream
+/// can show hundreds of millions of codes, each costing a retained `PositionedGlyph`.
+const MAX_GLYPHS_PER_PAGE: usize = 1 << 21;
+
+/// Most decoded Unicode bytes one page may accumulate across all its glyphs (a ligature or
+/// `ToUnicode` string longer than a character counts its full length).
+const MAX_DECODED_BYTES_PER_PAGE: usize = 8 * 1024 * 1024;
+
+/// Longest `ToUnicode` destination, in UTF-16 units, the reader keeps. Real destinations are one
+/// character or a short ligature expansion; a longer one is not read and makes the CMap inexact.
+const MAX_CMAP_DESTINATION_UNITS: usize = 64;
+
+/// What a page walk may still decode: glyph count and decoded Unicode bytes, aggregated over every
+/// show operand of the page. Exhaustion is a typed refusal ([`PdfEditError::TextOverflow`]).
+#[derive(Clone, Copy, Debug)]
+struct DecodeBudget {
+    glyphs: usize,
+    bytes: usize,
+}
+
+/// One page's [`DecodeBudget`], shared by every font of that page (the walker reaches fonts only
+/// through the public `TextStateFont` trait, whose signature carries no budget).
+#[derive(Clone, Debug)]
+struct SharedDecodeBudget(Rc<Cell<DecodeBudget>>);
+
+impl SharedDecodeBudget {
+    fn new() -> SharedDecodeBudget {
+        SharedDecodeBudget(Rc::new(Cell::new(DecodeBudget::new())))
+    }
+
+    fn with<T>(
+        &self,
+        charge: impl FnOnce(&mut DecodeBudget) -> Result<T, PdfEditError>,
+    ) -> Result<T, PdfEditError> {
+        let mut budget = self.0.get();
+        let out = charge(&mut budget);
+        self.0.set(budget);
+        out
+    }
+}
+
+impl DecodeBudget {
+    fn new() -> DecodeBudget {
+        DecodeBudget {
+            glyphs: MAX_GLYPHS_PER_PAGE,
+            bytes: MAX_DECODED_BYTES_PER_PAGE,
+        }
+    }
+
+    /// Charges one glyph whose decoded text is `unicode_bytes` long, before anything is cloned.
+    fn charge(&mut self, unicode_bytes: usize) -> Result<(), PdfEditError> {
+        if self.glyphs == 0 || unicode_bytes > self.bytes {
+            return Err(PdfEditError::TextOverflow);
+        }
+        self.glyphs -= 1;
+        self.bytes -= unicode_bytes;
+        Ok(())
+    }
+}
 
 /// Most bytes any one stream (a page content stream, an object stream) may decode to. A page of
 /// text is kilobytes to a few megabytes; a flate stream that claims more is a decompression bomb
@@ -128,8 +194,14 @@ pub fn walk_page_graph(
     // stream into the next. Each stream is still decoded and addressed separately (sparse writes
     // need the boundaries), but the walker state flows through them.
     let mut walk_state = WalkState::new();
+    let mut operations_left = MAX_OPERATIONS_PER_PAGE;
     for stream in &streams {
         let content = Content::decode(&stream.bytes).map_err(|_| PdfEditError::MalformedContent)?;
+        // Bounded parse work (gap ledger row 155): the walk is linear in operations, so a page
+        // may not present more of them than any real page does by a wide margin.
+        operations_left = operations_left
+            .checked_sub(content.operations.len())
+            .ok_or(PdfEditError::MalformedContent)?;
         walk_state = walk_stream(
             stream,
             &content,
@@ -453,6 +525,8 @@ struct BuiltFont {
     /// typed reason when it can never be. The page graph's `editable` flag and the composer's
     /// `ExactOperandPatch` both read this field, so they cannot disagree.
     reverse: Result<ReverseTable, PdfEditBlocker>,
+    /// The page's shared decode budget (glyph count and decoded Unicode bytes).
+    budget: SharedDecodeBudget,
 }
 
 impl std::fmt::Debug for BuiltFont {
@@ -489,9 +563,14 @@ impl TextStateFont for BuiltFont {
                 return Err(PdfEditError::UnsupportedEncoding);
             }
             let start = (i * width) as u32;
+            // Charge the budget from the borrowed string BEFORE cloning it: a CMap that maps one
+            // code to a long string, shown many times, would otherwise allocate without bound.
+            let unicode_ref = self.unicode.get(&code);
+            self.budget
+                .with(|b| b.charge(unicode_ref.map_or(0, |u| u.len())))?;
             out.push(DecodedGlyph {
                 cid: code,
-                unicode: self.unicode.get(&code).cloned().unwrap_or_default(),
+                unicode: unicode_ref.cloned().unwrap_or_default(),
                 source_range: (start, start + width as u32),
                 bbox: None,
             });
@@ -974,6 +1053,7 @@ fn resolve_page_fonts(doc: &Document, page_id: ObjectId) -> HashMap<Vec<u8>, Rc<
     let Ok(fonts) = doc.get_page_fonts(page_id) else {
         return out;
     };
+    let budget = SharedDecodeBudget::new();
 
     for (name, font_dict) in fonts.into_iter() {
         let subtype = font_dict
@@ -1080,6 +1160,7 @@ fn resolve_page_fonts(doc: &Document, page_id: ObjectId) -> HashMap<Vec<u8>, Rc<
                 reject_missing_metrics,
                 unicode,
                 reverse,
+                budget: budget.clone(),
             }
         } else {
             let (unicode, cmap_complete) = parse_to_unicode(doc, font_dict);
@@ -1106,6 +1187,7 @@ fn resolve_page_fonts(doc: &Document, page_id: ObjectId) -> HashMap<Vec<u8>, Rc<
                 reject_missing_metrics: default_width_1000 <= 0.0 || !widths_complete,
                 unicode,
                 reverse,
+                budget: budget.clone(),
             }
         };
 
@@ -1543,7 +1625,12 @@ fn parse_to_unicode(doc: &Document, font_dict: &Dictionary) -> (HashMap<u32, Str
             }
             budget -= 1;
             if code <= MAX_CID {
-                map.insert(code, hex_to_unicode_string(dst));
+                match bounded_destination(dst) {
+                    Some(text) => {
+                        map.insert(code, text);
+                    }
+                    None => exact = false,
+                }
             }
         }
     }
@@ -1605,7 +1692,13 @@ fn parse_to_unicode(doc: &Document, font_dict: &Dictionary) -> (HashMap<u32, Str
                     let mut closed = false;
                     while let Some(tok) = tokens.get(idx) {
                         match tok {
-                            CmapToken::Hex(h) => dests.push(hex_to_unicode_string(h)),
+                            CmapToken::Hex(h) => match bounded_destination(h) {
+                                Some(text) => dests.push(text),
+                                None => {
+                                    exact = false;
+                                    dests.push(String::new());
+                                }
+                            },
                             CmapToken::Close => {
                                 closed = true;
                                 idx += 1;
@@ -1669,6 +1762,12 @@ fn extract_blocks<'a>(text: &'a str, begin: &str, end: &str) -> Vec<&'a str> {
 
 fn hex_to_u32(tok: &str) -> Option<u32> {
     u32::from_str_radix(tok, 16).ok()
+}
+
+/// [`hex_to_unicode_string`] for a `ToUnicode` destination, or `None` when it is longer than
+/// [`MAX_CMAP_DESTINATION_UNITS`] UTF-16 units (the entry is then not read).
+fn bounded_destination(tok: &str) -> Option<String> {
+    (tok.len() <= MAX_CMAP_DESTINATION_UNITS * 4).then(|| hex_to_unicode_string(tok))
 }
 
 /// Decodes a hex token as big-endian UTF-16 code units (the `ToUnicode` CMap convention).
@@ -2079,7 +2178,7 @@ fn walk_stream(
                         spacing,
                         preceding,
                         &mut break_pending,
-                    );
+                    )?;
                 }
             }
             "'" => {
@@ -2099,7 +2198,7 @@ fn walk_stream(
                         spacing,
                         Vec::new(),
                         &mut break_pending,
-                    );
+                    )?;
                 }
             }
             "\"" => {
@@ -2124,7 +2223,7 @@ fn walk_stream(
                         spacing,
                         Vec::new(),
                         &mut break_pending,
-                    );
+                    )?;
                 }
             }
             "TJ" => {
@@ -2155,7 +2254,7 @@ fn walk_stream(
                                     spacing,
                                     preceding,
                                     &mut break_pending,
-                                );
+                                )?;
                             }
                             Object::Integer(_) | Object::Real(_) => {
                                 let value = object_number(item).unwrap_or(0.0);
@@ -2254,7 +2353,7 @@ fn show_operand(
     spacing: &mut HashMap<SpacingKey, GlyphSpacing>,
     preceding: Vec<GapNumber>,
     break_pending: &mut bool,
-) {
+) -> Result<(), PdfEditError> {
     let mut source_op = source.clone();
     source_op.operand_index = operand_index;
 
@@ -2266,7 +2365,7 @@ fn show_operand(
             PdfEditError::UnsupportedEncoding,
             Some(PdfEditBlocker::UnsupportedFontType),
         ));
-        return;
+        return Ok(());
     }
     if is_singular(text_state.ctm) || is_singular(text_state.text_matrix) {
         rejections.push(rejected_island(
@@ -2276,7 +2375,7 @@ fn show_operand(
             PdfEditError::UnsupportedTransform,
             None,
         ));
-        return;
+        return Ok(());
     }
 
     // An empty string produces no glyph, so nothing ever looks its spacing up; recording one per
@@ -2303,6 +2402,11 @@ fn show_operand(
     }
     if let Err(error) = shown {
         glyphs.truncate(before);
+        // An exhausted decode budget refuses the whole page: it is hostile or absurd input, not a
+        // font quirk to record as one more uneditable island.
+        if matches!(error, PdfEditError::TextOverflow) {
+            return Err(error);
+        }
         // `decode_show_operand` raises UnsupportedEncoding only for a code the font has no
         // authoritative width for; other failures (odd-length operand, degenerate quad) have no
         // font-level blocker.
@@ -2316,6 +2420,7 @@ fn show_operand(
             blocker,
         ));
     }
+    Ok(())
 }
 
 fn is_singular(m: Matrix) -> bool {
@@ -3051,6 +3156,7 @@ mod tests {
             reject_missing_metrics: true,
             unicode: HashMap::new(),
             reverse: Err(PdfEditBlocker::NoReversibleEncoding),
+            budget: SharedDecodeBudget::new(),
         };
         let result = font.decode_show_operand(&Object::String(vec![b'A'], StringFormat::Literal));
         assert!(matches!(result, Err(PdfEditError::UnsupportedEncoding)));

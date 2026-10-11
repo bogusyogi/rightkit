@@ -573,6 +573,33 @@ impl Request {
         }
         self.header("Authorization", format!("Bearer {token}"))
     }
+    /// Register a secret that is not a header, for example a form field or a value inside a
+    /// body. It is scrubbed from error text, retry events and `Debug` output exactly like a
+    /// [`Request::secret_header`] value. Empty values are ignored.
+    pub fn redact_value(mut self, value: impl Into<String>) -> Self {
+        let value = value.into();
+        if !value.is_empty() {
+            self.secret_values.push(value);
+        }
+        self
+    }
+    /// [`Request::form`] that also registers the value of every pair whose name is in
+    /// `secret_names` (compared ignoring ASCII case) as a secret, so a token or client secret
+    /// sent in the body is scrubbed from errors like a secret header.
+    pub fn secret_form(mut self, pairs: &[(&str, &str)], secret_names: &[&str]) -> Self {
+        for (name, value) in pairs {
+            if secret_names.iter().any(|s| s.eq_ignore_ascii_case(name)) && !value.is_empty() {
+                self.secret_values.push((*value).to_string());
+            }
+        }
+        self.form(pairs)
+    }
+    /// Replace every secret value registered on this request (not the client's configured
+    /// ones) in `text` with `[redacted]`. For text the caller took from a response, such as
+    /// an error field a provider echoed back, where no HTTP error carries it for scrubbing.
+    pub fn scrub(&self, text: &str) -> String {
+        redact_str(text, &sorted_values(&self.secret_values))
+    }
     pub fn body(mut self, body: impl Into<Vec<u8>>) -> Self {
         self.body = body.into();
         self

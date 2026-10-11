@@ -311,3 +311,43 @@ fn token_post_is_not_replayed_after_a_5xx() {
     );
     assert_eq!(token_server.request_count(), 1);
 }
+
+// Third read, finding 4: a provider that echoes a submitted credential must not make
+// `OAuthError` repeat it, on the HTTP 400 path or on the HTTP 200 path.
+fn refresh_with_echo(status: u16) -> OAuthError {
+    let token_server = MockServer::start(move |_, _| {
+        MockResponse::json(
+            status,
+            &serde_json::json!({
+                "error": "invalid_request",
+                "error_description": "rejected single-use"
+            }),
+        )
+    });
+    let config = OAuthConfig::new(
+        "client",
+        token_server.url("/authorize"),
+        token_server.url("/token"),
+    );
+    let oauth = OAuthClient::new(config, client()).unwrap();
+    let current = rightkit_oauth::TokenSet {
+        access_token: rightkit_http::Secret::new("old-access"),
+        token_type: "Bearer".into(),
+        expires_in: None,
+        refresh_token: Some(rightkit_http::Secret::new("single-use")),
+        scope: None,
+        obtained_at: std::time::SystemTime::now(),
+    };
+    oauth.refresh(&current).unwrap_err()
+}
+
+#[test]
+fn provider_errors_do_not_echo_the_submitted_refresh_token() {
+    for status in [400u16, 200] {
+        let err = refresh_with_echo(status);
+        assert!(matches!(err, OAuthError::Provider { .. }), "{err:?}");
+        let text = format!("{err} {err:?}");
+        assert!(!text.contains("single-use"), "HTTP {status}: {text}");
+        assert!(text.contains("[redacted]"), "HTTP {status}: {text}");
+    }
+}

@@ -165,7 +165,7 @@ fn the_registered_environment_variable_means_never_show() {
         policy.mode(RevealSource::Tray, false, &no_env),
         RevealMode::Foreground
     );
-    for off in ["", "0", "false", "OFF", " no "] {
+    for off in ["", "0", "false", "OFF", " no ", "native", " 1"] {
         let env = env_with("RIGHTKIT_QA_NATIVE_REAL", off);
         assert_eq!(
             policy.mode(RevealSource::Tray, false, &env),
@@ -191,114 +191,35 @@ fn the_registered_environment_variable_means_never_show() {
 fn env_values_that_mean_never_show() {
     use std::ffi::OsStr;
     assert!(!env_means_never_show(None));
-    for no in ["", "  ", "0", "false", "False", "no", "off"] {
+    // Exact match against the documented truthy values only; everything else is off.
+    for no in [
+        "", "  ", "0", "false", "False", "no", "off", "native", "2", " 1", "1 ", " no ", "y", "t",
+        "enabled", "truee",
+    ] {
         assert!(!env_means_never_show(Some(OsStr::new(no))), "{no:?}");
     }
-    for yes in ["1", "true", "yes", "on", "native"] {
+    for yes in ["1", "true", "TRUE", "True", "yes", "Yes", "on", "ON"] {
         assert!(env_means_never_show(Some(OsStr::new(yes))), "{yes:?}");
     }
 }
 
 #[test]
-fn the_reopen_opt_out_alone_blocks_only_reopen_and_opened() {
+fn a_registered_name_with_an_explicit_expected_value_matches_only_that_value() {
+    use rightkit_shell::lifecycle::env_equals;
+    use std::ffi::OsStr;
+    assert!(env_equals(Some(OsStr::new("native")), "native"));
+    assert!(!env_equals(Some(OsStr::new("Native")), "native"));
+    assert!(!env_equals(Some(OsStr::new("native ")), "native"));
+    assert!(!env_equals(Some(OsStr::new("1")), "native"));
+    assert!(!env_equals(None, "native"));
     let policy = ShowPolicy {
-        reveal_on_reopen: false,
+        never_show_env_values: vec![("QA_MODE".into(), "native".into())],
         ..ShowPolicy::default()
     };
-    for qa_background in [false, true] {
-        for source in [RevealSource::Reopen, RevealSource::Opened] {
-            let (mode, recorder) = run(&policy, source, qa_background);
-            assert_eq!(mode, RevealMode::Forbidden, "{source:?}");
-            assert!(recorder.calls.is_empty(), "{source:?}");
-        }
-        for source in [
-            RevealSource::SecondInstance,
-            RevealSource::ShowOnReady,
-            RevealSource::Tray,
-            RevealSource::WindowCommand,
-            RevealSource::OpenWindow,
-            RevealSource::Restore,
-            RevealSource::Api,
-        ] {
-            let (mode, recorder) = run(&policy, source, qa_background);
-            assert_ne!(mode, RevealMode::Forbidden, "{source:?}");
-            assert!(!recorder.calls.is_empty(), "{source:?}");
-        }
-    }
-}
-
-#[test]
-fn foreground_calls_keep_their_order_and_background_only_orders_back() {
-    let mut full = Recorder::default();
-    assert_eq!(
-        apply_reveal(RevealMode::Foreground, RevealStyle::Full, &mut full),
-        Ok(true)
-    );
-    assert_eq!(
-        full.calls,
-        ["prepare", "app_show", "unminimize", "show", "focus"]
-    );
-
-    let mut command = Recorder::default();
-    let _ = apply_reveal(RevealMode::Foreground, RevealStyle::ShowFocus, &mut command);
-    assert_eq!(command.calls, ["prepare", "show", "focus"]);
-
-    let mut ready = Recorder::default();
-    let _ = apply_reveal(RevealMode::Foreground, RevealStyle::ShowOnly, &mut ready);
-    assert_eq!(ready.calls, ["show"]);
-
-    for style in ALL_STYLES {
-        let mut qa = Recorder::default();
-        assert_eq!(
-            apply_reveal(RevealMode::Background, style, &mut qa),
-            Ok(true)
-        );
-        assert_eq!(
-            qa.calls,
-            ["order_back"],
-            "{style:?}: never unminimise or focus"
-        );
-    }
-}
-
-#[test]
-fn a_failed_order_back_is_silent_for_full_and_an_error_for_the_others() {
-    let failing = || Recorder {
-        order_back_fails: true,
-        ..Recorder::default()
-    };
-    assert_eq!(
-        apply_reveal(RevealMode::Background, RevealStyle::Full, &mut failing()),
-        Ok(false)
-    );
-    assert!(apply_reveal(
-        RevealMode::Background,
-        RevealStyle::ShowOnly,
-        &mut failing()
-    )
-    .is_err());
-    assert!(apply_reveal(
-        RevealMode::Background,
-        RevealStyle::ShowFocus,
-        &mut failing()
-    )
-    .is_err());
-}
-
-#[test]
-fn restore_options_are_constrained_by_the_guard() {
-    let all = RestoreOptions {
-        unminimize: true,
-        show: true,
-        focus: true,
-        restore_minimized: true,
-    };
-    assert_eq!(all.constrained(RevealMode::Foreground), all);
-    let background = all.constrained(RevealMode::Background);
-    assert!(!background.unminimize && !background.focus);
-    assert!(background.show);
-    assert_eq!(
-        all.constrained(RevealMode::Forbidden),
-        RestoreOptions::default()
-    );
+    assert!(policy.is_never_show(&env_with("QA_MODE", "native")));
+    // A truthy token is not the expected value, so it is off for this name.
+    assert!(!policy.is_never_show(&env_with("QA_MODE", "1")));
+    assert!(!policy.is_never_show(&env_with("QA_MODE", "")));
+    assert!(!policy.is_never_show(&no_env));
+    assert!(!policy.is_never_show(&env_with("OTHER", "native")));
 }

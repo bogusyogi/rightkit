@@ -1,5 +1,28 @@
 # Changelog
 
+## Unreleased
+
+**Third-read fixes (2026-10-11, `docs/audits/2026-10-11-astra-fs-third-read.md`).** Nothing here was compiled or run locally; verification is the CI run.
+
+- **Windows `ReplaceFileW` no longer risks both versions (P1 1).** It is given a unique backup file (`.<name>.rktbak-<pid>-<n>`, not swept). A failure with 1176 or 1177 that leaves the destination missing or a backup beside it is the new `FsError::ReplaceInterrupted { path, new_content, previous_content, source }`; the temp and backup are left for recovery and `target_replaced()` is false. `rightkit-settings` maps unknown variants to `Error::Io` (the `FsError` stays inside it); a typed mapping there is a follow-up.
+- **No cross-inode lock alias cache (P1 2).** The registry maps only `(dev, ino)` to held entries; the `lstat identity -> opened identity` map is gone, so a name that was swapped between `lstat` and `open` can no longer make a later request on an unrelated, unchanged inode borrow the other file's guard.
+- **Creation retries cannot skip a failed durability barrier (P1 3).** A directory a `StateDir::create` / `child` made is recorded as unpublished until the sync of its parent succeeds; a retry, or a concurrent creator in the same process, that finds it runs that sync (and fails with `DirSyncFailed` if it still fails) before descending or accepting it. In-process only. Behavior change: `child("kid")` retried after a failed sync now syncs again instead of returning.
+- **Atomic writes publish the parents they create (P1 4).** With `create_parents` and `durable`, missing ancestors are made top down and the parent of each is synced (`DirSyncFailed` on failure, with the same retry rule). Non-durable writes are unchanged.
+- **Private Windows `ReplaceFile` writes use a move (P1 5).** Over an existing destination a `Privacy::OwnerOnly` / `private: true` write plans `MoveFileExW` (`MOVEFILE_REPLACE_EXISTING`, plus write-through when `durable`) instead of `ReplaceFileW`, so the temp file's owner-only DACL is what the published file has; the destination is no longer narrowed or re-checked. `HardenStage::DestinationBeforeReplace/DestinationAfterReplace` and `PostPublishStep::OwnerOnlyAcl` remain but are never produced. `publication_durability` reports `WriteThroughMove` for that case. Cost: like `MoveWriteThrough`, a reader holding the old file open without share-delete can make it fail.
+- **No `icacls` fallback (P1 6).** `restrict_owner_only` on Windows fails when the native DACL replacement fails. The fallback only replaced the current user's grant and left other explicit ACEs.
+- **`create_private_new` is owner-only from creation on Windows (P1 7)** (`CreateFileW` with the owner-only descriptor), and refuses generated temp names.
+- **Unix copy fallback no longer exposes private bytes (P1 8).** The copy step creates its temp `0600` and applies the source's mode before publication (a fresh-metadata copy still uses the default mode). The Linux `FICLONE` step does the same, and its result now carries the source's mode (it previously got the default mode).
+- **Reserved names across creation APIs (P2 9).** `create_private_new`, `clone_or_link_or_copy_nofollow[_with]`, macOS `clone_file_nofollow` (`CloneError::InvalidPath`) and lock files refuse a complete generated temp name (`FsError::BadName`).
+- New: `FsError::ReplaceInterrupted`.
+- Finding 10 (`rightkit-settings/tests/writer.rs`) is in another crate and was not touched.
+
+- Additive: `impl From<FsError> for std::io::Error`. The `io::ErrorKind` is mapped per variant
+  (`AlreadyExists` stays `AlreadyExists`, `NotFound` for `UnknownId`, `PermissionDenied` for
+  `NotOwned` and `TooPermissive`, `Io`-carrying variants keep their source's kind, and so on), so callers
+  need not re-map "already exists" by text. The original `FsError` is the `io::Error`'s inner error
+  (`get_ref()` / `into_inner()`), and its `source()` chain is kept. Unit tests in `src/error.rs` cover each
+  variant. Not compiled when written.
+
 ## 0.3.4
 
 **Review fixes (2026-10-11, `docs/audits/2026-10-11-astra-rightkit-fs-first-read.md`).** The ten findings of the first independent read, and what changed. Nothing here was compiled or run locally; verification is the CI run.

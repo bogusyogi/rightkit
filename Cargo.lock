@@ -5611,6 +5611,7 @@ dependencies = [
  "subsetter",
  "thiserror 2.0.21",
  "ttf-parser",
+ "windows-sys 0.61.2",
  "wuff",
 ]
 

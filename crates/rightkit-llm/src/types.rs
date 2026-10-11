@@ -3,7 +3,7 @@ use std::time::Duration;
 
 use rightkit_http::{Request, RetryPolicy};
 use serde::{Deserialize, Serialize};
-use serde_json::{Map, Value};
+use serde_json::{json, Map, Value};
 
 use crate::error::LlmError;
 
@@ -146,6 +146,12 @@ pub struct ChatRequest {
     /// Return [`LlmError::Truncated`] instead of a normal response when the provider stopped
     /// at its output limit. Default `false`. See [`ChatRequest::reject_truncated_output`].
     pub reject_truncated: bool,
+    /// Send user messages that have no text as an empty string instead of dropping them.
+    /// Default `false`: an empty user message is left out of the OpenAI-compatible body.
+    /// Anthropic rejects empty content, so with `true` an empty message fails with
+    /// [`LlmError::InvalidRequest`] before anything is sent. See
+    /// [`ChatRequest::keep_empty_messages`].
+    pub keep_empty_messages: bool,
 }
 
 impl ChatRequest {
@@ -165,6 +171,7 @@ impl ChatRequest {
             retry: CallRetry::Client,
             extra_body: ExtraBody::default(),
             reject_truncated: false,
+            keep_empty_messages: false,
         }
     }
     /// One system prompt plus one user turn.
@@ -226,11 +233,31 @@ impl ChatRequest {
         self.extra_body.fields.insert(key, value);
         self
     }
+    /// Choose what happens to a user message with no text. `false` (default) drops it from
+    /// the OpenAI-compatible body, as before. `true` sends it as an empty string; Anthropic
+    /// has no empty content, so `true` makes an empty message an
+    /// [`LlmError::InvalidRequest`] there, before sending.
+    pub fn keep_empty_messages(mut self, keep: bool) -> Self {
+        self.keep_empty_messages = keep;
+        self
+    }
     /// Treat a provider stop at the output limit as [`LlmError::Truncated`]. By default the
     /// truncated text is returned with [`StopReason::MaxTokens`]. Applies to streams too.
     pub fn reject_truncated_output(mut self) -> Self {
         self.reject_truncated = true;
         self
+    }
+}
+
+/// JSON number for an `f32` request field, written as its shortest decimal that round-trips
+/// the `f32` (`0.3` goes on the wire as `0.3`, not `0.30000001192092896`).
+pub(crate) fn f32_json(v: f32) -> Value {
+    // `Display` for f32 is the shortest round-tripping decimal; parsing that as f64 keeps the
+    // digits, since f64 serialises its shortest form. NaN and infinity become JSON null, as
+    // `json!` already did.
+    match v.to_string().parse::<f64>() {
+        Ok(d) => json!(d),
+        Err(_) => json!(v as f64),
     }
 }
 

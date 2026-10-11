@@ -197,9 +197,17 @@ enum Slot {
     Abandoned,
 }
 
-/// Identity of a credential target: the backend instance and the normalised native target name.
-/// Stores that share a backend and a Windows prefix share a native target, so they share a key.
-type TargetKey = (usize, String);
+/// Identity of a credential target: the backend's store identity and the normalised native target
+/// name. Stores that share a backend store and a Windows prefix share a native target, so they
+/// share a key, even when each was opened over its own backend instance.
+type TargetKey = (String, String);
+
+/// `Backend::exclusion_identity`, else the instance's allocation.
+fn backend_identity(backend: &Arc<dyn Backend>) -> String {
+    backend
+        .exclusion_identity()
+        .unwrap_or_else(|| format!("instance:{:p}", Arc::as_ptr(backend) as *const ()))
+}
 
 /// Mutations in flight, one per target. A timed-out OS call cannot be cancelled and keeps
 /// running on its worker thread; its entry stays here until that call returns, so a retry can
@@ -367,7 +375,7 @@ impl Store {
         // place until the OS returns: a retry is refused rather than raced.
         let permit = if mutation {
             let key = (
-                Arc::as_ptr(&self.backend) as *const () as usize,
+                backend_identity(&self.backend),
                 normalize_target_name(&self.ns.windows_target_name(account)),
             );
             Some(TargetPermit::acquire(key, op, deadline)?)
