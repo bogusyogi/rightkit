@@ -543,7 +543,7 @@ fn invalidate_aliases(
         let same = match FileIdentity::try_of(Path::new(&staged)) {
             Ok(staged_identity) => {
                 staged_identity.same_file(replaced)
-                    || written.map_or(true, |written| staged_identity.same_file(written))
+                    || written.is_none_or(|written| staged_identity.same_file(written))
             }
             Err(_) => true,
         };

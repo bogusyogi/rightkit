@@ -284,11 +284,11 @@ fn from_hex(h: &str) -> Option<String> {
         }
     }
     let bytes = h.as_bytes();
-    if bytes.len() % 2 != 0 {
+    if !bytes.len().is_multiple_of(2) {
         return None;
     }
     let mut out = Vec::with_capacity(bytes.len() / 2);
-    for pair in bytes.chunks_exact(2) {
+    for pair in bytes.as_chunks::<2>().0 {
         out.push((nibble(pair[0])? << 4) | nibble(pair[1])?);
     }
     String::from_utf8(out).ok()

@@ -36,8 +36,12 @@ fn reply(status: &str, headers: &[(&str, &str)], body: &[u8]) -> Vec<u8> {
 }
 
 struct Request {
+    // Read only by the `dev-worker-override` tests, which the default build does not compile.
+    #[cfg_attr(not(feature = "dev-worker-override"), allow(dead_code))]
     line: String,
     headers: Vec<(String, String)>,
+    // Read only by the `dev-worker-override` tests, which the default build does not compile.
+    #[cfg_attr(not(feature = "dev-worker-override"), allow(dead_code))]
     body: Vec<u8>,
 }
 
@@ -505,7 +509,7 @@ mod release_build {
 
     #[test]
     fn the_allowance_is_accepted_and_ignored_without_the_feature() {
-        assert!(!DEV_WORKER_OVERRIDE_ENABLED);
+        const { assert!(!DEV_WORKER_OVERRIDE_ENABLED) };
         let (port, hits) = fixed(reply("200 OK", &[], b"x"));
         let client = ModelHttp::new(ModelHttpOptions {
             proxy: ProxyMode::None,

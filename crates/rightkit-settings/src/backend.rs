@@ -25,6 +25,9 @@ const ENVELOPE_VALUES: &str = "values";
 const ENVELOPE_REVISION: &str = "revision";
 const LOCK_WAIT: Duration = Duration::from_secs(10);
 
+/// The edit [`SettingsBackend::patch_ordered`] runs, returning the layout of what it commits.
+type OrderedEdit<'a> = dyn FnMut(Option<&Stored>) -> Result<(Edit, KeyLayout), Error> + 'a;
+
 /// A settings document as a backend holds it.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Stored {
@@ -93,10 +96,7 @@ pub trait SettingsBackend: Send + Sync {
     /// default [`FileBackend`] does) uses the layout to place keys the stored document does not
     /// hold yet; the default implementation drops it and calls `patch`, which is right for any
     /// backend that does not keep key order, so existing implementations need no change.
-    fn patch_ordered(
-        &self,
-        edit: &mut dyn FnMut(Option<&Stored>) -> Result<(Edit, KeyLayout), Error>,
-    ) -> Result<Option<u64>, Error> {
+    fn patch_ordered(&self, edit: &mut OrderedEdit<'_>) -> Result<Option<u64>, Error> {
         self.patch(&mut |current| edit(current).map(|(decision, _)| decision))
     }
 
@@ -301,10 +301,7 @@ impl FileBackend {
     }
 
     /// The transaction behind both `patch` and `patch_ordered`.
-    fn commit(
-        &self,
-        edit: &mut dyn FnMut(Option<&Stored>) -> Result<(Edit, KeyLayout), Error>,
-    ) -> Result<Option<u64>, Error> {
+    fn commit(&self, edit: &mut OrderedEdit<'_>) -> Result<Option<u64>, Error> {
         // Exclusion: the cross-process sidecar lock, or the in-process lock when sidecars are off.
         let _file_lock = if self.sidecars {
             Some(lock_file(&self.path)?)
@@ -388,10 +385,7 @@ impl SettingsBackend for FileBackend {
         self.commit(&mut |current| edit(current).map(|decision| (decision, KeyLayout::default())))
     }
 
-    fn patch_ordered(
-        &self,
-        edit: &mut dyn FnMut(Option<&Stored>) -> Result<(Edit, KeyLayout), Error>,
-    ) -> Result<Option<u64>, Error> {
+    fn patch_ordered(&self, edit: &mut OrderedEdit<'_>) -> Result<Option<u64>, Error> {
         self.commit(edit)
     }
 }
@@ -620,7 +614,7 @@ fn envelope_bytes(
     match order {
         KeyOrder::Sorted => Ordered::sorted(&root).serialize(&mut ser)?,
         KeyOrder::Preserve => {
-            let old = reference.and_then(Shape::parse).map(Shape::as_envelope);
+            let old = reference.and_then(Shape::parse).map(Shape::into_envelope);
             let typed = Shape::envelope(layout.root());
             Ordered {
                 value: &root,
@@ -844,7 +838,7 @@ impl Shape {
     /// This shape read as an envelope. A legacy flat file (no `schemaVersion`) is the `values`
     /// of the envelope that adopts it: its keys keep their order there, and the envelope's own
     /// keys, which it lacks, take the order a new file gets.
-    fn as_envelope(self) -> Shape {
+    fn into_envelope(self) -> Shape {
         let flat = matches!(
             &self,
             Shape::Object(entries) if !entries.iter().any(|(key, _)| key == ENVELOPE_VERSION)

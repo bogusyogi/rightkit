@@ -92,8 +92,11 @@ catch { Write-Output ('RESULT:' + (@{ message=$_.Exception.Message; data=$_.Exce
     assert.equal(result.data.TimedOut, true);
   });
 
-  for (const preserveActive of [false, true]) {
-  test(`${shell}: failed rollback preserves primary error and ${preserveActive ? "keeps active" : "cleans inactive"} candidate`, options, () => {
+  // `aliased`: the junctions were made through another spelling of the versions root, so their stored
+  // targets and the script's own paths name the same directories with different text (as a Windows
+  // short name does). The outcome must not change.
+  for (const aliased of [false, true]) for (const preserveActive of [false, true]) {
+  test(`${shell}: failed rollback preserves primary error and ${preserveActive ? "keeps active" : "cleans inactive"} candidate${aliased ? " (junction targets spelled another way)" : ""}`, options, () => {
     const result = runProbe(shell, `
 $InstallRoot = $Root; $VersionsRoot = Join-Path $Root 'versions'
 $PriorTarget = Join-Path $VersionsRoot '1.0.0'; $VersionRoot = Join-Path $VersionsRoot '1.0.1'
@@ -102,8 +105,10 @@ $Work = Join-Path $Root 'work'; $Journal = Join-Path $Root 'integration-journal.
 New-Item -ItemType Directory -Path $PriorTarget,$VersionRoot,$Work -Force | Out-Null
 Set-Content -LiteralPath (Join-Path $PriorTarget 'keep.txt') -Value 'prior data'
 Set-Content -LiteralPath $Journal -Value '{}'
-New-Item -ItemType Junction -Path $Current -Target $PriorTarget | Out-Null
-New-Item -ItemType Junction -Path $NextLink -Target $VersionRoot | Out-Null
+$Spelled = $VersionsRoot
+${aliased ? "$Spelled = Join-Path $Root 'versions-alias'; New-Item -ItemType Junction -Path $Spelled -Target $VersionsRoot | Out-Null" : ""}
+New-Item -ItemType Junction -Path $Current -Target (Join-Path $Spelled '1.0.0') | Out-Null
+New-Item -ItemType Junction -Path $NextLink -Target (Join-Path $Spelled '1.0.1') | Out-Null
 $Version = '1.0.1'; $PriorVersion = '1.0.0'; $PriorCliCapable = $true
 $ActivationArgsTemplate = @('activate'); $StatusArgsTemplate = @('status')
 $Switched = $false; $PriorDetached = $false; $script:Calls = 0
@@ -111,7 +116,7 @@ function Invoke-BoundedExe { $script:Calls++; if ($script:Calls -eq 1) { $Failur
 ${preserveActive ? "function Remove-StableJunction { throw 'pointer restoration failure' }" : ""}
 $Transaction = $Ast.Find({ param($n) $n -is [System.Management.Automation.Language.TryStatementAst] -and $n.Body.Extent.Text.Contains('$StableExe =') }, $false)
 try { . ([scriptblock]::Create($Transaction.Extent.Text)); throw 'installation unexpectedly succeeded' }
-catch { Write-Output ('RESULT:' + (@{ message=$_.Exception.Message; data=@{ ExitCode=$_.Exception.Data['ExitCode']; RollbackErrors=$_.Exception.Data['RollbackErrors'] }; priorRestored=([string](Get-Item $Current).Target -eq $PriorTarget); priorData=([IO.File]::ReadAllText((Join-Path $PriorTarget 'keep.txt')).Trim()); candidateExists=(Test-Path $VersionRoot); workExists=(Test-Path $Work) } | ConvertTo-Json -Depth 8 -Compress)) }
+catch { Write-Output ('RESULT:' + (@{ message=$_.Exception.Message; data=@{ ExitCode=$_.Exception.Data['ExitCode']; RollbackErrors=$_.Exception.Data['RollbackErrors'] }; priorRestored=((Split-Path -Leaf ([string](Get-Item $Current).Target)) -eq '1.0.0'); priorData=([IO.File]::ReadAllText((Join-Path $PriorTarget 'keep.txt')).Trim()); candidateExists=(Test-Path $VersionRoot); workExists=(Test-Path $Work) } | ConvertTo-Json -Depth 8 -Compress)) }
 `);
     assert.equal(result.message, "original activation failure");
     assert.equal(result.data.ExitCode, 7);

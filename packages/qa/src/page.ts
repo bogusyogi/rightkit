@@ -718,6 +718,16 @@ export class QaPage {
         }
       });
       this.navigated = true;
+    } catch (error) {
+      // A navigation that times out says what it was waiting for: the loader it learned (if any) and the
+      // main frame's lifecycle events, each as name@loader. The message is unchanged.
+      if (error instanceof TimeoutError) {
+        error.navigation = {
+          method, waitUntil, loaderId: loaderId ?? null, sameDocument, documentCommitted: displaced,
+          lifecycle: events.filter((event) => event.frameId === this.frameId).slice(-16).map((event) => `${event.name}@${String(event.loaderId).slice(0, 8)}`),
+        };
+      }
+      throw error;
     } finally { off(); offSame(); offDisplaced(); this.navigating = false; }
   }
   goto(url: string, options: NavigationOptions = {}): Promise<void> { return this.navigate('Page.navigate', { url }, options); }

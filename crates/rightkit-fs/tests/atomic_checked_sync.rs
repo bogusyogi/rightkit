@@ -1,8 +1,6 @@
 //! `AtomicWriter::commit_checked` syncs the temp file before the check in every mode, and syncs
 //! the directory only when `durable`.
 
-use std::io::Write;
-
 use rightkit_fs::atomic::testing::{take_steps, Step};
 use rightkit_fs::{AtomicWriteOptions, AtomicWriter};
 

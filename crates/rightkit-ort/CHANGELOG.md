@@ -3,6 +3,10 @@
 All notable changes to `rightkit-ort`. Versions follow Cargo semver; while the version is `0.x`, a
 minor bump may carry breaking changes. Earlier releases are described in `README.md`.
 
+## Unreleased
+
+- Fixed (behaviour change, Windows): `probe_providers()` reported DirectML `available: true` ("compiled into the loaded runtime") with no `DirectML.dll` beside the runtime. DirectML is now `available` only when it is compiled in AND the `DirectML.dll` in the directory of the configured runtime (`configured_runtime()`) loads. Otherwise `available` is false and the detail says why: "compiled in, library missing", the loader's error, or that no runtime path is configured. An app that gates acceleration on the probe now falls back to CPU instead of picking up Windows' own older `DirectML.dll`.
+
 ## 0.2.3 - 2026-10-11
 
 - Add `SessionOptions::directml_sequential` and `SessionOptions::directml_memory_pattern` (plus

@@ -1,10 +1,12 @@
 //! Opt-in recovery of a database that cannot be read: injected open errors through
 //! `open_writer_recovering_via`, real SQLite files for everything else.
 
+#[cfg(unix)]
+use rightkit_db::classify_open_failure;
 use rightkit_db::rusqlite::{self, ffi, Connection};
 use rightkit_db::{
-    classify_open_failure, unreadable_counter_path, DbError, DbOptions, RecoveryAction,
-    RecoveryPolicy, StorageProblem, UnreadableCause, UnreadablePolicy,
+    unreadable_counter_path, DbError, DbOptions, RecoveryAction, RecoveryPolicy, StorageProblem,
+    UnreadableCause, UnreadablePolicy,
 };
 use std::path::{Path, PathBuf};
 

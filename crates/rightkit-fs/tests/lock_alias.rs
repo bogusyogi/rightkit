@@ -254,11 +254,11 @@ mod swap {
         assert!(other_process_finds_it_free(&q), "precondition: Y is free");
 
         let swapped = {
-            let (p, x) = (p.clone(), x.clone());
+            let (hook_p, hook_x) = (p.clone(), x.clone());
             let _hook = after_identity_check(move |path| {
-                if path == p {
-                    std::fs::remove_file(&p).unwrap();
-                    std::fs::hard_link(&x, &p).unwrap();
+                if path == hook_p {
+                    std::fs::remove_file(&hook_p).unwrap();
+                    std::fs::hard_link(&hook_x, &hook_p).unwrap();
                 }
             });
             FileLock::try_acquire(&p)

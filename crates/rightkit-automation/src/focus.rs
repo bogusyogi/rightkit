@@ -133,7 +133,12 @@ mod tests {
             },
             Duration::from_millis(2),
         );
-        std::thread::sleep(Duration::from_millis(30));
+        // Wait for the sample after the flash instead of a fixed sleep: a loaded runner can take
+        // longer than any fixed pause to reach the fifth sample.
+        let deadline = std::time::Instant::now() + Duration::from_secs(10);
+        while n.load(Ordering::SeqCst) < 5 && std::time::Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(1));
+        }
         let r = w.finish();
         assert!(!r.proven());
         assert_eq!(

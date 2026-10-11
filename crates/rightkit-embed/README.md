@@ -2,7 +2,7 @@
 
 Product-neutral local text embeddings and a durable SQLite vector store for Right Suite apps.
 
-- `Embedder` runs a local ONNX embedding model. `Embedder::load` uses caller-supplied ONNX Runtime and model paths. It never downloads or silently switches models. The default model is EmbeddingGemma 300M Q4, with Gemma document and query prompts, L2 normalisation, and Matryoshka prefix truncation.
+- `Embedder` runs a local ONNX embedding model. `Embedder::load` uses caller-supplied ONNX Runtime and model paths. It never downloads or silently switches models. It runs two models and picks one from the model directory, never from a setting: EmbeddingGemma 2 Q4 (`embeddinggemma2-q4`, the text-only export; selected when the directory's `config.json` has `model_type` `embedding_gemma2`) and the older EmbeddingGemma 300M Q4 (`embeddinggemma-300m-q4`, any other directory). The suite's current model is EmbeddingGemma 2; vectors from the two models are not comparable, and `pipeline_id()` changes with the model. Both use the Gemma document prompt (`title: none | text: `) and query prompt (`task: search result | query: `), L2 normalisation, and Matryoshka prefix truncation (native 768, default 256, at most 2,048 tokens).
 - `VectorStore` keeps little-endian `f32` vectors in SQLite and ranks them by cosine similarity in Rust.
 
 Catalog capability: `embeddings`. Published to crates.io (see [INDEX.md](../../INDEX.md)). Licensed under MIT OR Apache-2.0.
