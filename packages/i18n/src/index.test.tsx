@@ -21,7 +21,9 @@ describe("@rightkit/i18n", () => {
     screen.getByRole("button", { name: "switch" }).click();
     await waitFor(() => expect(screen.getByTestId("label")).toHaveTextContent("اللغة"));
     expect(screen.getByTestId("locale")).toHaveTextContent("ar");
-    expect(document.documentElement.dir).toBe("rtl");
+    // The direction is applied in an effect after the label renders; wait for it rather than
+    // reading it in the same tick (it read "ltr" once on a slow runner).
+    await waitFor(() => expect(document.documentElement.dir).toBe("rtl"));
     expect(screen.getByTestId("locale")).toBeTruthy();
   });
   it("preserves sibling catalog keys", () => {
