@@ -1,4 +1,4 @@
-use rightkit_settings::{atomic_write_with, Error, Schema, Store};
+use rightkit_settings::{atomic_write_with, Error, Schema, Store, StoreOptions};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::sync::{Arc, Mutex};
@@ -259,4 +259,31 @@ fn stale_reader_sees_other_writers_and_cas_rejects_stale_revision() {
     })
     .unwrap();
     assert!(!b.get().notify);
+}
+
+#[test]
+fn value_typed_store_opens_and_round_trips() {
+    // serde_json::Value defaults to null. A store with no file must open as an empty object and
+    // accept edits, not refuse with "settings type must serialize to an object".
+    let d = tempfile::tempdir().unwrap();
+    let p = d.path().join("settings.json");
+    let schema = || Schema::new("values", 1);
+
+    let store = Store::<serde_json::Value>::open_path(&p, StoreOptions::new(schema())).unwrap();
+    assert_eq!(store.get(), json!({}));
+    store
+        .update(|v| {
+            v.as_object_mut()
+                .expect("value store holds an object")
+                .insert("theme".into(), json!("dark"));
+            Ok(())
+        })
+        .unwrap();
+    assert_eq!(store.get(), json!({ "theme": "dark" }));
+    drop(store);
+
+    let reopened = Store::<serde_json::Value>::open_path(&p, StoreOptions::new(schema())).unwrap();
+    assert_eq!(reopened.get(), json!({ "theme": "dark" }));
+    let doc: serde_json::Value = serde_json::from_slice(&std::fs::read(&p).unwrap()).unwrap();
+    assert_eq!(doc["values"], json!({ "theme": "dark" }));
 }

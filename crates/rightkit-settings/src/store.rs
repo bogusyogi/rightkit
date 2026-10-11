@@ -865,9 +865,13 @@ fn apply_remove<T: Serialize + DeserializeOwned + Default>(
     Ok(())
 }
 
+/// The settings value as a JSON object. `null` is the empty object: `serde_json::Value::default()`
+/// is `Null`, so a `Store<Value>` with no file yet starts from `{}`, as 0.1.1 did. Any other
+/// non-object value (array, string, number, bool) is refused.
 fn to_object<T: Serialize>(v: &T) -> Result<Map<String, Value>, Error> {
     match serde_json::to_value(v)? {
         Value::Object(m) => Ok(m),
+        Value::Null => Ok(Map::new()),
         _ => Err(Error::BadSchema(
             "settings type must serialize to an object",
         )),
