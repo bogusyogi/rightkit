@@ -496,6 +496,12 @@ impl JobStore {
             defer,
             owner,
         } = req;
+        // An owner settle and a flush never interleave. A flush copies a held write, commits
+        // the copy and then removes the entry by job id; an owner replacing the held outcome in
+        // between would be told `Deferred` while the flush stored the replaced outcome and then
+        // removed the owner's entry and its journal file. Held from before the look at the held
+        // write until this settle has committed or is held; released before any callback.
+        let flush_guard = owner.then(|| lk(&self.settle.flush));
         let mut prior_sink = None;
         let (claim, sink) = if owner {
             // A later explicit outcome replaces a held one; keep its announcement going.
@@ -520,6 +526,8 @@ impl JobStore {
                 if owner {
                     // The stored outcome is this one; the stale held write is moot.
                     self.take_entry(&job_id);
+                    // A sink may flush; so may `after_write` below.
+                    drop(flush_guard);
                     if let (Some(s), Some(e)) = (&prior_sink, &ev) {
                         let _ = catch_unwind(AssertUnwindSafe(|| s(e)));
                     }
@@ -597,30 +605,32 @@ impl JobStore {
     /// Hold `entry`, replacing the held write of the same job (its claim and sink stay) and
     /// rewriting the journal file. If the rewrite fails the old file is removed: replaying the
     /// replaced outcome would be worse than none.
+    ///
+    /// Look and insert are one step under the pending lock: were the lock released between
+    /// them, a runner could hold its own outcome in the gap and this call would report the
+    /// owner's outcome held while the runner's stood.
     fn upsert_entry(&self, entry: Entry) -> bool {
-        {
-            let mut p = lk(&self.settle.pending);
-            if let Some(e) = p.iter_mut().find(|e| e.job_id == entry.job_id) {
-                e.generation = entry.generation;
-                e.transition = entry.transition;
-                e.event = entry.event;
-                e.bytes = entry.bytes;
-                e.last_error = entry.last_error;
-                if e.claim.is_none() {
-                    e.claim = entry.claim;
-                }
-                if e.sink.is_none() {
-                    e.sink = entry.sink;
-                }
-                let ok = self.write_journal(e);
-                if !ok {
-                    self.remove_journal(&e.job_id);
-                }
-                e.durable = ok;
-                return true;
+        let mut p = lk(&self.settle.pending);
+        if let Some(e) = p.iter_mut().find(|e| e.job_id == entry.job_id) {
+            e.generation = entry.generation;
+            e.transition = entry.transition;
+            e.event = entry.event;
+            e.bytes = entry.bytes;
+            e.last_error = entry.last_error;
+            if e.claim.is_none() {
+                e.claim = entry.claim;
             }
+            if e.sink.is_none() {
+                e.sink = entry.sink;
+            }
+            let ok = self.write_journal(e);
+            if !ok {
+                self.remove_journal(&e.job_id);
+            }
+            e.durable = ok;
+            return true;
         }
-        self.push_entry(entry, true)
+        self.push_locked(&mut p, entry, true)
     }
 
     /// Merge `claim` and `sink` into the held write of `job_id` and return its transition. When
@@ -730,8 +740,13 @@ impl JobStore {
 
     /// Insert `entry`, journal it, and keep the count. False when the bounds are reached (a
     /// replayed entry is never refused: it is already on disk).
-    fn push_entry(&self, mut entry: Entry, bounded: bool) -> bool {
+    fn push_entry(&self, entry: Entry, bounded: bool) -> bool {
         let mut p = lk(&self.settle.pending);
+        self.push_locked(&mut p, entry, bounded)
+    }
+
+    /// [`Self::push_entry`] for a caller that already holds the pending lock.
+    fn push_locked(&self, p: &mut Vec<Entry>, mut entry: Entry, bounded: bool) -> bool {
         if p.iter().any(|e| e.job_id == entry.job_id) {
             return true;
         }

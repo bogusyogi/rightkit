@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased (settle-later: an owner settle cannot lose to a concurrent flush or runner)
+
+Fix, found by ScrapeRight's review of `store/settle.rs` at snapshot c9f222a1. Nothing here was compiled or run locally; verification is the CI run. No signature or field changed.
+
+- **Owner settle against a flush.** A flush copied a held write, released the pending lock, committed the copy and removed the entry by job id. An owner settle that replaced the held outcome in between was told `Deferred`, the flush then stored the replaced outcome and removed the owner's entry and its journal file. An owner settle now holds the flush lock from before it looks at the held write until it has committed or is held (released before any sink runs), so the two never interleave: the flush either sees the owner's outcome, or has finished and the owner is told the row is already terminal (`illegal_transition`, or idempotent for the same status). Test: `tests/settle_flush_order.rs`.
+- **Owner settle against the runner.** `upsert_entry` released the pending lock between finding no held write and inserting, so a runner holding its own outcome in the gap won and the owner was still told `Deferred`. Look and insert are now one step under the lock. No deterministic test: the gap cannot be opened from outside the crate.
+- Not changed: `discard_unclaimed_settlement` during a flush that has already copied the entry (the flush still commits its copy).
+
 ## Unreleased (settle-later journal: an unreadable file is not a bad file)
 
 Fix. Nothing here was compiled or run locally; verification is the CI run. No signature or field changed.
