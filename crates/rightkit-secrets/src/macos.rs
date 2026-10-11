@@ -8,6 +8,15 @@
 //! default keychain cannot be resolved the call fails with `Error::Unavailable`; it never falls
 //! back to the search list.
 //!
+//! ## One decision per mutation
+//! A read resolves the default inside its own call. A MUTATION resolves it exactly once, in
+//! `pin_default` (reached through `Backend::pinned`), which keeps that one keychain reference and
+//! reads the identity of its file from that same reference. `Store` takes the mutation's exclusion
+//! identity from the pinned backend and makes the write on it, so the keychain that is locked and
+//! the keychain that is written cannot differ, even when the default is switched while an
+//! earlier call is stalled. If the default cannot be resolved or its file cannot be identified,
+//! the mutation is refused (`Error::Unavailable`) before anything is locked or written.
+//!
 //! ## Where a write can land
 //! Apple's creation calls do not fail closed for an explicit keychain. Read from Apple's
 //! published source (not reproduced at run time): `SecKeychainAddGenericPassword` and `SecItemAdd`
@@ -155,8 +164,16 @@ static UI_LOCK: Mutex<()> = Mutex::new(());
 
 /// Which keychain a backend operates on. There is deliberately no "null" (search list) variant.
 enum Target {
-    /// The user-domain default keychain, resolved on every operation.
+    /// The user-domain default keychain, resolved on every read. A mutation does not use this
+    /// variant: `Backend::pinned` turns it into [`Target::Pinned`] first.
     UserDefault,
+    /// The user-domain default keychain as ONE mutation resolved it, with the identity of its file
+    /// read from that same reference. Built only by `pin_default`; it is as writable as
+    /// [`Target::UserDefault`] and no other kind of target.
+    Pinned {
+        handle: Arc<Handle>,
+        identity: String,
+    },
     /// One explicit keychain file. `fixture` is true only for a throwaway test keychain, the one
     /// kind of explicit keychain that may be written to, and only code compiled for tests or the
     /// `isolated-test-keychain` feature ever sets it (see the module docs).
@@ -218,6 +235,22 @@ fn keychain_identity(kc: &Handle) -> Option<String> {
     let path = keychain_path(kc.0)?;
     let path = path.canonicalize().unwrap_or(path);
     Some(format!("macos-keychain-file:{}", path.to_string_lossy()))
+}
+
+/// THE decision of which keychain a mutation of the user default targets. It resolves the default
+/// once and reads the identity of its file from that same reference, so the exclusion identity and
+/// the keychain the native call is made on come from one answer and cannot differ. Nothing else
+/// turns the default into a keychain for a mutation. A default that cannot be resolved, or whose
+/// file cannot be identified, is `Error::Unavailable`: the identity would be a guess, and a guess
+/// excludes nothing.
+fn pin_default(
+    resolve: impl FnOnce() -> Result<Arc<Handle>>,
+    identify: impl FnOnce(&Handle) -> Option<String>,
+) -> Result<Target> {
+    let handle = resolve()?;
+    let identity = identify(&handle)
+        .ok_or_else(|| Error::Unavailable("cannot identify the default keychain".into()))?;
+    Ok(Target::Pinned { handle, identity })
 }
 
 /// The OS calls a write needs, behind a trait so the decision whether to make the add can be
@@ -304,9 +337,10 @@ impl KeychainBackend {
         }
     }
     /// Open an existing keychain file; ONLY that file is searched. Reads and deletes work on it.
-    /// A write is refused with `Error::Unavailable` unless this keychain is the current default
-    /// (see the module docs: the OS add would otherwise fall back to the default keychain if this
-    /// file went missing). For a throwaway test keychain use [`Self::open_isolated_file`].
+    /// A write is ALWAYS refused with `Error::Unavailable`, even when this keychain is the current
+    /// default (see the module docs: the OS add falls back to the default keychain if this file
+    /// goes missing, and no check made before the add can exclude that). For a throwaway test
+    /// keychain use [`Self::open_isolated_file`].
     pub fn open_file(path: &Path, password: Option<&str>) -> Result<Self> {
         Self::open_file_with(path, password, false)
     }
@@ -376,7 +410,7 @@ impl KeychainBackend {
     fn keychain(&self) -> Result<Arc<Handle>> {
         match &self.target {
             Target::UserDefault => user_default_keychain(),
-            Target::File { handle, .. } => Ok(handle.clone()),
+            Target::Pinned { handle, .. } | Target::File { handle, .. } => Ok(handle.clone()),
             #[cfg(test)]
             Target::Resolved(f) => f(),
         }
@@ -551,21 +585,29 @@ impl Backend for KeychainBackend {
         // ONE identity per keychain FILE, however the backend reaches it: the user-default
         // target and an explicit target on the same file exclude each other.
         match &self.target {
-            Target::UserDefault => Some(
-                user_default_keychain()
-                    .ok()
-                    .and_then(|kc| keychain_identity(&kc))
-                    // Unresolvable default: every call fails `Unavailable` before any write.
-                    .unwrap_or_else(|| "macos-keychain:user-default".to_string()),
-            ),
+            Target::Pinned { identity, .. } => Some(identity.clone()),
             Target::File { handle, .. } => keychain_identity(handle),
+            // The default is NOT resolved here: a second resolution can answer with a different
+            // keychain than the one a mutation is later made on. `Store` pins first (`pinned`) and
+            // asks the pinned backend.
+            Target::UserDefault => None,
             #[cfg(test)]
-            Target::Resolved(resolve) => resolve().ok().and_then(|kc| keychain_identity(&kc)),
+            Target::Resolved(_) => None,
         }
+    }
+    fn pinned(&self) -> Result<Option<Arc<dyn Backend>>> {
+        let target = match &self.target {
+            Target::UserDefault => pin_default(user_default_keychain, keychain_identity)?,
+            #[cfg(test)]
+            Target::Resolved(resolve) => pin_default(&**resolve, keychain_identity)?,
+            // Already one fixed keychain: nothing to decide.
+            Target::Pinned { .. } | Target::File { .. } => return Ok(None),
+        };
+        Ok(Some(Arc::new(KeychainBackend { target })))
     }
     fn name(&self) -> &'static str {
         match self.target {
-            Target::UserDefault => "macos-keychain",
+            Target::UserDefault | Target::Pinned { .. } => "macos-keychain",
             _ => "macos-keychain-file",
         }
     }
@@ -786,10 +828,14 @@ mod tests {
             .exclusion_identity()
             .expect("a file keychain has a path");
         assert!(id.starts_with("macos-keychain-file:"), "{id}");
-        assert_eq!(
-            as_default.exclusion_identity().as_deref(),
-            Some(id.as_str())
-        );
+        // The default target has no identity until a mutation pins it; the pinned one names the
+        // same file as the explicit target.
+        assert_eq!(as_default.exclusion_identity(), None);
+        let pinned = as_default
+            .pinned()
+            .unwrap()
+            .expect("the default target is pinned");
+        assert_eq!(pinned.exclusion_identity().as_deref(), Some(id.as_str()));
         // A different file is a different store.
         let other = IsolatedKeychain::create().unwrap();
         assert_ne!(other.backend().exclusion_identity().unwrap(), id);
@@ -923,6 +969,85 @@ mod tests {
             Target::UserDefault
         ));
         assert_eq!(KeychainBackend::system().name(), "macos-keychain");
+    }
+
+    // ---- fifth read, finding 11: the keychain a mutation locks is the keychain it writes ----
+
+    /// A stand-in keychain reference. Nothing here calls the OS with it.
+    fn fake_handle() -> Arc<Handle> {
+        Arc::new(Handle(null_mut()))
+    }
+
+    #[test]
+    fn the_default_is_resolved_once_and_its_identity_comes_from_that_same_reference() {
+        let (first, second) = (fake_handle(), fake_handle());
+        let asked = std::cell::Cell::new(0usize);
+        let identified = std::cell::Cell::new(0usize);
+        // The default is switched between the first time it is asked and the second.
+        let resolve = || {
+            asked.set(asked.get() + 1);
+            Ok(if asked.get() == 1 {
+                first.clone()
+            } else {
+                second.clone()
+            })
+        };
+        let identify = |h: &Handle| {
+            identified.set(h as *const Handle as usize);
+            Some("macos-keychain-file:/fake/first".to_string())
+        };
+        let backend = KeychainBackend {
+            target: pin_default(resolve, identify).unwrap(),
+        };
+        assert_eq!(asked.get(), 1);
+        assert_eq!(
+            identified.get(),
+            Arc::as_ptr(&first) as usize,
+            "the identity was read from a different reference than the one kept"
+        );
+        // Every use of the pinned backend is the first reference; nothing is resolved again.
+        for _ in 0..3 {
+            assert!(Arc::ptr_eq(&backend.keychain().unwrap(), &first));
+        }
+        assert_eq!(asked.get(), 1);
+        assert_eq!(
+            backend.exclusion_identity().as_deref(),
+            Some("macos-keychain-file:/fake/first")
+        );
+        assert!(
+            backend.pinned().unwrap().is_none(),
+            "a pinned backend is already fixed"
+        );
+        assert!(!backend.target.write_is_refused());
+        assert_eq!(backend.name(), "macos-keychain");
+    }
+
+    #[test]
+    fn a_default_that_cannot_be_resolved_or_identified_is_not_pinned() {
+        let asked_to_identify = std::cell::Cell::new(false);
+        let unresolved = pin_default(
+            || Err(map("default_keychain", NO_DEFAULT_KEYCHAIN)),
+            |_: &Handle| {
+                asked_to_identify.set(true);
+                Some("never".to_string())
+            },
+        );
+        assert!(matches!(unresolved, Err(Error::Unavailable(_))));
+        assert!(!asked_to_identify.get());
+        let unidentified = pin_default(|| Ok(fake_handle()), |_: &Handle| None);
+        assert!(matches!(unidentified, Err(Error::Unavailable(_))));
+    }
+
+    #[test]
+    fn only_a_pinned_default_names_an_identity_and_an_explicit_file_is_never_pinned() {
+        assert_eq!(KeychainBackend::system().exclusion_identity(), None);
+        let file = KeychainBackend {
+            target: Target::File {
+                handle: fake_handle(),
+                fixture: false,
+            },
+        };
+        assert!(file.pinned().unwrap().is_none());
     }
 
     // ---- audit finding 1: a failed update must never delete the existing item ----

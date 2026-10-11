@@ -1,7 +1,8 @@
 use crate::error::*;
+use crate::host_identity::{HostConnectError, HostExpectation, HostProcess};
 use crate::record::{read_record, ServiceRecord, PROTOCOL_MAJOR};
-use crate::suite::Suite;
-use crate::transport::{connect, Conn};
+use crate::suite::{Suite, SuiteError};
+use crate::transport::{connect, connect_expecting, Conn};
 use rightkit_framed_sidecar::{read_json_line, write_json_line, FrameError};
 use serde_json::{json, Value};
 use std::io::{BufReader, Read, Write};
@@ -59,6 +60,99 @@ struct Io {
     buf: Vec<u8>,
 }
 
+/// What a client needs to find and call one service, including how much it trusts its
+/// environment. Pass it to [`Client::connect_expecting`] (verified host) or
+/// [`Client::connect_config`] (hardened root, unverified host).
+///
+/// The suite root is chosen like this:
+///
+/// * [`suite`](Self::suite) given: that suite, as is. With
+///   [`ignore_env_overrides`](Self::ignore_env_overrides) on, a suite that came from the
+///   environment ([`Suite::resolve`], see [`Suite::env_derived`]) is refused, so the switch cannot
+///   be defeated by passing `Suite::resolve()` in.
+/// * not given, `ignore_env_overrides` off: [`Suite::resolve`], which honours
+///   `RIGHTKIT_SUITE_ROOT`, `RIGHT_SUITE_DIR`, `ORTHIC_SHARED_DIR` and `HOME`/`XDG_DATA_HOME`/
+///   `LOCALAPPDATA`. For QA builds and isolated dev profiles.
+/// * not given, `ignore_env_overrides` on: [`Suite::per_user_default`], from the account database.
+///   For release builds. A launcher that sets environment variables cannot redirect the client.
+///
+/// A host that wants the same switch calls [`Suite::resolve_ignoring_env_overrides`]; the host
+/// functions themselves take the suite as an argument and read no environment variable.
+#[derive(Debug, Clone)]
+pub struct ClientConfig {
+    service: String,
+    app: String,
+    suite: Option<Suite>,
+    deadline: Option<Duration>,
+    ignore_env_overrides: bool,
+}
+
+impl ClientConfig {
+    /// Talk to `service` as `app`, with the [`DEFAULT_DEADLINE`], the suite resolved from the
+    /// environment, and no hardening. Release builds should add
+    /// [`ignore_env_overrides(true)`](Self::ignore_env_overrides).
+    pub fn new(service: impl Into<String>, app: impl Into<String>) -> Self {
+        Self {
+            service: service.into(),
+            app: app.into(),
+            suite: None,
+            deadline: Some(DEFAULT_DEADLINE),
+            ignore_env_overrides: false,
+        }
+    }
+
+    /// Use this suite instead of resolving one.
+    pub fn suite(mut self, suite: Suite) -> Self {
+        self.suite = Some(suite);
+        self
+    }
+
+    /// Per-request deadline, as for [`Client::connect_with`] (`None` = unbounded).
+    pub fn deadline(mut self, deadline: Option<Duration>) -> Self {
+        self.deadline = deadline;
+        self
+    }
+
+    /// Refuse environment redirection: the suite root comes only from the per-user default
+    /// ([`Suite::per_user_default`]), and an explicit [`suite`](Self::suite) that was derived from
+    /// the environment is an error. Release builds of an app and of its command-line engine set
+    /// this; QA builds and isolated test runs do not (they need `RIGHTKIT_SUITE_ROOT`).
+    pub fn ignore_env_overrides(mut self, ignore: bool) -> Self {
+        self.ignore_env_overrides = ignore;
+        self
+    }
+
+    pub fn service(&self) -> &str {
+        &self.service
+    }
+
+    pub fn app(&self) -> &str {
+        &self.app
+    }
+
+    /// Whether [`ignore_env_overrides`](Self::ignore_env_overrides) is on.
+    pub fn ignores_env_overrides(&self) -> bool {
+        self.ignore_env_overrides
+    }
+
+    /// The suite this configuration connects through, per the rules on [`ClientConfig`].
+    pub fn resolve_suite(&self) -> Result<Suite, SuiteError> {
+        match (&self.suite, self.ignore_env_overrides) {
+            (Some(suite), true) if suite.env_derived() => Err(SuiteError::Insecure(format!(
+                "the suite {} was derived from the environment, which this client ignores; \
+                 pass Suite::at(..) or leave the suite unset",
+                suite.root().display()
+            ))),
+            (Some(suite), _) => Ok(suite.clone()),
+            (None, ignore) => Suite::resolve_ignoring_env_overrides(ignore),
+        }
+    }
+}
+
+fn suite_error(e: SuiteError) -> ServiceError {
+    ServiceError::new(ERROR_SUITE_UNRESOLVED, e.to_string())
+}
+
 /// A connection to one host of a service. One request in flight at a time;
 /// open a second `Client` for parallel calls. Dropping it closes the
 /// connection, which the host treats as a disconnect (jobs started with
@@ -72,6 +166,8 @@ pub struct Client {
     shutdown: Arc<dyn Fn() + Send + Sync>,
     /// Per-request deadline in ms; 0 = none.
     deadline_ms: AtomicU64,
+    /// The host the OS identified, for a client opened with [`Client::connect_expecting`].
+    host: Option<HostProcess>,
 }
 
 fn closed() -> ServiceError {
@@ -84,31 +180,97 @@ fn closed() -> ServiceError {
 impl Client {
     /// Discover the live host of `service` on `suite` and say hello as `app`,
     /// bounded by [`DEFAULT_DEADLINE`].
+    ///
+    /// **The host is not authenticated.** Discovery is a file (`service.json`) and a socket path
+    /// that any program running as the same user can write or bind, and `suite` itself may have
+    /// come from an environment variable. The transport proves only that whatever answered runs
+    /// as the current user, so the hello and every request, including any secret in one, go to
+    /// that program. A client that sends secrets, or that acts on what the host answers, must use
+    /// [`Client::connect_expecting`] instead.
     pub fn connect(suite: &Suite, service: &str, app: &str) -> Result<Client, ServiceError> {
         Self::connect_with(suite, service, app, Some(DEFAULT_DEADLINE))
     }
 
     /// Like [`Client::connect`] with an explicit deadline for connect + hello,
     /// which also becomes the client's per-request deadline (`None` = unbounded).
+    /// The host is not authenticated: see [`Client::connect`].
     pub fn connect_with(
         suite: &Suite,
         service: &str,
         app: &str,
         deadline: Option<Duration>,
     ) -> Result<Client, ServiceError> {
+        Self::connect_bounded(suite, service, app, deadline, None)
+            .map_err(ConnectError::into_service_error)
+    }
+
+    /// Connect through a [`ClientConfig`]: the suite and deadline come from the configuration,
+    /// and [`ClientConfig::ignore_env_overrides`] is honoured. The host is still not
+    /// authenticated (see [`Client::connect`]); this hardens only where the client looks.
+    pub fn connect_config(config: &ClientConfig) -> Result<Client, ServiceError> {
+        let suite = config.resolve_suite().map_err(suite_error)?;
+        Self::connect_bounded(&suite, &config.service, &config.app, config.deadline, None)
+            .map_err(ConnectError::into_service_error)
+    }
+
+    /// Discover the host of the configured service, verify it is the program `expect` names, and
+    /// only then say hello.
+    ///
+    /// The OS is asked who is on the listening end of the connected socket: its uid must equal
+    /// this process's, and its executable (read from the kernel for that process, canonicalised)
+    /// must be one of `expect`'s. The process id is proven stable across the read (start time,
+    /// and on macOS the audit token, before and after, and the pid re-read from the socket). A
+    /// caller-supplied [`HostExpectation::with_verifier`] check then runs. Platforms: macOS
+    /// (`getpeereid`, `LOCAL_PEERPID`, `proc_pidpath`), Linux (`SO_PEERCRED`, `/proc/<pid>/exe`);
+    /// elsewhere, including Windows today, the refusal is
+    /// [`HostIdentityReason::Unverified`](crate::HostIdentityReason::Unverified) and nothing is
+    /// sent. See the README, "Verifying the host".
+    ///
+    /// **Order.** The check runs after the kernel has completed the socket `connect` and before
+    /// anything is written. Nothing application-level precedes it: no hello, no request, no
+    /// length prefix. The only thing the other side can observe of a refused attempt is a
+    /// connection that closes without a byte. The deadline in `config` bounds the whole attempt.
+    ///
+    /// A refusal is [`ConnectError::HostIdentity`], distinct from [`ConnectError::Service`]
+    /// (no record, unreachable, timeout, hello refused). It is not retryable. The check is made
+    /// once, at connect, for the life of the connection.
+    pub fn connect_expecting(
+        config: &ClientConfig,
+        expect: &HostExpectation,
+    ) -> Result<Client, ConnectError> {
+        let suite = config
+            .resolve_suite()
+            .map_err(|e| ConnectError::Service(suite_error(e)))?;
+        Self::connect_bounded(
+            &suite,
+            &config.service,
+            &config.app,
+            config.deadline,
+            Some(expect.clone()),
+        )
+    }
+
+    /// Run [`Client::handshake`] under `deadline`. A connect() that never completes cannot be
+    /// cancelled, so it runs on a helper thread; a client that arrives after the deadline is
+    /// dropped there.
+    fn connect_bounded(
+        suite: &Suite,
+        service: &str,
+        app: &str,
+        deadline: Option<Duration>,
+        expect: Option<HostExpectation>,
+    ) -> Result<Client, ConnectError> {
         let Some(d) = deadline else {
-            return Self::handshake(suite, service, app, None);
+            return Self::handshake(suite, service, app, None, expect.as_ref());
         };
-        // A connect() that never completes cannot be cancelled, so it runs on a
-        // helper thread; a client that arrives after the deadline is dropped there.
         let (tx, rx) = mpsc::channel();
         let (s, sv, ap) = (suite.clone(), service.to_string(), app.to_string());
         std::thread::spawn(move || {
-            let _ = tx.send(Self::handshake(&s, &sv, &ap, Some(d)));
+            let _ = tx.send(Self::handshake(&s, &sv, &ap, Some(d), expect.as_ref()));
         });
         match rx.recv_timeout(d + Duration::from_millis(250)) {
             Ok(r) => r,
-            Err(_) => Err(timed_out("connect", deadline)),
+            Err(_) => Err(ConnectError::Service(timed_out("connect", deadline))),
         }
     }
 
@@ -117,7 +279,8 @@ impl Client {
         service: &str,
         app: &str,
         deadline: Option<Duration>,
-    ) -> Result<Client, ServiceError> {
+        expect: Option<&HostExpectation>,
+    ) -> Result<Client, ConnectError> {
         let started = Instant::now();
         let record = read_record(suite, service).ok_or_else(|| {
             ServiceError::retryable(ERROR_UNAVAILABLE, format!("no service.json for {service}"))
@@ -126,19 +289,30 @@ impl Client {
             return Err(ServiceError::new(
                 "protocol_mismatch",
                 format!("host speaks protocol {}", record.protocol_major),
-            ));
+            )
+            .into());
         }
+        let unreachable_host = |e: std::io::Error| {
+            ServiceError::retryable(
+                ERROR_UNAVAILABLE,
+                format!("{service} host unreachable: {e}"),
+            )
+        };
+        // With an expectation, the host is identified here, before the first byte is written.
+        let (conn, host) = match expect {
+            None => (connect(&record.endpoint).map_err(unreachable_host)?, None),
+            Some(expect) => match connect_expecting(&record.endpoint, expect) {
+                Ok((conn, host)) => (conn, Some(host)),
+                Err(HostConnectError::Io(e)) => return Err(unreachable_host(e).into()),
+                Err(HostConnectError::Identity(e)) => return Err(ConnectError::HostIdentity(e)),
+            },
+        };
         let Conn {
             reader,
             writer,
             shutdown,
             ..
-        } = connect(&record.endpoint).map_err(|e| {
-            ServiceError::retryable(
-                ERROR_UNAVAILABLE,
-                format!("{service} host unreachable: {e}"),
-            )
-        })?;
+        } = conn;
         let mut io = Io {
             reader: BufReader::new(reader),
             writer,
@@ -165,12 +339,13 @@ impl Client {
             Err(e) => {
                 let t = wd.fired();
                 (shutdown)();
-                return Err(if t { timed_out("hello", deadline) } else { e });
+                let e = if t { timed_out("hello", deadline) } else { e };
+                return Err(e.into());
             }
         };
         drop(wd);
         if hello["ok"] != true {
-            return Err(ServiceError::from_value(&hello["error"]));
+            return Err(ServiceError::from_value(&hello["error"]).into());
         }
         Ok(Client {
             io: Mutex::new(io),
@@ -180,7 +355,15 @@ impl Client {
             record,
             shutdown,
             deadline_ms: AtomicU64::new(deadline.map(|d| d.as_millis() as u64).unwrap_or(0)),
+            host,
         })
+    }
+
+    /// The host process the OS identified and this client verified, for a client opened with
+    /// [`Client::connect_expecting`]; `None` for one opened with [`Client::connect`] or
+    /// [`Client::connect_with`], whose host was never checked.
+    pub fn verified_host(&self) -> Option<&HostProcess> {
+        self.host.as_ref()
     }
 
     /// Set the per-request deadline for later calls (`None` = unbounded).
@@ -303,10 +486,58 @@ impl Default for RetryPolicy {
 impl Client {
     /// Connect, call, and on a retryable error (host handoff, closed connection,
     /// service unavailable) re-read discovery and resubmit the whole request.
+    /// The host is not authenticated: see [`Client::connect`].
     pub fn call_retrying(
         suite: &Suite,
         service: &str,
         app: &str,
+        method: &str,
+        params: Value,
+        policy: RetryPolicy,
+        on_event: &mut dyn FnMut(&Value),
+    ) -> Result<Value, ServiceError> {
+        Self::retry_loop(
+            &|deadline| Self::connect_bounded(suite, service, app, deadline, None),
+            method,
+            params,
+            policy,
+            on_event,
+        )
+    }
+
+    /// [`Client::call_retrying`] that verifies the host on every attempt, as
+    /// [`Client::connect_expecting`] does. A host identity refusal is not retryable and is
+    /// returned at once as a [`ServiceError`] with code `host_identity`
+    /// ([`ERROR_HOST_IDENTITY`]); it is never replayed against another attempt. The per-attempt
+    /// deadline is `policy.request_deadline`, not the configuration's.
+    pub fn call_retrying_expecting(
+        config: &ClientConfig,
+        expect: &HostExpectation,
+        method: &str,
+        params: Value,
+        policy: RetryPolicy,
+        on_event: &mut dyn FnMut(&Value),
+    ) -> Result<Value, ServiceError> {
+        let suite = config.resolve_suite().map_err(suite_error)?;
+        Self::retry_loop(
+            &|deadline| {
+                Self::connect_bounded(
+                    &suite,
+                    &config.service,
+                    &config.app,
+                    deadline,
+                    Some(expect.clone()),
+                )
+            },
+            method,
+            params,
+            policy,
+            on_event,
+        )
+    }
+
+    fn retry_loop(
+        connect: &dyn Fn(Option<Duration>) -> Result<Client, ConnectError>,
         method: &str,
         params: Value,
         policy: RetryPolicy,
@@ -321,13 +552,13 @@ impl Client {
                 }
                 std::thread::sleep(policy.backoff * attempt.min(8));
             }
-            let c = match Client::connect_with(suite, service, app, policy.request_deadline) {
+            let c = match connect(policy.request_deadline) {
                 Ok(c) => c,
-                Err(e) if e.retryable => {
+                Err(ConnectError::Service(e)) if e.retryable => {
                     last = e; // never reached the host's request path
                     continue;
                 }
-                Err(e) => return Err(e),
+                Err(e) => return Err(e.into_service_error()),
             };
             match c.call_events(method, params.clone(), on_event) {
                 Ok(v) => return Ok(v),
@@ -339,5 +570,56 @@ impl Client {
             }
         }
         Err(last)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn defaults_are_the_unhardened_resolve_with_the_default_deadline() {
+        let cfg = ClientConfig::new("svc", "app");
+        assert_eq!((cfg.service(), cfg.app()), ("svc", "app"));
+        assert!(!cfg.ignores_env_overrides());
+        assert_eq!(cfg.deadline, Some(DEFAULT_DEADLINE));
+    }
+
+    #[test]
+    fn an_explicit_suite_is_used_as_is_unless_it_came_from_the_environment_and_the_switch_is_on() {
+        let dir = tempfile::tempdir().unwrap();
+        let explicit = Suite::at(dir.path()).unwrap();
+        for ignore in [false, true] {
+            let cfg = ClientConfig::new("svc", "app")
+                .suite(explicit.clone())
+                .ignore_env_overrides(ignore);
+            assert_eq!(cfg.resolve_suite().unwrap().root(), explicit.root());
+        }
+        // `Suite::resolve` fails only where the environment names no root at all.
+        if let Ok(from_env) = Suite::resolve() {
+            let lenient = ClientConfig::new("svc", "app").suite(from_env);
+            assert!(lenient.resolve_suite().is_ok());
+            let strict = lenient.ignore_env_overrides(true);
+            assert!(matches!(
+                strict.resolve_suite(),
+                Err(SuiteError::Insecure(_))
+            ));
+        }
+    }
+
+    #[test]
+    fn a_missing_record_is_a_retryable_service_error_not_an_identity_error() {
+        let dir = tempfile::tempdir().unwrap();
+        let cfg = ClientConfig::new("nobody-home", "app").suite(Suite::at(dir.path()).unwrap());
+        let err = Client::connect_expecting(&cfg, &HostExpectation::executable("/x"))
+            .err()
+            .expect("there is no host");
+        match err {
+            ConnectError::Service(e) => {
+                assert_eq!(e.code, ERROR_UNAVAILABLE);
+                assert!(e.retryable);
+            }
+            other => panic!("expected a service error, got {other:?}"),
+        }
     }
 }

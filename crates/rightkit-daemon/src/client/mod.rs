@@ -266,13 +266,26 @@ impl Client {
         path_and_query: &str,
         body: &[u8],
     ) -> Vec<(String, String)> {
-        let ts = self.clock.now_secs();
         let nonce = hex(&random_bytes::<16>());
-        let sig = sign_request(&key.pair, method, path_and_query, ts, &nonce, body);
+        self.signed_headers_with_nonce(key, authorization, method, path_and_query, body, &nonce)
+    }
+
+    /// The one place the credential headers are built: `signed_headers` supplies a random nonce.
+    fn signed_headers_with_nonce(
+        &self,
+        key: &DeviceKey,
+        authorization: String,
+        method: &str,
+        path_and_query: &str,
+        body: &[u8],
+        nonce: &str,
+    ) -> Vec<(String, String)> {
+        let ts = self.clock.now_secs();
+        let sig = sign_request(&key.pair, method, path_and_query, ts, nonce, body);
         vec![
             ("authorization".into(), authorization),
             (H_TIMESTAMP.into(), ts.to_string()),
-            (H_NONCE.into(), nonce),
+            (H_NONCE.into(), nonce.to_string()),
             (H_SIGNATURE.into(), sig),
         ]
     }
@@ -331,6 +344,19 @@ fn segment(s: &str) -> Result<&str, Error> {
             "id {s:?} is not a plain path segment"
         )))
     }
+}
+
+/// `send` owns the framing and credential headers: a caller-supplied one is a configuration error.
+fn reject_reserved(extra_headers: &[(&str, &str)]) -> Result<(), Error> {
+    for (k, _) in extra_headers {
+        let k = k.to_ascii_lowercase();
+        if RESERVED_HEADERS.contains(&k.as_str()) {
+            return Err(Error::Config(format!(
+                "header {k} is set by the client and cannot be overridden"
+            )));
+        }
+    }
+    Ok(())
 }
 
 /// An enrolled device: signs every request with its key.
@@ -419,26 +445,36 @@ impl DeviceSession {
         body: &[u8],
     ) -> Result<Response, Error> {
         let method = method.to_ascii_uppercase();
-        for (k, _) in extra_headers {
-            let k = k.to_ascii_lowercase();
-            if RESERVED_HEADERS.contains(&k.as_str()) {
-                return Err(Error::Config(format!(
-                    "header {k} is set by the client and cannot be overridden"
-                )));
-            }
-        }
-        let mut headers = self.client.signed_headers(
+        reject_reserved(extra_headers)?;
+        let headers = self.client.signed_headers(
             &self.key,
-            format!("RK-Device {}", self.id),
+            self.authorization(),
             &method,
             path_and_query,
             body,
         );
+        self.exchange(&method, path_and_query, headers, extra_headers, body)
+    }
+
+    fn authorization(&self) -> String {
+        format!("RK-Device {}", self.id)
+    }
+
+    /// Append the caller's headers to the credential `headers` and run the exchange. Any non-2xx
+    /// answer is an [`Error::Refused`].
+    fn exchange(
+        &self,
+        method: &str,
+        path_and_query: &str,
+        mut headers: Vec<(String, String)>,
+        extra_headers: &[(&str, &str)],
+        body: &[u8],
+    ) -> Result<Response, Error> {
         for (k, v) in extra_headers {
             headers.push((k.to_ascii_lowercase(), v.to_string()));
         }
         let reply = check(self.client.transport.exchange(
-            &method,
+            method,
             path_and_query,
             &headers,
             body,
@@ -611,5 +647,53 @@ impl DeviceSession {
             ));
         }
         Ok(receipt)
+    }
+}
+
+/// Requests a conforming client never sends, so a test can assert that the daemon refuses them.
+/// Behind the `testing` feature only: absent from a default or `client`-only build, and the
+/// daemon's own verification is untouched.
+#[cfg(feature = "testing")]
+impl DeviceSession {
+    /// Like [`send`](Self::send) but unsigned: the request claims this device
+    /// (`Authorization: RK-Device <id>`) and carries no timestamp, nonce or signature. A daemon
+    /// must refuse it with [`ErrorCode::Unauthenticated`], so an `Err(Error::Refused(..))` is the
+    /// expected result. Caller headers are checked as in `send`.
+    pub fn send_unsigned(
+        &self,
+        method: &str,
+        path_and_query: &str,
+        extra_headers: &[(&str, &str)],
+        body: &[u8],
+    ) -> Result<Response, Error> {
+        let method = method.to_ascii_uppercase();
+        reject_reserved(extra_headers)?;
+        let headers = vec![("authorization".to_string(), self.authorization())];
+        self.exchange(&method, path_and_query, headers, extra_headers, body)
+    }
+
+    /// Like [`send`](Self::send) but with the caller's `nonce` in place of a random one, still
+    /// signed correctly over it. Sending the same nonce twice must be refused the second time
+    /// with [`ErrorCode::Unauthenticated`] (a replay). The nonce goes out as given: an empty or
+    /// over-long one reaches the daemon's own nonce check.
+    pub fn send_with_nonce(
+        &self,
+        nonce: &str,
+        method: &str,
+        path_and_query: &str,
+        extra_headers: &[(&str, &str)],
+        body: &[u8],
+    ) -> Result<Response, Error> {
+        let method = method.to_ascii_uppercase();
+        reject_reserved(extra_headers)?;
+        let headers = self.client.signed_headers_with_nonce(
+            &self.key,
+            self.authorization(),
+            &method,
+            path_and_query,
+            body,
+            nonce,
+        );
+        self.exchange(&method, path_and_query, headers, extra_headers, body)
     }
 }

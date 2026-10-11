@@ -764,7 +764,7 @@ fn a_slow_body_is_not_cut_by_a_total_deadline_but_a_stalled_one_is_cut_by_the_id
         tmp.path(),
     )
     .unwrap_err();
-    // What the implementation guarantees: the download loop makes 3 attempts (MAX_ATTEMPTS),
+    // What the implementation guarantees: the download loop makes 3 attempts (the default of 2 retries),
     // sleeping 250 ms then 500 ms between them. Each attempt gets its first chunk after 300 ms
     // (the server's pace), then waits one idle limit (700 ms) for the next and fails. So the
     // stalled fetch ends after 3 x (300 + 700) ms + 750 ms = 3.75 s, never hanging for the

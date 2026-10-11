@@ -31,7 +31,7 @@ pub use backend::{
 pub use error::{Error, Result};
 pub use migrate::{
     migrate_between, migrate_plaintext_file, EnvImport, EnvMap, EnvReader, FileMigration,
-    LegacyFile, MigrationReport, Source,
+    MigrationReport, Source,
 };
 pub use namespace::{
     macos_credential_identity, windows_credential_identity, Namespace, WindowsTarget,

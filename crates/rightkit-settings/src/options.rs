@@ -51,11 +51,57 @@ pub enum NullMeans {
     SetNull,
 }
 
+/// The order of object keys in the file a write produces. Set it with [`StoreOptions::key_order`];
+/// the default is [`KeyOrder::Preserve`].
+///
+/// Only the order of keys differs. Number formatting, string escaping and whitespace are the same
+/// in both modes, and the document a store reads back is the same: JSON objects are unordered.
+///
+/// | | `Preserve` (default) | `Sorted` |
+/// |---|---|---|
+/// | key the file already holds | stays where it is, at every nesting level | alphabetical (byte order) |
+/// | key the file does not hold yet | appended after the held keys, in the order the settings type serialises its fields; open keys (see [`StoreOptions::allow_unknown_keys`]) follow | alphabetical |
+/// | key removed | gone, the others do not move | gone |
+/// | new file | the settings type's field order | alphabetical |
+///
+/// A file written sorted (every envelope this crate wrote before this option existed) stays
+/// sorted under `Preserve`, but a key it did not hold is appended after the sorted ones instead of
+/// being inserted in place. Two edits that change different values touch different bytes only.
+///
+/// - **Envelope.** Under `Preserve` the envelope's own four keys keep the order the file has them
+///   in; a new file gets `schemaVersion`, `namespace`, `values`, `revision`. A legacy flat file
+///   adopted as version 0 keeps the order of its keys inside `values`. Under `Sorted` the whole
+///   document is sorted, as before.
+/// - **Flat.** A flat file keeps the order of the keys it holds in both modes (that is its
+///   contract, together with the bytes of unchanged values). `Sorted` differs only in how a
+///   value that changed, and a key the file did not hold, are written: alphabetically, as before.
+/// - **Arrays.** An object inside an array keeps the key order of the element at the same index.
+/// - **Open keys.** A patch is a `serde_json::Value`, which cannot carry the order the caller
+///   wrote it in: with serde_json's default map several new open keys of one patch are appended
+///   alphabetically (in the patch's own order if serde_json's `preserve_order` feature is on in
+///   the build). Keys added by separate patches are appended in call order.
+/// - **Maps in the settings type.** A `HashMap` field serialises in an order that changes between
+///   runs, so several new keys inside one are appended in no stable order. Use a struct or a
+///   `BTreeMap`.
+///
+/// [`StoreOptions::pretty_sorted_newline`] always sorts, whatever this says.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum KeyOrder {
+    /// Keep the order of the keys the file holds; append new keys as the table above says. The
+    /// default.
+    #[default]
+    Preserve,
+    /// Alphabetical order, as the envelope was written before [`StoreOptions::key_order`] existed.
+    Sorted,
+}
+
 /// What opening or writing does when the settings file is unreadable as JSON.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum OnCorrupt {
-    /// Move the damaged file aside as `<path>.corrupt-<ms>`, then use `<path>.bak` if present.
-    /// The default.
+    /// Move the damaged file aside as `<path>.corrupt-<unix seconds>`, then use `<path>.bak` if
+    /// present. If the file cannot be moved, the operation fails with
+    /// [`crate::Error::PreserveFailed`] and the damaged file stays where it is: nothing is
+    /// written over a damaged file that could not be preserved. The default.
     #[default]
     Quarantine,
     /// Return [`crate::Error::Corrupt`] and touch nothing: no rename, no write, no `.bak` read.
@@ -148,6 +194,7 @@ pub struct StoreOptions {
     pub(crate) quarantine_name: QuarantineName,
     pub(crate) trailing_newline: bool,
     pub(crate) flat_migration: Option<FlatMigration>,
+    pub(crate) key_order: KeyOrder,
 }
 
 impl StoreOptions {
@@ -173,7 +220,17 @@ impl StoreOptions {
             quarantine_name: QuarantineName::Timestamped,
             trailing_newline: false,
             flat_migration: None,
+            key_order: KeyOrder::Preserve,
         }
+    }
+
+    /// The order of object keys in the file a write produces. Default [`KeyOrder::Preserve`]:
+    /// keys the file holds keep their place, new keys are appended in the settings type's field
+    /// order. [`KeyOrder::Sorted`] writes them alphabetically, as the envelope was written before
+    /// this option existed. See [`KeyOrder`] for the exact rules per format.
+    pub fn key_order(mut self, order: KeyOrder) -> Self {
+        self.key_order = order;
+        self
     }
 
     /// How a write replaces the file. Default [`ReplaceMode::Rename`] (unchanged). See the table on
@@ -217,8 +274,8 @@ impl StoreOptions {
 
     /// With [`OnCorrupt::Overwrite`]: keep the damaged bytes by COPYING the file to the quarantine
     /// name immediately before the replace (never a rename, so a failed copy or replace leaves the
-    /// original in place). A failed copy aborts the write. Default `false`. No effect on the
-    /// other policies.
+    /// original in place). A failed copy aborts the write with
+    /// [`crate::Error::PreserveFailed`]. Default `false`. No effect on the other policies.
     pub fn keep_corrupt_copy(mut self, yes: bool) -> Self {
         self.keep_corrupt_copy = yes;
         self
@@ -230,11 +287,11 @@ impl StoreOptions {
         self
     }
 
-    /// `true`: every write ends with a `\n`. Keys are not sorted and values are not rewritten;
-    /// a flat rewrite still keeps unchanged values' bytes and the key order. Nothing is written
-    /// when nothing changed, so an existing file without the newline gets one at the next real
-    /// write. Default `false`. Independent of [`StoreOptions::pretty_sorted_newline`], which also
-    /// sorts keys.
+    /// `true`: every write ends with a `\n`. Keys are not sorted (unless [`StoreOptions::key_order`]
+    /// says so) and values are not rewritten; a flat rewrite still keeps unchanged values' bytes
+    /// and the key order. Nothing is written when nothing changed, so an existing file without the
+    /// newline gets one at the next real write. Default `false`. Independent of
+    /// [`StoreOptions::pretty_sorted_newline`], which also sorts keys.
     pub fn trailing_newline(mut self, yes: bool) -> Self {
         self.trailing_newline = yes;
         self
@@ -279,8 +336,8 @@ impl StoreOptions {
 
     /// `true`: envelope (and flat, rewritten as a whole) output is pretty JSON with object keys
     /// sorted at every level and a trailing newline. The bytes are a function of the values
-    /// alone, so unchanged values produce unchanged files. Default `false` keeps the existing
-    /// output.
+    /// alone, so unchanged values produce unchanged files. It always sorts: [`StoreOptions::key_order`]
+    /// has no effect while it is on. Default `false` keeps the existing output.
     pub fn pretty_sorted_newline(mut self, yes: bool) -> Self {
         self.pretty_sorted_newline = yes;
         self
