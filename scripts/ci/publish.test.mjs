@@ -682,7 +682,7 @@ test("ledger records each verified publication, reads the ledger back, and fails
 test("child environments are an allow-list, never process.env wholesale", () => {
   const source = { PATH: "/bin", HOME: "/h", GITHUB_SHA: "s", RUNNER_TEMP: "/t", ACTIONS_ID_TOKEN_REQUEST_URL: "u", NODE_AUTH_TOKEN: "npm-secret-token", CARGO_REGISTRY_TOKEN: "crate-secret-token", GITHUB_TOKEN: "g", AWS_SECRET_ACCESS_KEY: "k", INPUT_UNITS: "x", npm_config_registry: "evil" };
   assert.deepEqual(Object.keys(childEnv(source)).sort(), ["ACTIONS_ID_TOKEN_REQUEST_URL", "GITHUB_SHA", "HOME", "PATH", "RUNNER_TEMP"]);
-  assert.equal(childEnv(source, { NODE_AUTH_TOKEN: "npm-secret-token" }).NODE_AUTH_TOKEN, "n");
+  assert.equal(childEnv(source, { NODE_AUTH_TOKEN: "npm-secret-token" }).NODE_AUTH_TOKEN, "npm-secret-token");
 });
 
 test("the crates.io publish body is length-prefixed metadata then the crate", () => {
