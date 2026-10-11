@@ -12,6 +12,20 @@ use std::process::Command;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+/// Every test here drives a real Chrome for Testing. Without one the test prints a SKIP line
+/// and returns; `RIGHTKIT_REQUIRE_ASSETS=1` turns the gap into a failure.
+macro_rules! need_chrome {
+    ($test:literal) => {
+        if let Err(e) = rightkit_browser::chrome_for_testing_path(None) {
+            if std::env::var_os("RIGHTKIT_REQUIRE_ASSETS").is_some_and(|v| v == "1") {
+                panic!("{}: {e}", $test);
+            }
+            println!("[browser] SKIP {}: {e}", $test);
+            return;
+        }
+    };
+}
+
 /// Each test drives real Chrome processes and asserts on process lifetimes with tight
 /// bounds; run them one at a time so parallel browsers cannot starve each other.
 static SERIAL: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
@@ -111,6 +125,7 @@ async fn wait_gone(marker: &str) -> Vec<u32> {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn default_policy_blocks_before_any_request_and_callback_allows() {
+    need_chrome!("default_policy_blocks_before_any_request_and_callback_allows");
     let _serial = SERIAL.lock().await;
     let fx = Fixture::start(None, None);
     let denied: Arc<Mutex<Vec<String>>> = Arc::default();
@@ -160,6 +175,7 @@ async fn default_policy_blocks_before_any_request_and_callback_allows() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn redirects_and_subresources_are_blocked_in_the_browser() {
+    need_chrome!("redirects_and_subresources_are_blocked_in_the_browser");
     let _serial = SERIAL.lock().await;
     // `secret` is a loopback service the policy never allows.
     let secret = Fixture::start(None, None);
@@ -216,6 +232,7 @@ async fn redirects_and_subresources_are_blocked_in_the_browser() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn admission_denies_before_side_effect_and_sees_typed_requests() {
+    need_chrome!("admission_denies_before_side_effect_and_sees_typed_requests");
     let _serial = SERIAL.lock().await;
     let fx = Fixture::start(None, None);
     // (action, url, target) for every admission request.
@@ -277,6 +294,7 @@ async fn admission_denies_before_side_effect_and_sees_typed_requests() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn profiles_are_isolated_and_never_the_real_browser_profile() {
+    need_chrome!("profiles_are_isolated_and_never_the_real_browser_profile");
     let _serial = SERIAL.lock().await;
     let fx = Fixture::start(None, None);
     let opts =
@@ -334,6 +352,7 @@ async fn profiles_are_isolated_and_never_the_real_browser_profile() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn chromium_child_is_owned_and_dies_on_shutdown_cancel_and_drop() {
+    need_chrome!("chromium_child_is_owned_and_dies_on_shutdown_cancel_and_drop");
     let _serial = SERIAL.lock().await;
     let opts = || LaunchOptions::default();
     // Graceful shutdown.
@@ -401,6 +420,7 @@ async fn wait_kind(ev: &Events, kind: LifecycleKind) -> bool {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn lifecycle_start_stop_and_crash_events_carry_session_reason_and_time() {
+    need_chrome!("lifecycle_start_stop_and_crash_events_carry_session_reason_and_time");
     let _serial = SERIAL.lock().await;
     // Start, then a graceful stop: exactly one of each, no crash.
     let (ev, opts) = recording();
@@ -477,6 +497,7 @@ async fn lifecycle_start_stop_and_crash_events_carry_session_reason_and_time() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn new_tab_and_denied_events_are_typed() {
+    need_chrome!("new_tab_and_denied_events_are_typed");
     let _serial = SERIAL.lock().await;
     let (ev, opts) = recording();
     let s = BrowserSession::launch(opts).await.unwrap();
@@ -520,6 +541,7 @@ async fn new_tab_and_denied_events_are_typed() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn cross_site_iframe_and_subresources_are_intercepted() {
+    need_chrome!("cross_site_iframe_and_subresources_are_intercepted");
     let _serial = SERIAL.lock().await;
     // `localhost` and `127.0.0.1` are different sites, so the iframe is genuinely cross-site.
     let other = Fixture::start(None, None);
@@ -582,6 +604,7 @@ async fn cross_site_iframe_and_subresources_are_intercepted() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn dns_answer_is_resolved_once_and_pinned() {
+    need_chrome!("dns_answer_is_resolved_once_and_pinned");
     let _serial = SERIAL.lock().await;
     let fx = Fixture::start(None, None);
     let port = fx.port;
@@ -661,6 +684,7 @@ async fn dns_answer_is_resolved_once_and_pinned() {
 /// Child half of `host_death_kills_chrome`: only acts when re-executed by it.
 #[tokio::test(flavor = "multi_thread")]
 async fn host_for_sigkill() {
+    need_chrome!("host_for_sigkill");
     let _serial = SERIAL.lock().await;
     if std::env::var_os("RK_SIGKILL_HOST").is_none() {
         return;
@@ -680,6 +704,7 @@ async fn host_for_sigkill() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn host_death_kills_chrome_without_destructors() {
+    need_chrome!("host_death_kills_chrome_without_destructors");
     let _serial = SERIAL.lock().await;
     use std::io::{BufRead, BufReader};
     use std::process::Stdio;
@@ -730,6 +755,7 @@ async fn host_death_kills_chrome_without_destructors() {
 #[cfg(windows)]
 #[tokio::test(flavor = "multi_thread")]
 async fn chromium_joins_the_callers_job_and_dies_when_the_caller_closes_it() {
+    need_chrome!("chromium_joins_the_callers_job_and_dies_when_the_caller_closes_it");
     let _serial = SERIAL.lock().await;
     use std::ffi::c_void;
     use std::os::windows::io::{AsHandle, AsRawHandle, FromRawHandle, OwnedHandle};
