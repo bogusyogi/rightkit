@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "note": "Sources only recipes/build-ffmpeg-windows.sh needs, read after ffmpeg-sources.json (an entry there wins). macOS links the system zlib; Windows builds it from source. Same rules: a null or mismatched sha256 refuses the build.",
+  "sources": {
+    "zlib": {
+      "version": "1.3.2",
+      "url": "https://zlib.net/zlib-1.3.2.tar.xz",
+      "file": "zlib-1.3.2.tar.xz",
+      "sha256": "d7a0654783a4da529d1bb793b7ad9c3318020af77667bcae35f95d0e42a792f3",
+      "licenseSpdx": "Zlib",
+      "noticeFile": "LICENSE",
+      "variants": [
+        "export-ass-zimg"
+      ],
+      "evidence": {
+        "kind": "upstream-published-sha256",
+        "statement": "https://zlib.net/ (fetched 2026-10-11) lists this exact SHA-256 for zlib-1.3.2.tar.xz.",
+        "signature": "https://zlib.net/zlib-1.3.2.tar.xz.asc",
+        "result": "Observed digest equals the zlib.net statement. The OpenPGP signature was NOT checked (no gpg on the Windows build host)."
+      }
+    }
+  }
+}
