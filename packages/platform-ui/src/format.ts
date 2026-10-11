@@ -12,8 +12,14 @@ export function normalizePlatform(value: string): Platform {
 const MAC_KEYS: Readonly<Record<string, string>> = {
   mod: "⌘",
   ctrl: "⌃",
+  lctrl: "Left Control",
+  rctrl: "Right Control",
   alt: "⌥",
+  lalt: "Left Option",
+  ralt: "Right Option",
   shift: "⇧",
+  lshift: "Left Shift",
+  rshift: "Right Shift",
   fn: "fn",
   win: "⌘",
   space: "Space",
@@ -24,10 +30,14 @@ const MAC_KEYS: Readonly<Record<string, string>> = {
 const WINDOWS_KEYS: Readonly<Record<string, string>> = {
   mod: "Ctrl",
   ctrl: "Ctrl",
+  lctrl: "Left Ctrl",
   rctrl: "Right Ctrl",
   alt: "Alt",
+  lalt: "Left Alt",
   ralt: "Right Alt",
   shift: "Shift",
+  lshift: "Left Shift",
+  rshift: "Right Shift",
   fn: "Fn",
   win: "Win",
   space: "Space",
@@ -53,10 +63,14 @@ const IOS_KEYS: Readonly<Record<string, string>> = {
 const GENERIC_KEYS: Readonly<Record<string, string>> = {
   mod: "Mod",
   ctrl: "Ctrl",
+  lctrl: "Left Ctrl",
   rctrl: "Right Ctrl",
   alt: "Alt",
+  lalt: "Left Alt",
   ralt: "Right Alt",
   shift: "Shift",
+  lshift: "Left Shift",
+  rshift: "Right Shift",
   fn: "Fn",
   win: "System",
   space: "Space",
@@ -64,8 +78,16 @@ const GENERIC_KEYS: Readonly<Record<string, string>> = {
   esc: "Esc",
 };
 
-/** Display tokens for a canonical chord on `platform` (default `unknown`: generic labels). */
-export function formatChord(chord: string, platform: Platform = "unknown"): string[] {
+export interface FormatChordOptions {
+  /** Labels by canonical token (lower case) that win over the platform's own, e.g. `{ esc: "esc" }`. */
+  labels?: Readonly<Record<string, string>>;
+}
+
+/**
+ * Display tokens for a canonical chord on `platform` (default `unknown`: generic labels). Side-specific
+ * modifiers (`lctrl`, `rctrl`, `lalt`, `ralt`, `lshift`, `rshift`) are spelled out on every platform.
+ */
+export function formatChord(chord: string, platform: Platform = "unknown", options: FormatChordOptions = {}): string[] {
   const keys =
     platform === "macos"
       ? MAC_KEYS
@@ -79,6 +101,7 @@ export function formatChord(chord: string, platform: Platform = "unknown"): stri
     .map((token) => token.trim().toLowerCase())
     .filter(Boolean)
     .map((token) =>
+      options.labels?.[token] ??
       keys[token] ??
       (token.length === 1 ? token.toUpperCase() : token.replace(/^\w/, (letter) => letter.toUpperCase())),
     );

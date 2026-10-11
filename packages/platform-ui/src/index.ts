@@ -1,6 +1,6 @@
-import { formatChord as formatChordFor, normalizePlatform, type Platform } from "./format.js";
+import { formatChord as formatChordFor, normalizePlatform, type FormatChordOptions, type Platform } from "./format.js";
 
-export { normalizePlatform, type Platform } from "./format.js";
+export { normalizePlatform, type FormatChordOptions, type Platform } from "./format.js";
 
 export interface QaPlatformBootstrapInput {
   /** Raw query string. The override is ignored unless it also contains `qa=1`. */
@@ -97,8 +97,8 @@ export function getPlatform(): Platform {
 }
 
 /** Display tokens for a canonical chord. `platform` defaults to the detected platform. */
-export function formatChord(chord: string, platform: Platform = getPlatform()): string[] {
-  return formatChordFor(chord, platform);
+export function formatChord(chord: string, platform: Platform = getPlatform(), options: FormatChordOptions = {}): string[] {
+  return formatChordFor(chord, platform, options);
 }
 
 export function platformCapabilities(platform: Platform = getPlatform()) {

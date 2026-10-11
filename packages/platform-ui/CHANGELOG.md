@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.7
+
+- `formatChord`: side-specific modifier tokens `lctrl`, `rctrl`, `lalt`, `ralt`, `lshift`, `rshift` are spelled out on every platform (macOS "Left Option", "Right Control"; elsewhere "Left Alt", "Right Ctrl"). Before, a token missing from a platform's table was only capitalised (`lalt` → "Lalt"; on macOS `ralt` → "Ralt"). Display change for any app that already passed those tokens.
+- `formatChord(chord, platform, { labels })`: `labels` (by lower-case token) win over the platform table, for an app whose wording differs (e.g. `{ esc: "esc" }`, or Windows labels for an unknown platform).
+- Docs: for a platform value that never changes after first read, `await loadPlatform()` before the first `getPlatform()`; until it resolves `getPlatform()` returns the browser's report.
+
 ## 0.2.6
 
 - `useExitTransition` / `createExitTransition`: new `closeOn: "original-settled" | "first-settled"` (default `"original-settled"`, unchanged). With `closeAfter: "settled"` and `onActionWhileClosing: "run"`, `"first-settled"` starts the exit when whichever running action settles first, as for a wrapper that attaches its own close to every action. The other actions keep running, start no second exit, and reject only their own promise.

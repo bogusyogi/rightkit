@@ -23,6 +23,11 @@ describe("@rightkit/platform-ui/headless", () => {
   it("formats chords without detecting the platform", () => {
     expect(headless.formatChord("mod+shift+p", "macos")).toEqual(["⌘", "⇧", "P"]);
     expect(headless.formatChord("mod+shift+p")).toEqual(["Mod", "Shift", "P"]);
+    expect(headless.formatChord("lalt+ralt+rctrl+lshift", "macos")).toEqual(["Left Option", "Right Option", "Right Control", "Left Shift"]);
+    expect(headless.formatChord("lalt+ralt+lctrl+rshift", "windows")).toEqual(["Left Alt", "Right Alt", "Left Ctrl", "Right Shift"]);
+    expect(headless.formatChord("lalt", "unknown")).toEqual(["Left Alt"]);
+    expect(headless.formatChord("mod+esc", "macos", { labels: { esc: "esc" } })).toEqual(["⌘", "esc"]);
+    expect(headless.formatChord("mod+space", "unknown", { labels: { mod: "Ctrl" } })).toEqual(["Ctrl", "Space"]);
   });
 
   it("clamps a floating panel inside the viewport", () => {
