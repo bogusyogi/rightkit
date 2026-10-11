@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.40
+
+- `profile: rust-hybrid` ci: the "Detect Rust-affecting changes" step no longer diffs a push against the previous push (`github.event.before`). A failed run followed by a commit with no Rust changes produced a green run that never ran the Rust checks for the earlier commits. Each matrix job now records the commit it last passed on (a small `actions/cache` entry written as the job's final steps) and a push or manual run is diffed against that commit. No marker, an evicted marker, or a marker that is not an ancestor of the pushed commit means `changed=true`. Pull requests still diff against the PR base. The first run after `right-git sync` has no marker and runs the full Rust checks once.
+
 ## 0.2.39
 
 - New opt-in `swift.privatePackages` (ci lane, rust-hybrid and node): a list of `{ host, secret }` entries (at most four, unique hosts, `secret` a GitHub Actions secret name) that lets a public repository's ci job fetch a private Swift package mirror. A configure step placed right before the first build or test step writes `~/.netrc` (mode 600; refuses to overwrite an existing file) and a job-scoped `git config --global url.<base>.insteadOf` rewrite, with the token passed through `env`. An always-run cleanup step at the end of the ci job removes both. Refused with `devArtifact.dispatch: true`. Unset renders byte-identical output.

@@ -58,7 +58,11 @@ test("rust-hybrid ci renders its pinned package manager and gate", () => {
   assert.match(content, /cancel-in-progress: true/);
   assert.match(content, /bash \.\/scripts\/gate\.sh/);
   assert.match(content, /name: Detect Rust-affecting changes\n        id: rust-changes/);
-  assert.match(content, /RIGHT_GIT_DIFF_BASE: \$\{\{ github\.event_name == 'pull_request' && github\.event\.pull_request\.base\.sha \|\| github\.event\.before \}\}/);
+  assert.match(content, /RIGHT_GIT_DIFF_BASE: \$\{\{ github\.event_name == 'pull_request' && github\.event\.pull_request\.base\.sha \|\| '' \}\}/);
+  assert.doesNotMatch(content, /github\.event\.before/, "a push never diffs against the previous push: a failed run would be skipped over");
+  assert.match(content, /actions\/cache\/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6\.1\.0[\s\S]*restore-keys: \|\n            widgets-last-green-\$\{\{ matrix\.os \}\}-\$\{\{ matrix\.node \}\}-\$\{\{ github\.ref_name \}\}-\n      - name: Detect Rust-affecting changes/);
+  assert.match(content, /GITHUB_EVENT_NAME" != "pull_request"[\s\S]*base=""[\s\S]*\.right-git-last-green\/sha[\s\S]*merge-base --is-ancestor[\s\S]*git cat-file -e/, "no marker or a non-ancestor marker leaves changed=true");
+  assert.match(content, /bash \.\/scripts\/gate\.sh[\s\S]*name: Record last green commit marker\n        if: github\.event_name != 'pull_request'[\s\S]*actions\/cache\/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6\.1\.0[\s\S]*github\.run_attempt \}\}\n/, "the marker is written only after the gate passed, as the job's last steps");
   assert.match(content, /changed=true[\s\S]*\^0\{40\}\$[\s\S]*git cat-file -e[\s\S]*git diff --name-only --diff-filter=ACDMRTUXB/);
   assert.match(content, /--diff-filter=ACDMRTUXB/, "deleted Rust inputs must trigger Rust setup");
   assert.match(content, /\*\.rs\|Cargo\.toml[\s\S]*scripts\/gate\.sh/);
@@ -913,7 +917,7 @@ test("rust-hybrid ci uploads QA evidence after the gate only when qaEvidencePath
 
   const unset = renderTemplate(template, buildRenderContext(structuredClone(base), "/repos/widgets"));
   assert.doesNotMatch(unset, /upload-artifact|QA evidence|runner\.temp/);
-  assert.match(unset, /CARGO_PROFILE_TEST_DEBUG: "0"\n$/);
+  assert.match(unset, /CARGO_PROFILE_TEST_DEBUG: "0"\n      - name: Record last green commit marker[\s\S]*github\.run_attempt \}\}\n$/);
 
   const set = renderTemplate(template, buildRenderContext({ ...structuredClone(base), qaEvidencePath: "pulse-hub-qa" }, "/repos/widgets"));
   assert.ok(set.indexOf("bash ./scripts/gate.sh") < set.indexOf("- name: Upload QA evidence"), "upload must follow the gate step");
@@ -1124,7 +1128,7 @@ const VALID_RUST_HYBRID = { ...INCREMENTAL_BASE, regenerate: undefined };
 
 test("rustCache.keySuffix: unset adds no key; set renders a lane-scoped key in every rust-cache step", () => {
   const unset = renderRustCi({ ...INCREMENTAL_BASE, rustCache: { workspaces: ["engine"] } });
-  assert.doesNotMatch(unset, /^          key: /m);
+  assert.doesNotMatch(unset, /add-job-id-key: false\n          key: /);
   assert.equal(renderRustCi({ ...INCREMENTAL_BASE, rustCache: { workspaces: ["engine"] } }), renderRustCi({ ...INCREMENTAL_BASE, rustCache: { workspaces: ["engine"], keySuffix: undefined } }));
 
   const set = renderRustCi({ ...INCREMENTAL_BASE, rustCache: { workspaces: ["engine"], keySuffix: "v2" } });
@@ -1144,7 +1148,7 @@ test("rustCache.keySuffix: unset adds no key; set renders a lane-scoped key in e
     assert.match(out, new RegExp(`          add-job-id-key: false\n          key: ${lane}-v2\n`), lane);
   }
   const unkeyed = renderTemplate(fs.readFileSync(path.join(templatesDir, "profiles/rust-hybrid/release-candidate.yml"), "utf8"), buildRenderContext(structuredClone(RELEASE_CANDIDATE_MANIFEST), "/repos/pulse", "release-candidate"));
-  assert.doesNotMatch(unkeyed, /^          key: /m);
+  assert.doesNotMatch(unkeyed, /add-job-id-key: false\n          key: /);
 
   for (const bad of ["${{ secrets.X }}", "has space", "-leading", "semi;colon", "a".repeat(65), 7]) {
     assert.equal(validateManifest({ ...VALID_RUST_HYBRID, rustCache: { workspaces: ["engine"], keySuffix: bad } }).valid, false, String(bad));
