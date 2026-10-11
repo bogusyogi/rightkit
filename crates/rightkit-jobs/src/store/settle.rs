@@ -608,6 +608,9 @@ impl JobStore {
     /// Merge `claim` and `sink` into the held write of `job_id` and return its transition. When
     /// there is none, hand both back.
     #[allow(clippy::type_complexity)]
+    // The error hands the caller its own claim (and sink) back, so it is as large as they are;
+    // boxing it would only add an allocation to a path that is not hot.
+    #[allow(clippy::result_large_err)]
     fn adopt(
         &self,
         job_id: &str,
@@ -635,6 +638,9 @@ impl JobStore {
     /// The runner finished a handler and found a write held for the job (the handler deferred it
     /// through `JobControl::settle`): the runner writes nothing, takes over the claim, and
     /// returns the held transition. `Err` gives the claim back.
+    // The error hands the caller its own claim (and sink) back, so it is as large as they are;
+    // boxing it would only add an allocation to a path that is not hot.
+    #[allow(clippy::result_large_err)]
     pub(crate) fn adopt_claim(
         &self,
         job_id: &str,
