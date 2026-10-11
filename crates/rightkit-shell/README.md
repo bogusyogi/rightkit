@@ -171,6 +171,16 @@ subresources beneath a site root. The app grants it for a document it already ho
 - `startup_cache::ensure_http_cache_dir(identifier)` repairs the user cache directory for the app.
   `ensure_http_cache_dir_with(identifier, || dirs::cache_dir())` does the same under the root your
   Tauri resolves (`dirs::cache_dir`, or the path resolver once an `AppHandle` exists).
+- Private clipboard for tests: `clipboard::take_item_from_with(&Board, broker, temp_dir, policy, &options)` is
+  `take_item_with` for an explicit board (`take_item_with` is its `Board::General` wrapper). With
+  `Board::Named(name)` on macOS it reads only that private pasteboard and never touches the general clipboard. The
+  AppleScript fallbacks (a file URL without a path, a PNG coerced from a TIFF) read the general clipboard, so they are
+  off for a named board and nothing falls back to it: a missing type or an empty board gives `ClipboardItem::None`, never
+  the user's clipboard. Stage content with `clipboard::write(&Board::Named(name), ..)`. Use a unique name (for example
+  `<app>-test-<pid>-<n>`); the `Apple CFPasteboard ...` names are the system boards (general, find, font, ruler, drag) and
+  are refused by `read`, `write`, `formats` and `take_item_from_with`, as is an empty name. Windows has one clipboard
+  and no private one: a named board is rejected there (`read`, `write`, `formats` and `take_item_from_with` return
+  an error), so a test that needs a private board is macOS-only. Other platforms reject it too.
 - Clipboard reads: `clipboard::read` no longer copies bytes of unrecognised pasteboard types. Opt in with
   `ClipboardOptions { custom_max_bytes: Some(n), .. }` through `clipboard::read_with` or
   `ShellBuilder::clipboard_options`. On macOS text also falls back to the other plain-text types
