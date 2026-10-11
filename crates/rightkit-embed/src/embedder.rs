@@ -1209,7 +1209,8 @@ mod tests {
 
     #[test]
     fn a_low_cosine_pair_fails_and_reports_value_and_index() {
-        let wrong = vec![0.58, (1.0f32 - 0.58 * 0.58).sqrt()];
+        // Unit vector at cosine 0.58 to the reference `[0, 1]`.
+        let wrong = vec![(1.0f32 - 0.58 * 0.58).sqrt(), 0.58];
         let reference = vec![vec![1.0, 0.0], vec![0.0, 1.0], vec![1.0, 0.0]];
         let candidate = vec![vec![1.0, 0.0], wrong.clone(), vec![1.0, 0.0]];
         match compare_parity(&reference, &candidate, 2, 0.995) {
@@ -1219,7 +1220,7 @@ mod tests {
             }
             other => panic!("expected a Below miss, got {other:?}"),
         }
-        let single = compare_parity(&[vec![1.0, 0.0]], &[wrong], 2, 0.995);
+        let single = compare_parity(&[vec![0.0, 1.0]], &[wrong], 2, 0.995);
         match single {
             Err(ParityMiss::Below(lowest)) => assert!((lowest.cosine - 0.58).abs() <= 1e-6),
             other => panic!("expected a Below miss, got {other:?}"),
@@ -1237,14 +1238,14 @@ mod tests {
         ] {
             assert!(
                 matches!(
-                    compare_parity(&good, &[bad.clone()], 2, 0.995),
+                    compare_parity(&good, std::slice::from_ref(&bad), 2, 0.995),
                     Err(ParityMiss::Invalid { index: 0, .. })
                 ),
                 "candidate {bad:?}"
             );
             assert!(
                 matches!(
-                    compare_parity(&[bad.clone()], &good, 2, 0.995),
+                    compare_parity(std::slice::from_ref(&bad), &good, 2, 0.995),
                     Err(ParityMiss::Invalid { index: 0, .. })
                 ),
                 "reference {bad:?}"

@@ -77,10 +77,11 @@ fn auto_serves_cpu_with_a_parity_reason_or_an_accelerator_matching_cpu() {
             // Registration or the probe failed before parity ran, or there is
             // no accelerator on this platform.
             Some(_) => {}
-            None => assert!(
-                cfg!(not(any(windows, target_vendor = "apple"))),
-                "an accelerator platform must record why Auto serves CPU"
-            ),
+            None => {
+                if cfg!(any(windows, target_vendor = "apple")) {
+                    panic!("an accelerator platform must record why Auto serves CPU");
+                }
+            }
         }
         return;
     }
