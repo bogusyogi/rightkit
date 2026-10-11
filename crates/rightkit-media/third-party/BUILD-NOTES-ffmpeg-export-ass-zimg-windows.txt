@@ -144,7 +144,9 @@ Statically linked components (licence -> notice file shipped with the binary):
   libass 0.17.3       ISC                 third-party/libass-COPYING.txt
   zimg 3.0.5          WTFPL               third-party/zimg-COPYING.txt
   zlib 1.3.2          Zlib                third-party/zlib-LICENSE.txt
-Binary SPDX: LGPL-2.1-or-later AND FTL AND MIT-Modern-Variant AND ISC AND WTFPL AND Zlib
+Binary SPDX: LGPL-2.1-or-later AND FTL AND MIT-Modern-Variant AND ISC AND WTFPL AND Zlib AND
+  LicenseRef-MinGW-w64-runtime AND MIT AND BSD-3-Clause AND GPL-3.0-or-later WITH GCC-exception-3.1
+  (ffprobe: LGPL-2.1-or-later AND the four toolchain runtime terms)
 Toolchain runtime, linked statically by `-static -static-libgcc` (notices shipped with the binary):
   mingw-w64 C runtime (crt 14.0.0.r98)   third-party/MinGW-w64-runtime-COPYING.txt
                                          (its text requires the notices with binaries)
@@ -155,9 +157,17 @@ Toolchain runtime, linked statically by `-static -static-libgcc` (notices shippe
   pthread_*) and libgcc's ___chkstk_ms; the export ffmpeg also holds libstdc++ (434 std
   symbols, 21 __cxa_/__gxx_), the decode ffprobe holds none. The three texts are copied from
   the toolchain packages (mingw-w64-x86_64-crt, -winpthreads, -gcc-libs) by the recipe.
-  They are listed in the catalog rows' noticeFiles, not as components: the component licence
-  list (ALLOWED_COMPONENT_LICENSES) has no entry for the mingw-w64 runtime licence or the GCC
-  exception, and the decode variant admits no components.
+  The catalog rows list them as the toolchain runtime components mingw-w64-runtime,
+  winpthreads and gcc-runtime (libgcc.a and libstdc++.a ship in the gcc package), pinned by
+  the MSYS2 package files of the local validation toolchain:
+    mingw-w64-x86_64-crt-14.0.0.r98.g19f5121a2-1-any.pkg.tar.zst
+      7615a1dba7bb216bccee0d2698567005451a0ab557caa64a45f9ee7aabcd5d20
+    mingw-w64-x86_64-winpthreads-14.0.0.r98.g19f5121a2-1-any.pkg.tar.zst
+      34bb7b5c7ca110084e2e9ef2ecc478091d112084bd34e8d90d8154439c4dc53f
+    mingw-w64-x86_64-gcc-16.1.0-5-any.pkg.tar.zst
+      10f7c55275f7fbe7924209d61c368a1a6fcf775cffbdeac2eef1f5ccacdd35cd
+  (digests of the files in the build host's pacman cache; installed 2026-06-20). A CI build
+  records its own package versions and digests in <name>.evidence/toolchain-packages.txt.
   The approved Windows decode build (BUILD-NOTES.txt) links the same runtime the same way.
 LGPL obligations: FFmpeg and FriBidi are statically linked into one executable; ship the
 notices plus a written source offer covering their complete sources and this recipe.

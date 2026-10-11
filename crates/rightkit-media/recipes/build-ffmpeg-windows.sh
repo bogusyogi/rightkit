@@ -253,6 +253,12 @@ grep -q '^#define CONFIG_GPL 0' "$src/config.h" && grep -q '^#define CONFIG_NONF
 ev="$out/$build_tag.evidence"
 echo "$configuration" > "$ev/configure-line.txt"
 echo "$imports" > "$ev/imports.txt"
+# The toolchain packages whose runtime code is linked statically, and the digest of each package
+# file pacman still has cached: the catalog row's toolchain runtime components record these.
+{
+  pacman -Q 2>/dev/null | grep -E '^mingw-w64-x86_64-(gcc|gcc-libs|binutils|(crt|headers|winpthreads|libwinpthread)(-git)?) ' || true
+  (cd /var/cache/pacman/pkg 2>/dev/null && sha256sum mingw-w64-x86_64-{gcc,crt,crt-git,winpthreads,winpthreads-git}-[0-9]*.pkg.tar.zst 2>/dev/null) || true
+} > "$ev/toolchain-packages.txt"
 for probe in version buildconf L encoders decoders filters; do
   "$artifact" -hide_banner "-$probe" < /dev/null 2>&1 | tr -d '\r' > "$ev/$probe.txt"
 done

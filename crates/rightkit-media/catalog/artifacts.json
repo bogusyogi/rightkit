@@ -615,7 +615,7 @@
       "status": "pending",
       "sourceSha256": "de668509caf9e35e3cd162473441fdb29538c6d96ed080292b3cf9e6fc5d558f",
       "attribution": {
-        "licenseSpdx": "LGPL-2.1-or-later AND FTL AND MIT-Modern-Variant AND ISC AND WTFPL AND Zlib",
+        "licenseSpdx": "LGPL-2.1-or-later AND FTL AND MIT-Modern-Variant AND ISC AND WTFPL AND Zlib AND LicenseRef-MinGW-w64-runtime AND MIT AND BSD-3-Clause AND GPL-3.0-or-later WITH GCC-exception-3.1",
         "sourceUrl": "https://ffmpeg.org/releases/ffmpeg-7.1.5.tar.xz",
         "buildProvenance": "third-party/BUILD-NOTES-ffmpeg-export-ass-zimg-windows.txt",
         "noticeFiles": [
@@ -684,6 +684,30 @@
             "sourceSha256": "d7a0654783a4da529d1bb793b7ad9c3318020af77667bcae35f95d0e42a792f3",
             "enableFlag": "--enable-zlib",
             "noticeFile": "third-party/zlib-LICENSE.txt"
+          },
+          {
+            "name": "mingw-w64-runtime",
+            "version": "14.0.0.r98.g19f5121a2-1",
+            "licenseSpdx": "LicenseRef-MinGW-w64-runtime",
+            "sourceUrl": "https://mirror.msys2.org/mingw/mingw64/mingw-w64-x86_64-crt-14.0.0.r98.g19f5121a2-1-any.pkg.tar.zst",
+            "sourceSha256": "7615a1dba7bb216bccee0d2698567005451a0ab557caa64a45f9ee7aabcd5d20",
+            "noticeFile": "third-party/MinGW-w64-runtime-COPYING.txt"
+          },
+          {
+            "name": "winpthreads",
+            "version": "14.0.0.r98.g19f5121a2-1",
+            "licenseSpdx": "MIT AND BSD-3-Clause",
+            "sourceUrl": "https://mirror.msys2.org/mingw/mingw64/mingw-w64-x86_64-winpthreads-14.0.0.r98.g19f5121a2-1-any.pkg.tar.zst",
+            "sourceSha256": "34bb7b5c7ca110084e2e9ef2ecc478091d112084bd34e8d90d8154439c4dc53f",
+            "noticeFile": "third-party/winpthreads-COPYING.txt"
+          },
+          {
+            "name": "gcc-runtime",
+            "version": "16.1.0-5",
+            "licenseSpdx": "GPL-3.0-or-later WITH GCC-exception-3.1",
+            "sourceUrl": "https://mirror.msys2.org/mingw/mingw64/mingw-w64-x86_64-gcc-16.1.0-5-any.pkg.tar.zst",
+            "sourceSha256": "10f7c55275f7fbe7924209d61c368a1a6fcf775cffbdeac2eef1f5ccacdd35cd",
+            "noticeFile": "third-party/GCC-RUNTIME-LIBRARY-EXCEPTION.txt"
           }
         ]
       },
@@ -705,7 +729,7 @@
           "gh workflow run ffmpeg-windows.yml -f variant=export-ass-zimg -f tool=ffmpeg  # twice, compare the two sha256 values",
           "<artifact>/ffmpeg-export-ass-zimg-windows-x64.evidence/ holds -version, -buildconf, -L, -encoders, -decoders, -filters and the import list"
         ],
-        "promote": "after two CI runs give the same digest, record sha256 and size from that run, set status approved and delete pending"
+        "promote": "after two CI runs give the same digest, record sha256 and size, set the three toolchain runtime components to the package versions and digests of that run (evidence/toolchain-packages.txt), set status approved and delete pending"
       }
     },
     {
@@ -718,7 +742,7 @@
       "status": "pending",
       "sourceSha256": "de668509caf9e35e3cd162473441fdb29538c6d96ed080292b3cf9e6fc5d558f",
       "attribution": {
-        "licenseSpdx": "LGPL-2.1-or-later",
+        "licenseSpdx": "LGPL-2.1-or-later AND LicenseRef-MinGW-w64-runtime AND MIT AND BSD-3-Clause AND GPL-3.0-or-later WITH GCC-exception-3.1",
         "sourceUrl": "https://ffmpeg.org/releases/ffmpeg-7.1.5.tar.xz",
         "buildProvenance": "third-party/BUILD-NOTES-ffmpeg-export-ass-zimg-windows.txt",
         "noticeFiles": [
@@ -727,6 +751,32 @@
           "third-party/MinGW-w64-runtime-COPYING.txt",
           "third-party/winpthreads-COPYING.txt",
           "third-party/GCC-RUNTIME-LIBRARY-EXCEPTION.txt"
+        ],
+        "components": [
+          {
+            "name": "mingw-w64-runtime",
+            "version": "14.0.0.r98.g19f5121a2-1",
+            "licenseSpdx": "LicenseRef-MinGW-w64-runtime",
+            "sourceUrl": "https://mirror.msys2.org/mingw/mingw64/mingw-w64-x86_64-crt-14.0.0.r98.g19f5121a2-1-any.pkg.tar.zst",
+            "sourceSha256": "7615a1dba7bb216bccee0d2698567005451a0ab557caa64a45f9ee7aabcd5d20",
+            "noticeFile": "third-party/MinGW-w64-runtime-COPYING.txt"
+          },
+          {
+            "name": "winpthreads",
+            "version": "14.0.0.r98.g19f5121a2-1",
+            "licenseSpdx": "MIT AND BSD-3-Clause",
+            "sourceUrl": "https://mirror.msys2.org/mingw/mingw64/mingw-w64-x86_64-winpthreads-14.0.0.r98.g19f5121a2-1-any.pkg.tar.zst",
+            "sourceSha256": "34bb7b5c7ca110084e2e9ef2ecc478091d112084bd34e8d90d8154439c4dc53f",
+            "noticeFile": "third-party/winpthreads-COPYING.txt"
+          },
+          {
+            "name": "gcc-runtime",
+            "version": "16.1.0-5",
+            "licenseSpdx": "GPL-3.0-or-later WITH GCC-exception-3.1",
+            "sourceUrl": "https://mirror.msys2.org/mingw/mingw64/mingw-w64-x86_64-gcc-16.1.0-5-any.pkg.tar.zst",
+            "sourceSha256": "10f7c55275f7fbe7924209d61c368a1a6fcf775cffbdeac2eef1f5ccacdd35cd",
+            "noticeFile": "third-party/GCC-RUNTIME-LIBRARY-EXCEPTION.txt"
+          }
         ]
       },
       "requiredConfigureFlags": [
@@ -740,7 +790,7 @@
         "commands": [
           "gh workflow run ffmpeg-windows.yml -f variant=decode -f tool=ffprobe  # twice, compare the two sha256 values"
         ],
-        "promote": "after two CI runs give the same digest and ffprobe has read at least one real file, record sha256 and size, set status approved and delete pending"
+        "promote": "after two CI runs give the same digest and ffprobe has read at least one real file, record sha256 and size, set the three toolchain runtime components to the package versions and digests of that run (evidence/toolchain-packages.txt), set status approved and delete pending"
       }
     }
   ]
