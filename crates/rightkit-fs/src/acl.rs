@@ -37,8 +37,12 @@
 //!
 //! Every ACL call below is declared by hand against `<sys/acl.h>` on macOS and none of it has been
 //! compiled or run in this tree's verification. The declarations are, exactly: `acl_get_fd_np`,
-//! `acl_free`, `acl_get_entry`, `acl_get_tag_type`, `acl_get_flagset_np`, `acl_get_flag_np`. All
-//! six only read; no call that sets or frees-and-replaces an ACL is declared.
+//! `acl_get_link_np`, `acl_free`, `acl_get_entry`, `acl_get_tag_type`, `acl_get_flagset_np`,
+//! `acl_get_flag_np`. All seven only read; no call that sets or frees-and-replaces an ACL is
+//! declared. `acl_get_link_np` reads the ACL of an EXISTING entry by path: such an entry is never
+//! opened by this crate to inspect it, because closing a descriptor releases every POSIX record
+//! lock the process holds on that file (SQLite's on a database and its `-wal`/`-shm`, this
+//! crate's own on a lock file).
 
 use crate::error::{FsError, Result};
 use std::fs::File;
@@ -68,6 +72,9 @@ mod sys {
 
     extern "C" {
         fn acl_get_fd_np(fd: c_int, acl_type: c_int) -> Acl;
+        /// By path, not following a link at the final component. Used for an entry that
+        /// already exists, which must never be opened here (see `path_has_allow_entry`).
+        fn acl_get_link_np(path: *const std::ffi::c_char, acl_type: c_int) -> Acl;
         fn acl_free(object: *mut c_void) -> c_int;
         fn acl_get_entry(acl: Acl, entry_id: c_int, entry: *mut Entry) -> c_int;
         fn acl_get_tag_type(entry: Entry, tag: *mut c_int) -> c_int;
@@ -128,6 +135,35 @@ mod sys {
         Ok(any)
     }
 
+    /// [`has_allow_entry`] for an entry that already exists, read by path with no descriptor.
+    ///
+    /// An existing file must not be opened and closed here: closing ANY descriptor a process
+    /// holds on a file releases every POSIX record lock that process holds on it. A caller
+    /// hardening `<db>-shm` or `<db>-wal` would drop SQLite's own locks on them, another process
+    /// could then rebuild the WAL index under a live mapping, and the next append dies with a
+    /// bus error (seen by a consumer on 2026-10-12). The same holds for a lock file of this
+    /// crate. `acl_get_link_np` opens nothing. A link at `path` is not followed. A path that
+    /// no longer exists reads as "no ACL" (the call reports `ENOENT` for both).
+    pub fn path_has_allow_entry(path: &std::path::Path) -> io::Result<bool> {
+        use std::os::unix::ffi::OsStrExt;
+        let c_path = std::ffi::CString::new(path.as_os_str().as_bytes())
+            .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "path contains a NUL byte"))?;
+        // SAFETY: `c_path` is a valid NUL-terminated string for the call; the result is owned
+        // here and freed below.
+        let acl = unsafe { acl_get_link_np(c_path.as_ptr(), ACL_TYPE_EXTENDED) };
+        if acl.is_null() {
+            let error = io::Error::last_os_error();
+            return match error.raw_os_error() {
+                Some(libc::ENOENT) | Some(libc::ENOTSUP) | Some(libc::EOPNOTSUPP) => Ok(false),
+                _ => Err(error),
+            };
+        }
+        let any = any_entry(acl, is_allow);
+        // SAFETY: `acl` came from `acl_get_link_np` and is freed once.
+        unsafe { acl_free(acl) };
+        Ok(any)
+    }
+
     /// True when the ACL of directory `dir` has an `allow` entry that a new file or directory
     /// inherits. A `deny` entry never counts. An entry whose type or flags cannot be read counts
     /// as an inheritable `allow` (fail closed).
@@ -165,6 +201,9 @@ mod sys {
     use std::io;
 
     pub fn has_allow_entry(_file: &File) -> io::Result<bool> {
+        Ok(false)
+    }
+    pub fn path_has_allow_entry(_path: &std::path::Path) -> io::Result<bool> {
         Ok(false)
     }
     pub fn dir_inherits_allow(_dir: &File) -> io::Result<bool> {
@@ -216,8 +255,8 @@ pub(crate) fn refuse_acl_path(path: &Path) -> Result<()> {
     refuse_acl(&dir, path)
 }
 
-/// Step 3: whether `file` carries an `allow` ACL entry (always false off macOS). A deny-only ACL
-/// is false.
-pub(crate) fn has_allow_acl(file: &File, shown: &Path) -> Result<bool> {
-    sys::has_allow_entry(file).map_err(|e| FsError::io(shown, e))
+/// Whether the existing entry at `path` carries an `allow` ACL entry (always false off macOS).
+/// Read by path: the entry is never opened, so no lock this process holds on it is released.
+pub(crate) fn existing_has_allow_acl(path: &Path) -> Result<bool> {
+    sys::path_has_allow_entry(path).map_err(|e| FsError::io(path, e))
 }
