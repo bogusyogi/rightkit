@@ -6,6 +6,21 @@ use crate::suite::Suite;
 use std::io::{self, Read, Write};
 use std::sync::Arc;
 
+/// Outcome of accepting one connection.
+pub(crate) enum Accepted {
+    /// The peer was authenticated as the current user.
+    Conn(Conn),
+    /// The peer failed OS-level authentication and was closed unread. The reason is the
+    /// typed peer error, content-free.
+    Rejected(String),
+    /// The peer left before it could be identified (a probe, or the shutdown wake-up).
+    /// Closed; not worth a rejection event.
+    Vanished,
+}
+
+/// Default for [`HostOptions::max_pipe_instances`](crate::HostOptions::max_pipe_instances).
+pub const DEFAULT_MAX_PIPE_INSTANCES: u32 = 16;
+
 /// An accepted or connected duplex stream.
 pub(crate) struct Conn {
     pub reader: Box<dyn Read + Send>,
@@ -69,13 +84,10 @@ mod imp {
     use std::os::unix::net::{UnixListener, UnixStream};
     use std::path::PathBuf;
 
+    use crate::peer::{verify_peer_is_current_user, PeerError, PeerIdentity};
+
     extern "C" {
-        fn geteuid() -> u32;
         fn recv(fd: i32, buf: *mut u8, len: usize, flags: i32) -> isize;
-    }
-    #[cfg(target_os = "macos")]
-    extern "C" {
-        fn getpeereid(fd: i32, euid: *mut u32, egid: *mut u32) -> i32;
     }
     // MSG_PEEK | MSG_DONTWAIT: 0x2 | 0x80 on macOS, 0x2 | 0x40 on Linux.
     #[cfg(target_os = "macos")]
@@ -84,19 +96,19 @@ mod imp {
     const PEEK_NOWAIT: i32 = 0x2 | 0x40;
 
     pub fn current_uid() -> u32 {
-        unsafe { geteuid() }
+        crate::peer::current_euid()
     }
 
-    fn peer_is_me(s: &UnixStream) -> bool {
-        #[cfg(target_os = "macos")]
-        {
-            let (mut u, mut g) = (u32::MAX, u32::MAX);
-            unsafe { getpeereid(s.as_raw_fd(), &mut u, &mut g) == 0 && u == geteuid() }
-        }
-        #[cfg(not(target_os = "macos"))]
-        {
-            let _ = s;
-            true // the 0700 directory and 0600 socket mode are the boundary
+    /// Authenticate `s` with `verify` before it is wrapped: nothing is read from a
+    /// stream that fails. The stream is dropped (closed) on every non-`Conn` outcome.
+    fn admit(
+        s: UnixStream,
+        verify: impl FnOnce(&UnixStream) -> Result<PeerIdentity, PeerError>,
+    ) -> io::Result<Accepted> {
+        match verify(&s) {
+            Ok(_) => wrap(s).map(Accepted::Conn),
+            Err(e) if e.peer_gone() => Ok(Accepted::Vanished),
+            Err(e) => Ok(Accepted::Rejected(e.to_string())),
         }
     }
 
@@ -130,7 +142,8 @@ mod imp {
     }
 
     impl Listener {
-        pub fn bind(endpoint: &str) -> io::Result<Listener> {
+        /// `max_instances` is a Windows pipe-instance cap; a Unix socket has no such notion.
+        pub fn bind(endpoint: &str, _max_instances: u32) -> io::Result<Listener> {
             let path = PathBuf::from(endpoint);
             if let Ok(md) = std::fs::symlink_metadata(&path) {
                 // Only replace a dead socket that we own; never follow or unlink anything else.
@@ -152,13 +165,18 @@ mod imp {
             std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600))?;
             Ok(Listener { l, path })
         }
-        /// `Ok(None)` for a rejected peer (wrong user); the caller keeps accepting.
-        pub fn accept(&self) -> io::Result<Option<Conn>> {
+        /// A peer that is not the current user is `Rejected`; the caller keeps accepting.
+        pub fn accept(&self) -> io::Result<Accepted> {
             let (s, _) = self.l.accept()?;
-            if !peer_is_me(&s) {
-                return Ok(None);
-            }
-            wrap(s).map(Some)
+            admit(s, verify_peer_is_current_user)
+        }
+        #[cfg(test)]
+        pub fn accept_with(
+            &self,
+            verify: impl FnOnce(&UnixStream) -> Result<PeerIdentity, PeerError>,
+        ) -> io::Result<Accepted> {
+            let (s, _) = self.l.accept()?;
+            admit(s, verify)
         }
         pub fn wake(&self) {
             let _ = UnixStream::connect(&self.path);
@@ -178,77 +196,40 @@ mod imp {
         }
     }
 
+    /// Connect, then verify the server is the current user before any byte is exchanged
+    /// (a squatter on the endpoint path would otherwise receive our `hello`).
     pub fn connect(endpoint: &str) -> io::Result<Conn> {
-        wrap(UnixStream::connect(endpoint)?)
+        let s = UnixStream::connect(endpoint)?;
+        verify_peer_is_current_user(&s).map_err(io::Error::from)?;
+        wrap(s)
     }
 }
 
 #[cfg(windows)]
 mod imp {
     use super::*;
+    use crate::peer::{
+        owner_only_security_attributes, verify_pipe_peer_is_current_user,
+        verify_pipe_server_is_current_user, OwnerOnlySecurityAttributes,
+    };
+    use std::os::windows::io::RawHandle;
     use std::sync::atomic::{AtomicBool, AtomicIsize, Ordering};
     use std::sync::{Mutex, RwLock};
-    use windows::core::{PCWSTR, PWSTR};
-    use windows::Win32::Foundation::{CloseHandle, LocalFree, HANDLE, HLOCAL};
-    use windows::Win32::Security::Authorization::{
-        ConvertSidToStringSidW, ConvertStringSecurityDescriptorToSecurityDescriptorW,
-        SDDL_REVISION_1,
-    };
-    use windows::Win32::Security::{
-        GetTokenInformation, TokenUser, PSECURITY_DESCRIPTOR, SECURITY_ATTRIBUTES, TOKEN_QUERY,
-        TOKEN_USER,
-    };
+    use windows::core::PCWSTR;
+    use windows::Win32::Foundation::{CloseHandle, HANDLE};
     use windows::Win32::Storage::FileSystem::{
         ReadFile, WriteFile, FILE_FLAG_FIRST_PIPE_INSTANCE, FILE_FLAG_OVERLAPPED,
         PIPE_ACCESS_DUPLEX,
     };
     use windows::Win32::System::Pipes::{
         ConnectNamedPipe, CreateNamedPipeW, PeekNamedPipe, PIPE_READMODE_BYTE,
-        PIPE_REJECT_REMOTE_CLIENTS, PIPE_TYPE_BYTE, PIPE_UNLIMITED_INSTANCES, PIPE_WAIT,
+        PIPE_REJECT_REMOTE_CLIENTS, PIPE_TYPE_BYTE, PIPE_WAIT,
     };
-    use windows::Win32::System::Threading::{CreateEventW, GetCurrentProcess, OpenProcessToken};
+    use windows::Win32::System::Threading::CreateEventW;
     use windows::Win32::System::IO::{CancelIoEx, GetOverlappedResult, OVERLAPPED};
 
     pub fn current_uid() -> u32 {
         0
-    }
-
-    /// `D:P(A;;GA;;;<current user SID>)`: protected DACL, one ACE, no inheritance.
-    fn user_only_sddl() -> io::Result<String> {
-        unsafe {
-            let mut tok = HANDLE::default();
-            OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &mut tok)
-                .map_err(io::Error::other)?;
-            let mut need = 0u32;
-            let _ = GetTokenInformation(tok, TokenUser, None, 0, &mut need);
-            let mut buf = vec![0u8; need.max(64) as usize];
-            let r = GetTokenInformation(
-                tok,
-                TokenUser,
-                Some(buf.as_mut_ptr() as *mut _),
-                buf.len() as u32,
-                &mut need,
-            );
-            let _ = CloseHandle(tok);
-            r.map_err(io::Error::other)?;
-            let user = &*(buf.as_ptr() as *const TOKEN_USER);
-            let mut sid = PWSTR::null();
-            ConvertSidToStringSidW(user.User.Sid, &mut sid).map_err(io::Error::other)?;
-            let s = sid.to_string().map_err(io::Error::other);
-            let _ = LocalFree(Some(HLOCAL(sid.0 as *mut _)));
-            Ok(format!("D:P(A;;GA;;;{})", s?))
-        }
-    }
-
-    struct Sd(PSECURITY_DESCRIPTOR);
-    unsafe impl Send for Sd {}
-    unsafe impl Sync for Sd {}
-    impl Drop for Sd {
-        fn drop(&mut self) {
-            unsafe {
-                let _ = LocalFree(Some(HLOCAL(self.0 .0)));
-            }
-        }
     }
 
     struct SendHandle(HANDLE);
@@ -256,7 +237,9 @@ mod imp {
 
     pub struct Listener {
         name: Vec<u16>,
-        sd: Sd,
+        attrs: OwnerOnlySecurityAttributes,
+        /// Cap on simultaneous instances of this pipe (live connections + the one waiting).
+        max_instances: u32,
         first: AtomicBool,
         endpoint: String,
         /// The first instance, created at bind time (FILE_FLAG_FIRST_PIPE_INSTANCE) and
@@ -274,6 +257,9 @@ mod imp {
     const ERROR_NO_DATA: u32 = 232;
     const ERROR_PIPE_CONNECTED: u32 = 535;
     const FILE_FLAG_OVERLAPPED_BITS: u32 = 0x4000_0000;
+    // CreateFile security quality-of-service flags (winbase.h).
+    const SECURITY_SQOS_PRESENT_BITS: u32 = 0x0010_0000;
+    const SECURITY_IDENTIFICATION_BITS: u32 = 0x0001_0000;
 
     fn code(e: &windows::core::Error) -> u32 {
         (e.code().0 as u32) & 0xFFFF
@@ -452,21 +438,14 @@ mod imp {
     }
 
     impl Listener {
-        pub fn bind(endpoint: &str) -> io::Result<Listener> {
-            let sddl = user_only_sddl()?;
-            let mut sd = PSECURITY_DESCRIPTOR::default();
-            unsafe {
-                ConvertStringSecurityDescriptorToSecurityDescriptorW(
-                    PCWSTR(wide(&sddl).as_ptr()),
-                    SDDL_REVISION_1,
-                    &mut sd,
-                    None,
-                )
-                .map_err(io::Error::other)?;
-            }
+        /// `max_instances` is clamped to 1..=254 (255 means unlimited to Win32). Every
+        /// instance of one pipe name must pass the same value.
+        pub fn bind(endpoint: &str, max_instances: u32) -> io::Result<Listener> {
+            let attrs = owner_only_security_attributes()?;
             let l = Listener {
                 name: wide(endpoint),
-                sd: Sd(sd),
+                attrs,
+                max_instances: max_instances.clamp(1, 254),
                 first: AtomicBool::new(true),
                 endpoint: endpoint.to_string(),
                 pending: Mutex::new(None),
@@ -489,11 +468,6 @@ mod imp {
         }
 
         fn instance(&self) -> io::Result<HANDLE> {
-            let sa = SECURITY_ATTRIBUTES {
-                nLength: std::mem::size_of::<SECURITY_ATTRIBUTES>() as u32,
-                lpSecurityDescriptor: self.sd.0 .0,
-                bInheritHandle: false.into(),
-            };
             let mut open = PIPE_ACCESS_DUPLEX;
             if self.first.swap(false, Ordering::SeqCst) {
                 open |= FILE_FLAG_FIRST_PIPE_INSTANCE;
@@ -503,11 +477,11 @@ mod imp {
                     PCWSTR(self.name.as_ptr()),
                     open | FILE_FLAG_OVERLAPPED,
                     PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT | PIPE_REJECT_REMOTE_CLIENTS,
-                    PIPE_UNLIMITED_INSTANCES,
+                    self.max_instances,
                     64 * 1024,
                     64 * 1024,
                     0,
-                    Some(&sa),
+                    Some(self.attrs.raw()),
                 )
             };
             if h.is_invalid() {
@@ -516,7 +490,7 @@ mod imp {
             Ok(h)
         }
 
-        pub fn accept(&self) -> io::Result<Option<Conn>> {
+        pub fn accept(&self) -> io::Result<Accepted> {
             let pending = self
                 .pending
                 .lock()
@@ -529,7 +503,20 @@ mod imp {
             let pipe = Pipe::new(h); // owns (and on error closes) the instance
             let connected = pipe.run(|h, ov| unsafe { ConnectNamedPipe(h, Some(ov)) });
             connected.map_err(|e| io::Error::new(e.kind(), format!("accept: {e}")))?;
-            Ok(Some(wrap(pipe)))
+            // Authenticate before a single byte is read. A rejected instance is closed
+            // (the peer sees a disconnect); the next accept creates a fresh instance.
+            let raw = pipe.0.raw.load(Ordering::SeqCst) as RawHandle;
+            match verify_pipe_peer_is_current_user(raw) {
+                Ok(_) => Ok(Accepted::Conn(wrap(pipe))),
+                Err(e) => {
+                    pipe.cancel();
+                    if e.peer_gone() {
+                        Ok(Accepted::Vanished)
+                    } else {
+                        Ok(Accepted::Rejected(e.to_string()))
+                    }
+                }
+            }
         }
         pub fn wake(&self) {
             let _ = open_overlapped(&self.endpoint);
@@ -537,8 +524,17 @@ mod imp {
         pub fn cleanup(&self) {}
     }
 
+    /// Connect, then verify the server process runs as the current user before any byte is
+    /// exchanged. The pipe is opened with SQOS + SECURITY_IDENTIFICATION, so the server can
+    /// identify the caller but never impersonate it.
     pub fn connect(endpoint: &str) -> io::Result<Conn> {
-        Ok(wrap(open_overlapped(endpoint)?))
+        let pipe = open_overlapped(endpoint)?;
+        let raw = pipe.0.raw.load(Ordering::SeqCst) as RawHandle;
+        if let Err(e) = verify_pipe_server_is_current_user(raw) {
+            pipe.cancel();
+            return Err(e.into());
+        }
+        Ok(wrap(pipe))
     }
 
     fn open_overlapped(endpoint: &str) -> io::Result<Pipe> {
@@ -552,6 +548,7 @@ mod imp {
                 .read(true)
                 .write(true)
                 .custom_flags(FILE_FLAG_OVERLAPPED_BITS)
+                .security_qos_flags(SECURITY_SQOS_PRESENT_BITS | SECURITY_IDENTIFICATION_BITS)
                 .open(endpoint)
             {
                 Ok(f) => return Ok(Pipe::new(HANDLE(f.into_raw_handle() as *mut _))),
@@ -640,4 +637,172 @@ pub fn open_stream(endpoint: &str) -> io::Result<Stream> {
         writer: c.writer,
         shutdown: c.shutdown,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::atomic::{AtomicU32, Ordering};
+
+    static SEQ: AtomicU32 = AtomicU32::new(0);
+
+    fn unique(tag: &str) -> String {
+        let n = SEQ.fetch_add(1, Ordering::SeqCst);
+        let t = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.subsec_nanos())
+            .unwrap_or(0);
+        format!("{tag}-{}-{n}-{t:x}", std::process::id())
+    }
+
+    #[cfg(unix)]
+    fn endpoint(dir: &tempfile::TempDir) -> String {
+        dir.path().join("t.sock").to_string_lossy().into_owned()
+    }
+    #[cfg(windows)]
+    fn endpoint(_: &()) -> String {
+        format!(r"\\.\pipe\rightkit-transport-test-{}", unique("p"))
+    }
+    #[cfg(unix)]
+    fn tmp() -> tempfile::TempDir {
+        tempfile::Builder::new().prefix("rk").tempdir().unwrap()
+    }
+    #[cfg(windows)]
+    fn tmp() {}
+
+    /// A same-user client and host round-trip over the real transport, with the peer
+    /// check running on both ends (accept and connect).
+    #[test]
+    fn same_user_round_trip_authenticates_both_ends() {
+        let _ = unique("x");
+        let dir = tmp();
+        let ep = endpoint(&dir);
+        let l = Listener::bind(&ep, 4).unwrap();
+        let client_ep = ep.clone();
+        let t = std::thread::spawn(move || {
+            let mut c = connect(&client_ep).expect("same-user server must authenticate");
+            c.writer.write_all(b"ping\n").unwrap();
+            c.writer.flush().unwrap();
+            let mut buf = [0u8; 5];
+            c.reader.read_exact(&mut buf).unwrap();
+            buf
+        });
+        let Accepted::Conn(mut conn) = l.accept().unwrap() else {
+            panic!("same-user peer must be accepted");
+        };
+        let mut buf = [0u8; 5];
+        conn.reader.read_exact(&mut buf).unwrap();
+        assert_eq!(&buf, b"ping\n");
+        conn.writer.write_all(b"pong\n").unwrap();
+        conn.writer.flush().unwrap();
+        assert_eq!(&t.join().unwrap(), b"pong\n");
+        l.cleanup();
+    }
+
+    /// A peer the verifier refuses is closed unread and reported as Rejected.
+    #[cfg(unix)]
+    #[test]
+    fn rejected_peer_is_closed_unread() {
+        use crate::peer::{PeerError, PeerIdentity};
+        let dir = tmp();
+        let ep = endpoint(&dir);
+        let l = Listener::bind(&ep, 4).unwrap();
+        let client_ep = ep.clone();
+        let t = std::thread::spawn(move || {
+            let mut s = std::os::unix::net::UnixStream::connect(&client_ep).unwrap();
+            let _ = s.write_all(b"{\"type\":\"hello\"}\n");
+            let mut b = [0u8; 1];
+            // The host closes without reading or answering: EOF (or a reset), never data.
+            matches!(s.read(&mut b), Ok(0) | Err(_))
+        });
+        let foreign = PeerIdentity {
+            uid: Some(crate::peer::current_euid().wrapping_add(1)),
+            ..Default::default()
+        };
+        match l
+            .accept_with(|_| Err(PeerError::Mismatch(foreign)))
+            .unwrap()
+        {
+            Accepted::Rejected(reason) => assert!(reason.contains("not the current user")),
+            _ => panic!("a foreign peer must be rejected"),
+        }
+        assert!(
+            t.join().unwrap(),
+            "rejected client must see a close, not a reply"
+        );
+        l.cleanup();
+    }
+
+    /// A platform that cannot authenticate the peer rejects instead of admitting it.
+    #[cfg(unix)]
+    #[test]
+    fn unsupported_verifier_never_admits() {
+        use crate::peer::PeerError;
+        let dir = tmp();
+        let ep = endpoint(&dir);
+        let l = Listener::bind(&ep, 4).unwrap();
+        let client_ep = ep.clone();
+        let t = std::thread::spawn(move || std::os::unix::net::UnixStream::connect(client_ep));
+        let a = l
+            .accept_with(|_| Err(PeerError::Unsupported("test")))
+            .unwrap();
+        assert!(matches!(a, Accepted::Rejected(_)));
+        let _ = t.join();
+        l.cleanup();
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn public_pipe_verifiers_accept_a_same_user_pipe() {
+        use crate::peer::{
+            owner_only_security_attributes, verify_pipe_peer_is_current_user,
+            verify_pipe_server_is_current_user,
+        };
+        use std::os::windows::fs::OpenOptionsExt;
+        use std::os::windows::io::{AsRawHandle, RawHandle};
+        use windows::core::PCWSTR;
+        use windows::Win32::Security::SECURITY_ATTRIBUTES;
+        use windows::Win32::Storage::FileSystem::PIPE_ACCESS_DUPLEX;
+        use windows::Win32::System::Pipes::{
+            ConnectNamedPipe, CreateNamedPipeW, PIPE_REJECT_REMOTE_CLIENTS, PIPE_TYPE_BYTE,
+            PIPE_WAIT,
+        };
+        let name = format!(r"\\.\pipe\rightkit-verify-test-{}", unique("v"));
+        let wide: Vec<u16> = name.encode_utf16().chain(std::iter::once(0)).collect();
+        let attrs = owner_only_security_attributes().unwrap();
+        let server = unsafe {
+            CreateNamedPipeW(
+                PCWSTR(wide.as_ptr()),
+                PIPE_ACCESS_DUPLEX,
+                PIPE_TYPE_BYTE | PIPE_WAIT | PIPE_REJECT_REMOTE_CLIENTS,
+                1,
+                4096,
+                4096,
+                0,
+                Some(attrs.as_ptr() as *const SECURITY_ATTRIBUTES),
+            )
+        };
+        assert!(!server.is_invalid());
+        let client_name = name.clone();
+        let t = std::thread::spawn(move || {
+            std::fs::OpenOptions::new()
+                .read(true)
+                .write(true)
+                .security_qos_flags(0x0010_0000 | 0x0001_0000)
+                .open(client_name)
+                .unwrap()
+        });
+        // Blocking ConnectNamedPipe returns once the client has opened the pipe.
+        unsafe { ConnectNamedPipe(server, None) }.ok();
+        let client = t.join().unwrap();
+        let id = verify_pipe_peer_is_current_user(server.0 as RawHandle).unwrap();
+        assert_eq!(id.pid, Some(std::process::id()));
+        assert_eq!(
+            id.sid,
+            Some(crate::peer::current_user_sid_string().unwrap())
+        );
+        let id = verify_pipe_server_is_current_user(client.as_raw_handle()).unwrap();
+        assert_eq!(id.pid, Some(std::process::id()));
+        let _ = unsafe { windows::Win32::Foundation::CloseHandle(server) };
+    }
 }

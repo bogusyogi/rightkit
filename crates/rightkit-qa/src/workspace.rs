@@ -69,6 +69,7 @@ fn create_impl(
     fs::create_dir_all(&cache_dir)?;
     fs::create_dir_all(home.join("evidence"))?;
     fs::create_dir_all(home.join("captures"))?;
+    create_profile_dirs(&home)?;
     let mut env = BTreeMap::new();
     env.insert("RIGHTKIT_QA_NATIVE".into(), "1".into());
     env.insert("RIGHTKIT_QA_RUN_ID".into(), run_id.clone());
@@ -110,6 +111,14 @@ fn create_impl(
         .map(|c| if c.is_ascii_alphanumeric() { c } else { '_' })
         .collect();
     env.insert(format!("{key}_DATA_DIR"), data_dir.to_string_lossy().into());
+    // Every directory an exported variable points at must exist: apps and
+    // frameworks treat a missing one as "unknown path".
+    for value in env.values() {
+        let path = Path::new(value);
+        if path.starts_with(&home) {
+            fs::create_dir_all(path)?;
+        }
+    }
     Ok(QaWorkspace {
         run_id,
         root,
@@ -119,6 +128,52 @@ fn create_impl(
         capture_dir,
         env,
     })
+}
+
+/// Create the per-user directories that platform known-folder lookups resolve
+/// under the isolated profile. On Windows `SHGetKnownFolderPath` expands the
+/// registry's `%USERPROFILE%\AppData\Local` against the overridden
+/// USERPROFILE and fails (Tauri "unknown path", `dirs::cache_dir` None) when the
+/// result is absent, even though LOCALAPPDATA itself points elsewhere.
+fn create_profile_dirs(home: &Path) -> Result<()> {
+    let relative: &[&str] = if cfg!(windows) {
+        &[
+            "AppData/Local",
+            "AppData/Local/Temp",
+            "AppData/LocalLow",
+            "AppData/Roaming",
+            "Desktop",
+            "Documents",
+            "Downloads",
+            "Music",
+            "Pictures",
+            "Videos",
+        ]
+    } else if cfg!(target_os = "macos") {
+        &[
+            "Library/Application Support",
+            "Library/Caches",
+            "Library/Preferences",
+            "Library/Logs",
+            "Desktop",
+            "Documents",
+            "Downloads",
+        ]
+    } else {
+        &[
+            ".local/share",
+            ".local/state",
+            ".config",
+            ".cache",
+            "Desktop",
+            "Documents",
+            "Downloads",
+        ]
+    };
+    for dir in relative {
+        fs::create_dir_all(home.join(dir))?;
+    }
+    Ok(())
 }
 
 impl QaWorkspace {
@@ -261,7 +316,7 @@ mod tests {
 
     #[test]
     fn isolates_and_disposes() {
-        let root = std::env::temp_dir().join(format!("rkqa-ws-{}", new_id()));
+        let root = storage::app_temp_dir().join(format!("rkqa-ws-{}", new_id()));
         let ws = create(&root, Some("run1"), "genright").unwrap();
         assert!(ws.env.contains_key("GENRIGHT_DATA_DIR"));
         assert!(ws.data_dir.exists());
@@ -292,6 +347,22 @@ mod tests {
             "TEMP",
         ] {
             assert!(Path::new(&ws.env[key]).starts_with(&ws.home), "{key}");
+        }
+        for (key, value) in &ws.env {
+            let path = Path::new(value);
+            if path.starts_with(&ws.home) {
+                assert!(path.is_dir(), "{key} -> {value} must exist as a directory");
+            }
+        }
+        let known: &[&str] = if cfg!(windows) {
+            &["AppData/Local", "AppData/Roaming", "AppData/LocalLow"]
+        } else if cfg!(target_os = "macos") {
+            &["Library/Application Support", "Library/Caches"]
+        } else {
+            &[".local/share", ".config", ".cache"]
+        };
+        for dir in known {
+            assert!(ws.home.join(dir).is_dir(), "{dir}");
         }
         fs::write(ws.home.join("app-launch.log"), "live log").unwrap();
         fs::write(ws.home.join("evidence/from-app.json"), "app evidence").unwrap();
@@ -346,7 +417,7 @@ mod tests {
 
     #[test]
     fn prune_spares_young_and_kept_runs() {
-        let root = std::env::temp_dir().join(format!("rkqa-prune-{}", new_id()));
+        let root = storage::app_temp_dir().join(format!("rkqa-prune-{}", new_id()));
         let a = storage::create(Some(&root), "x", Some("a"), Duration::from_secs(3600)).unwrap();
         let _b = storage::create(Some(&root), "x", Some("b"), Duration::from_secs(3600)).unwrap();
         storage::finish(&a).unwrap();

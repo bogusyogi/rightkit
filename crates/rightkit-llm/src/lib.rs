@@ -7,6 +7,8 @@
 //! - [`failover::FailoverChain`]: retryable-only route failover, first-token
 //!   timeout, circuit breaker.
 //! - [`pricing::PriceTable`] and [`cache`] (prompt-cache breakpoints + ledger).
+//! - `cli` feature: [`provider::cli::CliProvider`] drives an installed, signed-in
+//!   assistant CLI (Claude Code, Codex) as a bounded child process; no API key.
 //! - Credentials come from a [`credentials::CredentialSource`]; production wiring
 //!   uses `rightkit-secrets` through the `SecretStore` trait.
 
@@ -26,4 +28,9 @@ pub use error::{Attempt, LlmError};
 pub use failover::{FailoverChain, FailoverEvent, FailoverPolicy, Route};
 pub use pricing::{ModelPrice, PriceTable};
 pub use provider::Provider;
+/// The HTTP client this crate's providers are built on, re-exported so a host can build a
+/// [`Client`] (timeout, retry, proxy, redaction, address policy) without a direct
+/// `rightkit-http` dependency.
+pub use rightkit_http as http;
+pub use rightkit_http::{AddressPolicy, Client, ClientConfig, HttpError, ProxyMode, RetryPolicy};
 pub use types::*;

@@ -1,13 +1,29 @@
-//! Rich clipboard: text, HTML, PNG image, file lists and app-defined formats, in one transaction.
+//! Rich clipboard: text, HTML, PNG image, file lists and app-defined formats, in one transaction,
+//! plus a typed "what did the person copy" contract for paste and open-from-clipboard.
 //!
-//! Donors: HeardRight `clipboard` + delivery (text/HTML/image, paste-sequence discipline) and
-//! ViewRight file grants (paths, not bytes). macOS uses `NSPasteboard` (one primary item that
-//! carries every representation, plus one item per file, which is how Finder lays files out);
-//! Windows uses the Win32 clipboard (`CF_UNICODETEXT`, `HTML Format`, `PNG`, `CF_HDROP`).
-//! `Board::Named` targets a private pasteboard so tests and apps can stage content without
-//! touching what the user copied (macOS; on Windows only the general clipboard exists).
+//! Donors: HeardRight `clipboard` + delivery (text/HTML/image, paste-sequence discipline),
+//! ViewRight file grants (paths, not bytes) and ViewRight `commands/clipboard.rs` (typed
+//! files/image/text/empty result, CF_DIB to BMP, temp-file grants, one-hour purge).
+//!
+//! * [`read`] / [`write`] are the raw transaction API. macOS uses `NSPasteboard` (one primary item
+//!   carrying every representation, plus one item per file, which is how Finder lays files out);
+//!   Windows uses the Win32 clipboard (`CF_UNICODETEXT`, `HTML Format`, `PNG`, `CF_HDROP`).
+//!   `Board::Named` targets a private pasteboard so tests and apps can stage content without
+//!   touching what the user copied (macOS only).
+//! * [`take_item`] is the typed contract the `rk_shell_clipboard_item` command returns. Priority is
+//!   files, then a bitmap (written to a granted temp file), then text, then nothing. Files and
+//!   temp images are granted through the [`PathBroker`]; nothing else reaches the renderer.
+//!   [`item_from_snapshot`] runs the same policy on any snapshot, so it is testable on every host.
 
 use std::collections::BTreeMap;
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
+use serde::Serialize;
+
+use crate::broker::PathBroker;
+use crate::error::ShellError;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Board {
@@ -26,6 +42,59 @@ pub struct ClipboardContent {
     pub custom: BTreeMap<String, Vec<u8>>,
 }
 
+/// Default age after which an earlier clipboard temp file is purged.
+pub const DEFAULT_PURGE_AFTER: Duration = Duration::from_secs(60 * 60);
+
+/// Typed result of reading the clipboard for an "open" or "paste" action. Serialises as
+/// `{"kind": "files" | "image" | "text" | "none", ...}`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(tag = "kind", rename_all = "lowercase")]
+pub enum ClipboardItem {
+    /// Files copied in the file manager. Each path is granted to the broker.
+    Files { paths: Vec<String> },
+    /// A bitmap, written to a granted temp file (`.png` when the clipboard had PNG, else `.bmp`).
+    Image { path: String },
+    /// Plain Unicode text.
+    Text { text: String },
+    /// Nothing usable.
+    None,
+}
+
+/// A bitmap taken from the clipboard, with the extension its temp file should carry.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct ClipboardImage {
+    pub extension: String,
+    pub bytes: Vec<u8>,
+}
+
+/// What the platform clipboard held, before the priority policy runs.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct ClipboardSnapshot {
+    pub files: Vec<PathBuf>,
+    pub image: Option<ClipboardImage>,
+    pub text: Option<String>,
+}
+
+/// Clipboard temp-file policy.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ClipboardPolicy {
+    /// Temp files older than this are removed before a new one is written.
+    pub purge_after: Duration,
+}
+
+impl Default for ClipboardPolicy {
+    fn default() -> Self {
+        Self {
+            purge_after: DEFAULT_PURGE_AFTER,
+        }
+    }
+}
+
+/// The per-app temp directory for clipboard images: `<temp>/<app_id>-clipboard`.
+pub fn clipboard_temp_dir(app_id: &str) -> PathBuf {
+    std::env::temp_dir().join(format!("{app_id}-clipboard"))
+}
+
 pub fn write(board: &Board, c: &ClipboardContent) -> Result<(), String> {
     imp::write(board, c)
 }
@@ -35,6 +104,314 @@ pub fn read(board: &Board) -> Result<ClipboardContent, String> {
 /// Raw type/format names currently on the board (diagnostics).
 pub fn formats(board: &Board) -> Result<Vec<String>, String> {
     imp::formats(board)
+}
+
+/// Read the clipboard and apply the priority policy: files, then a bitmap, then text.
+pub fn take_item(
+    broker: &PathBroker,
+    temp_dir: &Path,
+    policy: ClipboardPolicy,
+) -> Result<ClipboardItem, ShellError> {
+    let snapshot = platform_snapshot(temp_dir)?;
+    item_from_snapshot(&snapshot, broker, temp_dir, policy)
+}
+
+/// Apply the priority policy to a snapshot: grant the files that exist, write a bitmap to a granted
+/// temp file, otherwise return non-empty text. Old temp files are purged first.
+pub fn item_from_snapshot(
+    snapshot: &ClipboardSnapshot,
+    broker: &PathBroker,
+    temp_dir: &Path,
+    policy: ClipboardPolicy,
+) -> Result<ClipboardItem, ShellError> {
+    if temp_dir.is_dir() {
+        purge_stale(temp_dir, policy.purge_after);
+    }
+    let granted: Vec<String> = snapshot
+        .files
+        .iter()
+        .filter_map(|p| broker.grant_file(p).ok())
+        .collect();
+    if !granted.is_empty() {
+        return Ok(ClipboardItem::Files { paths: granted });
+    }
+    if let Some(image) = snapshot.image.as_ref().filter(|i| !i.bytes.is_empty()) {
+        let path = write_temp(temp_dir, &image.extension, &image.bytes)?;
+        return match broker.grant_file(&path) {
+            Ok(display) => Ok(ClipboardItem::Image { path: display }),
+            Err(e) => {
+                let _ = std::fs::remove_file(&path);
+                Err(e)
+            }
+        };
+    }
+    match snapshot.text.as_deref() {
+        Some(text) if !text.is_empty() => Ok(ClipboardItem::Text {
+            text: text.to_owned(),
+        }),
+        _ => Ok(ClipboardItem::None),
+    }
+}
+
+/// Remove regular files in `dir` last modified more than `older_than` ago. Returns how many were
+/// removed. A missing directory or an unreadable entry is skipped, never an error.
+pub fn purge_stale(dir: &Path, older_than: Duration) -> usize {
+    let Some(cutoff) = SystemTime::now().checked_sub(older_than) else {
+        return 0;
+    };
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return 0;
+    };
+    let mut removed = 0;
+    for entry in entries.filter_map(Result::ok) {
+        let Ok(meta) = entry.metadata() else {
+            continue;
+        };
+        if !meta.is_file() {
+            continue;
+        }
+        let Ok(modified) = meta.modified() else {
+            continue;
+        };
+        if modified < cutoff && std::fs::remove_file(entry.path()).is_ok() {
+            removed += 1;
+        }
+    }
+    removed
+}
+
+/// Write `bytes` to a fresh `clipboard-<stamp>.<ext>` file in `dir` (created if needed).
+fn write_temp(dir: &Path, extension: &str, bytes: &[u8]) -> Result<PathBuf, ShellError> {
+    use std::io::Write;
+    std::fs::create_dir_all(dir)?;
+    let ext: String = extension
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric())
+        .collect();
+    for _ in 0..8 {
+        let path = dir.join(format!("clipboard-{}.{ext}", unique_stamp()));
+        match std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&path)
+        {
+            Ok(mut file) => {
+                file.write_all(bytes)?;
+                return Ok(path);
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(e) => return Err(e.into()),
+        }
+    }
+    Err(ShellError::Other(
+        "could not create a clipboard temp file".into(),
+    ))
+}
+
+fn unique_stamp() -> String {
+    static COUNTER: AtomicU64 = AtomicU64::new(0);
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    format!("{nanos}-{}", COUNTER.fetch_add(1, Ordering::Relaxed))
+}
+
+/// Convert a `CF_DIB` blob (a BITMAPINFO plus pixels) to a complete BMP file by prepending the
+/// 14-byte file header. Returns `None` for a blob too short or inconsistent to be a DIB.
+pub fn dib_to_bmp(dib: &[u8]) -> Option<Vec<u8>> {
+    if dib.len() < 40 {
+        return None;
+    }
+    let header_size = u32::from_le_bytes([dib[0], dib[1], dib[2], dib[3]]) as usize;
+    if header_size < 40 || dib.len() < header_size {
+        return None;
+    }
+    let bit_count = u16::from_le_bytes([dib[14], dib[15]]) as usize;
+    let compression = u32::from_le_bytes([dib[16], dib[17], dib[18], dib[19]]);
+    let clr_used = u32::from_le_bytes([dib[32], dib[33], dib[34], dib[35]]) as usize;
+    // BI_BITFIELDS (3) and BI_ALPHABITFIELDS (6) store colour masks after the header.
+    let mask_bytes = match compression {
+        3 => 12,
+        6 => 16,
+        _ => 0,
+    };
+    let palette_colors = if bit_count <= 8 {
+        if clr_used != 0 {
+            clr_used
+        } else {
+            1usize << bit_count
+        }
+    } else {
+        clr_used
+    };
+    let off_bits = 14 + header_size + mask_bytes + palette_colors * 4;
+    if off_bits > 14 + dib.len() {
+        return None;
+    }
+    let file_size = 14 + dib.len();
+    let mut out = Vec::with_capacity(file_size);
+    out.extend_from_slice(b"BM");
+    out.extend_from_slice(&(file_size as u32).to_le_bytes());
+    out.extend_from_slice(&0u32.to_le_bytes());
+    out.extend_from_slice(&(off_bits as u32).to_le_bytes());
+    out.extend_from_slice(dib);
+    Some(out)
+}
+
+#[cfg(target_os = "macos")]
+fn platform_snapshot(temp_dir: &Path) -> Result<ClipboardSnapshot, ShellError> {
+    let general = Board::General;
+    let raw = read(&general)?;
+    let types = formats(&general)?;
+    let mut files: Vec<PathBuf> = raw.files.iter().map(PathBuf::from).collect();
+    // The API saw a file-URL item but produced no path: ask AppKit through osascript.
+    if files.is_empty() && types.iter().any(|t| t == "public.file-url") {
+        files = macos_osascript::file_paths()
+            .into_iter()
+            .map(PathBuf::from)
+            .collect();
+    }
+    let image = match raw.png {
+        Some(png) => Some(ClipboardImage {
+            extension: "png".into(),
+            bytes: png,
+        }),
+        // Only a non-PNG bitmap (TIFF, or an image type) needs AppleScript's PNG coercion.
+        None if types
+            .iter()
+            .any(|t| t == "public.tiff" || t == "public.image") =>
+        {
+            macos_osascript::png_bytes(temp_dir).map(|bytes| ClipboardImage {
+                extension: "png".into(),
+                bytes,
+            })
+        }
+        None => None,
+    };
+    Ok(ClipboardSnapshot {
+        files,
+        image,
+        text: raw.text,
+    })
+}
+
+#[cfg(windows)]
+fn platform_snapshot(_temp_dir: &Path) -> Result<ClipboardSnapshot, ShellError> {
+    let raw = read(&Board::General)?;
+    // PNG when the copier provided it (lossless, alpha); otherwise the classic CF_DIB as BMP.
+    let image = match raw.png {
+        Some(png) => Some(ClipboardImage {
+            extension: "png".into(),
+            bytes: png,
+        }),
+        None => imp::dib_bytes()?
+            .and_then(|dib| dib_to_bmp(&dib))
+            .map(|bytes| ClipboardImage {
+                extension: "bmp".into(),
+                bytes,
+            }),
+    };
+    Ok(ClipboardSnapshot {
+        files: raw.files.iter().map(PathBuf::from).collect(),
+        image,
+        text: raw.text,
+    })
+}
+
+#[cfg(not(any(target_os = "macos", windows)))]
+fn platform_snapshot(_temp_dir: &Path) -> Result<ClipboardSnapshot, ShellError> {
+    Ok(ClipboardSnapshot::default())
+}
+
+#[cfg(target_os = "macos")]
+mod macos_osascript {
+    //! AppleScript fallbacks for the two reads the AppKit bindings here cannot do directly: a
+    //! file URL the API could not turn into a path, and a PNG coerced from a TIFF or other bitmap.
+    use std::path::Path;
+    use std::process::Command;
+    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn run(lines: &[&str]) -> Option<String> {
+        let mut cmd = Command::new("/usr/bin/osascript");
+        for line in lines {
+            cmd.arg("-e").arg(line);
+        }
+        let output = cmd.output().ok()?;
+        output
+            .status
+            .success()
+            .then(|| String::from_utf8_lossy(&output.stdout).trim().to_string())
+    }
+
+    pub fn file_paths() -> Vec<String> {
+        let out = run(&[
+            "use framework \"AppKit\"",
+            "use scripting additions",
+            "set pb to current application's NSPasteboard's generalPasteboard()",
+            "set urlClass to current application's NSURL",
+            "set urls to pb's readObjectsForClasses:{urlClass} options:(missing value)",
+            "if urls is missing value then return \"\"",
+            "set out to {}",
+            "repeat with u in urls",
+            "if (u's isFileURL()) as boolean then set end of out to (u's |path|()) as text",
+            "end repeat",
+            "set AppleScript's text item delimiters to linefeed",
+            "return out as text",
+        ])
+        .unwrap_or_default();
+        out.lines()
+            .map(str::trim)
+            .filter(|line| !line.is_empty())
+            .map(str::to_owned)
+            .collect()
+    }
+
+    /// The clipboard image as PNG bytes, staged in `dir` and removed after reading.
+    pub fn png_bytes(dir: &Path) -> Option<Vec<u8>> {
+        std::fs::create_dir_all(dir).ok()?;
+        static COUNTER: AtomicU64 = AtomicU64::new(0);
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
+        let path = dir.join(format!(
+            "clipboard-{nanos}-{}-coerced.png",
+            COUNTER.fetch_add(1, Ordering::Relaxed)
+        ));
+        let quoted = format!(
+            "\"{}\"",
+            path.to_string_lossy()
+                .replace('\\', "\\\\")
+                .replace('"', "\\\"")
+        );
+        let set_out_path = format!("set outPath to POSIX file {quoted}");
+        let wrote = run(&[
+            "try",
+            "set imageData to (the clipboard as «class PNGf»)",
+            set_out_path.as_str(),
+            "set fileRef to open for access outPath with write permission",
+            "set eof fileRef to 0",
+            "write imageData to fileRef",
+            "close access fileRef",
+            "return \"ok\"",
+            "on error",
+            "try",
+            "close access outPath",
+            "end try",
+            "return \"\"",
+            "end try",
+        ])
+        .is_some_and(|s| s == "ok");
+        let bytes = if wrote && path.is_file() {
+            std::fs::read(&path).ok()
+        } else {
+            None
+        };
+        let _ = std::fs::remove_file(&path);
+        bytes.filter(|b| !b.is_empty())
+    }
 }
 
 #[cfg(target_os = "macos")]
@@ -164,8 +541,8 @@ mod imp {
 
 #[cfg(windows)]
 mod imp {
-    //! NOT compiled on this (macOS) host: verify with `rightkit cargo check -p rightkit-shell` on
-    //! the Windows agent (see API.md).
+    //! NOT compiled on the macOS host: verify with `rightkit cargo check -p rightkit-shell` on the
+    //! Windows agent (see README).
     use super::*;
     use crate::winapi::windows::core::PCWSTR;
     use crate::winapi::windows::Win32::Foundation::{HANDLE, HGLOBAL, HWND};
@@ -177,6 +554,7 @@ mod imp {
 
     const CF_UNICODETEXT: u32 = 13;
     const CF_HDROP: u32 = 15;
+    const CF_DIB: u32 = 8;
 
     struct Open;
     impl Open {
@@ -328,6 +706,12 @@ mod imp {
             }
         }
         Ok(out)
+    }
+
+    /// The raw `CF_DIB` blob (BITMAPINFO plus pixels), copied out under its own open/close.
+    pub fn dib_bytes() -> Result<Option<Vec<u8>>, String> {
+        let _open = Open::new()?;
+        Ok(get(CF_DIB))
     }
 
     pub fn formats(_b: &Board) -> Result<Vec<String>, String> {

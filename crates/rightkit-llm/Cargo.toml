@@ -24,3 +24,7 @@ serde_json = "1.0.150"
 
 [dev-dependencies]
 rightkit-http = { version = "0.3.0", path = "../rightkit-http", features = ["testing"] }
+
+[package.metadata.rightkit]
+continuous = false
+continuous_reason = "thread-spawn: one provider-stream thread per failover attempt (failover.rs) and per-CLI-call stdin writer and pipe reader threads (provider/cli.rs), each ends when the stream, pipe or child ends and is bounded by the policy timeouts; no sleep, listener, timer, watcher or resident model or cache (reviewed 2026-10-11)"

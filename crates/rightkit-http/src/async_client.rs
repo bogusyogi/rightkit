@@ -21,6 +21,7 @@ use futures_util::{Stream, StreamExt};
 use serde::de::DeserializeOwned;
 use tokio::time::{sleep, timeout, Sleep};
 
+use crate::cancel::CancelToken;
 use crate::client::{
     header_of, redact_str, redaction_values_for, scrub_error, status_error, ClientConfig, Method,
     Request, Response, RetryEvent,
@@ -42,11 +43,15 @@ type ByteStream = Pin<Box<dyn Stream<Item = Result<Bytes, reqwest::Error>> + Sen
 /// Async counterpart of [`crate::Client`].
 #[derive(Clone)]
 pub struct AsyncClient {
+    /// Direct connections.
     http: reqwest::Client,
+    /// Connections through the configured proxy; `Some` exactly when `proxy` is.
+    http_proxy: Option<reqwest::Client>,
+    verifier: &'static str,
     config: ClientConfig,
-    /// Normalized proxy host when requests go through a proxy: the endpoint is trusted and
-    /// destinations are vetted by literal and name rules.
-    proxy_host: Option<String>,
+    /// The proxy in use (its `NO_PROXY` list decides which destinations bypass it).
+    proxy: Option<ureq::Proxy>,
+    proxy_diagnostic: Option<crate::client::ProxyDiagnostic>,
 }
 
 struct Raw {
@@ -58,40 +63,137 @@ struct Raw {
     deadline: Option<Instant>,
 }
 
+/// The rustls configuration installed into reqwest, and what it is built from.
+pub(crate) struct BuiltTls {
+    pub(crate) config: rustls::ClientConfig,
+    /// The verifier actually installed: `"platform"` or `"bundled"`.
+    pub(crate) kind: &'static str,
+    /// Number of trust anchors in the root store (`Bundled`); 0 for the OS verifier.
+    pub(crate) anchors: usize,
+}
+
+/// Build the whole TLS configuration for a trust choice. Both branches install an explicit
+/// rustls `ClientConfig` through `use_preconfigured_tls`, so root selection never depends on
+/// which reqwest TLS features some other crate in the build turned on (`default-tls`,
+/// `rustls-tls-native-roots`, ...). ALPN advertises `http/1.1` only: reqwest's `http2`
+/// feature is not enabled here, and a server that selected `h2` would panic hyper-util.
+pub(crate) fn build_tls(
+    trust: crate::client::TrustRoots,
+    extra_roots: &[Vec<u8>],
+) -> Result<BuiltTls, HttpError> {
+    let fail = |what: &str| HttpError::InvalidRequest(format!("TLS configuration: {what}"));
+    let provider = Arc::new(rustls::crypto::ring::default_provider());
+    let builder = rustls::ClientConfig::builder_with_provider(provider.clone())
+        .with_safe_default_protocol_versions()
+        .map_err(|_| fail("no protocol versions"))?;
+    let (mut config, kind, anchors) = match trust {
+        crate::client::TrustRoots::Platform => {
+            let verifier = rustls_platform_verifier::Verifier::new(provider)
+                .map_err(|_| fail("the platform verifier is unavailable"))?;
+            let config = builder
+                .dangerous()
+                .with_custom_certificate_verifier(Arc::new(verifier))
+                .with_no_client_auth();
+            (config, "platform", 0)
+        }
+        crate::client::TrustRoots::Bundled => {
+            let mut store = rustls::RootCertStore::empty();
+            store.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
+            for der in extra_roots {
+                store
+                    .add(rustls::pki_types::CertificateDer::from(der.clone()))
+                    .map_err(|_| fail("a test root is not a certificate"))?;
+            }
+            let anchors = store.len();
+            let config = builder.with_root_certificates(store).with_no_client_auth();
+            (config, "bundled", anchors)
+        }
+    };
+    config.alpn_protocols = vec![b"http/1.1".to_vec()];
+    Ok(BuiltTls {
+        config,
+        kind,
+        anchors,
+    })
+}
+
 impl AsyncClient {
-    pub fn new(config: ClientConfig) -> Result<Self, HttpError> {
-        // Redirects are followed by this crate, hop by hop, so the address policy and
-        // header stripping run on every hop. reqwest must never follow one itself.
-        let proxy = config.resolved_proxy()?;
-        // `no_proxy()` also turns off reqwest's own environment proxy detection; a proxy,
-        // when wanted, is installed explicitly below so its endpoint can be vetted.
+    /// Which certificate verifier this client was built with: `"platform"` (the OS
+    /// verifier) or `"bundled"` (Mozilla roots). It reports the configuration that was
+    /// installed into the HTTP stack, not the setting that was asked for.
+    pub fn verifier_kind(&self) -> &'static str {
+        self.verifier
+    }
+
+    fn reqwest_builder(
+        config: &ClientConfig,
+        tls: BuiltTls,
+    ) -> reqwest::ClientBuilder {
+        // `no_proxy()` also turns off reqwest's own environment proxy detection and its
+        // own NO_PROXY matching: this crate makes the one routing decision per hop
+        // (`AsyncClient::precheck`) and picks the client that does it.
         let mut builder = reqwest::Client::builder()
             .user_agent(config.user_agent.clone())
             .redirect(reqwest::redirect::Policy::none())
-            .no_proxy();
-        let proxy_host = proxy.as_ref().map(|p| p.host.clone());
-        if let Some(p) = &proxy {
-            let mut rp = reqwest::Proxy::all(p.url.as_str())
-                .map_err(|_| HttpError::InvalidRequest("invalid proxy URL".into()))?;
-            if !p.no_proxy.is_empty() {
-                rp = rp.no_proxy(reqwest::NoProxy::from_string(&p.no_proxy.join(",")));
-            }
-            builder = builder.proxy(rp);
-        }
-        // The vetting resolver returns only checked addresses, and vets the proxy endpoint.
+            .no_proxy()
+            .http1_only()
+            .use_preconfigured_tls(tls.config);
+        // The vetting resolver returns only checked addresses. An `http` proxy is pinned to
+        // its address by `proxy_url`; an `https` proxy named by host is resolved here like
+        // any destination, so a private one must be listed with `allow_if`.
         builder = builder.dns_resolver(Arc::new(VettingDns {
             policy: Arc::new(config.address_policy.clone()),
-            proxy_host: proxy_host.clone(),
         }));
         if let Some(d) = config.connect_timeout {
             builder = builder.connect_timeout(d);
         }
-        let http = builder.build().map_err(map_reqwest_error)?;
+        builder
+    }
+
+    pub fn new(config: ClientConfig) -> Result<Self, HttpError> {
+        // Redirects are followed by this crate, hop by hop, so the address policy and
+        // header stripping run on every hop. reqwest must never follow one itself.
+        let proxy = config.resolved_proxy()?;
+        let extra = crate::trust::test_roots();
+        let tls = build_tls(config.trust, &extra)?;
+        let verifier = tls.kind;
+        let http = Self::reqwest_builder(&config, tls)
+            .build()
+            .map_err(map_reqwest_error)?;
+        // With a proxy there are two clients: `http` connects directly, `http_proxy` sends
+        // everything through the proxy with no exclusion list of its own. `precheck`
+        // decides per request with the same matcher it vets with, so policy and transport
+        // cannot disagree about which path a request takes.
+        let http_proxy = match &proxy {
+            Some(p) => {
+                let mut rp = reqwest::Proxy::all(proxy_url(&config, p)?)
+                    .map_err(|_| HttpError::InvalidRequest("invalid proxy URL".into()))?;
+                if let (Some(user), pass) = (p.ureq.username(), p.ureq.password()) {
+                    rp = rp.basic_auth(user, pass.unwrap_or(""));
+                }
+                let tls = build_tls(config.trust, &extra)?;
+                Some(
+                    Self::reqwest_builder(&config, tls)
+                        .proxy(rp)
+                        .build()
+                        .map_err(map_reqwest_error)?,
+                )
+            }
+            None => None,
+        };
         Ok(Self {
             http,
+            http_proxy,
+            verifier,
             config,
-            proxy_host,
+            proxy_diagnostic: proxy.as_ref().map(crate::client::ProxyDiagnostic::of),
+            proxy: proxy.map(|p| p.ureq),
         })
+    }
+
+    /// The proxy this client uses, if any, without credentials.
+    pub fn proxy_diagnostic(&self) -> Option<&crate::client::ProxyDiagnostic> {
+        self.proxy_diagnostic.as_ref()
     }
 
     /// Client that may reach only `hosts` (exact match), only over HTTPS; see
@@ -122,9 +224,22 @@ impl AsyncClient {
     pub async fn send_any(&self, req: &Request) -> Result<Response, HttpError> {
         let total = req.timeout.unwrap_or(self.config.request_timeout);
         let raw = self.execute(req, Some(total)).await?;
-        let deadline = self.body_deadline(raw.deadline);
         let values = redaction_values_for(&self.config, req);
-        let body = read_limited(raw.response, self.config.max_response_bytes, deadline)
+        if req.headers_only {
+            // Dropping the response unread closes the connection.
+            return Ok(Response {
+                status: raw.status,
+                headers: raw.headers,
+                body: Vec::new(),
+                attempts: raw.attempts,
+                redact: values,
+            });
+        }
+        let deadline = self.body_deadline(raw.deadline);
+        let limit = req
+            .max_response_bytes
+            .unwrap_or(self.config.max_response_bytes);
+        let body = read_limited(raw.response, limit, deadline, req.cancel.as_ref())
             .await
             .map_err(|e| scrub_error(e, &values))?;
         Ok(Response {
@@ -132,6 +247,7 @@ impl AsyncClient {
             headers: raw.headers,
             body,
             attempts: raw.attempts,
+            redact: values,
         })
     }
 
@@ -149,6 +265,7 @@ impl AsyncClient {
                 raw.response,
                 MAX_ERROR_BODY_BYTES,
                 self.body_deadline(raw.deadline),
+                req.cancel.as_ref(),
             )
             .await
             .unwrap_or_default();
@@ -157,7 +274,7 @@ impl AsyncClient {
                 &values,
             ));
         }
-        Ok(self.stream_response_from(raw))
+        Ok(self.stream_response_from(raw, req.cancel.clone()))
     }
 
     /// Streaming request returning any final status with its streaming body
@@ -169,23 +286,26 @@ impl AsyncClient {
         let raw = self
             .execute(req, req.timeout.or(self.config.stream_timeout))
             .await?;
-        Ok(self.stream_response_from(raw))
+        Ok(self.stream_response_from(raw, req.cancel.clone()))
     }
 
-    fn stream_response_from(&self, raw: Raw) -> AsyncStreamResponse {
+    fn stream_response_from(&self, raw: Raw, cancel: Option<CancelToken>) -> AsyncStreamResponse {
         let deadline = self.body_deadline(raw.deadline);
         AsyncStreamResponse {
             status: raw.status,
             headers: raw.headers,
             attempts: raw.attempts,
-            body: BodyStream::new(Box::pin(raw.response.bytes_stream()), deadline),
+            body: BodyStream::new(Box::pin(raw.response.bytes_stream()), deadline, cancel),
         }
     }
 
     pub async fn get_json<T: DeserializeOwned>(&self, url: &str) -> Result<T, HttpError> {
-        self.send(&Request::get(url).header("Accept", "application/json"))
+        let req = Request::get(url).header("Accept", "application/json");
+        let values = redaction_values_for(&self.config, &req);
+        self.send(&req)
             .await?
             .json()
+            .map_err(|e| scrub_error(e, &values))
     }
 
     /// Phase deadline for the body: the sooner of the attempt deadline and
@@ -216,10 +336,28 @@ impl AsyncClient {
             .clone()
             .unwrap_or_else(|| self.config.retry.clone());
         let max = policy.max_attempts.max(1);
+        let deadline = req.deadline.map(|d| Instant::now() + d);
+        let cancel = req.cancel.as_ref();
         let mut attempt = 0u32;
         loop {
+            if cancel.is_some_and(CancelToken::is_cancelled) {
+                return Err(HttpError::Cancelled);
+            }
+            let attempt_total = match deadline {
+                None => total,
+                Some(dl) => {
+                    let remaining = dl.saturating_duration_since(Instant::now());
+                    if remaining.is_zero() {
+                        return Err(HttpError::timeout(
+                            format!("request deadline exceeded after {attempt} attempt(s)"),
+                            Phase::Headers,
+                        ));
+                    }
+                    Some(total.map_or(remaining, |t| t.min(remaining)))
+                }
+            };
             attempt += 1;
-            let outcome = self.once(req, total, values).await;
+            let outcome = race_cancel(cancel, self.once(req, attempt_total, values)).await?;
             let (reason, retry_after) = match outcome {
                 Ok(raw) => {
                     let retryable = policy.is_retryable_status(raw.status)
@@ -231,9 +369,30 @@ impl AsyncClient {
                         });
                     }
                     let ra = header_of(&raw.headers, "retry-after").and_then(parse_retry_after);
-                    // Drain so the connection is released.
-                    let drain = Some(Instant::now() + Duration::from_secs(5));
-                    let _ = read_limited(raw.response, MAX_ERROR_BODY_BYTES, drain).await;
+                    if deadline_passes(deadline, policy.delay(attempt, ra)) {
+                        return Ok(Raw {
+                            attempts: attempt,
+                            ..raw
+                        });
+                    }
+                    // Drain so the connection is released, but never past any budget the
+                    // caller set: the attempt's deadline, the whole-request deadline less
+                    // the sleep that follows, and the body-phase timeout.
+                    let delay = policy.delay(attempt, ra);
+                    let drain = [
+                        Some(Instant::now() + Duration::from_secs(5)),
+                        raw.deadline,
+                        deadline.map(|dl| dl.checked_sub(delay).unwrap_or_else(Instant::now)),
+                        self.config.recv_body_timeout.map(|d| Instant::now() + d),
+                    ]
+                    .into_iter()
+                    .flatten()
+                    .min();
+                    let drained =
+                        read_limited(raw.response, MAX_ERROR_BODY_BYTES, drain, cancel).await;
+                    if matches!(drained, Err(HttpError::Cancelled)) {
+                        return Err(HttpError::Cancelled);
+                    }
                     (format!("HTTP {}", raw.status), ra)
                 }
                 Err(err) => {
@@ -245,6 +404,9 @@ impl AsyncClient {
                         _ => false,
                     };
                     if !retryable || attempt >= max {
+                        return Err(err);
+                    }
+                    if deadline_passes(deadline, policy.delay(attempt, None)) {
                         return Err(err);
                     }
                     (err.to_string(), None)
@@ -259,7 +421,15 @@ impl AsyncClient {
                     delay,
                 });
             }
-            sleep(delay).await;
+            // Never sleep past the whole-request deadline: the next loop pass then reports
+            // the elapsed deadline instead of a late retry.
+            let delay = match deadline {
+                Some(dl) => delay.min(dl.saturating_duration_since(Instant::now())),
+                None => delay,
+            };
+            if !sleep_cancellable(delay, cancel).await {
+                return Err(HttpError::Cancelled);
+            }
         }
     }
 
@@ -274,7 +444,10 @@ impl AsyncClient {
         let started = Instant::now();
         let overall = total.map(|t| started + t);
         let mut method = req.method;
-        let mut url = reqwest::Url::parse(&req.url)
+        // The URL parser rewrites legacy IPv4 spellings, so the spelling check reads the host
+        // from the string as written, and redirects are resolved on strings as well.
+        let mut raw_url = req.url.clone();
+        let mut url = reqwest::Url::parse(&raw_url)
             .map_err(|_| HttpError::InvalidRequest("invalid URL".into()))?;
         let mut headers = req.headers.clone();
         let mut body = req.body.clone();
@@ -296,7 +469,7 @@ impl AsyncClient {
                 }
             };
             let raw = match self
-                .once_hop(method, &url, &headers, &body, remaining)
+                .once_hop(method, &url, &raw_url, &headers, &body, remaining, hops > 0)
                 .await
             {
                 Ok(raw) => raw,
@@ -331,13 +504,17 @@ impl AsyncClient {
                 });
             }
             hops += 1;
-            let next = url
-                .join(location.trim())
+            let unusable =
+                || HttpError::InvalidRequest("redirect with an unusable Location".into());
+            let next_raw = redirect::resolve_location(&raw_url, location).ok_or_else(unusable)?;
+            let next = reqwest::Url::parse(&next_raw)
                 .ok()
                 .filter(|u| matches!(u.scheme(), "http" | "https"))
-                .ok_or_else(|| {
-                    HttpError::InvalidRequest("redirect with an unusable Location".into())
-                })?;
+                .ok_or_else(unusable)?;
+            self.config
+                .address_policy
+                .check_redirect_scheme(url.scheme(), next.scheme(), next.host_str().unwrap_or(""))
+                .map_err(|d| HttpError::from(d).into_redirect_phase())?;
             if next.origin() != url.origin() {
                 redirect::strip_cross_origin(&mut headers, secrets);
             }
@@ -347,6 +524,7 @@ impl AsyncClient {
             }
             method = next_method;
             url = next;
+            raw_url = next_raw;
             // `raw` (and its connection) is dropped here before the next hop.
         }
     }
@@ -354,30 +532,51 @@ impl AsyncClient {
     /// Admission for one URL: metadata names, the first-party pin, and IP literals. Names
     /// are vetted by [`VettingDns`] when the connection resolves them. Through a proxy the
     /// proxy resolves the name instead, so the name rules apply here and its address is
-    /// not checked.
-    fn precheck(&self, url: &reqwest::Url) -> Result<(), HttpError> {
+    /// not checked. Legacy IPv4 spellings are canonicalised first, as the URL parser does.
+    fn precheck(
+        &self,
+        url: &reqwest::Url,
+        raw_url: &str,
+        redirect_hop: bool,
+    ) -> Result<bool, HttpError> {
         let policy: &AddressPolicy = &self.config.address_policy;
         let host = match url.host_str() {
             Some(h) => normalize_host(h),
             None => return Err(HttpError::InvalidRequest("URL has no host".into())),
         };
-        policy.admit(url.scheme(), &host)?;
-        if self.proxy_host.is_some() {
+        let raw_host = redirect::raw_host_of(raw_url).unwrap_or_else(|| host.clone());
+        redirect::require_https(
+            self.config.https_only,
+            url.scheme(),
+            &raw_host,
+            redirect_hop,
+        )?;
+        policy.admit(url.scheme(), &raw_host)?;
+        let via_proxy = self.proxy.as_ref().is_some_and(|p| {
+            url.as_str()
+                .parse::<ureq::http::Uri>()
+                .map(|uri| !p.is_no_proxy(&uri))
+                .unwrap_or(true)
+        });
+        if via_proxy {
             // The proxy resolves the name, so vet it by literal and by name rules.
             policy.vet_via_proxy(&host)?;
         } else if let Some(addrs) = policy.fixed_addrs(&host) {
             policy.vet(&host, addrs)?;
         }
-        Ok(())
+        Ok(via_proxy)
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn once_hop(
         &self,
         method: Method,
         url: &reqwest::Url,
+        raw_url: &str,
         headers: &[(String, String)],
         body: &[u8],
         total: Option<Duration>,
+        redirect_hop: bool,
     ) -> Result<Raw, HttpError> {
         let method_r = match method {
             Method::Get => reqwest::Method::GET,
@@ -387,8 +586,13 @@ impl AsyncClient {
             Method::Delete => reqwest::Method::DELETE,
             Method::Head => reqwest::Method::HEAD,
         };
-        self.precheck(url)?;
-        let mut builder = self.http.request(method_r, url.clone());
+        let via_proxy = self.precheck(url, raw_url, redirect_hop)?;
+        // The transport follows the decision the policy was applied for.
+        let client = match (&self.http_proxy, via_proxy) {
+            (Some(proxied), true) => proxied,
+            _ => &self.http,
+        };
+        let mut builder = client.request(method_r, url.clone());
         for (k, v) in headers {
             builder = builder.header(k.as_str(), v.as_str());
         }
@@ -403,7 +607,7 @@ impl AsyncClient {
             (Some(r), Some(t)) => Some(r.min(t)),
             (r, t) => r.or(t),
         };
-        let send = self.http.execute(request);
+        let send = client.execute(request);
         let response = match headers_budget {
             Some(d) => timeout(d, send)
                 .await
@@ -436,8 +640,6 @@ impl AsyncClient {
 /// vetted ones. hyper connects to exactly the addresses returned.
 struct VettingDns {
     policy: Arc<AddressPolicy>,
-    /// Normalized proxy host: resolved but trusted, no address-class denial.
-    proxy_host: Option<String>,
 }
 
 type BoxErr = Box<dyn std::error::Error + Send + Sync>;
@@ -446,9 +648,8 @@ impl reqwest::dns::Resolve for VettingDns {
     fn resolve(&self, name: reqwest::dns::Name) -> reqwest::dns::Resolving {
         let policy = self.policy.clone();
         let host = normalize_host(name.as_str());
-        let is_proxy = self.proxy_host.as_deref() == Some(host.as_str());
         Box::pin(async move {
-            let vetted = vetted_addrs(&policy, &host, is_proxy).await?;
+            let vetted = vetted_addrs(&policy, &host).await?;
             let iter = vetted
                 .into_iter()
                 .map(|ip| std::net::SocketAddr::new(ip, 0));
@@ -458,11 +659,7 @@ impl reqwest::dns::Resolve for VettingDns {
 }
 
 /// Resolve `host` once and return its addresses only if every one passes the policy.
-async fn vetted_addrs(
-    policy: &AddressPolicy,
-    host: &str,
-    is_proxy: bool,
-) -> Result<Vec<std::net::IpAddr>, BoxErr> {
+async fn vetted_addrs(policy: &AddressPolicy, host: &str) -> Result<Vec<std::net::IpAddr>, BoxErr> {
     let addrs: Vec<std::net::IpAddr> = if let Some(fixed) = policy.fixed_addrs(host) {
         fixed
     } else if let Some(hook) = policy.resolver_hook() {
@@ -484,14 +681,6 @@ async fn vetted_addrs(
             }
         }
     };
-    if is_proxy {
-        // The proxy endpoint is trusted configuration: resolved, not classified.
-        return if addrs.is_empty() {
-            Err("proxy host did not resolve".into())
-        } else {
-            Ok(addrs)
-        };
-    }
     policy
         .vet(host, addrs)
         .map_err(|denial| Box::new(denial) as BoxErr)
@@ -534,11 +723,12 @@ impl AsyncStreamResponse {
 pub struct BodyStream {
     inner: ByteStream,
     deadline: Option<Pin<Box<Sleep>>>,
+    cancel: Option<CancelToken>,
     done: bool,
 }
 
 impl BodyStream {
-    fn new(inner: ByteStream, deadline: Option<Instant>) -> Self {
+    fn new(inner: ByteStream, deadline: Option<Instant>, cancel: Option<CancelToken>) -> Self {
         let deadline = deadline.map(|d| {
             Box::pin(tokio::time::sleep(
                 d.saturating_duration_since(Instant::now()),
@@ -547,6 +737,7 @@ impl BodyStream {
         Self {
             inner,
             deadline,
+            cancel,
             done: false,
         }
     }
@@ -558,6 +749,10 @@ impl Stream for BodyStream {
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         if self.done {
             return Poll::Ready(None);
+        }
+        if self.cancel.as_ref().is_some_and(CancelToken::is_cancelled) {
+            self.done = true;
+            return Poll::Ready(Some(Err(HttpError::Cancelled)));
         }
         if let Some(sleep) = self.deadline.as_mut() {
             if sleep.as_mut().poll(cx).is_ready() {
@@ -634,11 +829,12 @@ async fn read_limited(
     response: reqwest::Response,
     limit: usize,
     deadline: Option<Instant>,
+    cancel: Option<&CancelToken>,
 ) -> Result<Vec<u8>, HttpError> {
     let read = async {
         let mut out: Vec<u8> = Vec::new();
         let mut stream = response.bytes_stream();
-        while let Some(chunk) = stream.next().await {
+        while let Some(chunk) = race_cancel(cancel, stream.next()).await? {
             let chunk = chunk.map_err(|e| map_reqwest_error_in(e, Phase::Body))?;
             if out.len().saturating_add(chunk.len()) > limit {
                 return Err(HttpError::BodyTooLarge { limit });
@@ -653,6 +849,73 @@ async fn read_limited(
             .map_err(|_| HttpError::timeout("response body", Phase::Body))?,
         None => read.await,
     }
+}
+
+fn deadline_passes(deadline: Option<Instant>, delay: Duration) -> bool {
+    deadline.is_some_and(|dl| Instant::now() + delay >= dl)
+}
+
+/// Run `fut`, giving up with [`HttpError::Cancelled`] as soon as `token` is cancelled.
+/// The token is polled every 25 ms.
+async fn race_cancel<F: Future>(
+    token: Option<&CancelToken>,
+    fut: F,
+) -> Result<F::Output, HttpError> {
+    let Some(token) = token else {
+        return Ok(fut.await);
+    };
+    if token.is_cancelled() {
+        return Err(HttpError::Cancelled);
+    }
+    let watch = async {
+        while !token.is_cancelled() {
+            sleep(Duration::from_millis(25)).await;
+        }
+    };
+    futures_util::pin_mut!(fut);
+    futures_util::pin_mut!(watch);
+    match futures_util::future::select(fut, watch).await {
+        futures_util::future::Either::Left((out, _)) => Ok(out),
+        futures_util::future::Either::Right(_) => Err(HttpError::Cancelled),
+    }
+}
+
+/// Sleep for `total`, waking every 50 ms to observe cancellation. False when cancelled.
+async fn sleep_cancellable(total: Duration, token: Option<&CancelToken>) -> bool {
+    let until = Instant::now() + total;
+    loop {
+        if token.is_some_and(CancelToken::is_cancelled) {
+            return false;
+        }
+        let now = Instant::now();
+        if now >= until {
+            return true;
+        }
+        sleep((until - now).min(Duration::from_millis(50))).await;
+    }
+}
+
+/// URL for reqwest's proxy. An `http` proxy is resolved here, once, and addressed by IP so
+/// the connection cannot be redirected by a later lookup; an `https` proxy keeps its name
+/// (TLS needs it) and is vetted as an ordinary destination by the DNS resolver.
+fn proxy_url(config: &ClientConfig, p: &crate::client::ResolvedProxy) -> Result<String, HttpError> {
+    if p.ureq.protocol() != ureq::ProxyProtocol::Http {
+        return Ok(p.url.clone());
+    }
+    let policy = &config.address_policy;
+    let addrs = match policy.fixed_addrs(&p.host) {
+        Some(a) => a,
+        None => policy
+            .lookup_blocking(&p.host, p.port, Some(Duration::from_secs(10)))
+            .map_err(|_| HttpError::transport("proxy host not found", Phase::Connect))?,
+    };
+    let ip = addrs
+        .first()
+        .ok_or_else(|| HttpError::transport("proxy host not found", Phase::Connect))?;
+    Ok(match ip {
+        std::net::IpAddr::V4(v4) => format!("http://{v4}:{}", p.port),
+        std::net::IpAddr::V6(v6) => format!("http://[{v6}]:{}", p.port),
+    })
 }
 
 fn map_reqwest_error(err: reqwest::Error) -> HttpError {
@@ -691,5 +954,39 @@ fn map_reqwest_error_in(err: reqwest::Error, default: Phase) -> HttpError {
         HttpError::InvalidRequest(message)
     } else {
         HttpError::transport(message, phase)
+    }
+}
+
+#[cfg(test)]
+mod tls_tests {
+    use super::*;
+    use crate::client::TrustRoots;
+
+    #[test]
+    fn both_branches_install_an_explicit_config_that_advertises_http1_only() {
+        for trust in [TrustRoots::Platform, TrustRoots::Bundled] {
+            let built = build_tls(trust, &[]).unwrap();
+            assert_eq!(built.config.alpn_protocols, vec![b"http/1.1".to_vec()]);
+            assert_eq!(built.kind, trust.verifier_kind());
+        }
+    }
+
+    #[test]
+    fn bundled_is_exactly_the_mozilla_roots_and_platform_has_no_store() {
+        let bundled = build_tls(TrustRoots::Bundled, &[]).unwrap();
+        assert_eq!(bundled.anchors, webpki_roots::TLS_SERVER_ROOTS.len());
+        assert!(bundled.anchors > 100);
+        let platform = build_tls(TrustRoots::Platform, &[]).unwrap();
+        assert_eq!(platform.anchors, 0);
+        // A registered test root must be a certificate.
+        assert!(build_tls(TrustRoots::Bundled, &[vec![1, 2, 3]]).is_err());
+    }
+
+    #[test]
+    fn clients_report_the_verifier_that_was_installed() {
+        let c = AsyncClient::new(ClientConfig::default()).unwrap();
+        assert_eq!(c.verifier_kind(), "platform");
+        let c = AsyncClient::new(ClientConfig::default().trust(TrustRoots::Bundled)).unwrap();
+        assert_eq!(c.verifier_kind(), "bundled");
     }
 }

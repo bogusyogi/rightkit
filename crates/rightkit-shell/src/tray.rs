@@ -160,7 +160,7 @@ pub fn install(
             let id = event.id.as_ref();
             match id {
                 ID_SHOW => crate::windows::reveal(app, None),
-                ID_QUIT => crate::lifecycle::quit(app),
+                ID_QUIT => crate::lifecycle::request_quit(app, "tray"),
                 other
                     if app.state::<ShellState>().tray.as_ref().is_some_and(|t| {
                         t.ids

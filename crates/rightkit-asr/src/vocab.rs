@@ -24,10 +24,14 @@ impl Vocabulary {
             let line =
                 line.map_err(|e| Error::Config(format!("Failed to read vocab file: {}", e)))?;
 
+            // CR/LF from Windows-edited files: strip them from the line, the token
+            // and the id field so `"<tok> 12\r"` parses as id 12.
+            let line = line.trim_end_matches(['\r', '\n']);
             let parts: Vec<&str> = line.splitn(2, ' ').collect();
             if parts.len() == 2 {
-                let token = parts[0].to_string();
+                let token = parts[0].trim_end_matches('\r').to_string();
                 let id: usize = parts[1]
+                    .trim()
                     .parse()
                     .map_err(|e| Error::Config(format!("Invalid token ID in vocab: {}", e)))?;
 
@@ -147,5 +151,24 @@ mod tests {
         let vocab = make_vocab(&["▁hello", "<blk>"]);
         assert_eq!(vocab.encode_phrase_greedy("Zephyr"), None);
         assert_eq!(vocab.encode_phrase_greedy("   "), None);
+    }
+}
+
+#[cfg(test)]
+mod crlf_tests {
+    use super::Vocabulary;
+
+    #[test]
+    fn crlf_lines_and_ids_parse_without_carriage_returns() {
+        let dir = std::env::temp_dir().join(format!("rk-asr-vocab-crlf-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("vocab.txt");
+        std::fs::write(&path, "<blk> 0\r\n\u{2581}hello 1\r\nworld 2\r\n").unwrap();
+        let v = Vocabulary::from_file(&path).unwrap();
+        assert_eq!(v.size(), 3);
+        assert_eq!(v.id_to_text(0), Some("<blk>"));
+        assert_eq!(v.id_to_text(1), Some("\u{2581}hello"));
+        assert_eq!(v.id_to_text(2), Some("world"));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

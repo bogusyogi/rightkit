@@ -86,8 +86,17 @@ pub fn run_root(root: &Path, app: &str, run_id: &str) -> Result<PathBuf> {
     Ok(result)
 }
 
+/// Resolves a trusted root once, before [`ensure_dir`] walks it. The root is created if missing
+/// and canonicalised, so an OS-level alias above it is resolved rather than refused: on macOS
+/// `/var` and `/tmp` are symlinks into `/private`, and `std::env::temp_dir()` lives under `/var`.
+/// Components below the returned path are still checked by [`ensure_dir`].
+fn trusted_root(root: &Path) -> Result<PathBuf> {
+    fs::create_dir_all(root)?;
+    Ok(fs::canonicalize(root)?)
+}
+
 pub(crate) fn prepare_app_root(root: &Path, app: &str) -> Result<PathBuf> {
-    let root = managed_root(Some(root));
+    let root = trusted_root(&managed_root(Some(root)))?;
     let app = safe_key(app, "app")?;
     ensure_dir(&root)?;
     ensure_dir(&root.join("runs"))?;
@@ -102,17 +111,20 @@ pub fn create(
     run_id: Option<&str>,
     lease: Duration,
 ) -> Result<ManagedRun> {
-    let root = managed_root(root);
+    let root = trusted_root(&managed_root(root))?;
     let app = safe_key(app, "app")?;
     let id = match run_id {
         Some(id) => safe_key(id, "run id")?,
         None => new_id(),
     };
     let app_root = root.join("runs").join(&app);
-    with_lock(&app_root, || {
-        ensure_dir(&root)?;
-        ensure_dir(&root.join("runs"))?;
-        ensure_dir(&app_root)?;
+    ensure_dir(&root)?;
+    ensure_dir(&root.join("runs"))?;
+    ensure_dir(&app_root)?;
+    // The retention lock guards only the prune pass. A second starter does not wait for it and does
+    // not fail: another process is already pruning this app, so it skips its own pass and starts.
+    // Parallel scenarios in one binary, or in several processes, all proceed.
+    if let Some(guard) = try_lock(&app_root, Duration::ZERO)? {
         let mut report = RetentionReport::default();
         prune_unlocked(
             &app_root,
@@ -123,32 +135,38 @@ pub fn create(
             &[],
             &mut report,
         )?;
+        drop(guard);
         if report.over_cap_bytes > 0 {
             return err(format!(
                 "QA retention cap is blocked by {} bytes of protected or unknown data",
                 report.over_cap_bytes
             ));
         }
-        let run = run_root(&root, &app, &id)?;
-        if run.exists() {
+    }
+    let run = run_root(&root, &app, &id)?;
+    // `create_dir` is the atomic claim on the run id, so no lock is needed to make it unique.
+    match fs::create_dir(&run) {
+        Ok(()) => {}
+        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
             return err(format!("QA run already exists: {}", run.display()));
         }
-        fs::create_dir_all(run.join("data"))?;
-        fs::create_dir_all(run.join("evidence"))?;
-        let now = now_ms();
-        let marker = RunMarker {
-            schema_version: 1,
-            app: app.clone(),
-            run_id: id.clone(),
-            created_at: now,
-            owner_pid: std::process::id(),
-            lease_until: now.saturating_add(lease.as_millis().max(1)),
-            completed_at: None,
-            app_root: None,
-        };
-        write_marker(&run, &marker)?;
-        Ok(ManagedRun { root: run, marker })
-    })
+        Err(e) => return Err(e.into()),
+    }
+    fs::create_dir_all(run.join("data"))?;
+    fs::create_dir_all(run.join("evidence"))?;
+    let now = now_ms();
+    let marker = RunMarker {
+        schema_version: 1,
+        app: app.clone(),
+        run_id: id.clone(),
+        created_at: now,
+        owner_pid: std::process::id(),
+        lease_until: now.saturating_add(lease.as_millis().max(1)),
+        completed_at: None,
+        app_root: None,
+    };
+    write_marker(&run, &marker)?;
+    Ok(ManagedRun { root: run, marker })
 }
 
 pub fn finish(run: &ManagedRun) -> Result<RunMarker> {
@@ -191,10 +209,46 @@ pub(crate) fn app_temp_dir() -> PathBuf {
     std::env::temp_dir()
 }
 
+/// Environment variable that moves QA app homes: homes go under `<value>/rightkit-qa/`.
+/// Must be an absolute path. Unset or empty keeps the system default ([`app_temp_dir`]).
+///
+/// The default is NOT the managed data root: on macOS a launchd-started app cannot open its
+/// live log on an external volume (`open` fails with -10810, see `control::launch`) and the
+/// app's control socket path must fit `sockaddr_un`, so homes stay on internal storage unless the
+/// caller opts in with this variable.
+pub const HOME_ROOT_ENV: &str = "RIGHTKIT_QA_HOME_ROOT";
+/// Set to `0` to skip the automatic home sweep at workspace creation.
+pub const HOME_SWEEP_ENV: &str = "RIGHTKIT_QA_HOME_SWEEP";
+/// Minimum time between automatic home sweeps, across processes (stamp file in the homes dir).
+const SWEEP_INTERVAL: Duration = Duration::from_secs(10 * 60);
+/// Default bound on the bytes held by app homes that are not protected as live or young.
+pub const DEFAULT_HOME_MAX_BYTES: u64 = 4_000_000_000;
+
+fn home_base_from(override_value: Option<&std::ffi::OsStr>) -> PathBuf {
+    match override_value {
+        Some(v) if !v.is_empty() && Path::new(v).is_absolute() => PathBuf::from(v),
+        _ => app_temp_dir(),
+    }
+}
+
+/// The directory that holds `rightkit-qa/`: the override, else [`app_temp_dir`].
+pub(crate) fn home_base() -> PathBuf {
+    home_base_from(std::env::var_os(HOME_ROOT_ENV).as_deref())
+}
+
 pub(crate) fn create_app_root(run: &mut ManagedRun) -> Result<PathBuf> {
-    let parent = app_temp_dir().join("rightkit-qa");
+    let parent = trusted_root(&home_base())?.join("rightkit-qa");
     ensure_dir(&parent)?;
     let parent = fs::canonicalize(parent)?;
+    // Unit tests of this crate run against the developer's real homes directory; never sweep it.
+    let sweep = !cfg!(test) && std::env::var(HOME_SWEEP_ENV).map_or(true, |v| v.trim() != "0");
+    if sweep {
+        sweep_homes_throttled(&parent);
+    }
+    create_app_root_in(run, &parent)
+}
+
+fn create_app_root_in(run: &mut ManagedRun, parent: &Path) -> Result<PathBuf> {
     let label: String = run.marker.app.chars().take(16).collect();
     let home = parent.join(format!("{}-{}", label, &new_id().replace('-', "")[..16]));
     fs::create_dir(&home)?;
@@ -211,6 +265,231 @@ pub(crate) fn create_app_root(run: &mut ManagedRun) -> Result<PathBuf> {
     Ok(home)
 }
 
+/// What a home sweep removes: homes whose run is over (or whose run record is gone) and that are
+/// older than `young`, then the oldest inactive homes until the rest fit `max_bytes`.
+#[derive(Debug, Clone, Copy)]
+pub struct HomePolicy {
+    pub young: Duration,
+    pub max_bytes: u64,
+}
+
+impl Default for HomePolicy {
+    fn default() -> Self {
+        Self {
+            young: Duration::from_millis(DEFAULT_YOUNG_MS as u64),
+            max_bytes: DEFAULT_HOME_MAX_BYTES,
+        }
+    }
+}
+
+#[derive(Debug, Default, Clone)]
+pub struct HomeSweepReport {
+    /// (home, bytes, reason). With `dry_run` these are what would be removed.
+    pub removed: Vec<(PathBuf, u64, String)>,
+    pub retained: Vec<(PathBuf, String)>,
+    /// Bytes of every home found, before removal.
+    pub total_bytes: u64,
+    pub removed_bytes: u64,
+}
+
+struct HomeEntry {
+    dir: PathBuf,
+    bytes: u64,
+    /// Milliseconds since the epoch the home was last known to be in use or created.
+    stamp: u128,
+    kind: HomeKind,
+}
+
+enum HomeKind {
+    /// Run record present and live (owner alive or lease unexpired).
+    Active,
+    /// Run record present, run over.
+    Finished,
+    /// Run record missing or not matching: nothing else will ever reclaim this home.
+    Orphan,
+}
+
+fn modified_ms(path: &Path) -> Option<u128> {
+    fs::symlink_metadata(path)
+        .ok()?
+        .modified()
+        .ok()?
+        .duration_since(std::time::UNIX_EPOCH)
+        .ok()
+        .map(|d| d.as_millis())
+}
+
+/// Bytes under `dir`, skipping symlinks and unreadable entries (a size estimate, not a proof).
+fn tree_bytes(dir: &Path) -> u64 {
+    let mut total = 0u64;
+    let mut stack = vec![dir.to_path_buf()];
+    while let Some(d) = stack.pop() {
+        let Ok(entries) = fs::read_dir(&d) else {
+            continue;
+        };
+        for e in entries.flatten() {
+            let Ok(ft) = e.file_type() else { continue };
+            if ft.is_dir() {
+                stack.push(e.path());
+            } else if ft.is_file() {
+                total = total.saturating_add(e.metadata().map(|m| m.len()).unwrap_or(0));
+            }
+        }
+    }
+    total
+}
+
+/// Sweep app homes under `parent` (the `.../rightkit-qa` directory). Marker-driven pruning only
+/// reaches homes whose run record still exists; this pass also reclaims homes left by killed
+/// processes and tests whose run root was deleted. A home is never removed while its run is
+/// live, while it is younger than the policy window and unowned, or when it has no binding file
+/// (it may not be ours). `dry_run` reports without deleting.
+pub fn sweep_homes(parent: &Path, policy: HomePolicy, dry_run: bool) -> HomeSweepReport {
+    let mut report = HomeSweepReport::default();
+    if parent.file_name().is_none_or(|n| n != "rightkit-qa") || !safe_dir(parent) {
+        return report;
+    }
+    let Ok(canonical_parent) = fs::canonicalize(parent) else {
+        return report;
+    };
+    let Ok(entries) = fs::read_dir(&canonical_parent) else {
+        return report;
+    };
+    let now = now_ms();
+    let young_ms = policy.young.as_millis();
+    let mut entries_found: Vec<HomeEntry> = Vec::new();
+    for entry in entries.flatten() {
+        let name = entry.file_name().to_string_lossy().into_owned();
+        let Ok(ft) = entry.file_type() else { continue };
+        if !ft.is_dir() || ft.is_symlink() || name.starts_with('.') {
+            continue;
+        }
+        let dir = entry.path();
+        let binding_path = dir.join(".rightkit-app.json");
+        let Some(binding) = fs::read(&binding_path)
+            .ok()
+            .and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).ok())
+        else {
+            report
+                .retained
+                .push((dir, "no readable binding file: not proven ours".into()));
+            continue;
+        };
+        let bytes = tree_bytes(&dir);
+        report.total_bytes = report.total_bytes.saturating_add(bytes);
+        let field = |k: &str| binding.get(k).and_then(|v| v.as_str()).map(str::to_owned);
+        let marker = field("runRoot")
+            .and_then(|root| read_marker(&Path::new(&root).join(RUN_MARKER)))
+            .filter(|m| {
+                Some(&m.app) == field("app").as_ref()
+                    && Some(&m.run_id) == field("runId").as_ref()
+                    && m.app_root.as_deref().is_some_and(|r| r == dir)
+            });
+        let (kind, stamp) = match marker {
+            Some(m) if marker_active(&m, now) => (HomeKind::Active, m.created_at),
+            Some(m) => (HomeKind::Finished, m.completed_at.unwrap_or(m.created_at)),
+            None => {
+                let stamp = modified_ms(&binding_path)
+                    .into_iter()
+                    .chain(modified_ms(&dir))
+                    .max()
+                    .unwrap_or(now);
+                (HomeKind::Orphan, stamp)
+            }
+        };
+        entries_found.push(HomeEntry {
+            dir,
+            bytes,
+            stamp,
+            kind,
+        });
+    }
+    entries_found.sort_by_key(|e| e.stamp);
+
+    let mut remaining = report.total_bytes;
+    let mut doomed: Vec<(usize, &'static str)> = Vec::new();
+    for (i, e) in entries_found.iter().enumerate() {
+        let aged = now.saturating_sub(e.stamp) >= young_ms;
+        match e.kind {
+            HomeKind::Active => report.retained.push((e.dir.clone(), "active run".into())),
+            _ if !aged => {}
+            HomeKind::Finished => doomed.push((i, "run over and older than the window")),
+            HomeKind::Orphan => doomed.push((i, "run record gone and older than the window")),
+        }
+    }
+    for (i, _) in &doomed {
+        remaining = remaining.saturating_sub(entries_found[*i].bytes);
+    }
+    // Size bound: oldest finished homes go next, whatever their age. Orphans are unproven dead
+    // when young, so they stay.
+    // Only when it can work: deleting finished homes that still leave the total over the bound
+    // (live or young homes hold the rest) would lose debugging state for nothing.
+    let finished_pool: u64 = entries_found
+        .iter()
+        .enumerate()
+        .filter(|(i, e)| {
+            matches!(e.kind, HomeKind::Finished) && !doomed.iter().any(|(d, _)| d == i)
+        })
+        .map(|(_, e)| e.bytes)
+        .sum();
+    if remaining > policy.max_bytes && remaining.saturating_sub(finished_pool) <= policy.max_bytes {
+        for (i, e) in entries_found.iter().enumerate() {
+            if remaining <= policy.max_bytes {
+                break;
+            }
+            if matches!(e.kind, HomeKind::Finished) && !doomed.iter().any(|(d, _)| *d == i) {
+                doomed.push((i, "run over; homes exceed the size bound"));
+                remaining = remaining.saturating_sub(e.bytes);
+            }
+        }
+    }
+    let doomed_idx: std::collections::HashSet<usize> = doomed.iter().map(|(i, _)| *i).collect();
+    for (i, reason) in doomed {
+        let e = &entries_found[i];
+        let removable = safe_dir(&e.dir)
+            && fs::canonicalize(&e.dir)
+                .is_ok_and(|c| c == e.dir && c.parent() == Some(canonical_parent.as_path()));
+        if !removable {
+            report
+                .retained
+                .push((e.dir.clone(), "path is not a plain home directory".into()));
+            continue;
+        }
+        if !dry_run {
+            if let Err(error) = fs::remove_dir_all(&e.dir) {
+                report.retained.push((e.dir.clone(), error.to_string()));
+                continue;
+            }
+        }
+        report.removed_bytes = report.removed_bytes.saturating_add(e.bytes);
+        report
+            .removed
+            .push((e.dir.clone(), e.bytes, reason.to_string()));
+    }
+    for (i, e) in entries_found.iter().enumerate() {
+        if !doomed_idx.contains(&i) && !matches!(e.kind, HomeKind::Active) {
+            report
+                .retained
+                .push((e.dir.clone(), "younger than the window".into()));
+        }
+    }
+    report
+}
+
+/// [`sweep_homes`] with the default policy, at most once per [`SWEEP_INTERVAL`] across processes.
+/// Never fails the caller.
+fn sweep_homes_throttled(parent: &Path) {
+    let stamp = parent.join(".last-sweep");
+    let due = modified_ms(&stamp)
+        .is_none_or(|t| now_ms().saturating_sub(t) >= SWEEP_INTERVAL.as_millis());
+    if !due {
+        return;
+    }
+    // Claim the interval first so concurrent starters do not all walk the tree.
+    let _ = fs::write(&stamp, now_ms().to_string());
+    let _ = sweep_homes(parent, HomePolicy::default(), false);
+}
+
 fn owned_app_root(root: &Path, marker: &RunMarker) -> Result<Option<PathBuf>> {
     let Some(home) = &marker.app_root else {
         return Ok(None);
@@ -225,6 +504,7 @@ fn owned_app_root(root: &Path, marker: &RunMarker) -> Result<Option<PathBuf>> {
         .parent()
         .ok_or_else(|| crate::util::Error("invalid QA app temp root".into()))?;
     let allowed_temp = temp == fs::canonicalize(app_temp_dir())?
+        || fs::canonicalize(home_base()).is_ok_and(|base| temp == base)
         || (cfg!(target_os = "macos")
             && (temp == Path::new("/private/tmp")
                 || (temp.starts_with("/private/var/folders")
@@ -346,7 +626,8 @@ fn prune_with_policy_count(
     if !safe_dir(&app_root) {
         return Ok(initial);
     }
-    with_lock(&app_root, || {
+    let _guard = lock_or_wait(&app_root, PRUNE_LOCK_WAIT)?;
+    {
         let mut report = RetentionReport::default();
         prune_unlocked(
             &app_root,
@@ -358,7 +639,7 @@ fn prune_with_policy_count(
             &mut report,
         )?;
         Ok(report)
-    })
+    }
 }
 
 fn prune_unlocked(
@@ -506,14 +787,39 @@ fn prune_unlocked(
     Ok(())
 }
 
-fn with_lock<T>(app_root: &Path, body: impl FnOnce() -> Result<T>) -> Result<T> {
+/// How long an explicit prune waits for another prune of the same app before it reports
+/// [`LOCK_HELD`]. Pruning a large tree takes seconds, so this is generous.
+const PRUNE_LOCK_WAIT: Duration = Duration::from_secs(120);
+/// A lock directory with no owner file this old was abandoned between `mkdir` and the owner write.
+const OWNERLESS_LOCK_GRACE: Duration = Duration::from_secs(30);
+/// Prefix of the error message for a retention lock that stayed held. [`is_lock_held`] tests for it.
+pub const LOCK_HELD: &str = "QA retention lock is held";
+
+/// True when `error` is the retention lock staying held past an explicit prune's wait.
+pub fn is_lock_held(error: &crate::util::Error) -> bool {
+    error.0.starts_with(LOCK_HELD)
+}
+
+/// The retention lock, released on drop (including a panic in the prune).
+struct LockGuard(PathBuf);
+
+impl Drop for LockGuard {
+    fn drop(&mut self) {
+        let _ = fs::remove_dir_all(&self.0);
+    }
+}
+
+/// Take the lock, waiting up to `wait`. `None` means a live owner still held it.
+/// A lock whose owner process is dead, or that never got an owner file, is recovered.
+fn try_lock(app_root: &Path, wait: Duration) -> Result<Option<LockGuard>> {
     ensure_dir(app_root)?;
     let lock = app_root.join(".retention-lock");
     let owner = lock.join("owner.json");
-    let deadline = std::time::Instant::now() + Duration::from_secs(5);
+    let deadline = std::time::Instant::now() + wait;
     loop {
         match fs::create_dir(&lock) {
             Ok(()) => {
+                let guard = LockGuard(lock.clone());
                 let mut file = File::create(&owner)?;
                 write!(
                     file,
@@ -521,31 +827,44 @@ fn with_lock<T>(app_root: &Path, body: impl FnOnce() -> Result<T>) -> Result<T> 
                     std::process::id(),
                     now_ms()
                 )?;
-                break;
+                return Ok(Some(guard));
             }
             Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
                 let pid = fs::read_to_string(&owner)
                     .ok()
                     .and_then(|x| serde_json::from_str::<serde_json::Value>(&x).ok())
                     .and_then(|x| x.get("pid").and_then(|v| v.as_u64()))
-                    .and_then(|x| u32::try_from(x).ok());
-                if let Some(pid) = pid.filter(|p| *p > 0) {
-                    if !pid_live(pid) {
-                        let _ = fs::remove_dir_all(&lock);
-                        continue;
-                    }
+                    .and_then(|x| u32::try_from(x).ok())
+                    .filter(|p| *p > 0);
+                let abandoned = match pid {
+                    Some(pid) => !pid_live(pid),
+                    None => fs::metadata(&lock)
+                        .and_then(|m| m.modified())
+                        .ok()
+                        .and_then(|t| t.elapsed().ok())
+                        .is_some_and(|age| age >= OWNERLESS_LOCK_GRACE),
+                };
+                if abandoned {
+                    let _ = fs::remove_dir_all(&lock);
+                    continue;
                 }
                 if std::time::Instant::now() >= deadline {
-                    return err(format!("QA retention lock is held: {}", lock.display()));
+                    return Ok(None);
                 }
                 std::thread::sleep(Duration::from_millis(20));
             }
             Err(e) => return Err(e.into()),
         }
     }
-    let result = body();
-    let _ = fs::remove_dir_all(lock);
-    result
+}
+
+fn lock_or_wait(app_root: &Path, wait: Duration) -> Result<LockGuard> {
+    try_lock(app_root, wait)?.ok_or_else(|| {
+        crate::util::Error(format!(
+            "{LOCK_HELD}: {}",
+            app_root.join(".retention-lock").display()
+        ))
+    })
 }
 
 fn write_marker(root: &Path, marker: &RunMarker) -> Result<()> {
@@ -675,7 +994,9 @@ mod tests {
     use std::io::Write;
 
     fn temp_root(label: &str) -> PathBuf {
-        let root = std::env::temp_dir().join(format!(
+        // `app_temp_dir`, not `std::env::temp_dir`: managed paths refuse symlinks, and the managed
+        // build's TMPDIR (`/tmp`) is one on macOS.
+        let root = app_temp_dir().join(format!(
             "rkqa-storage-{label}-{}-{}",
             std::process::id(),
             new_id()
@@ -826,5 +1147,335 @@ mod tests {
         assert!(result.is_err());
         assert!(!root.join("runs/blocked/next").exists());
         let _ = fs::remove_dir_all(root);
+    }
+
+    // ---- retention lock (regression: parallel scenarios failed with "lock is held") ----
+
+    fn dead_pid() -> u32 {
+        let mut child = std::process::Command::new(if cfg!(windows) { "cmd" } else { "true" })
+            .args(if cfg!(windows) {
+                vec!["/C", "exit"]
+            } else {
+                vec![]
+            })
+            .spawn()
+            .unwrap();
+        let pid = child.id();
+        child.wait().unwrap();
+        pid
+    }
+
+    #[test]
+    fn a_starter_does_not_wait_for_or_fail_on_a_held_prune_lock() {
+        let root = temp_root("lock-held");
+        let first = create(Some(&root), "app", Some("one"), Duration::from_secs(60)).unwrap();
+        let app_root = first.root.parent().unwrap().to_path_buf();
+        let guard = try_lock(&app_root, Duration::ZERO)
+            .unwrap()
+            .expect("lock is free");
+        let started = std::time::Instant::now();
+        let second = create(Some(&root), "app", Some("two"), Duration::from_secs(60)).unwrap();
+        assert!(
+            started.elapsed() < Duration::from_secs(2),
+            "starter waited on the lock"
+        );
+        assert!(second.root.join(RUN_MARKER).exists());
+        drop(guard);
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn parallel_starters_in_one_process_all_proceed() {
+        let root = temp_root("lock-threads");
+        let handles: Vec<_> = (0..8)
+            .map(|i| {
+                let root = root.clone();
+                std::thread::spawn(move || {
+                    create(
+                        Some(&root),
+                        "app",
+                        Some(&format!("run{i}")),
+                        Duration::from_secs(60),
+                    )
+                    .map(|r| r.root)
+                })
+            })
+            .collect();
+        for h in handles {
+            let run = h.join().unwrap().expect("every starter proceeds");
+            assert!(run.join(RUN_MARKER).exists());
+        }
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    /// Child half of `parallel_starters_in_two_processes_all_proceed`: inert unless driven.
+    #[test]
+    fn child_starter_for_the_two_process_test() {
+        let (Some(root), Some(id)) = (
+            std::env::var_os("RKQA_TEST_LOCK_ROOT"),
+            std::env::var_os("RKQA_TEST_LOCK_ID"),
+        ) else {
+            return;
+        };
+        let started = std::time::Instant::now();
+        create(
+            Some(Path::new(&root)),
+            "app",
+            id.to_str(),
+            Duration::from_secs(60),
+        )
+        .unwrap();
+        assert!(started.elapsed() < Duration::from_secs(20));
+    }
+
+    #[test]
+    fn parallel_starters_in_two_processes_all_proceed() {
+        let root = temp_root("lock-procs");
+        let exe = std::env::current_exe().unwrap();
+        let spawned: Vec<_> = (0..3)
+            .map(|i| {
+                std::process::Command::new(&exe)
+                    .args([
+                        "--exact",
+                        "storage::tests::child_starter_for_the_two_process_test",
+                        "--nocapture",
+                    ])
+                    .env("RKQA_TEST_LOCK_ROOT", &root)
+                    .env("RKQA_TEST_LOCK_ID", format!("par{i}"))
+                    .stdout(std::process::Stdio::piped())
+                    .stderr(std::process::Stdio::piped())
+                    .spawn()
+                    .unwrap()
+            })
+            .collect();
+        for child in spawned {
+            let out = child.wait_with_output().unwrap();
+            assert!(
+                out.status.success(),
+                "{}",
+                String::from_utf8_lossy(&out.stdout)
+            );
+        }
+        for i in 0..3 {
+            assert!(root
+                .join("runs/app")
+                .join(format!("par{i}"))
+                .join(RUN_MARKER)
+                .exists());
+        }
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn a_lock_held_by_a_dead_process_is_recovered() {
+        let root = temp_root("lock-dead");
+        let app_root = root.join("runs/app");
+        fs::create_dir_all(app_root.join(".retention-lock")).unwrap();
+        fs::write(
+            app_root.join(".retention-lock/owner.json"),
+            format!("{{\"pid\":{},\"createdAt\":1}}", dead_pid()),
+        )
+        .unwrap();
+        assert!(try_lock(&app_root, Duration::ZERO).unwrap().is_some());
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn an_ownerless_lock_is_recovered_only_after_the_grace_period() {
+        let root = temp_root("lock-ownerless");
+        let app_root = root.join("runs/app");
+        let lock = app_root.join(".retention-lock");
+        fs::create_dir_all(&lock).unwrap();
+        assert!(
+            try_lock(&app_root, Duration::ZERO).unwrap().is_none(),
+            "fresh: owner may be mid-write"
+        );
+        let old = std::time::SystemTime::now() - Duration::from_secs(120);
+        File::open(&lock).unwrap().set_modified(old).unwrap();
+        assert!(try_lock(&app_root, Duration::ZERO).unwrap().is_some());
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn an_explicit_prune_that_cannot_get_the_lock_fails_with_the_typed_error() {
+        let root = temp_root("lock-typed");
+        let app_root = root.join("runs/app");
+        fs::create_dir_all(&app_root).unwrap();
+        let _guard = try_lock(&app_root, Duration::ZERO).unwrap().unwrap();
+        let error = lock_or_wait(&app_root, Duration::from_millis(60))
+            .err()
+            .expect("held");
+        assert!(is_lock_held(&error), "{error}");
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    // ---- symlink guard ----
+
+    #[cfg(unix)]
+    #[test]
+    fn a_symlink_above_the_root_is_resolved_and_a_link_below_it_is_refused() {
+        let base = fs::canonicalize(temp_root("symlink-guard")).unwrap();
+        let real = base.join("real");
+        fs::create_dir_all(&real).unwrap();
+        let alias = base.join("alias");
+        std::os::unix::fs::symlink(&real, &alias).unwrap();
+
+        // The managed root sits behind an alias, the way `/var/folders/...` sits behind `/var`.
+        let run = create(
+            Some(&alias.join("managed")),
+            "app",
+            Some("alias-run"),
+            Duration::from_secs(60),
+        )
+        .unwrap();
+        assert!(run.root.starts_with(&real), "{}", run.root.display());
+
+        // A link below the root is still refused.
+        let elsewhere = base.join("elsewhere");
+        fs::create_dir_all(&elsewhere).unwrap();
+        let managed = real.join("managed");
+        std::os::unix::fs::symlink(&elsewhere, managed.join("runs/linked")).unwrap();
+        let e = ensure_dir(&managed.join("runs/linked/deeper")).unwrap_err();
+        assert!(e.0.contains("refusing symlink"), "{}", e.0);
+        let _ = fs::remove_dir_all(&base);
+    }
+
+    // ---- app home sweep ----
+
+    fn homes_parent(label: &str) -> (PathBuf, PathBuf) {
+        let root = temp_root(label);
+        let parent = fs::canonicalize(&root).unwrap().join("rightkit-qa");
+        fs::create_dir_all(&parent).unwrap();
+        (root, parent)
+    }
+
+    fn home_for(root: &Path, parent: &Path, run_id: &str, payload: usize) -> (ManagedRun, PathBuf) {
+        let mut run = create(Some(root), "app", Some(run_id), Duration::from_secs(60)).unwrap();
+        let home = create_app_root_in(&mut run, parent).unwrap();
+        fs::write(home.join("payload.bin"), vec![0u8; payload]).unwrap();
+        (run, home)
+    }
+
+    fn make_finished(run: &ManagedRun, completed_at: u128) {
+        let mut marker = read_marker(&run.root.join(RUN_MARKER)).unwrap();
+        marker.owner_pid = 0;
+        marker.lease_until = 0;
+        marker.completed_at = Some(completed_at);
+        write_marker(&run.root, &marker).unwrap();
+    }
+
+    fn make_old(path: &Path) {
+        let old = std::time::SystemTime::now() - Duration::from_secs(3 * 24 * 3600);
+        File::open(path).unwrap().set_modified(old).unwrap();
+    }
+
+    #[test]
+    fn sweep_removes_old_orphans_and_finished_homes_and_spares_the_rest() {
+        let (root, parent) = homes_parent("sweep");
+        let day = Duration::from_secs(24 * 3600);
+        let policy = HomePolicy {
+            young: day,
+            max_bytes: u64::MAX,
+        };
+
+        // Orphan (run record deleted), old: removed.
+        let (orphan_run, orphan_old) = home_for(&root, &parent, "orphan-old", 1000);
+        fs::remove_dir_all(&orphan_run.root).unwrap();
+        make_old(&orphan_old.join(".rightkit-app.json"));
+        make_old(&orphan_old);
+        // Orphan, young: kept (liveness unknown).
+        let (orphan_run2, orphan_young) = home_for(&root, &parent, "orphan-young", 1000);
+        fs::remove_dir_all(&orphan_run2.root).unwrap();
+        // Finished, old: removed.
+        let (done_run, done_old) = home_for(&root, &parent, "done-old", 1000);
+        make_finished(&done_run, 1);
+        // Finished, just now: kept.
+        let (done_run2, done_young) = home_for(&root, &parent, "done-young", 1000);
+        make_finished(&done_run2, now_ms());
+        // Active (this process owns it): kept even if the home looks old.
+        let (_active_run, active) = home_for(&root, &parent, "active", 1000);
+        make_old(&active);
+        // Not ours (no binding): kept.
+        let stranger = parent.join("stranger-0000000000000000");
+        fs::create_dir_all(&stranger).unwrap();
+        fs::write(stranger.join("x"), b"x").unwrap();
+
+        let dry = sweep_homes(&parent, policy, true);
+        assert_eq!(dry.removed.len(), 2, "{dry:?}");
+        assert!(
+            orphan_old.exists() && done_old.exists(),
+            "dry run deletes nothing"
+        );
+
+        let report = sweep_homes(&parent, policy, false);
+        assert_eq!(report.removed.len(), 2, "{report:?}");
+        assert!(!orphan_old.exists() && !done_old.exists());
+        for kept in [&orphan_young, &done_young, &active, &stranger] {
+            assert!(kept.exists(), "{} must survive", kept.display());
+        }
+        assert!(report.removed_bytes >= 2000);
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn sweep_enforces_the_size_bound_on_finished_homes_oldest_first() {
+        let (root, parent) = homes_parent("sweep-size");
+        let policy = HomePolicy {
+            young: Duration::from_secs(24 * 3600),
+            max_bytes: 5_000_000,
+        };
+        let (r1, h1) = home_for(&root, &parent, "a", 3_000_000);
+        let (r2, h2) = home_for(&root, &parent, "b", 3_000_000);
+        let (r3, h3) = home_for(&root, &parent, "c", 3_000_000);
+        let now = now_ms();
+        make_finished(&r1, now - 3000);
+        make_finished(&r2, now - 2000);
+        make_finished(&r3, now - 1000);
+        let report = sweep_homes(&parent, policy, false);
+        assert!(!h1.exists() && !h2.exists(), "{report:?}");
+        assert!(h3.exists(), "the newest finished home fits the bound");
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn sweep_keeps_finished_homes_when_the_size_bound_cannot_be_met_by_removing_them() {
+        let (root, parent) = homes_parent("sweep-unmet");
+        let policy = HomePolicy {
+            young: Duration::from_secs(24 * 3600),
+            max_bytes: 5_000_000,
+        };
+        let (_live, live_home) = home_for(&root, &parent, "live", 6_000_000);
+        let (done, done_home) = home_for(&root, &parent, "done", 1_000_000);
+        make_finished(&done, now_ms());
+        let report = sweep_homes(&parent, policy, false);
+        assert!(report.removed.is_empty(), "{report:?}");
+        assert!(live_home.exists() && done_home.exists());
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn sweep_refuses_a_parent_that_is_not_the_homes_directory() {
+        let root = temp_root("sweep-parent");
+        let victim = root.join("elsewhere");
+        fs::create_dir_all(victim.join("h")).unwrap();
+        let report = sweep_homes(&victim, HomePolicy::default(), false);
+        assert!(report.removed.is_empty());
+        assert!(victim.join("h").exists());
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn home_root_override_must_be_absolute() {
+        use std::ffi::OsStr;
+        assert_eq!(
+            home_base_from(Some(OsStr::new("/Volumes/D/qa-homes"))),
+            PathBuf::from("/Volumes/D/qa-homes")
+        );
+        assert_eq!(
+            home_base_from(Some(OsStr::new("relative/dir"))),
+            app_temp_dir()
+        );
+        assert_eq!(home_base_from(Some(OsStr::new(""))), app_temp_dir());
+        assert_eq!(home_base_from(None), app_temp_dir());
     }
 }

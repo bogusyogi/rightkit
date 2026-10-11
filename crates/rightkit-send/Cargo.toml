@@ -25,9 +25,14 @@ bonjour = []
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 rcgen = "0.13"
 sha2 = "0.10"
+rightkit-process = { version = "0.3.4", path = "../rightkit-process" }
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.150"
 sysinfo = { version = "=0.37.2", optional = true }
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2.177"
+
+[[bench]]
+name = "budget"
+harness = false

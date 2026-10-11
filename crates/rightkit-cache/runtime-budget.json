@@ -1,0 +1,34 @@
+{
+  "schema": 1,
+  "crate": "rightkit-cache",
+  "ceilings": {
+    "residentMemoryBytes": 58720256,
+    "idleCpuPercent": 1,
+    "wakeupsPerSecond": 1,
+    "diskOpsPerSecond": 1
+  },
+  "ceilingSources": {
+    "residentMemoryBytes": "rule: 2x the larger measured resident set (29024256 B over the recorded hosts), rounded up to a whole MiB; evidence runtime-budget.evidence/",
+    "idleCpuPercent": "rule: 1 percent absolute for an idle crate; measured at most 0.0 percent on the recorded hosts",
+    "wakeupsPerSecond": "rule: max(1, 2x measured) per second; macOS measured 0.033; Windows exposes no wake-up counter",
+    "diskOpsPerSecond": "rule: max(1, 2x measured) per second; Windows measured 0.0 (GetProcessIoCounters, all I/O including pipes); macOS exposes no per-process disk-operation counter"
+  },
+  "requiredScale": {
+    "unit": "entries",
+    "minCount": 100000,
+    "source": "crates/rightkit-cache/benches/budget.rs:19"
+  },
+  "status": {
+    "api": "DiskCache::status()",
+    "file": "src/disk.rs",
+    "exposes": [
+      "residentMemoryBytes",
+      "idleCpuPercent",
+      "wakeupsPerSecond",
+      "diskOpsPerSecond"
+    ],
+    "note": "The status call returns rightkit_process::ProcessUsage (resident and footprint bytes, cumulative CPU seconds, wake-up and disk-operation totals where the host reports them) beside the crate's own queue figures; the rates come from two calls (ProcessUsage::rates_since). Wake-ups are macOS only; disk operations are Windows and Linux only."
+  },
+  "measurements": [],
+  "notes": "Ceilings come from the recorded measurements by stated rules (ceilingSources); a ceiling left null names its reason below."
+}

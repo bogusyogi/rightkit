@@ -95,6 +95,16 @@ impl PriceTable {
         )
     }
 
+    /// USD cost of a completed response, or `None` when no price applies: the
+    /// route is subscription-metered, its usage is unknown, or the model is
+    /// unpriced. Prefer this over [`PriceTable::cost`] for provider responses.
+    pub fn cost_of(&self, response: &crate::types::ChatResponse) -> Option<f64> {
+        if response.metering != crate::types::Metering::PerToken || !response.usage_known {
+            return None;
+        }
+        self.cost(&response.model, &response.usage)
+    }
+
     /// USD saved by cache reads versus paying the full input price.
     pub fn cache_savings(&self, model: &str, usage: &Usage) -> Option<f64> {
         let p = self.lookup(model)?;

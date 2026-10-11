@@ -226,7 +226,7 @@ fn resolve_pause_refresh_resume_and_atomic_install() {
         .unwrap();
     assert!(!format!("{resolved:?}").contains("grant0"));
     let tmp = tempfile::tempdir().unwrap();
-    let store = Store::new(tmp.path(), "genright");
+    let store = local(Store::new(tmp.path(), "genright"));
     let options = InstallOptions::default();
     let pause = options.pause.clone();
     let error = client
@@ -296,7 +296,7 @@ fn bad_download_never_activates() {
         .resolve("genright", &pointer(), "test-license", &target())
         .unwrap();
     let tmp = tempfile::tempdir().unwrap();
-    let store = Store::new(tmp.path(), "genright");
+    let store = local(Store::new(tmp.path(), "genright"));
     assert!(matches!(
         client.install(&resolved, &store, "bad", &InstallOptions::default(), |_| {}),
         Err(RuntimeArtifactError::DigestMismatch)
@@ -401,7 +401,7 @@ fn signed_size_pin_and_cross_client_trust_are_enforced() {
         .resolve("genright", &pointer(), "test-license", &target())
         .unwrap();
     let tmp = tempfile::tempdir().unwrap();
-    let store = Store::new(tmp.path(), "genright");
+    let store = local(Store::new(tmp.path(), "genright"));
     assert!(matches!(
         client.install(
             &resolved,
@@ -431,4 +431,17 @@ fn signed_size_pin_and_cross_client_trust_are_enforced() {
         ),
         Err(RuntimeArtifactError::SignatureMismatch)
     ));
+}
+
+/// Test stores may reach the local mock server on 127.0.0.1 and nothing else.
+fn local(store: Store) -> Store {
+    store
+        .with_http_options(rightkit_models::http::ModelHttpOptions {
+            proxy: rightkit_models::http::ProxyMode::None,
+            ..Default::default()
+        })
+        .with_address_policy(
+            rightkit_http::AddressPolicy::public_web()
+                .allow_if(vec!["127.0.0.1".to_string()], |ip| ip.is_loopback()),
+        )
 }

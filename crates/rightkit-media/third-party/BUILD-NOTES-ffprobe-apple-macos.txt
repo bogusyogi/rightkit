@@ -1,0 +1,33 @@
+FFprobe 7.1.5 -- "decode-apple" LGPL static build for macOS arm64 and x86_64
+Built by CutRight's release cache build b5-003 (/Volumes/D/.rightsuite-release-cache/
+ffmpeg-b5-003-arm64/install for the arm64 slice). Retained bytes:
+/Volumes/D/rightkit-publish/artifacts/ffprobe-7.1.5-lgpl/macos-arm64/ffprobe is a UNIVERSAL
+file (x86_64 + arm64, 30673768 bytes, sha256
+96fadf60eae56f60d75641f1ddfdc57ac955653e92776da82a8ba09521b9ce35) despite its directory
+name; configuration.txt beside it describes the arm64 slice only.
+
+Configure (arm64, from configuration.txt and the binary's banner):
+  --prefix=<build-host cache path> --disable-gpl --disable-nonfree --disable-autodetect
+  --enable-static --disable-shared --disable-doc --disable-debug --disable-ffplay
+  --enable-small --enable-videotoolbox --enable-audiotoolbox --arch=arm64
+  --cc='clang -arch arm64' --target-os=darwin
+Configure (x86_64 slice, read from its embedded configuration string): the same flags with
+  --arch=x86_64 --cc='clang -arch x86_64' --enable-cross-compile --target-os=darwin and no
+  --prefix.
+Both satisfy the policy flags (--disable-gpl --disable-nonfree --disable-autodetect). They
+add VideoToolbox and AudioToolbox, Apple system frameworks, so this is its own variant,
+`decode-apple`, whose rows must require both flags; the plain `decode` ffprobe rows were
+built without them. No third-party library is linked.
+
+Source: FFmpeg 7.1.5 per the binary's version banner. The builder recorded no source
+digest; the catalog row reuses the pinned upstream digest
+de668509caf9e35e3cd162473441fdb29538c6d96ed080292b3cf9e6fc5d558f (UNVERIFIED for this
+build).
+License: LGPL v2.1+ (no GPL/nonfree flag in either configuration string).
+
+Identity (catalog `contentSha256`, signature-independent; see src/content_digest.rs)
+  arm64   contentSha256 07bc9a70fdb0eedb600f90acecd6a3eb6e70c43ecdbbf94491b99346de6170a8
+  x86_64  contentSha256 31dbd75f4a09fb3649c1f34ddeb5f608316f3928799b6c65284a7b29cb4e341a
+  Both rows record the retained universal file's sha256 and size as provenance.
+Verified: the arm64 slice ran on the build host (-version). The x86_64 slice was not
+executed (no Rosetta); its configuration was read statically.

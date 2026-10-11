@@ -31,6 +31,24 @@ const SECRET_NAME_PARTS: [&str; 8] = [
     "password",
 ];
 
+/// `https_only` rule for one URL (the first request when `redirect` is false, otherwise a
+/// redirect target). Runs before anything is sent to the URL.
+pub(crate) fn require_https(
+    https_only: bool,
+    scheme: &str,
+    host: &str,
+    redirect: bool,
+) -> Result<(), crate::error::HttpError> {
+    if !https_only || scheme.eq_ignore_ascii_case("https") {
+        return Ok(());
+    }
+    Err(crate::error::HttpError::HttpsRequired {
+        host: host.to_string(),
+        scheme: scheme.to_ascii_lowercase(),
+        redirect,
+    })
+}
+
 pub(crate) fn is_redirect_status(status: u16) -> bool {
     (300..400).contains(&status) && status != 304
 }
@@ -49,12 +67,17 @@ pub(crate) fn redirect_method(status: u16, method: Method) -> Option<Method> {
     })
 }
 
+/// True for header names that carry credentials or cookies (including `set-cookie`).
+pub(crate) fn is_secret_header_name(name: &str) -> bool {
+    let lower = name.to_ascii_lowercase();
+    SECRET_NAME_PARTS.iter().any(|p| lower.contains(p))
+}
+
 /// Drop headers that must not follow a request to another origin: credential-named
 /// headers, and any header whose value contains a recorded secret value.
 pub(crate) fn strip_cross_origin(headers: &mut Vec<(String, String)>, secrets: &[String]) {
     headers.retain(|(name, value)| {
-        let lower = name.to_ascii_lowercase();
-        let by_name = SECRET_NAME_PARTS.iter().any(|p| lower.contains(p));
+        let by_name = is_secret_header_name(name);
         let by_value = secrets
             .iter()
             .any(|s| !s.is_empty() && value.contains(s.as_str()));
@@ -82,6 +105,26 @@ pub(crate) fn origin(url: &str) -> Option<(String, String, u16)> {
     let host = crate::netpolicy::normalize_host(uri.host()?);
     let port = uri.port_u16().unwrap_or_else(|| default_port(&scheme));
     Some((scheme, host, port))
+}
+
+/// Scheme of an absolute URL, lowercased.
+pub(crate) fn scheme_of(url: &str) -> Option<String> {
+    let uri: Uri = url.parse().ok()?;
+    Some(uri.scheme_str()?.to_ascii_lowercase())
+}
+
+/// Host of an absolute URL exactly as written (case, trailing dot and legacy IPv4 spelling
+/// kept), for the non-canonical spelling check.
+#[cfg(feature = "async")]
+pub(crate) fn raw_host_of(url: &str) -> Option<String> {
+    let uri: Uri = url.parse().ok()?;
+    Some(uri.host()?.to_string())
+}
+
+/// Host of an absolute URL, as `ureq` will connect to it.
+pub(crate) fn host_of(url: &str) -> Option<String> {
+    let uri: Uri = url.parse().ok()?;
+    Some(crate::netpolicy::normalize_host(uri.host()?))
 }
 
 /// Resolve a `Location` value against the URL of the request that produced it. Returns
@@ -223,5 +266,29 @@ mod tests {
             headers,
             vec![("Accept".to_string(), "text/plain".to_string())]
         );
+    }
+
+    #[test]
+    fn https_only_refuses_every_non_https_scheme_and_names_the_hop() {
+        use crate::error::HttpError;
+        assert!(require_https(false, "http", "h", false).is_ok());
+        assert!(require_https(true, "https", "h", false).is_ok());
+        assert!(require_https(true, "HTTPS", "h", true).is_ok());
+        for scheme in ["http", "HTTP", "ftp", "ws", ""] {
+            for hop in [false, true] {
+                match require_https(true, scheme, "h", hop) {
+                    Err(HttpError::HttpsRequired {
+                        scheme: s,
+                        redirect,
+                        host,
+                    }) => {
+                        assert_eq!(s, scheme.to_ascii_lowercase());
+                        assert_eq!(redirect, hop);
+                        assert_eq!(host, "h");
+                    }
+                    other => panic!("{scheme:?}: {other:?}"),
+                }
+            }
+        }
     }
 }

@@ -57,7 +57,14 @@ mod model_transducer;
 mod onnx_beam;
 mod model_unified;
 mod nemotron;
+// HF tokenizer users (CTC, EOU, Cohere, Whisper CoreML) are gated behind the
+// `whisper-tokenizers` feature so the Parakeet CoreML / ONNX TDT paths build
+// without the tokenizers C dependency.
+#[cfg(feature = "whisper-tokenizers")]
+mod decoder_ctc;
+#[cfg(feature = "whisper-tokenizers")]
 mod parakeet;
+#[cfg(feature = "whisper-tokenizers")]
 mod parakeet_eou;
 mod parakeet_tdt;
 mod parakeet_unified;
@@ -86,28 +93,42 @@ pub mod parakeet_coreml;
 
 pub use error::{Error, Result};
 pub use execution::{ExecutionProvider, ModelConfig as ExecutionConfig};
+#[cfg(feature = "whisper-tokenizers")]
 pub use parakeet::Parakeet;
 pub use parakeet_tdt::ParakeetTDT;
-pub use transducer::{BeamOptions, Transducer, TransducerOptions};
+pub use transducer::{BeamOptions, StrictLayout, Transducer, TransducerOptions};
 pub use timestamps::{process_timestamps, TimestampMode};
 pub use transcriber::*;
-pub use whisper::{Language, Whisper, WhisperCpp, WhisperModel, WhisperOptions};
+pub use whisper::{
+    is_whisper_language, samples_to_ms, validate_language, DecodeMode, Language, LanguageDetection,
+    Whisper, WhisperCpp, WhisperModel, WhisperOptions, WhisperSegment, WhisperTranscript, WhisperWord,
+    WHISPER_LANGUAGES, WHISPER_SAMPLE_RATE,
+};
+pub use audio::AudioSource;
 #[cfg(target_os = "macos")]
-pub use whisper::{ComputeUnits, WhisperCoreMl};
+pub use whisper::ComputeUnits;
+#[cfg(all(target_os = "macos", feature = "whisper-tokenizers"))]
+pub use whisper::WhisperCoreMl;
 pub use routing::{select_engine, Availability, EngineKind, EngineSelection, RoutingPolicy};
 pub use chunked::{transcribe_spans, ChunkResult};
 #[cfg(target_os = "macos")]
 pub use parakeet_coreml::{CoreMlParakeet, CoreMlParakeetOptions, LongFormTranscript, PipelineMeta};
-pub use longform::{LongFormOptions, LongFormProgress, SeamPolicy, TimedExports, TimedWord};
+pub use longform::{
+    pad_terminal_silence, samples_to_secs, LongFormOptions, LongFormProgress, PadPolicy, SeamPolicy,
+    TimedExports, TimedWord,
+};
 
 pub use config::{ModelConfig as ModelConfigJson, PreprocessorConfig};
 
-pub use decoder::{ParakeetDecoder, TimedToken, TranscriptionResult};
+pub use decoder::{TimedPiece, TimedToken, TranscriptionResult};
+#[cfg(feature = "whisper-tokenizers")]
+pub use decoder_ctc::ParakeetDecoder;
 pub use model::ParakeetModel;
 pub use model_eou::ParakeetEOUModel;
 pub use model_nemotron::{NemotronEncoderCache, NemotronModel, NemotronModelConfig};
 pub use model_unified::{ParakeetUnifiedModel, UnifiedModelConfig};
 pub use nemotron::{Nemotron, NemotronHandle, SentencePieceVocab};
+#[cfg(feature = "whisper-tokenizers")]
 pub use parakeet_eou::{ParakeetEOU, ParakeetEOUHandle};
 pub use parakeet_unified::{ParakeetUnified, ParakeetUnifiedHandle, UnifiedStreamingConfig};
 

@@ -3,35 +3,69 @@
 //! Geometry is normalised so one document renders at preview and export
 //! resolution without edits: canvas positions and sizes are fractions of the
 //! canvas (0..=1), source crops are fractions of the source frame, and clip,
-//! shadow and blur sizes are fractions of the shorter canvas side. Times are
-//! integer milliseconds on the composition timeline; keyframes are local to
-//! their layer.
+//! shadow and blur sizes are fractions of the shorter canvas side.
+//!
+//! Time is integer [`Ticks`] on the CutRight clock. The composition carries its
+//! frame rate as a [`Rational`], which fixes motion-blur sub-frame spacing.
+//! Keyframes and cursor samples are local to their layer.
+//!
+//! Version 2 (`rightkit.composition.v2`) replaced the millisecond fields with
+//! tick fields. [`Composition::from_json_str`] reads version 1 documents too.
 
 use serde::{Deserialize, Serialize};
 
+use crate::error::CompositionError;
+use crate::legacy;
+use crate::retime::RetimeSegment;
+use crate::ticks::{Rational, Ticks};
 use crate::track::{Easing, Track};
 
 /// Schema identifier written into every composition document.
-pub const SCHEMA: &str = "rightkit.composition.v1";
+pub const SCHEMA: &str = "rightkit.composition.v2";
+
+/// The previous schema, which uses millisecond fields. Read-only, through
+/// [`Composition::from_json_str`].
+pub const LEGACY_SCHEMA_V1: &str = "rightkit.composition.v1";
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Composition {
     pub schema: String,
     pub canvas: Canvas,
-    pub duration_ms: u64,
+    /// Frame rate of the output. Sets motion-blur sub-frame spacing.
+    pub fps: Rational,
+    /// Total length of the timeline.
+    #[serde(rename = "duration_ticks")]
+    pub duration: Ticks,
     /// Back to front: a later layer paints over every earlier one.
     pub layers: Vec<Layer>,
 }
 
 impl Composition {
     /// An empty composition at the current schema version.
-    pub fn new(canvas: Canvas, duration_ms: u64) -> Self {
+    pub fn new(canvas: Canvas, fps: Rational, duration: Ticks) -> Self {
         Self {
             schema: SCHEMA.to_string(),
             canvas,
-            duration_ms,
+            fps,
+            duration,
             layers: Vec::new(),
         }
+    }
+
+    /// Parses a composition document. Accepts the current schema, and the
+    /// legacy `rightkit.composition.v1` schema with a documented conversion:
+    /// every `*_ms` field becomes the matching `*_ticks` field at exactly
+    /// 705,600 ticks per millisecond, `canvas.frame_rate_num` and
+    /// `frame_rate_den` move to `fps`, and a video's `source_start_ms` and
+    /// `speed` become one `Play` or `Reverse` retime segment spanning the layer.
+    pub fn from_json_str(text: &str) -> Result<Self, CompositionError> {
+        let mut value: serde_json::Value =
+            serde_json::from_str(text).map_err(|e| CompositionError::Json(e.to_string()))?;
+        let schema = value.get("schema").and_then(|s| s.as_str()).unwrap_or("");
+        if schema == LEGACY_SCHEMA_V1 {
+            legacy::migrate_v1(&mut value).map_err(CompositionError::Legacy)?;
+        }
+        serde_json::from_value(value).map_err(|e| CompositionError::Json(e.to_string()))
     }
 }
 
@@ -39,8 +73,6 @@ impl Composition {
 pub struct Canvas {
     pub width: u32,
     pub height: u32,
-    pub frame_rate_num: u32,
-    pub frame_rate_den: u32,
 }
 
 /// A normalised rectangle (fractions of the canvas, or of the source for crops).
@@ -76,11 +108,13 @@ pub struct Rgba {
     pub a: f64,
 }
 
-/// Visible span of a layer on the composition timeline (`end_ms` exclusive).
+/// Visible span of a layer on the composition timeline (`end` exclusive).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Timing {
-    pub start_ms: u64,
-    pub end_ms: u64,
+    #[serde(rename = "start_ticks")]
+    pub start: Ticks,
+    #[serde(rename = "end_ticks")]
+    pub end: Ticks,
 }
 
 /// Keyframable transform applied about a layer's placement centre.
@@ -108,8 +142,12 @@ pub struct AssetRef {
     pub width: u32,
     pub height: u32,
     /// Known media duration; evaluation clamps source times to it. Stills omit it.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub duration_ms: Option<u64>,
+    #[serde(
+        default,
+        rename = "duration_ticks",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub duration: Option<Ticks>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -138,16 +176,16 @@ pub struct Layer {
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Content {
     /// Full-motion screen or camera footage. `crop` is keyframed; a missing
-    /// crop track shows the whole source.
+    /// crop track shows the whole source. `retime` maps layer-local output time
+    /// to source time. An empty list is identity: source time equals
+    /// layer-local time.
     Video {
         asset: AssetRef,
         placement: Rect,
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         crop: Track<Rect>,
-        source_start_ms: u64,
-        /// Source seconds per timeline second. Negative values reverse.
-        #[serde(default = "one")]
-        speed: f64,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        retime: Vec<RetimeSegment>,
     },
     /// A still image with optional keyframed crop (Ken Burns).
     Still {
@@ -160,7 +198,8 @@ pub enum Content {
     Webcam {
         asset: AssetRef,
         placement: Rect,
-        source_start_ms: u64,
+        #[serde(rename = "source_start_ticks")]
+        source_start: Ticks,
     },
     /// A cursor drawn in the source space of an earlier Video or Still layer,
     /// so it moves with that layer's transform and crop.
@@ -169,7 +208,7 @@ pub enum Content {
         /// 1.0 draws the sprite at source pixel density.
         scale: f64,
         sprite: CursorSprite,
-        /// Layer-local source-normalised positions, sorted by `at_ms`.
+        /// Layer-local source-normalised positions, sorted by `at`.
         samples: Vec<CursorSample>,
     },
     /// Full-canvas procedural background.
@@ -187,14 +226,16 @@ pub enum Content {
         style: Style,
     },
     /// Click feedback anchored at a canvas point. The layer's timing bounds
-    /// when it can appear; `onset_ms` and `duration_ms` time the animation
-    /// inside that window (layer-local times).
+    /// when it can appear; `onset` and `duration` time the animation inside
+    /// that window (layer-local times).
     ClickEffect {
         anchor: Point,
         effect: ClickShape,
         style: Style,
-        onset_ms: u64,
-        duration_ms: u64,
+        #[serde(rename = "onset_ticks")]
+        onset: Ticks,
+        #[serde(rename = "duration_ticks")]
+        duration: Ticks,
         /// Easing of the animation progress from onset to completion.
         #[serde(default = "ease_out")]
         easing: Easing,
@@ -223,10 +264,6 @@ pub enum ClickShape {
     },
 }
 
-fn one() -> f64 {
-    1.0
-}
-
 fn yes() -> bool {
     true
 }
@@ -235,9 +272,7 @@ fn yes() -> bool {
 #[serde(tag = "shape", rename_all = "snake_case")]
 pub enum Clip {
     /// `radius` is a fraction of the shorter canvas side.
-    RoundedRect {
-        radius: f64,
-    },
+    RoundedRect { radius: f64 },
     Circle,
 }
 
@@ -288,8 +323,9 @@ pub struct CursorSprite {
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct CursorSample {
-    /// Layer-local time in milliseconds.
-    pub at_ms: u64,
+    /// Layer-local time in ticks.
+    #[serde(rename = "at_ticks")]
+    pub at: Ticks,
     /// Source-normalised position; values outside 0..=1 are off the source.
     pub x: f64,
     pub y: f64,

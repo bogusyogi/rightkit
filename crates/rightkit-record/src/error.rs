@@ -18,13 +18,17 @@ pub enum Code {
     NotRecording,
     NotFound,
     NotBundle,
+    /// A bundle whose sealed status is not `complete` was asked to open as complete.
+    NotComplete,
+    /// A bundle failed `bundle_verify` and was asked to open as complete.
+    VerifyFailed,
     Helper,
     Io,
 }
 
 impl Code {
     /// Every code, in declaration order. Used to read a code back from its string.
-    pub const ALL: [Code; 14] = [
+    pub const ALL: [Code; 16] = [
         Code::ArgInvalid,
         Code::Unsupported,
         Code::PermissionDenied,
@@ -37,6 +41,8 @@ impl Code {
         Code::NotRecording,
         Code::NotFound,
         Code::NotBundle,
+        Code::NotComplete,
+        Code::VerifyFailed,
         Code::Helper,
         Code::Io,
     ];
@@ -60,6 +66,8 @@ impl Code {
             Code::NotRecording => "not_recording",
             Code::NotFound => "not_found",
             Code::NotBundle => "not_bundle",
+            Code::NotComplete => "bundle_not_complete",
+            Code::VerifyFailed => "bundle_verify_failed",
             Code::Helper => "helper_failed",
             Code::Io => "io",
         }
@@ -109,6 +117,8 @@ mod tests {
             Code::parse("codec_unavailable"),
             Some(Code::CodecUnavailable)
         );
+        assert_eq!(Code::parse("bundle_not_complete"), Some(Code::NotComplete));
+        assert_eq!(Code::parse("bundle_verify_failed"), Some(Code::VerifyFailed));
         assert_eq!(Code::parse("no_such_code"), None);
     }
 }

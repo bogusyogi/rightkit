@@ -1,5 +1,8 @@
+use std::collections::HashMap;
 use std::path::Path;
-use std::sync::{Mutex, MutexGuard};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::{Arc, Mutex, MutexGuard};
+use std::time::{Duration, Instant};
 
 use rightkit_db::rusqlite::{self, params, params_from_iter, Connection, OptionalExtension, Row};
 use rightkit_db::{column_exists, write_txn, DbOptions, DurabilityProfile};
@@ -48,6 +51,175 @@ CREATE TABLE IF NOT EXISTS rk_job_submissions (
   PRIMARY KEY (job_id, attempt)
 );
 ";
+
+/// Crate-owned side table: per-job recovery class and single-flight key. A job without a row is
+/// `Recovery::Resume` with no key, which is every job written before this table existed.
+pub const META_TABLE: &str = "rk_job_meta";
+
+const META_SCHEMA: &str = "
+CREATE TABLE IF NOT EXISTS rk_job_meta (
+  job_id TEXT PRIMARY KEY,
+  recovery TEXT NOT NULL DEFAULT 'resume',
+  flight_key TEXT
+);
+CREATE INDEX IF NOT EXISTS rk_job_meta_flight ON rk_job_meta(flight_key) WHERE flight_key IS NOT NULL;
+";
+
+/// What may happen to a job after its runner is lost (crash, or a lock that is free again while
+/// the job is still non-terminal). Chosen at submit and stored with the job.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[non_exhaustive]
+pub enum Recovery {
+    /// Run the job again from `Runner::resume_recoverable` / `Runner::run` (the behaviour of
+    /// every earlier version).
+    #[default]
+    Resume,
+    /// Never hand the job to a handler a second time. Once an attempt has begun, a lost runner
+    /// (or a retryable handler error) fails the job with the `interrupted` error; for effects
+    /// that must not repeat: uninstall, cleanup apply, package upgrades. A job that never began
+    /// an attempt still runs normally.
+    Never,
+}
+
+impl Recovery {
+    fn as_str(self) -> &'static str {
+        match self {
+            Recovery::Resume => "resume",
+            Recovery::Never => "never",
+        }
+    }
+    /// An unknown stored value (written by a newer version) reads as the safe class.
+    fn parse(s: &str) -> Self {
+        match s {
+            "resume" => Recovery::Resume,
+            _ => Recovery::Never,
+        }
+    }
+}
+
+/// Terminal jobs to drop. At least one limit is required; a job matching either limit goes.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct PrunePolicy {
+    older_than: Option<Duration>,
+    keep_latest: Option<usize>,
+}
+
+impl PrunePolicy {
+    pub fn new() -> Self {
+        Self::default()
+    }
+    /// Drop terminal jobs whose `updated_at` is older than `d`.
+    pub fn older_than(mut self, d: Duration) -> Self {
+        self.older_than = Some(d);
+        self
+    }
+    /// Keep only the `n` newest terminal jobs (newest by `created_at`, as in `list`).
+    pub fn keep_latest(mut self, n: usize) -> Self {
+        self.keep_latest = Some(n);
+        self
+    }
+}
+
+/// What a prune removed. Artifact files are never touched: the crate indexes files the handler
+/// wrote and does not own them, so the caller deletes `artifacts[..].path` if it wants them gone.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct PruneReport {
+    /// Ids of the removed jobs.
+    pub jobs: Vec<String>,
+    /// Progress events removed.
+    pub events: usize,
+    /// Artifact rows removed, with the paths of their files.
+    pub artifacts: Vec<Artifact>,
+    /// Rows removed from the submissions side table.
+    pub submissions: usize,
+}
+
+/// Options for [`JobStore::submit_with`].
+#[derive(Debug, Clone, Default)]
+pub struct SubmitOptions {
+    pub recovery: Recovery,
+    /// Latest-wins key: this submit replaces every non-terminal job submitted with the same key.
+    pub single_flight: Option<String>,
+    /// Prune terminal jobs in the submit transaction, before the new job is inserted.
+    pub prune: Option<PrunePolicy>,
+}
+
+impl SubmitOptions {
+    pub fn new() -> Self {
+        Self::default()
+    }
+    pub fn recovery(mut self, r: Recovery) -> Self {
+        self.recovery = r;
+        self
+    }
+    /// Single-flight, latest-wins: see [`JobStore::submit_with`].
+    pub fn single_flight(mut self, key: impl Into<String>) -> Self {
+        self.single_flight = Some(key.into());
+        self
+    }
+    pub fn prune(mut self, p: PrunePolicy) -> Self {
+        self.prune = Some(p);
+        self
+    }
+}
+
+/// Result of [`JobStore::submit_with`].
+#[derive(Debug, Clone)]
+pub struct Submitted {
+    pub record: JobRecord,
+    /// The `request_id` already existed; nothing else happened.
+    pub deduplicated: bool,
+    /// Jobs the single-flight key replaced (now `cancelled` with error code `superseded`).
+    pub superseded: Vec<String>,
+    pub pruned: PruneReport,
+}
+
+/// In-memory cancel flag of one job: the fast path. `true` is certain; `false` only says no
+/// cancel was seen in this process. The database status stays the source of truth (another
+/// process cancels through it), so a handler that must notice a cross-process cancel also polls
+/// [`crate::JobControl::is_cancelled`] or [`crate::JobControl::step_boundary`], which read the
+/// database and set this flag when they find the job cancelled.
+#[derive(Debug, Clone, Default)]
+pub struct CancelToken(Arc<AtomicBool>);
+
+impl CancelToken {
+    /// One atomic load.
+    pub fn is_cancelled(&self) -> bool {
+        self.0.load(Ordering::SeqCst)
+    }
+    /// The shared flag, for code that takes an `Arc<AtomicBool>` (e.g. a media cancellation).
+    pub fn flag(&self) -> Arc<AtomicBool> {
+        self.0.clone()
+    }
+    pub(crate) fn set(&self) {
+        self.0.store(true, Ordering::SeqCst);
+    }
+}
+
+/// Counters of [`JobStore::progress_fenced`] since the store opened.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct ProgressStats {
+    /// Progress events written (flushed ticks included).
+    pub written: u64,
+    /// Ticks replaced by a newer one before they were written.
+    pub coalesced: u64,
+    /// Events written with relaxed durability.
+    pub relaxed_writes: u64,
+}
+
+#[derive(Debug)]
+struct Pending {
+    generation: i64,
+    stage: String,
+    progress: Option<f64>,
+    message: Option<String>,
+}
+
+#[derive(Debug, Default)]
+struct ProgState {
+    last_write: Option<Instant>,
+    pending: Option<Pending>,
+}
 
 /// Current UTC time as `YYYY-MM-DDTHH:MM:SSZ`.
 pub fn now() -> String {
@@ -310,6 +482,14 @@ pub struct JobStore {
     cfg: StoreConfig,
     select: String,
     adoption: Adoption,
+    /// The connection runs in WAL mode (relaxed progress durability is only safe there).
+    wal: bool,
+    base_sync: DurabilityProfile,
+    prog: Mutex<HashMap<String, ProgState>>,
+    cancels: Mutex<HashMap<String, CancelToken>>,
+    st_written: AtomicU64,
+    st_coalesced: AtomicU64,
+    st_relaxed: AtomicU64,
 }
 
 impl JobStore {
@@ -348,6 +528,10 @@ impl JobStore {
                 tx.commit()
             })?;
         }
+        let wal = conn
+            .query_row("PRAGMA journal_mode", [], |r| r.get::<_, String>(0))
+            .map(|m| m.eq_ignore_ascii_case("wal"))
+            .unwrap_or(false);
         let mut select = COLS.to_string();
         for c in &cfg.columns {
             select.push_str(", ");
@@ -358,6 +542,13 @@ impl JobStore {
             cfg,
             select,
             adoption,
+            wal,
+            base_sync: options.durability,
+            prog: Mutex::new(HashMap::new()),
+            cancels: Mutex::new(HashMap::new()),
+            st_written: AtomicU64::new(0),
+            st_coalesced: AtomicU64::new(0),
+            st_relaxed: AtomicU64::new(0),
         })
     }
 
@@ -422,6 +613,31 @@ impl JobStore {
     /// [`JobStore::submit`] with extension column values. `StoreHook::on_create`
     /// runs in the insert transaction; its error rolls the insert back.
     pub fn submit_ext(&self, n: &NewJob, ext: &Ext) -> JobResult<(JobRecord, bool)> {
+        self.submit_with(n, ext, &SubmitOptions::default())
+            .map(|s| (s.record, s.deduplicated))
+    }
+
+    /// [`JobStore::submit_ext`] with a recovery class, a single-flight key and/or a prune bound,
+    /// all applied in the one submit transaction.
+    ///
+    /// - A repeated `request_id` returns the existing job (`deduplicated`) and does nothing else:
+    ///   no prune, no supersede, and the stored class of the original stands.
+    /// - `prune` runs before the insert (so it never sees the new job or the jobs this submit
+    ///   supersedes) and reports what it removed in [`Submitted::pruned`].
+    /// - `single_flight(key)`: every non-terminal job stored with the same key is cancelled in
+    ///   this transaction, with error code `superseded` naming the new job, a `superseded` event,
+    ///   and `StoreHook::on_transition`. A job that has not started will never reach a handler. A
+    ///   running one is cancelled in the database at once and its in-process [`CancelToken`] is set
+    ///   after the commit; its handler keeps running until it next checks, and whatever it
+    ///   returns is discarded (the job is already terminal). Nothing waits for it to stop: take
+    ///   the job's [`crate::JobLocks`] lock to know its runner has gone. The new job is returned
+    ///   at once and may be run immediately.
+    pub fn submit_with(
+        &self,
+        n: &NewJob,
+        ext: &Ext,
+        opts: &SubmitOptions,
+    ) -> JobResult<Submitted> {
         let mut names = Vec::new();
         let mut vals: Vec<rusqlite::types::Value> = Vec::new();
         for (k, v) in ext {
@@ -440,6 +656,9 @@ impl JobStore {
         {
             return Err(JobError::bad_input(format!("ext.{} required", c.name)));
         }
+        if opts.single_flight.as_deref() == Some("") {
+            return Err(JobError::bad_input("single-flight key is empty"));
+        }
         let mut conn = self.c();
         let tx = write_txn(&mut conn)?;
         if let Some(rid) = &n.request_id {
@@ -451,9 +670,18 @@ impl JobStore {
                 )
                 .optional()?;
             if let Some(j) = found {
-                return Ok((j, true));
+                return Ok(Submitted {
+                    record: j,
+                    deduplicated: true,
+                    superseded: vec![],
+                    pruned: PruneReport::default(),
+                });
             }
         }
+        let pruned = match &opts.prune {
+            Some(p) => self.prune_in(&tx, p)?,
+            None => PruneReport::default(),
+        };
         let id = uuid::Uuid::new_v4().to_string();
         let t = now();
         let mut cols =
@@ -481,8 +709,206 @@ impl JobStore {
         if let Some(h) = &self.cfg.hook {
             h.on_create(&tx, &rec)?;
         }
+        if opts.recovery != Recovery::default() || opts.single_flight.is_some() {
+            tx.execute(
+                "INSERT INTO rk_job_meta (job_id, recovery, flight_key) VALUES (?1,?2,?3)",
+                params![id, opts.recovery.as_str(), opts.single_flight],
+            )?;
+        }
+        let mut superseded = Vec::new();
+        if let Some(key) = &opts.single_flight {
+            let old: Vec<String> = {
+                let mut st = tx.prepare(&format!(
+                    "SELECT j.job_id FROM rk_job_meta m JOIN jobs j ON j.job_id=m.job_id \
+                     WHERE m.flight_key=?1 AND m.job_id<>?2 AND j.status IN {} \
+                     ORDER BY j.created_at, j.rowid",
+                    self.cfg.statuses.sql_set()
+                ))?;
+                let rows = st
+                    .query_map(params![key, id], |r| r.get::<_, String>(0))?
+                    .collect::<Result<Vec<_>, _>>()?;
+                rows
+            };
+            for old_id in old {
+                let before = self.load(&tx, &old_id)?;
+                let err = JobError::superseded(&id);
+                let t = Transition::to(CANCELLED)
+                    .error(Some(err.to_json_with(self.cfg.includes_retryable())));
+                self.exec(&tx, &before, &t)?;
+                add_event_on(&tx, &old_id, None, "superseded", None, None, Some(&err.message))?;
+                superseded.push(old_id);
+            }
+        }
         tx.commit()?;
-        Ok((rec, false))
+        drop(conn);
+        for old_id in &superseded {
+            self.settle(old_id, true);
+        }
+        for gone in &pruned.jobs {
+            self.settle(gone, false);
+        }
+        Ok(Submitted {
+            record: rec,
+            deduplicated: false,
+            superseded,
+            pruned,
+        })
+    }
+
+    /// The recovery class stored with the job (`Resume` for any job without one).
+    pub fn recovery(&self, job_id: &str) -> JobResult<Recovery> {
+        Ok(self.run_class(job_id)?.0)
+    }
+
+    /// `(recovery class, attempt generation)`; generation 0 means no attempt ever began.
+    pub(crate) fn run_class(&self, job_id: &str) -> JobResult<(Recovery, i64)> {
+        self.c()
+            .query_row(
+                "SELECT j.attempt_gen, m.recovery FROM jobs j \
+                 LEFT JOIN rk_job_meta m ON m.job_id=j.job_id WHERE j.job_id=?1",
+                [job_id],
+                |r| {
+                    let gen: i64 = r.get(0)?;
+                    let rec: Option<String> = r.get(1)?;
+                    Ok((rec.as_deref().map_or(Recovery::Resume, Recovery::parse), gen))
+                },
+            )
+            .optional()?
+            .ok_or_else(|| JobError::new("job_not_found", format!("no such job: {job_id}")))
+    }
+
+    /// Fail a started `Recovery::Never` job whose runner is gone: terminal `failed` with the
+    /// `interrupted` error and an `interrupted` event, in one transaction with the hook.
+    /// `Ok(None)` when the job is already terminal.
+    pub(crate) fn interrupt(&self, job_id: &str) -> JobResult<Option<(Job, Event)>> {
+        let mut conn = self.c();
+        let tx = write_txn(&mut conn)?;
+        let before = self.load(&tx, job_id)?;
+        if before.job.is_terminal() {
+            return Ok(None);
+        }
+        let err = JobError::interrupted(job_id);
+        let t =
+            Transition::to(FAILED).error(Some(err.to_json_with(self.cfg.includes_retryable())));
+        let after = self.exec(&tx, &before, &t)?;
+        let ev = add_event_on(&tx, job_id, None, "interrupted", None, None, Some(&err.message))?;
+        tx.commit()?;
+        drop(conn);
+        self.settle(job_id, false);
+        Ok(Some((after.job, ev)))
+    }
+
+    /// The in-memory cancel flag of `job_id` (created on first use). [`JobStore::cancel`], a
+    /// single-flight supersede and [`crate::JobControl::is_cancelled`] set it; it is dropped from
+    /// the registry when the job reaches a terminal state (clones stay valid).
+    pub fn cancel_token(&self, job_id: &str) -> CancelToken {
+        self.cancels
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .entry(job_id.to_string())
+            .or_default()
+            .clone()
+    }
+
+    pub(crate) fn release_cancel_token(&self, job_id: &str) {
+        self.cancels
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .remove(job_id);
+    }
+
+    /// A job reached a terminal state (or was removed): set its cancel flag when it was
+    /// cancelled, forget its in-memory bookkeeping.
+    fn settle(&self, job_id: &str, cancelled: bool) {
+        let flag = self
+            .cancels
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .remove(job_id);
+        if let (true, Some(t)) = (cancelled, flag) {
+            t.set();
+        }
+        self.prog
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .remove(job_id);
+    }
+
+    // ------------------------------------------------------------- prune ----
+
+    /// Remove terminal jobs matching `policy` (older than `older_than`, or beyond the
+    /// `keep_latest` newest) with their events, artifact rows, submission rows and recovery
+    /// metadata, in one transaction; the job row and its result go last. Non-terminal jobs are
+    /// never touched. Artifact files are not deleted: see [`PruneReport`]. A policy with no limit
+    /// is refused (`bad_input`) rather than meaning "everything".
+    pub fn prune(&self, policy: &PrunePolicy) -> JobResult<PruneReport> {
+        let mut conn = self.c();
+        let tx = write_txn(&mut conn)?;
+        let report = self.prune_in(&tx, policy)?;
+        tx.commit()?;
+        drop(conn);
+        for id in &report.jobs {
+            self.settle(id, false);
+        }
+        Ok(report)
+    }
+
+    fn prune_in(&self, conn: &Connection, policy: &PrunePolicy) -> JobResult<PruneReport> {
+        if policy.older_than.is_none() && policy.keep_latest.is_none() {
+            return Err(JobError::bad_input(
+                "prune policy needs older_than and/or keep_latest",
+            ));
+        }
+        let cutoff = policy.older_than.map(|d| {
+            let secs = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|n| n.as_secs() as i64)
+                .unwrap_or(0);
+            format_utc(secs.saturating_sub(d.as_secs().min(i64::MAX as u64) as i64))
+        });
+        let doomed: Vec<String> = {
+            let mut st = conn.prepare(
+                "SELECT job_id, updated_at FROM jobs WHERE status IN ('complete','failed','cancelled') \
+                 ORDER BY created_at DESC, rowid DESC",
+            )?;
+            let rows = st
+                .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))?
+                .collect::<Result<Vec<_>, _>>()?;
+            rows.into_iter()
+                .enumerate()
+                .filter(|(rank, (_, updated))| {
+                    policy.keep_latest.is_some_and(|k| *rank >= k)
+                        || cutoff.as_deref().is_some_and(|c| updated.as_str() < c)
+                })
+                .map(|(_, (id, _))| id)
+                .collect()
+        };
+        let mut report = PruneReport::default();
+        for id in &doomed {
+            let mut st =
+                conn.prepare(&self.art_sql("WHERE job_id=?1 ORDER BY created_at, rowid"))?;
+            let rows = st
+                .query_map([id], artifact_row)?
+                .collect::<Result<Vec<_>, _>>()?;
+            report.artifacts.extend(rows);
+        }
+        for id in &doomed {
+            report.events += conn.execute("DELETE FROM job_events WHERE job_id=?1", [id])?;
+            if self.cfg.external_id.is_some() {
+                report.submissions +=
+                    conn.execute("DELETE FROM rk_job_submissions WHERE job_id=?1", [id])?;
+            }
+            conn.execute(
+                &format!("DELETE FROM {} WHERE job_id=?1", self.cfg.artifacts.table),
+                [id],
+            )?;
+            conn.execute("DELETE FROM rk_job_meta WHERE job_id=?1", [id])?;
+        }
+        for id in &doomed {
+            conn.execute("DELETE FROM jobs WHERE job_id=?1", [id])?;
+        }
+        report.jobs = doomed;
+        Ok(report)
     }
 
     pub fn get(&self, job_id: &str) -> JobResult<Job> {
@@ -646,8 +1072,14 @@ impl JobStore {
         if before.job.is_terminal() {
             return Ok(None);
         }
+        // Latest coalesced progress lands before the state change, in the same durable commit.
+        self.flush_pending_in(&tx, job_id)?;
         let after = self.exec(&tx, &before, t)?;
         tx.commit()?;
+        drop(conn);
+        if after.job.is_terminal() {
+            self.settle(job_id, after.job.status == CANCELLED);
+        }
         Ok(Some(after))
     }
 
@@ -751,6 +1183,12 @@ impl JobStore {
             |r| r.get(0),
         )?;
         tx.commit()?;
+        drop(conn);
+        // A new attempt starts a fresh progress interval; older pending ticks are stale.
+        self.prog
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .remove(job_id);
         Ok(Some((after, generation)))
     }
 
@@ -796,6 +1234,7 @@ impl JobStore {
         let mut conn = self.c();
         let tx = write_txn(&mut conn)?;
         check_fence(&tx, job_id, fence)?;
+        self.flush_pending_in(&tx, job_id)?;
         tx.execute(
             "UPDATE jobs SET error_json=?2, updated_at=?3 WHERE job_id=?1",
             params![
@@ -1131,9 +1570,161 @@ impl JobStore {
         let mut conn = self.c();
         let tx = write_txn(&mut conn)?;
         check_fence(&tx, job_id, Some(generation))?;
+        self.flush_pending_in(&tx, job_id)?;
         let ev = add_event_on(&tx, job_id, None, stage, None, progress, message)?;
         tx.commit()?;
         Ok(ev)
+    }
+
+    /// A handler progress tick, written under the store's [`crate::ProgressPolicy`]:
+    ///
+    /// - default policy: identical to [`JobStore::add_event_fenced`], always `Ok(Some(_))`;
+    /// - `relaxed_durability`: the event commits with `synchronous=NORMAL` (WAL only); the
+    ///   connection is back to its configured durability before this returns;
+    /// - `coalesce(interval)`: a tick that carries a `progress` fraction is written at most once
+    ///   per interval per job; a tick inside the interval replaces the pending one and returns
+    ///   `Ok(None)`. The latest pending tick is written by the next tick after the interval, by
+    ///   any state change or lifecycle event of the job (in that commit), by
+    ///   [`JobStore::events_after`] once it is due, or by [`JobStore::flush_progress`]. A crash
+    ///   loses at most the pending tick. Ticks without a fraction are never coalesced. A pending
+    ///   tick of a superseded attempt is dropped, never written.
+    pub fn progress_fenced(
+        &self,
+        job_id: &str,
+        generation: i64,
+        stage: &str,
+        progress: Option<f64>,
+        message: Option<&str>,
+    ) -> JobResult<Option<Event>> {
+        let pol = self.cfg.progress;
+        let coalescing = pol.coalesce.zip(progress).map(|(i, _)| i);
+        if let Some(interval) = coalescing {
+            let mut map = self.prog.lock().unwrap_or_else(|p| p.into_inner());
+            let st = map.entry(job_id.to_string()).or_default();
+            if st.last_write.is_some_and(|t| t.elapsed() < interval) {
+                st.pending = Some(Pending {
+                    generation,
+                    stage: stage.into(),
+                    progress,
+                    message: message.map(Into::into),
+                });
+                drop(map);
+                self.st_coalesced.fetch_add(1, Ordering::Relaxed);
+                return Ok(None);
+            }
+            st.pending = None;
+        }
+        let relax = pol.relaxed_durability && self.wal && self.base_sync == DurabilityProfile::Full;
+        let mut conn = self.c();
+        if relax {
+            conn.pragma_update(None, "synchronous", "NORMAL")?;
+        }
+        let out = (|| -> JobResult<Event> {
+            let tx = write_txn(&mut conn)?;
+            check_fence(&tx, job_id, Some(generation))?;
+            self.flush_pending_in(&tx, job_id)?;
+            let ev = add_event_on(&tx, job_id, None, stage, None, progress, message)?;
+            tx.commit()?;
+            Ok(ev)
+        })();
+        if relax {
+            let restored = conn.pragma_update(None, "synchronous", "FULL");
+            if out.is_ok() {
+                restored?;
+            }
+        }
+        drop(conn);
+        let ev = out?;
+        self.st_written.fetch_add(1, Ordering::Relaxed);
+        if relax {
+            self.st_relaxed.fetch_add(1, Ordering::Relaxed);
+        }
+        if coalescing.is_some() {
+            self.prog
+                .lock()
+                .unwrap_or_else(|p| p.into_inner())
+                .entry(job_id.to_string())
+                .or_default()
+                .last_write = Some(Instant::now());
+        }
+        Ok(Some(ev))
+    }
+
+    /// Write the pending coalesced progress tick of `job_id`, if any (and still current).
+    pub fn flush_progress(&self, job_id: &str) -> JobResult<()> {
+        if self.cfg.progress.coalesce.is_none() {
+            return Ok(());
+        }
+        let mut conn = self.c();
+        let tx = write_txn(&mut conn)?;
+        self.flush_pending_in(&tx, job_id)?;
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// Flush the pending tick of `job_id` once its interval has elapsed.
+    fn flush_if_due(&self, job_id: &str) {
+        let Some(interval) = self.cfg.progress.coalesce else {
+            return;
+        };
+        let due = self
+            .prog
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .get(job_id)
+            .is_some_and(|s| {
+                s.pending.is_some() && s.last_write.is_none_or(|t| t.elapsed() >= interval)
+            });
+        if due {
+            let _ = self.flush_progress(job_id);
+        }
+    }
+
+    /// Write `job_id`'s pending coalesced tick on `conn` (inside the caller's transaction),
+    /// unless its attempt has been superseded.
+    fn flush_pending_in(&self, conn: &Connection, job_id: &str) -> JobResult<()> {
+        if self.cfg.progress.coalesce.is_none() {
+            return Ok(());
+        }
+        let pending = self
+            .prog
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .get_mut(job_id)
+            .and_then(|s| s.pending.take());
+        let Some(p) = pending else {
+            return Ok(());
+        };
+        let current: Option<i64> = conn
+            .query_row(
+                "SELECT attempt_gen FROM jobs WHERE job_id=?1",
+                [job_id],
+                |r| r.get(0),
+            )
+            .optional()?;
+        if current != Some(p.generation) {
+            return Ok(());
+        }
+        add_event_on(conn, job_id, None, &p.stage, None, p.progress, p.message.as_deref())?;
+        self.st_written.fetch_add(1, Ordering::Relaxed);
+        if let Some(s) = self
+            .prog
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .get_mut(job_id)
+        {
+            s.last_write = Some(Instant::now());
+        }
+        Ok(())
+    }
+
+    /// Counters of the progress path since this store opened.
+    pub fn progress_stats(&self) -> ProgressStats {
+        ProgressStats {
+            written: self.st_written.load(Ordering::Relaxed),
+            coalesced: self.st_coalesced.load(Ordering::Relaxed),
+            relaxed_writes: self.st_relaxed.load(Ordering::Relaxed),
+        }
     }
 
     /// Like [`JobStore::add_event`], recording an explicit `status` and/or
@@ -1155,11 +1746,13 @@ impl JobStore {
             }
         }
         let conn = self.c();
+        self.flush_pending_in(&conn, job_id)?;
         add_event_on(&conn, job_id, status, stage, attempt, progress, message)
     }
 
     /// Events with `seq > after`, in order. Poll with the last seen `seq` to stream.
     pub fn events_after(&self, job_id: &str, after: i64) -> JobResult<Vec<Event>> {
+        self.flush_if_due(job_id);
         let conn = self.c();
         let mut st = conn.prepare(
             "SELECT seq, at, status, stage, attempt, progress, message FROM job_events WHERE job_id=?1 AND seq>?2 ORDER BY seq",
@@ -1460,6 +2053,7 @@ CREATE INDEX IF NOT EXISTS {t}_job ON {t}(job_id);",
         t = a.table,
         id = a.id_column
     ))?;
+    conn.execute_batch(META_SCHEMA)?;
     if cfg.external_id.is_some() {
         conn.execute_batch(SUBMISSIONS_SCHEMA)?;
     }

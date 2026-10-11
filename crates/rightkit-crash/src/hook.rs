@@ -1,7 +1,28 @@
 use crate::report::{sanitize_kind, CrashReport, RawCrash};
 use crate::{native, retention, NativeCapture, Retention};
+use std::fmt;
+use std::io::Write;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{mpsc, Arc};
+use std::time::Duration;
+
+/// How long a report waits for its sink. A sink that blocks (for example on a lock the panicking
+/// thread holds) stops being waited for after this, and the report path continues.
+const SINK_TIMEOUT: Duration = Duration::from_secs(2);
+
+/// Host callback that receives each already-redacted report, as the value that would be written.
+type ReportCallback = Arc<dyn Fn(serde_json::Value) + Send + Sync + 'static>;
+
+/// Newtype so `CrashConfig` can keep deriving `Debug` and `Clone`.
+#[derive(Clone)]
+struct ReportSink(ReportCallback);
+
+impl fmt::Debug for ReportSink {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("ReportSink")
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct CrashConfig {
@@ -12,6 +33,10 @@ pub struct CrashConfig {
     pub crash_dir: PathBuf,
     pub native_capture: NativeCapture,
     pub retention: Retention,
+    /// Optional host sink for each redacted report (see [`CrashConfig::with_sink`]).
+    sink: Option<ReportSink>,
+    /// Whether a report file is written to `crash_dir` (default `true`; see [`CrashConfig::write_report_file`]).
+    write_file: bool,
 }
 
 impl CrashConfig {
@@ -27,54 +52,129 @@ impl CrashConfig {
             crash_dir: crash_dir.into(),
             native_capture: NativeCapture::Off,
             retention: Retention::default(),
+            sink: None,
+            write_file: true,
         }
+    }
+
+    /// Hand each redacted report to `sink` as a JSON value: the same value that would be written to
+    /// `crash_dir`. A host uses this to write reports into its own log. The sink runs inside the
+    /// panic hook, under the re-entrancy guard, on a short-lived thread that the report path waits
+    /// for at most two seconds. A sink that panics is contained by that thread: the panic is
+    /// reported through the previous hook, and the next panic is still recorded. The sink should
+    /// not take locks the panicking code might hold.
+    pub fn with_sink(mut self, sink: impl Fn(serde_json::Value) + Send + Sync + 'static) -> Self {
+        self.sink = Some(ReportSink(Arc::new(sink)));
+        self
+    }
+
+    /// Choose whether reports are also written to `crash_dir` (default `true`). With `false` and no
+    /// sink, nothing is recorded and [`record_report`] returns `None`.
+    pub fn write_report_file(mut self, enabled: bool) -> Self {
+        self.write_file = enabled;
+        self
     }
 }
 
+/// Run `sink` on its own thread and wait for it, bounded by [`SINK_TIMEOUT`]. A panic in the sink
+/// ends that thread only (the panic hook, still guarded, skips the nested capture and chains to the
+/// previous hook), so the caller always returns.
+fn run_sink(sink: &ReportSink, value: serde_json::Value) {
+    let (done_tx, done_rx) = mpsc::channel::<()>();
+    let callback = Arc::clone(&sink.0);
+    let spawned = std::thread::Builder::new()
+        .name("rightkit-crash-sink".into())
+        .spawn(move || {
+            callback(value);
+            let _ = done_tx.send(());
+        });
+    if spawned.is_ok() {
+        // Disconnected (the sink panicked and dropped the sender) returns at once.
+        let _ = done_rx.recv_timeout(SINK_TIMEOUT);
+    }
+}
+
+/// True while a panic is being recorded on some thread. Cleared by [`ReentryGuard`] on every exit
+/// path, including unwinding, so one failed record never disables later ones.
 static IN_HOOK: AtomicBool = AtomicBool::new(false);
+/// Runtime switch for [`record_report`]; reports are recorded unless this is `false`.
+static RECORDING: AtomicBool = AtomicBool::new(true);
+/// Test seam: the next report write panics once, so tests can prove the guard resets.
+#[cfg(test)]
+static FAIL_NEXT_WRITE: AtomicBool = AtomicBool::new(false);
+
+/// Holds the re-entrancy flag for one capture. Dropping it (normally or while unwinding) clears
+/// the flag. A caller that finds the flag already set gets `None` and records nothing.
+struct ReentryGuard;
+
+impl ReentryGuard {
+    fn enter() -> Option<Self> {
+        let already = IN_HOOK.swap(true, Ordering::AcqRel);
+        (!already).then_some(Self)
+    }
+}
+
+impl Drop for ReentryGuard {
+    fn drop(&mut self) {
+        IN_HOOK.store(false, Ordering::Release);
+    }
+}
+
+/// Turn panic recording on or off at runtime, after [`install_panic_hook`]. The previously
+/// installed hook still runs either way. Recording is on by default.
+pub fn set_recording_enabled(enabled: bool) {
+    RECORDING.store(enabled, Ordering::Release);
+}
+
+/// Whether [`record_report`] currently writes reports.
+pub fn recording_enabled() -> bool {
+    RECORDING.load(Ordering::Acquire)
+}
 
 /// Install the panic hook. Chains to the previously installed hook so default
 /// stderr output is preserved. Call once, early in `main`. The hook still runs
 /// before the abort under `panic = "abort"` (unlike `catch_unwind`).
 ///
-/// The hook is best-effort and must never panic: every step ignores errors.
+/// The hook is best-effort and must never panic: every step ignores errors. Note that the
+/// standard library aborts the process when a panic hook itself panics, so this guarantee rests
+/// on the report path not panicking; the guard only makes sure that a failure which unwinds
+/// (for example from a caller that catches it) leaves recording enabled for the next panic.
 pub fn install_panic_hook(config: CrashConfig) {
     let previous = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
-        // A panic inside the hook (or a second thread panicking while the first
-        // is writing) would abort with no report; guard against re-entrancy.
-        if !IN_HOOK.swap(true, Ordering::AcqRel) {
-            let message = info
-                .payload()
-                .downcast_ref::<&str>()
-                .map(|s| (*s).to_string())
-                .or_else(|| info.payload().downcast_ref::<String>().cloned())
-                .unwrap_or_else(|| "<non-string panic payload>".to_string());
-            let location = info
-                .location()
-                .map(|l| format!("{}:{}:{}", l.file(), l.line(), l.column()));
-            let thread = std::thread::current()
-                .name()
-                .unwrap_or("<unnamed>")
-                .to_string();
-            let backtrace = std::backtrace::Backtrace::force_capture().to_string();
-            let _ = record_report(
-                &config,
-                "panic",
-                &message,
-                location.as_deref(),
-                &thread,
-                &backtrace,
-            );
-            IN_HOOK.store(false, Ordering::Release);
-        }
+        let message = info
+            .payload()
+            .downcast_ref::<&str>()
+            .map(|s| (*s).to_string())
+            .or_else(|| info.payload().downcast_ref::<String>().cloned())
+            .unwrap_or_else(|| "<non-string panic payload>".to_string());
+        let location = info
+            .location()
+            .map(|l| format!("{}:{}:{}", l.file(), l.line(), l.column()));
+        let _ = capture_panic(&config, &message, location.as_deref());
         previous(info);
     }));
+}
+
+/// Record one panic report, unless another capture is already running on any thread.
+fn capture_panic(config: &CrashConfig, message: &str, location: Option<&str>) -> Option<PathBuf> {
+    let _guard = ReentryGuard::enter()?;
+    let thread = std::thread::current()
+        .name()
+        .unwrap_or("<unnamed>")
+        .to_string();
+    let backtrace = std::backtrace::Backtrace::force_capture().to_string();
+    record_report(config, "panic", message, location, &thread, &backtrace)
 }
 
 /// Write one redacted report (atomically) and optional native capture.
 /// Also the entry point for non-panic crashes: a hang watchdog or a supervisor
 /// that notices a sidecar died calls this with its own fixed `kind` string.
+///
+/// Returns `None` when recording is switched off (see [`set_recording_enabled`]) or the report
+/// could not be written. The file is owner-only: mode `0600` on Unix, and on Windows a protected
+/// DACL granting only the current user. It is written to a temp file and renamed into place, so a
+/// destination that is a symlink is replaced, never written through.
 pub fn record_report(
     config: &CrashConfig,
     kind: &str,
@@ -83,7 +183,14 @@ pub fn record_report(
     thread: &str,
     backtrace: &str,
 ) -> Option<PathBuf> {
+    if !recording_enabled() {
+        return None;
+    }
     std::fs::create_dir_all(&config.crash_dir).ok()?;
+    #[cfg(test)]
+    if FAIL_NEXT_WRITE.swap(false, Ordering::SeqCst) {
+        panic!("injected report writer failure");
+    }
     let stamp = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs())
@@ -114,12 +221,191 @@ pub fn record_report(
     let path = config
         .crash_dir
         .join(format!("crash_{kind}_{stamp}_{}.json", std::process::id()));
-    let bytes = serde_json::to_vec_pretty(&report.to_scrubbed_value()).ok()?;
-    // Write-then-rename: a crash while writing never leaves a truncated report
-    // that the next launch would mis-parse.
-    let temp = path.with_extension("json.partial");
-    std::fs::write(&temp, bytes).ok()?;
-    std::fs::rename(&temp, &path).ok()?;
+    let value = report.to_scrubbed_value();
+    let bytes = serde_json::to_vec_pretty(&value).ok()?;
+    if let Some(sink) = &config.sink {
+        run_sink(sink, value);
+    }
+    if !config.write_file {
+        return None;
+    }
+    // Owner-only and write-then-rename: a crash while writing never leaves a truncated report
+    // that the next launch would mis-parse, and no other local user can read the report.
+    let options = rightkit_fs::AtomicWriteOptions {
+        private: true,
+        ..rightkit_fs::AtomicWriteOptions::default()
+    };
+    rightkit_fs::atomic_write_with_options(&path, options, |file| file.write_all(&bytes)).ok()?;
     retention::prune(&config.crash_dir, config.retention);
     Some(path)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::panic::{catch_unwind, AssertUnwindSafe};
+    use std::path::Path;
+    use std::sync::Arc;
+    use std::sync::Mutex;
+
+    /// The statics above are process-wide; these tests take turns.
+    static SERIAL: Mutex<()> = Mutex::new(());
+
+    fn temp_dir(label: &str) -> PathBuf {
+        let nonce = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
+        let dir = std::env::temp_dir().join(format!(
+            "rightkit-crash-hook-{label}-{}-{nonce}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        dir
+    }
+
+    fn reports_in(dir: &Path) -> Vec<PathBuf> {
+        std::fs::read_dir(dir)
+            .into_iter()
+            .flatten()
+            .flatten()
+            .map(|e| e.path())
+            .filter(|p| p.extension().is_some_and(|x| x == "json"))
+            .collect()
+    }
+
+    #[test]
+    fn a_report_writer_panic_does_not_disable_later_reports() {
+        let _serial = SERIAL.lock().unwrap_or_else(|p| p.into_inner());
+        let dir = temp_dir("writer-panic");
+        let config = CrashConfig::new("test-app", "0.0.0", &dir);
+
+        FAIL_NEXT_WRITE.store(true, Ordering::SeqCst);
+        let first = catch_unwind(AssertUnwindSafe(|| {
+            capture_panic(&config, "first panic", None)
+        }));
+        assert!(first.is_err(), "the injected writer failure must unwind");
+        assert!(
+            !IN_HOOK.load(Ordering::SeqCst),
+            "the re-entrancy flag must be cleared on unwind"
+        );
+
+        let second = capture_panic(&config, "second panic", None);
+        assert!(second.is_some(), "a later panic must still record a report");
+        assert_eq!(
+            reports_in(&dir).len(),
+            1,
+            "exactly the second report is on disk"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_nested_capture_while_one_is_running_records_nothing() {
+        let _serial = SERIAL.lock().unwrap_or_else(|p| p.into_inner());
+        let dir = temp_dir("nested");
+        let config = CrashConfig::new("test-app", "0.0.0", &dir);
+        let outer = ReentryGuard::enter().expect("first guard");
+        assert!(capture_panic(&config, "inner", None).is_none());
+        drop(outer);
+        assert!(capture_panic(&config, "after", None).is_some());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn recording_can_be_switched_off_and_back_on_at_runtime() {
+        let _serial = SERIAL.lock().unwrap_or_else(|p| p.into_inner());
+        let dir = temp_dir("switch");
+        let config = CrashConfig::new("test-app", "0.0.0", &dir);
+        assert!(recording_enabled(), "recording is on by default");
+
+        set_recording_enabled(false);
+        assert!(record_report(&config, "panic", "off", None, "t", "bt").is_none());
+        assert!(capture_panic(&config, "off", None).is_none());
+        assert!(reports_in(&dir).is_empty(), "nothing is written while off");
+
+        set_recording_enabled(true);
+        assert!(record_report(&config, "panic", "on", None, "t", "bt").is_some());
+        assert_eq!(reports_in(&dir).len(), 1);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn reports_are_owner_only_on_unix() {
+        use std::os::unix::fs::PermissionsExt;
+        let _serial = SERIAL.lock().unwrap_or_else(|p| p.into_inner());
+        let dir = temp_dir("mode");
+        let config = CrashConfig::new("test-app", "0.0.0", &dir);
+        let path = record_report(&config, "panic", "mode", None, "t", "bt").expect("written");
+        let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o600);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_sink_receives_the_same_redacted_value_that_is_written() {
+        let _serial = SERIAL.lock().unwrap_or_else(|p| p.into_inner());
+        let dir = temp_dir("sink-value");
+        let received = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let seen = Arc::clone(&received);
+        let config = CrashConfig::new("test-app", "0.0.0", &dir)
+            .with_sink(move |value| seen.lock().unwrap().push(value));
+
+        let path = record_report(&config, "panic", "boom", None, "t", "bt").expect("file written");
+        let written: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        let sunk = received.lock().unwrap();
+        assert_eq!(sunk.len(), 1, "the sink runs once per report");
+        assert_eq!(sunk[0], written, "sink value equals the written report");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_panicking_sink_is_contained_and_the_next_panic_is_still_recorded() {
+        let _serial = SERIAL.lock().unwrap_or_else(|p| p.into_inner());
+        let dir = temp_dir("sink-panic");
+        let calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let counter = Arc::clone(&calls);
+        let config = CrashConfig::new("test-app", "0.0.0", &dir)
+            .write_report_file(false)
+            .with_sink(move |_| {
+                if counter.fetch_add(1, Ordering::SeqCst) == 0 {
+                    panic!("injected sink failure");
+                }
+            });
+
+        // The first report's sink panics on its own thread; the call still returns.
+        let first = capture_panic(&config, "first", None);
+        assert!(
+            first.is_none(),
+            "no file is written when the file option is off"
+        );
+        assert!(!IN_HOOK.load(Ordering::SeqCst), "the guard is released");
+
+        capture_panic(&config, "second", None);
+        assert_eq!(
+            calls.load(Ordering::SeqCst),
+            2,
+            "the second panic reached the sink after the first sink panicked"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_file_option_off_writes_no_file_but_the_sink_still_runs() {
+        let _serial = SERIAL.lock().unwrap_or_else(|p| p.into_inner());
+        let dir = temp_dir("sink-only");
+        let calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let counter = Arc::clone(&calls);
+        let config = CrashConfig::new("test-app", "0.0.0", &dir)
+            .write_report_file(false)
+            .with_sink(move |_| {
+                counter.fetch_add(1, Ordering::SeqCst);
+            });
+        assert!(record_report(&config, "panic", "no file", None, "t", "bt").is_none());
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+        assert!(reports_in(&dir).is_empty(), "no file is written");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

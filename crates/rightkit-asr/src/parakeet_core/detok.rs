@@ -169,30 +169,40 @@ pub fn strip_mandatory_fillers_text(text: &str) -> String {
     kept.join(" ")
 }
 
-pub fn strip_mandatory_fillers(pieces: &[DecodedPiece]) -> Vec<DecodedPiece> {
+/// Indices of the pieces that survive N0 filler stripping, in order. The single
+/// grouping rule behind [`strip_mandatory_fillers`], exposed so per-piece side
+/// data (sample spans) can be dropped in lockstep.
+pub(crate) fn kept_after_filler_strip(pieces: &[&str]) -> Vec<usize> {
+    let mut out: Vec<usize> = Vec::with_capacity(pieces.len());
+    let mut group: Vec<usize> = Vec::new();
 
-    let mut out: Vec<DecodedPiece> = Vec::with_capacity(pieces.len());
-    let mut group: Vec<&DecodedPiece> = Vec::new();
-
-    let flush = |group: &mut Vec<&DecodedPiece>, out: &mut Vec<DecodedPiece>| {
+    let flush = |group: &mut Vec<usize>, out: &mut Vec<usize>| {
         if group.is_empty() {
             return;
         }
-        let word: String = group.iter().map(|p| p.piece.as_str()).collect();
+        let word: String = group.iter().map(|&i| pieces[i]).collect();
         if !is_mandatory_filler(&word) {
-            out.extend(group.iter().map(|p| (*p).clone()));
+            out.extend(group.iter().copied());
         }
         group.clear();
     };
 
-    for piece in pieces {
-        if piece.piece.starts_with('\u{2581}') {
+    for (i, piece) in pieces.iter().enumerate() {
+        if piece.starts_with('\u{2581}') {
             flush(&mut group, &mut out);
         }
-        group.push(piece);
+        group.push(i);
     }
     flush(&mut group, &mut out);
     out
+}
+
+pub fn strip_mandatory_fillers(pieces: &[DecodedPiece]) -> Vec<DecodedPiece> {
+    let texts: Vec<&str> = pieces.iter().map(|p| p.piece.as_str()).collect();
+    kept_after_filler_strip(&texts)
+        .into_iter()
+        .map(|i| pieces[i].clone())
+        .collect()
 }
 
 pub fn assemble_timed_pieces(pieces: &[DecodedPiece], policy: DetokPolicy) -> TranscriptionResult {

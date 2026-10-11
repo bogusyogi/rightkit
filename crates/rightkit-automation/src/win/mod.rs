@@ -2,6 +2,7 @@
 //! window-addressed messages for tier 3, SendInput for the opt-in tier 4,
 //! PrintWindow for per-window capture. No Python, no Node.
 
+pub mod input;
 mod sys;
 mod uia;
 
@@ -10,6 +11,11 @@ use crate::platform::*;
 use crate::proof::FieldText;
 use std::path::Path;
 use uia::El;
+
+pub use input::{
+    is_extended_vk, send_input_batch, send_input_batch_with, vk, ModifierSnapshot, RawInput,
+    RawKey, RawMouse, RawMouseButton, SendOptions,
+};
 
 /// Windows backend. Every process it launches is owned: it lives in a kill-on-close
 /// job object held here, so dropping the platform (run end, cancel, crash) kills
@@ -22,9 +28,42 @@ pub struct WinPlatform {
 }
 
 impl WinPlatform {
+    /// The full constructor. It has two process-level side effects before returning:
+    ///
+    /// 1. **DPI awareness.** Calls `SetProcessDpiAwarenessContext(PER_MONITOR_AWARE_V2)` so UIA
+    ///    rectangles, `SetCursorPos` and captures all use physical pixels. This is
+    ///    process-wide and cannot be undone. It fails silently when the process already has
+    ///    an awareness (manifest or an earlier call), and it changes how every window the
+    ///    host itself created is scaled if the host was not already per-monitor aware.
+    /// 2. **COM.** Joins the multithreaded apartment on the calling thread
+    ///    (`CoInitializeEx(COINIT_MULTITHREADED)`). On a thread already in a
+    ///    single-threaded apartment the call is refused (and ignored); on a fresh thread it
+    ///    makes that thread an MTA thread for good, which a thread that later needs an STA
+    ///    (OLE drag and drop, WebView2, shell dialogs) cannot undo.
+    ///
+    /// Use [`WinPlatform::new_minimal`] when the host owns DPI and COM setup.
     pub fn new() -> Self {
         sys::set_dpi_aware();
         uia::ensure_com();
+        WinPlatform::default()
+    }
+
+    /// A platform that performs **neither** side effect of [`WinPlatform::new`]: no DPI
+    /// awareness call and no COM initialisation at construction.
+    ///
+    /// What still happens, and why it matters:
+    /// - UI Automation methods (`root`, `focused`, `status`, and every call that reads an
+    ///   element) still join the MTA lazily on the *calling* thread the first time they run,
+    ///   because UIA needs COM. Call them only from threads where an MTA is acceptable. A
+    ///   caller that uses only input injection ([`send_input_batch`], `foreground`/`post`),
+    ///   window listing, capture or the clipboard never initialises COM.
+    /// - Without DPI awareness Windows hands a non-aware process virtualised coordinates, so
+    ///   clicks, window rectangles and captures can disagree on a scaled display. The host
+    ///   must make itself DPI aware (manifest, or `SetProcessDpiAwarenessContext` once at
+    ///   startup) before it relies on coordinates from this platform.
+    ///
+    /// Equivalent to `WinPlatform::default()`.
+    pub fn new_minimal() -> Self {
         WinPlatform::default()
     }
     /// Cap how many processes a launched app may have alive (1 = zero-child profile).

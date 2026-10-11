@@ -1,6 +1,6 @@
 use std::{
     ffi::OsString,
-    fmt, fs,
+    fmt,
     io::{self, Read},
     path::{Path, PathBuf},
     process::{ExitStatus, Stdio},
@@ -17,7 +17,10 @@ use serde::{Deserialize, Serialize};
 
 // Runner / probe / progress / cancel / loudness modules (media-runner lane). Kept in
 // separate files so the catalog lane's edits to this file stay independent.
+pub mod bundled;
 pub mod command;
+pub mod content_digest;
+pub mod decode;
 pub mod dev_resolve;
 pub mod loudnorm;
 #[cfg(feature = "native")]
@@ -27,13 +30,25 @@ pub mod quickprobe;
 pub mod runner;
 pub mod staging;
 pub mod unverified;
+pub mod verify_cache;
 
+pub use bundled::{
+    verify_bundled_ffmpeg, verify_bundled_ffmpeg_in, verify_bundled_ffprobe,
+    verify_bundled_ffprobe_in,
+};
 pub use command::{
     transcode_audio_command, AudioTranscode, DevFfmpeg, FfmpegArg, FfmpegBinary, FfmpegCommand,
 };
+pub use content_digest::{
+    content_identity, content_identity_file, ContentFormat, ContentIdentity, SliceDigest,
+};
+/// Re-exports of the `rightkit-process` types that appear in this crate's public signatures
+/// ([`runner::spawn_streaming`] returns an [`OwnedChild`]; its wait methods return
+/// [`WaitOutcome`] and [`ReapOutcome`]), so consumers need no direct dependency to name them.
+pub use rightkit_process::{OwnedChild, ReapOutcome, TerminationOptions, WaitOutcome};
 pub use runner::{
-    run_capture, run_checked, run_with_progress, Captured, ProgressEvent, ProgressParser, RunError,
-    RunOptions, RunReport,
+    run_capture, run_checked, run_with_progress, spawn_streaming, spawn_streaming_in, Captured,
+    ProgressEvent, ProgressParser, RunError, RunOptions, RunReport, StdioMode, StdioPolicy,
 };
 pub use staging::{
     external_bin_path, stage_external_bin, tauri_target_triple, StagedBinary, VerifiedArtifact,
@@ -42,6 +57,7 @@ pub use unverified::{
     resolve_ffmpeg_or_unverified, resolve_unverified, AnyFfmpeg, BuildMode, Capabilities,
     ConfigLicense, UnverifiedRequest, UnverifiedSource, UnverifiedTool,
 };
+pub use verify_cache::{digest_computations, verify_cache_clear};
 
 pub const APPROVED_CATALOG_JSON: &str = include_str!("../catalog/artifacts.json");
 
@@ -51,6 +67,45 @@ pub const DECODE_VARIANT: &str = "decode";
 /// VideoToolbox/AudioToolbox, still `--disable-autodetect`. Audio export uses FFmpeg's
 /// built-in AAC encoder; there is no MP3 encoder in any catalog variant.
 pub const EXPORT_ASS_VARIANT: &str = "export-ass";
+/// [`EXPORT_ASS_VARIANT`] plus libzimg (zimg, WTFPL): the `zscale` filter for HDR and
+/// log-to-Rec.709 conversion next to `tonemap`. A separate variant so the `export-ass` rows,
+/// digests, and licence set keep their meaning.
+pub const EXPORT_ASS_ZIMG_VARIANT: &str = "export-ass-zimg";
+/// Decode build plus libdav1d (AV1 decode, BSD-2-Clause), still `--disable-autodetect`.
+/// Kept apart from [`DECODE_VARIANT`], which links no third-party component.
+pub const DECODE_AV1_VARIANT: &str = "decode-av1";
+/// Decode build plus VideoToolbox/AudioToolbox (system frameworks, no third-party code).
+pub const DECODE_APPLE_VARIANT: &str = "decode-apple";
+
+/// What a variant may link. `components` lists the only third-party components it may carry
+/// (by name); `required_flags` are configure flags every row of the variant must require.
+/// A variant not listed here has no extra restriction beyond the catalog-wide rules.
+struct VariantPolicy {
+    components: &'static [&'static str],
+    must_have_components: bool,
+    required_flags: &'static [&'static str],
+}
+
+fn variant_policy(variant: &str) -> Option<VariantPolicy> {
+    match variant {
+        DECODE_VARIANT => Some(VariantPolicy {
+            components: &[],
+            must_have_components: false,
+            required_flags: &[],
+        }),
+        DECODE_AV1_VARIANT => Some(VariantPolicy {
+            components: &["dav1d"],
+            must_have_components: true,
+            required_flags: &["--enable-libdav1d"],
+        }),
+        DECODE_APPLE_VARIANT => Some(VariantPolicy {
+            components: &[],
+            must_have_components: false,
+            required_flags: &["--enable-videotoolbox", "--enable-audiotoolbox"],
+        }),
+        _ => None,
+    }
+}
 
 /// Catalog schemas this crate reads. Schema 2 added `tool`, `variant`, `pending`,
 /// `attribution.components`, the `pending` status, and an optional `sha256`.
@@ -83,6 +138,9 @@ pub const ALLOWED_COMPONENT_LICENSES: &[&str] = &[
     "Zlib",
     "BSD-2-Clause",
     "BSD-3-Clause",
+    // zimg (libzimg, the `zscale` filter): permissive, no copyleft, no notice duty; approved
+    // as a component licence 2026-10-11 (see third-party/BUILD-NOTES-ffmpeg-export-ass-zimg-macos.txt).
+    "WTFPL",
 ];
 
 /// FFmpeg's own licence; every entry's SPDX expression starts with it.
@@ -239,11 +297,15 @@ pub struct Artifact {
     pub arch: String,
     pub version: String,
     pub status: ArtifactStatus,
-    /// SHA-256 of the shipped binary. `None` only while the entry is pending.
+    /// SHA-256 of the retained, unsigned bytes this row was built from. Provenance only:
+    /// shipped copies are re-signed and never match it. `None` only while the entry is pending.
     #[serde(default)]
     pub sha256: Option<String>,
-    /// Size in bytes of the shipped binary, when recorded. A file of any other size is
-    /// rejected as a digest mismatch before it is hashed.
+    /// Signature-independent content digest (see [`content_digest`]): the identity the
+    /// verification matches on. Required for an approved entry; absent while pending.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub content_sha256: Option<String>,
+    /// Size in bytes of the retained bytes `sha256` was taken from. Provenance only.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub size: Option<u64>,
     pub source_sha256: String,
@@ -261,7 +323,22 @@ impl Artifact {
             && self.arch.eq_ignore_ascii_case(arch)
     }
 
-    /// The approved digest; errors for pending or stale entries.
+    /// The approved content digest (the identity verification matches on); errors for
+    /// pending or stale entries and for an approved entry that has none.
+    pub fn approved_content_sha256(&self) -> Result<&str, MediaError> {
+        match (self.status, self.content_sha256.as_deref()) {
+            (ArtifactStatus::Approved, Some(digest)) => Ok(digest),
+            (ArtifactStatus::Pending, _) => Err(MediaError::ArtifactPending {
+                id: self.id.clone(),
+            }),
+            _ => Err(MediaError::ArtifactNotApproved {
+                id: self.id.clone(),
+            }),
+        }
+    }
+
+    /// The provenance digest of the retained unsigned bytes; errors for pending or stale
+    /// entries. Verification does not use it: see [`Artifact::approved_content_sha256`].
     pub fn approved_sha256(&self) -> Result<&str, MediaError> {
         match (self.status, self.sha256.as_deref()) {
             (ArtifactStatus::Approved, Some(digest)) => Ok(digest),
@@ -285,6 +362,16 @@ impl Artifact {
             if value.trim().is_empty() {
                 return Err(MediaError::MissingMetadata(field));
             }
+        }
+        match (self.status, &self.content_sha256) {
+            (ArtifactStatus::Pending, Some(_)) => {
+                return Err(MediaError::PendingWithDigest(self.id.clone()))
+            }
+            (ArtifactStatus::Approved, None) => {
+                return Err(MediaError::MissingMetadata("contentSha256"))
+            }
+            (_, Some(digest)) => validate_digest("contentSha256", digest)?,
+            _ => {}
         }
         match (self.status, &self.sha256, &self.pending) {
             (ArtifactStatus::Pending, None, Some(pending)) => {
@@ -330,10 +417,35 @@ impl Artifact {
                 }
             }
         }
-        if self.variant == DECODE_VARIANT && !self.attribution.components.is_empty() {
-            return Err(MediaError::MissingAttribution(
-                "decode variant links no third-party components",
-            ));
+        if let Some(policy) = variant_policy(&self.variant) {
+            if let Some(component) = self
+                .attribution
+                .components
+                .iter()
+                .find(|component| !policy.components.contains(&component.name.as_str()))
+            {
+                return Err(MediaError::ComponentNotAllowed {
+                    variant: self.variant.clone(),
+                    component: component.name.clone(),
+                });
+            }
+            if policy.must_have_components
+                && !policy.components.iter().all(|name| {
+                    self.attribution
+                        .components
+                        .iter()
+                        .any(|component| component.name == *name)
+                })
+            {
+                return Err(MediaError::MissingAttribution(
+                    "component the variant exists to carry",
+                ));
+            }
+            for flag in policy.required_flags {
+                if !required.iter().any(|candidate| candidate == flag) {
+                    return Err(MediaError::MissingConfigureFlag((*flag).to_owned()));
+                }
+            }
         }
         reject_forbidden_flags(&required.join(" "))
     }
@@ -356,9 +468,13 @@ pub struct Component {
     pub version: String,
     pub license_spdx: String,
     pub source_url: String,
-    /// Source tarball digest; `None` until observed (pending entries only).
+    /// Source tarball digest; `None` until observed (pending entries only), or when the
+    /// build used a git checkout and `source_commit` pins it instead.
     #[serde(default)]
     pub source_sha256: Option<String>,
+    /// Full git commit (40 hex) of the checkout the build used, when no tarball digest exists.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_commit: Option<String>,
     /// FFmpeg configure flag that enables it, when it has one.
     #[serde(default)]
     pub enable_flag: Option<String>,
@@ -424,10 +540,24 @@ impl Attribution {
             if !component.source_url.starts_with("https://") {
                 return Err(MediaError::MissingAttribution("component https source URL"));
             }
-            match (&component.source_sha256, status) {
-                (Some(digest), _) => validate_digest("components.sourceSha256", digest)?,
-                (None, ArtifactStatus::Pending) => {}
-                (None, _) => return Err(MediaError::MissingMetadata("components.sourceSha256")),
+            match (&component.source_sha256, &component.source_commit, status) {
+                (Some(digest), None, _) => validate_digest("components.sourceSha256", digest)?,
+                (None, Some(commit), _) => {
+                    if commit.len() != 40 || !commit.bytes().all(|b| b.is_ascii_hexdigit()) {
+                        return Err(MediaError::InvalidDigest {
+                            field: "components.sourceCommit",
+                        });
+                    }
+                }
+                (Some(_), Some(_), _) => {
+                    return Err(MediaError::MissingAttribution(
+                        "one component source pin (digest or commit), not both",
+                    ))
+                }
+                (None, None, ArtifactStatus::Pending) => {}
+                (None, None, _) => {
+                    return Err(MediaError::MissingMetadata("components.sourceSha256"))
+                }
             }
             if !self.notice_files.contains(&component.notice_file) {
                 return Err(MediaError::MissingAttribution("component notice file"));
@@ -437,37 +567,111 @@ impl Attribution {
     }
 }
 
+#[non_exhaustive]
 #[derive(Debug)]
 pub enum MediaError {
     Io(io::Error),
     CatalogJson(serde_json::Error),
     UnsupportedCatalogSchema(u32),
     MissingMetadata(&'static str),
-    InvalidDigest { field: &'static str },
+    InvalidDigest {
+        field: &'static str,
+    },
     UnapprovedLicense(String),
     MissingAttribution(&'static str),
     MissingConfigureFlag(String),
     ForbiddenConfigureFlag(String),
-    NoApprovedArtifact { os: String, arch: String },
-    AmbiguousArtifact { os: String, arch: String },
+    NoApprovedArtifact {
+        os: String,
+        arch: String,
+    },
+    AmbiguousArtifact {
+        os: String,
+        arch: String,
+    },
     ArtifactNotFound,
     DevelopmentPathDisabled,
-    DigestMismatch { path: PathBuf },
+    DigestMismatch {
+        path: PathBuf,
+    },
     BuildProbeFailed,
     BuildProbeTimedOut,
     CancelledBeforeSpawn,
-    UnexpectedVersion { expected: String },
+    UnexpectedVersion {
+        expected: String,
+    },
     MissingConfiguration,
     InvalidLifecyclePolicy,
     DuplicateArtifactId(String),
-    ArtifactPending { id: String },
-    ArtifactNotApproved { id: String },
+    ArtifactPending {
+        id: String,
+    },
+    ArtifactNotApproved {
+        id: String,
+    },
     PendingWithDigest(String),
-    WrongTool { expected: Tool, found: Tool },
+    WrongTool {
+        expected: Tool,
+        found: Tool,
+    },
     UnverifiedRefusedInRelease,
-    OverrideMissing { path: PathBuf },
+    OverrideMissing {
+        path: PathBuf,
+    },
     UnverifiedNotFound,
     StagingFailed(String),
+    /// A Mach-O or PE whose structure does not add up; never treated as a plain file.
+    MalformedBinary(String),
+    ComponentNotAllowed {
+        variant: String,
+        component: String,
+    },
+}
+
+impl MediaError {
+    /// `true` exactly when the error means "no approved catalog row matches this binary's
+    /// content": [`MediaError::DigestMismatch`] (the file's content digest is not the row's)
+    /// and [`MediaError::NoApprovedArtifact`] (no approved row for the platform).
+    ///
+    /// Only these two permit a development fallback, and only outside release builds.
+    /// Everything else is `false` on purpose: a missing file ([`MediaError::ArtifactNotFound`],
+    /// [`MediaError::OverrideMissing`]), a pending or ambiguous row, a malformed binary, a
+    /// failed probe and every I/O or catalog error describe a different problem that a
+    /// fallback would hide. The match has no wildcard, so a new variant must be classified.
+    pub fn is_not_in_catalog(&self) -> bool {
+        match self {
+            Self::DigestMismatch { .. } | Self::NoApprovedArtifact { .. } => true,
+            Self::Io(_)
+            | Self::CatalogJson(_)
+            | Self::UnsupportedCatalogSchema(_)
+            | Self::MissingMetadata(_)
+            | Self::InvalidDigest { .. }
+            | Self::UnapprovedLicense(_)
+            | Self::MissingAttribution(_)
+            | Self::MissingConfigureFlag(_)
+            | Self::ForbiddenConfigureFlag(_)
+            | Self::AmbiguousArtifact { .. }
+            | Self::ArtifactNotFound
+            | Self::DevelopmentPathDisabled
+            | Self::BuildProbeFailed
+            | Self::BuildProbeTimedOut
+            | Self::CancelledBeforeSpawn
+            | Self::UnexpectedVersion { .. }
+            | Self::MissingConfiguration
+            | Self::InvalidLifecyclePolicy
+            | Self::DuplicateArtifactId(_)
+            | Self::ArtifactPending { .. }
+            | Self::ArtifactNotApproved { .. }
+            | Self::PendingWithDigest(_)
+            | Self::WrongTool { .. }
+            | Self::UnverifiedRefusedInRelease
+            | Self::OverrideMissing { .. }
+            | Self::UnverifiedNotFound
+            | Self::StagingFailed(_)
+            | Self::MalformedBinary(_)
+            | Self::ComponentNotAllowed { .. } => false,
+        }
+    }
 }
 
 impl fmt::Display for MediaError {
@@ -531,6 +735,11 @@ impl fmt::Display for MediaError {
                 f.write_str("no unverified FFmpeg found (override, environment, or PATH)")
             }
             Self::StagingFailed(why) => write!(f, "externalBin staging failed: {why}"),
+            Self::MalformedBinary(why) => write!(f, "malformed binary: {why}"),
+            Self::ComponentNotAllowed { variant, component } => write!(
+                f,
+                "variant {variant} may not link component {component}"
+            ),
         }
     }
 }
@@ -622,24 +831,63 @@ pub fn resolve_ffmpeg(
 }
 
 fn verify_resolved_path(artifact: &Artifact, path: &Path) -> Result<ResolvedFfmpeg, MediaError> {
-    let expected = artifact.approved_sha256()?;
-    if let Some(size) = artifact.size {
-        if fs::metadata(path)?.len() != size {
-            return Err(MediaError::DigestMismatch {
-                path: path.to_owned(),
-            });
-        }
-    }
-    let observed = sha256_file(path)?;
-    if !observed.eq_ignore_ascii_case(expected) {
-        return Err(MediaError::DigestMismatch {
-            path: path.to_owned(),
-        });
+    let expected = artifact.approved_content_sha256()?;
+    // A cached pass for this exact file (path, size, mtime, identity, artifact) skips the hash.
+    let key = verify_cache::key_for(path, artifact, expected)?;
+    if !verify_cache::lookup(&key).digest_ok {
+        verify_cache::record_digest_computation();
+        verify_content(artifact, path)?;
+        verify_cache::remember(key, |entry| entry.digest_ok = true);
     }
     Ok(ResolvedFfmpeg {
         path: path.to_owned(),
         artifact: artifact.clone(),
     })
+}
+
+/// Check that the file at `path` is the build `artifact` approves, by content digest.
+///
+/// A Mach-O or PE must carry the row's architecture; any other file is compared whole. A universal Mach-O passes only when the row's own slice
+/// matches and every other slice matches an approved row (same tool, variant, version, OS)
+/// for that slice's architecture, so a universal file can never smuggle in an unapproved
+/// slice. Malformed binaries are errors, not mismatches to be retried as plain files.
+pub fn verify_content(artifact: &Artifact, path: &Path) -> Result<(), MediaError> {
+    let mismatch = || MediaError::DigestMismatch {
+        path: path.to_owned(),
+    };
+    let expected = artifact.approved_content_sha256()?;
+    let identity = content_identity_file(path)?;
+    let own = match identity.format {
+        ContentFormat::Plain => identity.slices.first().map(|slice| slice.sha256.as_str()),
+        _ => identity.digest_for(&artifact.arch),
+    };
+    if !own.is_some_and(|digest| digest.eq_ignore_ascii_case(expected)) {
+        return Err(mismatch());
+    }
+    if identity.format == ContentFormat::MachOUniversal {
+        let embedded = ArtifactCatalog::embedded()?;
+        for slice in &identity.slices {
+            let arch = slice.arch.ok_or_else(mismatch)?;
+            let approved = embedded
+                .artifacts
+                .iter()
+                .chain(std::iter::once(artifact))
+                .filter(|row| {
+                    row.status == ArtifactStatus::Approved
+                        && row.tool == artifact.tool
+                        && row.variant == artifact.variant
+                        && row.version == artifact.version
+                        && row.os.eq_ignore_ascii_case(&artifact.os)
+                        && row.arch.eq_ignore_ascii_case(arch)
+                })
+                .filter_map(|row| row.content_sha256.as_deref())
+                .any(|digest| digest.eq_ignore_ascii_case(&slice.sha256));
+            if !approved {
+                return Err(mismatch());
+            }
+        }
+    }
+    Ok(())
 }
 
 pub fn sha256_file(path: &Path) -> Result<String, MediaError> {
@@ -722,6 +970,12 @@ impl VerifiedFfprobe {
     }
 }
 
+impl FfmpegBinary for VerifiedFfprobe {
+    fn ffmpeg_path(&self) -> &Path {
+        self.path()
+    }
+}
+
 /// Verify a resolved `ffmpeg`: digest already matched, now the `-version` build probe.
 pub fn verify_ffmpeg(
     resolved: ResolvedFfmpeg,
@@ -756,8 +1010,15 @@ fn run_build_probe(resolved: &ResolvedFfmpeg, timeout: Duration) -> Result<(), M
     if timeout.is_zero() {
         return Err(MediaError::InvalidLifecyclePolicy);
     }
+    let expected = resolved.artifact.approved_content_sha256()?;
+    let key = verify_cache::key_for(&resolved.path, &resolved.artifact, expected)?;
+    if verify_cache::lookup(&key).probe_ok {
+        return Ok(());
+    }
     let output = run_version_probe(&resolved.path, &["-version"], timeout)?;
-    validate_build_probe(&resolved.artifact, output.0, &output.1)
+    validate_build_probe(&resolved.artifact, output.0, &output.1)?;
+    verify_cache::remember(key, |entry| entry.probe_ok = true);
+    Ok(())
 }
 
 /// Run `program args`, bounded by `timeout`, returning (success, stdout+stderr).
@@ -793,16 +1054,17 @@ pub(crate) fn run_version_probe(
         }
         buf
     });
-    let started = Instant::now();
-    let status = loop {
-        if let Some(status) = child.try_wait()? {
-            break status;
-        }
-        if started.elapsed() >= timeout {
+    let (exit_tx, exit_rx) = std::sync::mpsc::channel();
+    runner::watch_exit(&child, move |status| {
+        let _ = exit_tx.send(status);
+    })?;
+    // Block until the child exits or the deadline passes; no polling tick sits in between.
+    let status = match exit_rx.recv_timeout(timeout) {
+        Ok(status) => status?,
+        Err(_) => {
             child.terminate_tree()?;
             return Err(MediaError::BuildProbeTimedOut);
         }
-        thread::sleep(Duration::from_millis(5));
     };
     let mut output = out_reader.join().unwrap_or_default();
     output.extend(err_reader.join().unwrap_or_default());
@@ -812,6 +1074,9 @@ pub(crate) fn run_version_probe(
     ))
 }
 
+/// `-y -hide_banner -loglevel error -i <input> -vn -ac 1 -ar 16000 -c:a pcm_s16le <output>`:
+/// 16-bit mono 16 kHz WAV from any input. It adds `-vn` (drop video) and `-y` (overwrite).
+/// Paths stay `OsString`s; nothing is shell-quoted. It needs only the paths, not a binary.
 pub fn pcm_s16le_16khz_mono_args(input: &Path, output: &Path) -> Vec<OsString> {
     [
         OsString::from("-y"),
@@ -838,6 +1103,17 @@ pub struct CancellationToken(Arc<AtomicBool>);
 impl CancellationToken {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// A token backed by a flag the caller already owns (for example an app-wide
+    /// shutdown flag). Setting the flag cancels the token and vice versa.
+    pub fn from_flag(flag: Arc<AtomicBool>) -> Self {
+        Self(flag)
+    }
+
+    /// The shared flag behind this token, for callers that hand it to other code.
+    pub fn flag(&self) -> Arc<AtomicBool> {
+        Arc::clone(&self.0)
     }
 
     pub fn cancel(&self) {
@@ -894,6 +1170,7 @@ pub fn lifecycle_decision(
     }
 }
 
+#[non_exhaustive]
 #[derive(Debug)]
 pub enum ProcessOutcome {
     Exited(ExitStatus),
@@ -977,6 +1254,7 @@ mod tests {
             version: "7.1.5".into(),
             status: ArtifactStatus::Approved,
             sha256: Some(sha256.into()),
+            content_sha256: Some(sha256.into()),
             size: None,
             source_sha256: "de668509caf9e35e3cd162473441fdb29538c6d96ed080292b3cf9e6fc5d558f"
                 .into(),
@@ -1099,6 +1377,7 @@ mod tests {
         ));
         artifact.sha256 =
             Some("2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824".into());
+        artifact.content_sha256 = artifact.sha256.clone();
         artifact.attribution.license_spdx = "GPL-3.0-only".into();
         assert!(matches!(
             artifact.validate(),
@@ -1220,6 +1499,7 @@ mod tests {
         artifact.variant = EXPORT_ASS_VARIANT.into();
         artifact.status = ArtifactStatus::Pending;
         artifact.sha256 = None;
+        artifact.content_sha256 = None;
         artifact.pending = Some(PendingBuild {
             reason: "needs a build".into(),
             recipe: "recipes/build-ffmpeg-macos.sh".into(),
@@ -1239,6 +1519,7 @@ mod tests {
                 "https://github.com/libass/libass/releases/download/0.17.3/libass-0.17.3.tar.xz"
                     .into(),
             source_sha256: None,
+            source_commit: None,
             enable_flag: Some("--enable-libass".into()),
             notice_file: "libass-COPYING.txt".into(),
         }];
@@ -1295,6 +1576,12 @@ mod tests {
         approved_without_digest.pending = None;
         assert!(matches!(
             approved_without_digest.validate(),
+            Err(MediaError::MissingMetadata("contentSha256"))
+        ));
+        // With the content digest but no provenance digest, the provenance one is missing.
+        approved_without_digest.content_sha256 = Some("a".repeat(64));
+        assert!(matches!(
+            approved_without_digest.validate(),
             Err(MediaError::MissingMetadata("sha256"))
         ));
     }
@@ -1343,6 +1630,7 @@ mod tests {
         approved_unpinned_source.pending = None;
         approved_unpinned_source.sha256 =
             Some("2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824".into());
+        approved_unpinned_source.content_sha256 = approved_unpinned_source.sha256.clone();
         assert!(matches!(
             approved_unpinned_source.validate(),
             Err(MediaError::MissingMetadata("components.sourceSha256"))
@@ -1351,6 +1639,60 @@ mod tests {
         let mut decode_with_components = base;
         decode_with_components.variant = DECODE_VARIANT.into();
         assert!(decode_with_components.validate().is_err());
+    }
+
+    #[test]
+    fn wtfpl_is_an_allowed_component_licence_and_unlisted_licences_stay_refused() {
+        // zimg (WTFPL) beside libass (ISC): the expression names both, the component carries it.
+        let zimg = |license: &str| Component {
+            name: "zimg".into(),
+            version: "3.0.5".into(),
+            license_spdx: license.into(),
+            source_url: "https://github.com/sekrit-twc/zimg/archive/refs/tags/release-3.0.5.tar.gz"
+                .into(),
+            source_sha256: None,
+            source_commit: None,
+            enable_flag: Some("--enable-libzimg".into()),
+            notice_file: "zimg-COPYING.txt".into(),
+        };
+        let mut with_zimg = export_artifact();
+        with_zimg.attribution.license_spdx = "LGPL-2.1-or-later AND ISC AND WTFPL".into();
+        with_zimg
+            .attribution
+            .notice_files
+            .push("zimg-COPYING.txt".into());
+        with_zimg.attribution.components.push(zimg("WTFPL"));
+        with_zimg
+            .required_configure_flags
+            .push("--enable-libzimg".into());
+        with_zimg.validate().unwrap();
+
+        // The licence must be in the entry's SPDX expression too.
+        let mut not_in_expression = with_zimg.clone();
+        not_in_expression.attribution.license_spdx = "LGPL-2.1-or-later AND ISC".into();
+        assert!(matches!(
+            not_in_expression.validate(),
+            Err(MediaError::MissingAttribution(_))
+        ));
+
+        // A licence that is not on the list is still refused, as a component and in the expression.
+        let mut unlisted_component = with_zimg.clone();
+        unlisted_component.attribution.components[1].license_spdx = "Beerware".into();
+        unlisted_component.attribution.license_spdx =
+            "LGPL-2.1-or-later AND ISC AND Beerware".into();
+        assert!(matches!(
+            unlisted_component.validate(),
+            Err(MediaError::UnapprovedLicense(license)) if license == "Beerware"
+        ));
+        let mut unlisted_expression = with_zimg;
+        unlisted_expression.attribution.license_spdx =
+            "LGPL-2.1-or-later AND ISC AND WTFPL AND Beerware".into();
+        assert!(matches!(
+            unlisted_expression.validate(),
+            Err(MediaError::UnapprovedLicense(license)) if license == "Beerware"
+        ));
+        assert!(ALLOWED_COMPONENT_LICENSES.contains(&"WTFPL"));
+        assert!(!ALLOWED_COMPONENT_LICENSES.contains(&"GPL-2.0-or-later"));
     }
 
     #[test]
@@ -1474,7 +1816,7 @@ mod tests {
     }
 
     #[test]
-    fn a_recorded_size_rejects_a_same_named_binary_of_another_length() {
+    fn size_and_whole_file_sha256_are_provenance_and_the_content_digest_decides() {
         let file = temp_file("sized-tool.bin", b"hello");
         let mut artifact =
             approved_artifact("2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824");
@@ -1484,14 +1826,83 @@ mod tests {
             development_path: None,
             allow_development_path: false,
         };
-        artifact.size = Some(5);
-        assert!(resolve_ffmpeg(&artifact, &request).is_ok());
+        // A re-signed copy has another length and another whole-file hash: still accepted.
         artifact.size = Some(6);
+        artifact.sha256 = Some("0".repeat(64));
+        assert!(resolve_ffmpeg(&artifact, &request).is_ok());
+        // A different content digest is refused, and an approved row without one is invalid.
+        artifact.content_sha256 = Some("1".repeat(64));
+        verify_cache_clear();
         assert!(matches!(
             resolve_ffmpeg(&artifact, &request),
             Err(MediaError::DigestMismatch { .. })
         ));
+        artifact.content_sha256 = None;
+        assert!(matches!(
+            artifact.validate(),
+            Err(MediaError::MissingMetadata("contentSha256"))
+        ));
         fs::remove_file(file).unwrap();
+    }
+
+    #[test]
+    fn variants_restrict_their_components_and_flags() {
+        let mut av1 = approved_artifact(&"a".repeat(64));
+        av1.variant = DECODE_AV1_VARIANT.into();
+        // Needs dav1d and its flag.
+        assert!(av1.validate().is_err());
+        av1.required_configure_flags
+            .push("--enable-libdav1d".into());
+        av1.attribution.license_spdx = "LGPL-2.1-or-later AND BSD-2-Clause".into();
+        av1.attribution
+            .notice_files
+            .push("dav1d-COPYING.txt".into());
+        let dav1d = Component {
+            name: "dav1d".into(),
+            version: "1.5.4".into(),
+            license_spdx: "BSD-2-Clause".into(),
+            source_url: "https://github.com/videolan/dav1d.git".into(),
+            source_sha256: None,
+            source_commit: Some("54706fc6bc0cdecab7e9593974a4039cc038fca7".into()),
+            enable_flag: Some("--enable-libdav1d".into()),
+            notice_file: "dav1d-COPYING.txt".into(),
+        };
+        av1.attribution.components = vec![dav1d.clone()];
+        av1.validate().unwrap();
+        // Any other component is refused in this variant, and `decode` still takes none.
+        let mut other = av1.clone();
+        other.attribution.components[0].name = "libass".into();
+        assert!(matches!(
+            other.validate(),
+            Err(MediaError::ComponentNotAllowed { .. })
+        ));
+        let mut decode = av1.clone();
+        decode.variant = DECODE_VARIANT.into();
+        assert!(matches!(
+            decode.validate(),
+            Err(MediaError::ComponentNotAllowed { .. })
+        ));
+        // A component must be pinned by exactly one of digest or commit.
+        let mut unpinned = av1.clone();
+        unpinned.attribution.components[0].source_commit = None;
+        assert!(unpinned.validate().is_err());
+        let mut both = av1;
+        both.attribution.components[0].source_sha256 = Some("b".repeat(64));
+        assert!(both.validate().is_err());
+
+        let mut apple = approved_artifact(&"a".repeat(64));
+        apple.variant = DECODE_APPLE_VARIANT.into();
+        assert!(matches!(
+            apple.validate(),
+            Err(MediaError::MissingConfigureFlag(_))
+        ));
+        apple
+            .required_configure_flags
+            .push("--enable-videotoolbox".into());
+        apple
+            .required_configure_flags
+            .push("--enable-audiotoolbox".into());
+        apple.validate().unwrap();
     }
 
     #[test]
@@ -1528,6 +1939,22 @@ mod tests {
         assert!(!clone.is_cancelled());
         token.cancel();
         assert!(clone.is_cancelled());
+    }
+
+    #[test]
+    fn cancellation_shares_a_caller_owned_flag_in_both_directions() {
+        let flag = Arc::new(AtomicBool::new(false));
+        let token = CancellationToken::from_flag(Arc::clone(&flag));
+        assert!(!token.is_cancelled());
+        flag.store(true, Ordering::Release);
+        assert!(token.is_cancelled());
+
+        let other = CancellationToken::new();
+        let shared = other.flag();
+        assert!(!shared.load(Ordering::Acquire));
+        other.cancel();
+        assert!(shared.load(Ordering::Acquire));
+        assert!(Arc::ptr_eq(&other.flag(), &shared));
     }
 
     #[test]
@@ -1624,10 +2051,21 @@ mod tests {
     #[cfg(windows)]
     #[test]
     fn approved_windows_binary_resolves_and_passes_the_real_build_probe() {
-        let path = Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../../../../vendor/ffmpeg-lgpl/ffmpeg-win-x64.exe");
-        let artifact =
-            approved_artifact("ded75c0edf344b9eed5876cd6cc469b7366b00c4dd0f25b3965062965c33990d");
+        // The retained exe sits in the workspace `vendor/ffmpeg-lgpl`; the depth depends on
+        // the checkout layout, so try both. Absent on this host: say so and skip.
+        let manifest = Path::new(env!("CARGO_MANIFEST_DIR"));
+        let Some(path) = ["../../../vendor", "../../../../vendor"]
+            .iter()
+            .map(|up| manifest.join(up).join("ffmpeg-lgpl/ffmpeg-win-x64.exe"))
+            .find(|path| path.is_file())
+        else {
+            eprintln!("SKIPPED: vendor/ffmpeg-lgpl/ffmpeg-win-x64.exe is not on this host");
+            return;
+        };
+        // The embedded row: its contentSha256 is the Authenticode hash, not the file hash.
+        let catalog = ArtifactCatalog::embedded().unwrap();
+        let artifact = catalog.approved("windows", "x86_64").unwrap().clone();
+        assert_eq!(artifact.id, "ffmpeg-7.1.5-windows-x64");
         let resolved = resolve_ffmpeg(
             &artifact,
             &ResolutionRequest {
@@ -1640,5 +2078,56 @@ mod tests {
         .unwrap();
         let verified = verify_ffmpeg(resolved, Duration::from_secs(5)).unwrap();
         assert_eq!(verified.artifact_id(), artifact.id);
+    }
+
+    #[test]
+    fn only_content_mismatch_and_missing_row_mean_not_in_catalog() {
+        let p = || PathBuf::from("x");
+        let s = || String::new();
+        let not_in_catalog = [
+            MediaError::DigestMismatch { path: p() },
+            MediaError::NoApprovedArtifact { os: s(), arch: s() },
+        ];
+        let other = [
+            MediaError::Io(io::Error::other("x")),
+            MediaError::CatalogJson(serde_json::from_str::<u8>("x").unwrap_err()),
+            MediaError::UnsupportedCatalogSchema(9),
+            MediaError::MissingMetadata("x"),
+            MediaError::InvalidDigest { field: "x" },
+            MediaError::UnapprovedLicense(s()),
+            MediaError::MissingAttribution("x"),
+            MediaError::MissingConfigureFlag(s()),
+            MediaError::ForbiddenConfigureFlag(s()),
+            MediaError::AmbiguousArtifact { os: s(), arch: s() },
+            MediaError::ArtifactNotFound,
+            MediaError::DevelopmentPathDisabled,
+            MediaError::BuildProbeFailed,
+            MediaError::BuildProbeTimedOut,
+            MediaError::CancelledBeforeSpawn,
+            MediaError::UnexpectedVersion { expected: s() },
+            MediaError::MissingConfiguration,
+            MediaError::InvalidLifecyclePolicy,
+            MediaError::DuplicateArtifactId(s()),
+            MediaError::ArtifactPending { id: s() },
+            MediaError::ArtifactNotApproved { id: s() },
+            MediaError::PendingWithDigest(s()),
+            MediaError::WrongTool {
+                expected: Tool::Ffmpeg,
+                found: Tool::Ffprobe,
+            },
+            MediaError::UnverifiedRefusedInRelease,
+            MediaError::OverrideMissing { path: p() },
+            MediaError::UnverifiedNotFound,
+            MediaError::StagingFailed(s()),
+            MediaError::MalformedBinary(s()),
+            MediaError::ComponentNotAllowed {
+                variant: s(),
+                component: s(),
+            },
+        ];
+        assert!(not_in_catalog.iter().all(MediaError::is_not_in_catalog));
+        assert!(other.iter().all(|e| !e.is_not_in_catalog()), "{other:?}");
+        // The method's match has no wildcard, so a new variant fails to compile until it is
+        // classified there and listed in one of the arrays above.
     }
 }

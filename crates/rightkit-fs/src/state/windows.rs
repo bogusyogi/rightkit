@@ -1,5 +1,6 @@
 //! Native bindings match winternl.h/winbase.h. No path is retained for operations.
-use super::{EntryKind, EntryStat};
+use super::{DirEntry, EntryKind, EntryStat, StateOptions};
+use crate::atomic::{SyncLevel, SyncPolicy};
 use crate::error::{FsError, Result};
 use std::ffi::{c_void, OsStr};
 use std::fs::File;
@@ -15,7 +16,17 @@ type Handle = *mut c_void;
 const READ_ATTRIBUTES: u32 = 0x80;
 const SYNCHRONIZE: u32 = 0x0010_0000;
 const DELETE: u32 = 0x0001_0000;
-const SHARE_READ_WRITE: u32 = 3; // Deliberately excludes FILE_SHARE_DELETE.
+// Files are opened without FILE_SHARE_DELETE on purpose: removal and publication go through
+// handle-based disposition and rename, so nobody needs delete sharing on a file.
+const SHARE_READ_WRITE: u32 = 3;
+// Directories default to the same, so a pinned directory (and every ancestor) cannot be renamed
+// or deleted under the pin, and `StateDir::path()` stays true. `allow_rename_while_open`
+// switches directories to this.
+const SHARE_READ_WRITE_DELETE: u32 = 7;
+// FILE_WRITE_THROUGH on the handle that creates a directory, renames or deletes: the same
+// mechanism MOVEFILE_WRITE_THROUGH relies on. There is no directory flush on Windows (see
+// `Dir::sync`).
+const FILE_WRITE_THROUGH: u32 = 0x2;
 const FILE_OPEN: u32 = 1;
 const FILE_CREATE: u32 = 2;
 const FILE_OPEN_IF: u32 = 3;
@@ -178,10 +189,33 @@ impl Drop for SecurityDescriptor {
     }
 }
 
+/// What a pinned directory remembers from its [`StateOptions`], inherited by children.
+#[derive(Clone, Copy, Debug)]
+struct Config {
+    /// Share mode for directory handles (`SHARE_READ_WRITE` or `SHARE_READ_WRITE_DELETE`).
+    directory_share: u32,
+    /// Create without an explicit security descriptor, so the parent's ACL is inherited.
+    inherit_acl: bool,
+}
+
+impl Config {
+    fn from_options(options: &StateOptions) -> Self {
+        Self {
+            directory_share: if options.allow_rename_while_open {
+                SHARE_READ_WRITE_DELETE
+            } else {
+                SHARE_READ_WRITE
+            },
+            inherit_acl: options.inherit_acl(),
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct Dir {
     file: File,
     enumeration: Mutex<()>,
+    config: Config,
 }
 
 fn attributes(file: &File, shown: &Path) -> Result<u32> {
@@ -207,7 +241,7 @@ fn attributes(file: &File, shown: &Path) -> Result<u32> {
     Ok(info.attributes)
 }
 
-pub(super) fn valid_component(name: &str) -> bool {
+pub(super) fn valid_component(name: &str, limit: usize) -> bool {
     !name.is_empty()
         && name != "."
         && name != ".."
@@ -215,7 +249,7 @@ pub(super) fn valid_component(name: &str) -> bool {
         && !name
             .chars()
             .any(|c| c < ' ' || matches!(c, '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|'))
-        && name.encode_utf16().count() <= 255
+        && name.encode_utf16().count() <= limit
 }
 
 fn component(name: &OsStr) -> Result<Vec<u16>> {
@@ -224,14 +258,14 @@ fn component(name: &OsStr) -> Result<Vec<u16>> {
     let text = name
         .to_str()
         .ok_or_else(|| FsError::BadName(shown.into_owned()))?;
-    if !valid_component(text) {
+    if !valid_component(text, super::PLATFORM_NAME_LIMIT) {
         return Err(FsError::BadName(text.to_string()));
     }
     Ok(name.encode_wide().collect())
 }
 
 impl Dir {
-    fn open_path(path: &Path) -> Result<Self> {
+    fn open_path(path: &Path, config: Config, share: u32) -> Result<Self> {
         let wide: Vec<u16> = path.as_os_str().encode_wide().chain(Some(0)).collect();
         if wide[..wide.len() - 1].contains(&0) {
             return Err(FsError::BadName(path.display().to_string()));
@@ -242,7 +276,7 @@ impl Dir {
             CreateFileW(
                 wide.as_ptr(),
                 1 | READ_ATTRIBUTES | SYNCHRONIZE,
-                SHARE_READ_WRITE,
+                share,
                 null(),
                 3,
                 0x0200_0000 | 0x0020_0000,
@@ -253,7 +287,7 @@ impl Dir {
             return Err(FsError::io(path, io::Error::last_os_error()));
         }
         // SAFETY: CreateFileW returned a fresh owned handle.
-        Self::verified(unsafe { File::from_raw_handle(raw) }, path)
+        Self::verified(unsafe { File::from_raw_handle(raw) }, path, config)
     }
 
     fn identity(&self, shown: &Path) -> Result<FileIdInfo> {
@@ -276,13 +310,14 @@ impl Dir {
         Ok(id)
     }
 
-    fn verified(file: File, shown: &Path) -> Result<Self> {
+    fn verified(file: File, shown: &Path, config: Config) -> Result<Self> {
         if attributes(&file, shown)? & ATTRIBUTE_DIRECTORY == 0 {
             return Err(FsError::NotADirectory(shown.to_path_buf()));
         }
         Ok(Self {
             file,
             enumeration: Mutex::new(()),
+            config,
         })
     }
 
@@ -296,11 +331,9 @@ impl Dir {
             maximum_length: len,
             buffer: wide.as_mut_ptr(),
         };
-        let security = if disposition != FILE_OPEN {
-            Some(SecurityDescriptor::owner_only(
-                shown,
-                options & DIRECTORY_FILE != 0,
-            )?)
+        let directory = options & DIRECTORY_FILE != 0;
+        let security = if disposition != FILE_OPEN && !self.config.inherit_acl {
+            Some(SecurityDescriptor::owner_only(shown, directory)?)
         } else {
             None
         };
@@ -327,7 +360,11 @@ impl Dir {
                 &mut status,
                 null(),
                 0x80,
-                SHARE_READ_WRITE,
+                if directory {
+                    self.config.directory_share
+                } else {
+                    SHARE_READ_WRITE
+                },
                 disposition,
                 options | OPEN_REPARSE_POINT | SYNCHRONOUS_IO_NONALERT,
                 null(),
@@ -355,7 +392,8 @@ impl Dir {
         Ok(file)
     }
 
-    pub fn pin(path: &Path, create: bool) -> Result<Self> {
+    pub fn pin(path: &Path, create: bool, options: &StateOptions) -> Result<Self> {
+        let config = Config::from_options(options);
         if path.as_os_str().is_empty() {
             return Err(FsError::BadName(String::new()));
         }
@@ -386,7 +424,7 @@ impl Dir {
             return Err(FsError::BadName(path.display().to_string()));
         }
         root.push("\\");
-        let mut current = Self::open_path(&root)?;
+        let mut current = Self::open_path(&root, config, config.directory_share)?;
         for part in parts {
             match part {
                 Component::CurDir => continue,
@@ -398,23 +436,29 @@ impl Dir {
                         if create { FILE_OPEN_IF } else { FILE_OPEN },
                         DIRECTORY_FILE,
                     )?;
-                    current = Self::verified(file, &root)?;
+                    current = Self::verified(file, &root, config)?;
                 }
                 _ => return Err(FsError::BadName(path.display().to_string())),
             }
         }
         // Retain one CreateFileW handle for the state directory, checked against the
         // no-reparse component walk. Any ancestor swap during this final open fails closed.
-        let pinned = Self::open_path(&absolute)?;
+        let pinned = Self::open_path(&absolute, config, config.directory_share)?;
         if current.identity(path)? != pinned.identity(path)? {
             return Err(FsError::IdentityChanged(path.to_path_buf()));
         }
         Ok(pinned)
     }
 
-    pub fn child(&self, name: &str) -> Result<Self> {
-        let file = self.open_at(OsStr::new(name), 1, FILE_OPEN_IF, DIRECTORY_FILE)?;
-        Self::verified(file, Path::new(name))
+    pub fn child(&self, name: &str, _policy: SyncPolicy) -> Result<Self> {
+        // Created write-through: the directory entry is committed with the creation.
+        let file = self.open_at(
+            OsStr::new(name),
+            1,
+            FILE_OPEN_IF,
+            DIRECTORY_FILE | FILE_WRITE_THROUGH,
+        )?;
+        Self::verified(file, Path::new(name), self.config)
     }
 
     pub fn stat(&self, name: &str) -> Result<Option<EntryStat>> {
@@ -469,7 +513,13 @@ impl Dir {
                 }
             }
         }
-        let source = self.open_at(OsStr::new(from), DELETE, FILE_OPEN, NON_DIRECTORY_FILE)?;
+        // Write-through on the renamed handle, as MOVEFILE_WRITE_THROUGH does.
+        let source = self.open_at(
+            OsStr::new(from),
+            DELETE,
+            FILE_OPEN,
+            NON_DIRECTORY_FILE | FILE_WRITE_THROUGH,
+        )?;
         let offset = offset_of!(RenameInfo, file_name);
         let bytes = size_of::<RenameInfo>() + wide.len() * 2;
         let mut buffer = vec![0usize; bytes.div_ceil(size_of::<usize>())];
@@ -520,7 +570,12 @@ impl Dir {
     }
 
     pub fn unlink(&self, name: &str) -> Result<()> {
-        let file = self.open_at(OsStr::new(name), DELETE, FILE_OPEN, NON_DIRECTORY_FILE)?;
+        let file = self.open_at(
+            OsStr::new(name),
+            DELETE,
+            FILE_OPEN,
+            NON_DIRECTORY_FILE | FILE_WRITE_THROUGH,
+        )?;
         let delete: u8 = 1; // FILE_DISPOSITION_INFO.DeleteFile is BOOLEAN, not BOOL.
                             // SAFETY: live child handle, opened without reparse traversal or delete sharing.
         if unsafe {
@@ -537,11 +592,20 @@ impl Dir {
         Ok(())
     }
 
-    pub fn sync(&self) {
-        let _ = self.file.sync_all();
+    /// There is no directory flush on Windows, so this does nothing and says so (`None`): the
+    /// pinned handle is opened for listing, and `FlushFileBuffers` on it fails with
+    /// `ERROR_ACCESS_DENIED` (it needs `GENERIC_WRITE`; Pulse saw the same on NTFS). A directory
+    /// handle opened for write would only be flushing NTFS metadata the filesystem journals
+    /// anyway. Directory-entry durability comes from the operations themselves: the file is
+    /// flushed before publication, and directory creation, the publishing rename and the
+    /// removing delete are performed on handles opened `FILE_WRITE_THROUGH` (the mechanism
+    /// `MOVEFILE_WRITE_THROUGH` uses), so they commit with the call. A power-loss test has not
+    /// been run against that claim.
+    pub fn sync(&self, _policy: SyncPolicy) -> io::Result<Option<SyncLevel>> {
+        Ok(None)
     }
 
-    pub fn names(&self, limit: usize) -> Result<Vec<String>> {
+    pub fn entries(&self, limit: usize) -> Result<Vec<DirEntry>> {
         let _guard = self
             .enumeration
             .lock()
@@ -601,13 +665,17 @@ impl Dir {
                         len / 2,
                     )
                 };
-                let name = String::from_utf16(name)
-                    .map_err(|_| FsError::Unavailable("non-Unicode state entry name"))?;
+                // A name with unpaired surrogates comes back lossily (it cannot be addressed) rather
+                // than failing the whole listing.
+                let name = String::from_utf16_lossy(name);
                 if name != "." && name != ".." {
                     if out.len() >= limit {
                         return Err(FsError::TooManyEntries(limit));
                     }
-                    out.push(name);
+                    out.push(DirEntry {
+                        name,
+                        kind: super::kind_from_attributes(info.attributes),
+                    });
                 }
                 let next = info.next_entry_offset as usize;
                 if next == 0 {

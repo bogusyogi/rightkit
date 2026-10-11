@@ -13,8 +13,29 @@
 //! and removal use handle-based rename/disposition. New entries have an owner-only DACL at
 //! creation. Reparse-point children are refused, including removal. Other targets retain a
 //! path-based fallback.
+//!
+//! # Durability
+//!
+//! [`StateDir::write`], [`write_new`](StateDir::write_new), [`remove`](StateDir::remove) and
+//! [`child`](StateDir::child) (when it creates) are durable operations, and a durability failure
+//! is an error, never swallowed:
+//!
+//! - Unix: the file is flushed before it is published, and the directory is flushed after the
+//!   publish, removal or creation. A failed directory flush is
+//!   [`FsError::ReplacedButDirSyncFailed`] (writes) or [`FsError::DirSyncFailed`] (removal,
+//!   creation); the change is in place but may not survive power loss. On Apple targets the flush
+//!   is `F_FULLFSYNC`, falling back to `F_BARRIERFSYNC` then `fsync` unless
+//!   [`StateOptions::sync`] is [`SyncPolicy::Strict`]; the `*_reporting` writes return the
+//!   [`SyncLevel`] reached.
+//! - Windows: there is no directory flush. `FlushFileBuffers` needs `GENERIC_WRITE`, and on a
+//!   directory handle opened for listing (the pinned handle) it fails with
+//!   `ERROR_ACCESS_DENIED` (Pulse measured this on NTFS), so the crate does not call it. The
+//!   file is flushed before publication, and directory creation, the publishing rename and the
+//!   removing delete run on handles opened `FILE_WRITE_THROUGH`, the mechanism
+//!   `MOVEFILE_WRITE_THROUGH` uses. A power-loss test of that claim has not been run. Missing
+//!   ancestors that [`StateDir::create`] makes are not write-through on either platform.
 
-use crate::atomic::TEMP_MARKER;
+use crate::atomic::{durable_sync_with, Privacy, SyncLevel, SyncPolicy, TEMP_MARKER};
 use crate::error::{FsError, Result};
 use std::fs::File;
 use std::io::{Read, Write};
@@ -22,8 +43,21 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 static COUNTER: AtomicU64 = AtomicU64::new(0);
+
+/// The longest single path component the platform accepts: 255 bytes on unix, 255 UTF-16 code
+/// units on Windows. Reads, listings, stats and removals accept any name up to this length.
+pub const PLATFORM_NAME_LIMIT: usize = 255;
+
+/// The default cap on names a `StateDir` *creates*: 200 bytes on unix, 255 UTF-16 units on
+/// Windows. On unix 200 leaves room for the `.<name>.rktmp-<pid>-<n>-<attempt>` temp name (at
+/// most 42 bytes beyond the name) inside 255 for names written by older versions; temp names now
+/// carry at most 64 bytes of the name, so [`StateOptions::max_name_len`] can raise the cap to
+/// [`PLATFORM_NAME_LIMIT`].
 #[cfg(not(windows))]
-const MAX_NAME: usize = 200;
+pub const DEFAULT_WRITE_NAME_LEN: usize = 200;
+/// See the unix constant: Windows has always accepted names up to the platform limit.
+#[cfg(windows)]
+pub const DEFAULT_WRITE_NAME_LEN: usize = PLATFORM_NAME_LIMIT;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum EntryKind {
@@ -43,49 +77,182 @@ pub struct EntryStat {
     pub modified_unix_ms: u64,
 }
 
-/// Entry names are single path components: no separators, no NUL, not `.`/`..`.
-pub fn validate_name(name: &str) -> Result<()> {
+/// One directory entry from [`StateDir::list_entries`].
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DirEntry {
+    /// The entry name. A name that is not valid Unicode is returned lossily (U+FFFD) and cannot
+    /// be addressed by the other methods.
+    pub name: String,
+    /// What the entry is, without following it. On Windows any reparse point (symlink, junction,
+    /// mount point, placeholder) is [`EntryKind::Symlink`].
+    pub kind: EntryKind,
+}
+
+/// How a [`StateDir`] is opened or created. `StateOptions::default()` is what
+/// [`StateDir::open`] and [`StateDir::create`] use. Children made by [`StateDir::child`] inherit
+/// the options.
+#[derive(Clone, Debug)]
+pub struct StateOptions {
+    /// Windows access control on directories and files this `StateDir` creates (including
+    /// missing ancestors):
+    ///
+    /// - [`Privacy::OwnerOnly`] (default): a protected owner-only ACL, set at creation. Beware
+    ///   that if the `StateDir` is the first creator of an application data root, that root gets
+    ///   the protected ACL too and every later child created under it inherits it (other
+    ///   accounts, services and backup agents lose access). Create the data root first, or use
+    ///   the option below.
+    /// - [`Privacy::OwnerOnlyUnixInheritWindows`] or [`Privacy::Inherit`]: no ACL step on
+    ///   Windows, so new objects carry the parent's inherited ACL, the same meaning these have for
+    ///   atomic writes.
+    ///
+    /// Unix ignores this: directories are always created `0700`, files `0600`, and a pinned
+    /// directory must be owned by the user and not group/other writable.
+    pub privacy: Privacy,
+    /// Windows only: open the pinned directory with `FILE_SHARE_DELETE`, so other handles may
+    /// rename or delete the directory (or an ancestor) while this `StateDir` is open. Operations
+    /// stay handle-relative and keep acting on the original directory, but
+    /// [`StateDir::path`] then names whatever is at that path now, so use no path-based call on
+    /// it. Default `false`: the directory cannot be renamed or removed while open, so the path
+    /// stays true. Unix descriptors always behave as if this were `true`.
+    pub allow_rename_while_open: bool,
+    /// Longest name this `StateDir` creates, clamped to `1..=`[`PLATFORM_NAME_LIMIT`]. `None` is
+    /// [`DEFAULT_WRITE_NAME_LEN`]. Reads and listings are never limited below the platform limit.
+    pub max_name_len: Option<usize>,
+    /// Behaviour when `F_FULLFSYNC` is unavailable (Apple only). Default
+    /// [`SyncPolicy::Fallback`]; [`SyncPolicy::Strict`] makes writes fail instead.
+    pub sync: SyncPolicy,
+}
+
+impl Default for StateOptions {
+    fn default() -> Self {
+        Self {
+            privacy: Privacy::OwnerOnly,
+            allow_rename_while_open: false,
+            max_name_len: None,
+            sync: SyncPolicy::Fallback,
+        }
+    }
+}
+
+impl StateOptions {
+    fn write_cap(&self) -> usize {
+        self.max_name_len
+            .unwrap_or(DEFAULT_WRITE_NAME_LEN)
+            .clamp(1, PLATFORM_NAME_LIMIT)
+    }
+
+    #[cfg_attr(not(windows), allow(dead_code))]
+    fn inherit_acl(&self) -> bool {
+        self.privacy != Privacy::OwnerOnly
+    }
+}
+
+fn check_name(name: &str, limit: usize) -> Result<()> {
     let bad = name.is_empty()
         || name == "."
         || name == ".."
         || name.bytes().any(|b| b == b'/' || b == b'\\' || b == 0);
     #[cfg(not(windows))]
-    let bad = bad || name.len() > MAX_NAME;
+    let bad = bad || name.len() > limit;
     #[cfg(windows)]
-    let bad = bad || !sys::valid_component(name);
+    let bad = bad || !sys::valid_component(name, limit);
     if bad {
         return Err(FsError::BadName(name.to_string()));
     }
     Ok(())
 }
 
+/// Entry names are single path components: no separators, no NUL, not `.`/`..`, and within the
+/// default write cap ([`DEFAULT_WRITE_NAME_LEN`]).
+pub fn validate_name(name: &str) -> Result<()> {
+    check_name(name, DEFAULT_WRITE_NAME_LEN)
+}
+
+/// The prefix of `name` used in a temp name: at most 64 bytes, cut at a character boundary, so a
+/// temp name fits the platform limit however long the real name is.
+fn temp_prefix(name: &str) -> &str {
+    let mut end = name.len().min(64);
+    while !name.is_char_boundary(end) {
+        end -= 1;
+    }
+    &name[..end]
+}
+
+/// `EntryKind` from Windows file attributes: reparse point, then directory, else file.
+#[cfg_attr(not(windows), allow(dead_code))]
+fn kind_from_attributes(attributes: u32) -> EntryKind {
+    const DIRECTORY: u32 = 0x10;
+    const REPARSE_POINT: u32 = 0x400;
+    if attributes & REPARSE_POINT != 0 {
+        EntryKind::Symlink
+    } else if attributes & DIRECTORY != 0 {
+        EntryKind::Dir
+    } else {
+        EntryKind::File
+    }
+}
+
+/// Flush `file`, honouring the policy. Under the `testing` feature a thread can pretend the
+/// strongest flush is unavailable ([`testing::without_full_sync`]).
+fn flush(file: &File, policy: SyncPolicy) -> std::io::Result<SyncLevel> {
+    #[cfg(feature = "testing")]
+    if testing::full_sync_unavailable() {
+        return crate::atomic::sync_ladder(
+            policy,
+            || Err(std::io::Error::from(std::io::ErrorKind::Unsupported)),
+            || file.sync_all(),
+            || file.sync_all(),
+        );
+    }
+    durable_sync_with(file, policy)
+}
+
 #[derive(Debug)]
 pub struct StateDir {
     dir: sys::Dir,
     path: PathBuf,
+    options: StateOptions,
 }
 
 impl StateDir {
     /// Pin an existing directory.
     pub fn open(path: &Path) -> Result<Self> {
+        Self::open_with(path, &StateOptions::default())
+    }
+
+    /// [`open`](Self::open) with explicit [`StateOptions`].
+    pub fn open_with(path: &Path, options: &StateOptions) -> Result<Self> {
         Ok(Self {
-            dir: sys::Dir::pin(path, false)?,
+            dir: sys::Dir::pin(path, false, options)?,
             path: path.to_path_buf(),
+            options: options.clone(),
         })
     }
 
     /// Create the directory (and missing ancestors, owner-only, through descriptor-relative
     /// `mkdirat`) if needed, then pin it.
     pub fn create(path: &Path) -> Result<Self> {
+        Self::create_with(path, &StateOptions::default())
+    }
+
+    /// [`create`](Self::create) with explicit [`StateOptions`].
+    pub fn create_with(path: &Path, options: &StateOptions) -> Result<Self> {
         Ok(Self {
-            dir: sys::Dir::pin(path, true)?,
+            dir: sys::Dir::pin(path, true, options)?,
             path: path.to_path_buf(),
+            options: options.clone(),
         })
     }
 
     /// Like [`create`](Self::create) but resolves symlinks in the *parent* first (for example
     /// macOS `/var` -> `/private/var`). The final component must still be a real directory.
     pub fn create_in_resolved_parent(path: &Path) -> Result<Self> {
+        Self::create_in_resolved_parent_with(path, &StateOptions::default())
+    }
+
+    /// [`create_in_resolved_parent`](Self::create_in_resolved_parent) with explicit
+    /// [`StateOptions`].
+    pub fn create_in_resolved_parent_with(path: &Path, options: &StateOptions) -> Result<Self> {
         let name = path
             .file_name()
             .ok_or_else(|| FsError::BadName(path.display().to_string()))?;
@@ -95,24 +262,33 @@ impl StateDir {
             }
             _ => std::env::current_dir().map_err(|e| FsError::io(path, e))?,
         };
-        Self::create(&parent.join(name))
+        Self::create_with(&parent.join(name), options)
     }
 
     pub fn path(&self) -> &Path {
         &self.path
     }
 
-    /// Create-or-open a direct child directory (owner-only), pinned relative to this one.
+    /// The options this directory was opened with.
+    pub fn options(&self) -> &StateOptions {
+        &self.options
+    }
+
+    /// Create-or-open a direct child directory (owner-only), pinned relative to this one. The
+    /// name is held to the write cap, since the call may create it. A directory this call
+    /// creates is made durable like a write: on unix this directory is synced, and a failure is
+    /// [`FsError::DirSyncFailed`] with the child already created.
     pub fn child(&self, name: &str) -> Result<StateDir> {
-        validate_name(name)?;
+        check_name(name, self.options.write_cap())?;
         Ok(Self {
-            dir: self.dir.child(name)?,
+            dir: self.dir.child(name, self.options.sync)?,
             path: self.path.join(name),
+            options: self.options.clone(),
         })
     }
 
     pub fn stat(&self, name: &str) -> Result<Option<EntryStat>> {
-        validate_name(name)?;
+        check_name(name, PLATFORM_NAME_LIMIT)?;
         self.dir.stat(name)
     }
 
@@ -120,9 +296,11 @@ impl StateDir {
         Ok(self.stat(name)?.is_some())
     }
 
-    /// Read a regular file (never through a symlink), refusing anything over `max_bytes`.
+    /// Read a regular file (never through a symlink), refusing anything over `max_bytes`. Any
+    /// existing name up to [`PLATFORM_NAME_LIMIT`] can be read, including one longer than this
+    /// directory's write cap.
     pub fn read(&self, name: &str, max_bytes: u64) -> Result<Vec<u8>> {
-        validate_name(name)?;
+        check_name(name, PLATFORM_NAME_LIMIT)?;
         let path = self.path.join(name);
         let mut file = self.dir.open_read(name)?;
         let meta = file.metadata().map_err(|e| FsError::io(&path, e))?;
@@ -160,24 +338,39 @@ impl StateDir {
         }
     }
 
-    /// Atomically create or replace `name` (owner-only, `fsync`ed file and directory).
+    /// Atomically create or replace `name` (owner-only, file and directory synced). A failed
+    /// directory sync is [`FsError::ReplacedButDirSyncFailed`]: the content is in place but the
+    /// rename may not survive power loss. Windows has no directory flush; see the module docs.
     pub fn write(&self, name: &str, bytes: &[u8]) -> Result<()> {
+        self.publish(name, bytes, true).map(|_| ())
+    }
+
+    /// [`write`](Self::write) that also reports the weakest [`SyncLevel`] reached by the file
+    /// and directory syncs. Windows reports only the file flush.
+    pub fn write_reporting(&self, name: &str, bytes: &[u8]) -> Result<SyncLevel> {
         self.publish(name, bytes, true)
     }
 
     /// Atomically create `name`, failing with [`FsError::AlreadyExists`] rather than replacing.
+    /// A failed directory sync is [`FsError::ReplacedButDirSyncFailed`] (the entry exists).
     pub fn write_new(&self, name: &str, bytes: &[u8]) -> Result<()> {
+        self.publish(name, bytes, false).map(|_| ())
+    }
+
+    /// [`write_new`](Self::write_new) that reports the weakest [`SyncLevel`] reached.
+    pub fn write_new_reporting(&self, name: &str, bytes: &[u8]) -> Result<SyncLevel> {
         self.publish(name, bytes, false)
     }
 
-    fn publish(&self, name: &str, bytes: &[u8], replace: bool) -> Result<()> {
-        validate_name(name)?;
+    fn publish(&self, name: &str, bytes: &[u8], replace: bool) -> Result<SyncLevel> {
+        check_name(name, self.options.write_cap())?;
         let final_path = self.path.join(name);
         let (temp, mut file) = self.create_temp(name)?;
-        let result = (|| -> Result<()> {
+        let result = (|| -> Result<SyncLevel> {
             file.write_all(bytes)
                 .map_err(|e| FsError::io(&final_path, e))?;
-            crate::atomic::durable_sync(&file).map_err(|e| FsError::io(&final_path, e))?;
+            let file_level =
+                flush(&file, self.options.sync).map_err(|e| FsError::io(&final_path, e))?;
             drop(file);
             if replace {
                 // Never replace a symlinked or non-file destination through the rename.
@@ -194,8 +387,15 @@ impl StateDir {
                 })?;
                 let _ = self.dir.unlink(&temp);
             }
-            self.dir.sync();
-            Ok(())
+            // Past this point the entry is published; a failure no longer removes it.
+            match self.dir.sync(self.options.sync) {
+                Ok(Some(dir_level)) => Ok(file_level.min(dir_level)),
+                Ok(None) => Ok(file_level),
+                Err(source) => Err(FsError::ReplacedButDirSyncFailed {
+                    path: final_path.clone(),
+                    source,
+                }),
+            }
         })();
         if result.is_err() {
             let _ = self.dir.unlink(&temp);
@@ -204,13 +404,9 @@ impl StateDir {
     }
 
     fn create_temp(&self, name: &str) -> Result<(String, File)> {
+        let prefix = temp_prefix(name);
         for attempt in 0..32u32 {
             let n = COUNTER.fetch_add(1, Ordering::Relaxed);
-            // Bound the Windows prefix independently of the public 255 UTF-16-unit name.
-            #[cfg(windows)]
-            let prefix: String = name.chars().take(64).collect();
-            #[cfg(not(windows))]
-            let prefix = name;
             let temp = format!(".{prefix}{TEMP_MARKER}{}-{n}-{attempt}", std::process::id());
             match self.dir.create_new(&temp) {
                 Ok(file) => return Ok((temp, file)),
@@ -222,26 +418,48 @@ impl StateDir {
     }
 
     /// Remove a file. Unix removes a symlink itself; Windows refuses reparse points.
-    /// Missing is `Ok(false)`.
+    /// Missing is `Ok(false)`. The removal is made durable like a write: a failed directory sync
+    /// is [`FsError::DirSyncFailed`] with the entry already gone.
     pub fn remove(&self, name: &str) -> Result<bool> {
-        validate_name(name)?;
+        check_name(name, PLATFORM_NAME_LIMIT)?;
         match self.dir.unlink(name) {
-            Ok(()) => Ok(true),
-            Err(e) if e.is_not_found() => Ok(false),
-            Err(e) => Err(e),
+            Ok(()) => {}
+            Err(e) if e.is_not_found() => return Ok(false),
+            Err(e) => return Err(e),
         }
+        self.dir
+            .sync(self.options.sync)
+            .map_err(|source| FsError::DirSyncFailed {
+                path: self.path.join(name),
+                source,
+            })?;
+        Ok(true)
     }
 
-    /// Names of direct children, capped at `limit` entries (error past the cap).
+    /// Names of direct children, capped at `limit` entries (error past the cap). Every existing
+    /// name is returned, including one longer than the write cap.
     pub fn list(&self, limit: usize) -> Result<Vec<String>> {
-        self.dir.names(limit)
+        Ok(self
+            .dir
+            .entries(limit)?
+            .into_iter()
+            .map(|entry| entry.name)
+            .collect())
+    }
+
+    /// Direct children with their [`EntryKind`], capped at `limit` entries (error past the cap).
+    /// The kind comes from the directory entry itself (`d_type` on unix, the attributes in
+    /// `FILE_ID_BOTH_DIR_INFO` on Windows), so no per-entry stat is made; on unix an entry whose
+    /// filesystem reports no type (`DT_UNKNOWN`) gets one descriptor-relative `fstatat`.
+    pub fn list_entries(&self, limit: usize) -> Result<Vec<DirEntry>> {
+        self.dir.entries(limit)
     }
 
     /// Remove temp files left by writers that were killed mid-write (pid gone, or older than
     /// `max_age`). Returns how many were removed.
     pub fn sweep_temps(&self, max_age: std::time::Duration) -> Result<usize> {
         let mut removed = 0;
-        for name in self.dir.names(usize::MAX)? {
+        for DirEntry { name, .. } in self.dir.entries(usize::MAX)? {
             let Some(idx) = name.find(TEMP_MARKER) else {
                 continue;
             };
@@ -268,6 +486,74 @@ impl StateDir {
     }
 }
 
+/// Fault injection for consumer tests (feature `testing`, off by default; debug builds only).
+/// Hooks are per thread and removed when their guard drops.
+#[cfg(feature = "testing")]
+pub mod testing {
+    use std::cell::{Cell, RefCell};
+    use std::io;
+
+    thread_local! {
+        static DIR_SYNC_FAILURE: RefCell<Option<io::ErrorKind>> = const { RefCell::new(None) };
+        static DIR_SYNCS: Cell<usize> = const { Cell::new(0) };
+        static FULL_SYNC_UNAVAILABLE: Cell<bool> = const { Cell::new(false) };
+        static FALLBACK_STATS: Cell<usize> = const { Cell::new(0) };
+    }
+
+    /// Removes the hook when dropped.
+    pub struct HookGuard(fn());
+
+    impl Drop for HookGuard {
+        fn drop(&mut self) {
+            (self.0)();
+        }
+    }
+
+    /// Make every directory sync this thread's `StateDir` operations perform fail with `kind`
+    /// (standing in for the OS call) until the guard drops. Unix only: Windows makes no
+    /// directory sync call.
+    pub fn fail_dir_sync(kind: io::ErrorKind) -> HookGuard {
+        DIR_SYNC_FAILURE.with(|f| *f.borrow_mut() = Some(kind));
+        HookGuard(|| DIR_SYNC_FAILURE.with(|f| *f.borrow_mut() = None))
+    }
+
+    /// Pretend the strongest flush (`F_FULLFSYNC`) is unavailable for this thread's `StateDir`
+    /// syncs, on any platform, so [`SyncPolicy`](crate::SyncPolicy) can be exercised.
+    pub fn without_full_sync() -> HookGuard {
+        FULL_SYNC_UNAVAILABLE.with(|f| f.set(true));
+        HookGuard(|| FULL_SYNC_UNAVAILABLE.with(|f| f.set(false)))
+    }
+
+    /// Directory syncs attempted on this thread since it started.
+    pub fn dir_sync_count() -> usize {
+        DIR_SYNCS.with(Cell::get)
+    }
+
+    /// Per-entry `fstatat` fallbacks made by listings on this thread (entries whose filesystem
+    /// reported no type). Zero on filesystems that report `d_type`.
+    pub fn fallback_stat_count() -> usize {
+        FALLBACK_STATS.with(Cell::get)
+    }
+
+    #[cfg(unix)]
+    pub(super) fn before_dir_sync() -> Option<io::Error> {
+        DIR_SYNCS.with(|c| c.set(c.get() + 1));
+        DIR_SYNC_FAILURE.with(|f| {
+            f.borrow()
+                .map(|kind| io::Error::new(kind, "injected directory sync failure"))
+        })
+    }
+
+    #[cfg(unix)]
+    pub(super) fn count_fallback_stat() {
+        FALLBACK_STATS.with(|c| c.set(c.get() + 1));
+    }
+
+    pub(super) fn full_sync_unavailable() -> bool {
+        FULL_SYNC_UNAVAILABLE.with(Cell::get)
+    }
+}
+
 fn now_ms() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -277,7 +563,8 @@ fn now_ms() -> u64 {
 
 #[cfg(unix)]
 mod sys {
-    use super::{EntryKind, EntryStat};
+    use super::{DirEntry, EntryKind, EntryStat, StateOptions};
+    use crate::atomic::{SyncLevel, SyncPolicy};
     use crate::error::{FsError, Result};
     use std::ffi::{CStr, CString};
     use std::fs::File;
@@ -328,6 +615,17 @@ mod sys {
         }
     }
 
+    /// The kind a directory entry's `d_type` names, or `None` when the filesystem gave no type.
+    pub(super) fn kind_from_dtype(d_type: u8) -> Option<EntryKind> {
+        match d_type {
+            libc::DT_REG => Some(EntryKind::File),
+            libc::DT_DIR => Some(EntryKind::Dir),
+            libc::DT_LNK => Some(EntryKind::Symlink),
+            libc::DT_UNKNOWN => None,
+            _ => Some(EntryKind::Other),
+        }
+    }
+
     fn fstat(file: &File) -> io::Result<libc::stat> {
         // SAFETY: zeroed stat is a valid out-parameter and fd is open.
         let mut st: libc::stat = unsafe { std::mem::zeroed() };
@@ -370,15 +668,17 @@ mod sys {
         Ok(unsafe { File::from_raw_fd(fd) })
     }
 
-    fn mkdir_at(base: RawFd, name: &CStr, shown: &Path) -> Result<()> {
+    /// `Ok(true)` when this call created the directory, `Ok(false)` when it already existed.
+    fn mkdir_at(base: RawFd, name: &CStr, shown: &Path) -> Result<bool> {
         // SAFETY: valid fd and C string.
         if unsafe { libc::mkdirat(base, name.as_ptr(), 0o700) } != 0 {
             let e = io::Error::last_os_error();
             if !errno_is(&e, libc::EEXIST) {
                 return Err(FsError::io(shown, e));
             }
+            return Ok(false);
         }
-        Ok(())
+        Ok(true)
     }
 
     fn verify(file: &File, shown: &Path) -> Result<libc::stat> {
@@ -401,7 +701,7 @@ mod sys {
             self.0.as_raw_fd()
         }
 
-        pub fn pin(path: &Path, create: bool) -> Result<Dir> {
+        pub fn pin(path: &Path, create: bool, _options: &StateOptions) -> Result<Dir> {
             use std::path::Component;
             let root = CString::new("/").unwrap();
             let dot = CString::new(".").unwrap();
@@ -448,19 +748,28 @@ mod sys {
             Ok(Dir(current))
         }
 
-        pub fn child(&self, name: &str) -> Result<Dir> {
+        pub fn child(&self, name: &str, policy: SyncPolicy) -> Result<Dir> {
             let c = cname(name)?;
             let shown = Path::new(name);
+            let mut created = false;
             let file = match open_dir_at(self.fd(), &c, shown) {
                 Ok(f) => f,
                 Err(FsError::Io { source, .. }) if errno_is(&source, libc::ENOENT) => {
-                    mkdir_at(self.fd(), &c, shown)?;
+                    created = mkdir_at(self.fd(), &c, shown)?;
                     open_dir_at(self.fd(), &c, shown)?
                 }
                 Err(e) => return Err(e),
             };
             verify(&file, shown)?;
-            Ok(Dir(file))
+            let child = Dir(file);
+            if created {
+                // The new entry lives in this directory; make it durable like a write.
+                self.sync(policy).map_err(|source| FsError::DirSyncFailed {
+                    path: shown.to_path_buf(),
+                    source,
+                })?;
+            }
+            Ok(child)
         }
 
         pub fn stat(&self, name: &str) -> Result<Option<EntryStat>> {
@@ -567,11 +876,16 @@ mod sys {
             Ok(())
         }
 
-        pub fn sync(&self) {
-            let _ = crate::atomic::durable_sync(&self.0);
+        /// Flush this directory's entries. Unlike a file `fsync`, a failure is returned.
+        pub fn sync(&self, policy: SyncPolicy) -> io::Result<Option<SyncLevel>> {
+            #[cfg(feature = "testing")]
+            if let Some(error) = super::testing::before_dir_sync() {
+                return Err(error);
+            }
+            super::flush(&self.0, policy).map(Some)
         }
 
-        pub fn names(&self, limit: usize) -> Result<Vec<String>> {
+        pub fn entries(&self, limit: usize) -> Result<Vec<DirEntry>> {
             let dup = self
                 .0
                 .try_clone()
@@ -610,14 +924,40 @@ mod sys {
                     };
                 }
                 // SAFETY: d_name is a NUL-terminated array inside a live dirent.
-                let name = unsafe { CStr::from_ptr((*entry).d_name.as_ptr()) }
-                    .to_string_lossy()
-                    .into_owned();
+                let raw_name = unsafe { CStr::from_ptr((*entry).d_name.as_ptr()) };
+                let name = raw_name.to_string_lossy().into_owned();
                 if name != "." && name != ".." {
                     if out.len() >= limit {
                         return Err(FsError::TooManyEntries(limit));
                     }
-                    out.push(name);
+                    // SAFETY: d_type is a plain field of the live dirent.
+                    let kind = match kind_from_dtype(unsafe { (*entry).d_type }) {
+                        Some(kind) => kind,
+                        None => {
+                            #[cfg(feature = "testing")]
+                            super::testing::count_fallback_stat();
+                            // The filesystem reports no type: one descriptor-relative lstat.
+                            // SAFETY: valid fd, NUL-terminated name, zeroed out-parameter.
+                            let mut st: libc::stat = unsafe { std::mem::zeroed() };
+                            let rc = unsafe {
+                                libc::fstatat(
+                                    self.fd(),
+                                    raw_name.as_ptr(),
+                                    &mut st,
+                                    libc::AT_SYMLINK_NOFOLLOW,
+                                )
+                            };
+                            if rc != 0 {
+                                let e = io::Error::last_os_error();
+                                if errno_is(&e, libc::ENOENT) {
+                                    continue; // removed between readdir and fstatat
+                                }
+                                return Err(FsError::io(&name, e));
+                            }
+                            kind_of(st.st_mode as u32)
+                        }
+                    };
+                    out.push(DirEntry { name, kind });
                 }
             }
         }
@@ -630,7 +970,8 @@ mod sys;
 
 #[cfg(not(any(unix, windows)))]
 mod sys {
-    use super::{EntryKind, EntryStat};
+    use super::{DirEntry, EntryKind, EntryStat, StateOptions};
+    use crate::atomic::{SyncLevel, SyncPolicy};
     use crate::error::{FsError, Result};
     use std::fs::{self, File, OpenOptions};
     use std::path::{Path, PathBuf};
@@ -663,7 +1004,7 @@ mod sys {
     }
 
     impl Dir {
-        pub fn pin(path: &Path, create: bool) -> Result<Dir> {
+        pub fn pin(path: &Path, create: bool, _options: &StateOptions) -> Result<Dir> {
             reject_links(path)?;
             if create {
                 fs::create_dir_all(path).map_err(|e| FsError::io(path, e))?;
@@ -677,9 +1018,9 @@ mod sys {
             }
             Ok(Dir(path.to_path_buf()))
         }
-        pub fn child(&self, name: &str) -> Result<Dir> {
+        pub fn child(&self, name: &str, _policy: SyncPolicy) -> Result<Dir> {
             let p = self.0.join(name);
-            Dir::pin(&p, true)
+            Dir::pin(&p, true, &StateOptions::default())
         }
         pub fn stat(&self, name: &str) -> Result<Option<EntryStat>> {
             let p = self.0.join(name);
@@ -750,17 +1091,84 @@ mod sys {
         pub fn unlink(&self, name: &str) -> Result<()> {
             fs::remove_file(self.0.join(name)).map_err(|e| FsError::io(self.0.join(name), e))
         }
-        pub fn sync(&self) {}
-        pub fn names(&self, limit: usize) -> Result<Vec<String>> {
+        pub fn sync(&self, _policy: SyncPolicy) -> std::io::Result<Option<SyncLevel>> {
+            Ok(None)
+        }
+        pub fn entries(&self, limit: usize) -> Result<Vec<DirEntry>> {
             let mut out = Vec::new();
             for entry in fs::read_dir(&self.0).map_err(|e| FsError::io(&self.0, e))? {
                 let entry = entry.map_err(|e| FsError::io(&self.0, e))?;
                 if out.len() >= limit {
                     return Err(FsError::TooManyEntries(limit));
                 }
-                out.push(entry.file_name().to_string_lossy().into_owned());
+                let kind = match entry.file_type() {
+                    Ok(t) if t.is_symlink() => EntryKind::Symlink,
+                    Ok(t) if t.is_dir() => EntryKind::Dir,
+                    Ok(t) if t.is_file() => EntryKind::File,
+                    _ => EntryKind::Other,
+                };
+                out.push(DirEntry {
+                    name: entry.file_name().to_string_lossy().into_owned(),
+                    kind,
+                });
             }
             Ok(out)
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn windows_attributes_map_to_kinds() {
+        assert_eq!(kind_from_attributes(0x20), EntryKind::File); // ARCHIVE
+        assert_eq!(kind_from_attributes(0x10), EntryKind::Dir);
+        assert_eq!(kind_from_attributes(0x400), EntryKind::Symlink);
+        // A directory symlink/junction is both: the reparse point wins.
+        assert_eq!(kind_from_attributes(0x10 | 0x400), EntryKind::Symlink);
+        assert_eq!(kind_from_attributes(0x80 | 0x2), EntryKind::File); // NORMAL | HIDDEN
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn dtype_maps_to_kinds_and_unknown_needs_a_stat() {
+        use super::sys::kind_from_dtype;
+        assert_eq!(kind_from_dtype(libc::DT_REG), Some(EntryKind::File));
+        assert_eq!(kind_from_dtype(libc::DT_DIR), Some(EntryKind::Dir));
+        assert_eq!(kind_from_dtype(libc::DT_LNK), Some(EntryKind::Symlink));
+        for other in [libc::DT_FIFO, libc::DT_SOCK, libc::DT_CHR, libc::DT_BLK] {
+            assert_eq!(kind_from_dtype(other), Some(EntryKind::Other));
+        }
+        assert_eq!(kind_from_dtype(libc::DT_UNKNOWN), None);
+    }
+
+    #[test]
+    fn temp_prefix_is_bounded_and_cut_on_a_char_boundary() {
+        assert_eq!(temp_prefix("abc"), "abc");
+        assert_eq!(temp_prefix(&"a".repeat(255)).len(), 64);
+        // 63 ASCII bytes then a 2-byte char straddling the 64-byte limit.
+        let name = format!("{}\u{e9}tail", "a".repeat(63));
+        assert_eq!(temp_prefix(&name).len(), 63);
+        // The longest temp name still fits the platform component limit.
+        let temp = format!(
+            ".{}{TEMP_MARKER}{}-{}-{}",
+            "a".repeat(64),
+            u32::MAX,
+            u64::MAX,
+            31
+        );
+        assert!(temp.len() <= PLATFORM_NAME_LIMIT, "{}", temp.len());
+    }
+
+    #[test]
+    fn name_checks_use_the_limit_they_are_given() {
+        let long = "n".repeat(230);
+        assert!(check_name(&long, PLATFORM_NAME_LIMIT).is_ok());
+        #[cfg(not(windows))]
+        assert!(check_name(&long, DEFAULT_WRITE_NAME_LEN).is_err());
+        assert!(check_name(&"n".repeat(256), PLATFORM_NAME_LIMIT).is_err());
+        assert!(check_name("a/b", PLATFORM_NAME_LIMIT).is_err());
     }
 }

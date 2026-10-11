@@ -59,6 +59,10 @@ pub struct WindowState {
     pub width: f64,
     pub height: f64,
     pub maximized: bool,
+    /// The window was minimised when last saved. Its `x`, `y`, `width` and `height` are the last
+    /// normal geometry, never the off-screen rectangle a minimised window reports.
+    #[serde(default)]
+    pub minimized: bool,
     pub monitor: MonitorSnapshot,
     #[serde(default)]
     pub version: u32,
@@ -87,6 +91,7 @@ fn default_normal(monitor: MonitorSnapshot) -> WindowState {
         width,
         height,
         maximized: false,
+        minimized: false,
         monitor,
         version: CURRENT_VERSION,
     }
@@ -230,33 +235,55 @@ impl WindowStateStore {
         )
     }
 
+    /// The state saved for `label`, if any. Reads the file; applies nothing to any window.
+    pub fn saved(&self, label: &str) -> Option<WindowState> {
+        load_store(&self.dir).states.remove(label)
+    }
+
+    /// Record `state` for `label` without touching a window (a host that tracks its own geometry,
+    /// or a test).
+    pub fn save_state(&self, label: &str, state: WindowState) -> Result<(), String> {
+        let mut store = load_store(&self.dir);
+        store.states.insert(label.to_owned(), state);
+        save_store(&self.dir, &store)
+    }
+
     /// Apply saved geometry to `label` (hidden or not). Returns whether a saved state existed.
+    /// Positions only; equal to [`WindowStateStore::restore_with`] with the default options.
     pub fn restore<R: Runtime>(&self, app: &AppHandle<R>, label: &str) -> Result<bool, String> {
+        self.restore_with(app, label, &RestoreOptions::default())
+    }
+
+    /// [`WindowStateStore::restore`] that can also bring the window up: `options` may unminimise,
+    /// show and focus it, and re-minimise a window saved minimised. The visibility options apply
+    /// whenever the window exists, saved geometry or not (a first run still shows). Returns whether
+    /// saved geometry was applied. Nothing calls this for you outside the full `Shell` plugin.
+    pub fn restore_with<R: Runtime>(
+        &self,
+        app: &AppHandle<R>,
+        label: &str,
+        options: &RestoreOptions,
+    ) -> Result<bool, String> {
         let Some(window) = app.get_webview_window(label) else {
             return Ok(false);
         };
-        let store = load_store(&self.dir);
         let monitors = window
             .available_monitors()
             .map_err(|e| format!("available_monitors: {e}"))?;
         let snapshots: Vec<_> = monitors.iter().map(MonitorSnapshot::from_monitor).collect();
-        let Some(state) = store.states.get(label).filter(|_| !snapshots.is_empty()) else {
-            return Ok(false);
-        };
-        let target = restoreable_state(state, &snapshots);
-        let _ = window.unmaximize();
-        let _ = window.set_size(Size::Logical(LogicalSize {
-            width: target.width,
-            height: target.height,
-        }));
-        let _ = window.set_position(Position::Logical(LogicalPosition {
-            x: target.x,
-            y: target.y,
-        }));
-        if state.maximized {
-            let _ = window.maximize();
+        let state = self.saved(label).filter(|_| !snapshots.is_empty());
+        let mut target = WindowTarget(&window);
+        match state {
+            Some(state) => {
+                let rect = restoreable_state(&state, &snapshots);
+                apply_restore(&mut target, rect, &state, options);
+                Ok(true)
+            }
+            None => {
+                apply_visibility(&mut target, options, false);
+                Ok(false)
+            }
         }
-        Ok(true)
     }
 
     pub fn schedule_save<R: Runtime>(self: &Arc<Self>, app: AppHandle<R>, label: String) {
@@ -275,9 +302,10 @@ impl WindowStateStore {
         let Some(window) = app.get_webview_window(label) else {
             return Ok(());
         };
-        if window.is_fullscreen().unwrap_or(false) || window.is_minimized().unwrap_or(false) {
+        if window.is_fullscreen().unwrap_or(false) {
             return Ok(());
         }
+        let minimized = window.is_minimized().unwrap_or(false);
         let scale = window.scale_factor().map_err(|e| format!("scale: {e}"))?;
         let Some(monitor) = window
             .current_monitor()
@@ -287,19 +315,9 @@ impl WindowStateStore {
         };
         let monitor = MonitorSnapshot::from_monitor(&monitor);
         let maximized = window.is_maximized().unwrap_or(false);
-        let mut store = load_store(&self.dir);
-        let state = if maximized {
-            let normal = store
-                .states
-                .get(label)
-                .cloned()
-                .unwrap_or_else(|| default_normal(monitor));
-            WindowState {
-                maximized: true,
-                monitor,
-                version: CURRENT_VERSION,
-                ..normal
-            }
+        // A minimised window reports an off-screen rectangle on some platforms: never read it.
+        let geometry = if maximized || minimized {
+            None
         } else {
             let p = window
                 .outer_position()
@@ -307,17 +325,141 @@ impl WindowStateStore {
             let s = window
                 .inner_size()
                 .map_err(|e| format!("inner_size: {e}"))?;
-            WindowState {
-                x: f64::from(p.x) / scale,
-                y: f64::from(p.y) / scale,
-                width: f64::from(s.width) / scale,
-                height: f64::from(s.height) / scale,
-                maximized: false,
-                monitor,
-                version: CURRENT_VERSION,
-            }
+            Some((
+                f64::from(p.x) / scale,
+                f64::from(p.y) / scale,
+                f64::from(s.width) / scale,
+                f64::from(s.height) / scale,
+            ))
         };
+        let mut store = load_store(&self.dir);
+        let state = next_state(store.states.get(label), monitor, maximized, minimized, geometry);
         store.states.insert(label.to_owned(), state);
         save_store(&self.dir, &store)
+    }
+}
+
+/// The state to save next. `geometry` is the live `(x, y, width, height)` in logical pixels and is
+/// only read for a window that is neither maximised nor minimised; otherwise the last normal
+/// geometry is kept (or the default rectangle when none was saved).
+pub fn next_state(
+    prev: Option<&WindowState>,
+    monitor: MonitorSnapshot,
+    maximized: bool,
+    minimized: bool,
+    geometry: Option<(f64, f64, f64, f64)>,
+) -> WindowState {
+    match (maximized || minimized, geometry) {
+        (false, Some((x, y, width, height))) => WindowState {
+            x,
+            y,
+            width,
+            height,
+            maximized: false,
+            minimized: false,
+            monitor,
+            version: CURRENT_VERSION,
+        },
+        _ => {
+            let normal = prev.cloned().unwrap_or_else(|| default_normal(monitor));
+            WindowState {
+                // A minimised window may report either; keep what was saved if it was maximised.
+                maximized: maximized || (minimized && normal.maximized),
+                minimized,
+                monitor,
+                version: CURRENT_VERSION,
+                ..normal
+            }
+        }
+    }
+}
+
+/// What [`WindowStateStore::restore_with`] does besides positioning. The default does nothing else,
+/// which is what `restore` and the full plugin have always done.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct RestoreOptions {
+    /// Unminimise the window.
+    pub unminimize: bool,
+    /// Show the window.
+    pub show: bool,
+    /// Give the window focus (raises it; leave off for a window that must not steal focus).
+    pub focus: bool,
+    /// Minimise again a window that was saved minimised. Applied last, after `show`.
+    pub restore_minimized: bool,
+}
+
+/// The window calls a restore makes, so the order is testable without a window.
+pub trait RestoreTarget {
+    fn unmaximize(&mut self);
+    fn set_size(&mut self, width: f64, height: f64);
+    fn set_position(&mut self, x: f64, y: f64);
+    fn maximize(&mut self);
+    fn unminimize(&mut self);
+    fn show(&mut self);
+    fn focus(&mut self);
+    fn minimize(&mut self);
+}
+
+struct WindowTarget<'a, R: Runtime>(&'a tauri::WebviewWindow<R>);
+
+impl<R: Runtime> RestoreTarget for WindowTarget<'_, R> {
+    fn unmaximize(&mut self) {
+        let _ = self.0.unmaximize();
+    }
+    fn set_size(&mut self, width: f64, height: f64) {
+        let _ = self.0.set_size(Size::Logical(LogicalSize { width, height }));
+    }
+    fn set_position(&mut self, x: f64, y: f64) {
+        let _ = self.0.set_position(Position::Logical(LogicalPosition { x, y }));
+    }
+    fn maximize(&mut self) {
+        let _ = self.0.maximize();
+    }
+    fn unminimize(&mut self) {
+        let _ = self.0.unminimize();
+    }
+    fn show(&mut self) {
+        let _ = self.0.show();
+    }
+    fn focus(&mut self) {
+        let _ = self.0.set_focus();
+    }
+    fn minimize(&mut self) {
+        let _ = self.0.minimize();
+    }
+}
+
+/// Geometry first (size and position, then maximised), then the requested visibility.
+pub fn apply_restore<T: RestoreTarget>(
+    target: &mut T,
+    rect: LogicalRect,
+    state: &WindowState,
+    options: &RestoreOptions,
+) {
+    target.unmaximize();
+    target.set_size(rect.width, rect.height);
+    target.set_position(rect.x, rect.y);
+    if state.maximized {
+        target.maximize();
+    }
+    apply_visibility(target, options, state.minimized);
+}
+
+fn apply_visibility<T: RestoreTarget>(
+    target: &mut T,
+    options: &RestoreOptions,
+    was_minimized: bool,
+) {
+    if options.unminimize {
+        target.unminimize();
+    }
+    if options.show {
+        target.show();
+    }
+    if options.focus {
+        target.focus();
+    }
+    if options.restore_minimized && was_minimized {
+        target.minimize();
     }
 }

@@ -1,9 +1,9 @@
 //! End-to-end: real Silero ONNX model + real speech audio.
 //!
 //! Gate: needs `silero_vad_16k_op15.onnx` (2 MB, MIT). Set `RIGHTKIT_VAD_MODEL`
-//! or place it at one of the known local paths. Without it the tests FAIL
-//! (not skip) so a missing gate is never reported green; set
-//! `RIGHTKIT_VAD_ALLOW_MISSING_MODEL=1` to downgrade to a printed skip.
+//! to its path. When the variable is unset each test prints a SKIP line and
+//! returns; when it names a missing file the test panics. The macOS tests also
+//! need an ONNX Runtime 1.24.4 dylib, named by `RIGHTKIT_ORT_TEST_DYLIB`.
 use rightkit_vad::*;
 use std::path::{Path, PathBuf};
 #[cfg(target_os = "macos")]
@@ -20,14 +20,19 @@ fn init_ort_runtime() {
                 RuntimeCandidate, runtime_filename,
             };
 
-            let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../..").canonicalize().unwrap();
+            // Default: the genright download cache. Its place relative to this crate differs
+            // between the main checkout and the build mirrors, so search the ancestors for
+            // `genright/...` and `claude/genright/...` instead of counting `..`.
+            let cached = "genright/.cache/devin-completion-20261006/batch5/voice/dl/onnxruntime-osx-arm64-1.24.4/lib/libonnxruntime.1.24.4.dylib";
             let runtime = std::env::var_os("RIGHTKIT_ORT_TEST_DYLIB")
                 .map(PathBuf::from)
-                .unwrap_or_else(|| {
-                    root.join(
-                        "genright/.cache/devin-completion-20261006/batch5/voice/dl/onnxruntime-osx-arm64-1.24.4/lib/libonnxruntime.1.24.4.dylib",
-                    )
-                });
+                .or_else(|| {
+                    Path::new(env!("CARGO_MANIFEST_DIR"))
+                        .ancestors()
+                        .flat_map(|a| [a.join(cached), a.join("claude").join(cached)])
+                        .find(|p| p.is_file())
+                })
+                .unwrap_or_else(|| PathBuf::from(cached));
             assert!(runtime.is_file(), "no approved ONNX Runtime 1.24.4 dylib at {}; set RIGHTKIT_ORT_TEST_DYLIB", runtime.display());
             let staged_dir = std::env::temp_dir().join(format!("rightkit-vad-ort-e2e-{}", std::process::id()));
             let _ = std::fs::remove_dir_all(&staged_dir);
@@ -57,12 +62,13 @@ fn load_model(path: &Path) -> Silero {
 }
 
 fn model() -> Option<PathBuf> {
-    let mut c: Vec<PathBuf> = std::env::var_os("RIGHTKIT_VAD_MODEL")
-        .map(PathBuf::from)
-        .into_iter()
-        .collect();
-    c.push("/Volumes/D/claude/heardright/tauri-app-next/src-tauri/resources/vad/silero_vad_16k_op15.onnx".into());
-    c.into_iter().find(|p| p.is_file())
+    let path = PathBuf::from(std::env::var_os("RIGHTKIT_VAD_MODEL")?);
+    assert!(
+        path.is_file(),
+        "RIGHTKIT_VAD_MODEL does not name a file: {}",
+        path.display()
+    );
+    Some(path)
 }
 
 fn load_wav() -> Vec<f32> {
@@ -78,11 +84,10 @@ macro_rules! need_model {
     () => {
         match model() {
             Some(m) => m,
-            None if std::env::var_os("RIGHTKIT_VAD_ALLOW_MISSING_MODEL").is_some() => {
-                eprintln!("SKIP: Silero model missing");
+            None => {
+                eprintln!("SKIP: set RIGHTKIT_VAD_MODEL to run this Silero test");
                 return;
             }
-            None => panic!("Silero model missing: set RIGHTKIT_VAD_MODEL"),
         }
     };
 }
@@ -189,4 +194,133 @@ fn chunking_respects_max_and_splits_on_quiet_frames() {
 #[test]
 fn missing_model_is_an_error_not_silence() {
     assert!(Silero::load("/nonexistent/silero.onnx").is_err());
+}
+
+/// Regression for the CPU path: embedded bytes and a file path load the same
+/// model through the same session setup, so scores and spans must agree.
+#[test]
+fn embedded_bytes_match_path_load_on_cpu() {
+    let model = need_model!();
+    init_ort_runtime();
+    let bytes = std::fs::read(&model).unwrap();
+    let audio = load_wav();
+    let mut by_path = Silero::load(&model).unwrap();
+    let mut by_bytes = Silero::from_bytes(&bytes, SileroOptions::default()).unwrap();
+    assert_eq!(by_path.backend(), Backend::SileroCpu);
+    assert_eq!(by_bytes.backend(), Backend::SileroCpu);
+    let mut max_diff = 0f32;
+    for c in audio.as_chunks::<FRAME_SAMPLES>().0 {
+        let a = by_path.score(c).unwrap();
+        let b = by_bytes.score(c).unwrap();
+        max_diff = max_diff.max((a - b).abs());
+    }
+    assert!(max_diff < 1e-6, "path/bytes divergence {max_diff}");
+    let spans_path = detect(&mut by_path, &audio, &VadConfig::default()).unwrap();
+    let spans_bytes = detect(&mut by_bytes, &audio, &VadConfig::default()).unwrap();
+    assert_eq!(spans_path, spans_bytes);
+}
+
+#[test]
+fn speech_scorer_reports_cpu_backend_and_matches_detect() {
+    let model = need_model!();
+    init_ort_runtime();
+    let bytes = std::fs::read(&model).unwrap();
+    let audio = with_silence(&load_wav(), 1000, 1000);
+    let (mut scorer, report) = SpeechScorer::from_bytes(&bytes, SileroOptions::default()).unwrap();
+    assert_eq!(
+        report,
+        ScorerBackend {
+            backend: Backend::SileroCpu,
+            fallback_reason: None,
+        }
+    );
+    let mut silero = Silero::from_bytes(&bytes, SileroOptions::default()).unwrap();
+    let via_scorer = scorer.detect(&audio, &VadConfig::default()).unwrap();
+    let via_silero = detect(&mut silero, &audio, &VadConfig::default()).unwrap();
+    assert_eq!(via_scorer, via_silero);
+    assert!(!via_scorer.is_empty());
+}
+
+#[cfg(target_vendor = "apple")]
+#[test]
+fn coreml_scorer_loads_and_tracks_cpu_scores() {
+    let model = need_model!();
+    init_ort_runtime();
+    let bytes = std::fs::read(&model).unwrap();
+    let audio = load_wav();
+    let (mut cpu, cpu_report) = SpeechScorer::from_bytes(&bytes, SileroOptions::default()).unwrap();
+    let coreml = SileroOptions {
+        execution_provider: ExecutionProvider::CoreMl,
+        ..SileroOptions::default()
+    };
+    let (mut ml, ml_report) = SpeechScorer::from_bytes(&bytes, coreml).unwrap();
+    assert_eq!(cpu_report.backend, Backend::SileroCpu);
+    assert_eq!(
+        ml_report,
+        ScorerBackend {
+            backend: Backend::SileroCoreMl,
+            fallback_reason: None,
+        }
+    );
+    let a = cpu.scores(&audio).unwrap();
+    let b = ml.scores(&audio).unwrap();
+    assert_eq!(a.len(), b.len());
+    let max_diff = a
+        .iter()
+        .zip(&b)
+        .map(|(x, y)| (x - y).abs())
+        .fold(0f32, f32::max);
+    assert!(
+        max_diff < 0.05,
+        "CoreML scores diverge from CPU: {max_diff}"
+    );
+}
+
+#[test]
+fn corrupt_model_bytes_fall_back_to_energy_with_reason() {
+    init_ort_runtime();
+    let junk = b"not an onnx model";
+    assert!(SpeechScorer::from_bytes(junk, SileroOptions::default()).is_err());
+    let fallback = SileroOptions {
+        energy_fallback: true,
+        ..SileroOptions::default()
+    };
+    let (scorer, report) = SpeechScorer::from_bytes(junk, fallback).unwrap();
+    assert!(matches!(scorer, SpeechScorer::Energy));
+    assert_eq!(report.backend, Backend::Energy);
+    assert!(report.fallback_reason.is_some());
+}
+
+/// Warm-up divergence: `KeepState` keeps the state the zero warm-up frame
+/// produced, so the first real frames score differently from `ResetAfter`,
+/// and the difference fades as the state adapts.
+#[test]
+fn keep_state_warmup_diverges_early_and_converges() {
+    let model = need_model!();
+    init_ort_runtime();
+    let bytes = std::fs::read(&model).unwrap();
+    let audio = load_wav();
+    let mut reset = Silero::from_bytes(&bytes, SileroOptions::default()).unwrap();
+    let keep_opts = SileroOptions {
+        warmup: Warmup::KeepState,
+        ..SileroOptions::default()
+    };
+    let mut keep = Silero::from_bytes(&bytes, keep_opts).unwrap();
+    let mut early_diff = 0f32;
+    let mut max_diff = 0f32;
+    for (i, c) in audio.as_chunks::<FRAME_SAMPLES>().0.iter().enumerate() {
+        let d = (reset.score(c).unwrap() - keep.score(c).unwrap()).abs();
+        if i < 10 {
+            early_diff = early_diff.max(d);
+        }
+        max_diff = max_diff.max(d);
+    }
+    assert!(
+        early_diff > 0.0,
+        "KeepState must differ on the first frames"
+    );
+    assert!(
+        max_diff < 0.1,
+        "warm-up divergence did not converge: {max_diff}"
+    );
 }

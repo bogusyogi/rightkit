@@ -18,7 +18,7 @@ Catalog capability: `disk-cache`. Published to crates.io (see [INDEX.md](../../I
 - Use `DiskCache::open_read_only` to inspect a cache (a settings screen, a diagnostic) without any filesystem writes.
 - Use `prefix` to build stable cache keys for a provider's prompt cache.
 
-Do not use it as an in-memory cache, and do not use it for data that must never be evicted.
+Do not use it as an in-memory cache. Data that must never be evicted belongs in `put_pinned`, and the pinned total must stay under the cap.
 
 ## Cargo features
 
@@ -70,11 +70,19 @@ let view = DiskCache::open_read_only(root)?;   // no creation, no cleanup, no wr
 let stats = view.stats();
 ```
 
-`Config::new(max_bytes)` sets the cap; `max_entry_bytes` sets the per-entry limit. An entry over the per-entry limit is refused without destroying existing entries.
+`Config::new(max_bytes)` sets the cap; `max_entry_bytes` sets the per-entry limit; `stale_tmp_after` sets how old a leftover temp file may be before `open` sweeps it (default 1 hour). An entry over the per-entry limit is refused without destroying existing entries.
+
+`Config::owner_only()` creates entries, temp files and the cache's directories owner-only: `0600` files and `0700` directories on Unix; on Windows a protected DACL for the current user. The default keeps the platform's default permissions. A file a producer writes through `reserve_path` is restricted when it is committed, not when the producer creates it.
+
+Streaming: `put_writer(key)` returns a `PutWriter` (an `io::Write`) and `put_reader(key, reader)` copies a reader in chunks, so a large value never has to be in memory. The bytes go to a temp file and are published atomically on `commit()`. A writer dropped without committing removes its temp file.
+
+Pinning: `put_pinned`, `pin` and `unpin` make an entry exempt from size-pressure eviction. Pinned bytes count toward `max_bytes`. A write that would leave no room beside the pinned entries fails with a `PinnedCapacityError` (use `pinned_capacity_error(&err)` to read it, kind `StorageFull`) and writes nothing. Pins persist in `<root>/.pinned`. Use `pinned_bytes()` to read the total.
+
+Foreign files: the root must be exclusive to the cache. The default `open` never deletes a file whose name the cache did not write, including in `.tmp/`, but it still indexes the `<hh>/` shards. `open_strict` refuses (with a `ForeignContentError`, see `foreign_content_error`) a root that holds any file the cache did not write, and touches nothing.
 
 ## On-disk layout
 
-`<root>/<hh>/<keyhash>-<group>` for byte entries and `<root>/<hh>/<keyhash>-<group>.<ext>` for file entries, plus `<root>/.tmp/` for in-flight writes. `open` removes `.tmp` leftovers; `open_read_only` does not.
+`<root>/<hh>/<keyhash>-<group>` for byte entries and `<root>/<hh>/<keyhash>-<group>.<ext>` for file entries, plus `<root>/.tmp/` for in-flight writes and `<root>/.pinned` for the pin list. `open` sweeps `.tmp` leftovers whose names the cache writes (dead owner or older than `stale_tmp_after`); `open_read_only` sweeps nothing. The root must be exclusive to the cache: keep other state in its own directory.
 
 ## Platform support
 
@@ -83,3 +91,16 @@ Pure `std::fs` code with no platform-specific modules. Atomic write behaviour de
 ## Version and changes
 
 Published version: see [INDEX.md](../../INDEX.md). Changes are in [CHANGELOG.md](CHANGELOG.md).
+
+## Runtime budget
+
+Generated from `runtime-budget.json`; edit that file, then run `node packages/release/runtime-budgets.mjs sync <crate-dir>`.
+
+- Resident memory ceiling: 56.0 MiB.
+- CPU ceiling (idle, steady state): 1%.
+- Wake-ups ceiling: 1 per second.
+- Disk operations ceiling: 1 operations per second.
+- Required scale: 100,000 entries or more.
+- Required hosts: macOS and Windows.
+- Status exposure: `DiskCache::status()` in `src/disk.rs`; exposes resident memory, idle CPU, wake-ups, disk operations.
+- Measured: not yet measured.

@@ -37,17 +37,21 @@ pub use ndarray;
 pub mod environment;
 #[cfg(feature = "session")]
 pub mod probe;
+pub mod runtime_bundle;
 #[cfg(feature = "session")]
 pub mod session;
 
 #[cfg(feature = "session")]
 pub use environment::{
-    cpu_thread_budget, init_environment, init_environment_with_options, shared_pool_active,
-    EnvironmentInitOptions, EnvironmentInitReport, EnvironmentOptions, EnvironmentReport,
-    EnvironmentStatus, GlobalPool,
+    cpu_thread_budget, init_environment, init_environment_default_loader,
+    init_environment_with_options, shared_pool_active, EnvironmentInitOptions,
+    EnvironmentInitReport, EnvironmentOptions, EnvironmentReport, EnvironmentStatus, GlobalPool,
 };
 #[cfg(feature = "session")]
 pub use probe::{probe_providers, ProviderDiagnostic, ProviderKind};
+pub use runtime_bundle::{
+    verify_runtime_manifest, OnnxRuntimeIdentity, VerifiedFile, VerifiedRuntime,
+};
 #[cfg(feature = "session")]
 pub use session::{BuiltSession, ExecutionProvider, SessionError, SessionOptions};
 
@@ -87,6 +91,23 @@ pub fn developer_override_candidate(env_name: &str) -> Option<RuntimeCandidate> 
     }
 }
 
+/// Candidate for an override that names the runtime file itself, with any file name
+/// (`/opt/ort/libonnxruntime.so.1.24.0`). Resolution still requires an absolute path, rejects the
+/// Windows `System32`/`SysWOW64` copy (also after symlink resolution), and requires the target to
+/// be a regular file (a symlink to one is followed; a directory is `NotFound`). Only the
+/// file-name rule is relaxed, and only for this source: candidates found by discovery, the installed
+/// bundle layout or `legacy_runtime_candidate` keep the strict platform basename.
+///
+/// Relative paths stay refused: a relative library path is resolved against the working
+/// directory or the loader's search path, which lets a planted library win.
+///
+/// Resolving and binding do not load the file. The load happens in [`init_environment`] /
+/// [`init_environment_with_options`], where ort checks that the file exports `OrtGetApiBase` and
+/// reports an ONNX Runtime minor version at least the pinned ort's; anything else is an `Err`.
+pub fn explicit_file_candidate(path: impl Into<PathBuf>) -> RuntimeCandidate {
+    RuntimeCandidate::new(path, CandidateSource::ExplicitFile)
+}
+
 /// Return the last path successfully bound by this crate for this process,
 /// falling back to a non-empty `ORT_DYLIB_PATH` when no binding is recorded.
 /// Read-only: no resolution, file check, environment mutation or ORT loading.
@@ -101,7 +122,12 @@ pub fn configured_runtime() -> Option<PathBuf> {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CandidateSource {
+    /// Caller-named path whose file name must be the exact platform name
+    /// ([`runtime_filename`]).
     Explicit,
+    /// Caller-named absolute path to a regular file with any name (a versioned soname such as
+    /// `libonnxruntime.so.1.24.0`, or a renamed copy). See [`explicit_file_candidate`].
+    ExplicitFile,
     Bundled,
     AppData,
     /// Caller-opted-in `<workspace>/tools/bin/<runtime filename>`.
@@ -190,6 +216,46 @@ pub enum RuntimeError {
     SystemRuntimeRejected {
         path: PathBuf,
     },
+    /// `manifest.json` is missing, unreadable, malformed, or fails the schema.
+    BundleManifest {
+        path: PathBuf,
+        message: String,
+    },
+    /// A manifest path is empty, absolute, non-normalised, contains `..`, `\`
+    /// or a NUL byte, names `manifest.json`, or resolves outside the bundle.
+    BundlePath {
+        path: String,
+        reason: &'static str,
+    },
+    /// A file listed in the manifest is absent.
+    BundleFileMissing {
+        path: PathBuf,
+    },
+    /// A listed file's byte count differs from the manifest.
+    BundleFileSize {
+        path: PathBuf,
+        expected: u64,
+        actual: u64,
+    },
+    /// A listed file's SHA-256 differs from the manifest.
+    BundleFileHash {
+        path: PathBuf,
+        expected: String,
+        actual: String,
+    },
+    /// A regular file under the bundle directory that the manifest does not list.
+    BundleFileUnlisted {
+        path: PathBuf,
+    },
+    /// A symbolic link or special file under the bundle directory.
+    BundleEntryUnsupported {
+        path: PathBuf,
+    },
+    /// A file or directory in the bundle could not be read.
+    BundleFileRead {
+        path: PathBuf,
+        message: String,
+    },
 }
 
 impl fmt::Display for RuntimeError {
@@ -222,6 +288,54 @@ impl fmt::Display for RuntimeError {
                 configured.display(),
                 selected.display()
             ),
+            Self::BundleManifest { path, message } => {
+                write!(
+                    f,
+                    "runtime manifest {} is invalid: {message}",
+                    path.display()
+                )
+            }
+            Self::BundlePath { path, reason } => {
+                write!(f, "runtime manifest path {path:?} rejected: {reason}")
+            }
+            Self::BundleFileMissing { path } => {
+                write!(f, "runtime bundle file is missing: {}", path.display())
+            }
+            Self::BundleFileSize {
+                path,
+                expected,
+                actual,
+            } => write!(
+                f,
+                "runtime bundle file {} is {actual} bytes; manifest says {expected}",
+                path.display()
+            ),
+            Self::BundleFileHash {
+                path,
+                expected,
+                actual,
+            } => write!(
+                f,
+                "runtime bundle file {} has sha256 {actual}; manifest says {expected}",
+                path.display()
+            ),
+            Self::BundleFileUnlisted { path } => write!(
+                f,
+                "runtime bundle file {} is not listed in the manifest",
+                path.display()
+            ),
+            Self::BundleEntryUnsupported { path } => write!(
+                f,
+                "runtime bundle entry {} is a symbolic link or special file",
+                path.display()
+            ),
+            Self::BundleFileRead { path, message } => {
+                write!(
+                    f,
+                    "cannot read runtime bundle {}: {message}",
+                    path.display()
+                )
+            }
         }
     }
 }
@@ -270,7 +384,7 @@ pub fn resolve_runtime(
                 path: candidate.path,
             });
         }
-        if !diagnostic.expected_filename {
+        if !diagnostic.expected_filename && candidate.source != CandidateSource::ExplicitFile {
             return Err(RuntimeError::UnexpectedFilename {
                 path: candidate.path,
                 expected: runtime_filename(),
@@ -291,6 +405,15 @@ pub fn resolve_runtime(
                         path: candidate.path,
                         message: error.to_string(),
                     })?;
+            if candidate.source == CandidateSource::ExplicitFile
+                && (!path.is_file() || is_system_runtime(&path))
+            {
+                return Err(if is_system_runtime(&path) {
+                    RuntimeError::SystemRuntimeRejected { path }
+                } else {
+                    RuntimeError::NotFound { diagnostics }
+                });
+            }
             return Ok(RuntimeSelection {
                 path,
                 source: candidate.source,
@@ -508,22 +631,37 @@ pub fn discover_runtime(extra_dirs: impl IntoIterator<Item = PathBuf>) -> Option
         .find(|path| path.is_file() && !is_system_runtime(path))
 }
 
+/// Make the directory of `runtime` a dependency search directory for this process by putting it
+/// first on `PATH`, so DLLs that sit beside the runtime load (Windows resolves a library's own
+/// dependencies from `PATH`, not from the library's folder). Idempotent: an entry already present
+/// is moved to the front, never duplicated. An unset `PATH` becomes just that directory, and a
+/// path with no parent directory is ignored. Call single-threaded, before ORT use.
+pub fn prepend_runtime_dir_to_path(runtime: &Path) {
+    let Some(dir) = runtime.parent().filter(|dir| !dir.as_os_str().is_empty()) else {
+        return;
+    };
+    let mut paths = vec![dir.to_path_buf()];
+    if let Some(existing) = std::env::var_os("PATH") {
+        paths.extend(std::env::split_paths(&existing).filter(|entry| entry != dir));
+    }
+    if let Ok(joined) = std::env::join_paths(paths) {
+        std::env::set_var("PATH", joined);
+    }
+}
+
 /// Export a discovered runtime to this process: set `ORT_DYLIB_PATH` unless
-/// already set and prepend its directory to `PATH` so dependent libraries load.
+/// already set and put its directory first on `PATH` (see
+/// [`prepend_runtime_dir_to_path`]) so dependent libraries load. The directory is added when
+/// `ORT_DYLIB_PATH` was already set too: an explicit runtime keeps its sibling-DLL lookup.
 /// Returns the runtime path now in effect. Call single-threaded, before ORT use.
 pub fn export_discovered_runtime(extra_dirs: impl IntoIterator<Item = PathBuf>) -> Option<PathBuf> {
     if let Some(existing) = nonempty_env_path("ORT_DYLIB_PATH") {
+        prepend_runtime_dir_to_path(&existing);
         return Some(existing);
     }
     let path = discover_runtime(extra_dirs)?;
     std::env::set_var("ORT_DYLIB_PATH", &path);
-    if let (Some(dir), Some(existing)) = (path.parent(), std::env::var_os("PATH")) {
-        let mut paths = vec![dir.to_path_buf()];
-        paths.extend(std::env::split_paths(&existing));
-        if let Ok(joined) = std::env::join_paths(paths) {
-            std::env::set_var("PATH", joined);
-        }
-    }
+    prepend_runtime_dir_to_path(&path);
     Some(path)
 }
 
@@ -786,6 +924,141 @@ mod binding_tests {
                 "filename" => matches!(error, RuntimeError::UnexpectedFilename { .. }),
                 _ => matches!(error, RuntimeError::SystemRuntimeRejected { .. }),
             });
+        }
+    }
+
+    fn versioned_runtime_name() -> &'static str {
+        if cfg!(target_os = "windows") {
+            "onnxruntime-1.24.4.dll"
+        } else if cfg!(target_os = "macos") {
+            "libonnxruntime.1.24.4.dylib"
+        } else {
+            "libonnxruntime.so.1.24.0"
+        }
+    }
+
+    #[test]
+    fn explicit_file_binds_versioned_and_renamed_files_while_strict_candidates_refuse() {
+        let fixture = Fixture::new();
+        for name in [versioned_runtime_name(), "ort-runtime.bin"] {
+            let file = fixture.0.join("opt").join(name);
+            std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+            std::fs::write(&file, b"not a real ORT binary").unwrap();
+            let mut written = None;
+            let binding = configure_runtime_with_env(
+                [explicit_file_candidate(&file)],
+                &RuntimeBindingOptions::default(),
+                None,
+                |path| written = Some(path.to_path_buf()),
+            )
+            .unwrap();
+            let expected = file.canonicalize().unwrap();
+            assert_eq!(binding.selection.path, expected, "{name}");
+            assert_eq!(binding.selection.source, CandidateSource::ExplicitFile);
+            assert_eq!(binding.status, RuntimeBindingStatus::Ready);
+            assert_eq!(written, Some(expected));
+            // The same path as a strict candidate keeps the exact-basename rule.
+            let error = configure_runtime_with_env(
+                [RuntimeCandidate::new(&file, CandidateSource::Explicit)],
+                &RuntimeBindingOptions::default(),
+                None,
+                |_| panic!("strict candidate must not bind"),
+            )
+            .unwrap_err();
+            assert!(
+                matches!(error, RuntimeError::UnexpectedFilename { .. }),
+                "{name}"
+            );
+        }
+    }
+
+    #[test]
+    fn explicit_file_still_refuses_unsafe_and_non_file_paths() {
+        let fixture = Fixture::new();
+        let options = RuntimeBindingOptions::default();
+        let refuse = |candidate: RuntimeCandidate| {
+            configure_runtime_with_env([candidate], &options, None, |_| panic!("must not bind"))
+                .unwrap_err()
+        };
+        // Relative: a library-search hijack risk, refused whatever the name.
+        for relative in [versioned_runtime_name(), "./libonnxruntime.so.1", "x/y.bin"] {
+            assert!(matches!(
+                refuse(explicit_file_candidate(relative)),
+                RuntimeError::UnsafePath { .. }
+            ));
+        }
+        // Missing and directories are not regular files.
+        let missing = fixture.0.join(versioned_runtime_name());
+        assert!(matches!(
+            refuse(explicit_file_candidate(&missing)),
+            RuntimeError::NotFound { .. }
+        ));
+        let dir = fixture.0.join("a-directory.so.1");
+        std::fs::create_dir_all(&dir).unwrap();
+        assert!(matches!(
+            refuse(explicit_file_candidate(&dir)),
+            RuntimeError::NotFound { .. }
+        ));
+        // The OS copy is refused by location.
+        let system = fixture.0.join("System32").join(versioned_runtime_name());
+        std::fs::create_dir_all(system.parent().unwrap()).unwrap();
+        std::fs::write(&system, b"x").unwrap();
+        assert!(matches!(
+            refuse(explicit_file_candidate(&system)),
+            RuntimeError::SystemRuntimeRejected { .. }
+        ));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn explicit_file_follows_symlinks_to_regular_files_only() {
+        use std::os::unix::fs::symlink;
+        let fixture = Fixture::new();
+        let real = fixture.0.join(versioned_runtime_name());
+        std::fs::write(&real, b"x").unwrap();
+        let link = fixture.0.join("alias");
+        symlink(&real, &link).unwrap();
+        let selected = resolve_runtime([explicit_file_candidate(&link)]).unwrap();
+        assert_eq!(selected.path, real.canonicalize().unwrap());
+        // A link whose target is the SysWOW64 copy is refused after resolution.
+        let system = fixture.0.join("SysWOW64");
+        std::fs::create_dir_all(&system).unwrap();
+        let hidden = system.join("hidden.so");
+        std::fs::write(&hidden, b"x").unwrap();
+        let sneaky = fixture.0.join("innocent");
+        symlink(&hidden, &sneaky).unwrap();
+        assert!(matches!(
+            resolve_runtime([explicit_file_candidate(&sneaky)]),
+            Err(RuntimeError::SystemRuntimeRejected { .. })
+        ));
+        // A link to a directory is not a regular file.
+        let dir = fixture.0.join("dir");
+        std::fs::create_dir_all(&dir).unwrap();
+        let dir_link = fixture.0.join("dir-link");
+        symlink(&dir, &dir_link).unwrap();
+        assert!(matches!(
+            resolve_runtime([explicit_file_candidate(&dir_link)]),
+            Err(RuntimeError::NotFound { .. })
+        ));
+    }
+
+    #[test]
+    fn installed_and_legacy_candidates_keep_the_strict_basename() {
+        let exe = std::env::temp_dir().join("App").join("app");
+        let installed = installed_runtime_candidate(&exe, "runtime").unwrap();
+        assert_eq!(installed.source, CandidateSource::Bundled);
+        let legacy = legacy_runtime_candidate(&std::env::temp_dir()).unwrap();
+        assert_eq!(legacy.source, CandidateSource::LegacyDefault);
+        for candidate in [installed, legacy] {
+            assert_eq!(
+                candidate.path.file_name().and_then(|n| n.to_str()),
+                Some(runtime_filename())
+            );
+            // Not ExplicitFile, so a versioned name would still be refused.
+            let versioned = candidate.path.with_file_name(versioned_runtime_name());
+            let error =
+                resolve_runtime([RuntimeCandidate::new(versioned, candidate.source)]).unwrap_err();
+            assert!(matches!(error, RuntimeError::UnexpectedFilename { .. }));
         }
     }
 }

@@ -1,7 +1,8 @@
 //! The description a review runs over. The crate never decodes media: frame,
 //! text, and probe measurements are produced by a deterministic process
 //! elsewhere and handed in as data. Absent measurements are `None`, which a
-//! rule reports as unverified rather than as a pass.
+//! rule reports as unverified rather than as a pass. A text body is handed in
+//! as data too; text rules read it and never fetch it.
 
 use serde::{Deserialize, Serialize};
 
@@ -71,6 +72,32 @@ pub struct ArtifactDescription {
     pub determinism: Option<DeterminismProbe>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub licence: Option<String>,
+    /// The text body for `ArtifactKind::Text`. `None` means not supplied,
+    /// which text rules report as inconclusive.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub text: Option<TextBody>,
+}
+
+/// The text a text rule reads, with the claim annotations bound to it.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TextBody {
+    /// The exact text that will be queued. Producers supply it in NFC.
+    pub body: String,
+    /// Claim annotations for `RuleKind::ClaimProof`. Empty when the text makes no claims.
+    #[serde(default)]
+    pub claims: Vec<ClaimAnnotation>,
+}
+
+/// One number or named fact in the text, bound to the value a proof must state.
+/// `value` is a decimal string. `date` is `YYYY-MM-DD`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ClaimAnnotation {
+    pub value: String,
+    pub unit: String,
+    pub subject: String,
+    pub date: String,
 }
 
 /// What the brief declared before the artifact was made. A declared window is

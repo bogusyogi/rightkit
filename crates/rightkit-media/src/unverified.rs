@@ -129,26 +129,45 @@ impl UnverifiedTool {
     /// Probe `-version`, `-encoders`, `-decoders`, and `-filters` (bounded by `timeout`
     /// per call). `ffprobe` has no encoder or filter listing, so those stay empty.
     pub fn probe_capabilities(&self, timeout: Duration) -> Result<Capabilities, MediaError> {
-        let run = |flag: &str| -> Result<String, MediaError> {
-            let (ok, out) = run_version_probe(&self.path, &["-hide_banner", flag], timeout)?;
-            if !ok {
-                return Err(MediaError::BuildProbeFailed);
-            }
-            Ok(out)
-        };
-        let version = run("-version")?;
-        let decoders = parse_codec_list(&run("-decoders")?);
-        let (encoders, filters) = match self.tool {
-            Tool::Ffmpeg => (
-                parse_codec_list(&run("-encoders")?),
-                parse_filter_list(&run("-filters")?),
-            ),
-            Tool::Ffprobe => (BTreeSet::new(), BTreeSet::new()),
-        };
-        Ok(Capabilities::from_parts(
-            &version, encoders, decoders, filters,
-        ))
+        probe_capabilities_at(&self.path, self.tool, timeout)
     }
+}
+
+impl VerifiedFfmpeg {
+    /// The same listing and parsing as [`UnverifiedTool::probe_capabilities`], for a
+    /// catalog-verified `ffmpeg`. Use it to confirm an encoder or filter the build
+    /// carries before a pipeline depends on it.
+    pub fn probe_capabilities(&self, timeout: Duration) -> Result<Capabilities, MediaError> {
+        probe_capabilities_at(self.path(), Tool::Ffmpeg, timeout)
+    }
+}
+
+/// Runs `-version`, `-decoders`, and (for ffmpeg) `-encoders` and `-filters` against
+/// `path`, each bounded by `timeout`.
+fn probe_capabilities_at(
+    path: &Path,
+    tool: Tool,
+    timeout: Duration,
+) -> Result<Capabilities, MediaError> {
+    let run = |flag: &str| -> Result<String, MediaError> {
+        let (ok, out) = run_version_probe(path, &["-hide_banner", flag], timeout)?;
+        if !ok {
+            return Err(MediaError::BuildProbeFailed);
+        }
+        Ok(out)
+    };
+    let version = run("-version")?;
+    let decoders = parse_codec_list(&run("-decoders")?);
+    let (encoders, filters) = match tool {
+        Tool::Ffmpeg => (
+            parse_codec_list(&run("-encoders")?),
+            parse_filter_list(&run("-filters")?),
+        ),
+        Tool::Ffprobe => (BTreeSet::new(), BTreeSet::new()),
+    };
+    Ok(Capabilities::from_parts(
+        &version, encoders, decoders, filters,
+    ))
 }
 
 impl FfmpegBinary for UnverifiedTool {
@@ -516,5 +535,40 @@ mod tests {
         );
         assert_eq!(lgpl.license, ConfigLicense::Lgpl);
         assert_eq!(lgpl.version_line, "ffmpeg version 7.1.5");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn capability_probe_reads_fixture_listings_for_ffmpeg_and_skips_them_for_ffprobe() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let script = dir.path().join("fake-tool");
+        // `run_version_probe` passes `-hide_banner <flag>`, so the flag is `$2`.
+        fs::write(
+            &script,
+            r#"#!/bin/sh
+case "$2" in
+  -version) printf 'ffmpeg version 7.1.5 Copyright\nconfiguration: --disable-gpl --disable-nonfree --disable-autodetect\n' ;;
+  -decoders) printf 'Decoders:\n V..... = Video\n ------\n V....D h264  H.264\n A....D aac   AAC\n' ;;
+  -encoders) printf 'Encoders:\n ------\n A....D aac   AAC\n' ;;
+  -filters) printf 'Filters:\n ... anullsrc  |->A  Null\n ... ass V->V  Render\n' ;;
+  *) exit 1 ;;
+esac
+"#,
+        )
+        .unwrap();
+        fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).unwrap();
+        let caps = probe_capabilities_at(&script, Tool::Ffmpeg, Duration::from_secs(10)).unwrap();
+        assert_eq!(caps.version_line, "ffmpeg version 7.1.5 Copyright");
+        assert_eq!(caps.license, ConfigLicense::Lgpl);
+        assert!(caps.has_decoder("h264") && caps.has_decoder("aac"));
+        assert!(caps.has_encoder("aac") && !caps.has_encoder("h264"));
+        assert!(caps.has_filter("anullsrc") && caps.has_filter("ass"));
+        assert!(!caps.has_filter("acompressor"));
+
+        let probe_caps =
+            probe_capabilities_at(&script, Tool::Ffprobe, Duration::from_secs(10)).unwrap();
+        assert!(probe_caps.encoders.is_empty() && probe_caps.filters.is_empty());
+        assert!(probe_caps.has_decoder("h264"));
     }
 }

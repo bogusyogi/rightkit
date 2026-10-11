@@ -1,0 +1,69 @@
+{
+  "contract": "docs/model-grants-contract.md",
+  "request": {
+    "route": "/parakeet/macos/tdt.tar.gz",
+    "model": "parakeet-tdt",
+    "platform": "macos",
+    "sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+    "deviceId": "device-0123456789abcdef"
+  },
+  "accepted": [
+    {
+      "name": "minimal",
+      "status": 200,
+      "body": {
+        "token": "grant-token-1",
+        "expiresAt": "$FUTURE",
+        "route": "/parakeet/macos/tdt.tar.gz",
+        "sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+      }
+    },
+    {
+      "name": "digest-case-is-ignored",
+      "status": 200,
+      "body": {
+        "token": "grant-token-2",
+        "expiresAt": "$FUTURE",
+        "route": "/parakeet/macos/tdt.tar.gz",
+        "sha256": "0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF"
+      }
+    }
+  ],
+  "rejected": [
+    {
+      "name": "grant-for-another-route",
+      "status": 200,
+      "body": { "token": "t", "expiresAt": "$FUTURE", "route": "/whisper-win.tar.gz", "sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef" },
+      "error_contains": "scope does not match"
+    },
+    {
+      "name": "grant-for-another-digest",
+      "status": 200,
+      "body": { "token": "t", "expiresAt": "$FUTURE", "route": "/parakeet/macos/tdt.tar.gz", "sha256": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff" },
+      "error_contains": "scope does not match"
+    },
+    {
+      "name": "already-expired",
+      "status": 200,
+      "body": { "token": "t", "expiresAt": "$PAST", "route": "/parakeet/macos/tdt.tar.gz", "sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef" },
+      "error_contains": "incomplete"
+    },
+    {
+      "name": "blank-token",
+      "status": 200,
+      "body": { "token": "  ", "expiresAt": "$FUTURE", "route": "/parakeet/macos/tdt.tar.gz", "sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef" },
+      "error_contains": "incomplete"
+    },
+    {
+      "name": "missing-token",
+      "status": 200,
+      "body": { "expiresAt": "$FUTURE", "route": "/parakeet/macos/tdt.tar.gz", "sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef" },
+      "error_contains": "malformed"
+    },
+    { "name": "unknown-model", "status": 404, "body": { "error": "unknown_model" }, "error_contains": "model grant request failed" },
+    { "name": "digest-not-served", "status": 409, "body": { "error": "digest_mismatch" }, "error_contains": "model grant request failed" },
+    { "name": "bad-request", "status": 400, "body": { "error": "invalid_request" }, "error_contains": "model grant request failed" },
+    { "name": "rate-limited", "status": 429, "body": { "error": "rate_limited" }, "error_contains": "model grant request failed" },
+    { "name": "worker-error", "status": 500, "body": { "error": "internal" }, "error_contains": "model grant request failed" }
+  ]
+}

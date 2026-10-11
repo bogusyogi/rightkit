@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -70,6 +72,36 @@ pub struct ToolSpec {
     pub description: String,
     /// JSON Schema for the tool input.
     pub input_schema: Value,
+    /// Ask the provider for schema-conforming tool input ("strict" tool use). Sent as
+    /// `"strict": true` on the tool (Anthropic) or the function (OpenAI-compatible) only
+    /// when set; omitted otherwise, so requests are unchanged for callers that leave it off.
+    /// Providers reject schemas they cannot enforce; that surfaces as a request error.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub strict: bool,
+}
+
+fn is_false(v: &bool) -> bool {
+    !*v
+}
+
+impl ToolSpec {
+    pub fn new(
+        name: impl Into<String>,
+        description: impl Into<String>,
+        input_schema: Value,
+    ) -> Self {
+        Self {
+            name: name.into(),
+            description: description.into(),
+            input_schema,
+            strict: false,
+        }
+    }
+
+    pub fn strict(mut self, strict: bool) -> Self {
+        self.strict = strict;
+        self
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -92,6 +124,16 @@ pub struct ChatRequest {
     /// Force the model to call this tool (structured output).
     pub force_tool: Option<String>,
     pub cache: CacheMode,
+    /// Leave the output-length field out of the OpenAI-compatible request body, so the
+    /// provider applies its own limit. Default `false`: `max_tokens` is always sent. The
+    /// Anthropic Messages API requires the field, so it ignores this flag and sends
+    /// `max_tokens`. Set through [`ChatRequest::without_max_tokens`].
+    pub omit_max_tokens: bool,
+    /// Total time budget for this call, overriding the client's `request_timeout` (60 s).
+    /// Applied per call as `Request::timeout` and `Request::deadline`, so retries share it.
+    /// For a stream it caps the whole stream body. The client's `response_timeout` still
+    /// bounds the wait for response headers. `None` keeps the client's settings.
+    pub timeout: Option<Duration>,
 }
 
 impl ChatRequest {
@@ -106,6 +148,8 @@ impl ChatRequest {
             tools: Vec::new(),
             force_tool: None,
             cache: CacheMode::Off,
+            omit_max_tokens: false,
+            timeout: None,
         }
     }
     /// One system prompt plus one user turn.
@@ -115,6 +159,28 @@ impl ChatRequest {
             r.system = Some(system.to_string());
         }
         r
+    }
+    /// Set the output limit and send it (clears [`ChatRequest::without_max_tokens`]).
+    pub fn with_max_tokens(mut self, max_tokens: u32) -> Self {
+        self.max_tokens = max_tokens;
+        self.omit_max_tokens = false;
+        self
+    }
+    /// Do not send the output-length field to OpenAI-compatible providers. See
+    /// [`ChatRequest::omit_max_tokens`]; Anthropic still receives `max_tokens`.
+    pub fn without_max_tokens(mut self) -> Self {
+        self.omit_max_tokens = true;
+        self
+    }
+    /// Set the sampling temperature (sent only when set).
+    pub fn with_temperature(mut self, temperature: f32) -> Self {
+        self.temperature = Some(temperature);
+        self
+    }
+    /// Per-call total timeout. See [`ChatRequest::timeout`] for what it bounds.
+    pub fn with_timeout(mut self, timeout: Duration) -> Self {
+        self.timeout = Some(timeout);
+        self
     }
 }
 
@@ -137,6 +203,17 @@ impl Usage {
     }
 }
 
+/// How a route is paid for, which decides whether a price lookup applies.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Metering {
+    /// Billed per token through an API key (the HTTP providers).
+    #[default]
+    PerToken,
+    /// Covered by a subscription (an installed, signed-in assistant). Price
+    /// lookups do not apply, whatever token counts the tool reports.
+    Subscription,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum StopReason {
     EndTurn,
@@ -152,7 +229,12 @@ pub struct ChatResponse {
     pub model: String,
     pub content: Vec<ContentBlock>,
     pub stop_reason: StopReason,
+    /// Token usage. Meaningful only when `usage_known` is true; otherwise it is
+    /// all zeros as a placeholder and must not be summed or priced.
     pub usage: Usage,
+    /// False when the route did not report token counts (never "zero tokens").
+    pub usage_known: bool,
+    pub metering: Metering,
 }
 
 impl ChatResponse {

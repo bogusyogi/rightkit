@@ -1137,7 +1137,23 @@ dependencies = [
  "cpufeatures 0.2.17",
  "curve25519-dalek-derive",
  "digest 0.10.7",
- "fiat-crypto",
+ "fiat-crypto 0.2.9",
+ "rustc_version",
+ "subtle",
+ "zeroize",
+]
+
+[[package]]
+name = "curve25519-dalek"
+version = "5.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b5eed333089e2e1c1ac8c6c0398e5e2497b4c9926ca6d0365ed1e099afa5bc23"
+dependencies = [
+ "cfg-if",
+ "cpufeatures 0.3.1",
+ "curve25519-dalek-derive",
+ "digest 0.11.3",
+ "fiat-crypto 0.3.0",
  "rustc_version",
  "subtle",
  "zeroize",
@@ -1578,7 +1594,7 @@ dependencies = [
  "digest 0.10.7",
  "elliptic-curve",
  "rfc6979",
- "signature",
+ "signature 2.2.0",
  "spki",
 ]
 
@@ -1589,7 +1605,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "115531babc129696a58c64a4fef0a8bf9e9698629fb97e9e40767d235cfbcd53"
 dependencies = [
  "pkcs8",
- "signature",
+ "signature 2.2.0",
+]
+
+[[package]]
+name = "ed25519"
+version = "3.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "29fcf32e6c73d1079f83ab4d782de2d81620346a5f38c6237a86a22f8368980a"
+dependencies = [
+ "signature 3.0.0",
 ]
 
 [[package]]
@@ -1598,10 +1623,23 @@ version = "2.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "70e796c081cee67dc755e1a36a0a172b897fab85fc3f6bc48307991f64e4eca9"
 dependencies = [
- "curve25519-dalek",
- "ed25519",
+ "curve25519-dalek 4.1.3",
+ "ed25519 2.2.3",
  "serde",
  "sha2 0.10.9",
+ "subtle",
+ "zeroize",
+]
+
+[[package]]
+name = "ed25519-dalek"
+version = "3.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6ebaa1a2bf1290ab3bfe5a7b771d050ebffab2711c19a81691c683a5144a25de"
+dependencies = [
+ "curve25519-dalek 5.0.0",
+ "ed25519 3.0.0",
+ "sha2 0.11.0",
  "subtle",
  "zeroize",
 ]
@@ -1779,6 +1817,12 @@ name = "fiat-crypto"
 version = "0.2.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "28dea519a9695b9977216879a3ebfddf92f1c08c05d984f8996aecd6ecdc811d"
+
+[[package]]
+name = "fiat-crypto"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "64cd1e32ddd350061ae6edb1b082d7c54915b5c672c389143b9a63403a109f24"
 
 [[package]]
 name = "field-offset"
@@ -3346,6 +3390,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "matchers"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d1525a2a28c7f4fa0fc98bb91ae755d1e2d1505079e05539e35bc876b5d65ae9"
+dependencies = [
+ "regex-automata",
+]
+
+[[package]]
 name = "matchit"
 version = "0.8.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3628,6 +3681,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "42b8cfee0e339a0337359f3c88165702ac6e600dc01c0cc9579a92d62b08477a"
 dependencies = [
  "bitflags 2.13.0",
+]
+
+[[package]]
+name = "ntapi"
+version = "0.4.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c3b335231dfd352ffb0f8017f3b6027a4917f7df785ea2143d8af2adc66980ae"
+dependencies = [
+ "winapi",
 ]
 
 [[package]]
@@ -3995,6 +4057,16 @@ dependencies = [
  "objc2",
  "objc2-core-foundation",
  "objc2-core-graphics",
+]
+
+[[package]]
+name = "objc2-io-kit"
+version = "0.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "33fafba39597d6dc1fb709123dfa8289d39406734be322956a69f0931c73bb15"
+dependencies = [
+ "libc",
+ "objc2-core-foundation",
 ]
 
 [[package]]
@@ -5088,15 +5160,16 @@ dependencies = [
 
 [[package]]
 name = "rightkit-align"
-version = "0.0.1"
+version = "0.1.0"
 dependencies = [
  "rightkit-transcript",
  "serde",
+ "serde_json",
 ]
 
 [[package]]
 name = "rightkit-asr"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "half",
  "hound",
@@ -5118,7 +5191,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-audio"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "cpal",
  "hound",
@@ -5138,7 +5211,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-automation"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "rightkit-service",
  "serde_json",
@@ -5163,8 +5236,10 @@ dependencies = [
 
 [[package]]
 name = "rightkit-cache"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
+ "rightkit-fs",
+ "rightkit-process",
  "sha2 0.11.0",
  "tempfile",
 ]
@@ -5180,7 +5255,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-compose"
-version = "0.0.1"
+version = "0.1.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -5189,7 +5264,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-contracts"
-version = "0.1.3"
+version = "0.1.4"
 dependencies = [
  "jsonschema",
  "serde",
@@ -5213,6 +5288,7 @@ dependencies = [
 name = "rightkit-crash"
 version = "0.2.1"
 dependencies = [
+ "rightkit-fs",
  "rightkit-logs",
  "serde",
  "serde_json",
@@ -5222,7 +5298,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-daemon"
-version = "0.1.2"
+version = "0.1.3"
 dependencies = [
  "axum",
  "base64 0.22.1",
@@ -5234,6 +5310,7 @@ dependencies = [
  "rightkit-contracts",
  "rightkit-http",
  "rightkit-oauth",
+ "rightkit-process",
  "ring",
  "rustls",
  "serde",
@@ -5247,7 +5324,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-db"
-version = "0.3.2"
+version = "0.4.0"
 dependencies = [
  "libc",
  "rightkit-fs",
@@ -5273,15 +5350,17 @@ dependencies = [
 
 [[package]]
 name = "rightkit-framed-sidecar"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
+ "libc",
  "serde",
  "serde_json",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
 name = "rightkit-fs"
-version = "0.3.3"
+version = "0.3.4"
 dependencies = [
  "libc",
  "serde",
@@ -5293,11 +5372,12 @@ dependencies = [
 
 [[package]]
 name = "rightkit-fsindex"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "libc",
  "memchr",
  "memmap2",
+ "rightkit-process",
  "tempfile",
 ]
 
@@ -5310,23 +5390,27 @@ dependencies = [
 
 [[package]]
 name = "rightkit-http"
-version = "0.2.5"
+version = "0.3.0"
 dependencies = [
  "bytes",
  "futures-util",
  "getrandom 0.4.3",
+ "libc",
  "reqwest 0.12.28",
  "rightkit-fs",
  "rightkit-http",
+ "rustls",
+ "rustls-platform-verifier",
  "serde",
  "serde_json",
+ "sha2 0.11.0",
  "tokio",
  "ureq",
 ]
 
 [[package]]
 name = "rightkit-jobs"
-version = "0.2.7"
+version = "0.2.8"
 dependencies = [
  "rightkit-db",
  "rightkit-framed-sidecar",
@@ -5343,33 +5427,38 @@ dependencies = [
 
 [[package]]
 name = "rightkit-license"
-version = "0.1.3"
+version = "0.2.0"
 dependencies = [
- "base64 0.22.1",
- "ed25519-dalek",
+ "base64 0.23.1",
+ "ed25519-dalek 3.0.0",
  "serde",
  "serde_json",
 ]
 
 [[package]]
 name = "rightkit-llm"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "rightkit-http",
+ "rightkit-process",
  "serde",
  "serde_json",
 ]
 
 [[package]]
 name = "rightkit-logs"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "getrandom 0.4.3",
  "libc",
  "rightkit-fs",
  "rightkit-logs",
+ "rightkit-process",
  "serde",
  "serde_json",
+ "tempfile",
+ "tracing",
+ "tracing-subscriber",
  "ureq",
  "windows-sys 0.61.2",
 ]
@@ -5393,7 +5482,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-media"
-version = "0.2.5"
+version = "0.2.6"
 dependencies = [
  "rightkit-fs",
  "rightkit-process",
@@ -5404,15 +5493,16 @@ dependencies = [
 
 [[package]]
 name = "rightkit-models"
-version = "0.2.8"
+version = "0.2.9"
 dependencies = [
  "base64 0.22.1",
  "chrono",
  "dirs 7.0.0",
- "ed25519-dalek",
+ "ed25519-dalek 2.2.0",
  "flate2",
  "getrandom 0.3.4",
  "rightkit-fs",
+ "rightkit-http",
  "rightkit-qa",
  "serde",
  "serde_json",
@@ -5447,7 +5537,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-ocr"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "base64 0.22.1",
  "image",
@@ -5465,12 +5555,14 @@ dependencies = [
 
 [[package]]
 name = "rightkit-ort"
-version = "0.2.2"
+version = "0.2.3"
 dependencies = [
  "half",
  "ndarray",
  "ort",
  "rightkit-media",
+ "serde",
+ "serde_json",
  "sha2 0.10.9",
  "windows-sys 0.61.2",
 ]
@@ -5503,7 +5595,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-pdf"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "fontdb",
  "getrandom 0.4.3",
@@ -5521,7 +5613,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-playback"
-version = "0.1.2"
+version = "0.2.0"
 dependencies = [
  "rightkit-fs",
  "rightkit-media",
@@ -5531,7 +5623,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-process"
-version = "0.3.3"
+version = "0.3.4"
 dependencies = [
  "libc",
  "trybuild",
@@ -5540,7 +5632,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-qa"
-version = "0.2.15"
+version = "0.2.16"
 dependencies = [
  "getrandom 0.3.4",
  "png 0.18.1",
@@ -5559,7 +5651,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-qts"
-version = "0.2.5"
+version = "0.2.6"
 dependencies = [
  "getrandom 0.3.4",
  "hound",
@@ -5587,7 +5679,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-record"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "blake3",
  "hmac-sha256",
@@ -5602,7 +5694,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-review"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -5638,7 +5730,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-secrets"
-version = "0.1.3"
+version = "0.1.4"
 dependencies = [
  "getrandom 0.3.4",
  "keyring-core",
@@ -5653,11 +5745,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "rightkit-send"
+version = "0.1.0"
+dependencies = [
+ "libc",
+ "rcgen",
+ "rightkit-process",
+ "rustls",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "sysinfo",
+]
+
+[[package]]
 name = "rightkit-service"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "rightkit-framed-sidecar",
  "rightkit-fs",
+ "rightkit-process",
  "serde",
  "serde_json",
  "tempfile",
@@ -5666,7 +5773,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-settings"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "rightkit-fs",
  "serde",
@@ -5677,7 +5784,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-shell"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "block2",
  "objc2",
@@ -5713,16 +5820,17 @@ dependencies = [
 
 [[package]]
 name = "rightkit-sync"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "rightkit-fs",
+ "rightkit-process",
  "serde",
  "serde_json",
 ]
 
 [[package]]
 name = "rightkit-tauri"
-version = "0.1.2"
+version = "0.1.3"
 dependencies = [
  "getrandom 0.3.4",
  "rightkit-license",
@@ -5730,7 +5838,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-transcript"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -5739,7 +5847,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-tts"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "libc",
  "rightkit-fs",
@@ -5754,7 +5862,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-vad"
-version = "0.0.3"
+version = "0.1.0"
 dependencies = [
  "hound",
  "rightkit-media",
@@ -5763,9 +5871,10 @@ dependencies = [
 
 [[package]]
 name = "rightkit-watch"
-version = "0.3.2"
+version = "0.4.0"
 dependencies = [
  "notify",
+ "rightkit-process",
  "tempfile",
  "tokio",
  "tracing",
@@ -5817,7 +5926,7 @@ dependencies = [
  "pkcs8",
  "rand_core 0.6.4",
  "sha2 0.10.9",
- "signature",
+ "signature 2.2.0",
  "spki",
  "subtle",
  "zeroize",
@@ -5922,6 +6031,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "rustls-native-certs"
+version = "0.8.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "dab5152771c58876a2146916e53e35057e1a4dfa2b9df0f0305b07f611fdea4d"
+dependencies = [
+ "openssl-probe",
+ "rustls-pki-types",
+ "schannel",
+ "security-framework",
+]
+
+[[package]]
 name = "rustls-pki-types"
 version = "1.15.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5930,6 +6051,33 @@ dependencies = [
  "web-time",
  "zeroize",
 ]
+
+[[package]]
+name = "rustls-platform-verifier"
+version = "0.7.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1167586491e2b18b8bfbb293e8180ec17c201c4f076d7cb3070ca964e7598f98"
+dependencies = [
+ "core-foundation",
+ "core-foundation-sys",
+ "jni 0.22.4",
+ "log",
+ "once_cell",
+ "rustls",
+ "rustls-native-certs",
+ "rustls-platform-verifier-android",
+ "rustls-webpki",
+ "security-framework",
+ "security-framework-sys",
+ "webpki-root-certs",
+ "windows-sys 0.52.0",
+]
+
+[[package]]
+name = "rustls-platform-verifier-android"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "eec689c0bc40ff2458a5977b6619cb718087084a18e02a131c599b62d05e1a5f"
 
 [[package]]
 name = "rustls-webpki"
@@ -6323,6 +6471,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "sharded-slab"
+version = "0.1.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f40ca3c46823713e0d4209592e8d6e826aa57e928f09752619fc696c499637f6"
+dependencies = [
+ "lazy_static",
+]
+
+[[package]]
 name = "shared_library"
 version = "0.1.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6369,6 +6526,12 @@ dependencies = [
  "digest 0.10.7",
  "rand_core 0.6.4",
 ]
+
+[[package]]
+name = "signature"
+version = "3.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "28d567dcbaf0049cb8ac2608a76cd95ff9e4412e1899d389ee400918ca7537f5"
 
 [[package]]
 name = "simd-adler32"
@@ -6697,6 +6860,20 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 3.0.6",
+]
+
+[[package]]
+name = "sysinfo"
+version = "0.37.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "16607d5caffd1c07ce073528f9ed972d88db15dd44023fa57142963be3feb11f"
+dependencies = [
+ "libc",
+ "memchr",
+ "ntapi",
+ "objc2-core-foundation",
+ "objc2-io-kit",
+ "windows 0.61.1",
 ]
 
 [[package]]
@@ -7083,6 +7260,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "thread_local"
+version = "1.1.10"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1ad99c4c6d32803332c548b1af0540b357b3f5fc0be8f6c6bfe8b2e6ae784070"
+dependencies = [
+ "cfg-if",
+]
+
+[[package]]
 name = "time"
 version = "0.3.55"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7412,6 +7598,35 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "db97caf9d906fbde555dd62fa95ddba9eecfd14cb388e4f491a66d74cd5fb79a"
 dependencies = [
  "once_cell",
+ "valuable",
+]
+
+[[package]]
+name = "tracing-serde"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "704b1aeb7be0d0a84fc9828cae51dab5970fee5088f83d1dd7ee6f6246fc6ff1"
+dependencies = [
+ "serde",
+ "tracing-core",
+]
+
+[[package]]
+name = "tracing-subscriber"
+version = "0.3.23"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cb7f578e5945fb242538965c2d0b04418d38ec25c79d160cd279bf0731c8d319"
+dependencies = [
+ "matchers",
+ "once_cell",
+ "regex-automata",
+ "serde",
+ "serde_json",
+ "sharded-slab",
+ "thread_local",
+ "tracing",
+ "tracing-core",
+ "tracing-serde",
 ]
 
 [[package]]
@@ -7626,6 +7841,7 @@ dependencies = [
  "percent-encoding",
  "rustls",
  "rustls-pki-types",
+ "rustls-platform-verifier",
  "socks",
  "ureq-proto",
  "utf8-zero",
@@ -7709,6 +7925,12 @@ dependencies = [
  "outref",
  "vsimd",
 ]
+
+[[package]]
+name = "valuable"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ba73ea9cf16a25df0c8caa16c51acb937d5712a8429db78a3ee29d5dcacd3a65"
 
 [[package]]
 name = "vcpkg"

@@ -5,10 +5,15 @@ import Foundation
 public struct DiagnosticEvent: Sendable {
     public let name: String
     public let fields: [String: String]
+    /// When the event happened, if the caller knows. Nil (the default) means the store stamps the
+    /// line with its clock when the line is written, as it always has. A supplied value is written
+    /// as given, so an event recorded from a background job still carries the time it occurred.
+    public let timestamp: Date?
 
-    public init(name: String, fields: [String: String] = [:]) {
+    public init(name: String, fields: [String: String] = [:], timestamp: Date? = nil) {
         self.name = name
         self.fields = fields
+        self.timestamp = timestamp
     }
 }
 
@@ -125,13 +130,59 @@ public struct JSONLDiagnosticStore: Sendable {
     }
 
     /// Async form of `record`. The blocking lock wait runs off the caller's executor.
+    ///
+    /// ## Ordering
+    ///
+    /// Every `append` and ``enqueue(_:)`` on the same file in this process goes through one serial
+    /// FIFO queue (keyed by the file's resolved path), so lines are written in the order the calls
+    /// reached the queue:
+    /// - **`enqueue` calls from one caller (thread or task) are written in exactly the order made.**
+    /// - `append` calls where each is awaited before the next begins are written in that order.
+    /// - `append` calls started without awaiting each other (separate `Task`s) reach the queue in
+    ///   whatever order Swift concurrency starts them; for those, supply ``DiagnosticEvent/timestamp``
+    ///   and order by it, or use `enqueue`.
+    /// - Across processes the file lock serialises each write; relative order is arrival at the lock.
+    ///
+    /// A line's `timestamp` is `event.timestamp` when given; otherwise the store's clock at the moment
+    /// the line is written (so two un-timestamped events logged in the same millisecond may differ
+    /// in file order from call order only in the un-awaited case above).
     public func append(_ event: DiagnosticEvent) async -> Bool {
         let store = self
         return await withCheckedContinuation { continuation in
-            DispatchQueue.global(qos: .utility).async {
+            Self.queue(for: fileURL).async {
                 continuation.resume(returning: store.record(event))
             }
         }
+    }
+
+    /// `append` with a caller-supplied timestamp for this event.
+    public func append(_ event: DiagnosticEvent, at timestamp: Date) async -> Bool {
+        await append(DiagnosticEvent(name: event.name, fields: event.fields, timestamp: timestamp))
+    }
+
+    /// Fire-and-forget, order-preserving form for synchronous callers: returns at once; the line is
+    /// written later on the file's serial queue, strictly after every earlier `enqueue` or `append`
+    /// that reached it. The event is stamped with ``DiagnosticEvent/timestamp`` or, if nil, **the time
+    /// of this call**, so the written time is the time it happened, not the time the queue got to it.
+    /// A failed write is dropped silently; use ``flush()`` to wait for the queue and `append` when the
+    /// result matters.
+    public func enqueue(_ event: DiagnosticEvent) {
+        let stamped = DiagnosticEvent(name: event.name, fields: event.fields, timestamp: event.timestamp ?? now())
+        let store = self
+        Self.queue(for: fileURL).async { _ = store.record(stamped) }
+    }
+
+    /// Returns once every `enqueue` and `append` made before this call has been attempted.
+    public func flush() async {
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            Self.queue(for: fileURL).async { continuation.resume() }
+        }
+    }
+
+    private static let queues = QueueRegistry()
+
+    private static func queue(for fileURL: URL) -> DispatchQueue {
+        queues.queue(forPath: fileURL.resolvingSymlinksInPath().path)
     }
 
     /// Every line the file currently holds, dropping any partial trailing write. A crash mid-append
@@ -185,7 +236,7 @@ public struct JSONLDiagnosticStore: Sendable {
             payload[outKey] = outValue
         }
         payload["event"] = options.redaction.keepsEventName ? event.name : redactor.redact(event.name)
-        payload["timestamp"] = ISO8601DateFormatter().string(from: now())
+        payload["timestamp"] = ISO8601DateFormatter().string(from: event.timestamp ?? now())
 
         // sortedKeys: a diagnostics line has to be diffable and stable across runs.
         guard let data = try? JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys]) else {
@@ -329,5 +380,19 @@ private extension RedactionPolicy {
     var keepsEventName: Bool {
         if case .none = self { return true }
         return false
+    }
+}
+
+/// One serial utility queue per canonical log path, shared by every store value for that path.
+private final class QueueRegistry: @unchecked Sendable {
+    private let lock = NSLock()
+    private var queues: [String: DispatchQueue] = [:]
+
+    func queue(forPath path: String) -> DispatchQueue {
+        lock.lock(); defer { lock.unlock() }
+        if let existing = queues[path] { return existing }
+        let created = DispatchQueue(label: "org.rightkit.diagnostics.\(path)", qos: .utility)
+        queues[path] = created
+        return created
     }
 }

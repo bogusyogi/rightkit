@@ -54,3 +54,5 @@ REPRODUCE:
 
 NOTE: Code signing (Azure Trusted Signing) is a separate step — this is the
 clean, unsigned LGPL binary.
+contentSha256 (signature-independent catalog identity, src/content_digest.rs): 293f16076954e8b53ac70908b1b29ae49a1bed2f9b0dc9fccb7f95aef49d297a
+Consumer evidence (HeardRight, Dell, 2026-10-11): the bundled ffmpeg.exe verified against this row by contentSha256 through the real resolution path ("media tool: verified").

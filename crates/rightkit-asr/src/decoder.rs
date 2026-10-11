@@ -1,7 +1,3 @@
-use crate::error::{Error, Result};
-use ndarray::Array2;
-use std::path::Path;
-
 // Token with its timestamp information
 // start and end are in seconds
 #[derive(Debug, Clone, PartialEq)]
@@ -17,195 +13,61 @@ pub struct TranscriptionResult {
     pub tokens: Vec<TimedToken>,
 }
 
-// CTC decoder for parakeet-ctc-0.6b model with token-level timestamps
-pub struct ParakeetDecoder {
-    tokenizer: tokenizers::Tokenizer,
-    pad_token_id: usize,
+/// One emitted model symbol with exact sample positions. Sibling of
+/// [`TimedToken`], which is unchanged and still returned by every existing
+/// method. Built from the decoder's frame indices BEFORE detokenisation, so it
+/// is not merged or re-spaced: CutRight-style word-edge cuts can use
+/// `start_sample` / `end_sample` directly.
+///
+/// # Invariant: one piece per token
+///
+/// For every single-window decode (`transcribe_result_with_pieces`,
+/// `transcribe_window_beam_with_pieces`, `CoreMlParakeet::transcribe_window_with_pieces`)
+/// `pieces.len() == result.tokens.len()`, in the same order, and
+/// `pieces[i].text == result.tokens[i].text` (same detokenizer policy, including the
+/// guarded digit boundary, special-token skip and filler stripping).
+/// `pieces[i].token_index == i`. A vocabulary id with no text yields a piece whose
+/// `text` and `raw` are empty on the paths whose token output keeps such an id
+/// (beam and CoreML); the greedy ORT decoder drops it from both outputs.
+/// For long-form decodes `token_index` is offset by the pieces of earlier windows,
+/// so it indexes the concatenation of every window's tokens before seam handling
+/// (equal to the result token index under `SeamPolicy::Exact`).
+///
+/// - `frame`: encoder frame index relative to the decoded window (for a whole
+///   recording decode, the recording's frame index). One frame is
+///   `frame_samples` = `8 * hop_length` samples (80 ms at a 10 ms hop, 16 kHz).
+/// - `start_sample` / `end_sample`: absolute samples in the recording at
+///   `sample_rate`. Integer arithmetic only; no float round-trip. `end_sample`
+///   is CLAMPED: to the next emission's start when the duration would overlap
+///   it, and a zero-length last piece gets 10 ms (160 samples at 16 kHz).
+/// - `dur_frames`: the model's own duration for this emission, in encoder
+///   frames, unclamped. `0` when the model has no duration head (RNN-T).
+/// - `frame_samples`: samples per encoder frame for the model that produced
+///   the piece.
+/// - `raw_end_sample()`: unclamped end, `start + max(dur_frames, 1) * frame_samples`,
+///   the end CutRight's pre-port assembly used. It can exceed the next piece's
+///   `start_sample`.
+/// - `text`: detokenized text, identical to the matching [`TimedToken::text`]
+///   (SentencePiece `▁` becomes a space; a bare digit after a word gets a leading
+///   space). Special tokens (`<...>`, except `<unk>`) are not emitted, as in `TimedToken`.
+/// - `raw`: the vocabulary piece as stored (`▁` kept), before any detokenizer edit.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TimedPiece {
+    pub token_id: usize,
+    pub text: String,
+    pub raw: String,
+    pub token_index: u32,
+    pub frame: u32,
+    pub start_sample: u64,
+    pub end_sample: u64,
+    pub dur_frames: u32,
+    pub frame_samples: u32,
+    pub sample_rate: u32,
 }
 
-impl ParakeetDecoder {
-    pub fn from_pretrained<P: AsRef<Path>>(tokenizer_path: P) -> Result<Self> {
-        let tokenizer_path = tokenizer_path.as_ref();
-
-        let tokenizer = tokenizers::Tokenizer::from_file(tokenizer_path)
-            .map_err(|e| Error::Tokenizer(format!("Failed to load tokenizer: {e}")))?;
-
-        // Hardcoded pad_token_id for Parakeet-CTC-0.6b (constant across all models: please see def configs jsons: https://huggingface.co/onnx-community/parakeet-ctc-0.6b-ONNX/tree/main)
-        let pad_token_id = 1024;
-
-        Ok(Self {
-            tokenizer,
-            pad_token_id,
-        })
-    }
-
-    pub fn decode(&self, logits: &Array2<f32>) -> Result<String> {
-        let time_steps = logits.shape()[0];
-
-        let mut token_ids = Vec::new();
-        for t in 0..time_steps {
-            let logits_t = logits.row(t);
-            let max_idx = logits_t
-                .iter()
-                .enumerate()
-                .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
-                .map(|(idx, _)| idx)
-                .unwrap_or(0);
-
-            token_ids.push(max_idx as u32);
-        }
-
-        let collapsed = self.ctc_collapse(&token_ids);
-
-        let text = self
-            .tokenizer
-            .decode(&collapsed, true)
-            .map_err(|e| Error::Tokenizer(format!("Failed to decode: {e}")))?;
-
-        Ok(text)
-    }
-
-    fn ctc_collapse(&self, token_ids: &[u32]) -> Vec<u32> {
-        let mut result = Vec::new();
-        let mut prev_token: Option<u32> = None;
-
-        for &token_id in token_ids {
-            if token_id == self.pad_token_id as u32 {
-                prev_token = Some(token_id);
-                continue;
-            }
-
-            if Some(token_id) != prev_token {
-                result.push(token_id);
-            }
-
-            prev_token = Some(token_id);
-        }
-
-        result
-    }
-
-    // CTC collapse with frame tracking for timestamps
-    fn ctc_collapse_with_frames(&self, token_ids: &[(u32, usize)]) -> Vec<(u32, usize, usize)> {
-        let mut result: Vec<(u32, usize, usize)> = Vec::new();
-        let mut prev_token: Option<u32> = None;
-
-        for &(token_id, frame) in token_ids.iter() {
-            if token_id == self.pad_token_id as u32 {
-                prev_token = Some(token_id);
-                continue;
-            }
-
-            if Some(token_id) != prev_token {
-                if let Some(prev) = prev_token {
-                    if prev != self.pad_token_id as u32 {
-                        // End previous token
-                        if let Some(last) = result.last_mut() {
-                            last.2 = frame;
-                        }
-                    }
-                }
-                // Start new token
-                result.push((token_id, frame, frame));
-            }
-
-            prev_token = Some(token_id);
-        }
-
-        // Close last token
-        if let Some(last) = result.last_mut() {
-            last.2 = token_ids.len();
-        }
-
-        result
-    }
-
-    // Decode with token-level timestamps
-    // hop_length and sample_rate are needed to convert frames to seconds
-    pub fn decode_with_timestamps(
-        &self,
-        logits: &Array2<f32>,
-        hop_length: usize,
-        sample_rate: usize,
-    ) -> Result<TranscriptionResult> {
-        let time_steps = logits.shape()[0];
-
-        let mut token_ids_with_frames = Vec::new();
-        for t in 0..time_steps {
-            let logits_t = logits.row(t);
-            let max_idx = logits_t
-                .iter()
-                .enumerate()
-                .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
-                .map(|(idx, _)| idx)
-                .unwrap_or(0);
-
-            token_ids_with_frames.push((max_idx as u32, t));
-        }
-
-        // CTC collapse with frame tracking
-        let collapsed_with_frames = self.ctc_collapse_with_frames(&token_ids_with_frames);
-
-        // Extract just token IDs for decoding
-        let token_ids: Vec<u32> = collapsed_with_frames.iter().map(|(id, _, _)| *id).collect();
-
-        // Decode full text
-        let full_text = self
-            .tokenizer
-            .decode(&token_ids, true)
-            .map_err(|e| Error::Tokenizer(format!("Failed to decode: {e}")))?;
-
-        // Progressive decode to detect word boundaries
-        // BPE tokenizers only add spaces when decoding sequences, not individual tokens
-        let mut timed_tokens = Vec::new();
-        let mut prev_decode = String::new();
-
-        for (i, (_token_id, start_frame, end_frame)) in collapsed_with_frames.iter().enumerate() {
-            // Decode from start up to and including current token
-            let token_ids_so_far: Vec<u32> = collapsed_with_frames[0..=i]
-                .iter()
-                .map(|(id, _, _)| *id)
-                .collect();
-
-            if let Ok(curr_decode) = self.tokenizer.decode(&token_ids_so_far, true) {
-                // Find what this token added
-                let added_text = if curr_decode.len() > prev_decode.len() {
-                    &curr_decode[prev_decode.len()..]
-                } else {
-                    ""
-                };
-
-                if !added_text.is_empty() {
-                    let start_time = (*start_frame * hop_length) as f32 / sample_rate as f32;
-                    let end_time = (*end_frame * hop_length) as f32 / sample_rate as f32;
-
-                    timed_tokens.push(TimedToken {
-                        text: added_text.to_string(),
-                        start: start_time,
-                        end: end_time,
-                    });
-                }
-
-                prev_decode = curr_decode;
-            }
-        }
-
-        Ok(TranscriptionResult {
-            text: full_text,
-            tokens: timed_tokens,
-        })
-    }
-
-    // Beam-search path currently falls back to greedy decoding.
-    pub fn decode_with_beam_search(
-        &self,
-        logits: &Array2<f32>,
-        _beam_width: usize,
-    ) -> Result<String> {
-        self.decode(logits)
-    }
-
-    pub fn pad_token_id(&self) -> usize {
-        self.pad_token_id
+impl TimedPiece {
+    /// Unclamped end sample: `start_sample + max(dur_frames, 1) * frame_samples`.
+    pub fn raw_end_sample(&self) -> u64 {
+        self.start_sample + u64::from(self.dur_frames.max(1)) * u64::from(self.frame_samples)
     }
 }

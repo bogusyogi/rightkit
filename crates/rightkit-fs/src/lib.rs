@@ -4,7 +4,9 @@
 //!   [`atomic_write`] is the one-call entry point.
 //! - [`lock`]: OS advisory cross-process locks with owner/stale reporting. Two primitives:
 //!   [`FileLock::acquire`] / [`FileLock::try_acquire`] take the exclusive lock, and
-//!   [`FileLock::acquire_shared`] takes a shared (reader) lock.
+//!   [`FileLock::acquire_shared`] takes a shared (reader) lock. [`LockKind`] picks POSIX record
+//!   locks (`Fcntl`, the default) or `flock(2)` (`Flock`) on Unix; [`probe_owner`] reads the
+//!   owner record without locking.
 //! - [`digest`] (feature `digest`): SHA-256 of bytes or files, and lowercase hex.
 //! - [`private`]: owner-only files and directories (0600/0700, Windows DACL).
 //! - [`state`]: [`StateDir`], a descriptor-pinned state directory (`O_NOFOLLOW`, fd-relative
@@ -12,6 +14,12 @@
 //! - [`identity`] (feature `json`): stable file identity across renames and atomic replacement.
 //! - [`clone`]: macOS `clonefile(2)` with `CLONE_NOFOLLOW`; never falls back to a byte copy.
 //! - [`swap`]: macOS `renamex_np(RENAME_SWAP)`; atomically exchanges two paths ([`swap_paths`]).
+
+#[cfg(all(feature = "testing", not(debug_assertions)))]
+compile_error!(
+    "rightkit-fs feature `testing` injects faults into atomic writes and is for debug and test builds only; \
+     remove it from release builds"
+);
 
 #[cfg(feature = "fs")]
 pub mod atomic;
@@ -34,10 +42,13 @@ pub mod state;
 #[cfg(feature = "fs")]
 pub mod swap;
 
+#[cfg(all(feature = "fs", feature = "digest"))]
+pub use atomic::atomic_write_with_digest;
 #[cfg(feature = "fs")]
 pub use atomic::{
-    atomic_write, atomic_write_private, atomic_write_with, durable_sync, sweep_stale_temps,
-    AtomicOptions, AtomicWriter,
+    atomic_write, atomic_write_private, atomic_write_with, atomic_write_with_options, durable_sync,
+    durable_sync_with, rename_exclusive, sweep_stale_temps, AtomicOptions, AtomicWriteOptions,
+    AtomicWriter, Privacy, ReplaceMode, RetryPolicy, SyncLevel, SyncPolicy,
 };
 #[cfg(feature = "fs")]
 pub use clone::{clone_file_nofollow, CloneError};
@@ -46,7 +57,7 @@ pub use error::{FsError, Result};
 #[cfg(feature = "json")]
 pub use identity::{FileKey, IdentityStore, Resolution, StableId, Tracked};
 #[cfg(feature = "lock")]
-pub use lock::{with_lock, FileLock, LockOptions, LockOwner};
+pub use lock::{probe_owner, with_lock, FileLock, LockKind, LockOptions, LockOwner};
 #[cfg(feature = "fs")]
 pub use netfs::is_network_filesystem;
 #[cfg(feature = "fs")]
@@ -55,7 +66,7 @@ pub use private::{
     write_private_file, write_private_text,
 };
 #[cfg(feature = "fs")]
-pub use state::{EntryKind, EntryStat, StateDir};
+pub use state::{DirEntry, EntryKind, EntryStat, StateDir, StateOptions};
 #[cfg(feature = "fs")]
 pub use swap::{is_swap_unsupported, swap_paths};
 

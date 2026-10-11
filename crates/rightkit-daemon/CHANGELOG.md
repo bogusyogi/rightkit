@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.3
+
+- New `Daemon::metrics()` returning `DaemonMetrics`: requests handled, `job.update` successes, `state.json` writes and their sizes, and device, job, idempotency, nonce and in-memory event counts. Counters only; request handling and persisted state are unchanged. `DaemonMetrics` is re-exported.
+- New `benches/budget.rs` (`rightkit cargo bench -p rightkit-daemon --bench budget`) measures the runtime budget: 10,000 device-signed job submissions through the in-process host. Figures are in README "Runtime budget".
+
 ## 0.1.2
 
 Contract changes (`contracts/daemon-api.v1.schema.json`, additive; the valid fixtures follow):
@@ -8,7 +13,10 @@ Contract changes (`contracts/daemon-api.v1.schema.json`, additive; the valid fix
 - Error enum now lists every code the daemon returns (adds `precondition_required` 428, `idempotency_key_reuse` 422, and `bad_request`, `method_not_allowed`, `body_too_large`, `internal`, `storage_error`, `already_enrolled`, `too_large`, `too_many_uploads`, `bad_chunk_size`, `bad_chunk_index`, `bad_chunk_length`, `chunk_too_large`, `chunk_digest_mismatch`, `chunk_conflict`, `already_complete`, `finalizing`, `hash_mismatch`, `incomplete`, `oauth_unavailable`, `duplicate_delivery`). The api-v1 fixture lists the two mutation codes.
 - `job.update` responses are `[200, 400, 401, 403, 409, 422, 428]` (adds 400 bad body, 422 idempotency-key reuse, 428 missing `If-Match` or `Idempotency-Key`) in the route table, schema example and valid fixtures.
 - Lifecycle events: new `job_updated`; `JOB_UPDATED` now maps to it instead of `job_queued`. `job_queued`, `job_published`, `job_outcome_unknown` and `token_refreshed` have no daemon state to emit from (no publish step, no refresh flow), so they stay in the vocabulary and are marked reserved in the schema (`x-reservedEvents`) rather than removed, which would break the existing fixture.
-- Drift tests: every error code in the source is in the schema enum; every schema event is emitted or reserved; `job.update` documents its statuses.
+- `responses` on every route lists each status its handler returns for a contract outcome. Added: `device.enrol` 400; `upload.init` 400; `upload.chunk` 400, 403, 404; `upload.status` 403; `upload.complete` 403, 404, 409; `oauth.callback` 502 `oauth_unavailable`; `webhook.inbound` 429 `rate_limited`. Route-independent statuses (404 unknown path, 405, 413 body limit, 500 storage failure) are not listed; the `routes` description says so.
+- `x-reservedErrors`: six codes stay in the enum but no route returns them (`upload_hash_mismatch`, `upload_out_of_range`, `webhook_signature_invalid`, `webhook_replay`, `oauth_state_invalid`, `scope_mismatch`). They are reserved rather than removed: removal is breaking for a v1 contract, and `scope_mismatch` is named by the planned P3 proof semantics. The daemon returns `hash_mismatch`, `bad_chunk_index`, `forbidden` and `unauthenticated` where those reserved names would apply.
+- Internal events with no lifecycle name, by design: `STORAGE_ERROR`, `UPLOAD_REJECTED`, `WEBHOOK_ACCEPTED`, `OAUTH_COMPLETED` and `AUTH_REJECTED` outside the signed-webhook class. They are diagnostics in `events.jsonl`. A new emitted name must be mapped or classified in `INTERNAL_EVENTS`.
+- Drift tests: the schema example routes, the valid fixture and the code route table agree route by route and status by status; the error enum equals the returned codes plus `x-reservedErrors` in both directions; every schema event is emitted or reserved; every emitted event is mapped or classified internal; `job.update` documents its statuses. The 0.1.2 entry above is the crate's only version bump in this change: the crate is `publish = false`, so it already carries 0.1.2 and this change extends that entry.
 
 ## 0.1.1
 

@@ -59,3 +59,7 @@ libc = { version = "0.2", optional = true }
 base64 = "0.22"
 rightkit-http = { path = "../rightkit-http", version = "0.3.0", features = ["testing"] }
 tempfile = "3"
+
+[package.metadata.rightkit]
+continuous = false
+continuous_reason = "sleep: device-flow poll wait bounded by the flow deadline and cancel flag (device.rs), 10 ms accept poll and token-store file-lock poll bounded by timeout (lib.rs, server/store.rs); listener: one-shot loopback callback listener bound by begin_loopback and closed when finish_loopback returns or the flow drops (lib.rs); thread-spawn: stdout reader joined before the system-credential helper call returns (system.rs); pending-authorization map is capped at 1024 with expiry (reviewed 2026-10-11)"

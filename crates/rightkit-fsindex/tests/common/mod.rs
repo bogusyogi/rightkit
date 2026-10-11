@@ -19,6 +19,8 @@ pub fn config(root: &Path) -> Config {
     c.home_dirs = Some(Vec::new());
     c.watch_latency = Duration::from_millis(20);
     c.change_coalesce = Duration::from_millis(100);
+    // The re-list gate has its own tests; the general suite keeps the ungated timing.
+    c.relist_min_interval = Duration::ZERO;
     c
 }
 

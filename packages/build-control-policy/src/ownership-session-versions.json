@@ -353,7 +353,7 @@
     "rightkit-http": "0.2.5",
     "rightkit-jobs": "0.2.7",
     "rightkit-license": "0.1.3",
-    "rightkit-llm": "0.1.0",
+    "rightkit-llm": "0.2.0",
     "rightkit-logs": "0.2.1",
     "rightkit-mcp": "0.5.3",
     "rightkit-media": "0.2.5",

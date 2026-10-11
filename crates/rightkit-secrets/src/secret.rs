@@ -27,9 +27,14 @@ impl Secret {
     /// Comparison that does not short-circuit on the first differing byte.
     pub fn ct_eq(&self, other: &Secret) -> bool {
         let (a, b) = (&self.0, &other.0);
-        let mut diff = (a.len() ^ b.len()) as u8;
-        for i in 0..a.len().min(b.len()) {
-            diff |= a[i] ^ b[i];
+        // The length is not secret; compare it in full (a truncated XOR once made 32- and
+        // 288-byte secrets with a shared prefix compare equal).
+        if a.len() != b.len() {
+            return false;
+        }
+        let mut diff = 0u8;
+        for (x, y) in a.iter().zip(b.iter()) {
+            diff |= x ^ y;
         }
         diff == 0
     }
@@ -38,5 +43,21 @@ impl Secret {
 impl std::fmt::Debug for Secret {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "Secret(<redacted {} bytes>)", self.len())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn ct_eq_distinguishes_lengths_that_differ_by_a_multiple_of_256() {
+        let short = Secret::from_bytes(vec![7u8; 32]);
+        let long = Secret::from_bytes(vec![7u8; 288]);
+        assert!(!short.ct_eq(&long));
+        assert!(!long.ct_eq(&short));
+        assert!(short.ct_eq(&Secret::from_bytes(vec![7u8; 32])));
+        assert!(!short.ct_eq(&Secret::from_bytes(vec![8u8; 32])));
+        assert!(Secret::from_bytes(Vec::new()).ct_eq(&Secret::from_bytes(Vec::new())));
     }
 }

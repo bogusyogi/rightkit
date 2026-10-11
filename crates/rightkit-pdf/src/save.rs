@@ -51,7 +51,7 @@ use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
 
-use crate::inspect::walk_page_graph;
+use crate::inspect::{content_stream_ids, walk_page_graph};
 use crate::model::{
     document_sha256, effective_pdf_edit_commands, sha256_hex, PdfEditCommand, PdfEditError,
 };
@@ -291,7 +291,7 @@ fn structurally_verify_candidate(
     expected_text: &[ExpectedTextCheck],
 ) -> Result<(), PdfEditError> {
     let doc =
-        lopdf::Document::load_mem(candidate_bytes).map_err(|_| PdfEditError::VerificationFailed)?;
+        crate::inspect::load_pdf(candidate_bytes).map_err(|_| PdfEditError::VerificationFailed)?;
 
     let pages = doc.get_pages();
     if pages.is_empty() {
@@ -310,26 +310,21 @@ fn structurally_verify_candidate(
                 .map_err(|_| PdfEditError::VerificationFailed)?;
         }
         if let Ok(contents) = page_dict.get(b"Contents") {
-            match contents {
-                lopdf::Object::Reference(id) => {
-                    let obj = doc
-                        .get_object(*id)
-                        .map_err(|_| PdfEditError::VerificationFailed)?;
-                    obj.as_stream()
-                        .map_err(|_| PdfEditError::VerificationFailed)?;
-                }
-                lopdf::Object::Array(items) => {
-                    for item in items {
-                        if let lopdf::Object::Reference(id) = item {
-                            let obj = doc
-                                .get_object(*id)
-                                .map_err(|_| PdfEditError::VerificationFailed)?;
-                            obj.as_stream()
-                                .map_err(|_| PdfEditError::VerificationFailed)?;
-                        }
-                    }
-                }
-                _ => return Err(PdfEditError::VerificationFailed),
+            // A stream, an array of streams, or an indirect reference to an array of streams.
+            if !matches!(
+                contents,
+                lopdf::Object::Reference(_) | lopdf::Object::Array(_)
+            ) {
+                return Err(PdfEditError::VerificationFailed);
+            }
+            let ids =
+                content_stream_ids(&doc, contents).map_err(|_| PdfEditError::VerificationFailed)?;
+            for id in ids {
+                let obj = doc
+                    .get_object(id)
+                    .map_err(|_| PdfEditError::VerificationFailed)?;
+                obj.as_stream()
+                    .map_err(|_| PdfEditError::VerificationFailed)?;
             }
         }
     }
@@ -451,6 +446,21 @@ mod tests {
     #[test]
     fn structural_recheck_accepts_wellformed_candidate_with_matching_text() {
         let bytes = hello_pdf();
+        let checks = vec![ExpectedTextCheck {
+            page: 1,
+            text: "Hello".to_string(),
+        }];
+        assert!(structurally_verify_candidate(&bytes, &checks).is_ok());
+    }
+
+    #[test]
+    fn structural_recheck_accepts_contents_that_is_an_indirect_array_of_streams() {
+        let doc = crate::test_fixtures::custom_page_pdf(
+            |d| vec![("F1", crate::test_fixtures::helvetica_font(d))],
+            &[b"BT /F1 12 Tf 72 700 Td ", b"(Hello) Tj ET"],
+            true,
+        );
+        let bytes = crate::test_fixtures::pdf_bytes(&doc);
         let checks = vec![ExpectedTextCheck {
             page: 1,
             text: "Hello".to_string(),

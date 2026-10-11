@@ -112,6 +112,254 @@ pub(crate) fn one_page_pdf(fx: PageFixture) -> Document {
     doc
 }
 
+/// A one-page document with caller-built font objects and one or more content streams.
+///
+/// `fonts` runs against the document being built and returns the `/Resources /Font` entries.
+/// With `indirect_array` the page's `/Contents` is an *indirect reference to an array* of the
+/// streams (the shape `uscis-i9.pdf` uses); otherwise it is a direct array (or a single stream
+/// reference for one stream).
+pub(crate) fn custom_page_pdf(
+    fonts: impl FnOnce(&mut Document) -> Vec<(&'static str, lopdf::ObjectId)>,
+    streams: &[&[u8]],
+    indirect_array: bool,
+) -> Document {
+    let mut doc = Document::with_version("1.7");
+    let pages_id = doc.new_object_id();
+    let mut font_resources = dictionary! {};
+    for (name, id) in fonts(&mut doc) {
+        font_resources.set(name, id);
+    }
+    let resources_id = doc.add_object(dictionary! { "Font" => font_resources });
+    let stream_ids: Vec<lopdf::ObjectId> = streams
+        .iter()
+        .map(|bytes| doc.add_object(Stream::new(dictionary! {}, bytes.to_vec())))
+        .collect();
+    let refs = Object::Array(stream_ids.iter().map(|id| Object::Reference(*id)).collect());
+    let contents: Object = if indirect_array {
+        Object::Reference(doc.add_object(refs))
+    } else if stream_ids.len() == 1 {
+        Object::Reference(stream_ids[0])
+    } else {
+        refs
+    };
+    let page_id = doc.add_object(dictionary! {
+        "Type" => "Page",
+        "Parent" => pages_id,
+        "Contents" => contents,
+        "Resources" => resources_id,
+        "MediaBox" => Object::Array(vec![
+            Object::Integer(0),
+            Object::Integer(0),
+            Object::Integer(612),
+            Object::Integer(792),
+        ]),
+    });
+    doc.objects.insert(
+        pages_id,
+        Object::Dictionary(dictionary! {
+            "Type" => "Pages",
+            "Kids" => Object::Array(vec![Object::Reference(page_id)]),
+            "Count" => 1,
+        }),
+    );
+    let catalog_id = doc.add_object(dictionary! { "Type" => "Catalog", "Pages" => pages_id });
+    doc.trailer.set("Root", catalog_id);
+    doc
+}
+
+/// Non-embedded Helvetica with WinAnsiEncoding (widths come from the Standard-14 table).
+pub(crate) fn helvetica_font(doc: &mut Document) -> lopdf::ObjectId {
+    doc.add_object(dictionary! {
+        "Type" => "Font",
+        "Subtype" => "Type1",
+        "BaseFont" => "Helvetica",
+        "Encoding" => "WinAnsiEncoding",
+    })
+}
+
+/// An embedded-subset-style simple Type1 font: `/FirstChar`, `/Widths`, a descriptor naming a
+/// `/FontFile`, and the given `/Encoding` (omitted when `None`) and `ToUnicode` CMap source.
+pub(crate) fn subset_type1_font(
+    doc: &mut Document,
+    first_char: i64,
+    widths: &[i64],
+    encoding: Option<Object>,
+    to_unicode: Option<&str>,
+) -> lopdf::ObjectId {
+    let program = doc.add_object(Stream::new(
+        dictionary! {},
+        b"not a real font program".to_vec(),
+    ));
+    let descriptor = doc.add_object(dictionary! {
+        "Type" => "FontDescriptor",
+        "FontName" => "ABCDEF+Subset",
+        "Flags" => 4,
+        "FontFile" => program,
+    });
+    let mut font = dictionary! {
+        "Type" => "Font",
+        "Subtype" => "Type1",
+        "BaseFont" => "ABCDEF+Subset",
+        "FirstChar" => first_char,
+        "LastChar" => first_char + widths.len() as i64 - 1,
+        "Widths" => Object::Array(widths.iter().map(|w| Object::Integer(*w)).collect()),
+        "FontDescriptor" => descriptor,
+    };
+    if let Some(encoding) = encoding {
+        font.set("Encoding", encoding);
+    }
+    if let Some(cmap) = to_unicode {
+        let id = doc.add_object(Stream::new(dictionary! {}, cmap.as_bytes().to_vec()));
+        font.set("ToUnicode", id);
+    }
+    doc.add_object(font)
+}
+
+/// `/Encoding` dictionary with `/Differences` and, optionally, `/BaseEncoding` and `/Type`.
+pub(crate) fn differences_encoding(
+    base: Option<&str>,
+    typed: bool,
+    differences: Vec<Object>,
+) -> Object {
+    let mut dict = dictionary! { "Differences" => Object::Array(differences) };
+    if typed {
+        dict.set("Type", "Encoding");
+    }
+    if let Some(base) = base {
+        dict.set("BaseEncoding", base);
+    }
+    Object::Dictionary(dict)
+}
+
+/// A `ToUnicode` CMap mapping each `(code, char)` through `beginbfchar`, `width` bytes per code.
+pub(crate) fn to_unicode_cmap(width: usize, pairs: &[(u32, char)]) -> String {
+    let mut out = String::from(
+        "/CIDInit /ProcSet findresource begin 12 dict begin begincmap\n\
+         1 begincodespacerange <00> <FF> endcodespacerange\n",
+    );
+    out.push_str(&format!("{} beginbfchar\n", pairs.len()));
+    for (code, ch) in pairs {
+        out.push_str(&format!(
+            "<{:0w$X}> <{:04X}>\n",
+            code,
+            *ch as u32,
+            w = width * 2
+        ));
+    }
+    out.push_str("endbfchar\nendcmap end end\n");
+    out
+}
+
+/// A standards-shaped single-byte `ToUnicode` CMap (CIDSystemInfo, CMapName, codespace, `bfchar`,
+/// `defineresource`): the form the PDF library's strict CMap parser accepts, which simple-font
+/// decoding goes through when a font has no `/Encoding`.
+pub(crate) fn strict_to_unicode_cmap(pairs: &[(u32, char)]) -> String {
+    let mut out = String::from(
+        "/CIDInit /ProcSet findresource begin\n\
+         12 dict begin\n\
+         begincmap\n\
+         /CIDSystemInfo << /Registry (Adobe) /Ordering (UCS) /Supplement 0 >> def\n\
+         /CMapName /Adobe-Identity-UCS def\n\
+         /CMapType 2 def\n\
+         1 begincodespacerange\n\
+         <00> <FF>\n\
+         endcodespacerange\n",
+    );
+    out.push_str(&format!("{} beginbfchar\n", pairs.len()));
+    for (code, ch) in pairs {
+        out.push_str(&format!("<{code:02X}> <{:04X}>\n", *ch as u32));
+    }
+    out.push_str("endbfchar\nendcmap\nCMapName currentdict /CMap defineresource pop\nend\nend\n");
+    out
+}
+
+/// A Type0 `Identity-H` font with explicit `/W` widths (`(cid, width)`) and a `ToUnicode` CMap
+/// over `mapped`; the descendant carries no font program (inspection and composition read only
+/// the dictionaries).
+pub(crate) fn identity_h_font(
+    doc: &mut Document,
+    widths: &[(u32, i64)],
+    mapped: &[(u32, char)],
+) -> lopdf::ObjectId {
+    identity_h_font_with_cmap(doc, widths, to_unicode_cmap(2, mapped))
+}
+
+/// [`identity_h_font`] with a caller-written `ToUnicode` CMap source (for `bfrange` forms).
+pub(crate) fn identity_h_font_with_cmap(
+    doc: &mut Document,
+    widths: &[(u32, i64)],
+    cmap_source: String,
+) -> lopdf::ObjectId {
+    let mut w = Vec::new();
+    for (cid, width) in widths {
+        w.push(Object::Integer(*cid as i64));
+        w.push(Object::Array(vec![Object::Integer(*width)]));
+    }
+    let descendant = doc.add_object(dictionary! {
+        "Type" => "Font",
+        "Subtype" => "CIDFontType2",
+        "BaseFont" => "ABCDEF+Cid",
+        "CIDSystemInfo" => dictionary! {
+            "Registry" => Object::String(b"Adobe".to_vec(), lopdf::StringFormat::Literal),
+            "Ordering" => Object::String(b"Identity".to_vec(), lopdf::StringFormat::Literal),
+            "Supplement" => 0,
+        },
+        "DW" => 1000,
+        "W" => Object::Array(w),
+        "CIDToGIDMap" => "Identity",
+    });
+    let cmap = doc.add_object(Stream::new(dictionary! {}, cmap_source.into_bytes()));
+    doc.add_object(dictionary! {
+        "Type" => "Font",
+        "Subtype" => "Type0",
+        "BaseFont" => "ABCDEF+Cid",
+        "Encoding" => "Identity-H",
+        "DescendantFonts" => Object::Array(vec![Object::Reference(descendant)]),
+        "ToUnicode" => cmap,
+    })
+}
+
+/// A `ToUnicode` CMap with the given raw body between its codespace range and `endcmap`.
+pub(crate) fn raw_to_unicode_cmap(body: &str) -> String {
+    format!(
+        "/CIDInit /ProcSet findresource begin 12 dict begin begincmap\n\
+         1 begincodespacerange <0000> <FFFF> endcodespacerange\n{body}\nendcmap end end\n"
+    )
+}
+
+/// A TeX-style subset font: lowercase letters at their ASCII codes (width 500) and, when
+/// `space_glyph`, a real `space` glyph at code 32 (width 250). Without it the font has no space
+/// at all, so word gaps can only be `TJ` adjustments. Codes are defined by `/Differences` alone.
+pub(crate) fn tex_style_font(doc: &mut Document, space_glyph: bool) -> lopdf::ObjectId {
+    let mut differences = Vec::new();
+    if space_glyph {
+        differences.push(Object::Integer(32));
+        differences.push(Object::Name(b"space".to_vec()));
+    }
+    differences.push(Object::Integer(97));
+    for letter in b'a'..=b'z' {
+        differences.push(Object::Name(vec![letter]));
+    }
+    let widths: Vec<i64> = (32i64..=122)
+        .map(|code| match code {
+            32 if space_glyph => 250,
+            97..=122 => 500,
+            _ => 0,
+        })
+        .collect();
+    let encoding = differences_encoding(None, true, differences);
+    subset_type1_font(doc, 32, &widths, Some(encoding), None)
+}
+
+/// One page set in the TeX-style font `/F1`; `content` is the raw content stream.
+pub(crate) fn tex_style_pdf(space_glyph: bool, content: &[u8]) -> Document {
+    custom_page_pdf(
+        |d| vec![("F1", tex_style_font(d, space_glyph))],
+        &[content],
+        false,
+    )
+}
+
 /// The standard one-page fixture: `content_ops` content, `/F1` Helvetica, 612×792.
 pub(crate) fn build_one_page_pdf(content_ops: &[u8]) -> Document {
     one_page_pdf(PageFixture::for_content(content_ops))

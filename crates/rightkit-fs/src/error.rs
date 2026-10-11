@@ -45,6 +45,22 @@ pub enum FsError {
     UnknownId(String),
     #[error("platform primitive unavailable: {0}")]
     Unavailable(&'static str),
+    /// The new content is in place at `path`, but syncing its directory failed, so the rename
+    /// may not survive a power loss. Retrying the write is safe.
+    #[error("{} was replaced, but syncing its directory failed: {source}", path.display())]
+    ReplacedButDirSyncFailed {
+        path: PathBuf,
+        #[source]
+        source: io::Error,
+    },
+    /// A `StateDir` removal or directory creation took effect, but syncing the containing
+    /// directory failed, so it may not survive a power loss. Repeating the call is safe.
+    #[error("{} was changed, but syncing its directory failed: {source}", path.display())]
+    DirSyncFailed {
+        path: PathBuf,
+        #[source]
+        source: io::Error,
+    },
 }
 
 impl FsError {
@@ -58,10 +74,17 @@ impl FsError {
     /// The underlying `io::ErrorKind` when this is an I/O (or already-exists) failure.
     pub fn kind(&self) -> Option<io::ErrorKind> {
         match self {
-            Self::Io { source, .. } => Some(source.kind()),
+            Self::Io { source, .. }
+            | Self::ReplacedButDirSyncFailed { source, .. }
+            | Self::DirSyncFailed { source, .. } => Some(source.kind()),
             Self::AlreadyExists(_) => Some(io::ErrorKind::AlreadyExists),
             _ => None,
         }
+    }
+
+    /// True when the destination already holds the new content, even though the call failed.
+    pub fn target_replaced(&self) -> bool {
+        matches!(self, Self::ReplacedButDirSyncFailed { .. })
     }
 
     pub fn is_not_found(&self) -> bool {

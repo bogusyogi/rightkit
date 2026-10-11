@@ -13,6 +13,9 @@ pub enum Error {
     Config(String),
     /// Long-form decode stopped by the caller's cancellation flag.
     Cancelled,
+    /// A single-window decode received more audio than the model window allows
+    /// (`window_samples` plus one mel hop). Use the long-form route instead.
+    WindowTooLong { samples: usize, max_samples: usize },
 }
 
 impl fmt::Display for Error {
@@ -25,6 +28,10 @@ impl fmt::Display for Error {
             Error::Tokenizer(msg) => write!(f, "Tokenizer error: {msg}"),
             Error::Config(msg) => write!(f, "Config error: {msg}"),
             Error::Cancelled => write!(f, "cancelled"),
+            Error::WindowTooLong { samples, max_samples } => write!(
+                f,
+                "window of {samples} samples exceeds the {max_samples}-sample limit (model window + one hop); use transcribe_long"
+            ),
         }
     }
 }

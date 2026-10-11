@@ -42,6 +42,16 @@ Illustrative; not compiled as a doctest. The compiled references are `tests/poli
 - Dependencies: `windows_061`/`windows_062` and `webview2_com_038`/`webview2_com_039` are optional. They enable Win32 features `Win32_Foundation`, `Win32_System_Com`, `Win32_System_DataExchange`, `Win32_System_Memory`, `Win32_System_Ole` and `Win32_UI_Shell`. Consumers select only a `wv2-*` feature.
 - Caveat: `harden.rs`, `clipboard.rs` and `idle.rs` each say they are not compiled or not exercised on the macOS host (`src/idle.rs:9`). Run `rightkit cargo check -p rightkit-shell` on Windows before relying on them.
 
+## Also (0.3.0, host-decided lifecycle)
+
+- Quit drain: `quit_drain(true)` / `quit_drain_bound(d)`; the renderer (`@rightkit/shell` 0.1.1) answers
+  `rightkit-shell://quit-requested` and calls `rk_shell_finish_quit`. Default bound 15 s, max 120 s; off by default.
+- `close_behavior(CloseBehavior::HideToBackground)`, `on_visibility`, `qa_instance_exempt`,
+  `second_instance_reveal`, `show_on_ready` (explicit beats `RIGHTKIT_QA_HIDDEN`), `internal_scheme`.
+- `Shell::lifecycle_plugin()`: the lifecycle without hardening, navigation policy, presence, watchdog or window state.
+- `WindowStateStore` standalone with `restore_with`; `AutostartOptions::{startup_wm_class, config_home, macos_unsupported}`.
+- `NotificationRequest.bypassDoNotDisturb`; `rk_shell_capabilities`.
+
 ## Also (0.3.0)
 
 ### Modular install and the broker as a library type
@@ -82,6 +92,48 @@ subresources beneath a site root. The app grants it for a document it already ho
 - `SingleInstance::claim(id, on_message)` returns `ClaimOutcome::{Primary, Forwarded, Failed}`.
   Treat `Forwarded` and `Failed` as exit paths. `Failed` never becomes a second primary.
 - `startup_cache::ensure_http_cache_dir(identifier)` repairs the user cache directory for the app.
+
+### Relaunch for update, and the legacy plugins' names
+
+`SingleInstance::destroy()` releases every claim this process holds through the shell (the
+standalone claim and the plugin's primary), then runs each release registered with
+`SingleInstance::on_destroy`, once. It is idempotent. It never touches a `tauri-plugin-single-instance`
+claim by itself: `ClaimOptions::legacy_identifier` only probes for a legacy holder, and the plugin's
+mutex, window, socket or D-Bus name belongs to the plugin's own state in the app. An app that still
+registers the plugin makes one call release both:
+
+```rust,ignore
+let handle = app.clone();
+SingleInstance::on_destroy(move || tauri_plugin_single_instance::destroy(&handle));
+// relaunch-for-update, after spawning the helper:
+SingleInstance::destroy();
+app.exit(0);
+```
+
+Without the hook, call `tauri_plugin_single_instance::destroy(&app)` and `SingleInstance::destroy()`,
+both, before exiting. On Windows the plugin closes its mutex (which frees the name) but its
+`DestroyWindow` only works on the thread that created the window, so the hidden window can outlive
+the call until exit; the relaunch is not blocked, since arbitration is the mutex.
+
+Exact legacy names (`LegacySingleInstanceNames`, `LegacyAutostartNames`), read from
+`tauri-plugin-single-instance` 2.4.2 and 2.4.3, `tauri-plugin-autostart` 2.5.1, `auto-launch` 0.5.0.
+HeardRight (`identifier` `app.heardright.next`, `productName` `HeardRight`):
+
+| Item | Derivation | HeardRight |
+|---|---|---|
+| Windows mutex / window class / title | `<identifier>-sim` / `-sic` / `-siw` | `app.heardright.next-sim` / `-sic` / `-siw` |
+| macOS socket | `/tmp/<identifier with . and - as _>_si.sock` | `/tmp/app_heardright_next_si.sock` |
+| Linux D-Bus name (not probed) | `<identifier>.SingleInstance` | `app.heardright.next.SingleInstance` |
+| Windows Run value | `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`, value `<entry name>` | `HeardRight` |
+| macOS LaunchAgent | label `<entry name>`, `~/Library/LaunchAgents/<entry name>.plist` | `HeardRight`, `~/Library/LaunchAgents/HeardRight.plist` |
+| Linux autostart | `~/.config/autostart/<entry name>.desktop` | `HeardRight.desktop` |
+
+The entry name is the plugin builder's `app_name`, else `PackageInfo::name`, which is `productName`
+when set and the Cargo package name otherwise. The names assume the plugins' `semver` feature is off
+(HeardRight does not enable it). The plugin also writes a same-named value under
+`...\Explorer\StartupApproved\Run`; the migration leaves it. HeardRight's lockfile pins
+`tauri-plugin-single-instance` 2.4.5, whose source was not available to read; 2.4.2 to 2.4.3 changed
+only the macOS listener (tokio), not the names.
 
 ## Also (0.1.3)
 
@@ -160,3 +212,16 @@ let cold = rightkit_shell::open_url::current_urls(); // arrived before any handl
 `Shell::builder(..).on_second_instance(|app, argv, cwd| ..)` replaces the default second-launch behaviour (event plus reveal of the main window); the callback owns focus. Arbitration is unchanged, and URLs on the forwarded argv still reach `open_url` handlers and `current_urls()` before the callback runs. Without a callback nothing changes.
 
 `windows`/`webview2-com` are feature-selected so they match the app's Tauri: `wv2-0_38` (0.61/0.38, Tauri 2.11, **default since 0.1.2**) or `wv2-0_39` (0.62/0.39, Tauri 2.12). A mismatch puts two copies beside Tauri's and `cast()` fails (E0599, found by MailRight). With `default-features = false`, add one of them, e.g. `features = ["wv2-0_38"]` (0.1.1 defaulted to `wv2-0_39`, which broke Tauri 2.11 apps; found by CodeRight).
+
+## Runtime budget
+
+Generated from `runtime-budget.json`; edit that file, then run `node packages/release/runtime-budgets.mjs sync <crate-dir>`.
+
+- Resident memory ceiling: 119.0 MiB.
+- CPU ceiling (idle, steady state): 1%.
+- Wake-ups ceiling: undeclared.
+- Disk operations ceiling: undeclared.
+- Required scale: 1 watchdogs or more.
+- Required hosts: macOS and Windows.
+- Status exposure: `status()` in `src/watchdog.rs`; exposes resident memory, idle CPU, wake-ups, disk operations.
+- Measured: not yet measured.

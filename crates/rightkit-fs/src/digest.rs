@@ -19,6 +19,45 @@ pub fn hex(bytes: &[u8]) -> String {
     out
 }
 
+/// Incremental SHA-256 over this crate's own `sha2`, so a consumer that hashes while it writes needs no
+/// second `sha2` major. Feed it with [`Sha256Hasher::update`] (or as an [`io::Write`]), then take the
+/// lowercase hex with [`Sha256Hasher::finalize`]. The result equals [`sha256_bytes`] of the
+/// concatenated input.
+#[derive(Clone, Default)]
+pub struct Sha256Hasher(Sha256);
+
+impl Sha256Hasher {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Hash more input.
+    pub fn update(&mut self, bytes: &[u8]) {
+        self.0.update(bytes);
+    }
+
+    /// The lowercase hex digest of everything fed so far.
+    pub fn finalize(self) -> String {
+        hex(self.0.finalize().as_slice())
+    }
+
+    /// The raw 32-byte digest.
+    pub fn finalize_bytes(self) -> [u8; 32] {
+        self.0.finalize().into()
+    }
+}
+
+impl io::Write for Sha256Hasher {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        self.update(buf);
+        Ok(buf.len())
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+}
+
 /// Lowercase hex SHA-256 of `bytes`.
 pub fn sha256_bytes(bytes: &[u8]) -> String {
     hex(Sha256::digest(bytes).as_slice())

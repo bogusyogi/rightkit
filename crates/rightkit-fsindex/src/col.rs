@@ -14,6 +14,29 @@ pub struct Col<T: Copy> {
     _t: PhantomData<T>,
 }
 
+/// Bytes of the mapping at `ptr..ptr+len` that are resident in memory, by page (`mincore`).
+/// Zero when the query fails or the platform has no `mincore`.
+pub(crate) fn resident_bytes(ptr: *const u8, len: usize) -> usize {
+    #[cfg(unix)]
+    {
+        if len == 0 {
+            return 0;
+        }
+        let page = unsafe { libc::sysconf(libc::_SC_PAGESIZE) }.max(1) as usize;
+        let mut vec = vec![0u8; len.div_ceil(page)];
+        let rc = unsafe { libc::mincore(ptr as *mut libc::c_void, len, vec.as_mut_ptr().cast()) };
+        if rc != 0 {
+            return 0;
+        }
+        vec.iter().filter(|&&b| b & 1 != 0).count() * page
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = (ptr, len);
+        0
+    }
+}
+
 impl<T: Copy> Col<T> {
     const SZ: usize = std::mem::size_of::<T>();
 
@@ -113,6 +136,11 @@ impl<T: Copy> Col<T> {
                 self.map = m;
             }
         }
+    }
+
+    /// Resident bytes of this column's mapping.
+    pub fn resident_bytes(&self) -> usize {
+        resident_bytes(self.map.as_ptr(), self.map.len())
     }
 
     /// msync (blocking) when file-backed.

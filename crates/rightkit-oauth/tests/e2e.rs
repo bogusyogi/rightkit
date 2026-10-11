@@ -268,3 +268,38 @@ fn slow_loris_oversized_and_debug_redaction() {
         "{err:?}"
     );
 }
+
+fn retrying_client() -> Client {
+    Client::new(ClientConfig {
+        retry: RetryPolicy {
+            max_attempts: 3,
+            initial_backoff: Duration::from_millis(5),
+            max_backoff: Duration::from_millis(10),
+            jitter: 0.0,
+            ..RetryPolicy::default()
+        },
+        ..ClientConfig::default()
+    })
+}
+
+/// A token POST (refresh rotates a single-use refresh token) is not replayed after a 5xx.
+#[test]
+fn token_post_is_not_replayed_after_a_5xx() {
+    let token_server = MockServer::start(|_, _| MockResponse::text(503, "busy"));
+    let config = OAuthConfig::new(
+        "client",
+        token_server.url("/authorize"),
+        token_server.url("/token"),
+    );
+    let oauth = OAuthClient::new(config, retrying_client()).unwrap();
+    let current = rightkit_oauth::TokenSet {
+        access_token: rightkit_http::Secret::new("old-access"),
+        token_type: "Bearer".into(),
+        expires_in: Some(Duration::from_secs(1)),
+        refresh_token: Some(rightkit_http::Secret::new("single-use")),
+        scope: None,
+        obtained_at: std::time::SystemTime::now(),
+    };
+    assert!(oauth.refresh(&current).is_err());
+    assert_eq!(token_server.request_count(), 1);
+}

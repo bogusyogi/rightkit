@@ -3,10 +3,13 @@
 use std::collections::HashMap;
 use std::fmt;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{self, RecvError, RecvTimeoutError, TryRecvError};
+use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
 
+use crate::native::{self, BoundedQueue, TypedOptions, WatchCursor};
 use crate::WatchEventRecord;
 use notify::event::{ModifyKind, RenameMode};
 use notify::{Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
@@ -66,7 +69,72 @@ pub enum WatchEvent {
 pub struct TypedWatcher {
     watcher: Option<RecommendedWatcher>,
     thread: Option<thread::JoinHandle<()>>,
-    rx: mpsc::Receiver<WatchEventRecord>,
+    source: Source,
+    /// Platform backend started by [`TypedWatcher::watch_with`]; dropped before the queue closes.
+    native: Option<native::Handle>,
+}
+
+/// Where received records come from: the legacy unbounded channel, or the bounded queue of
+/// `watch_with` (which also carries the resume cursor).
+enum Source {
+    Legacy {
+        rx: mpsc::Receiver<WatchEventRecord>,
+        counters: Arc<Counters>,
+    },
+    Bounded {
+        queue: Arc<BoundedQueue>,
+        /// Volume the cursor belongs to; `None` when the backend has no replay.
+        volume: Option<[u8; 16]>,
+    },
+}
+
+// A handle may move to another thread (apps keep it in shared state).
+const _: fn() = || {
+    fn assert_send<T: Send>() {}
+    assert_send::<TypedWatcher>();
+};
+
+/// Cumulative counters for one typed stream, read with [`TypedWatcher::metrics`].
+/// `queue_depth` is the unread backlog. The queue of the legacy constructors is unbounded, so a
+/// host that stops draining it grows memory by that many records; a [`TypedWatcher::watch_with`]
+/// queue is bounded (`queue_capacity`) and counts what it discarded in `dropped_total`.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct WatchMetrics {
+    /// Records queued for the caller since the watcher started (events, errors, overflow).
+    pub queued_total: u64,
+    /// Records the caller has taken off the queue through any receive method.
+    pub received_total: u64,
+    /// `queued_total - received_total`: records waiting to be received.
+    pub queue_depth: u64,
+    /// Overflow / dropped-event / rescan notices queued.
+    pub overflow_total: u64,
+    /// Backend error records queued.
+    pub error_total: u64,
+    /// Records a bounded queue discarded because it was full (each gap also queues one
+    /// `Overflow`). Always 0 for the legacy constructors.
+    pub dropped_total: u64,
+    /// Most records the queue holds before it clears; 0 means unbounded.
+    pub queue_capacity: u64,
+}
+
+/// Runtime figures of one typed stream, computed on call by [`TypedWatcher::status`].
+#[derive(Debug, Clone, Copy, PartialEq)]
+#[non_exhaustive]
+pub struct WatchStatus {
+    /// Cumulative counters and the unread backlog (`queue_depth`).
+    pub metrics: WatchMetrics,
+    /// Resident memory, CPU time and I/O counters of the whole process (the watcher runs in it),
+    /// or `None` when the host cannot report them. See `rightkit_process::ProcessUsage`.
+    pub process: Option<rightkit_process::ProcessUsage>,
+}
+
+#[derive(Debug, Default)]
+struct Counters {
+    queued: AtomicU64,
+    received: AtomicU64,
+    overflow: AtomicU64,
+    error: AtomicU64,
 }
 
 impl TypedWatcher {
@@ -88,9 +156,26 @@ impl TypedWatcher {
         })?;
         watcher.watch(&root, RecursiveMode::Recursive)?;
         let (tx, rx) = mpsc::channel();
+        let counters = Arc::new(Counters::default());
+        let worker = counters.clone();
         let thread = thread::Builder::new()
             .name("rightkit-watch-typed".into())
-            .spawn(move || run_translated(raw_rx, |record| tx.send(record).is_ok()))
+            .spawn(move || {
+                run_translated(raw_rx, |record| {
+                    // Count before sending so the caller never sees received > queued.
+                    worker.queued.fetch_add(1, Ordering::Relaxed);
+                    match record.event {
+                        WatchEvent::Overflow => {
+                            worker.overflow.fetch_add(1, Ordering::Relaxed);
+                        }
+                        WatchEvent::Error(_) => {
+                            worker.error.fetch_add(1, Ordering::Relaxed);
+                        }
+                        _ => {}
+                    }
+                    tx.send(record).is_ok()
+                })
+            })
             .map_err(|error| WatchError::Backend {
                 message: error.to_string(),
                 paths: vec![root],
@@ -98,44 +183,165 @@ impl TypedWatcher {
         Ok(Self {
             watcher: Some(watcher),
             thread: Some(thread),
-            rx,
+            source: Source::Legacy { rx, counters },
+            native: None,
         })
+    }
+
+    /// Starts a recursive stream with the opt-in features of [`TypedOptions`]: a bounded queue,
+    /// path exclusions, directory granularity and, on macOS, a native FSEvents backend that can
+    /// resume from a [`WatchCursor`]. Every other constructor keeps its notify behaviour.
+    ///
+    /// `WatchBackend::Native` on a host without a native backend is an error, never a fallback.
+    /// Keep the returned watcher alive; dropping it stops the backend.
+    pub fn watch_with(path: impl AsRef<Path>, options: TypedOptions) -> Result<Self, WatchError> {
+        let started = native::start(path.as_ref(), options)?;
+        Ok(Self {
+            watcher: started.watcher,
+            thread: started.thread,
+            source: Source::Bounded {
+                queue: started.queue,
+                volume: started.volume,
+            },
+            native: started.native,
+        })
+    }
+
+    /// Resume position covering every record this handle has returned from any `recv*` call.
+    /// `None` unless the backend can replay (macOS native).
+    ///
+    /// Persist `cursor().to_bytes()` only after applying everything received so far; delivery
+    /// after a resume is at-least-once. A queue-overflow notice carries the highest id it
+    /// dropped, so the cursor read after receiving it and rescanning is safe to persist. When one
+    /// FSEvents event yields several records, only the last carries its id.
+    pub fn cursor(&self) -> Option<WatchCursor> {
+        match &self.source {
+            Source::Bounded {
+                queue,
+                volume: Some(volume),
+            } => queue.last_id().map(|id| WatchCursor::new(*volume, id)),
+            _ => None,
+        }
+    }
+
+    /// The position "now" for the volume holding `path`, for scan-then-watch: take it, scan, then
+    /// `watch_with(replay_from(cursor))`. `None` where no backend can replay.
+    pub fn current_cursor(path: impl AsRef<Path>) -> Option<WatchCursor> {
+        native::current_cursor(path.as_ref())
+    }
+
+    /// True while a replayed history is still being delivered (until FSEvents' history-done
+    /// marker). Always false without `replay_from`.
+    pub fn is_replaying(&self) -> bool {
+        match &self.source {
+            Source::Bounded { queue, .. } => queue.is_replaying(),
+            Source::Legacy { .. } => false,
+        }
+    }
+
+    /// Number of translator threads this handle owns: 1 for notify, 0 for a native backend,
+    /// which translates inline. Test support.
+    #[doc(hidden)]
+    pub fn translator_threads(&self) -> usize {
+        usize::from(self.thread.is_some())
+    }
+
+    /// Snapshot of this stream's cumulative counters and unread backlog.
+    pub fn metrics(&self) -> WatchMetrics {
+        match &self.source {
+            Source::Legacy { counters, .. } => {
+                let queued = counters.queued.load(Ordering::Relaxed);
+                let received = counters.received.load(Ordering::Relaxed);
+                WatchMetrics {
+                    queued_total: queued,
+                    received_total: received,
+                    queue_depth: queued.saturating_sub(received),
+                    overflow_total: counters.overflow.load(Ordering::Relaxed),
+                    error_total: counters.error.load(Ordering::Relaxed),
+                    dropped_total: 0,
+                    queue_capacity: 0,
+                }
+            }
+            Source::Bounded { queue, .. } => queue.metrics(),
+        }
+    }
+
+    /// Backlog, counters and process resource usage, read now. No polling thread runs for this.
+    pub fn status(&self) -> WatchStatus {
+        WatchStatus {
+            metrics: self.metrics(),
+            process: rightkit_process::process_usage().ok(),
+        }
+    }
+
+    fn taken<E>(&self, result: Result<WatchEventRecord, E>) -> Result<WatchEventRecord, E> {
+        if let (Ok(_), Source::Legacy { counters, .. }) = (&result, &self.source) {
+            counters.received.fetch_add(1, Ordering::Relaxed);
+        }
+        result
+    }
+
+    fn next(&self) -> Result<WatchEventRecord, RecvError> {
+        match &self.source {
+            Source::Legacy { rx, .. } => self.taken(rx.recv()),
+            Source::Bounded { queue, .. } => queue.recv().map(|entry| entry.record),
+        }
+    }
+
+    fn next_now(&self) -> Result<WatchEventRecord, TryRecvError> {
+        match &self.source {
+            Source::Legacy { rx, .. } => self.taken(rx.try_recv()),
+            Source::Bounded { queue, .. } => queue.try_recv().map(|entry| entry.record),
+        }
+    }
+
+    fn next_within(&self, timeout: Duration) -> Result<WatchEventRecord, RecvTimeoutError> {
+        match &self.source {
+            Source::Legacy { rx, .. } => self.taken(rx.recv_timeout(timeout)),
+            Source::Bounded { queue, .. } => queue.recv_timeout(timeout).map(|entry| entry.record),
+        }
     }
 
     /// Wait for a typed event. Backend failures arrive as events, not receive errors.
     pub fn recv(&self) -> Result<WatchEvent, RecvError> {
-        self.rx.recv().map(|record| record.event)
+        self.next().map(|record| record.event)
     }
 
     /// Poll without blocking; Empty means there are no events ready yet.
     pub fn try_recv(&self) -> Result<WatchEvent, TryRecvError> {
-        self.rx.try_recv().map(|record| record.event)
+        self.next_now().map(|record| record.event)
     }
 
     pub fn recv_timeout(&self, timeout: Duration) -> Result<WatchEvent, RecvTimeoutError> {
-        self.rx.recv_timeout(timeout).map(|record| record.event)
+        self.next_within(timeout).map(|record| record.event)
     }
 
     /// Receive typed output with its original backend kind. Mixed typed/record
     /// receive calls consume the same queue, with no duplicate delivery.
     pub fn recv_record(&self) -> Result<WatchEventRecord, RecvError> {
-        self.rx.recv()
+        self.next()
     }
 
     pub fn try_recv_record(&self) -> Result<WatchEventRecord, TryRecvError> {
-        self.rx.try_recv()
+        self.next_now()
     }
 
     pub fn recv_record_timeout(
         &self,
         timeout: Duration,
     ) -> Result<WatchEventRecord, RecvTimeoutError> {
-        self.rx.recv_timeout(timeout)
+        self.next_within(timeout)
     }
 }
 
 impl Drop for TypedWatcher {
     fn drop(&mut self) {
+        if let Source::Bounded { queue, .. } = &self.source {
+            // Tell the backend nobody is listening, then stop it (its own Drop waits out any
+            // callback in flight).
+            queue.close_receiver();
+        }
+        self.native.take();
         self.watcher.take();
         if let Some(thread) = self.thread.take() {
             let _ = thread.join();

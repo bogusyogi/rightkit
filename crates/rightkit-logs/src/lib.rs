@@ -12,6 +12,8 @@ mod store;
 pub mod system;
 #[cfg(feature = "testing")]
 pub mod testing;
+#[cfg(feature = "tracing")]
+mod tracing_file;
 mod upload;
 mod writer;
 
@@ -21,10 +23,15 @@ pub use collect::{
 };
 pub use consent::{Consent, ConsentStore};
 pub use event::{EventRecord, Level};
-pub use outbox::{EnqueueError, Outbox, OutboxConfig, OutboxEvent, OutboxStatus};
+pub use outbox::{EnqueueError, Outbox, OutboxConfig, OutboxEvent, OutboxHealth, OutboxStatus};
 pub use redact::RedactionPolicy;
 pub use scrub::{redact_quoted, scrub_text, scrub_value};
-pub use store::JsonlStore;
+pub use store::{JsonlStore, StoreStatus};
+#[cfg(feature = "tracing")]
+pub use tracing_file::{
+    collect_tracing_diagnostics, install_tracing, tracing_layer, tracing_layer_checked,
+    tracing_log_sources, LogWriterStatus, TracingFileConfig, TracingGuard,
+};
 #[cfg(feature = "http")]
 pub use upload::HttpTransport;
 pub use upload::{
@@ -32,7 +39,7 @@ pub use upload::{
     Scheduler, Telemetry, Transport, TransportError, UploadConfig, Uploader,
     PAYLOAD_SCHEMA_VERSION,
 };
-pub use writer::AsyncWriter;
+pub use writer::{AsyncWriter, FailureReporting, FailureStatus};
 
 pub(crate) fn now_ms() -> i64 {
     std::time::SystemTime::now()

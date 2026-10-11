@@ -80,4 +80,9 @@ impl EventLog {
     pub fn snapshot(&self) -> Vec<Event> {
         self.memory.lock().map(|m| m.clone()).unwrap_or_default()
     }
+
+    /// Events held in memory: at most 10,000, while the file keeps every event.
+    pub fn retained(&self) -> usize {
+        self.memory.lock().map(|m| m.len()).unwrap_or(0)
+    }
 }

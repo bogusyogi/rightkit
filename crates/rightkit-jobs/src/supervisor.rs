@@ -169,6 +169,16 @@ pub struct SupervisorStatus {
     pub terminal: Option<Terminal>,
     pub last_exit_code: Option<i32>,
     pub last_exit_reason: Option<String>,
+    /// Lifecycle subscribers registered (a sender is dropped once its receiver is gone and an event
+    /// is next sent). Nothing bounds this count.
+    pub lifecycle_subscribers: usize,
+    /// Unsolicited-event subscribers registered; same note.
+    pub event_subscribers: usize,
+    /// Resident memory, CPU time and I/O counters of this process (the supervisor and its client
+    /// threads run in it), computed on call, or `None` when the host cannot report them. The engine
+    /// child is a separate process; read it with `rightkit_process::process_usage` inside the engine.
+    /// See `rightkit_process::ProcessUsage`.
+    pub process: Option<rightkit_process::ProcessUsage>,
 }
 
 /// Periodic liveness ping.
@@ -562,6 +572,9 @@ impl EngineSupervisor {
             terminal: g.terminal.clone(),
             last_exit_code: g.last_exit.as_ref().and_then(|l| l.code),
             last_exit_reason: g.last_exit.as_ref().map(|l| l.reason.clone()),
+            lifecycle_subscribers: self.sh.lifecycle_subs.lock().unwrap_or_else(|e| e.into_inner()).len(),
+            event_subscribers: self.sh.event_subs.lock().unwrap_or_else(|e| e.into_inner()).len(),
+            process: rightkit_process::process_usage().ok(),
         }
     }
 

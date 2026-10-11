@@ -6,6 +6,7 @@ use std::collections::BTreeMap;
 use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use base64::engine::general_purpose::{STANDARD, URL_SAFE_NO_PAD};
@@ -93,9 +94,52 @@ pub trait OAuthCallbackHandler: Send + Sync {
     ) -> OAuthOutcome;
 }
 
+/// Runtime figures of a daemon, computed on call by [`Daemon::status`].
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct DaemonStatus {
+    /// Request counts, `state.json` write sizes and retained-state counts.
+    pub metrics: DaemonMetrics,
+    /// Resident memory, CPU time and I/O counters of the whole process (the daemon runs in it), or
+    /// `None` when the host cannot report them. See `rightkit_process::ProcessUsage`.
+    pub process: Option<rightkit_process::ProcessUsage>,
+}
+
 struct Inner {
     state: State,
     uploads: BTreeMap<String, Upload>,
+}
+
+/// Figures from [`Daemon::metrics`]. Byte counts are for `state.json`, which is rewritten in
+/// full (and fsynced) on every durable change, so `last_state_bytes` is the per-write cost.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct DaemonMetrics {
+    /// Requests passed to [`Daemon::handle`] since open.
+    pub requests: u64,
+    /// `job.update` requests answered 200 since open.
+    pub job_updates: u64,
+    /// Successful `state.json` writes since open.
+    pub state_saves: u64,
+    /// Size of the most recent `state.json` write.
+    pub last_state_bytes: u64,
+    /// Largest `state.json` write since open.
+    pub max_state_bytes: u64,
+    pub devices: u64,
+    pub jobs: u64,
+    /// Idempotency records retained (pruned after `idempotency_ttl_secs`).
+    pub idempotency_records: u64,
+    /// Lifecycle events held in memory (capped at 10,000; `events.jsonl` keeps all).
+    pub events_retained: u64,
+    /// Replay-table nonces retained across all devices (pruned after `replay_window_secs`).
+    pub nonce_records: u64,
+}
+
+#[derive(Debug, Default)]
+struct Counters {
+    requests: AtomicU64,
+    job_updates: AtomicU64,
+    state_saves: AtomicU64,
+    last_state_bytes: AtomicU64,
+    max_state_bytes: AtomicU64,
 }
 
 pub struct Daemon {
@@ -104,6 +148,7 @@ pub struct Daemon {
     events: Arc<EventLog>,
     oauth: Option<Arc<dyn OAuthCallbackHandler>>,
     inner: Mutex<Inner>,
+    counters: Counters,
 }
 
 type Guard<'a> = MutexGuard<'a, Inner>;
@@ -143,6 +188,7 @@ impl Daemon {
             events,
             oauth,
             inner: Mutex::new(Inner { state, uploads }),
+            counters: Counters::default(),
         };
         d.recover()?;
         Ok(d)
@@ -267,7 +313,36 @@ impl Daemon {
     fn save(&self, g: &Inner) -> std::io::Result<()> {
         let bytes = serde_json::to_vec(&g.state)
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
-        atomic_write(&self.cfg.state_dir.join("state.json"), &bytes)
+        atomic_write(&self.cfg.state_dir.join("state.json"), &bytes)?;
+        let n = bytes.len() as u64;
+        self.counters.state_saves.fetch_add(1, Ordering::Relaxed);
+        self.counters.last_state_bytes.store(n, Ordering::Relaxed);
+        self.counters.max_state_bytes.fetch_max(n, Ordering::Relaxed);
+        Ok(())
+    }
+
+    /// Request, write and retained-state figures plus process resource usage, read now. No polling
+    /// thread runs for this.
+    pub fn status(&self) -> DaemonStatus {
+        DaemonStatus { metrics: self.metrics(), process: rightkit_process::process_usage().ok() }
+    }
+
+    /// Request, write and retained-state figures for this daemon instance.
+    pub fn metrics(&self) -> DaemonMetrics {
+        let g = self.lock();
+        let c = &self.counters;
+        DaemonMetrics {
+            requests: c.requests.load(Ordering::Relaxed),
+            job_updates: c.job_updates.load(Ordering::Relaxed),
+            state_saves: c.state_saves.load(Ordering::Relaxed),
+            last_state_bytes: c.last_state_bytes.load(Ordering::Relaxed),
+            max_state_bytes: c.max_state_bytes.load(Ordering::Relaxed),
+            devices: g.state.devices.len() as u64,
+            jobs: g.state.jobs.len() as u64,
+            idempotency_records: g.state.idempotency.len() as u64,
+            nonce_records: g.state.nonces.values().map(|m| m.len() as u64).sum(),
+            events_retained: self.events.retained() as u64,
+        }
     }
 
     fn save_upload(&self, up: &Upload) -> std::io::Result<()> {
@@ -300,6 +375,7 @@ impl Daemon {
     }
 
     pub fn handle(&self, req: Request) -> Response {
+        self.counters.requests.fetch_add(1, Ordering::Relaxed);
         let (route, params) = match match_route(&req.method, req.path()) {
             Matched::Route(r, p) => (r, p),
             Matched::MethodNotAllowed => return Response::err(405, "method_not_allowed"),
@@ -907,6 +983,7 @@ impl Daemon {
         if let Err(e) = self.save(g) {
             return self.storage_error(e);
         }
+        self.counters.job_updates.fetch_add(1, Ordering::Relaxed);
         self.emit(
             "JOB_UPDATED",
             json!({ "jobId": job_id, "revision": revision, "deviceId": device }),

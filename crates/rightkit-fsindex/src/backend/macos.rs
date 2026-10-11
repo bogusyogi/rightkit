@@ -21,6 +21,9 @@ use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Condvar, Mutex};
 use std::time::Duration;
 
+pub mod events;
+pub mod listing;
+
 pub struct MacBackend;
 
 const ATTR_CMN_ERROR: u32 = 0x2000_0000;
@@ -209,7 +212,7 @@ fn parse_entry(b: &[u8], l: &mut Listing) {
 }
 
 fn mark_excluded(l: &mut Listing, dir: &[u8], excludes: &Excludes) {
-    if excludes.prefixes.is_empty() {
+    if excludes.prefixes.is_empty() && excludes.patterns.is_empty() {
         return;
     }
     for i in 0..l.ents.len() {
@@ -372,11 +375,16 @@ impl Backend for MacBackend {
         latency: Duration,
         tx: Sender<WatchMsg>,
     ) -> Result<Box<dyn Watcher>> {
+        // Thin wrapper: the index worker takes raw batches, so they pass through unchanged.
+        let sink: Sink = Box::new(move |batch: Vec<Event>| {
+            let _ = tx.send(WatchMsg::Events(batch));
+        });
         Ok(Box::new(Stream::start(
             roots,
             since.unwrap_or(SINCE_NOW),
             latency.as_secs_f64(),
-            tx,
+            CREATE_FLAG_NO_DEFER | CREATE_FLAG_WATCH_ROOT,
+            sink,
         )?))
     }
 
@@ -459,6 +467,9 @@ extern "C" {
     fn dispatch_release(o: *mut c_void);
 }
 
+/// Receives every raw batch. Runs on the stream's serial dispatch queue.
+type Sink = Box<dyn FnMut(Vec<Event>) + Send>;
+
 extern "C" fn on_events(
     _s: *mut c_void,
     info: *mut c_void,
@@ -467,7 +478,7 @@ extern "C" fn on_events(
     flags: *const u32,
     ids: *const u64,
 ) {
-    let tx = unsafe { &*(info as *const Sender<WatchMsg>) };
+    let sink = unsafe { &mut *(info as *mut Sink) };
     let paths = paths as *const *const i8;
     let batch = (0..n)
         .map(|i| unsafe {
@@ -478,39 +489,56 @@ extern "C" fn on_events(
             }
         })
         .collect();
-    let _ = tx.send(WatchMsg::Events(batch));
+    sink(batch);
 }
 
 struct Stream {
     s: *mut c_void,
     q: *mut c_void,
-    info: *mut Sender<WatchMsg>,
+    info: *mut Sink,
 }
 
 // The stream is started once, then only flushed or stopped.
 unsafe impl Send for Stream {}
 
 impl Stream {
-    fn start(roots: &[PathBuf], since: u64, latency: f64, tx: Sender<WatchMsg>) -> Result<Stream> {
+    /// Starts a stream that hands each raw batch to `sink`. `flags` are FSEvents create flags.
+    fn start(
+        roots: &[PathBuf],
+        since: u64,
+        latency: f64,
+        flags: u32,
+        sink: Sink,
+    ) -> Result<Stream> {
+        if roots.is_empty() {
+            return Err(Error::Io(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "no watch roots",
+            )));
+        }
+        let names = roots
+            .iter()
+            .map(|r| {
+                CString::new(r.as_os_str().as_bytes()).map_err(|_| {
+                    Error::Io(std::io::Error::new(
+                        std::io::ErrorKind::InvalidInput,
+                        "watch root contains a NUL byte",
+                    ))
+                })
+            })
+            .collect::<Result<Vec<CString>>>()?;
         unsafe {
-            let strs: Vec<*const c_void> = roots
+            let strs: Vec<*const c_void> = names
                 .iter()
-                .filter_map(|r| CString::new(r.as_os_str().as_bytes()).ok())
                 .map(|c| CFStringCreateWithCString(std::ptr::null(), c.as_ptr(), 0x0800_0100))
                 .collect();
-            if strs.is_empty() {
-                return Err(Error::Io(std::io::Error::new(
-                    std::io::ErrorKind::InvalidInput,
-                    "no watch roots",
-                )));
-            }
             let arr = CFArrayCreate(
                 std::ptr::null(),
                 strs.as_ptr(),
                 strs.len() as isize,
                 &kCFTypeArrayCallBacks as *const c_void,
             );
-            let info = Box::into_raw(Box::new(tx));
+            let info = Box::into_raw(Box::new(sink));
             let ctx = Context {
                 version: 0,
                 info: info as *mut c_void,
@@ -526,11 +554,17 @@ impl Stream {
                 arr,
                 since,
                 latency,
-                CREATE_FLAG_NO_DEFER | CREATE_FLAG_WATCH_ROOT,
+                flags,
             );
             CFRelease(arr);
             for r in strs {
                 CFRelease(r);
+            }
+            if s.is_null() {
+                drop(Box::from_raw(info));
+                return Err(Error::Io(std::io::Error::other(
+                    "FSEventStreamCreate failed",
+                )));
             }
             let q = dispatch_queue_create(c"rightkit.fsindex.fsevents".as_ptr(), std::ptr::null());
             FSEventStreamSetDispatchQueue(s, q);
@@ -561,8 +595,9 @@ impl Drop for Stream {
             FSEventStreamInvalidate(self.s);
             FSEventStreamRelease(self.s);
             dispatch_release(self.q);
-            // The sender box (16 bytes) is leaked on purpose: a callback may still be
-            // in flight on the queue after the stream stops (same choice as upstream).
+            // The sink box is leaked on purpose: a callback may still be in flight on the
+            // queue after the stream stops (same choice as upstream). Public watchers guard
+            // their own channel, so a late callback finds it closed.
             let _ = self.info;
         }
     }

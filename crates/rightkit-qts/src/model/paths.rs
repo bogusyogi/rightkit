@@ -76,6 +76,15 @@ impl ModeModelPaths {
     }
 }
 
+impl ModeModelPaths {
+    /// Replace the vocoder path. The 12 Hz ONNX vocoder is shared across modes and may live
+    /// outside the mode folder.
+    pub fn with_vocoder(mut self, vocoder_onnx: impl Into<PathBuf>) -> Self {
+        self.vocoder_onnx = vocoder_onnx.into();
+        self
+    }
+}
+
 fn choose_model_file(dir: &Path, candidates: &[&str]) -> PathBuf {
     for candidate in candidates {
         let path = dir.join(candidate);
@@ -111,6 +120,20 @@ mod tests {
 
         let _ = std::fs::remove_dir_all(dir);
     }
+    #[test]
+    fn mode_paths_take_an_explicit_vocoder() {
+        let paths =
+            ModeModelPaths::from_model_dir("/missing-qts-models", crate::QtsMode::VoiceDesign)
+                .with_vocoder("/elsewhere/qwen3-tts-vocoder.onnx");
+        assert_eq!(
+            paths.vocoder_onnx,
+            PathBuf::from("/elsewhere/qwen3-tts-vocoder.onnx")
+        );
+        assert!(paths
+            .talker_gguf
+            .ends_with("qwen3-tts-1.7b-voicedesign-talker-f16.gguf"));
+    }
+
     #[test]
     fn mode_specific_1_7b_paths_share_vocoder() {
         for mode in [

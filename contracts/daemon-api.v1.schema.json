@@ -63,6 +63,7 @@
     },
     "routes": {
       "type": "array",
+      "description": "Every route. responses lists each status the route's handler returns for a contract outcome. Route-independent statuses are not listed: 404 for an unknown path, 405 for an unknown method, 413 for a body over the limit (all rejected before dispatch) and 500 for a storage failure (storage_error or internal).",
       "minItems": 1,
       "items": { "$ref": "#/$defs/route" }
     },
@@ -145,6 +146,8 @@
     "errors": {
       "type": "array",
       "minItems": 1,
+      "description": "Error codes the daemon can return (the enum). x-reservedErrors are part of the vocabulary but no route returns them yet, so clients may branch on them and the daemon must not emit them without removing them from the list.",
+      "x-reservedErrors": ["upload_hash_mismatch", "upload_out_of_range", "webhook_signature_invalid", "webhook_replay", "oauth_state_invalid", "scope_mismatch"],
       "items": {
         "type": "object",
         "additionalProperties": false,
@@ -253,14 +256,14 @@
         "signed_webhook": { "credentials": ["hmac_sha256"], "mutationAllowed": false, "requiredHeaders": ["X-Provider-Signature", "X-Provider-Timestamp"], "summary": "Provider delivery verified by HMAC; deduplicated durably before any effect." }
       },
       "routes": [
-        { "routeId": "device.enrol", "method": "POST", "path": "/v1/devices", "authClass": "device_authenticated_mutation", "mutation": true, "casRequired": false, "scopes": ["venture"], "responses": [201, 401, 409] },
-        { "routeId": "upload.init", "method": "POST", "path": "/v1/uploads", "authClass": "device_authenticated_mutation", "mutation": true, "casRequired": false, "scopes": ["venture", "channel"], "responses": [201, 401, 403] },
-        { "routeId": "upload.chunk", "method": "PUT", "path": "/v1/uploads/{uploadId}/chunks/{index}", "authClass": "device_authenticated_mutation", "mutation": true, "casRequired": false, "scopes": ["venture", "channel"], "responses": [204, 401, 409, 416] },
-        { "routeId": "upload.status", "method": "GET", "path": "/v1/uploads/{uploadId}", "authClass": "device_authenticated_mutation", "mutation": false, "casRequired": false, "scopes": ["venture", "channel"], "responses": [200, 401, 404] },
-        { "routeId": "upload.complete", "method": "POST", "path": "/v1/uploads/{uploadId}/complete", "authClass": "device_authenticated_mutation", "mutation": true, "casRequired": false, "scopes": ["venture", "channel"], "responses": [200, 400, 401] },
+        { "routeId": "device.enrol", "method": "POST", "path": "/v1/devices", "authClass": "device_authenticated_mutation", "mutation": true, "casRequired": false, "scopes": ["venture"], "responses": [201, 400, 401, 409] },
+        { "routeId": "upload.init", "method": "POST", "path": "/v1/uploads", "authClass": "device_authenticated_mutation", "mutation": true, "casRequired": false, "scopes": ["venture", "channel"], "responses": [201, 400, 401, 403] },
+        { "routeId": "upload.chunk", "method": "PUT", "path": "/v1/uploads/{uploadId}/chunks/{index}", "authClass": "device_authenticated_mutation", "mutation": true, "casRequired": false, "scopes": ["venture", "channel"], "responses": [204, 400, 401, 403, 404, 409, 416] },
+        { "routeId": "upload.status", "method": "GET", "path": "/v1/uploads/{uploadId}", "authClass": "device_authenticated_mutation", "mutation": false, "casRequired": false, "scopes": ["venture", "channel"], "responses": [200, 401, 403, 404] },
+        { "routeId": "upload.complete", "method": "POST", "path": "/v1/uploads/{uploadId}/complete", "authClass": "device_authenticated_mutation", "mutation": true, "casRequired": false, "scopes": ["venture", "channel"], "responses": [200, 400, 401, 403, 404, 409] },
         { "routeId": "job.update", "method": "PATCH", "path": "/v1/publish-jobs/{jobId}", "authClass": "device_authenticated_mutation", "mutation": true, "casRequired": true, "scopes": ["venture", "channel", "account"], "responses": [200, 400, 401, 403, 409, 422, 428] },
-        { "routeId": "oauth.callback", "method": "GET", "path": "/v1/oauth/{provider}/callback", "authClass": "oauth_callback", "mutation": false, "casRequired": false, "scopes": ["account"], "responses": [302, 400] },
-        { "routeId": "webhook.inbound", "method": "POST", "path": "/v1/webhooks/{provider}", "authClass": "signed_webhook", "mutation": false, "casRequired": false, "scopes": ["account"], "responses": [202, 401, 409] }
+        { "routeId": "oauth.callback", "method": "GET", "path": "/v1/oauth/{provider}/callback", "authClass": "oauth_callback", "mutation": false, "casRequired": false, "scopes": ["account"], "responses": [302, 400, 502] },
+        { "routeId": "webhook.inbound", "method": "POST", "path": "/v1/webhooks/{provider}", "authClass": "signed_webhook", "mutation": false, "casRequired": false, "scopes": ["account"], "responses": [202, 401, 409, 429] }
       ],
       "upload": {
         "protocol": "resumable-blake3",

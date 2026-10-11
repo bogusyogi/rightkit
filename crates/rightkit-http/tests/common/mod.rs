@@ -135,3 +135,65 @@ fn handle(
     }
     Ok(())
 }
+
+/// A raw TCP/HTTP server: the handler gets the connection, the request head as text and the
+/// zero-based connection index, and writes whatever bytes it likes.
+pub struct RawServer {
+    port: u16,
+    stop: Arc<AtomicBool>,
+    thread: Option<JoinHandle<()>>,
+}
+
+impl RawServer {
+    pub fn start(
+        handler: impl Fn(&mut TcpStream, &str, usize) + Send + Sync + 'static,
+    ) -> Self {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind raw server");
+        let port = listener.local_addr().unwrap().port();
+        let stop = Arc::new(AtomicBool::new(false));
+        let handler = Arc::new(handler);
+        let s = stop.clone();
+        let thread = thread::spawn(move || {
+            let mut index = 0usize;
+            for conn in listener.incoming() {
+                if s.load(Ordering::SeqCst) {
+                    break;
+                }
+                let Ok(mut stream) = conn else { continue };
+                let (h, i) = (handler.clone(), index);
+                index += 1;
+                thread::spawn(move || {
+                    let _ = stream.set_read_timeout(Some(Duration::from_secs(10)));
+                    let mut head = Vec::new();
+                    let mut b = [0u8; 1];
+                    while !head.ends_with(b"\r\n\r\n") {
+                        match stream.read(&mut b) {
+                            Ok(1) => head.push(b[0]),
+                            _ => return,
+                        }
+                    }
+                    h(&mut stream, &String::from_utf8_lossy(&head), i);
+                });
+            }
+        });
+        Self {
+            port,
+            stop,
+            thread: Some(thread),
+        }
+    }
+
+    pub fn url(&self, path: &str) -> String {
+        format!("http://127.0.0.1:{}{}", self.port, path)
+    }
+}
+
+impl Drop for RawServer {
+    fn drop(&mut self) {
+        self.stop.store(true, Ordering::SeqCst);
+        let _ = TcpStream::connect(("127.0.0.1", self.port));
+        if let Some(t) = self.thread.take() {
+            let _ = t.join();
+        }
+    }
+}

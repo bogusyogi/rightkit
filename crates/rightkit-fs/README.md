@@ -30,6 +30,29 @@ All features are on by default. Opt out with `default-features = false` and name
 
 Without `json`, locks write no owner file, so `recovered_stale` and `current_owner` return `None`. The lock itself behaves the same. `rightkit-db` uses `features = ["fs"]`. Digest-only callers use `features = ["digest"]`.
 
+## State directories (`StateDir`)
+
+`StateDir::open`/`create` use `StateOptions::default()`; `open_with`/`create_with` take explicit options. Children from `child` inherit them.
+
+- **Durability.** `write`, `write_new`, `remove` and a creating `child` flush the file and then the directory, and a failed directory flush is an error (`ReplacedButDirSyncFailed` for writes, `DirSyncFailed` for removal and creation). Windows has no directory flush: `FlushFileBuffers` needs `GENERIC_WRITE`, and on the pinned list-access handle it fails with `ERROR_ACCESS_DENIED`. Durability there comes from the operations: the file is flushed before publication, and creation, the publishing rename and the delete use `FILE_WRITE_THROUGH` handles, the mechanism `MOVEFILE_WRITE_THROUGH` uses. That claim has no power-loss test.
+- **Sync level.** On Apple targets the flush is `F_FULLFSYNC`, falling back to `F_BARRIERFSYNC` then `fsync` on volumes that refuse it. `durable_sync` keeps that silent fallback. `durable_sync_with(file, policy)` returns the `SyncLevel` reached (`Fsync < Barrier < Full`), and `SyncPolicy::Strict` (also `StateOptions::sync`) returns the `F_FULLFSYNC` error instead of falling back. `write_reporting` and `write_new_reporting` return the weakest level the file and directory flushes reached. Non-Apple targets always report `Full`, their strongest flush.
+- **Names.** Reads, stats, removals and listings accept any name up to the platform limit (255 bytes on unix, 255 UTF-16 units on Windows), so an existing record longer than the write cap never fails a listing. Writes and `child` are held to `StateOptions::max_name_len` (default 200 bytes on unix, 255 units on Windows; clamped to the platform limit). A temp name carries at most 64 bytes of the real name, so a 255-byte name can be written.
+- **Listing.** `list` returns names. `list_entries` returns `DirEntry { name, kind }` from the directory record (`d_type` on unix, `FILE_ID_BOTH_DIR_INFO` attributes on Windows), with no stat per entry; a unix filesystem that reports no type costs one descriptor-relative `fstatat` for that entry. Windows reports any reparse point as `Symlink`.
+- **`allow_rename_while_open` (Windows).** Default `false`: the pinned directory is opened without `FILE_SHARE_DELETE`, so no process can rename or delete it (or an ancestor) while the `StateDir` is open, and `path()` stays true. The 0.1.1 change that introduced handle-relative operations chose this on purpose (module docs: "without delete sharing"; test `pinned_directory_itself_cannot_be_renamed_or_removed`) and records no further reason. The guarantee it gives: the pinned path cannot be renamed away and replaced (for example by a junction) underneath users of `path()`. `true` shares delete: the directory may be renamed or deleted under the open `StateDir`. Operations stay handle-relative and keep acting on the original directory, but `path()` then names whatever is there now, so use no path-based call on it. Unix descriptors always behave this way.
+- **`privacy` (Windows ACL).** Default `Privacy::OwnerOnly`: directories and files the `StateDir` creates, including missing ancestors, get a protected owner-only DACL. If the `StateDir` is the first creator of an application data root, that root is protected and its inheritable ACE propagates to everything created under it later (other accounts, services and backup agents lose access). Either create the data root first, or pass `Privacy::OwnerOnlyUnixInheritWindows` (or `Inherit`): no ACL step, so new objects carry the parent's inherited ACL, as for atomic writes. Unix stays `0700`/`0600` regardless.
+
+## Locks
+
+- `LockKind::Fcntl` (default) is a POSIX record lock; `LockKind::Flock` is `flock(2)`. Both are public (`FileLock::acquire_kind`, `acquire_shared_kind`, `try_lock_with`) and tested (`tests/lock_spawn.rs`, `tests/lock_cross_process.rs`). Windows uses `LockFileEx` for both. **Fcntl and flock do not promise to exclude each other.** A probe on macOS (Darwin 27) saw each refuse the other across processes, but that is an observation, not a guarantee, and other kernels differ (Linux treats them as independent locks). Give one lock file one kind for every user.
+- The lock file is opened without following a link at its name: `O_NOFOLLOW` on unix, `FILE_FLAG_OPEN_REPARSE_POINT` plus a reparse-attribute check on Windows. A link there is `FsError::Symlink`. Only the final component is checked.
+- **Migrating from a create-new marker lock.** Not implemented as an API; the guidance is below. A consumer whose old versions take a lock by creating a marker file (`O_EXCL`/`create_new`, removed on release) cannot simply point `FileLock` at the same path during an update overlap. The new lock never deletes its file and holds no marker semantics, so the old version's staleness rule would see a permanent file and could delete it, and the old version would not see the new lock as held. To migrate:
+  1. Give `FileLock` its own path (for example `<name>.flock`), never the marker path.
+  2. For as long as old versions can run, take the `FileLock` first (it orders new versions among themselves), then create the old marker with the old format (`create_private_new`), treating `AlreadyExists` by the old version's own staleness rule, and remove the marker before releasing the `FileLock`. Old versions then see the marker; new versions serialize on the lock.
+  3. A crash between the two steps leaves a marker only the old staleness rule can clear, exactly as before; the new lock needs no cleanup.
+  4. Once old versions are gone, delete the marker code and the marker path.
+
+  The marker format and staleness rule belong to the consumer, so a generic mode would need both as parameters and would still leave orphaned markers to the consumer's policy; that is why this is guidance, not a mode.
+
 ## Platform support
 
 - Unix: file operations are descriptor-relative, with `O_NOFOLLOW` and `*at` calls.
@@ -43,6 +66,8 @@ Without `json`, locks write no owner file, so `recovered_stale` and `current_own
 - `tests/lock_spawn.rs`: locks across forking threads, and in-process `flock` semantics.
 - `tests/lock_cross_process.rs`: locks held by other processes, for both kinds.
 - `tests/lock_owner.rs`: owner record shapes (RFC 3339 and unix-millis) and `probe_owner`.
+- `tests/state_durability.rs`: `StateDir` directory-sync failures, name caps, sync policy, listing kinds, options.
+- `tests/lock_reparse.rs`: a link at the lock file's name is refused.
 - `tests/clone.rs`: `clonefile` behaviour.
 - `tests/swap.rs`: `RENAME_SWAP` exchange, missing-path error, and the `rightkit-swap` binary.
 

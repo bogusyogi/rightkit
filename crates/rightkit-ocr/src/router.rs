@@ -64,6 +64,26 @@ pub trait ModelLeaseHook: Send + Sync + std::fmt::Debug {
     ) -> Result<Box<dyn std::any::Any + Send>, String>;
 }
 
+/// A host-maintained memory of the native backend's health verdict (no cache lives in this crate).
+///
+/// Attach one with [`Ocr::with_health_hook`]. [`Ocr::probe_native`] asks it first and returns a
+/// cached `Some(verdict)` without spawning a worker or touching Vision. After a probe finishes
+/// with a definite verdict, it reports that verdict back through
+/// [`NativeHealthHook::record_verdict`]. Transient probe errors are never reported, so they are
+/// retried rather than remembered.
+///
+/// Scope the cache to the process, and clear it when the host has reason to doubt it (for example
+/// after a backend failure). Recognition itself is not short-circuited: only the availability probe
+/// consults the hook.
+pub trait NativeHealthHook: Send + Sync {
+    /// The remembered verdict for this process: `Some(true)` or `Some(false)` short-circuits the
+    /// probe, and `None` means unknown, so the probe runs.
+    fn cached_verdict(&self) -> Option<bool>;
+    /// A definite verdict from a completed probe: `true` after a canary proved recognition works,
+    /// `false` when the backend is a stable capability verdict on this machine.
+    fn record_verdict(&self, healthy: bool);
+}
+
 /// Verified ONNX model set used by the fallback / `Onnx` preference.
 #[derive(Debug, Clone)]
 pub struct OnnxConfig {
@@ -158,6 +178,7 @@ pub struct Ocr {
     options: OcrOptions,
     #[cfg_attr(not(feature = "onnx"), allow(dead_code))]
     onnx: Option<OnnxSlot>,
+    health: Option<Arc<dyn NativeHealthHook>>,
 }
 
 impl Ocr {
@@ -165,7 +186,14 @@ impl Ocr {
         Self {
             options,
             onnx: None,
+            health: None,
         }
+    }
+
+    /// Attach a host-maintained health verdict cache (see [`NativeHealthHook`]).
+    pub fn with_health_hook(mut self, hook: Arc<dyn NativeHealthHook>) -> Self {
+        self.health = Some(hook);
+        self
     }
 
     pub fn recognize_file(&mut self, path: &Path) -> Result<OcrResult, OcrError> {
@@ -218,18 +246,26 @@ impl Ocr {
         if native::native_backend().is_none() {
             return Ok(false);
         }
+        if let Some(verdict) = self.health.as_ref().and_then(|hook| hook.cached_verdict()) {
+            return Ok(verdict);
+        }
         let result = match &self.options.isolation {
-            Isolation::Worker(cmd) => cmd.run(native::canary_png()),
+            // The canary gets its own deadline, not whatever budget a request left over.
+            Isolation::Worker(cmd) => cmd.for_canary().run(native::canary_png()),
             Isolation::InProcess => {
                 decode_encoded(native::canary_png()).and_then(|i| native::recognize(&i))
             }
         };
-        match result {
+        let verdict = match result {
             Ok(lines) if !lines.is_empty() => Ok(true),
             Ok(_) => Err("native canary returned no observations".into()),
             Err(e) if is_backend_unavailable(&e) => Ok(false),
             Err(e) => Err(e),
+        };
+        if let (Some(hook), Ok(healthy)) = (self.health.as_ref(), verdict.as_ref()) {
+            hook.record_verdict(*healthy);
         }
+        verdict
     }
 
     fn recognize_inner(
@@ -280,7 +316,7 @@ impl Ocr {
                 }
                 // Vision cannot tell "blank page" from "could not run": verify
                 // in a FRESH child before trusting an empty result.
-                match cmd.run(native::canary_png()) {
+                match cmd.for_canary().run(native::canary_png()) {
                     Ok(c) if !c.is_empty() => Ok(lines),
                     Ok(_) => Err(format!(
                         "{} Vision returned no observations and the canary in a fresh worker \

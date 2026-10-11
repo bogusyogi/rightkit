@@ -3,7 +3,21 @@ use crate::error::{Error, Result};
 use hound::{WavReader, WavSpec};
 use ndarray::Array2;
 use std::f32::consts::PI;
-use std::path::Path;
+use std::path::{Path, PathBuf};
+
+/// Audio handed to a transcriber. WAV stays supported in-crate; every other
+/// container or codec is the caller's job: decode it to mono 16 kHz `f32` in
+/// `[-1, 1]` and pass [`AudioSource::Pcm16k`]. This crate does not depend on
+/// ffmpeg or any other decoder.
+#[derive(Debug, Clone)]
+pub enum AudioSource {
+    /// A WAV file (16-bit PCM or 32-bit float) read by this crate. Multi-channel
+    /// input is downmixed; sample rate must be 16 kHz.
+    Wav(PathBuf),
+    /// Caller-decoded mono PCM at 16 kHz, samples in `[-1, 1]`. Non-finite
+    /// samples are rejected.
+    Pcm16k(Vec<f32>),
+}
 
 pub fn load_audio<P: AsRef<Path>>(path: P) -> Result<(Vec<f32>, WavSpec)> {
     let mut reader = WavReader::open(path)?;

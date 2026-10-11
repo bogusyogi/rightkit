@@ -10,7 +10,10 @@ use serde_json::{json, Value};
 use crate::config::Ext;
 use crate::error::{JobError, JobResult, HOST_HANDOFF};
 use crate::sched::{Gate, Priority};
-use crate::store::{Artifact, Event, Job, JobRecord, JobStore, Submission, Transition, CANCELLED};
+use crate::store::{
+    Artifact, CancelToken, Event, Job, JobRecord, JobStore, Recovery, Submission, Transition,
+    CANCELLED,
+};
 
 /// Attempts allowed before a job is failed with `max_attempts`.
 pub const DEFAULT_MAX_ATTEMPTS: i64 = 3;
@@ -95,6 +98,7 @@ pub struct JobControl {
     gate: Arc<Gate>,
     priority: Priority,
     max_attempts: i64,
+    cancel: CancelToken,
     /// Attempt generation this control writes under (see [`JobStore::fence`]).
     /// Every write is rejected with `stale_attempt` once a newer one exists.
     generation: i64,
@@ -161,8 +165,24 @@ impl JobControl {
             .fail_submission_fenced(&self.job_id, self.generation, e, to)
     }
     /// Store and publish a progress event. Best-effort: never fails the job.
-    /// Counts as a sign of life for the stall watchdog.
+    /// Counts as a sign of life for the stall watchdog. Written under the store's
+    /// [`crate::ProgressPolicy`]: with coalescing, a tick inside the interval is held back and
+    /// reaches neither the database nor the sink until it is flushed (see
+    /// [`JobStore::progress_fenced`]); with the default policy every tick is written at once.
     pub fn progress(&self, stage: &str, progress: Option<f64>, message: Option<&str>) {
+        self.heartbeat();
+        if let Ok(Some(ev)) =
+            self.store
+                .progress_fenced(&self.job_id, self.generation, stage, progress, message)
+        {
+            if let Some(s) = &self.sink {
+                s(&ev);
+            }
+        }
+    }
+    /// A lifecycle event (`started`, `complete`, `preempted`, ...): always written at once and
+    /// fully durable, whatever the progress policy.
+    fn lifecycle(&self, stage: &str, progress: Option<f64>, message: Option<&str>) {
         self.heartbeat();
         if let Ok(ev) =
             self.store
@@ -183,8 +203,25 @@ impl JobControl {
             .elapsed()
             .saturating_sub(Duration::from_millis(self.beat_ms.load(Ordering::SeqCst)))
     }
+    /// The in-memory cancel flag: one atomic load, set at once by a cancel in this process
+    /// ([`JobStore::cancel`], a single-flight supersede). It does not see a cancel made by
+    /// another process; [`JobControl::is_cancelled`] and [`JobControl::step_boundary`] read the
+    /// database for that and set the flag when they find the job cancelled. The database status
+    /// is the source of truth; the token is its fast path.
+    pub fn cancel_token(&self) -> CancelToken {
+        self.cancel.clone()
+    }
+    /// True when the job is cancelled. Checks the in-memory flag first, then the database
+    /// (cross-process cancel); a cancel found there sets the flag.
     pub fn is_cancelled(&self) -> bool {
-        self.store.is_cancelled(&self.job_id).unwrap_or(false)
+        if self.cancel.is_cancelled() {
+            return true;
+        }
+        let cancelled = self.store.is_cancelled(&self.job_id).unwrap_or(false);
+        if cancelled {
+            self.cancel.set();
+        }
+        cancelled
     }
     /// Why the handler must stop now, if it must: cancelled, abandoned after a
     /// stall, or the host is handing off. Cheap enough to poll inside a step.
@@ -211,7 +248,7 @@ impl JobControl {
             return Err(e);
         }
         if self.priority == Priority::Batch && self.gate.interactive_active() > 0 {
-            self.progress("preempted", None, Some("paused for interactive work"));
+            self.lifecycle("preempted", None, Some("paused for interactive work"));
             while self.gate.interactive_active() > 0 {
                 self.gate.wait_idle(Duration::from_millis(50));
                 self.heartbeat();
@@ -219,7 +256,7 @@ impl JobControl {
                     return Err(e);
                 }
             }
-            self.progress("resumed", None, None);
+            self.lifecycle("resumed", None, None);
         }
         Ok(())
     }
@@ -337,7 +374,7 @@ impl Runner {
     }
     fn implicit(&self, ctl: &JobControl, stage: &str, progress: Option<f64>, msg: Option<&str>) {
         if self.implicit_events {
-            ctl.progress(stage, progress, msg);
+            ctl.lifecycle(stage, progress, msg);
         }
     }
     pub fn attempt_policy(&self) -> AttemptPolicy {
@@ -363,7 +400,9 @@ impl Runner {
         priority: Priority,
         generation: i64,
     ) -> JobControl {
+        let cancel = self.store.cancel_token(job_id);
         JobControl {
+            cancel,
             store: self.store.clone(),
             job_id: job_id.into(),
             sink,
@@ -377,18 +416,52 @@ impl Runner {
         }
     }
 
-    /// Queued/running jobs with no live runner. Passive: does not run anything.
+    /// Queued/running jobs with no live runner that may be run again. Runs no handler. One
+    /// side effect: a `Recovery::Never` job that began an attempt and lost its runner is not
+    /// listed; it is failed with the `interrupted` error here (and published to the sink).
     pub fn recoverable_ids(&self) -> JobResult<Vec<String>> {
+        Ok(self
+            .scan_recoverable()?
+            .into_iter()
+            .filter_map(|s| match s {
+                Scanned::Resume(id) => Some(id),
+                Scanned::Interrupted(_) => None,
+            })
+            .collect())
+    }
+
+    /// Oldest first: jobs to run again, and `Never` jobs just failed as interrupted.
+    fn scan_recoverable(&self) -> JobResult<Vec<Scanned>> {
         let mut out = Vec::new();
         for id in self.store.non_terminal_ids()? {
-            if self.locks.try_lock(&id)?.is_some() {
-                out.push(id);
+            let Some(_lock) = self.locks.try_lock(&id)? else {
+                continue;
+            };
+            let (recovery, gen) = self.store.run_class(&id)?;
+            if recovery == Recovery::Never && gen > 0 {
+                if let Some(job) = self.interrupt(&id)? {
+                    out.push(Scanned::Interrupted(job));
+                }
+            } else {
+                out.push(Scanned::Resume(id));
             }
         }
         Ok(out)
     }
 
-    /// Explicitly run (or resume) one job. A terminal job is returned as-is.
+    /// Fail a started `Never` job (its lock is held by the caller) and publish the event.
+    fn interrupt(&self, job_id: &str) -> JobResult<Option<Job>> {
+        let Some((job, ev)) = self.store.interrupt(job_id)? else {
+            return Ok(None);
+        };
+        if let Some(s) = &self.sink {
+            s(&ev);
+        }
+        Ok(Some(job))
+    }
+
+    /// Explicitly run (or resume) one job. A terminal job is returned as-is. A `Never` job
+    /// that already began an attempt is failed as interrupted instead of run (see [`Recovery`]).
     pub fn run(&self, job_id: &str) -> JobResult<RunOutcome> {
         self.run_with(job_id, self.sink.clone())
     }
@@ -398,9 +471,16 @@ impl Runner {
         let Some(_lock) = self.locks.try_lock(job_id)? else {
             return Ok(RunOutcome::LockedElsewhere(job_id.into()));
         };
+        let _live = LiveToken(&self.store, job_id);
         let job = self.store.get(job_id)?;
         if job.is_terminal() {
             return Ok(RunOutcome::Finished(job));
+        }
+        let (recovery, started) = self.store.run_class(job_id)?;
+        let never = recovery == Recovery::Never;
+        if never && started > 0 {
+            self.interrupt(job_id)?;
+            return Ok(RunOutcome::Finished(self.store.get(job_id)?));
         }
         let per_run = self.attempts == AttemptPolicy::PerRun;
         if per_run && job.attempts >= self.max_attempts {
@@ -444,6 +524,10 @@ impl Runner {
         let _interactive =
             (priority == Priority::Interactive).then(|| self.gate.begin_interactive());
         let ctl = Arc::new(self.control(job_id, sink.clone(), priority, gen));
+        // A cancel that landed before the flag existed is still in the database.
+        if self.store.is_cancelled(job_id).unwrap_or(false) {
+            ctl.cancel.set();
+        }
         self.implicit(&ctl, "started", None, None);
         let result = self.run_handler(&job, &ctl);
         // Generation this runner writes under. A stalled attempt is fenced
@@ -461,6 +545,15 @@ impl Runner {
                     self.implicit(&ctl, "complete", Some(1.0), None);
                 } else if self.store.get(job_id)?.status == CANCELLED {
                     self.implicit(&ctl, "cancelled", None, None);
+                }
+                Ok(RunOutcome::Finished(self.store.get(job_id)?))
+            }
+            // The handler began; it may already have had effects, so a `Never` job cannot pause
+            // for a later re-run.
+            Err(e) if e.retryable && never => {
+                let e = JobError::interrupted_by(job_id, &e);
+                if self.store.fail_fenced(job_id, owner, &e)? {
+                    self.implicit(&ctl, "failed", None, Some(&e.message));
                 }
                 Ok(RunOutcome::Finished(self.store.get(job_id)?))
             }
@@ -550,9 +643,26 @@ impl Runner {
     /// passive reads.
     pub fn resume_recoverable(&self) -> JobResult<Vec<RunOutcome>> {
         let mut out = Vec::new();
-        for id in self.recoverable_ids()? {
-            out.push(self.run(&id)?);
+        for scanned in self.scan_recoverable()? {
+            out.push(match scanned {
+                Scanned::Resume(id) => self.run(&id)?,
+                Scanned::Interrupted(job) => RunOutcome::Finished(job),
+            });
         }
         Ok(out)
+    }
+}
+
+enum Scanned {
+    Resume(String),
+    Interrupted(Job),
+}
+
+/// Drops the job's cancel flag from the store registry when its run ends, however it ends.
+struct LiveToken<'a>(&'a JobStore, &'a str);
+
+impl Drop for LiveToken<'_> {
+    fn drop(&mut self) {
+        self.0.release_cancel_token(self.1);
     }
 }

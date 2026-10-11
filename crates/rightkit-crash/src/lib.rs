@@ -27,7 +27,9 @@ mod retention;
 pub use archive::create_zip;
 #[cfg(feature = "support-bundle")]
 pub use bundle::{build_support_bundle, BundleManifest, SupportBundleOptions};
-pub use hook::{install_panic_hook, record_report, CrashConfig};
+pub use hook::{
+    install_panic_hook, record_report, recording_enabled, set_recording_enabled, CrashConfig,
+};
 pub use native::{capture_native, set_dump_helper, NativeCapture, DEFAULT_DUMP_HELPER};
 pub use pending::{enqueue_pending, list_pending, EnqueueSummary, CRASH_EVENT_TYPE};
 pub use report::{CrashReport, CRASH_SCHEMA_VERSION};

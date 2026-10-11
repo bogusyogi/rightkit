@@ -3,6 +3,129 @@
 All notable changes to `rightkit-shell`. Versions follow Cargo semver; while the
 version is `0.x`, a minor bump may carry breaking changes.
 
+## 0.3.0
+
+Additive except where marked **Breaking**. Each item has a test in `tests/`.
+
+- **Quit drain (opt-in).** `ShellBuilder::quit_drain(true)` / `quit_drain_bound(Duration)`. A quit request
+  (tray Quit, `ExitRequested` from Cmd+Q or the last window) then emits `rightkit-shell://quit-requested`
+  (`{source, boundMs}`) and prevents the exit; `rk_shell_finish_quit` sets `exiting`, then exits, and the
+  resulting `ExitRequested` does not prompt again. The host exits on its own after the bound: 15 s by
+  default (`quit::DEFAULT_QUIT_DRAIN_BOUND`, above the npm package's 10 s handler budget), clamped to 120 s.
+  With no webview window left there is nobody to drain and the quit is immediate. `rk_shell_quit` stays
+  immediate. Off by default: Quit is unchanged. New commands `rk_shell_finish_quit` and
+  `rk_shell_capabilities` (`{quitDrain, notifyBypassDnd}`) are in `handler!`. `quit::QuitGate` is the whole
+  decision, tested without an event loop.
+- **Notification DND bypass.** `NotificationRequest::bypass_do_not_disturb` (`bypassDoNotDisturb`, serde
+  default `false`) skips only the Do-Not-Disturb check; `notify::suppression` is the pure decision.
+- **Close behaviour and visibility hooks.** `ShellBuilder::close_behavior(CloseBehavior)`; `HideToBackground`
+  hides on close like `close_to_tray` and, on macOS, sets Accessory when the main window hides (and no other
+  window is visible) and Regular before it is revealed. `ShellBuilder::on_visibility(Fn(&AppHandle, Visibility))`
+  runs after each main-window hide or reveal for a host that drives its own policy. Decision logic
+  (`lifecycle::activation_for`, `ActivationTracker`) is tested on every host; the `set_activation_policy`
+  call is not exercised against a real NSApplication.
+- **Single instance, host-decided.** `qa_instance_exempt(true)`: a `RIGHTKIT_QA_HIDDEN=1` launch neither
+  claims the primary nor forwards (`lifecycle::instance_mode`); `second_instance_reveal(Fn -> bool)` keeps the
+  default event and deep links but lets the host decide whether to reveal and focus. `show_on_ready(..)` is now
+  an explicit visibility decision that `RIGHTKIT_QA_HIDDEN` no longer overrides (`--background` still does);
+  when never called the behaviour is unchanged. `single_instance(false)` and `on_second_instance` already existed.
+- **Lifecycle-only entry.** `Shell::lifecycle_plugin()` / `ShellPluginBuilder::lifecycle_only()` /
+  `ModuleSet::lifecycle_only()`: the full plugin minus `JsHardening`, `NavigationPolicy`, `Presence`,
+  `Watchdog` and `WindowState`. `Shell::plugin()` is unchanged.
+- **Extra internal schemes.** `NavPolicy::internal_schemes`, `NavPolicy::with_internal_scheme`,
+  `ShellBuilder::internal_scheme`: a host's own custom protocol loads in place. Web, script and `file`
+  schemes are refused. The built-in set is unchanged.
+- **Window state, standalone.** `WindowStateStore` works without the builder (explicit directory, nothing
+  restored unless called): new `saved`, `save_state`, `restore_with(RestoreOptions { unminimize, show, focus,
+  restore_minimized })`, and the `RestoreTarget` seam. Minimised windows are saved (`WindowState::minimized`,
+  last normal geometry kept; old files load). `restore` is unchanged.
+- **Autostart options.** `AutostartOptions::startup_wm_class` (Linux `StartupWMClass`),
+  `config_home` (injected config home, no environment), `macos_unsupported` (report unsupported, write no
+  LaunchAgent); `linux_desktop_entry_for`, `reports_unsupported`. Defaults write the same files as before.
+- **Breaking (struct literals only).** `NavPolicy`, `WindowState`, `AutostartOptions` and
+  `NotificationRequest` each gain fields; build them with `..Default::default()` (`NotificationRequest` from
+  JSON). `ShellState` gains fields.
+- **Reverse upgrade order: hold the legacy claim.** `ClaimOptions::with_legacy(id).holding_legacy()` makes
+  the primary also hold and service `tauri-plugin-single-instance`'s claim (Windows: mutex
+  `<id>-sim` plus a hidden `<id>-sic`/`<id>-siw` window on a dedicated message thread taking
+  `WM_COPYDATA` 1542; macOS: the `/tmp/<id>_si.sock` listener, mode 0600; Linux: no-op, the D-Bus
+  name is not implemented). An old build launched later forwards its cwd and argv to `on_message` and
+  exits. The primary endpoint is hosted first and only its winner takes the legacy claim; a live old
+  holder instead receives this launch. Payloads are bounded (64 KiB, 4096 args) and parsed
+  defensively. `destroy()` and guard drop stop and join the thread and free the names. Legacy
+  forwards no longer block on a hung holder (Windows `SendMessageTimeoutW`, abort-if-hung, 5 s; macOS
+  write timeout 5 s), claim hosting waits at most 5 s, and `ClaimFailure` documents the bounds and
+  what an app should do per variant.
+- **Watchdog.** A failed `rightkit-shell://stall` emit no longer ends the loop: it is counted
+  (`WatchdogStatus::emit_failures`) and the watchdog keeps re-arming. `WatchdogConfig::emit_event = false`
+  is a callback-only mode in which the poll thread is never given an `AppHandle`.
+- **Autostart migration carries `StartupApproved`.** On Windows the plugin's Task Manager flag is read; a
+  disabled flag is copied to the shell's value name (the user stays off), and the legacy flag is removed
+  with the legacy command. `autostart::migrate_plugin_entry_in(&RegistryKeys, ..)` runs it against
+  scratch keys; `startup_approved_is_disabled` is `auto-launch`'s rule.
+- **Test binaries load on Windows.** A `build.rs` embeds the Common Controls v6 manifest dependency in
+  test binaries (`STATUS_ENTRYPOINT_NOT_FOUND` before `main` otherwise).
+- The legacy names were confirmed by HeardRight against its locked `tauri-plugin-single-instance` 2.4.5.
+- **Relaunch for update.** `SingleInstance::destroy()` is documented and tested as idempotent, and
+  now also runs releases registered with `SingleInstance::on_destroy` (once each, a panicking one
+  does not stop the rest), so an app that still registers `tauri-plugin-single-instance` releases
+  both claims with one call. `ClaimOptions::legacy_identifier` only probes; this type never owns a
+  legacy claim.
+- **Legacy names as data.** `LegacySingleInstanceNames` (mutex, window class and title, socket,
+  D-Bus name) and `LegacyAutostartNames` (Run value, LaunchAgent label and plist, desktop entry), pinned
+  with HeardRight's values in `tests/legacy_names.rs`. The Linux legacy autostart entry is now found
+  under `~/.config/autostart` as the plugin writes it, even when `XDG_CONFIG_HOME` differs.
+
+- **Site-root scheme** (`site` module, `ShellBuilder::site_protocol`). A second custom scheme,
+  `<app>-site://`, serves allowlisted subresources beneath a site root granted for a document the app
+  already holds (`rk_shell_site_grant`; ended with `rk_shell_site_revoke`). Root inference looks for
+  project markers, never a filesystem root or the home directory, and falls back to the document's
+  folder. Denied names default to the dotenv family and the npm and netrc credential files; a
+  `SitePolicy` can add more (exact name, or `prefix*`). Only the MIME allowlist (`site_mime`) is
+  served, with percent-decoding, containment checked after canonicalization, and `nosniff`.
+- **Multiple stream schemes.** `stream_protocol` may be called repeatedly; each call adds a scheme,
+  and a repeated scheme replaces its earlier entry. `rk_shell_stream_grant` takes an optional
+  `scheme`. `ShellState` gains `stream_schemes`.
+- **Per-type stream caps.** `StreamPolicy::max_bytes_by_kind` (keys: an extension, a full MIME type,
+  or a MIME family such as `video`), with `StreamPolicy::with_kind_cap` and `max_bytes_for`. Lookup
+  is extension, then full MIME, then family, then `max_bytes`. `.ico` maps to `image/x-icon`.
+- **Modular install** (`modules` module). `ShellPlugin::builder().shell(..).without(Module::X).build()`
+  opts out of `JsHardening`, `NavigationPolicy`, `WindowState`, `ShowOnReady`, `Watchdog`, `Presence`,
+  `Broker`, `Stream` (which also covers the site scheme), `Recovery`, `Frameless` and `Clipboard`. An
+  opted-out command family answers `unsupported`. `install_state_only()` keeps the broker, stream,
+  recovery, frameless and clipboard state and drops the rest. `Shell::plugin()` is unchanged.
+  `PathBroker` is a plain library type that needs no plugin.
+- **Recovery.** `RecoverySpec::at_path` pins the snapshot file. `RecoveryStore::migrate_legacy` does a
+  one-time, validated copy from a caller-supplied legacy path and returns a `MigrationOutcome`.
+  Cache-directory repair moved to `startup_cache`; `recovery` re-exports it.
+- **Typed clipboard.** `take_item` and `item_from_snapshot` return `ClipboardItem` (`files`, `image`,
+  `text`, `none`), exposed as `rk_shell_clipboard_item`. Priority is files, then a bitmap, then text.
+  A bitmap goes to a granted temp file: PNG when the clipboard offered it, otherwise Windows `CF_DIB`
+  converted to BMP. macOS calls AppleScript only where AppKit cannot supply the data (a file URL it
+  cannot turn into a path, or a TIFF coerced to PNG). Temp files are purged after
+  `ShellBuilder::clipboard_purge_after` (default one hour). `dib_to_bmp` is public.
+- **Startup cache.** `startup_cache::ensure_http_cache_dir(identifier)` repairs
+  `<user cache root>/<identifier>` without a Tauri handle. The identifier must be one path component.
+- **Idle failures.** `ShellBuilder::webview_idle_on_error` receives a typed `IdleFailure`
+  (`phase`: suspend or resume, `window`, `error`) for each platform suspend or resume that fails.
+  Windows previously dropped these silently.
+- **Standalone single instance** (`single_instance` module). `SingleInstance::claim` and `claim_with`
+  return `ClaimOutcome::{Primary, Forwarded, Failed(ClaimFailure)}`. A second launch forwards an
+  `InstanceMessage` (argv, cwd, optional action, JSON argument map). Undecidable claims fail closed.
+  Only the connect step is retried, so the callback never runs twice for one launch. Malformed
+  payloads are refused.
+- **Breaking (struct literals only).** `StreamPolicy`, `RecoverySpec` and `IdleHost` each gain a
+  field (`max_bytes_by_kind`, `exact_path`, `on_error`). Code that builds them with full struct
+  literals must add the field, or use `..Default::default()` (`StreamPolicy`) or the builder methods
+  (`RecoverySpec::at_path`, `IdleHost::with_on_error`). `ShellState` gains fields; read it, do not
+  construct it.
+- Authority tests ported from ViewRight (`tests/authority.rs`): known-token exchange,
+  canonicalization, stream-token revocation not revived by reopen, site-root tokens and revocation,
+  site-root grant is not a file grant, independent per-tab tokens, symlink escape, and revoked-root
+  serving. `tests/site_scheme.rs` covers denied names, symlink escape, percent-decoding, the MIME
+  allowlist and root inference. `tests/transport.rs` covers state and transport.
+  `tests/single_instance.rs` runs the two-process single-instance tests.
+
 ## 0.2.0
 
 - Breaking: the `engine` feature (engine sidecar wiring over `rightkit-jobs` and

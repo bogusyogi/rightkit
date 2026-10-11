@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased (after 0.2.0)
+
+- Windows: a `devtools call timed out` error now says where the call stopped: never run by the UI thread (main thread blocked), or issued to WebView2 and then, after a `Browser.getVersion` probe, either "the browser process answers but the page did not complete it" (renderer busy or blocked, modal script dialog, paused debugger) or "the channel is unresponsive". The message still starts with `devtools call timed out`.
+- Windows: opt-in tracing with `RIGHTKIT_CONTROL_TRACE=1` (stderr) or `=<file path>`: every devtools call with id, method, thread id and enqueue/dispatch/complete timing, and the webview's NavigationStarting, NavigationCompleted, ScriptDialogOpening, NewWindowRequested and ProcessFailed events. Off by default.
+- Windows: stack capture on a devtools timeout (on with `RIGHTKIT_CONTROL_TRACE` or `RIGHTKIT_CONTROL_STACK_ON_TIMEOUT=1`). The V8 debugger is enabled when the webview is created, because `Debugger.enable` is not an interrupting command and would queue behind a busy script; on a timeout the harness sends `Debugger.pause` out of band, reads `Debugger.paused` through an event receiver, reports the top 15 frames (function, url, line, column) up to three times 300 ms apart in the timeout error and the trace, and resumes. No pause within 2 s is reported as renderer in native code or gone. Pauses nobody asked for (a `debugger;` statement) are logged and resumed at once. Frames are positions in the bundle the page loaded; a non-minified debug bundle keeps function names. macOS has no devtools protocol in WKWebView and is unchanged.
+
 ## 0.2.0
 
 Minor bump: a default feature flipped (below). Consumers that relied on `wv2-0_38` being on by default must add it.

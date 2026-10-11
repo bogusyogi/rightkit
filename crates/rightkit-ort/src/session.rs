@@ -79,6 +79,23 @@ pub struct SessionOptions {
     /// Off by default: failures are errors. The fallback is never silent;
     /// [`BuiltSession::fallback`] records why it happened.
     pub cpu_fallback: bool,
+    /// DirectML only: disable parallel execution (`with_parallel_execution(false)`).
+    /// `true` applies it; `false` keeps the ORT default. Ignored for other
+    /// providers and for the CPU stages built by [`Self::cpu_for_stage`].
+    /// rightkit-ocr sets this for DirectML.
+    pub directml_sequential: bool,
+    /// DirectML only: disable the memory-pattern optimisation
+    /// (`with_memory_pattern(false)`). `true` applies it; `false` keeps the ORT
+    /// default. Ignored for other providers. rightkit-ocr sets this for DirectML.
+    pub directml_memory_pattern: bool,
+}
+
+/// Session-builder calls that DirectML needs, derived from [`SessionOptions`].
+/// `None` leaves the ORT default in place.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+struct DirectMlSessionFlags {
+    parallel_execution: Option<bool>,
+    memory_pattern: Option<bool>,
 }
 
 /// A committed session plus the provider that actually serves it.
@@ -112,6 +129,28 @@ impl SessionOptions {
     pub fn with_cpu_fallback(mut self, cpu_fallback: bool) -> Self {
         self.cpu_fallback = cpu_fallback;
         self
+    }
+
+    pub fn with_directml_sequential(mut self, directml_sequential: bool) -> Self {
+        self.directml_sequential = directml_sequential;
+        self
+    }
+
+    pub fn with_directml_memory_pattern(mut self, directml_memory_pattern: bool) -> Self {
+        self.directml_memory_pattern = directml_memory_pattern;
+        self
+    }
+
+    /// DirectML flags for this request: empty unless the DirectML provider is
+    /// selected, so CPU stages and other accelerators keep ORT defaults.
+    fn directml_session_flags(&self) -> DirectMlSessionFlags {
+        if self.provider != ExecutionProvider::DirectMl {
+            return DirectMlSessionFlags::default();
+        }
+        DirectMlSessionFlags {
+            parallel_execution: self.directml_sequential.then_some(false),
+            memory_pattern: self.directml_memory_pattern.then_some(false),
+        }
     }
 
     /// Same options forced to CPU, for dispatch-bound stages (mel, decoder/joint).
@@ -179,6 +218,10 @@ impl SessionOptions {
         if !self.provider.supported_on_this_os() {
             return Err(SessionError::ProviderUnsupported(self.provider));
         }
+        // No session may exist before the environment carries this crate's options (telemetry
+        // off): ort would otherwise create the environment with its defaults, telemetry on.
+        environment::ensure_environment()
+            .map_err(|e| SessionError::Runtime(format!("environment: {e}")))?;
         let mut builder = ort::session::Session::builder().map_err(rt("session builder"))?;
         let shared_pool = environment::shared_pool_active();
 
@@ -198,6 +241,17 @@ impl SessionOptions {
             builder = builder
                 .with_intra_threads(threads)
                 .map_err(|e| map_ort_error("intra threads", e))?;
+        }
+        let flags = self.directml_session_flags();
+        if let Some(parallel) = flags.parallel_execution {
+            builder = builder
+                .with_parallel_execution(parallel)
+                .map_err(|e| map_ort_error("parallel execution", e))?;
+        }
+        if let Some(memory_pattern) = flags.memory_pattern {
+            builder = builder
+                .with_memory_pattern(memory_pattern)
+                .map_err(|e| map_ort_error("memory pattern", e))?;
         }
         if self.directml_static_shape_workaround && directml {
             builder = builder
@@ -247,4 +301,75 @@ fn rt(label: &str) -> impl FnOnce(ort::Error) -> SessionError {
 
 fn map_ort_error<R>(label: &str, error: ort::Error<R>) -> SessionError {
     SessionError::Runtime(format!("{label}: {error}"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn directml(sequential: bool, memory_pattern: bool) -> SessionOptions {
+        SessionOptions::new(ExecutionProvider::DirectMl)
+            .with_directml_sequential(sequential)
+            .with_directml_memory_pattern(memory_pattern)
+    }
+
+    #[test]
+    fn default_options_keep_ort_defaults_for_directml() {
+        // Today's behaviour: neither flag set, so DirectML sessions are built
+        // exactly as before this option existed.
+        let options = SessionOptions::new(ExecutionProvider::DirectMl);
+        assert!(!options.directml_sequential);
+        assert!(!options.directml_memory_pattern);
+        assert_eq!(
+            options.directml_session_flags(),
+            DirectMlSessionFlags::default()
+        );
+    }
+
+    #[test]
+    fn true_flags_map_to_disabled_parallel_execution_and_memory_pattern() {
+        assert_eq!(
+            directml(true, false).directml_session_flags(),
+            DirectMlSessionFlags {
+                parallel_execution: Some(false),
+                memory_pattern: None,
+            }
+        );
+        assert_eq!(
+            directml(false, true).directml_session_flags(),
+            DirectMlSessionFlags {
+                parallel_execution: None,
+                memory_pattern: Some(false),
+            }
+        );
+        assert_eq!(
+            directml(true, true).directml_session_flags(),
+            DirectMlSessionFlags {
+                parallel_execution: Some(false),
+                memory_pattern: Some(false),
+            }
+        );
+    }
+
+    #[test]
+    fn flags_do_not_apply_to_other_providers_or_cpu_stages() {
+        for provider in [ExecutionProvider::Cpu, ExecutionProvider::CoreMl] {
+            let options = SessionOptions::new(provider)
+                .with_directml_sequential(true)
+                .with_directml_memory_pattern(true);
+            assert_eq!(
+                options.directml_session_flags(),
+                DirectMlSessionFlags::default(),
+                "{provider:?}"
+            );
+        }
+        let staged = directml(true, true).cpu_for_stage();
+        assert_eq!(staged.provider, ExecutionProvider::Cpu);
+        assert_eq!(
+            staged.directml_session_flags(),
+            DirectMlSessionFlags::default()
+        );
+        // The flags themselves survive staging; only the provider changes.
+        assert!(staged.directml_sequential && staged.directml_memory_pattern);
+    }
 }

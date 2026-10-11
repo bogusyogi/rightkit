@@ -9,7 +9,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use crate::VerifiedFfmpeg;
+use crate::{BuildMode, MediaError, VerifiedFfmpeg};
 
 /// One FFmpeg argument: plain text or a filesystem path (kept as `OsString`).
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -22,6 +22,8 @@ pub enum FfmpegArg {
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct FfmpegCommand {
     args: Vec<FfmpegArg>,
+    /// The runner connects the child's stdin to a writer the caller supplies.
+    stdin_piped: bool,
 }
 
 impl FfmpegCommand {
@@ -29,8 +31,18 @@ impl FfmpegCommand {
         Self::default()
     }
 
+    /// Migration adapter for callers that still build untyped argument vectors. The
+    /// arguments are taken verbatim (no validation, no `-nostdin` handling beyond
+    /// [`FfmpegCommand::stdin_piped`]); prefer the typed builders for new code.
+    pub fn raw_args(args: Vec<String>) -> Self {
+        let mut c = Self::new();
+        c.texts(args);
+        c
+    }
+
     /// `-hide_banner -nostdin -y -loglevel <level> -nostats`: the baseline every
-    /// non-interactive Right Suite invocation starts from.
+    /// non-interactive Right Suite invocation starts from. It adds `-y`, so an existing
+    /// output file is overwritten without a prompt.
     pub fn base(loglevel: &str) -> Self {
         let mut c = Self::new();
         c.texts([
@@ -74,6 +86,23 @@ impl FfmpegCommand {
     /// Machine-readable progress on stdout (`-progress pipe:1`, one block per 250 ms).
     pub fn progress_pipe(&mut self) -> &mut Self {
         self.texts(["-progress", "pipe:1", "-stats_period", "0.25"])
+    }
+
+    /// Connect the child's stdin to a caller-supplied writer (see
+    /// `runner::run_with_stdin`). Removes every `-nostdin` token, because that flag
+    /// stops FFmpeg from reading stdin at all. `false` only clears the piped flag; it
+    /// does not re-add `-nostdin` (use [`FfmpegCommand::base`] for that).
+    pub fn stdin_piped(&mut self, piped: bool) -> &mut Self {
+        self.stdin_piped = piped;
+        if piped {
+            self.args
+                .retain(|arg| !matches!(arg, FfmpegArg::Text(t) if t == "-nostdin"));
+        }
+        self
+    }
+
+    pub fn stdin_is_piped(&self) -> bool {
+        self.stdin_piped
     }
 
     pub fn args(&self) -> &[FfmpegArg] {
@@ -120,11 +149,38 @@ impl FfmpegBinary for VerifiedFfmpeg {
 }
 
 /// An FFmpeg path that has NOT been checked against the artifact catalog.
+///
+/// Policy by build mode (see [`BuildMode`]): development builds may construct it freely.
+/// Release builds must go through [`DevFfmpeg::try_unverified`], which refuses with
+/// [`MediaError::UnverifiedRefusedInRelease`], unless the caller opts in explicitly with
+/// [`DevFfmpeg::allow_in_release_builds`]. [`DevFfmpeg::unverified`] is kept for
+/// development and tests and is not refused in release builds.
 #[derive(Clone, Debug)]
 pub struct DevFfmpeg(PathBuf);
 
 impl DevFfmpeg {
+    /// Development and test use only; it is not refused in release builds. Prefer
+    /// [`DevFfmpeg::try_unverified`] anywhere a release build could reach it.
     pub fn unverified(path: impl Into<PathBuf>) -> Self {
+        Self(path.into())
+    }
+
+    /// [`DevFfmpeg::unverified`], refused with [`MediaError::UnverifiedRefusedInRelease`]
+    /// in a release build (`!cfg!(debug_assertions)`).
+    pub fn try_unverified(path: impl Into<PathBuf>) -> Result<Self, MediaError> {
+        Self::try_unverified_in(path, BuildMode::from_debug_assertions())
+    }
+
+    fn try_unverified_in(path: impl Into<PathBuf>, mode: BuildMode) -> Result<Self, MediaError> {
+        match mode {
+            BuildMode::Development => Ok(Self(path.into())),
+            BuildMode::Release => Err(MediaError::UnverifiedRefusedInRelease),
+        }
+    }
+
+    /// The explicit escape for a release build that must run a non-catalog binary. Nothing
+    /// here verifies the reason; the call site owns it, so say why in a comment there.
+    pub fn allow_in_release_builds(path: impl Into<PathBuf>) -> Self {
         Self(path.into())
     }
 }
@@ -158,7 +214,8 @@ impl AudioTranscode {
 }
 
 /// `ffmpeg -i input -vn [-af ..] [-ar ..] [-ac ..] -c:a codec output` with
-/// `-progress pipe:1`.
+/// `-progress pipe:1`. The order is fixed: `-ar` (sample rate) is emitted before `-ac`
+/// (channel count), and `-af` before both.
 pub fn transcode_audio_command(
     input: &Path,
     output: &Path,
@@ -177,4 +234,53 @@ pub fn transcode_audio_command(
     }
     c.texts(["-c:a", spec.codec.as_str()]).path(output);
     c
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn release_builds_refuse_try_unverified_and_need_the_explicit_escape() {
+        assert!(matches!(
+            DevFfmpeg::try_unverified_in("ffmpeg", BuildMode::Release),
+            Err(MediaError::UnverifiedRefusedInRelease)
+        ));
+        assert!(DevFfmpeg::try_unverified_in("ffmpeg", BuildMode::Development).is_ok());
+        // The escape is an explicit constructor, not a flag on the refused path.
+        let escaped = DevFfmpeg::allow_in_release_builds("ffmpeg");
+        assert_eq!(escaped.ffmpeg_path(), Path::new("ffmpeg"));
+    }
+
+    fn texts(cmd: &FfmpegCommand) -> Vec<String> {
+        cmd.to_os_args()
+            .into_iter()
+            .map(|a| a.to_string_lossy().into_owned())
+            .collect()
+    }
+
+    #[test]
+    fn stdin_piping_removes_nostdin_and_only_that_token() {
+        let mut cmd = FfmpegCommand::base("error");
+        assert!(texts(&cmd).contains(&"-nostdin".to_string()));
+        assert!(!cmd.stdin_is_piped());
+        cmd.stdin_piped(true).texts(["-i", "pipe:0"]);
+        let args = texts(&cmd);
+        assert!(!args.contains(&"-nostdin".to_string()));
+        assert_eq!(args.first().map(String::as_str), Some("-hide_banner"));
+        assert!(args.contains(&"-y".to_string()));
+        assert!(cmd.stdin_is_piped());
+        cmd.stdin_piped(false);
+        assert!(!cmd.stdin_is_piped());
+    }
+
+    #[test]
+    fn raw_args_are_taken_verbatim_in_order() {
+        let cmd = FfmpegCommand::raw_args(vec!["-i".into(), "a b.wav".into(), "-nostdin".into()]);
+        assert_eq!(texts(&cmd), ["-i", "a b.wav", "-nostdin"]);
+        assert!(!cmd.stdin_is_piped());
+        let mut piped = cmd.clone();
+        piped.stdin_piped(true);
+        assert_eq!(texts(&piped), ["-i", "a b.wav"]);
+    }
 }

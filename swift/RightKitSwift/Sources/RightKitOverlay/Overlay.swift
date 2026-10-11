@@ -223,6 +223,23 @@ public enum RightKitOverlayDisplays {
     }
 }
 
+extension RightKitOverlayDisplays {
+    /// ``plan(current:desired:)`` with deterministic arrays, for hosts that create and tear down
+    /// surfaces in a defined order: `add` lists the wanted displays that have no surface, **in the
+    /// order they were asked for and without repeats**; `remove` lists the surfaces that are no longer
+    /// wanted, **sorted ascending by display id**. `hasDuplicates` reports a repeated id in `desired`.
+    /// `current` may be a set, an array or any sequence (a repeated id counts once).
+    public static func orderedPlan(current: some Sequence<CGDirectDisplayID>, desired: [CGDirectDisplayID])
+        -> (add: [CGDirectDisplayID], remove: [CGDirectDisplayID], hasDuplicates: Bool) {
+        let have = Set(current)
+        var seen = Set<CGDirectDisplayID>()
+        var add: [CGDirectDisplayID] = []
+        for id in desired where seen.insert(id).inserted && !have.contains(id) { add.append(id) }
+        let remove = have.subtracting(seen).sorted()
+        return (add, remove, seen.count != desired.count)
+    }
+}
+
 public enum RightKitOverlayFullScreen {
     /// Pure geometry: does any layer-0 window of `frontmostPID` match or span `screenBounds`
     /// (CoreGraphics coordinates, origin top left)? Ported unchanged from Pulse's detector.
@@ -257,6 +274,30 @@ public enum RightKitOverlayFullScreen {
     }
 }
 
+extension RightKitOverlayFullScreen {
+    /// Which of the two full-screen rules apply for a frontmost app, given the host's ignore sets.
+    /// An app in `ignoringBundleIDs` skips both; `geometryIgnoring` skips only the window-geometry
+    /// rule; `visibleFrameIgnoring` skips only the visible-frame fallback (a Finder window is the
+    /// usual case: it may be large, but is not full screen, so the fallback must not count it while
+    /// a true full-screen Finder window would still match by geometry).
+    public static func rulesToApply(
+        frontmostBundleID: String?,
+        ignoringBundleIDs: Set<String> = [],
+        geometryIgnoring: Set<String> = [],
+        visibleFrameIgnoring: Set<String> = []
+    ) -> (geometry: Bool, visibleFrame: Bool) {
+        guard let id = frontmostBundleID else { return (true, true) }
+        if ignoringBundleIDs.contains(id) { return (false, false) }
+        return (!geometryIgnoring.contains(id), !visibleFrameIgnoring.contains(id))
+    }
+
+    /// The visible-frame fallback: on a full-screen Space without a camera notch the menu bar
+    /// autohides, so the visible frame matches the whole frame (within a point).
+    public static func visibleFrameCoversScreen(frame: CGRect, visibleFrame: CGRect) -> Bool {
+        abs(visibleFrame.width - frame.width) <= 1 && abs(visibleFrame.height - frame.height) <= 1
+    }
+}
+
 #if os(macOS)
 import AppKit
 
@@ -277,6 +318,10 @@ public struct RightKitOverlayPanelConfiguration: Sendable {
     /// Start with `ignoresMouseEvents == true` instead of interactive.
     public var startsClickThrough: Bool
     public var hitRegionOrigin: RightKitOverlayCoordinateOrigin
+    /// Whether the panel hides while the application is not active. Defaults to `false`, which is
+    /// what the panel has always done; a host whose panel mirrors an `NSPanel` default of `true`
+    /// sets it here.
+    public var hidesOnDeactivate: Bool
 
     public init(
         level: NSWindow.Level = .statusBar,
@@ -289,7 +334,8 @@ public struct RightKitOverlayPanelConfiguration: Sendable {
         isMovableByWindowBackground: Bool = false,
         animationBehavior: NSWindow.AnimationBehavior = .default,
         startsClickThrough: Bool = false,
-        hitRegionOrigin: RightKitOverlayCoordinateOrigin = .lowerLeft
+        hitRegionOrigin: RightKitOverlayCoordinateOrigin = .lowerLeft,
+        hidesOnDeactivate: Bool = false
     ) {
         self.level = level
         self.collectionBehavior = collectionBehavior
@@ -302,6 +348,7 @@ public struct RightKitOverlayPanelConfiguration: Sendable {
         self.animationBehavior = animationBehavior
         self.startsClickThrough = startsClickThrough
         self.hitRegionOrigin = hitRegionOrigin
+        self.hidesOnDeactivate = hidesOnDeactivate
     }
 
     /// Exactly what `RightKitOverlayPanel(contentRect:kind:level:)` builds: a pill joins all
@@ -336,7 +383,7 @@ public final class RightKitOverlayPanel: NSPanel {
         isOpaque = false
         backgroundColor = .clear
         hasShadow = configuration.hasShadow
-        hidesOnDeactivate = false
+        hidesOnDeactivate = configuration.hidesOnDeactivate
         becomesKeyOnlyIfNeeded = configuration.becomesKeyOnlyIfNeeded
         isMovable = configuration.isMovable
         isMovableByWindowBackground = configuration.isMovableByWindowBackground
@@ -363,6 +410,18 @@ public final class RightKitOverlayPanel: NSPanel {
 
     /// Sees every event before the window does. Return true to consume it.
     public var eventFilter: (@MainActor (NSEvent) -> Bool)?
+
+    /// Mouse events that **no view took**. Unlike ``eventFilter`` (which sees every event before any
+    /// view and would pre-empt SwiftUI buttons), this runs only for a press, drag or release that
+    /// reached the window itself: hit-testing found no view with a handler, so the event travelled the
+    /// responder chain up to the panel's own `mouseDown`, `mouseDragged`, `mouseUp` or `rightMouseDown`.
+    /// A host's click, Option-drag and grip-drag logic belongs here. The handler may run a nested
+    /// event loop (`nextEvent(matching:)`) from inside the call, as a window-level `mouseDown`
+    /// override can. Return true when the event was handled; false lets it continue up the chain.
+    ///
+    /// The class stays `final` so a subclass cannot override ``canBecomeKey``, which the configuration
+    /// owns; this hook is the supported way in.
+    public var unhandledMouseEvent: (@MainActor (NSEvent) -> Bool)?
 
     /// Called after the panel resigns key (for hide-on-resign launchers).
     public var onResignKey: (@MainActor () -> Void)?
@@ -408,6 +467,26 @@ public final class RightKitOverlayPanel: NSPanel {
     public override func sendEvent(_ event: NSEvent) {
         if let eventFilter, eventFilter(event) { return }
         super.sendEvent(event)
+    }
+
+    public override func mouseDown(with event: NSEvent) {
+        if let unhandledMouseEvent, unhandledMouseEvent(event) { return }
+        super.mouseDown(with: event)
+    }
+
+    public override func mouseDragged(with event: NSEvent) {
+        if let unhandledMouseEvent, unhandledMouseEvent(event) { return }
+        super.mouseDragged(with: event)
+    }
+
+    public override func mouseUp(with event: NSEvent) {
+        if let unhandledMouseEvent, unhandledMouseEvent(event) { return }
+        super.mouseUp(with: event)
+    }
+
+    public override func rightMouseDown(with event: NSEvent) {
+        if let unhandledMouseEvent, unhandledMouseEvent(event) { return }
+        super.rightMouseDown(with: event)
     }
 
     public override func resignKey() {
@@ -472,6 +551,9 @@ public final class RightKitOverlayPointerTracker {
     private weak var panel: RightKitOverlayPanel?
     private let pollInterval: TimeInterval
     private let onPointer: (@MainActor (CGPoint) -> Void)?
+    /// False for a tracker built without a panel: it then runs until stopped instead of stopping
+    /// itself when the (absent) panel is gone.
+    private let tracksPanel: Bool
     /// Where the pointer is; replaced by tests so no real pointer is read.
     var locationProvider: @MainActor () -> CGPoint = { NSEvent.mouseLocation }
 
@@ -484,6 +566,19 @@ public final class RightKitOverlayPointerTracker {
         self.panel = panel
         self.pollInterval = pollInterval
         self.onPointer = onPointer
+        self.tracksPanel = true
+    }
+
+    /// A tracker with no panel: `onPointer` receives the pointer location (screen coordinates) on
+    /// every mouse-moved/dragged event and every poll, and the host does whatever it needs there, such
+    /// as toggling `ignoresMouseEvents` on a panel that is not a ``RightKitOverlayPanel``, or driving
+    /// hover and fold state. Same monitors, timer, lifecycle and cost as the panel form; runs until
+    /// ``stop()`` or deinit.
+    public init(pollInterval: TimeInterval = 0.3, onPointer: @escaping @MainActor (CGPoint) -> Void) {
+        self.panel = nil
+        self.pollInterval = pollInterval
+        self.onPointer = onPointer
+        self.tracksPanel = false
     }
 
     deinit {
@@ -528,9 +623,9 @@ public final class RightKitOverlayPointerTracker {
 
     /// One evaluation at the current pointer location.
     func tick() {
-        guard let panel else { stop(); return }
+        if tracksPanel, panel == nil { stop(); return }
         let location = locationProvider()
-        panel.updateClickThrough(forMouseAt: location)
+        panel?.updateClickThrough(forMouseAt: location)
         onPointer?(location)
     }
 }
@@ -558,35 +653,56 @@ extension RightKitOverlayFullScreen {
     /// host itself) never count; the host decides what to ignore.
     @MainActor
     public static func frontmostAppIsFullScreen(on screen: NSScreen, ignoringBundleIDs: Set<String> = []) -> Bool {
+        frontmostAppIsFullScreen(on: Optional(screen), ignoringBundleIDs: ignoringBundleIDs,
+                                 geometryIgnoring: [], visibleFrameIgnoring: [])
+    }
+
+    /// As ``frontmostAppIsFullScreen(on:ignoringBundleIDs:)`` with finer control and a missing
+    /// screen allowed.
+    ///
+    /// - `screen`: nil falls back to `NSScreen.main`, then the first screen; false when there is none.
+    /// - `ignoringBundleIDs`: the frontmost app never counts (both rules skipped).
+    /// - `geometryIgnoring`: skip only the window-geometry rule for these apps.
+    /// - `visibleFrameIgnoring`: skip only the visible-frame fallback for these apps, so a large
+    ///   Finder window does not count by the fallback while a genuinely full-screen one still
+    ///   matches by geometry.
+    @MainActor
+    public static func frontmostAppIsFullScreen(
+        on screen: NSScreen?,
+        ignoringBundleIDs: Set<String> = [],
+        geometryIgnoring: Set<String>,
+        visibleFrameIgnoring: Set<String>
+    ) -> Bool {
+        guard let screen = screen ?? NSScreen.main ?? NSScreen.screens.first else { return false }
         guard let frontApp = NSWorkspace.shared.frontmostApplication else { return false }
-        if let id = frontApp.bundleIdentifier, ignoringBundleIDs.contains(id) { return false }
+        let rules = rulesToApply(frontmostBundleID: frontApp.bundleIdentifier, ignoringBundleIDs: ignoringBundleIDs,
+                                 geometryIgnoring: geometryIgnoring, visibleFrameIgnoring: visibleFrameIgnoring)
 
-        // NSScreen uses AppKit coordinates (origin bottom left of the primary screen);
-        // CoreGraphics window bounds use origin top left of the primary screen.
-        let primaryHeight = NSScreen.screens.first?.frame.height ?? screen.frame.height
-        let cgScreenBounds = CGRect(x: screen.frame.minX, y: primaryHeight - screen.frame.maxY,
-                                    width: screen.frame.width, height: screen.frame.height)
+        if rules.geometry {
+            // NSScreen uses AppKit coordinates (origin bottom left of the primary screen);
+            // CoreGraphics window bounds use origin top left of the primary screen.
+            let primaryHeight = NSScreen.screens.first?.frame.height ?? screen.frame.height
+            let cgScreenBounds = CGRect(x: screen.frame.minX, y: primaryHeight - screen.frame.maxY,
+                                        width: screen.frame.width, height: screen.frame.height)
 
-        if let infoList = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID)
-            as? [[String: Any]] {
-            var windows: [(pid: pid_t, layer: Int, bounds: CGRect)] = []
-            for info in infoList {
-                guard let pid = info[kCGWindowOwnerPID as String] as? pid_t,
-                      let layer = info[kCGWindowLayer as String] as? Int,
-                      let dict = info[kCGWindowBounds as String] as? NSDictionary,
-                      let bounds = CGRect(dictionaryRepresentation: dict as CFDictionary) else { continue }
-                windows.append((pid: pid, layer: layer, bounds: bounds))
-            }
-            if isFullScreen(screenBounds: cgScreenBounds, frontmostPID: frontApp.processIdentifier,
-                            windows: windows, safeAreaTopInset: screen.safeAreaInsets.top) {
-                return true
+            if let infoList = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID)
+                as? [[String: Any]] {
+                var windows: [(pid: pid_t, layer: Int, bounds: CGRect)] = []
+                for info in infoList {
+                    guard let pid = info[kCGWindowOwnerPID as String] as? pid_t,
+                          let layer = info[kCGWindowLayer as String] as? Int,
+                          let dict = info[kCGWindowBounds as String] as? NSDictionary,
+                          let bounds = CGRect(dictionaryRepresentation: dict as CFDictionary) else { continue }
+                    windows.append((pid: pid, layer: layer, bounds: bounds))
+                }
+                if isFullScreen(screenBounds: cgScreenBounds, frontmostPID: frontApp.processIdentifier,
+                                windows: windows, safeAreaTopInset: screen.safeAreaInsets.top) {
+                    return true
+                }
             }
         }
 
-        // On a full-screen Space without a camera notch the menu bar autohides, so visibleFrame
-        // matches the whole frame.
-        return abs(screen.visibleFrame.width - screen.frame.width) <= 1
-            && abs(screen.visibleFrame.height - screen.frame.height) <= 1
+        return rules.visibleFrame && visibleFrameCoversScreen(frame: screen.frame, visibleFrame: screen.visibleFrame)
     }
 }
 #endif

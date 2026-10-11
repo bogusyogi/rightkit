@@ -4,6 +4,7 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::extension::RuleRegistry;
 use crate::judge::{run_judge, Judge};
 use crate::record::{Attempt, VerdictRecord, VERDICT_RECORD_SCHEMA, VERDICT_RECORD_VERSION};
 use crate::rules::RuleSet;
@@ -82,6 +83,7 @@ pub struct LoopOutcome {
 
 /// Evaluates, repairs while blocked, and stops on pass, hold, cap, or refusal.
 /// The judge runs once on the final candidate and is recorded as advisory.
+/// Extension kinds find no registry here. Use [`run_repair_loop_with`] for them.
 pub fn run_repair_loop(
     rules: &RuleSet,
     initial: Subject,
@@ -89,11 +91,23 @@ pub fn run_repair_loop(
     repairer: &mut dyn Repairer,
     judge: &dyn Judge,
 ) -> Result<LoopOutcome, ReviewError> {
+    run_repair_loop_with(rules, initial, cap, repairer, judge, &RuleRegistry::new())
+}
+
+/// As [`run_repair_loop`], resolving extension rule kinds through `registry`.
+pub fn run_repair_loop_with(
+    rules: &RuleSet,
+    initial: Subject,
+    cap: RepairCap,
+    repairer: &mut dyn Repairer,
+    judge: &dyn Judge,
+    registry: &RuleRegistry,
+) -> Result<LoopOutcome, ReviewError> {
     let mut candidate = initial;
     let mut attempts: Vec<Attempt> = Vec::new();
     let mut repairs_used: u32 = 0;
     let stop = loop {
-        let findings = rules.evaluate(&candidate)?;
+        let findings = rules.evaluate_with(&candidate, registry)?;
         let current = disposition(&findings);
         attempts.push(Attempt {
             attempt: repairs_used,

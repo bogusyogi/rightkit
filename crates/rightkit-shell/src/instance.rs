@@ -71,19 +71,57 @@ pub fn arbitrate(
     version: &str,
     on_second: Arc<dyn Fn(SecondInstance) + Send + Sync>,
 ) -> Arbitration {
+    arbitrate_with_legacy(app_id, version, None, on_second)
+}
+
+/// Arbitration that also probes for a live `tauri-plugin-single-instance` holder under
+/// `legacy_identifier` (the Tauri identifier) first. A live legacy holder receives this launch and
+/// the result is [`Arbitration::Secondary`]; an unreachable one is [`Arbitration::Unavailable`].
+pub fn arbitrate_with_legacy(
+    app_id: &str,
+    version: &str,
+    legacy_identifier: Option<&str>,
+    on_second: Arc<dyn Fn(SecondInstance) + Send + Sync>,
+) -> Arbitration {
     let suite = match Suite::resolve() {
         Ok(s) => s,
         Err(e) => return Arbitration::Unavailable(e.to_string()),
     };
-    arbitrate_in_suite(&suite, app_id, version, on_second)
+    arbitrate_in_suite_with(&suite, app_id, version, legacy_identifier, on_second)
 }
 
+#[cfg(test)]
 fn arbitrate_in_suite(
     suite: &Suite,
     app_id: &str,
     version: &str,
     on_second: Arc<dyn Fn(SecondInstance) + Send + Sync>,
 ) -> Arbitration {
+    arbitrate_in_suite_with(suite, app_id, version, None, on_second)
+}
+
+fn arbitrate_in_suite_with(
+    suite: &Suite,
+    app_id: &str,
+    version: &str,
+    legacy_identifier: Option<&str>,
+    on_second: Arc<dyn Fn(SecondInstance) + Send + Sync>,
+) -> Arbitration {
+    let argv: Vec<String> = std::env::args().collect();
+    let cwd = std::env::current_dir()
+        .map(|p| p.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    if let Some(identifier) = legacy_identifier {
+        match crate::legacy_instance::forward(identifier, &argv, &cwd) {
+            Ok(Some(())) => return Arbitration::Secondary,
+            Ok(None) => {}
+            Err(e) => {
+                return Arbitration::Unavailable(format!(
+                    "a legacy single-instance holder refused this launch: {e}"
+                ))
+            }
+        }
+    }
     let service = service_name(app_id);
     let cfg = ServiceConfig::new(
         &service,
@@ -95,20 +133,29 @@ fn arbitrate_in_suite(
     match host(suite, cfg, Arc::new(Forward { on_second })) {
         Ok(hosted) => Arbitration::Primary(hosted),
         Err(HostError::Held(_)) => {
-            let argv: Vec<String> = std::env::args().collect();
-            let cwd = std::env::current_dir()
-                .map(|p| p.to_string_lossy().into_owned())
-                .unwrap_or_default();
-            // The incumbent may be mid-startup: retry briefly before giving up.
+            // The incumbent may be mid-startup: retry the connect only. Once a call has reached it,
+            // the launch is delivered, so a failed call is never repeated.
+            let mut connected = None;
             for _ in 0..20 {
-                match Client::connect(suite, &service, app_id)
-                    .and_then(|c| c.call(METHOD, json!({"argv": argv, "cwd": cwd})))
-                {
-                    Ok(_) => return Arbitration::Secondary,
+                match Client::connect(suite, &service, app_id) {
+                    Ok(client) => {
+                        connected = Some(client);
+                        break;
+                    }
                     Err(_) => std::thread::sleep(std::time::Duration::from_millis(100)),
                 }
             }
-            Arbitration::Unavailable("live instance did not accept the forwarded launch".into())
+            let Some(client) = connected else {
+                return Arbitration::Unavailable(
+                    "live instance did not accept a connection for the forwarded launch".into(),
+                );
+            };
+            match client.call(METHOD, json!({"argv": argv, "cwd": cwd})) {
+                Ok(_) => Arbitration::Secondary,
+                Err(e) => Arbitration::Unavailable(format!(
+                    "live instance did not accept the forwarded launch: {e}"
+                )),
+            }
         }
         Err(e) => Arbitration::Unavailable(e.to_string()),
     }

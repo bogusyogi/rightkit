@@ -27,6 +27,15 @@ pub fn loopback_config() -> ClientConfig {
     ClientConfig::default().address_policy(loopback_policy())
 }
 
+/// Make clients built afterwards with [`crate::TrustRoots::Bundled`] trust `der` (an X.509
+/// root certificate) as well. Process-wide and for tests only: it exists so a test can run a
+/// local TLS server under a throwaway CA. The async client trusts it in addition to the
+/// Mozilla roots; the blocking client, whose bundled set ureq cannot extend, trusts the
+/// registered roots instead of them. [`crate::TrustRoots::Platform`] ignores it.
+pub fn add_bundled_test_root(der: Vec<u8>) {
+    crate::trust::add_test_root(der);
+}
+
 #[derive(Debug, Clone)]
 pub struct RecordedRequest {
     pub method: String,

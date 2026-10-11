@@ -44,3 +44,7 @@ tempfile = "3"
 # tests. rightkit-qa does not depend on rightkit-models, so this is no publish
 # cycle; it only orders publication (rightkit-qa 0.2.2 first).
 rightkit-qa = { version = "0.2.8", path = "../rightkit-qa" }
+
+[package.metadata.rightkit]
+continuous = false
+continuous_reason = "sleep: download retry backoff bounded by MAX_ATTEMPTS (download.rs) and store-lock and lease acquisition polls inside one caller-initiated wait (lock.rs, suite/lease.rs); thread-spawn: one reader thread per download body for the idle-timeout wrapper (http.rs), ends at EOF, error or consumer drop, and socket read timeouts bound it; no listener, timer, watcher or resident cache (reviewed 2026-10-11)"

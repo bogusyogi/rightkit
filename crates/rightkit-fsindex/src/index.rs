@@ -5,6 +5,7 @@ use crate::config::*;
 #[cfg(feature = "content")]
 use crate::error::Error;
 use crate::error::Result;
+use crate::gate::{Decision, Rate, RelistGate};
 use crate::query::Query;
 use crate::store::{now_secs, Store};
 use std::borrow::Cow;
@@ -142,6 +143,45 @@ pub struct Status {
     pub unreadable_dirs: Vec<PathBuf>,
     pub unreadable_count: usize,
     pub crawl_time: Duration,
+    /// Folder re-lists run since open.
+    pub relists_total: u64,
+    /// Folder re-lists per second, averaged over the last minute (or since open, if sooner).
+    pub relist_rate_per_s: f64,
+    /// Folders currently backing off: changing so often that their re-list interval is above
+    /// `Config::relist_min_interval`.
+    pub backoff_folders: usize,
+    /// Resident memory of the index: `mapped` is file-backed column and name pages currently
+    /// in memory (measured with `mincore`; reclaimable, see `Index::shrink`); `heap` is the
+    /// tracked anonymous allocations the index owns (estimate).
+    pub resident_bytes: ResidentBytes,
+    /// `resident_bytes.mapped + resident_bytes.heap` divided by `entries` (0 when empty).
+    pub resident_per_entry: f64,
+    /// Directory reads (listings) since open. Each is one `getattrlistbulk` pass.
+    pub dir_reads_total: u64,
+    /// Directory reads per second over the last minute (or since open, if sooner).
+    pub dir_reads_per_s: f64,
+    /// Process CPU time (user plus system) since process start, in seconds. Process-wide.
+    pub cpu_seconds_total: f64,
+    /// Process CPU percent since the previous `status()` call (since open, for the first call).
+    /// Process-wide: it includes other work in the same process.
+    pub cpu_percent: f64,
+}
+
+/// Resident bytes, split by kind. See `Status::resident_bytes`.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct ResidentBytes {
+    pub mapped: u64,
+    pub heap: u64,
+}
+
+/// Process CPU time (user plus system) in seconds, or 0 if unavailable.
+fn cpu_seconds() -> f64 {
+    let mut ru: libc::rusage = unsafe { std::mem::zeroed() };
+    if unsafe { libc::getrusage(libc::RUSAGE_SELF, &mut ru) } != 0 {
+        return 0.0;
+    }
+    let secs = |t: libc::timeval| t.tv_sec as f64 + t.tv_usec as f64 / 1e6;
+    secs(ru.ru_utime) + secs(ru.ru_stime)
 }
 
 // ------------------------------------------------------------------ shared state
@@ -153,6 +193,12 @@ struct Sub {
 
 struct Shared {
     store: RwLock<Store>,
+    /// Per-folder re-list gate (see `gate.rs`).
+    gate: Mutex<RelistGate>,
+    /// Directory reads (one per listing), for `Status::dir_reads_per_s`.
+    reads: Mutex<Rate>,
+    /// Time and process CPU at the previous `status()` call.
+    cpu_mark: Mutex<(Instant, f64)>,
     cfg: Config,
     roots: Vec<PathBuf>,
     backend: Arc<dyn Backend>,
@@ -224,6 +270,51 @@ fn fnv(h: &mut u64, b: &[u8]) {
     }
     *h ^= 0xff;
 }
+
+/// The effective exclude patterns: the built-in set unless `include_build_output`, then the
+/// caller's patterns. Each pattern is split on `/` into non-empty segments.
+fn exclude_pattern_list(cfg: &Config) -> Vec<Vec<Vec<u8>>> {
+    let defaults: &[&str] = if cfg.include_build_output {
+        &[]
+    } else {
+        DEFAULT_EXCLUDE_PATTERNS
+    };
+    defaults
+        .iter()
+        .copied()
+        .map(str::to_string)
+        .chain(cfg.exclude_patterns.iter().cloned())
+        .map(|p| {
+            p.split('/')
+                .filter(|s| !s.is_empty())
+                .map(|s| s.as_bytes().to_vec())
+                .collect::<Vec<Vec<u8>>>()
+        })
+        .filter(|segs| !segs.is_empty())
+        .collect()
+}
+
+fn trim_trailing_slash(p: &[u8]) -> Vec<u8> {
+    let mut v = p.to_vec();
+    while v.last() == Some(&b'/') {
+        v.pop();
+    }
+    v
+}
+
+/// Returns free malloc pages to the system where the platform allows it (macOS zones).
+#[cfg(target_os = "macos")]
+fn release_allocator_memory() {
+    extern "C" {
+        fn malloc_zone_pressure_relief(zone: *mut std::ffi::c_void, goal: usize) -> usize;
+    }
+    unsafe {
+        malloc_zone_pressure_relief(std::ptr::null_mut(), 0);
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+fn release_allocator_memory() {}
 
 fn kind_of(k: u8) -> EntryKind {
     match k {
@@ -417,6 +508,8 @@ impl Index {
         let skipped: Vec<PathBuf> = skipped.into_iter().map(|p| canon(&p)).collect();
         let mut excludes = Excludes {
             prefixes: skipped.iter().map(|p| pb(p).into_owned()).collect(),
+            patterns: exclude_pattern_list(&cfg),
+            roots: roots.iter().map(|r| trim_trailing_slash(&pb(r))).collect(),
         };
         excludes.prefixes.sort();
         excludes.prefixes.dedup();
@@ -436,6 +529,12 @@ impl Index {
         }
         for e in &excludes.prefixes {
             fnv(&mut fp, e);
+        }
+        for pattern in &excludes.patterns {
+            for seg in pattern {
+                fnv(&mut fp, seg);
+            }
+            fnv(&mut fp, b"/");
         }
         for p in &pkg {
             fnv(&mut fp, p);
@@ -501,8 +600,17 @@ impl Index {
 
         #[cfg(feature = "content")]
         let content = Mutex::new(crate::content::ContentIndex::new(&cfg));
+        let opened_at = Instant::now();
+        let gate = Mutex::new(RelistGate::new(
+            cfg.relist_min_interval,
+            cfg.relist_max_interval,
+            opened_at,
+        ));
         let shared = Arc::new(Shared {
             store: RwLock::new(store),
+            gate,
+            reads: Mutex::new(Rate::new(opened_at)),
+            cpu_mark: Mutex::new((opened_at, cpu_seconds())),
             cfg,
             roots,
             backend,
@@ -518,6 +626,7 @@ impl Index {
         shared.content_rebuild();
 
         let w = Worker {
+            max_seen: shared.last_event_id.load(Ordering::Relaxed),
             shared: shared.clone(),
             pending: Pending::default(),
             last_commit: Instant::now(),
@@ -542,8 +651,46 @@ impl Index {
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .clone();
+        let now = Instant::now();
+        let gate_heap = {
+            let mut gate = self.shared.gate.lock().unwrap_or_else(|e| e.into_inner());
+            st.relists_total = gate.relists_total();
+            st.relist_rate_per_s = gate.relists_per_s(now);
+            st.backoff_folders = gate.backoff_folders();
+            gate.heap_bytes()
+        };
+        {
+            let mut reads = self.shared.reads.lock().unwrap_or_else(|e| e.into_inner());
+            st.dir_reads_total = reads.total();
+            st.dir_reads_per_s = reads.per_s(now);
+        }
+        let cpu_now = cpu_seconds();
+        {
+            let mut mark = self
+                .shared
+                .cpu_mark
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
+            let elapsed = now.duration_since(mark.0).as_secs_f64();
+            st.cpu_percent = if elapsed > 0.001 {
+                (cpu_now - mark.1) / elapsed * 100.0
+            } else {
+                0.0
+            };
+            *mark = (now, cpu_now);
+        }
+        st.cpu_seconds_total = cpu_now;
         let store = rd(&self.shared);
+        st.resident_bytes = ResidentBytes {
+            mapped: store.mapped_resident_bytes() as u64,
+            heap: (store.heap_bytes() + gate_heap) as u64,
+        };
         st.entries = store.len();
+        st.resident_per_entry = if st.entries == 0 {
+            0.0
+        } else {
+            (st.resident_bytes.mapped + st.resident_bytes.heap) as f64 / st.entries as f64
+        };
         st.last_event_id = self.shared.last_event_id.load(Ordering::Relaxed);
         st.roots = self
             .shared
@@ -711,6 +858,20 @@ impl Index {
     /// Drop clean mapped pages from the resident set now. Also done automatically after 30 s idle.
     pub fn trim(&self) {
         wr(&self.shared).trim();
+    }
+
+    /// Gives back what the index can: commits pending changes, drops the resident pages of its
+    /// column and name mappings (they fault back in on use), and asks the allocator to return
+    /// free heap pages. Queries stay correct; the next ones pay the page-fault cost.
+    pub fn shrink(&self) {
+        {
+            let mut st = wr(&self.shared);
+            if st.is_dirty() {
+                let _ = st.commit(self.shared.last_event_id.load(Ordering::Relaxed));
+            }
+            st.trim();
+        }
+        release_allocator_memory();
     }
 
     #[doc(hidden)]
@@ -925,6 +1086,9 @@ fn root_status(backend: &dyn Backend, store: &Store, r: &Path) -> RootStatus {
 
 struct Worker {
     shared: Arc<Shared>,
+    /// Highest event id seen. Persisted only while no deferred re-list is outstanding, so a
+    /// restart never skips a change that is still waiting for its window.
+    max_seen: u64,
     pending: Pending,
     last_commit: Instant,
     last_compact: Instant,
@@ -935,26 +1099,27 @@ impl Worker {
     fn run(mut self, rx: Receiver<WatchMsg>) {
         let coalesce = self.shared.cfg.change_coalesce;
         loop {
-            let msg = match self.pending.first_at {
-                Some(t) => {
-                    let due = t + coalesce;
-                    match rx.recv_timeout(due.saturating_duration_since(Instant::now())) {
-                        Ok(m) => Some(m),
-                        Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
-                            self.emit();
-                            continue;
-                        }
-                        Err(_) => return,
-                    }
+            let now = Instant::now();
+            let mut wake = now + Duration::from_secs(30);
+            if let Some(t) = self.pending.first_at {
+                wake = wake.min(t + coalesce);
+            }
+            if let Some(d) = self
+                .shared
+                .gate
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .next_due()
+            {
+                wake = wake.min(d);
+            }
+            let msg = match rx.recv_timeout(wake.saturating_duration_since(now)) {
+                Ok(m) => Some(m),
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                    self.on_tick();
+                    continue;
                 }
-                None => match rx.recv_timeout(Duration::from_secs(30)) {
-                    Ok(m) => Some(m),
-                    Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
-                        self.maybe_commit();
-                        continue;
-                    }
-                    Err(_) => return,
-                },
+                Err(_) => return,
             };
             let mut events: Vec<Event> = Vec::new();
             let mut acks: Vec<Sender<()>> = Vec::new();
@@ -1035,12 +1200,60 @@ impl Worker {
                 self.rescan_subtree(&p);
             }
             for p in dirs {
-                let mut done = HashSet::new();
-                self.sync_path(&p, &mut done);
+                if self.gate_request(&p) == Decision::Run {
+                    let mut done = HashSet::new();
+                    self.sync_path(&p, &mut done);
+                }
             }
         }
-        sh.last_event_id.store(max_id, Ordering::Relaxed);
+        self.max_seen = self.max_seen.max(max_id);
+        if !self.gate_busy() {
+            sh.last_event_id.store(self.max_seen, Ordering::Relaxed);
+        }
         self.after_apply();
+    }
+
+    /// Runs deferred folder re-lists that are due, then emits pending changes or commits.
+    fn on_tick(&mut self) {
+        let now = Instant::now();
+        let due = {
+            let mut gate = self.shared.gate.lock().unwrap_or_else(|e| e.into_inner());
+            gate.take_due(now)
+        };
+        if !due.is_empty() {
+            let mut done = HashSet::new();
+            for p in &due {
+                self.sync_path(p, &mut done);
+            }
+            if !self.gate_busy() {
+                self.shared
+                    .last_event_id
+                    .store(self.max_seen, Ordering::Relaxed);
+            }
+            self.after_apply();
+        }
+        let coalesce = self.shared.cfg.change_coalesce;
+        match self.pending.first_at {
+            Some(t) if now.duration_since(t) >= coalesce => self.emit(),
+            Some(_) => {}
+            None => self.maybe_commit(),
+        }
+    }
+
+    fn gate_request(&self, path: &[u8]) -> Decision {
+        self.shared
+            .gate
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .request(path, Instant::now())
+    }
+
+    fn gate_busy(&self) -> bool {
+        self.shared
+            .gate
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .has_deferred()
     }
 
     fn maybe_commit(&mut self) {
@@ -1125,6 +1338,10 @@ impl Worker {
         if !done.insert(path.to_vec()) || sh.excludes.matches(path) {
             return;
         }
+        sh.reads
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .record(Instant::now(), 1);
         let listing = sh.backend.list_dir(&os(path), &sh.excludes);
         let mut new_dirs: Vec<(u32, Vec<u8>)> = Vec::new();
         {
@@ -1494,6 +1711,10 @@ impl Shared {
             self.cfg.crawl_threads,
             &mut |l| v.push(l),
         );
+        self.reads
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .record(Instant::now(), v.len() as u64);
         v.sort_by_key(|l| l.id);
         v
     }

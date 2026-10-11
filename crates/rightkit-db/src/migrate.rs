@@ -16,6 +16,7 @@
 use crate::{DbError, DbOptions, Result};
 use rusqlite::{Connection, OptionalExtension};
 use std::path::{Path, PathBuf};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 pub enum Step {
     Sql(&'static str),
@@ -69,6 +70,35 @@ pub enum VersionStorage {
     /// Table names must contain only ASCII letters, digits, or underscores.
     /// Keys are bound parameters and may contain arbitrary text.
     Table { table: String, key: String },
+    /// One row per applied version, shaped `"<version_column>" INTEGER PRIMARY KEY,
+    /// "<applied_at_column>" INTEGER NOT NULL` (ViewRight's `_migrations` shape). The applied
+    /// version is the highest stored `version_column`; a rollback deletes the top row. The table is
+    /// created on the first write when absent. Identifiers must be ASCII letters, digits, or
+    /// underscores. `applied_at` stores unix seconds.
+    VersionTable {
+        table: String,
+        version_column: String,
+        applied_at_column: String,
+    },
+}
+
+impl VersionStorage {
+    /// [`VersionStorage::VersionTable`] with the `version` and `applied_at` column names.
+    pub fn version_table(table: impl Into<String>) -> Self {
+        Self::VersionTable {
+            table: table.into(),
+            version_column: "version".into(),
+            applied_at_column: "applied_at".into(),
+        }
+    }
+}
+
+/// An app's existing one-row-per-version table, read once to adopt its applied version (see
+/// [`MigrateOptions::import_legacy_versions`]). Only the highest `version_column` value is used.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct LegacyVersionTable {
+    pub table: String,
+    pub version_column: String,
 }
 
 #[derive(Clone)]
@@ -84,6 +114,8 @@ pub struct MigrateOptions {
     pub forward_compatible: Option<fn(&Connection) -> bool>,
     /// Refresh planner statistics after migrating (`PRAGMA optimize`).
     pub optimize_after: bool,
+    /// Adopt an existing app version table (see [`MigrateOptions::import_legacy_versions`]). Default none.
+    pub legacy_versions: Option<LegacyVersionTable>,
 }
 
 impl Default for MigrateOptions {
@@ -94,7 +126,24 @@ impl Default for MigrateOptions {
             backup_options: None,
             forward_compatible: None,
             optimize_after: true,
+            legacy_versions: None,
         }
+    }
+}
+
+impl MigrateOptions {
+    /// Adopt the applied version of an app's existing version table, once, so its migrations are
+    /// not re-run. Applies only when the configured storage reads version 0 and the legacy table's
+    /// highest version is above zero. The configured storage is then seeded to that version (a
+    /// `VersionTable` gets one row per version up to it), and the migrations up to it are skipped.
+    /// The legacy table is only read, never written. Idempotent: once seeded, the configured
+    /// storage is above zero, so later opens do not consult the legacy table. Rolling back to
+    /// version 0 while the legacy table still exists re-adopts it on the next open, so drop or
+    /// rename that table after adoption. A legacy version above this build's newest migration is
+    /// refused as [`DbError::NewerDatabase`] and nothing is written.
+    pub fn import_legacy_versions(mut self, legacy: LegacyVersionTable) -> Self {
+        self.legacy_versions = Some(legacy);
+        self
     }
 }
 
@@ -129,9 +178,18 @@ fn set_user_version(conn: &Connection, version: i64) -> rusqlite::Result<()> {
 /// Read the selected migration version without creating a table or row.
 /// Missing table/key means zero; malformed or negative versions are refused.
 pub fn migration_version(conn: &Connection, storage: &VersionStorage) -> Result<i64> {
-    let VersionStorage::Table { table, key } = storage else {
-        return user_version(conn);
-    };
+    match storage {
+        VersionStorage::UserVersion => user_version(conn),
+        VersionStorage::Table { table, key } => key_value_version(conn, table, key),
+        VersionStorage::VersionTable {
+            table,
+            version_column,
+            ..
+        } => version_row_max(conn, table, version_column),
+    }
+}
+
+fn key_value_version(conn: &Connection, table: &str, key: &str) -> Result<i64> {
     check_ident(table)?;
     let exists: bool = conn.query_row(
         "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name=?1 COLLATE NOCASE)",
@@ -159,7 +217,11 @@ pub fn migration_version(conn: &Connection, storage: &VersionStorage) -> Result<
 }
 
 // Called only inside the migration/down transaction, after identifier validation.
-fn set_version(conn: &Connection, storage: &VersionStorage, version: i64) -> rusqlite::Result<()> {
+fn set_key_value_version(
+    conn: &Connection,
+    storage: &VersionStorage,
+    version: i64,
+) -> rusqlite::Result<()> {
     match storage {
         VersionStorage::UserVersion => set_user_version(conn, version),
         VersionStorage::Table { table, key } => {
@@ -175,7 +237,134 @@ fn set_version(conn: &Connection, storage: &VersionStorage, version: i64) -> rus
             )?;
             Ok(())
         }
+        // Routed to `advance_version` / `retreat_version`, never reached through them.
+        VersionStorage::VersionTable { .. } => Err(rusqlite::Error::InvalidQuery),
     }
+}
+
+/// Make `version` the applied version: a forward step, inside its transaction.
+fn advance_version(
+    conn: &Connection,
+    storage: &VersionStorage,
+    version: i64,
+) -> rusqlite::Result<()> {
+    match storage {
+        VersionStorage::VersionTable {
+            table,
+            version_column,
+            applied_at_column,
+        } => {
+            conn.execute_batch(&format!(
+                "CREATE TABLE IF NOT EXISTS \"{table}\" (\"{version_column}\" INTEGER PRIMARY KEY, \"{applied_at_column}\" INTEGER NOT NULL);"
+            ))?;
+            conn.execute(
+                &format!("DELETE FROM \"{table}\" WHERE \"{version_column}\" = ?1"),
+                [version],
+            )?;
+            conn.execute(
+                &format!(
+                    "INSERT INTO \"{table}\" (\"{version_column}\", \"{applied_at_column}\") VALUES (?1, ?2)"
+                ),
+                rusqlite::params![version, now_secs()],
+            )?;
+            Ok(())
+        }
+        _ => set_key_value_version(conn, storage, version),
+    }
+}
+
+/// Un-apply `version`: a rollback step, so the applied version becomes `version - 1`.
+fn retreat_version(
+    conn: &Connection,
+    storage: &VersionStorage,
+    version: i64,
+) -> rusqlite::Result<()> {
+    match storage {
+        VersionStorage::VersionTable {
+            table,
+            version_column,
+            ..
+        } => {
+            conn.execute(
+                &format!("DELETE FROM \"{table}\" WHERE \"{version_column}\" = ?1"),
+                [version],
+            )?;
+            Ok(())
+        }
+        _ => set_key_value_version(conn, storage, version - 1),
+    }
+}
+
+/// Seed a database at version 0 with `through` as its applied version (legacy adoption). A
+/// `VersionTable` gets one row per version; the other storages take the single value.
+fn adopt_legacy_version(conn: &Connection, storage: &VersionStorage, through: i64) -> Result<()> {
+    conn.execute_batch("BEGIN IMMEDIATE;")?;
+    let seeded = match storage {
+        VersionStorage::VersionTable { .. } => {
+            (1..=through).try_for_each(|version| advance_version(conn, storage, version))
+        }
+        _ => advance_version(conn, storage, through),
+    };
+    match seeded {
+        Ok(()) => {
+            conn.execute_batch("COMMIT;")?;
+            Ok(())
+        }
+        Err(error) => {
+            let _ = conn.execute_batch("ROLLBACK;");
+            Err(DbError::Sqlite(error))
+        }
+    }
+}
+
+/// Highest version stored in a one-row-per-version table; zero when the table is absent or empty.
+fn version_row_max(conn: &Connection, table: &str, version_column: &str) -> Result<i64> {
+    check_ident(table)?;
+    check_ident(version_column)?;
+    let exists: bool = conn.query_row(
+        "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name=?1 COLLATE NOCASE)",
+        [table],
+        |row| row.get(0),
+    )?;
+    if !exists {
+        return Ok(0);
+    }
+    let highest: Option<i64> = conn.query_row(
+        &format!("SELECT MAX(CAST(\"{version_column}\" AS INTEGER)) FROM \"{table}\""),
+        [],
+        |row| row.get(0),
+    )?;
+    let version = highest.unwrap_or(0);
+    if version < 0 {
+        return Err(DbError::InvalidMigrations(format!(
+            "invalid stored version {version}"
+        )));
+    }
+    Ok(version)
+}
+
+/// Refuses any identifier that is not a plain ASCII name, before SQL is built from it.
+fn check_storage(storage: &VersionStorage) -> Result<()> {
+    match storage {
+        VersionStorage::UserVersion => Ok(()),
+        VersionStorage::Table { table, .. } => check_ident(table),
+        VersionStorage::VersionTable {
+            table,
+            version_column,
+            applied_at_column,
+        } => {
+            check_ident(table)?;
+            check_ident(version_column)?;
+            check_ident(applied_at_column)
+        }
+    }
+}
+
+fn now_secs() -> i64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0)
 }
 
 pub fn validate(migrations: &[Migration]) -> Result<()> {
@@ -222,7 +411,8 @@ pub fn migrate(
     options: &MigrateOptions,
 ) -> Result<MigrationReport> {
     validate(migrations)?;
-    let current = migration_version(conn, &options.version_storage)?;
+    check_storage(&options.version_storage)?;
+    let mut current = migration_version(conn, &options.version_storage)?;
     let max = migrations.last().map(|m| m.version).unwrap_or(0);
     let mut report = MigrationReport {
         from: current,
@@ -230,6 +420,19 @@ pub fn migrate(
         ..Default::default()
     };
     report.interrupted_previous = db_path.and_then(pending_marker);
+
+    // Legacy adoption happens only from version 0 (see `MigrateOptions::import_legacy_versions`).
+    if let Some(legacy) = options.legacy_versions.as_ref().filter(|_| current == 0) {
+        let legacy_version = version_row_max(conn, &legacy.table, &legacy.version_column)?;
+        if legacy_version > 0 {
+            if legacy_version <= max {
+                adopt_legacy_version(conn, &options.version_storage, legacy_version)?;
+            }
+            current = legacy_version;
+            report.from = current;
+            report.to = current;
+        }
+    }
 
     if current > max {
         if options.forward_compatible.is_some_and(|probe| probe(conn)) {
@@ -270,7 +473,7 @@ pub fn migrate(
             Step::Sql(sql) => conn.execute_batch(sql),
             Step::Code(run) => run(conn),
         }
-        .and_then(|()| set_version(conn, &options.version_storage, migration.version));
+        .and_then(|()| advance_version(conn, &options.version_storage, migration.version));
         match applied {
             Ok(()) => {
                 conn.execute_batch("COMMIT;")?;
@@ -311,6 +514,7 @@ pub fn rollback_to_with_storage(
     storage: &VersionStorage,
 ) -> Result<Vec<i64>> {
     validate(migrations)?;
+    check_storage(storage)?;
     if target < 0 {
         return Err(DbError::Rollback(
             "target version must be nonnegative".into(),
@@ -341,7 +545,7 @@ pub fn rollback_to_with_storage(
         conn.execute_batch("BEGIN IMMEDIATE;")?;
         let result = conn
             .execute_batch(down)
-            .and_then(|()| set_version(conn, storage, version - 1));
+            .and_then(|()| retreat_version(conn, storage, version));
         match result {
             Ok(()) => {
                 conn.execute_batch("COMMIT;")?;

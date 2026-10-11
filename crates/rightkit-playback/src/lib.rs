@@ -21,6 +21,9 @@ use std::time::{Duration, Instant, SystemTime};
 use rightkit_media::CancellationToken;
 use rightkit_process::{OwnedCommand, WaitOutcome};
 
+pub mod source;
+pub use source::{allowed_roots, Authoriser, SourceId, SourceRegistry};
+
 /// Audio containers the native webview players handle poorly but FFmpeg remuxes cleanly.
 const AUDIO_EXTENSIONS: &[&str] = &["wav", "mp3", "m4a", "aac", "flac", "ogg", "opus"];
 /// Known video containers win over any historical audio label.
@@ -86,7 +89,7 @@ impl PlaybackSource {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum PlaybackError {
     Missing,
     Empty,
@@ -97,6 +100,8 @@ pub enum PlaybackError {
     Runtime(String),
     Cache(String),
     InvalidRequest,
+    /// The host's authorisation hook refused the path, or none is set.
+    NotAllowed,
 }
 
 impl PlaybackError {
@@ -112,6 +117,7 @@ impl PlaybackError {
             Self::Runtime(_) => "PLAYBACK_RUNTIME",
             Self::Cache(_) => "PLAYBACK_CACHE",
             Self::InvalidRequest => "PLAYBACK_REQUEST",
+            Self::NotAllowed => "PLAYBACK_NOT_ALLOWED",
         }
     }
 }
@@ -129,6 +135,7 @@ impl fmt::Display for PlaybackError {
             }
             Self::Runtime(cause) | Self::Cache(cause) => cause.clone(),
             Self::InvalidRequest => "invalid playback request".to_owned(),
+            Self::NotAllowed => "media path is not allowed".to_owned(),
         };
         write!(f, "{}: {detail}", self.code())
     }
@@ -457,25 +464,147 @@ pub mod tauri_commands {
         fn ffmpeg(&self) -> Result<PathBuf, String>;
         /// Expose the finished derivative to the webview (asset-protocol scope).
         fn allow_asset(&self, path: &Path) -> Result<(), String>;
+        /// A source registry the host shares with its own commands, if it keeps one. The default
+        /// `None` makes [`PlaybackState::new`] own a private registry.
+        fn registry(&self) -> Option<Arc<Mutex<SourceRegistry>>> {
+            None
+        }
     }
 
+    /// Host-owned playback state: the app's [`PlaybackHost`], the request registry, and the
+    /// registered media sources the UI refers to by [`SourceId`].
     pub struct PlaybackState {
         host: Arc<dyn PlaybackHost>,
         registry: Arc<PlaybackRegistry>,
+        sources: Arc<Mutex<SourceRegistry>>,
     }
 
     impl PlaybackState {
+        /// Use the host's shared source registry when [`PlaybackHost::registry`] provides one,
+        /// otherwise own a private registry.
         pub fn new(host: Arc<dyn PlaybackHost>) -> Self {
+            let sources = host
+                .registry()
+                .unwrap_or_else(|| Arc::new(Mutex::new(SourceRegistry::new())));
             Self {
                 host,
                 registry: Arc::new(PlaybackRegistry::new()),
+                sources,
             }
+        }
+
+        /// Use `registry` as the source registry, so the app's own commands and this state see
+        /// the same registrations and revocations. Takes precedence over [`PlaybackHost::registry`].
+        pub fn with_registry(
+            host: Arc<dyn PlaybackHost>,
+            registry: Arc<Mutex<SourceRegistry>>,
+        ) -> Self {
+            Self {
+                host,
+                registry: Arc::new(PlaybackRegistry::new()),
+                sources: registry,
+            }
+        }
+
+        /// Register a media file and return the id to send to the UI. Call from Rust only, for
+        /// example in a listing command that already holds the path. The UI never supplies it.
+        pub fn register_source(&self, path: impl AsRef<Path>) -> Result<SourceId, PlaybackError> {
+            self.source_registry().register(path)
+        }
+
+        /// Revoke a source by id (or registered path). Later prepares fail with
+        /// `PLAYBACK_REQUEST`. A preparation already running is not cancelled; cancel it by
+        /// request id. The file is never deleted.
+        pub fn revoke_source(&self, reference: &str) -> bool {
+            self.source_registry().revoke_ref(reference)
+        }
+
+        /// The id for a path that is already registered and whose file has not changed since.
+        /// Never registers: an unregistered or changed path is refused, so this cannot add a source.
+        pub fn media_source_id(&self, path: impl AsRef<Path>) -> Result<SourceId, PlaybackError> {
+            let registry = self.source_registry();
+            let id = registry
+                .id_for_path(path)
+                .ok_or(PlaybackError::InvalidRequest)?;
+            registry.resolve(&id)?;
+            Ok(id)
+        }
+
+        /// Opt in to host-authorised sources. `authoriser` receives the canonical path and returns
+        /// whether the host allows it (for example the app's asset-protocol scope). It is checked
+        /// when [`authorised_media_source_id`](Self::authorised_media_source_id) registers a file
+        /// and again every time such an id is used, so returning `false` later revokes it. It
+        /// runs under the registry lock and must not call back into this state. Applies to the
+        /// shared registry, so the host's own commands see it too.
+        pub fn set_authoriser(&self, authoriser: impl Fn(&Path) -> bool + Send + Sync + 'static) {
+            self.source_registry().set_authoriser(authoriser);
+        }
+
+        /// Allow regular files under `roots`, recursively (see [`allowed_roots`]).
+        pub fn allow_roots<I, P>(&self, roots: I)
+        where
+            I: IntoIterator<Item = P>,
+            P: Into<PathBuf>,
+        {
+            self.set_authoriser(allowed_roots(roots));
+        }
+
+        /// Remove the hook; ids it admitted stop resolving.
+        pub fn clear_authoriser(&self) {
+            self.source_registry().clear_authoriser();
+        }
+
+        /// Resolve-or-register: the id for any file the authorisation hook allows. Fails with
+        /// `NotAllowed` when no hook is set. See [`SourceRegistry::resolve_or_register`].
+        pub fn authorised_media_source_id(
+            &self,
+            path: impl AsRef<Path>,
+        ) -> Result<SourceId, PlaybackError> {
+            self.source_registry().resolve_or_register(path)
+        }
+
+        fn resolve_source(&self, reference: &str) -> Result<PathBuf, PlaybackError> {
+            self.source_registry()
+                .resolve_ref(reference)
+                .map(Path::to_path_buf)
+        }
+
+        fn source_registry(&self) -> MutexGuard<'_, SourceRegistry> {
+            self.sources.lock().unwrap_or_else(|e| e.into_inner())
         }
     }
 
     #[tauri::command]
     pub fn cancel_media_playback(request_id: String, state: tauri::State<'_, PlaybackState>) {
         state.registry.cancel(&request_id);
+    }
+
+    /// Id for a path that is already registered (see [`PlaybackState::media_source_id`]). Returns
+    /// the id string the UI passes to `prepare_registered_media_playback`. Never registers a path.
+    #[tauri::command]
+    pub fn media_source_id(
+        path: String,
+        state: tauri::State<'_, PlaybackState>,
+    ) -> Result<String, String> {
+        state
+            .media_source_id(&path)
+            .map(|id| id.as_str().to_owned())
+            .map_err(|e| e.to_string())
+    }
+
+    /// Id for any file the host's authorisation hook allows, registering it on demand. Refused
+    /// with `PLAYBACK_NOT_ALLOWED` when the host did not opt in (see
+    /// [`PlaybackState::set_authoriser`]) or the hook says no. Unlike `media_source_id`, this can
+    /// add a source, but only one the host has authorised.
+    #[tauri::command]
+    pub fn authorised_media_source_id(
+        path: String,
+        state: tauri::State<'_, PlaybackState>,
+    ) -> Result<String, String> {
+        state
+            .authorised_media_source_id(&path)
+            .map(|id| id.as_str().to_owned())
+            .map_err(|e| e.to_string())
     }
 
     #[tauri::command]
@@ -500,6 +629,41 @@ pub mod tauri_commands {
         .map_err(|e| e.to_string())?;
         state.host.allow_asset(&path)?;
         Ok(path.to_string_lossy().into_owned())
+    }
+
+    /// Prepare playback for a registered source. `source` is a [`SourceId`] string (preferred),
+    /// or a path that is already registered; any other path is refused with `PLAYBACK_REQUEST`.
+    /// The source path never reaches the webview: only the derivative is allowed as an asset.
+    #[tauri::command]
+    pub async fn prepare_registered_media_playback(
+        source: String,
+        request_id: String,
+        state: tauri::State<'_, PlaybackState>,
+    ) -> Result<String, String> {
+        let path = state.resolve_source(&source).map_err(|e| e.to_string())?;
+        let source = PlaybackSource::new(path);
+        let ffmpeg = state.host.ffmpeg()?;
+        let root = state.host.cache_dir()?;
+        let request = state
+            .registry
+            .begin(&request_id)
+            .map_err(|e| e.to_string())?;
+        let path = tauri::async_runtime::spawn_blocking(move || {
+            let _request = request;
+            compatibility_copy(&ffmpeg, &source, &root, _request.token())
+        })
+        .await
+        .map_err(|e| format!("PLAYBACK_PREPARE: {e}"))?
+        .map_err(|e| e.to_string())?;
+        state.host.allow_asset(&path)?;
+        Ok(path.to_string_lossy().into_owned())
+    }
+
+    /// Revoke a registered source by id string or registered path. Returns whether it was live.
+    /// Reaches the same registry the host shares, when it shares one.
+    #[tauri::command]
+    pub fn revoke_media_source(source: String, state: tauri::State<'_, PlaybackState>) -> bool {
+        state.revoke_source(&source)
     }
 }
 

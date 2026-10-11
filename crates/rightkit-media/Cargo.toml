@@ -29,3 +29,7 @@ tempfile = "3"
 [[test]]
 name = "native_catalog_e2e"
 required-features = ["native"]
+
+[package.metadata.rightkit]
+continuous = false
+continuous_reason = "thread-spawn: per-call pipe-reader and child-exit threads (lib.rs build probe, runner.rs run), joined or ended with the child before the call returns; sleep: child poll interval inside one run, bounded by timeout and cancellation; the only process-lifetime memory is verify_cache (one entry per verified ffmpeg binary, not data-scale); no listener, timer or watcher (reviewed 2026-10-11)"

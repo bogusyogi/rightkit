@@ -356,6 +356,8 @@ where
             )),
             // The blocking reader never times out; a deadline reader ends the session.
             Err(FrameError::TimedOut { .. }) => break,
+            // Only produced when a reader opts out of skipping empty lines; this loop does not.
+            Err(FrameError::EmptyLine) => emit(err(0, "bad_request", "bad frame: empty line")),
         }
     }
     // The client is gone (EOF) or asked to shut down: cancel jobs tied to this connection first.

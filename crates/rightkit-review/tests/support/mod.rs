@@ -4,8 +4,8 @@
 #![allow(dead_code)]
 
 use rightkit_review::{
-    ArtifactDescription, ArtifactKind, Declarations, DeclaredWindow, DeterminismProbe, Finding,
-    FrameStat, Subject, TextRegion, Verdict, WindowKind,
+    ArtifactDescription, ArtifactKind, ClaimAnnotation, Declarations, DeclaredWindow,
+    DeterminismProbe, Finding, FrameStat, Subject, TextBody, TextRegion, Verdict, WindowKind,
 };
 
 pub fn clean_video() -> Subject {
@@ -36,6 +36,7 @@ pub fn clean_video() -> Subject {
                 output_hashes: vec!["blake3:out".to_string(), "blake3:out".to_string()],
             }),
             licence: Some("cc0".to_string()),
+            text: None,
         },
         declarations: Declarations {
             target_width: Some(1080),
@@ -84,4 +85,32 @@ pub fn verdict_of<'a>(findings: &'a [Finding], rule_id: &str) -> &'a Verdict {
         .find(|finding| finding.rule_id == rule_id)
         .unwrap_or_else(|| panic!("no finding for {rule_id}"))
         .verdict
+}
+
+/// A text subject with no claim annotations. Its declarations are empty.
+pub fn text_subject(body: &str) -> Subject {
+    text_subject_with(body, Vec::new())
+}
+
+/// A text subject whose text body carries the given claim annotations.
+pub fn text_subject_with(body: &str, claims: Vec<ClaimAnnotation>) -> Subject {
+    Subject {
+        artifact: ArtifactDescription {
+            artifact_id: "post.hook-01".to_string(),
+            kind: ArtifactKind::Text,
+            width: None,
+            height: None,
+            duration_ms: None,
+            frames: None,
+            max_flashes_per_second: None,
+            text_regions: None,
+            determinism: None,
+            licence: None,
+            text: Some(TextBody {
+                body: body.to_string(),
+                claims,
+            }),
+        },
+        declarations: Declarations::default(),
+    }
 }

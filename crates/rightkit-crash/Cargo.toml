@@ -26,6 +26,7 @@ default = ["support-bundle"]
 support-bundle = ["dep:zip"]
 
 [dependencies]
+rightkit-fs = { version = "0.3", path = "../rightkit-fs", default-features = false, features = ["fs"] }
 rightkit-logs = { version = "0.2.0", path = "../rightkit-logs", default-features = false }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -43,3 +44,7 @@ windows-sys = { version = "0.61.2", features = [
 
 [dev-dependencies]
 rightkit-logs = { version = "0.2.0", path = "../rightkit-logs", features = ["testing"] }
+
+[package.metadata.rightkit]
+continuous = false
+continuous_reason = "sleep: 40 ms try_wait poll while the one-shot native dump helper runs (native.rs), bounded by the platform TIMEOUT and a single-flight guard; the panic hook runs only on panic; no thread-spawn, task-spawn, timer, listener or watcher (reviewed 2026-10-11)"

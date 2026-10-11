@@ -1,0 +1,54 @@
+# crate: rightkit-cache 0.2.0
+# command: rightkit cargo bench -p rightkit-cache  --bench budget
+# host: macos arm64, Mac18,5 / Apple M6, 12 cpus, 24 GB, 27.0.1
+# date: 2026-10-11T03:50:30Z
+# machine load (1/5/15 min) before the build: 16.49 19.39 16.13 ; after the run: 16.46 15.60 14.98 (other builds were running; the queue admits one build at a time)
+# commit: ae89835c0dc01c8bb38d62e699a675bd45026b44 (HEAD; the tree under test has uncommitted changes)
+rightkit: request 02d88883-67d2-4be6-985e-9c5bb564b5f4
+[rightkit] target cold at start (0 entries, generation 2)
+    Blocking waiting for file lock on package cache
+   Compiling libc v0.2.186
+   Compiling proc-macro2 v1.0.106
+   Compiling quote v1.0.46
+   Compiling unicode-ident v1.0.24
+   Compiling typenum v1.20.1
+   Compiling cfg-if v1.0.4
+   Compiling thiserror v2.0.21
+   Compiling const-oid v0.10.2
+   Compiling getrandom v0.4.3
+   Compiling rustix v1.1.4
+   Compiling bitflags v2.13.0
+   Compiling once_cell v1.21.4
+   Compiling fastrand v2.4.1
+   Compiling hybrid-array v0.4.15
+   Compiling crypto-common v0.2.2
+   Compiling block-buffer v0.12.1
+   Compiling digest v0.11.3
+   Compiling cpufeatures v0.3.1
+   Compiling errno v0.3.14
+   Compiling rightkit-process v0.3.4 (/Volumes/D/rightkit-publish/v10/claude/rightkit/crates/rightkit-process)
+   Compiling sha2 v0.11.0
+   Compiling tempfile v3.27.0
+   Compiling syn v3.0.6
+   Compiling thiserror-impl v2.0.21
+   Compiling rightkit-fs v0.3.4 (/Volumes/D/rightkit-publish/v10/claude/rightkit/crates/rightkit-fs)
+   Compiling rightkit-cache v0.2.0 (/Volumes/D/rightkit-publish/v10/claude/rightkit/crates/rightkit-cache)
+    Finished `bench` profile [optimized] target(s) in 12.78s
+     Running benches/budget.rs (/Volumes/D/.rightkit-managed/rightkit-build-control/ws/520b705fd794/g/002/target/aarch64-apple-darwin/release/deps/budget-eefbf0bdc5663a40)
+warm-up: 100000 puts in 249.3 s, 100000 gets in 22.2 s (65536 hits), resident entries 65536, bytes 33554432, evictions 34464, resident 22.7 MiB (before open 1.8 MiB)
+RESULT cache_entries=65536 entries
+RESULT cache_evictions=34464 entries
+RESULT warm_resident_bytes=23789568 bytes
+RESULT idle_resident_bytes=1179648 bytes
+RESULT resident_memory_bytes=23789568 bytes
+RESULT footprint_bytes=25182640 bytes
+RESULT idle_window_seconds=30.1 seconds
+RESULT idle_cpu_percent=0.000 percent
+RESULT wakeups_per_second=0.033 per_second
+RESULT disk_ops_per_second=unavailable the host exposes no process disk-operation counter
+RESULT disk_read_bytes_per_second=0.000 bytes_per_second
+RESULT disk_write_bytes_per_second=0.000 bytes_per_second
+RESULT scale=100000 512-byte entries put and read through a 32 MiB cap, then idle
+RESULT scope=synthetic
+RESULT budget crate=rightkit-cache version=0.2.0 resident_bytes=23789568 idle_cpu_percent=0.000 wakeups_per_s=0.033 disk_ops_per_s=unavailable scale_unit=entries scale_count=100000
+[rightkit] target cold (target-empty-at-start); not-fresh unknown (no cargo json stream)

@@ -65,7 +65,7 @@ Request shape, from `tests/e2e.rs`: `Request::post(url).bearer(token).json(&valu
 
 ## Retries and unsafe methods
 
-- `Request::retry_unsafe_statuses(false)` stops status-code retries (429, 5xx and the other `retry_statuses`) for POST and PATCH. The default is `true`, which retries them. Connect-phase transport failures are still retried for every method, because nothing reached the server.
+- Status-code retries (429, 5xx and the other `retry_statuses`) apply to idempotent methods only. **Since 0.3.0 POST and PATCH are not replayed by default**, so a single-use OAuth code exchange is never sent twice; `Request::retry_unsafe_statuses(true)` opts one request in. Connect-phase transport failures are still retried for every method, because nothing reached the server.
 - `.retry(RetryPolicy::none())` already disables every retry, including unsafe-status retries on POST and PATCH. `RetryPolicy::none()` has `max_attempts = 1`, so one request is made and no backoff sleep runs. Sub-second probes are therefore safe to call with it. The override and the policy are independent: `retry_unsafe_statuses(true)` with `RetryPolicy::none()` still makes exactly one request.
 - `Request::deadline(total)` bounds all attempts and the retry sleeps between them. When the next sleep would pass the deadline, the last outcome is returned and no sleep runs. `Request::timeout` and `ClientConfig::request_timeout` stay per-attempt, so a 300 to 600 s call budget with a 60 s attempt timeout is `deadline(300 s)` plus the default `timeout`.
 
@@ -80,6 +80,8 @@ Request shape, from `tests/e2e.rs`: `Request::post(url).bearer(token).json(&valu
 - `ClientConfig::redact_values(vec![...])` scrubs configured strings in the same places. Each replaced value appears as `[redacted]`.
 
 ## Downloads
+
+The URL policy runs before any file is touched. `.part` is created exclusively (or opened with `O_NOFOLLOW` on resume); a link at that path is removed, never followed. The bytes are fsynced, hashed through the same handle and the path is compared with the handle just before the rename. A body past `expected_bytes` or the declared range stops the download and deletes `.part`. A reconnect that lands on a different resource (final URL without query) restarts from zero instead of splicing. `Content-Range` must be well formed and agree with `Content-Length`. A response is refused when its `Content-Encoding` is not `identity`: the client reads the real value off the connection before `ureq` can decode a `gzip` body and strip the header (`ureq` has no switch to turn decoding off, and any crate in the build can enable its `gzip` feature). A response that is neither length-delimited nor chunked is refused too. Completion is checked against the advertised total of the whole resource (`Content-Range` `/total`), not against where a short range ends, and a `Content-Range` whose end cannot be represented is rejected.
 
 `Client::download_to_path(url, dest, DownloadOptions)` writes to `<dest>.part`, then fsyncs and renames it to `dest`.
 
@@ -149,6 +151,7 @@ let client = Client::new(ClientConfig::default().address_policy(policy));
 
 **Proxy mode is weaker than a direct connection by construction.** The proxy resolves the destination name itself, so this crate cannot see or pin the address a proxied connection reaches. What it enforces is name- and literal-based:
 
+- A proxy on a private address (`10.x`, `192.168.x`) is accepted: the address policy governs the destination, and the endpoint is exempt from the class check only because the caller or the environment configured it, only for the real proxy connection (its host, its port, a call that goes through it). `Client::proxy_diagnostic()` reports the endpoint (never credentials). **DNS-based private destinations cannot be verified through a proxy**: only literals and the name list are checked.
 - The proxy endpoint is trusted: it is user or administrator configuration and is often on a private address. It gets no address-class denial. Proxy credentials in the URL never appear in `Debug` output or errors.
 - IP-literal destinations (and `localhost`) are classified like any address: `169.254.169.254`, RFC 1918, loopback and the rest are refused.
 - Hostnames are refused when they are `localhost`, `*.localhost`, `*.local`, `*.internal` or single-label, unless an `allow_if` rule lists the host. Cloud metadata names and the first-party host pin apply too. `deny_ranges` and `deny_if` apply to literals only, because a hostname's address is unknown.
@@ -172,6 +175,31 @@ let client = Client::new(ClientConfig::default().address_policy(policy));
 | `Headers` | Sending the request and waiting for the response headers, including the request-wide budget. |
 | `Body` | Reading the response body, including streams and downloads. |
 | `Redirect` | Any failure on a redirect hop after the first request, and an exhausted redirect limit. |
+
+## TLS trust and `https_only`
+
+- `ClientConfig::trust` is `TrustRoots::Platform` (default) or `TrustRoots::Bundled`. **From 0.3.0 the default is the operating system's trust store**, so roots an enterprise or an inspection proxy installed on the machine are honoured, as curl and browsers honour them. Before 0.3.0 only Mozilla's bundled roots were trusted. Both clients name their verifier explicitly, so no other crate's Cargo features can change it: the blocking client sets ureq's TLS provider and `RootCerts` (`PlatformVerifier` or `WebPki`); the async client installs a complete rustls `ClientConfig` with `use_preconfigured_tls` in **both** branches (`rustls-platform-verifier` for `Platform`, the `webpki-roots` Mozilla set and nothing else for `Bundled`). reqwest stays 0.12.28 with feature `rustls-tls`; no second reqwest major is needed. `Client::verifier_kind()` and `AsyncClient::verifier_kind()` return `"platform"` or `"bundled"`; the async value reports the configuration that was installed. `Bundled` ignores the machine's roots. There is no option that disables verification.
+- The async client advertises **HTTP/1.1 only** in ALPN. reqwest's `http2` feature is not enabled here, so a server that selected `h2` would otherwise panic hyper-util; the client cannot negotiate it, whatever other crates enable.
+- `ClientConfig::https_only` (default `false`) refuses a non-`https` initial URL and any redirect hop to a non-`https` URL with `HttpError::HttpsRequired { host, scheme, redirect }` (class `Invalid`), before anything is sent to that URL. It applies to both clients and to downloads. It is separate from the address policy's HTTPS-to-HTTP redirect rule, which stays on.
+
+## Defaults worth knowing
+
+- **Routing is decided once per hop.** Whether a request goes through the proxy is decided by one matcher (`ureq`'s `NO_PROXY` rules, wildcards included) that also drives address vetting, and the async client keeps a direct and a proxied reqwest client and picks one per hop, with reqwest's own environment and `NO_PROXY` handling switched off. A host the policy treats as direct is always vetted at the resolver; the same holds after redirects.
+- **`Debug` of `Response` and `ResponseHead` hides every recorded secret** (`redact_values`, `secret_header` values, URL secrets) as well as credential-named headers.
+
+- **Redirects: none by default** (`max_redirects = 0`). A 3xx comes back as the response. Set `ClientConfig::max_redirects` (and `max_redirects_will_error`) to follow them; each hop passes the address policy and strips credentials on a new origin.
+- **Retries: idempotent methods only.** POST and PATCH are never replayed after a 429/5xx unless the request sets `retry_unsafe_statuses(true)`. A connect-phase failure (nothing reached the server) is still retried for every method.
+- **Streams and quiet SSE.** `ClientConfig::response_timeout` (default 60 s) is the time to the response *headers* (first byte), not an idle timeout. Once headers arrive, a stream body has no idle cut unless `recv_body_timeout` (a total body budget, default none) or `stream_timeout` / `Request::timeout` (total lifetime, default none) is set. A server that sends headers and then stays quiet is therefore not cut; one that takes over 60 s to send headers is, so raise or clear `response_timeout` (`None`) for such servers. There is no per-read idle timeout; use `Request::cancel` or `deadline` to bound a stalled stream.
+- **Text decoding is lossy UTF-8.** `Response::text()` and error bodies decode as UTF-8 and replace invalid bytes; the `Content-Type` charset is not honoured. For another charset, take `Response::body` bytes and decode them yourself.
+
+## Hard blocks and spellings
+
+- **Cloud metadata cannot be allowed by any hook.** Link-local (which holds `169.254.169.254`), `fd00:ec2::/32` (AWS IPv6 metadata and DNS), `100.100.100.200` (Alibaba), `168.63.129.16` (Azure) and `192.0.0.192`, plus IPv6 forms that embed them, are refused whatever `allow_if`, `allow_private_resolution` or the proxy mode say. Cloud metadata host names are refused too.
+- **Legacy IPv4 spellings** such as `127.1`, `0177.0.0.1`, `0x7f.0.0.1` and `2130706433` are read the way `inet_aton` reads them before any check, in both clients, through proxies and on redirects.
+- IPv6 forms that embed IPv4 take the embedded class: mapped, compatible, NAT64 `64:ff9b::/96`, 6to4, and the local-use NAT64 space `64:ff9b:1::/48` in each RFC 6052 layout.
+- **Non-canonical IPv4 spellings are refused** by default (`AddressPolicy::allow_legacy_ipv4()` opts out): parsers disagree about `0177.0.0.1`, so normalising it would be an SSRF bypass. `parse_host_ip(host)` returns the address plus `kind` and `is_canonical` for callers guarding other transports; `parse_legacy_ipv4` reads the `inet_aton` forms (one to four parts, decimal/octal/hex, the last part fills the remaining bytes).
+- **HTTPS to HTTP redirects are refused** by the address policy. `AddressPolicy::allow_insecure_redirects()` opts in.
+- Logging: `ureq` prints a URL's query only at TRACE level, which its documentation calls unredacted wire logging. This crate cannot intercept it. Do not enable TRACE for a process that carries secrets in URLs.
 
 ## Vetting for other transports
 

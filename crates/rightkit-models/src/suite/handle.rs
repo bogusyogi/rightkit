@@ -5,8 +5,9 @@
 
 use std::path::{Path, PathBuf};
 
+use crate::http::ModelHttp;
 use crate::suite::catalog::{parakeet_spec, ModelSpec};
-use crate::suite::install::{ensure_with_grant, GrantConfig};
+use crate::suite::install::{ensure_with_grant, ensure_with_grant_via, GrantConfig};
 use crate::suite::manifest::VerifyMode;
 use crate::suite::store::{status_at, status_in, EntryState, ModelStatus, Progress};
 use crate::suite::{paths, refs};
@@ -22,10 +23,21 @@ pub struct ResolvedModel {
     pub revision: String,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct ModelStore {
     models_root: PathBuf,
     app_id: String,
+    http: Option<ModelHttp>,
+}
+
+impl std::fmt::Debug for ModelStore {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ModelStore")
+            .field("models_root", &self.models_root)
+            .field("app_id", &self.app_id)
+            .field("custom_http", &self.http.is_some())
+            .finish()
+    }
 }
 
 /// Parakeet copies installed by sibling Orthic apps in their own stores.
@@ -50,6 +62,7 @@ impl ModelStore {
         Self {
             models_root: paths::models_root(),
             app_id: app_id.into(),
+            http: None,
         }
     }
 
@@ -58,7 +71,16 @@ impl ModelStore {
         Self {
             models_root: root.into(),
             app_id: app_id.into(),
+            http: None,
         }
+    }
+
+    /// Send this store's downloads and grant requests through `client` instead of
+    /// the default vetted ones (public-web downloads, grants pinned to the worker
+    /// host over HTTPS). The caller owns that client's address policy.
+    pub fn with_http_client(mut self, client: impl Into<ModelHttp>) -> Self {
+        self.http = Some(client.into());
+        self
     }
 
     pub fn models_root(&self) -> &Path {
@@ -145,6 +167,33 @@ impl ModelStore {
         self.resolve(&parakeet_spec(), &sibling_parakeet_dirs())
     }
 
+    /// Download an entitlement-gated add-on (verified, resumable) with `bearer`, the app's
+    /// signed Pro entitlement. Grants are never requested for such a model.
+    pub fn ensure_entitled(
+        &self,
+        spec: &ModelSpec,
+        bearer: &str,
+        cancelled: &dyn Fn() -> bool,
+        progress: impl FnMut(Progress),
+    ) -> Result<ModelStatus, String> {
+        if !spec.requires_entitlement() {
+            return Err(format!("{} does not use an entitlement bearer", spec.label));
+        }
+        let client = self.http.clone().unwrap_or_default();
+        crate::suite::store::ensure_ready_cancellable(
+            &client,
+            &self.models_root,
+            spec,
+            &crate::suite::store::EnsureOptions {
+                seed_dir: None,
+                authorization: Some(bearer),
+                app_id: &self.app_id,
+            },
+            cancelled,
+            progress,
+        )
+    }
+
     /// Download (verified, resumable, grant-refreshing) and register `spec` if
     /// the store has no verified copy.
     pub fn ensure(
@@ -154,13 +203,24 @@ impl ModelStore {
         cancelled: &dyn Fn() -> bool,
         progress: impl FnMut(Progress),
     ) -> Result<ModelStatus, String> {
-        ensure_with_grant(
-            &self.models_root,
-            spec,
-            &self.app_id,
-            grant,
-            cancelled,
-            progress,
-        )
+        match &self.http {
+            Some(client) => ensure_with_grant_via(
+                client,
+                &self.models_root,
+                spec,
+                &self.app_id,
+                grant,
+                cancelled,
+                progress,
+            ),
+            None => ensure_with_grant(
+                &self.models_root,
+                spec,
+                &self.app_id,
+                grant,
+                cancelled,
+                progress,
+            ),
+        }
     }
 }

@@ -29,7 +29,7 @@ Do not use it to issue or sign licences. Signing belongs to the backend signer.
 
 ## Cargo features
 
-None. The crate has no `[features]` table. Dependencies: `ed25519-dalek` 2, `base64` 0.22, `serde`, `serde_json`.
+None. The crate has no `[features]` table. Dependencies: `ed25519-dalek` 3, `base64` 0.23, `serde`, `serde_json` (0.2.0 moved from dalek 2 and base64 0.22; verification semantics are pinned by `test-vectors/dalek-parity-v1.json`, see `CHANGELOG.md`).
 
 ## Usage
 
@@ -79,7 +79,8 @@ if report.grants_access() { /* unlock */ }
 - A restarted process must see wall time strictly past the mark. Restarting at the same wall second cannot freeze expiry.
 - Inside one process, a wall clock that falls behind keeps advancing on the monotonic offset instead.
 - A ledger missing on an install whose record says it was initialised is an error (`ClockError::Missing`), not a fresh start.
-- `reanchor` accepts a server `iat` only if it is strictly newer than the last anchor. It may lower the mark (`Reanchored::lowered`), which repairs a ledger inflated by a clock once set far ahead.
+- `reanchor` accepts a server `iat` only if it is strictly newer than the last anchor, checked against the ledger at write time. It may lower the mark (`Reanchored::lowered`), which repairs a ledger inflated by a clock once set far ahead, and it also re-bases the clock's monotonic reference on the new mark so the old, too-far-ahead process anchor cannot pull time back up. It is never called on unauthenticated time: the caller passes the `iat` of a token it has already verified (`refresh_and_reanchor` does).
+- Every observation is kept in memory for the life of the clock; only the durable write is throttled (`CLOCK_WRITE_INTERVAL_SECS`). Writes are serialised across all clocks in the process and go through `ClockStore::compare_and_save`, so a stale writer can only move the mark forward and cannot overwrite a newer `last_server_iat`. A store shared between processes should override `compare_and_save` with an atomic implementation.
 
 **Residual risk.** The replay guard is the last anchored `iat` only. A user who can intercept TLS on their own device could withhold a genuine refresh response, wind the clock back, and later deliver that older response to lower the mark. Closing it needs a freshness nonce in the signed token (a signer change). Until then re-anchoring is a convenience for honest clock errors, not a defence against a determined local attacker, as with any offline licence check.
 
@@ -106,7 +107,7 @@ match refresh_and_reanchor(&params, &my_transport, &clock)? {
 
 ### Device-lease envelopes
 
-`verify_lease_envelope(json, &public_key)` checks the envelope's own Ed25519 signature over compact JSON of `leaseId, deviceIdHash, pool, issuedAt, expiresAt, graceSeconds, generation` (non-strict `verify`, base64url signature). The nested `entitlement` is not signed by the envelope: it comes back as `unverified_entitlement` and must still pass `verify_token`. Legacy v1 token verification is not part of this crate and stays app-side migration code.
+`verify_lease_envelope(json, &public_key)` checks the envelope's own Ed25519 signature over compact JSON of `leaseId, deviceIdHash, pool, issuedAt, expiresAt, graceSeconds, generation` (non-strict `verify`, base64url signature). `verify_lease_envelope_fields(&envelope, signature, &key)` checks already-parsed fields through the same canonicalisation. The nested `entitlement` is not signed by the envelope: it comes back as `unverified_entitlement` and must still pass `verify_token`. Lease expiry, device binding and generation ordering are the caller's to enforce; a verifying signature does not check them. Legacy v1 token verification is not part of this crate and stays app-side migration code.
 
 ## Requirement contract
 
@@ -128,7 +129,7 @@ Pure Rust. No platform-specific code.
 
 ## Tests
 
-`tests/policy_contract.rs` (requirement rules), `tests/public_vectors.rs` (checks against `test-vectors/license-v2.json`), `tests/lifecycle.rs` (classification table, `evaluate_lifecycle`), `tests/clock.rs` (rollback, anchors, persistence, the `TrustedClock` hook), `tests/refresh.rs` (refresh outcomes against a fake server) and `tests/lease.rs` (lease envelope, with the Node-signed vector `test-vectors/lease-envelope-v1.json`).
+`tests/policy_contract.rs` (requirement rules), `tests/public_vectors.rs` (checks against `test-vectors/license-v2.json`), `tests/lifecycle.rs` (classification table, `evaluate_lifecycle`), `tests/clock.rs` (rollback, anchors, persistence, the `TrustedClock` hook), `tests/refresh.rs` (refresh outcomes against a fake server) `tests/lease.rs` (lease envelope, with the Node-signed vector `test-vectors/lease-envelope-v1.json`) and `tests/dalek_parity.rs` (111 token and lease-envelope cases whose outcomes were recorded on ed25519-dalek 2.2.0 / base64 0.22.1 and are asserted on the current dependencies).
 
 ## Version and changes
 

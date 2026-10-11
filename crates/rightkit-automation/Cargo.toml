@@ -49,3 +49,7 @@ windows = { version = "0.62", features = [
 [[test]]
 name = "e2e_mac"
 harness = false
+
+[package.metadata.rightkit]
+continuous = false
+continuous_reason = "sleep: fixed settle and key-delay pauses inside one automation action (engine.rs, delivery.rs, macos/events.rs, macos/appkit.rs, win/sys.rs); thread-spawn: FocusWatch sampler (focus.rs) started and joined by finish() around one action, caller-bounded but it has no Drop stop so a forgotten finish() would leak a sampler; element store is capped at STORE_CAP 8; no listener, timer or watcher (reviewed 2026-10-11)"

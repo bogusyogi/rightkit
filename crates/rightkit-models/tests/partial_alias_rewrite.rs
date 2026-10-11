@@ -124,7 +124,7 @@ fn partial_adoption_links_the_good_file_and_downloads_only_the_rest() {
     let tmp = tempfile::tempdir().unwrap();
     let flat = legacy(&tmp.path().join("flat/demo"), &fx);
     let corrupt_before = fs::read(flat.join("sub/b.bin")).unwrap();
-    let store = Store::new(tmp.path().join("models"), "test-app");
+    let store = local(Store::new(tmp.path().join("models"), "test-app"));
     let need = (fx.b.len() + fx.c.len()) as u64;
     let mut o = opts("1");
     // Enough for b + c with headroom, not for all three: proves preflight
@@ -197,7 +197,7 @@ fn partial_adoption_fails_closed_and_never_half_records() {
     let fx = three();
     let tmp = tempfile::tempdir().unwrap();
     let flat = legacy(&tmp.path().join("flat/demo"), &fx);
-    let store = Store::new(tmp.path().join("models"), "test-app");
+    let store = local(Store::new(tmp.path().join("models"), "test-app"));
 
     // A download failure (404 for c) records nothing.
     let mut broken = fx.spec.clone();
@@ -267,8 +267,10 @@ fn mapped_alias_inside_the_store_root_follows_install_switch_and_remove() {
     let root = tmp.path().join("models");
     let alias = root.join("demo").join("r1");
     let a2 = alias.clone();
-    let store = Store::new(&root, "test-app")
-        .with_legacy_alias_map(move |id| (id == "demo").then(|| a2.clone()));
+    let store = local(
+        Store::new(&root, "test-app")
+            .with_legacy_alias_map(move |id| (id == "demo").then(|| a2.clone())),
+    );
     assert_eq!(
         store.legacy_alias_path("demo").unwrap(),
         Some(alias.clone())
@@ -338,7 +340,7 @@ fn mapped_alias_paths_cannot_collide_with_store_storage_or_escape() {
     let m = server(&[("/v1", &v1)]);
     let spec = model("demo", vec![("1", vec![file("m.bin", m.url("/v1"), &v1)])]);
     let root = tmp.path().join("models");
-    Store::new(&root, "test-app")
+    local(Store::new(&root, "test-app"))
         .install(&spec, &opts("1"), |_| {})
         .unwrap();
     let elsewhere = tmp.path().join("elsewhere");
@@ -362,14 +364,15 @@ fn mapped_alias_paths_cannot_collide_with_store_storage_or_escape() {
     ];
     for p in refused {
         let p2 = p.clone();
-        let store = Store::new(&root, "test-app").with_legacy_alias_map(move |_| Some(p2.clone()));
+        let store =
+            local(Store::new(&root, "test-app").with_legacy_alias_map(move |_| Some(p2.clone())));
         let err = store.legacy_alias_path("demo").unwrap_err();
         assert_eq!(err.code, ErrorCode::InvalidSpec, "{}", p.display());
         let sync = store.sync_legacy_alias("demo").unwrap();
         assert_eq!(sync.status, AliasStatus::Failed, "{}", p.display());
     }
     // Storage is untouched by every refusal.
-    let store = Store::new(&root, "test-app");
+    let store = local(Store::new(&root, "test-app"));
     assert!(store.verify("demo", "1@q4", VerifyMode::Full));
     assert!(fs::metadata(root.join("demo/revisions/1@q4"))
         .unwrap()
@@ -382,7 +385,8 @@ fn mapped_alias_paths_cannot_collide_with_store_storage_or_escape() {
         fs::create_dir_all(&elsewhere).unwrap();
         std::os::unix::fs::symlink(&elsewhere, root.join("demo").join("sneaky")).unwrap();
         let p = root.join("demo").join("sneaky").join("r1");
-        let store = Store::new(&root, "test-app").with_legacy_alias_map(move |_| Some(p.clone()));
+        let store =
+            local(Store::new(&root, "test-app").with_legacy_alias_map(move |_| Some(p.clone())));
         assert!(store.legacy_alias_path("demo").is_err());
         fs::remove_file(root.join("demo").join("sneaky")).unwrap();
     }
@@ -412,7 +416,8 @@ fn mapped_alias_paths_cannot_collide_with_store_storage_or_escape() {
     fs::create_dir_all(&real).unwrap();
     fs::write(real.join("keep"), b"keep").unwrap();
     let r2 = real.clone();
-    let store = Store::new(&root, "test-app").with_legacy_alias_map(move |_| Some(r2.clone()));
+    let store =
+        local(Store::new(&root, "test-app").with_legacy_alias_map(move |_| Some(r2.clone())));
     assert_eq!(
         store.sync_legacy_alias("demo").unwrap().status,
         AliasStatus::SkippedRealPath
@@ -464,7 +469,7 @@ fn url_rewrite_sends_downloads_to_a_loopback_mock_only() {
     assert_eq!(hits(&m, "/org/m/resolve/main/m.bin"), 1);
     assert!(store.verify("demo", "1@q4", VerifyMode::Full));
 
-    let plain = Store::new(tmp.path().join("p"), "a");
+    let plain = local(Store::new(tmp.path().join("p"), "a"));
     assert_eq!(plain.download_url("https://h/x"), "https://h/x");
     let prefixed = Store::new(tmp.path().join("p"), "a")
         .with_url_rewrite("http://localhost:9/mirror/")
@@ -500,4 +505,17 @@ fn url_rewrite_sends_downloads_to_a_loopback_mock_only() {
         let err = Store::new("r", "a").with_url_rewrite(bad).unwrap_err();
         assert_eq!(err.code, ErrorCode::InvalidSpec, "{bad}");
     }
+}
+
+/// Test stores may reach the local mock server on 127.0.0.1 and nothing else.
+fn local(store: Store) -> Store {
+    store
+        .with_http_options(rightkit_models::http::ModelHttpOptions {
+            proxy: rightkit_models::http::ProxyMode::None,
+            ..Default::default()
+        })
+        .with_address_policy(
+            rightkit_http::AddressPolicy::public_web()
+                .allow_if(vec!["127.0.0.1".to_string()], |ip| ip.is_loopback()),
+        )
 }

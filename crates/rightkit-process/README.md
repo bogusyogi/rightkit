@@ -15,7 +15,7 @@ None. The crate has no Cargo features. Platform dependencies: `libc` (Unix) and 
 
 ## Platform support
 
-- Unix: children lead a new process group (or a session with `UnixContainment::Session`). Termination signals the group.
+- Unix: children lead a new process group (or a session with `UnixContainment::Session`). Termination signals the group, under the identity rule below.
 - Windows: children are created suspended, assigned to a Job Object, then resumed. Termination uses the Job Object.
 - The crate has `cfg(unix)`, `cfg(windows)`, `cfg(target_os = "macos")`, and `cfg(target_os = "linux")` branches across `src/owned.rs`, `src/process_handle.rs`, `src/process_unix.rs`, `src/process_windows.rs`, and `src/spawn_windows.rs`.
 
@@ -34,22 +34,51 @@ Windows children are created suspended, assigned to a Job Object, then
 resumed. Children are hidden by default (`CREATE_NO_WINDOW`); `windows_hide()` is a no-op kept for compatibility.
 Explicit termination uses the Job Object, so descendants die while unrelated
 sibling processes survive. Unix children lead a new process group;
-`wait_or_kill` sends `SIGTERM`, waits for the bounded grace period, then sends
-`SIGKILL` to the group and reaps it.
+`wait_or_kill` sends `SIGTERM` to the group, waits for the leader for the bounded grace
+period, then sends `SIGKILL` to the group and reaps it. If the leader exits inside the grace,
+descendants that are still running are killed before the leader is reaped.
 
-Native std children retain their group/job identity independently of direct-child
-exit. Windows resumes the suspended primary thread only after assignment decisions.
+Windows resumes the suspended primary thread only after assignment decisions.
+
+## Unix process-group identity
+
+A process-group id can be recycled for an unrelated group once the leader has been reaped and
+the group is empty, so a signal sent to it afterwards can hit a program that is not ours.
+Version 0.3.3 checked group membership after the reap and then signalled, which left a window
+in which that could happen. The rule that replaces it:
+
+- **A group signal is sent only while this process still holds the leader as its own unreaped
+  child.** An unreaped child, running or exited, pins its pid and group id; only this process
+  can reap it. Every group signal is sent under the same lock that guards reaping, after the
+  leader is confirmed unreaped, so no reap can fall between the check and the signal.
+- **After the first reap, by any path, group signalling is over** for that `OwnedChild` and all
+  its `ProcessHandle` clones: no signal, and no `kill(-pgid, 0)` membership probe. Paths that
+  reap: `OwnedChild::wait`, `try_wait`, `wait_timeout`, the same methods on a `ProcessHandle`
+  or a clone, the detached reaper, and `wait`/`try_wait` through `OwnedChild::child()`.
+- **`wait()` followed by drop signals nothing.** Grandchildren that outlive a plainly waited
+  leader are not killed. To kill them, use `terminate_tree`, `terminate_tree_with_options`,
+  `terminate_tree_bounded`, or `wait_or_kill` while the leader is still unreaped. These keep
+  an exited leader unreaped (it is observed with `waitid(WNOWAIT)`), signal the group while
+  that zombie pins the id, and only then reap it.
+- A handle clone that waits on another thread reaps as soon as the leader exits, and so
+  retires group signalling for the owner too. A program that needs both a monitor thread and
+  tree termination must terminate the tree before the monitor's wait can reap the leader; a
+  plain `ProcessHandle::wait` on another thread races that.
+- `OwnedChild::child()` no longer exposes the std `Child` on Unix. It returns `UnixChild`
+  (stdio fields, `id`, `try_wait`, `wait`, `kill`), so a reap through it is recorded.
+- `UnixChild::kill`, and every direct-pid signal for detached children, follow the same rule.
 
 ## Also (0.3.0)
 
-- `OwnedChild::child()` borrows std `Child` on Unix or `WindowsChild` on Windows through a lock guard, including
-  stdin/stdout/stderr and wait/try_wait; existing stream-taking APIs remain.
+- `OwnedChild::child()` borrows `UnixChild` on Unix (0.3.4; std `Child` before) or `WindowsChild` on Windows through
+  a lock guard, including stdin/stdout/stderr and wait/try_wait; existing stream-taking APIs remain.
 - `unix_containment(UnixContainment::Session)` runs `setsid`; Windows
   `job_assignment_mode(JobAssignmentMode::BestEffort)` retains non-fatal errors
   in `job_assignment_failures()`. Strict assignment remains default.
 - `terminate_tree_with_options(TerminationOptions)` sends Unix TERM immediately,
   then KILL after configurable tree-wide `grace` (zero means immediate escalation).
-  Retained group/job also works after parent exit; `windows_exit_code` accepts 1067.
+  On Unix both signals go out while the leader is unreaped (see the identity rule above);
+  Windows' retained job also works after parent exit; `windows_exit_code` accepts 1067.
   `terminate_tree_bounded_with_options(timeout, options)` bounds grace plus reap.
 - `spawn_uncontained_detached()` skips owner containment and survives owner drop.
   Windows requires parent-job breakaway permission and fails without fallback.
@@ -58,8 +87,9 @@ exit. Windows resumes the suspended primary thread only after assignment decisio
 - `process_handle()` returns an independent `ProcessHandle` exit reader/waiter.
   Windows implements `AsHandle` with an owned duplicate and exposes FILETIME
   `creation_time_ticks()`; `creation_time()` reports native time on Windows/macOS,
-  spawn observation time on other Unix hosts. Unix readers share std's cached reap
-  state. Release `child()` guards before calling another accessor or reader.
+  spawn observation time on other Unix hosts. Unix readers share the owner's cached reap
+  state, and a reap by a reader ends group signalling for the owner (identity rule above).
+  Release `child()` guards before calling another accessor or reader.
 - `partial_spawn_cleanup_timeout(Duration::from_secs(5))` bounds failed-spawn
   cleanup; default remains unbounded. Timed-out children go to a background reaper.
 
@@ -73,17 +103,24 @@ exit. Windows resumes the suspended primary thread only after assignment decisio
     It fires when the thread that spawned the child exits, not only when the process exits, so spawn from a
     thread that lives as long as the child. The child gets one TERM and no KILL escalation, so a child that
     ignores TERM survives. Descendants in the group are not signalled.
-  - macOS: a helper forked before exec joins the child's process group and waits on `EVFILT_PROC`/`NOTE_EXIT`
-    for the supervisor. When the supervisor dies, the helper sends `SIGTERM` to the group, waits 2 s, then
-    sends `SIGKILL` to the group. It ignores `SIGTERM` itself, closes inherited descriptors (so pipe readers
-    get EOF as usual), and exits when the engine exits while the supervisor is alive. Cost: one extra process
-    per opted-in child while the child runs. The helper keeps the group id reserved, so the group cannot be
-    reused under the signal.
+  - macOS: a helper process, forked by the supervisor itself (never by a second `fork` inside the new process,
+    which would re-run `pthread_atfork` handlers there), joins the child's process group and waits on
+    `EVFILT_PROC`/`NOTE_EXIT` for the supervisor. The engine blocks in `pre_exec`, before `exec`, until the
+    helper confirms its watch. When the supervisor dies, the helper sends `SIGTERM` to the group, waits 2 s, then
+    sends `SIGKILL` to the group. It ignores `SIGTERM` itself, closes every inherited descriptor except its two
+    pipe ends (found by asking the kernel, not guessed), and stays in the group so the group id cannot be
+    recycled under its signal.
+  - **How long the macOS tie lasts:** the helper outlives the engine. It lives as long as the `OwnedChild`
+    (and any `ProcessHandle` clone) does, so a supervisor that dies while the `OwnedChild` still exists also
+    kills descendants that outlived the engine. When the last owner is dropped the helper is killed and reaped,
+    and nothing is protected afterwards. Cost: one extra process per opted-in child while its owner lives.
+  - macOS with `UnixContainment::Session` fails with `Unsupported`: `setsid` puts the engine in another session,
+    and the helper can only join a group inside its own session.
   - Other Unix hosts: the spawn fails with `Unsupported`.
   - Windows: a no-op. Kill-on-close job objects already terminate the tree when the owner handle closes.
   - Combining the option with `spawn_uncontained_detached` returns `InvalidInput`.
 - `tests/parent_death.rs` covers the Linux and macOS behavior by re-executing the test binary as the parent,
-  SIGKILLing it, and checking the child pid. The group-wide case runs on macOS only.
+  SIGKILLing it, and checking the child pid. The group-wide and outlived-engine cases run on macOS only.
 
 ## Example and usage
 
@@ -120,7 +157,8 @@ deterministic in tests.
 
 ## Verification
 
-Run through the RightKit wrapper, per the workspace's `docs/rules/rightkit.md`:
+Run through the RightKit wrapper, per the workspace's `docs/rules/rightkit.md`
+(run the Unix suites in both thread modes: default and `RUST_TEST_THREADS=1`):
 
 ```text
 rightkit cargo test -p rightkit-process --all-targets

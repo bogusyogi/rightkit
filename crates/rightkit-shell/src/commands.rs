@@ -8,10 +8,22 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use tauri::{AppHandle, Manager, State, WebviewWindow, Wry};
 
-use crate::clipboard::{Board, ClipboardContent};
+use crate::clipboard::{Board, ClipboardContent, ClipboardItem};
 use crate::tray::TrayUpdate;
 use crate::windows::WindowSpec;
-use crate::{b64, ShellState};
+use crate::{b64, Module, ShellState};
+
+/// Refuse a command whose module the app opted out of (see [`crate::modules`]).
+pub(crate) fn require(state: &ShellState, module: Module) -> Result<(), ShellError> {
+    if state.modules.contains(module) {
+        Ok(())
+    } else {
+        Err(ShellError::Unsupported(format!(
+            "module {} is disabled for this app",
+            module.name()
+        )))
+    }
+}
 
 #[tauri::command]
 pub fn rk_shell_open_external(url: String, state: State<'_, ShellState>) -> Result<(), String> {
@@ -83,6 +95,10 @@ pub fn rk_shell_status(app: AppHandle<Wry>, state: State<'_, ShellState>) -> Val
         "stateDir": state.windows.dir(),
         "devtoolsOpen": devtools_open,
         "streamScheme": state.stream_scheme,
+        "streamSchemes": state.stream_schemes,
+        "siteScheme": state.site_scheme,
+        "modules": state.modules.names(),
+        "clipboardDir": state.clipboard_dir,
         "cacheRepair": state.cache_repair.lock().unwrap_or_else(|e| e.into_inner()).as_ref().map(|(p, o)| json!({"dir": p, "outcome": o})),
     })
 }
@@ -107,12 +123,24 @@ pub fn rk_shell_window(action: String, window: WebviewWindow<Wry>) -> Result<(),
             if window.label() == "main" {
                 crate::idle::note_hidden(window.app_handle(), false);
             }
+            if r.is_ok() && window.label() == window.app_handle().state::<ShellState>().main_label {
+                crate::lifecycle::note_visibility(
+                    window.app_handle(),
+                    crate::lifecycle::Visibility::Hidden,
+                );
+            }
             r.map_err(|e| e.to_string())
         }
         "show" => {
             let r = if crate::lifecycle::qa_background() {
                 crate::windows::show_background_aware(&window)
             } else {
+                if window.label() == window.app_handle().state::<ShellState>().main_label {
+                    crate::lifecycle::note_visibility(
+                        window.app_handle(),
+                        crate::lifecycle::Visibility::Revealed,
+                    );
+                }
                 window
                     .show()
                     .and_then(|_| window.set_focus())
@@ -187,7 +215,11 @@ fn board_of(p: &Option<String>) -> Board {
 }
 
 #[tauri::command]
-pub fn rk_shell_clipboard_read(board: Option<String>) -> Result<ClipboardPayload, String> {
+pub fn rk_shell_clipboard_read(
+    board: Option<String>,
+    state: State<'_, ShellState>,
+) -> Result<ClipboardPayload, String> {
+    require(&state, Module::Clipboard).map_err(|e| e.to_string())?;
     let c = crate::clipboard::read(&board_of(&board))?;
     Ok(ClipboardPayload {
         text: c.text,
@@ -204,7 +236,11 @@ pub fn rk_shell_clipboard_read(board: Option<String>) -> Result<ClipboardPayload
 }
 
 #[tauri::command]
-pub fn rk_shell_clipboard_write(payload: ClipboardPayload) -> Result<(), String> {
+pub fn rk_shell_clipboard_write(
+    payload: ClipboardPayload,
+    state: State<'_, ShellState>,
+) -> Result<(), String> {
+    require(&state, Module::Clipboard).map_err(|e| e.to_string())?;
     let mut custom = BTreeMap::new();
     for (k, v) in &payload.custom {
         custom.insert(
@@ -226,6 +262,19 @@ pub fn rk_shell_clipboard_write(payload: ClipboardPayload) -> Result<(), String>
             custom,
         },
     )
+}
+
+/// The typed "open from clipboard" / paste result: files, then a bitmap (written to a granted temp
+/// file), then text, then `{"kind":"none"}`. Blocking clipboard work runs off the UI thread.
+#[tauri::command]
+pub async fn rk_shell_clipboard_item(app: AppHandle<Wry>) -> Result<ClipboardItem, ShellError> {
+    blocking(move || {
+        let state = app.state::<ShellState>();
+        require(&state, Module::Clipboard)?;
+        require(&state, Module::Broker)?;
+        crate::clipboard::take_item(&state.broker, &state.clipboard_dir, state.clipboard)
+    })
+    .await
 }
 
 #[tauri::command]
@@ -270,6 +319,36 @@ pub fn rk_shell_traffic_lights(
 #[tauri::command]
 pub fn rk_shell_quit(app: AppHandle<Wry>) {
     crate::lifecycle::quit(&app);
+}
+
+/// The renderer finished draining after `rightkit-shell://quit-requested`: mark the app exiting,
+/// then exit. The `ExitRequested` this raises sees `exiting` and does not prompt again.
+#[tauri::command]
+pub fn rk_shell_finish_quit(app: AppHandle<Wry>) {
+    crate::lifecycle::finish_quit(&app);
+}
+
+/// What the host supports, for the renderer to probe once. Read-only.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ShellCapabilities {
+    /// `rightkit-shell://quit-requested` plus `rk_shell_finish_quit`: the host opted into the drain.
+    pub quit_drain: bool,
+    /// `rk_shell_notify` honours `bypassDoNotDisturb`.
+    pub notify_bypass_dnd: bool,
+}
+
+/// The capabilities for a host whose quit drain is `quit_drain`.
+pub fn capabilities_for(quit_drain: bool) -> ShellCapabilities {
+    ShellCapabilities {
+        quit_drain,
+        notify_bypass_dnd: true,
+    }
+}
+
+#[tauri::command]
+pub fn rk_shell_capabilities(state: State<'_, ShellState>) -> ShellCapabilities {
+    capabilities_for(state.quit.enabled())
 }
 
 /// Mirror the app theme into native chrome (window appearance; tray template icons follow it).
@@ -445,6 +524,7 @@ pub fn rk_shell_path_require(
     write: Option<bool>,
     state: State<'_, ShellState>,
 ) -> Result<String, ShellError> {
+    require(&state, Module::Broker)?;
     if write.unwrap_or(false) {
         state.broker.require_write_target(&path)
     } else {
@@ -454,6 +534,7 @@ pub fn rk_shell_path_require(
 
 #[tauri::command]
 pub fn rk_shell_path_revoke(path: String, state: State<'_, ShellState>) -> Result<(), ShellError> {
+    require(&state, Module::Broker)?;
     state.broker.revoke_path(&path)
 }
 
@@ -463,6 +544,7 @@ pub fn rk_shell_path_grant_recent(
     id: String,
     state: State<'_, ShellState>,
 ) -> Result<String, ShellError> {
+    require(&state, Module::Broker)?;
     state.broker.grant_known(&id)
 }
 
@@ -472,19 +554,36 @@ pub fn rk_shell_path_regrant_saved(
     path: String,
     state: State<'_, ShellState>,
 ) -> Result<String, ShellError> {
+    require(&state, Module::Broker)?;
     state.broker.regrant_saved_target(&path)
 }
 
-/// Mint the stream URL for a granted file. Rejects `broker_denied` for anything not granted.
+/// Mint the stream URL for a granted file. `scheme` picks one of the registered stream schemes
+/// (default: the first). Rejects `broker_denied` for anything not granted.
 #[tauri::command]
 pub fn rk_shell_stream_grant(
     path: String,
+    scheme: Option<String>,
     state: State<'_, ShellState>,
 ) -> Result<Value, ShellError> {
-    let scheme = state
-        .stream_scheme
-        .clone()
-        .ok_or_else(|| ShellError::Unsupported("no stream protocol configured".into()))?;
+    require(&state, Module::Broker)?;
+    require(&state, Module::Stream)?;
+    let scheme = match scheme {
+        Some(requested) => {
+            let requested = requested.to_ascii_lowercase();
+            if state.stream_schemes.contains(&requested) {
+                requested
+            } else {
+                return Err(ShellError::Invalid(format!(
+                    "stream scheme {requested} is not registered"
+                )));
+            }
+        }
+        None => state
+            .stream_scheme
+            .clone()
+            .ok_or_else(|| ShellError::Unsupported("no stream protocol configured".into()))?,
+    };
     let id = state.broker.grant_stream(&path)?;
     let url = if cfg!(windows) {
         format!("http://{scheme}.localhost/{id}")
@@ -494,7 +593,37 @@ pub fn rk_shell_stream_grant(
     Ok(json!({"id": id, "url": url}))
 }
 
+/// Grant the site root of a document the person already opened, and return the base URL the
+/// document's `<base href>` uses: `{token, root, baseUrl}`.
+#[tauri::command]
+pub fn rk_shell_site_grant(
+    document: String,
+    state: State<'_, ShellState>,
+) -> Result<Value, ShellError> {
+    require(&state, Module::Broker)?;
+    require(&state, Module::Stream)?;
+    let scheme = state
+        .site_scheme
+        .clone()
+        .ok_or_else(|| ShellError::Unsupported("no site protocol configured".into()))?;
+    let grant = crate::site::grant_document_site(&state.broker, &document, &state.site_policy)?;
+    Ok(json!({
+        "token": grant.token,
+        "root": crate::broker::path_to_string(&grant.root),
+        "baseUrl": crate::site::site_base_url(&scheme, &grant.token),
+    }))
+}
+
+/// Revoke a site-root token when its tab closes. Its URLs stop serving at once and never revive.
+#[tauri::command]
+pub fn rk_shell_site_revoke(token: String, state: State<'_, ShellState>) -> Result<(), ShellError> {
+    require(&state, Module::Broker)?;
+    state.broker.revoke_site_root(&token)
+}
+
 fn recovery_of(state: &ShellState) -> Result<&crate::recovery::RecoveryStore, ShellError> {
+    require(state, Module::Recovery)?;
+    require(state, Module::Broker)?;
     state
         .recovery
         .as_ref()

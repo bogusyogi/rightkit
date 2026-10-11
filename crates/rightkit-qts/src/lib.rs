@@ -209,6 +209,17 @@ impl Qwen3TtsEngine {
         Self::load_mode(ModeModelPaths::from_model_dir(dir, mode), mode)
     }
 
+    /// As [`Self::from_model_dir_for_mode`], with the shared vocoder read from `vocoder` instead of
+    /// `<dir>/qwen3-tts-vocoder.onnx`.
+    pub fn from_model_dir_for_mode_with_vocoder(
+        dir: impl AsRef<std::path::Path>,
+        vocoder: impl AsRef<std::path::Path>,
+        mode: QtsMode,
+    ) -> Result<Self, Qwen3TtsError> {
+        let paths = ModeModelPaths::from_model_dir(dir, mode).with_vocoder(vocoder.as_ref());
+        Self::load_mode(paths, mode)
+    }
+
     pub fn mode(&self) -> QtsMode {
         self.mode
     }

@@ -26,7 +26,7 @@ impl Default for VadConfig {
 }
 
 impl VadConfig {
-    fn validate(&self) -> Result<()> {
+    pub(crate) fn validate(&self) -> Result<()> {
         let ok = |v: f32| v.is_finite() && (0.0..=1.0).contains(&v);
         if !ok(self.threshold) || !ok(self.neg_threshold) || self.neg_threshold > self.threshold {
             return Err(crate::Error::Input(
@@ -60,9 +60,14 @@ impl Span {
 /// the scores into spans.
 pub fn detect(scorer: &mut dyn FrameScorer, samples: &[f32], cfg: &VadConfig) -> Result<Vec<Span>> {
     cfg.validate()?;
-    if samples.iter().any(|x| !x.is_finite()) {
-        return Err(crate::Error::Input("non-finite samples".into()));
-    }
+    let scores = score_samples(scorer, samples)?;
+    Ok(scores_to_spans(&scores, cfg, duration_ms(samples.len())))
+}
+
+/// Reset `scorer`, then score every frame of `samples` (final partial frame
+/// zero-padded). Rejects non-finite samples before touching the scorer.
+pub(crate) fn score_samples(scorer: &mut dyn FrameScorer, samples: &[f32]) -> Result<Vec<f32>> {
+    ensure_finite(samples)?;
     scorer.reset();
     let mut scores = Vec::with_capacity(samples.len() / FRAME_SAMPLES + 1);
     let mut frame = [0f32; FRAME_SAMPLES];
@@ -71,11 +76,20 @@ pub fn detect(scorer: &mut dyn FrameScorer, samples: &[f32], cfg: &VadConfig) ->
         frame[..chunk.len()].copy_from_slice(chunk);
         scores.push(scorer.score(&frame)?);
     }
-    Ok(scores_to_spans(
-        &scores,
-        cfg,
-        samples.len() as u64 * 1000 / SAMPLE_RATE as u64,
-    ))
+    Ok(scores)
+}
+
+/// `Err(Input)` when any sample is NaN or infinite.
+pub(crate) fn ensure_finite(samples: &[f32]) -> Result<()> {
+    if samples.iter().any(|x| !x.is_finite()) {
+        return Err(crate::Error::Input("non-finite samples".into()));
+    }
+    Ok(())
+}
+
+/// Duration of `len` samples at 16 kHz, in whole milliseconds.
+pub(crate) fn duration_ms(len: usize) -> u64 {
+    len as u64 * 1000 / SAMPLE_RATE as u64
 }
 
 /// Turn per-frame scores into padded, merged spans.
@@ -226,4 +240,250 @@ pub fn chunk_spans(spans: &[Span], cfg: &ChunkConfig, scores: Option<&[f32]>) ->
     }
     out.retain(|s| s.len_ms() >= cfg.min_chunk_ms);
     out
+}
+
+/// Speech thresholds for span detection, optionally calibrated from ambient
+/// audio. `resolve` turns these into a [`VadConfig`].
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct SpanOptions {
+    /// Score at or above which speech starts (`VadConfig::threshold`).
+    pub speech_threshold: f32,
+    /// Speech continues while the score stays at or above this (`VadConfig::neg_threshold`).
+    pub silence_threshold: f32,
+    /// When set, the speech threshold comes from ambient RMS instead of `speech_threshold`.
+    pub rms_calibration: Option<RmsCalibration>,
+    /// With calibration, cap the silence threshold at the calibrated speech threshold
+    /// (default `true`, the behaviour before this option). `false` passes the silence
+    /// threshold through unchanged. A silence threshold above the calibrated one then
+    /// fails [`VadConfig::validate`] with an `Input` error; nothing is capped silently.
+    pub cap_silence_at_calibrated: bool,
+}
+
+impl Default for SpanOptions {
+    /// The same thresholds as [`VadConfig::default`], without calibration. The silence
+    /// cap is on, as it was before the option existed.
+    fn default() -> Self {
+        Self {
+            speech_threshold: 0.5,
+            silence_threshold: 0.35,
+            rms_calibration: None,
+            cap_silence_at_calibrated: true,
+        }
+    }
+}
+
+/// Speech threshold from measured ambient RMS:
+/// `threshold = clamp(max(minimum_threshold, max(rms, noise_floor) * multiplier), 0, 1)`.
+/// The defaults are HeardRight's: 8x RMS, a 0.005 noise floor, and a 0.20 minimum.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct RmsCalibration {
+    pub multiplier: f32,
+    /// Lower bound on the RMS used, so a silent room cannot drive the threshold to zero.
+    pub noise_floor: f32,
+    /// Lower bound on the resulting threshold (HeardRight's runtime floor).
+    pub minimum_threshold: f32,
+}
+
+impl Default for RmsCalibration {
+    fn default() -> Self {
+        Self {
+            multiplier: 8.0,
+            noise_floor: 0.005,
+            minimum_threshold: 0.20,
+        }
+    }
+}
+
+/// [`SpanOptions`] resolved against ambient audio.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ResolvedSpans {
+    /// The thresholds to pass to [`detect`] or `scores_to_spans`.
+    pub config: VadConfig,
+    /// The RMS used for calibration (after the noise floor), when calibration ran.
+    pub noise_floor_rms: Option<f32>,
+}
+
+impl SpanOptions {
+    /// Build the detection config. `base` supplies padding and duration policy.
+    ///
+    /// With `rms_calibration`, `ambient` must be non-empty, finite audio that
+    /// holds no speech; anything else is an error, not a silent uncalibrated run.
+    /// The calibrated threshold replaces `speech_threshold`. The silence threshold is
+    /// capped at it so the hysteresis stays valid, unless `cap_silence_at_calibrated`
+    /// is off, in which case an uncapped silence threshold above it is an error.
+    pub fn resolve(&self, base: VadConfig, ambient: Option<&[f32]>) -> Result<ResolvedSpans> {
+        let mut config = VadConfig {
+            threshold: self.speech_threshold,
+            neg_threshold: self.silence_threshold,
+            ..base
+        };
+        let mut noise_floor_rms = None;
+        if let Some(cal) = self.rms_calibration {
+            let ambient = ambient.filter(|a| !a.is_empty()).ok_or_else(|| {
+                crate::Error::Input("rms calibration needs non-empty ambient samples".into())
+            })?;
+            ensure_finite(ambient)?;
+            let rms = rms(ambient).max(cal.noise_floor);
+            config.threshold = cal
+                .minimum_threshold
+                .max(rms * cal.multiplier)
+                .clamp(0.0, 1.0);
+            if self.cap_silence_at_calibrated {
+                config.neg_threshold = config.neg_threshold.min(config.threshold);
+            }
+            noise_floor_rms = Some(rms);
+        }
+        config.validate()?;
+        Ok(ResolvedSpans {
+            config,
+            noise_floor_rms,
+        })
+    }
+}
+
+/// Root-mean-square level of `samples`; zero for an empty slice.
+fn rms(samples: &[f32]) -> f32 {
+    if samples.is_empty() {
+        return 0.0;
+    }
+    // Accumulate in f64: a sequential f32 sum over a second of audio drifts by about 1e-5,
+    // enough to move the calibrated threshold in its fifth decimal.
+    let sum: f64 = samples.iter().map(|s| f64::from(*s) * f64::from(*s)).sum();
+    (sum / samples.len() as f64).sqrt() as f32
+}
+
+#[cfg(test)]
+mod span_options_tests {
+    use super::*;
+
+    fn base() -> VadConfig {
+        VadConfig::default()
+    }
+
+    #[test]
+    fn default_options_resolve_to_the_default_config() {
+        let resolved = SpanOptions::default().resolve(base(), None).unwrap();
+        assert_eq!(resolved.config, VadConfig::default());
+        assert_eq!(resolved.noise_floor_rms, None);
+    }
+
+    #[test]
+    fn calibrated_threshold_is_eight_times_rms() {
+        let ambient = vec![0.05f32; 16_000];
+        let opts = SpanOptions {
+            rms_calibration: Some(RmsCalibration::default()),
+            ..SpanOptions::default()
+        };
+        let resolved = opts.resolve(base(), Some(&ambient)).unwrap();
+        assert!(
+            (resolved.config.threshold - 0.40).abs() < 1e-6,
+            "{resolved:?}"
+        );
+        assert!((resolved.noise_floor_rms.unwrap() - 0.05).abs() < 1e-6);
+    }
+
+    #[test]
+    fn calibration_never_drops_below_the_minimum() {
+        // RMS 0.001 is floored to 0.005, so 8x gives 0.04, below the 0.20 minimum.
+        let ambient = vec![0.001f32; 16_000];
+        let opts = SpanOptions {
+            rms_calibration: Some(RmsCalibration::default()),
+            ..SpanOptions::default()
+        };
+        let resolved = opts.resolve(base(), Some(&ambient)).unwrap();
+        assert!((resolved.config.threshold - 0.20).abs() < 1e-6);
+        assert!((resolved.noise_floor_rms.unwrap() - 0.005).abs() < 1e-6);
+    }
+
+    #[test]
+    fn loud_ambient_clamps_the_threshold_to_one() {
+        let ambient = vec![0.5f32; 16_000];
+        let opts = SpanOptions {
+            rms_calibration: Some(RmsCalibration::default()),
+            ..SpanOptions::default()
+        };
+        let resolved = opts.resolve(base(), Some(&ambient)).unwrap();
+        assert_eq!(resolved.config.threshold, 1.0);
+        // The silence threshold is never above the speech threshold.
+        assert!(resolved.config.neg_threshold <= resolved.config.threshold);
+    }
+
+    #[test]
+    fn silence_threshold_is_capped_at_the_calibrated_speech_threshold() {
+        let ambient = vec![0.001f32; 16_000]; // calibrates to 0.20
+        let opts = SpanOptions {
+            silence_threshold: 0.35,
+            rms_calibration: Some(RmsCalibration::default()),
+            ..SpanOptions::default()
+        };
+        let resolved = opts.resolve(base(), Some(&ambient)).unwrap();
+        assert!((resolved.config.threshold - 0.20).abs() < 1e-6);
+        assert!((resolved.config.neg_threshold - 0.20).abs() < 1e-6);
+    }
+
+    #[test]
+    fn calibration_refuses_missing_empty_or_non_finite_ambient() {
+        let opts = SpanOptions {
+            rms_calibration: Some(RmsCalibration::default()),
+            ..SpanOptions::default()
+        };
+        assert!(opts.resolve(base(), None).is_err());
+        assert!(opts.resolve(base(), Some(&[])).is_err());
+        assert!(opts.resolve(base(), Some(&[0.1, f32::NAN])).is_err());
+    }
+
+    #[test]
+    fn inverted_thresholds_are_rejected() {
+        let opts = SpanOptions {
+            speech_threshold: 0.3,
+            silence_threshold: 0.5,
+            rms_calibration: None,
+            ..SpanOptions::default()
+        };
+        assert!(opts.resolve(base(), None).is_err());
+    }
+
+    #[test]
+    fn silence_cap_is_on_by_default() {
+        assert!(SpanOptions::default().cap_silence_at_calibrated);
+    }
+
+    #[test]
+    fn disabling_the_cap_keeps_a_silence_threshold_below_the_calibrated_one() {
+        // Calibrates to 0.20; a silence threshold under that is valid uncapped too.
+        let ambient = vec![0.001f32; 16_000];
+        let opts = SpanOptions {
+            silence_threshold: 0.15,
+            rms_calibration: Some(RmsCalibration::default()),
+            cap_silence_at_calibrated: false,
+            ..SpanOptions::default()
+        };
+        let resolved = opts.resolve(base(), Some(&ambient)).unwrap();
+        assert!((resolved.config.threshold - 0.20).abs() < 1e-6);
+        assert!((resolved.config.neg_threshold - 0.15).abs() < 1e-6);
+    }
+
+    #[test]
+    fn disabling_the_cap_refuses_a_silence_threshold_above_the_calibrated_one() {
+        // Calibrates to 0.20. With the cap off, 0.35 would invert the hysteresis, so
+        // resolve refuses it rather than capping it silently.
+        let ambient = vec![0.001f32; 16_000];
+        let opts = SpanOptions {
+            silence_threshold: 0.35,
+            rms_calibration: Some(RmsCalibration::default()),
+            cap_silence_at_calibrated: false,
+            ..SpanOptions::default()
+        };
+        assert!(matches!(
+            opts.resolve(base(), Some(&ambient)),
+            Err(crate::Error::Input(_))
+        ));
+        // The default still caps the same input.
+        let capped = SpanOptions {
+            cap_silence_at_calibrated: true,
+            ..opts
+        };
+        let resolved = capped.resolve(base(), Some(&ambient)).unwrap();
+        assert!((resolved.config.neg_threshold - 0.20).abs() < 1e-6);
+    }
 }

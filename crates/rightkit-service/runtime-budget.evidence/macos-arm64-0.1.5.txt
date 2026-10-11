@@ -1,0 +1,29 @@
+# crate: rightkit-service 0.1.5
+# command: rightkit cargo bench -p rightkit-service  --bench budget
+# host: macos arm64, Mac18,5 / Apple M6, 12 cpus, 24 GB, 27.0.1
+# date: 2026-10-11T08:05:04Z
+# machine load (1/5/15 min) before the build: 4.07 4.99 5.85 ; after the run: 14.92 14.22 9.86 (other builds were running; the queue admits one build at a time)
+# commit: a8e4a9578eef9ba5071640626918d600d1aa4f7e (HEAD; the tree under test has uncommitted changes)
+rightkit: request c1ec694c-524d-4e5b-9375-4be4036a7187
+[rightkit] target warm-candidate at start (4 entries, generation 2)
+   Compiling rightkit-framed-sidecar v0.2.0 (/Volumes/D/rightkit-publish/v10/claude/rightkit/crates/rightkit-framed-sidecar)
+   Compiling rightkit-fs v0.3.4 (/Volumes/D/rightkit-publish/v10/claude/rightkit/crates/rightkit-fs)
+   Compiling rightkit-service v0.1.5 (/Volumes/D/rightkit-publish/v10/claude/rightkit/crates/rightkit-service)
+    Finished `bench` profile [optimized] target(s) in 2.69s
+     Running benches/budget.rs (/Volumes/D/.rightkit-managed/rightkit-build-control/ws/520b705fd794/g/002/target/aarch64-apple-darwin/release/deps/budget-fc03a2b3a4807f70)
+warm-up: 20000 requests over 64 connections in 1.84 s (10872 req/s), open connections 64, inflight 0, resident 5.2 MiB (before host 1.9 MiB)
+RESULT open_connections=64 connections
+RESULT warm_resident_bytes=5472256 bytes
+RESULT idle_resident_bytes=4734976 bytes
+RESULT resident_memory_bytes=5472256 bytes
+RESULT footprint_bytes=4555280 bytes
+RESULT idle_window_seconds=30.1 seconds
+RESULT idle_cpu_percent=0.056 percent
+RESULT wakeups_per_second=11.273 per_second
+RESULT disk_ops_per_second=unavailable the host exposes no process disk-operation counter
+RESULT disk_read_bytes_per_second=0.000 bytes_per_second
+RESULT disk_write_bytes_per_second=0.000 bytes_per_second
+RESULT scale=64 open connections after echo requests, then idle
+RESULT scope=synthetic
+RESULT budget crate=rightkit-service version=0.1.5 resident_bytes=5472256 idle_cpu_percent=0.056 wakeups_per_s=11.273 disk_ops_per_s=unavailable scale_unit=connections scale_count=64
+[rightkit] target warm (target-nonempty-with-fresh-artifacts); not-fresh 0/71

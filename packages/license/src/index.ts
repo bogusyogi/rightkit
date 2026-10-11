@@ -51,7 +51,64 @@ export interface StoredLicense {
   entitlementStage?: EntitlementStage;
   licenseIssuedAt?: string;
   confirmationDueAt?: string | null;
+  /** ISO time of the FIRST failed refresh of the current offline episode. Present only
+   *  while the cached license is stale (the last `refresh()` could not reach the server);
+   *  cleared by the next refresh that reaches the server. */
+  staleSince?: string;
+  /** What the most recent `refresh()` did to this record. */
+  lastRefreshOutcome?: RefreshOutcomeKind;
 }
+
+/** What a refresh did. Mirrors the native `RefreshOutcome` of `rightkit-license` 0.2.0
+ *  (minus `rejected`: JS never verifies the signed token, so it cannot reject one). */
+export type RefreshOutcomeKind =
+  | 'tokenReplaced'
+  | 'tokenKept'
+  | 'tokenDropped'
+  | 'stale'
+  | 'revoked'
+  | 'noCredential';
+
+export type RefreshOutcome =
+  /** The server minted a new signed token; it replaced the cached one. */
+  | { kind: 'tokenReplaced' }
+  /** The server said active but sent no token (or the one we already hold); the cached
+   *  token is still within its validity, so it was kept. */
+  | { kind: 'tokenKept'; reason: 'server_omitted_token' | 'server_returned_same_token'; validUntil: string }
+  /** The server said active but there is no usable cached token to keep: either none
+   *  was stored, or it is expired/unreadable and was removed from the record. */
+  | { kind: 'tokenDropped'; reason: 'no_cached_token' | 'cached_token_lapsed' }
+  /** The server could not be reached (offline, 5xx, malformed body). The cached record
+   *  is unchanged except for `staleSince`. */
+  | { kind: 'stale'; staleSince: string; error: string }
+  /** The server authoritatively said the license is no longer active. */
+  | { kind: 'revoked'; message?: string }
+  /** There is no activation credential to refresh with. Nothing was sent. */
+  | { kind: 'noCredential' };
+
+export interface RefreshResult {
+  outcome: RefreshOutcome;
+  /** The record after the refresh (also what storage now holds), or null if none. */
+  license: StoredLicense | null;
+}
+
+/** Where a license stands, for the UI. Same names as `rightkit-license`'s `Lifecycle`
+ *  (serde snake_case). The Rust value is the authority; this one is derived from the
+ *  stored record and is a UI hint only. */
+export type Lifecycle =
+  | 'unlicensed'
+  | 'migration_required'
+  | 'trial'
+  | 'expired_trial'
+  | 'active'
+  | 'grace'
+  | 'expired'
+  | 'lifetime_provisional'
+  | 'verification_required'
+  | 'lifetime'
+  | 'clock_repair_required'
+  | 'revoked'
+  | 'invalid';
 
 /** Async persistence the host provides (OS keyring in Tauri; Map in tests). */
 export interface LicenseStorage {
@@ -73,6 +130,8 @@ export interface LicenseConfig {
   graceDays?: number;
   /** Injectable for tests. */
   fetchImpl?: typeof fetch;
+  /** Injectable clock (epoch ms) for tests. Defaults to `Date.now`. */
+  now?: () => number;
 }
 
 interface ActivateResponse {
@@ -183,38 +242,93 @@ export function createLicenseClient(cfg: LicenseConfig) {
     return lic;
   }
 
-  /** Re-validate with the server (revocation + fresh entitlements). On network
-   *  failure it KEEPS the cached license — grace, not the server, decides offline. */
-  async function refresh(): Promise<StoredLicense | null> {
+  /** Re-validate with the server and report exactly what happened.
+   *
+   *  - `tokenReplaced`: the server minted a new signed token; it replaced the cached one.
+   *  - `tokenKept`: the server said active but sent no token (or the same one); the
+   *    cached token is kept ONLY while its own `exp` has not passed.
+   *  - `tokenDropped`: the server said active but there is no usable cached token
+   *    (none stored, or expired/unreadable); `signedToken` is removed from the record.
+   *  - `stale`: the server could not be reached (offline, 5xx, malformed body). The
+   *    cached entitlement stands (grace, not the server, decides offline) and
+   *    `staleSince` records when this offline episode began.
+   *  - `revoked`: the server authoritatively said the license is no longer active.
+   *  - `noCredential`: nothing to refresh with; no request was sent. */
+  async function refreshWithOutcome(): Promise<RefreshResult> {
     const cur = await cfg.storage.get();
-    if (!cur?.activationToken) return cur ?? null;
+    if (!cur?.activationToken) return { outcome: { kind: 'noCredential' }, license: cur ?? null };
+    const nowMs = (cfg.now ?? Date.now)();
+    const stamp = new Date(nowMs).toISOString();
     let body: ActivateResponse;
     try {
       body = await post('refresh', { app: cfg.app, activationToken: cur.activationToken, deviceId: cur.deviceId });
-    } catch {
-      return cur; // offline / server down — cached entitlement stands until grace lapses
-    }
-    if (body.status !== 'active') {
-      const lic: StoredLicense = { ...cur, status: 'invalid', message: body.message ?? 'License is no longer active', lastRefreshedAt: nowIso() };
+    } catch (e) {
+      const staleSince = cur.staleSince ?? stamp;
+      const lic: StoredLicense = { ...cur, staleSince, lastRefreshOutcome: 'stale' };
       await cfg.storage.set(lic);
-      return lic;
+      const error = e instanceof Error ? e.message : String(e);
+      return { outcome: { kind: 'stale', staleSince, error }, license: lic };
     }
+    // The server answered, so any offline episode is over.
+    const { staleSince: _cleared, ...settled } = cur;
+    if (body.status !== 'active') {
+      const message = body.message ?? 'License is no longer active';
+      const lic: StoredLicense = { ...settled, status: 'invalid', message, lastRefreshedAt: stamp, lastRefreshOutcome: 'revoked' };
+      await cfg.storage.set(lic);
+      return { outcome: { kind: 'revoked', message }, license: lic };
+    }
+
+    const fresh = typeof body.signedToken === 'string' && body.signedToken.trim() !== '' ? body.signedToken : undefined;
+    let signedToken: string | undefined;
+    let outcome: RefreshOutcome;
+    if (fresh !== undefined && fresh !== cur.signedToken) {
+      signedToken = fresh;
+      outcome = { kind: 'tokenReplaced' };
+    } else if (!cur.signedToken) {
+      outcome = { kind: 'tokenDropped', reason: 'no_cached_token' };
+    } else {
+      // Keep the cached token only while it is still within its own validity. The
+      // expiry is read from the unverified payload: a UI-side decision only, native
+      // code re-verifies the signature and expiry before anything is authorised.
+      const expiresMs = signedTokenExpiryMs(cur.signedToken);
+      if (expiresMs !== null && nowMs < expiresMs) {
+        signedToken = cur.signedToken;
+        outcome = {
+          kind: 'tokenKept',
+          reason: fresh !== undefined ? 'server_returned_same_token' : 'server_omitted_token',
+          validUntil: new Date(expiresMs).toISOString(),
+        };
+      } else {
+        outcome = { kind: 'tokenDropped', reason: 'cached_token_lapsed' };
+      }
+    }
+
     const lic: StoredLicense = {
-      ...cur,
+      ...settled,
       status: 'active',
       validUntil: body.validUntil !== undefined ? body.validUntil : (cur.validUntil ?? null),
       entitlements: body.entitlements ?? cur.entitlements,
-      signedToken: body.signedToken ?? cur.signedToken, // keep the cached token if the server didn't re-mint
+      signedToken,
       licenseKind: body.licenseKind ?? cur.licenseKind,
       entitlementStage: body.entitlementStage ?? cur.entitlementStage,
       licenseIssuedAt: body.licenseIssuedAt ?? cur.licenseIssuedAt,
       confirmationDueAt: body.confirmationDueAt !== undefined
         ? body.confirmationDueAt
         : cur.confirmationDueAt,
-      lastRefreshedAt: nowIso(),
+      lastRefreshedAt: stamp,
+      lastRefreshOutcome: outcome.kind,
     };
+    if (lic.signedToken === undefined) delete lic.signedToken;
     await cfg.storage.set(lic);
-    return lic;
+    return { outcome, license: lic };
+  }
+
+  /** Re-validate with the server (revocation + fresh entitlements) and return the record.
+   *  The record says what happened: `lastRefreshOutcome` is `tokenReplaced` / `tokenKept`
+   *  / `tokenDropped` / `stale` / `revoked`, and `staleSince` is set while the server is
+   *  unreachable. Use `refreshWithOutcome()` for the typed outcome with its reason. */
+  async function refresh(): Promise<StoredLicense | null> {
+    return (await refreshWithOutcome()).license;
   }
 
   /** Free this device's seat + clear local state. Idempotent + best-effort. */
@@ -226,7 +340,7 @@ export function createLicenseClient(cfg: LicenseConfig) {
     await cfg.storage.set(null);
   }
 
-  return { activate, refresh, deactivate, load: () => cfg.storage.get() };
+  return { activate, refresh, refreshWithOutcome, deactivate, load: () => cfg.storage.get() };
 }
 
 // ── pure entitlement readers (no I/O; safe to call on every render) ───────────
@@ -285,6 +399,111 @@ export function satisfiesRequirement(
   if (requirement.allFeatures && !hasAllFeatures(lic, requirement.allFeatures)) return false;
   if (requirement.anyFeature && !hasAnyFeature(lic, requirement.anyFeature)) return false;
   return true;
+}
+
+// ── lifecycle classification (UI hint; the native `Lifecycle` is the authority) ──
+
+export interface ClassifyOptions {
+  /** Grace days past `validUntil` for term/legacy/final-lifetime licenses. Default 7,
+   *  the same default as `isLicensed`. Trials and provisional lifetime licenses never
+   *  get grace. */
+  graceDays?: number;
+  /** Epoch ms. Default `Date.now()`. */
+  now?: number;
+  /** Report `migration_required` for an active record that holds an activation
+   *  credential but no signed token. Off by default: backends without a signing key
+   *  legitimately return none. Turn on in apps whose native layer needs the token. */
+  requireSignedToken?: boolean;
+  /** The native layer reported a clock rollback. Everything but a final lifetime
+   *  license becomes `clock_repair_required`. */
+  clockRolledBack?: boolean;
+}
+
+type ClaimsShape = 'legacy' | 'term' | 'trial' | 'provisional' | 'final' | 'invalid';
+
+/** kind/stage pairing only. Date-order checks need the signed `iat`, which JS never
+ *  reads, so they stay native-only. */
+function claimsShape(lic: StoredLicense): ClaimsShape {
+  const { licenseKind: kind, entitlementStage: stage } = lic;
+  if (kind == null && stage == null) return 'legacy';
+  if (kind === 'trial' && stage === 'time_bound') return 'trial';
+  if (kind === 'term' && stage === 'time_bound') return 'term';
+  if (kind === 'lifetime' && stage === 'provisional') return 'provisional';
+  if (kind === 'lifetime' && stage === 'final') return 'final';
+  return 'invalid';
+}
+
+/**
+ * Classify a stored license for the UI. Consistent with `isLicensed`: for a record with
+ * `status: 'active'`, `lifecycleGrantsAccess(classifyLifecycle(lic, o))` equals
+ * `isLicensed(lic, o.graceDays, o.now)` (except where `requireSignedToken` /
+ * `clockRolledBack` / an inconsistent kind-stage pair deny access).
+ *
+ * Mapping: no record, `none`, `failed` -> `unlicensed`; `invalid` after a refresh
+ * revocation (the record still holds credentials) -> `revoked`; any other `invalid` ->
+ * `invalid`. Trials and provisional lifetime licenses switch state at exactly
+ * `validUntil`; the rest get `graceDays` of `grace` first.
+ */
+export function classifyLifecycle(lic: StoredLicense | null, opts: ClassifyOptions = {}): Lifecycle {
+  const graceDays = opts.graceDays ?? 7;
+  const now = opts.now ?? Date.now();
+  if (!lic || lic.status === 'none' || lic.status === 'failed') return 'unlicensed';
+  if (lic.status === 'invalid') {
+    return lic.activationToken || lic.licenseId || lic.signedToken ? 'revoked' : 'invalid';
+  }
+  if (opts.requireSignedToken && !lic.signedToken) {
+    return lic.activationToken ? 'migration_required' : 'invalid';
+  }
+  const shape = claimsShape(lic);
+  if (shape === 'invalid') return 'invalid';
+  if (opts.clockRolledBack && shape !== 'final') return 'clock_repair_required';
+
+  const until = lic.validUntil == null ? null : Date.parse(lic.validUntil);
+  const live = until === null || (!Number.isNaN(until) && now < until);
+  const openEnded = (): Lifecycle => {
+    if (live) return shape === 'final' ? 'lifetime' : 'active';
+    // An unparseable validUntil never lapses a graced license (same as isLicensed).
+    if (until !== null && Number.isNaN(until)) return shape === 'final' ? 'lifetime' : 'active';
+    return until !== null && now < until + graceDays * 86_400_000 ? 'grace' : 'expired';
+  };
+
+  switch (shape) {
+    case 'trial':
+      return live ? 'trial' : 'expired_trial';
+    case 'provisional':
+      return live ? 'lifetime_provisional' : 'verification_required';
+    case 'legacy':
+    case 'term':
+    case 'final':
+      return openEnded();
+  }
+}
+
+/** Whether the UI should treat this lifecycle as entitled. */
+export function lifecycleGrantsAccess(lifecycle: Lifecycle): boolean {
+  return lifecycle === 'trial' || lifecycle === 'active' || lifecycle === 'grace'
+    || lifecycle === 'lifetime_provisional' || lifecycle === 'lifetime';
+}
+
+/** States one online refresh can resolve. */
+export function lifecycleNeedsOnlineRefresh(lifecycle: Lifecycle): boolean {
+  return lifecycle === 'migration_required' || lifecycle === 'verification_required'
+    || lifecycle === 'clock_repair_required';
+}
+
+/** `exp` of a signed token in epoch ms, read from the UNVERIFIED payload, or null when
+ *  the token is not a decodable `payload.signature` pair. A UI-side hint only. */
+function signedTokenExpiryMs(token: string): number | null {
+  try {
+    const dot = token.indexOf('.');
+    if (dot <= 0) return null;
+    const b64 = token.slice(0, dot).replace(/-/g, '+').replace(/_/g, '/');
+    const bytes = Uint8Array.from(atob(b64), (ch) => ch.charCodeAt(0));
+    const claims = JSON.parse(new TextDecoder().decode(bytes)) as { exp?: unknown };
+    return typeof claims.exp === 'number' && Number.isFinite(claims.exp) ? claims.exp * 1000 : null;
+  } catch {
+    return null;
+  }
 }
 
 function tierRank(value: string | null | undefined): number {

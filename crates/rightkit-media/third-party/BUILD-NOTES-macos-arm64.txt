@@ -12,3 +12,4 @@ Use: decode-only (audio extraction). Shipped as a separate executable we shell
      offer only. Wire via HR_FFMPEG_DARWIN_SRC (HeardRight) / FFMPEG_DARWIN_SRC
      (ScrapeRight).
 sha256: a42a50dbfa8502481db21da247f7fe45ee0c8e8b1bb98bd68558faf64faf4258
+contentSha256 (signature-independent catalog identity, src/content_digest.rs): 3703e58129e2090ebb1bf705c34d3130fe094179bbdb55aebd558d13f6bca1ab

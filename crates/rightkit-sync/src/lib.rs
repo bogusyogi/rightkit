@@ -12,7 +12,7 @@ mod storage;
 mod traits;
 
 pub use backoff::BackoffPolicy;
-pub use engine::{PassOutcome, PassReport, SyncConfig, SyncEngine, SyncEngineBuilder};
+pub use engine::{PassOutcome, PassReport, SyncConfig, SyncEngine, SyncEngineBuilder, SyncMetrics, SyncStatus};
 pub use error::{SyncError, SyncResult};
 pub use ledger::{Ledger, LedgerStore, RemoteVersion};
 pub use memory::MemoryBackend;

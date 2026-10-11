@@ -1,12 +1,14 @@
 //! # rightkit-vad
 //!
-//! Product-neutral voice activity detection. Owns the Silero scorer
-//! (caller-supplied ONNX model path; nothing is bundled or downloaded), the
-//! frame protocol, and the span/chunking policy. Owns no dictation, push-to-talk
-//! or command policy: callers decide what a span means.
+//! Product-neutral voice activity detection. Owns the Silero scorer (loaded
+//! from a caller-supplied ONNX file or embedded bytes; nothing is bundled or
+//! downloaded), the frame protocol, and the span/chunking policy. Owns no
+//! dictation, push-to-talk or command policy: callers decide what a span means.
 //!
 //! Layers, each usable alone:
 //! - [`FrameScorer`]: any per-frame speech-probability source (`Silero` (feature `silero`) or a test double).
+//! - [`SpeechScorer`] (feature `silero`): a constructed scorer that reports its
+//!   [`Backend`], with an optional energy fallback when Silero cannot load.
 //! - [`scores_to_spans`]: Silero `get_speech_timestamps`-shaped hysteresis
 //!   (`threshold` start, `neg_threshold` end, `min_speech`, `min_silence`,
 //!   `pad`, merge).
@@ -18,14 +20,19 @@
 //!   ("unknown"), never silence.
 
 #[cfg(feature = "silero")]
+mod scorer;
+#[cfg(feature = "silero")]
 mod silero;
 mod spans;
 mod stream;
 
 #[cfg(feature = "silero")]
-pub use silero::{Silero, SileroOptions};
+pub use scorer::{Backend, ScorerBackend, SpeechScorer};
+#[cfg(feature = "silero")]
+pub use silero::{ExecutionProvider, Silero, SileroOptions, Spinning, Warmup};
 pub use spans::{
-    chunk_spans, detect, energy_scores, scores_to_spans, ChunkConfig, Span, VadConfig,
+    chunk_spans, detect, energy_scores, scores_to_spans, ChunkConfig, ResolvedSpans,
+    RmsCalibration, Span, SpanOptions, VadConfig,
 };
 pub use stream::{FrameStream, FrameVerdicts};
 

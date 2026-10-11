@@ -89,25 +89,52 @@ fn v4_from_segments(hi: u16, lo: u16) -> Ipv4Addr {
     Ipv4Addr::new((hi >> 8) as u8, hi as u8, (lo >> 8) as u8, lo as u8)
 }
 
-/// The IPv4 address embedded in an IPv6 address: IPv4-mapped `::ffff:a.b.c.d`, the
-/// deprecated IPv4-compatible `::a.b.c.d`, NAT64 `64:ff9b::/96` and 6to4 `2002::/16`.
-/// `::` and `::1` embed nothing.
-pub fn embedded_v4(ip: IpAddr) -> Option<Ipv4Addr> {
-    let IpAddr::V6(v6) = ip else { return None };
+fn v4_from_octets(o: &[u8; 16], idx: [usize; 4]) -> Ipv4Addr {
+    Ipv4Addr::new(o[idx[0]], o[idx[1]], o[idx[2]], o[idx[3]])
+}
+
+/// Every IPv4 address an IPv6 address can embed: IPv4-mapped `::ffff:a.b.c.d`, the
+/// deprecated IPv4-compatible `::a.b.c.d`, NAT64 `64:ff9b::/96`, 6to4 `2002::/16`, and the
+/// local-use NAT64 space `64:ff9b:1::/48` (RFC 8215). The local-use prefix may be deployed
+/// at several lengths (RFC 6052 section 2.2), so each of the /48, /56, /64 and /96 layouts
+/// is returned. `::`, `::1` and non-embedding addresses return nothing.
+pub fn embedded_v4s(ip: IpAddr) -> Vec<Ipv4Addr> {
+    let IpAddr::V6(v6) = ip else {
+        return Vec::new();
+    };
     if v6.is_loopback() || v6.is_unspecified() {
-        return None;
+        return Vec::new();
     }
     let s = v6.segments();
     if let Some(v4) = v6.to_ipv4_mapped() {
-        return Some(v4);
+        return vec![v4];
     }
     if s[..6] == [0, 0, 0, 0, 0, 0] || s[..6] == [0x64, 0xff9b, 0, 0, 0, 0] {
-        return Some(v4_from_segments(s[6], s[7]));
+        return vec![v4_from_segments(s[6], s[7])];
     }
     if s[0] == 0x2002 {
-        return Some(v4_from_segments(s[1], s[2]));
+        return vec![v4_from_segments(s[1], s[2])];
     }
-    None
+    if s[0] == 0x64 && s[1] == 0xff9b && s[2] == 1 {
+        let o = v6.octets();
+        return vec![
+            v4_from_octets(&o, [12, 13, 14, 15]),
+            v4_from_octets(&o, [9, 10, 11, 12]),
+            v4_from_octets(&o, [7, 9, 10, 11]),
+            v4_from_octets(&o, [6, 7, 9, 10]),
+        ];
+    }
+    Vec::new()
+}
+
+/// The IPv4 address embedded in an IPv6 address (see [`embedded_v4s`]): the first
+/// non-public one when several layouts are possible, otherwise the first.
+pub fn embedded_v4(ip: IpAddr) -> Option<Ipv4Addr> {
+    let all = embedded_v4s(ip);
+    all.iter()
+        .copied()
+        .find(|v4| classify_v4(*v4) != AddressClass::Public)
+        .or_else(|| all.first().copied())
 }
 
 fn classify_v6(v6: Ipv6Addr) -> AddressClass {
@@ -118,8 +145,13 @@ fn classify_v6(v6: Ipv6Addr) -> AddressClass {
     if v6.is_unspecified() {
         return AddressClass::Unspecified;
     }
-    if let Some(v4) = embedded_v4(IpAddr::V6(v6)) {
-        return classify_v4(v4);
+    let embedded = embedded_v4s(IpAddr::V6(v6));
+    if !embedded.is_empty() {
+        return embedded
+            .into_iter()
+            .map(classify_v4)
+            .find(|c| *c != AddressClass::Public)
+            .unwrap_or(AddressClass::Public);
     }
     if v6.is_multicast() {
         AddressClass::Multicast
@@ -132,6 +164,150 @@ fn classify_v6(v6: Ipv6Addr) -> AddressClass {
     } else {
         AddressClass::Public
     }
+}
+
+/// Addresses no hook may allow: link-local (which holds `169.254.169.254`), AWS's IPv6
+/// infrastructure block `fd00:ec2::/32` (metadata `fd00:ec2::254`, DNS `fd00:ec2::253`),
+/// and the metadata addresses outside link-local: Alibaba `100.100.100.200`, Azure's
+/// wire server `168.63.129.16`, and Oracle/other `192.0.0.192`. IPv6 forms embedding one
+/// of these are covered too. Returns why the address is blocked.
+fn hard_block(ip: IpAddr) -> Option<&'static str> {
+    fn one(ip: IpAddr) -> Option<&'static str> {
+        if classify_ip(ip) == AddressClass::LinkLocal {
+            return Some("is link-local (cloud metadata range)");
+        }
+        match ip {
+            IpAddr::V4(v4)
+                if [[100, 100, 100, 200], [168, 63, 129, 16], [192, 0, 0, 192]]
+                    .contains(&v4.octets()) =>
+            {
+                Some("is a cloud metadata address")
+            }
+            IpAddr::V6(v6) if v6.segments()[0] == 0xfd00 && v6.segments()[1] == 0x0ec2 => {
+                Some("is in the AWS IPv6 metadata block fd00:ec2::/32")
+            }
+            _ => None,
+        }
+    }
+    one(ip).or_else(|| {
+        embedded_v4s(ip)
+            .into_iter()
+            .find_map(|v4| one(IpAddr::V4(v4)))
+    })
+}
+
+/// How a host string spelled an IP address.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
+pub enum HostIpKind {
+    /// Four decimal parts without leading zeros: `1.1.1.1`.
+    Ipv4DottedQuad,
+    /// Any other IPv4 spelling `inet_aton` accepts: `127.1`, `0177.0.0.1`, `0x7f.0.0.1`,
+    /// `2130706433`, `10.1.2`, and the dotted quad with a trailing dot.
+    Ipv4Legacy,
+    /// An IPv6 literal, with or without brackets, including IPv4-mapped forms.
+    Ipv6,
+}
+
+/// A host string that is an IP address, as parsed by [`parse_host_ip`].
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
+pub struct ParsedHostIp {
+    pub addr: IpAddr,
+    pub kind: HostIpKind,
+    /// True for a dotted quad or an IPv6 literal, which every parser reads the same way.
+    /// False for [`HostIpKind::Ipv4Legacy`] spellings, which downstream parsers disagree on.
+    pub is_canonical: bool,
+}
+
+/// Parse a host string as an IP address the way `inet_aton` and system resolvers do, and say
+/// how it was spelled. The input is a host as it appears in a URL: ASCII case does not
+/// matter, IPv6 may be bracketed, and one trailing dot is allowed (and makes an IPv4
+/// spelling non-canonical).
+///
+/// Accepted, with the result:
+///
+/// | Input | `addr` | `kind` | `is_canonical` |
+/// |---|---|---|---|
+/// | `1.1.1.1` | 1.1.1.1 | `Ipv4DottedQuad` | true |
+/// | `127.1` | 127.0.0.1 | `Ipv4Legacy` | false |
+/// | `10.1.2` | 10.1.0.2 | `Ipv4Legacy` | false |
+/// | `0177.0.0.1` (octal parts) | 127.0.0.1 | `Ipv4Legacy` | false |
+/// | `0x7f.0.0.1`, `0x7f000001` (hex) | 127.0.0.1 | `Ipv4Legacy` | false |
+/// | `2130706433` (one 32-bit part) | 127.0.0.1 | `Ipv4Legacy` | false |
+/// | `1.1.1.1.` (trailing dot) | 1.1.1.1 | `Ipv4Legacy` | false |
+/// | `::1`, `[::1]`, `::ffff:127.0.0.1` | as written | `Ipv6` | true |
+///
+/// `inet_aton` rules: one to four parts; each part is decimal, octal (a leading `0`) or hex
+/// (`0x`); every part but the last is at most 255; the last part fills the remaining bytes
+/// (so `a.b.c` has a 16-bit last part and `a.b` a 24-bit one). Returns `None` for hostnames,
+/// for more than four parts, for out-of-range parts, for a digit outside the part's radix
+/// (`08.1`), and for empty parts.
+pub fn parse_host_ip(host: &str) -> Option<ParsedHostIp> {
+    let trimmed = host.trim_matches(['[', ']']);
+    if let Ok(ip) = trimmed.parse::<IpAddr>() {
+        let (kind, is_canonical) = match ip {
+            IpAddr::V4(_) => (HostIpKind::Ipv4DottedQuad, true),
+            IpAddr::V6(_) => (HostIpKind::Ipv6, true),
+        };
+        return Some(ParsedHostIp {
+            addr: ip,
+            kind,
+            is_canonical,
+        });
+    }
+    let (body, trailing_dot) = match trimmed.strip_suffix('.') {
+        Some(b) => (b, true),
+        None => (trimmed, false),
+    };
+    let v4 = parse_legacy_ipv4(body)?;
+    let canonical = !trailing_dot && body.eq_ignore_ascii_case(&v4.to_string());
+    Some(ParsedHostIp {
+        addr: IpAddr::V4(v4),
+        kind: if canonical {
+            HostIpKind::Ipv4DottedQuad
+        } else {
+            HostIpKind::Ipv4Legacy
+        },
+        is_canonical: canonical,
+    })
+}
+
+/// Parse an IPv4 address with the `inet_aton` rules described at [`parse_host_ip`]. This
+/// accepts every spelling, canonical or not, and does not accept a trailing dot, brackets
+/// or IPv6; use [`parse_host_ip`] when the spelling matters.
+pub fn parse_legacy_ipv4(host: &str) -> Option<Ipv4Addr> {
+    let parts: Vec<&str> = host.split('.').collect();
+    if parts.is_empty() || parts.len() > 4 {
+        return None;
+    }
+    let mut values = Vec::with_capacity(parts.len());
+    for part in &parts {
+        let (digits, radix) =
+            if let Some(hex) = part.strip_prefix("0x").or_else(|| part.strip_prefix("0X")) {
+                (hex, 16)
+            } else if part.len() > 1 && part.starts_with('0') {
+                (&part[1..], 8)
+            } else {
+                (*part, 10)
+            };
+        if digits.is_empty() || !digits.chars().all(|c| c.is_digit(radix)) {
+            return None;
+        }
+        values.push(u64::from_str_radix(digits, radix).ok()?);
+    }
+    let (last, init) = values.split_last()?;
+    if init.iter().any(|v| *v > 255) {
+        return None;
+    }
+    let tail_bytes = 4 - init.len();
+    if *last >= 1u64 << (8 * tail_bytes) {
+        return None;
+    }
+    let mut addr: u32 = 0;
+    for v in init {
+        addr = (addr << 8) | *v as u32;
+    }
+    addr = addr.checked_shl(8 * tail_bytes as u32).unwrap_or(0) | *last as u32;
+    Some(Ipv4Addr::from(addr))
 }
 
 /// Hostnames that always mean "cloud instance metadata".
@@ -296,6 +472,10 @@ pub struct AddressPolicy {
     allow: Vec<AllowRule>,
     /// First-party hosts allowed to resolve to non-public addresses.
     private_ok: Vec<String>,
+    /// Follow an HTTPS to HTTP redirect (refused by default).
+    allow_downgrade: bool,
+    /// Accept non-canonical IPv4 host spellings (refused by default).
+    allow_legacy_ipv4: bool,
     resolver: Option<ResolverHook>,
 }
 
@@ -323,6 +503,8 @@ impl fmt::Debug for AddressPolicy {
                     .collect::<Vec<_>>(),
             )
             .field("private_resolution_hosts", &self.private_ok)
+            .field("allow_insecure_redirects", &self.allow_downgrade)
+            .field("allow_legacy_ipv4", &self.allow_legacy_ipv4)
             .field("custom_resolver", &self.resolver.is_some())
             .finish()
     }
@@ -337,6 +519,8 @@ impl AddressPolicy {
             deny_if: Vec::new(),
             allow: Vec::new(),
             private_ok: Vec::new(),
+            allow_downgrade: false,
+            allow_legacy_ipv4: false,
             resolver: None,
         }
     }
@@ -357,6 +541,51 @@ impl AddressPolicy {
     /// True for a policy built with [`AddressPolicy::first_party`].
     pub fn is_first_party(&self) -> bool {
         matches!(self.mode, Mode::FirstParty(_))
+    }
+
+    /// Accept non-canonical IPv4 host spellings (`127.1`, `0177.0.0.1`, `0x7f.0.0.1`,
+    /// `2130706433`, `1.1.1.1.`) and read them as `inet_aton` does. They are refused by
+    /// default with [`crate::HttpError::AddressDenied`], because parsers disagree about
+    /// them (some read `0177.0.0.1` as decimal 177), and that mismatch is an SSRF bypass.
+    /// No legitimate URL spells a host this way. Cloud metadata and the address classes
+    /// still apply to an accepted spelling.
+    pub fn allow_legacy_ipv4(mut self) -> Self {
+        self.allow_legacy_ipv4 = true;
+        self
+    }
+
+    /// Follow redirects from HTTPS to plain HTTP. Refused by default: the redirect target
+    /// (often a signed URL) would travel unencrypted and the answer could not be trusted.
+    pub fn allow_insecure_redirects(mut self) -> Self {
+        self.allow_downgrade = true;
+        self
+    }
+
+    /// False for a redirect from HTTPS to plain HTTP, unless
+    /// [`AddressPolicy::allow_insecure_redirects`] was set. Other transports use it to apply
+    /// the same rule.
+    pub fn allows_redirect(&self, from_scheme: &str, to_scheme: &str) -> bool {
+        self.allow_downgrade
+            || !from_scheme.eq_ignore_ascii_case("https")
+            || !to_scheme.eq_ignore_ascii_case("http")
+    }
+
+    /// Refuse an HTTPS to HTTP redirect unless [`AddressPolicy::allow_insecure_redirects`].
+    pub(crate) fn check_redirect_scheme(
+        &self,
+        from_scheme: &str,
+        to_scheme: &str,
+        host: &str,
+    ) -> Result<(), AddressDenial> {
+        if self.allows_redirect(from_scheme, to_scheme) {
+            return Ok(());
+        }
+        Err(denial(
+            &normalize_host(host),
+            None,
+            None,
+            "redirect from HTTPS to HTTP refused",
+        ))
     }
 
     /// Let a first-party `host` resolve to non-public addresses (loopback, RFC 1918, ...),
@@ -427,8 +656,8 @@ impl AddressPolicy {
     /// but cannot see the caller's transport, so requiring TLS stays the caller's job. A
     /// system lookup is bounded at ten seconds.
     pub fn resolve_vetted(&self, host: &str, port: u16) -> Result<Vec<SocketAddr>, HttpError> {
+        self.admit("https", host)?;
         let host = normalize_host(host);
-        self.admit("https", &host)?;
         let addrs = match self.fixed_addrs(&host) {
             Some(addrs) => addrs,
             None => match self.lookup_blocking(&host, port, Some(Duration::from_secs(10))) {
@@ -476,14 +705,37 @@ impl AddressPolicy {
             None
         };
         match reason {
-            Some(r) => Err(denial(&host, None, Some(AddressClass::Private), r)),
+            Some(r) => Err(denial(
+                &host,
+                None,
+                Some(AddressClass::Private),
+                format!("{r} (through a proxy only names and literals can be checked)"),
+            )),
             None => Ok(()),
         }
     }
 
     /// Name- and scheme-level admission, before any lookup: metadata host names, and the
     /// first-party host and HTTPS pin.
+    ///
+    /// `host` should be the host exactly as the URL spelled it (trailing dot included), so a
+    /// non-canonical IPv4 spelling can be refused.
     pub(crate) fn admit(&self, scheme: &str, host: &str) -> Result<(), AddressDenial> {
+        if !self.allow_legacy_ipv4 {
+            if let Some(parsed) = parse_host_ip(host) {
+                if !parsed.is_canonical {
+                    return Err(denial(
+                        &normalize_host(host),
+                        Some(parsed.addr),
+                        Some(classify_ip(parsed.addr)),
+                        format!(
+                            "non-canonical IPv4 spelling is refused (it reads as {})",
+                            parsed.addr
+                        ),
+                    ));
+                }
+            }
+        }
         let host = normalize_host(host);
         if is_metadata_host(&host) {
             return Err(denial(
@@ -517,8 +769,8 @@ impl AddressPolicy {
     /// Addresses that need no lookup: IP literals and `localhost` names.
     pub(crate) fn fixed_addrs(&self, host: &str) -> Option<Vec<IpAddr>> {
         let host = normalize_host(host);
-        if let Ok(ip) = host.parse::<IpAddr>() {
-            return Some(vec![ip]);
+        if let Some(parsed) = parse_host_ip(&host) {
+            return Some(vec![parsed.addr]);
         }
         if host == "localhost" || host.ends_with(".localhost") {
             return Some(vec![IpAddr::V4(Ipv4Addr::LOCALHOST)]);
@@ -526,20 +778,21 @@ impl AddressPolicy {
         None
     }
 
-    /// Resolve `host` with the configured hook or the system resolver. `limit` bounds a
-    /// system lookup. `Ok(empty)` means the name resolved to nothing.
+    /// Resolve `host` with the configured hook or the system resolver. `limit` bounds the
+    /// lookup, hook included. `Ok(empty)` means the name resolved to nothing.
     pub(crate) fn lookup_blocking(
         &self,
         host: &str,
         port: u16,
         limit: Option<Duration>,
     ) -> io::Result<Vec<IpAddr>> {
-        if let Some(hook) = &self.resolver {
-            return Ok(hook(&normalize_host(host)));
-        }
-        let target = (normalize_host(host), port);
+        let host = normalize_host(host);
+        let hook = self.resolver.clone();
         let run = move || -> io::Result<Vec<IpAddr>> {
-            Ok(target.to_socket_addrs()?.map(|a| a.ip()).collect())
+            match hook {
+                Some(hook) => Ok(hook(&host)),
+                None => Ok((host, port).to_socket_addrs()?.map(|a| a.ip()).collect()),
+            }
         };
         match limit {
             None => run(),
@@ -579,22 +832,21 @@ impl AddressPolicy {
                 "host did not resolve to any address",
             ));
         }
-        let literal = host.parse::<IpAddr>().is_ok();
+        let literal = parse_host_ip(&host).is_some();
         for &ip in &addrs {
             let class = classify_ip(ip);
-            if class == AddressClass::LinkLocal {
+            if let Some(why) = hard_block(ip) {
                 return Err(denial(
                     &host,
                     Some(ip),
                     Some(class),
-                    format!(
-                        "{} is link-local (cloud metadata range)",
-                        subject(literal, ip)
-                    ),
+                    format!("{} {why}", subject(literal, ip)),
                 ));
             }
-            let forms = [Some(ip), embedded_v4(ip).map(IpAddr::V4)];
-            for form in forms.iter().flatten() {
+            let forms: Vec<IpAddr> = std::iter::once(ip)
+                .chain(embedded_v4s(ip).into_iter().map(IpAddr::V4))
+                .collect();
+            for form in forms.iter() {
                 if let Some(net) = self.deny_ranges.iter().find(|n| n.contains(form)) {
                     return Err(denial(
                         &host,
@@ -664,6 +916,29 @@ pub(crate) fn denial_in_chain(err: &(dyn Error + 'static)) -> Option<AddressDeni
     None
 }
 
+thread_local! {
+    /// True while the current thread is running a request that goes through the proxy.
+    static VIA_PROXY: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// Marks the current thread's ureq call as routed through the proxy, so the resolver
+/// treats the proxy endpoint (host and port) as trusted configuration. Without the mark
+/// the same host and port is an ordinary destination and gets the full check, which is the
+/// case for `NO_PROXY` hosts.
+pub(crate) struct ViaProxy(bool);
+
+impl ViaProxy {
+    pub(crate) fn enter(on: bool) -> Self {
+        Self(VIA_PROXY.with(|c| c.replace(on)))
+    }
+}
+
+impl Drop for ViaProxy {
+    fn drop(&mut self) {
+        VIA_PROXY.with(|c| c.set(self.0));
+    }
+}
+
 /// `ureq` keeps at most this many addresses per lookup (its `ResolvedSocketAddrs` capacity).
 const MAX_RESOLVED_ADDRS: usize = 16;
 
@@ -675,8 +950,11 @@ const MAX_RESOLVED_ADDRS: usize = 16;
 pub(crate) struct VettingResolver {
     pub(crate) policy: Arc<AddressPolicy>,
     /// Proxy endpoint `(normalized host, port)`: resolved but trusted (configuration, not
-    /// input), so no address-class denial and no first-party host pin.
+    /// input), so no address-class denial and no first-party host pin, but only while the
+    /// call is marked [`ViaProxy`].
     pub(crate) proxy: Option<(String, u16)>,
+    /// Bound for a name lookup when the request has no resolve or global timeout.
+    pub(crate) lookup_limit: Duration,
 }
 
 impl ureq::unversioned::resolver::Resolver for VettingResolver {
@@ -692,26 +970,31 @@ impl ureq::unversioned::resolver::Resolver for VettingResolver {
             "https" => 443,
             _ => return Err(ureq::Error::BadUri("unsupported scheme".into())),
         };
-        let host = normalize_host(
-            uri.host()
-                .ok_or_else(|| ureq::Error::BadUri("missing host".into()))?,
-        );
+        let raw_host = uri
+            .host()
+            .ok_or_else(|| ureq::Error::BadUri("missing host".into()))?;
+        let host = normalize_host(raw_host);
         let port = uri.port_u16().unwrap_or(default_port);
-        let is_proxy = self
-            .proxy
-            .as_ref()
-            .is_some_and(|(h, p)| *h == host && *p == port);
+        let is_proxy = VIA_PROXY.with(|c| c.get())
+            && self
+                .proxy
+                .as_ref()
+                .is_some_and(|(h, p)| *h == host && *p == port);
         if !is_proxy && !matches!(scheme.as_str(), "http" | "https") {
             return Err(ureq::Error::BadUri("unsupported scheme".into()));
         }
         if !is_proxy {
-            self.policy.admit(&scheme, &host).map_err(to_ureq)?;
+            self.policy.admit(&scheme, raw_host).map_err(to_ureq)?;
         }
         let addrs = match self.policy.fixed_addrs(&host) {
             Some(addrs) => addrs,
             None => {
-                let limit = (!timeout.after.is_not_happening()).then(|| *timeout.after);
-                match self.policy.lookup_blocking(&host, port, limit) {
+                let limit = if timeout.after.is_not_happening() {
+                    self.lookup_limit
+                } else {
+                    (*timeout.after).min(self.lookup_limit)
+                };
+                match self.policy.lookup_blocking(&host, port, Some(limit)) {
                     Ok(addrs) => addrs,
                     Err(e) if e.kind() == io::ErrorKind::TimedOut => {
                         return Err(ureq::Error::Timeout(timeout.reason))
@@ -788,6 +1071,96 @@ mod tests {
         assert_eq!(embedded_v4(ip("::")), None);
         assert_eq!(embedded_v4(ip("2606:4700::1")), None);
         assert_eq!(embedded_v4(ip("1.2.3.4")), None);
+    }
+
+    #[test]
+    fn host_ip_parsing_reports_the_spelling() {
+        let k = |h: &str| parse_host_ip(h).map(|p| (p.addr, p.kind, p.is_canonical));
+        let v4 = |s: &str| IpAddr::V4(s.parse().unwrap());
+        assert_eq!(
+            k("1.1.1.1"),
+            Some((v4("1.1.1.1"), HostIpKind::Ipv4DottedQuad, true))
+        );
+        for (spelling, want) in [
+            ("127.1", "127.0.0.1"),
+            ("10.1.2", "10.1.0.2"),
+            ("0177.0.0.1", "127.0.0.1"),
+            ("0x7f.0.0.1", "127.0.0.1"),
+            ("0X7F000001", "127.0.0.1"),
+            ("2130706433", "127.0.0.1"),
+            ("017700000001", "127.0.0.1"),
+            ("0251.0376.0251.0376", "169.254.169.254"),
+            ("1.1.1.1.", "1.1.1.1"),
+            ("0", "0.0.0.0"),
+        ] {
+            assert_eq!(
+                k(spelling),
+                Some((v4(want), HostIpKind::Ipv4Legacy, false)),
+                "{spelling}"
+            );
+        }
+        for v6 in [
+            "::1",
+            "[::1]",
+            "::ffff:127.0.0.1",
+            "[::ffff:7f00:1]",
+            "64:ff9b::a00:1",
+        ] {
+            let p = parse_host_ip(v6).unwrap();
+            assert!(p.is_canonical && p.kind == HostIpKind::Ipv6, "{v6}");
+        }
+        for not_ip in [
+            "example.com",
+            "1.2.3.4.5",
+            "256.1.1.1",
+            "1.2.3.256",
+            "4294967296",
+            "08.1",
+            "0x",
+            "1..2",
+            "",
+            ".",
+            "1.2.3.",
+            "a.b.c.d",
+            "127.0.0.1x",
+        ] {
+            let got = parse_host_ip(not_ip);
+            // "1.2.3." has a trailing dot on a valid 3-part spelling: that is a legacy IPv4.
+            if not_ip == "1.2.3." {
+                assert!(got.is_some());
+            } else {
+                assert!(got.is_none(), "{not_ip}: {got:?}");
+            }
+        }
+        assert_eq!(
+            parse_legacy_ipv4("0x7f.1"),
+            Some("127.0.0.1".parse().unwrap())
+        );
+        assert_eq!(parse_legacy_ipv4("1.1.1.1."), None);
+        assert_eq!(parse_legacy_ipv4("::1"), None);
+    }
+
+    #[test]
+    fn non_canonical_spellings_are_refused_by_default_and_allowed_on_request() {
+        let strict = AddressPolicy::default();
+        for h in ["0177.0.0.1", "0x7f.1", "2130706433", "127.1", "1.1.1.1."] {
+            let d = strict.admit("http", h).unwrap_err();
+            assert!(d.reason.contains("non-canonical"), "{h}: {d}");
+            assert!(d.addr.is_some(), "{h}");
+        }
+        for h in [
+            "1.1.1.1",
+            "::ffff:1.1.1.1",
+            "[::1]",
+            "example.com",
+            "example.com.",
+        ] {
+            assert!(strict.admit("http", h).is_ok(), "{h}");
+        }
+        let lax = AddressPolicy::default().allow_legacy_ipv4();
+        assert!(lax.admit("http", "127.1").is_ok());
+        // The address classes still apply to an accepted spelling.
+        assert!(lax.vet("127.1", lax.fixed_addrs("127.1").unwrap()).is_err());
     }
 
     #[test]

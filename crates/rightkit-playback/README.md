@@ -65,6 +65,28 @@ await invoke<boolean>("revoke_media_source", { source: sourceId });  // later pr
 
 `prepare_registered_media_playback` returns the derivative path that the host has already allowed as an asset. Unregistered paths and revoked or changed sources fail closed. The existing `prepare_media_playback(id, request_id)` keeps its media-id contract.
 
+## Host-authorised sources (opt-in)
+
+By default no path becomes a source unless Rust registers it. A host that already authorises whole folders (for example Tauri's asset scope) can hand the registry that decision instead of registering files one by one:
+
+```rust
+let state = PlaybackState::new(Arc::new(MyHost));
+// Either the host's own rule (receives the canonical path) ...
+let app = handle.clone();
+state.set_authoriser(move |path| app.asset_protocol_scope().is_allowed(path));
+// ... or a ready helper: regular files under these directories, recursively.
+state.allow_roots([project_dir]);
+// register `authorised_media_source_id` next to `media_source_id` in the invoke handler
+```
+
+`authorised_media_source_id(path)` (Tauri command and `PlaybackState` method; `SourceRegistry::resolve_or_register` underneath) returns the id for any file the hook allows, registering it on demand. `media_source_id` keeps its contract and never registers.
+
+- The path is canonicalised before the hook sees it and before it is stored. Symlinks that leave an allowed root, `..` escapes, missing paths, directories and non-regular files are refused. A path that does not resolve is `PLAYBACK_NOT_ALLOWED`, not `PLAYBACK_MISSING`, so the call does not reveal whether a file outside the allowed area exists. Without a hook every call is `PLAYBACK_NOT_ALLOWED`.
+- The hook runs again every time a hook-registered id is used, and the path must still canonicalise to the registered one. A hook that starts returning `false`, `clear_authoriser`, or a file swapped for a symlink out of the root refuses the id with `PLAYBACK_NOT_ALLOWED`. Explicitly registered ids ignore the hook.
+- The hook runs under the registry lock; it must not call back into the registry or state.
+- Residual window: the check precedes the open by FFmpeg, which reopens the path. A swap in that final instant is not detectable by path checks alone; a changed size or modification time still fails closed.
+- Windows: canonical paths carry the verbatim `\\?\` prefix. `allowed_roots` canonicalises both sides, so it is consistent; a custom hook that compares strings must expect that form.
+
 ## Example
 
 Illustrative; not compiled as a doctest. For compiled usage, see `tests/remux_e2e.rs` and `tests/cancel_race.rs`.

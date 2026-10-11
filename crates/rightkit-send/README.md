@@ -62,3 +62,16 @@ On iOS the crate opens no mDNS or multicast sockets. Browse and advertise belong
 
 `rightkit cargo test -p rightkit-send --all-features` runs the in-crate tests and the loopback
 integration tests in `tests/localsend.rs` (no network is needed beyond the local machine).
+
+## Runtime budget
+
+Generated from `runtime-budget.json`; edit that file, then run `node packages/release/runtime-budgets.mjs sync <crate-dir>`.
+
+- Resident memory ceiling: 15.0 MiB.
+- CPU ceiling (idle, steady state): 1%.
+- Wake-ups ceiling: undeclared.
+- Disk operations ceiling: 1 operations per second.
+- Required scale: 50 devices or more.
+- Required hosts: macOS and Windows.
+- Status exposure: `Service::status()` in `src/lib.rs`; exposes resident memory, idle CPU, wake-ups, disk operations.
+- Measured: not yet measured.

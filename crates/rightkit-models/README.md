@@ -79,6 +79,40 @@ See `tests/install.rs`, `tests/adoption.rs`, `tests/partial_alias_rewrite.rs`,
 `tests/e2e_resume.rs`, and `tests/shared_runtime_gc.rs` for end-to-end usage. The tests use the
 `rightkit-qa` `MockServer` (Range, dropped connections, servers without resume) as a dev-dependency.
 
+## Shared Whisper model (added in 0.2.9)
+
+One Whisper large-v3-turbo model serves HeardRight and ScrapeRight. Both apps
+must resolve the same entry, `whisper-turbo`, through `suite::whisper`:
+
+```rust,ignore
+use rightkit_models::suite::{ensure_whisper_model, resolve_whisper_model, WhisperKind};
+
+// Engine start: read-only, size-verified, no network.
+let model_file = resolve_whisper_model(WhisperKind::Ggml)?;
+// Install or repair: entitlement-gated (the app's signed Pro entitlement is the bearer,
+// no worker grant), locked, SHA-256 verified, atomic.
+let model_file = ensure_whisper_model(WhisperKind::Ggml, "heardright", Some(&entitlement_bearer), &|| false, |_| {})?;
+```
+
+- **Format.** whisper.cpp 1.9.3 loads the ggml `.bin` file
+  (`whisper_turbo_q5_k.bin`, q5_k quantization). It does not read GGUF. Any
+  check that looks for a `.gguf` extension will never find this model.
+- **Location.** `<suite>/models/whisper-turbo/whisper_turbo_q5_k.bin`. The store
+  id must be one path segment and each archive replaces its whole entry dir, so
+  the other Whisper artifacts are separate entries and do not appear in this
+  directory. `resolve_whisper_model(WhisperKind::CoreMl)` returns `NotFound`:
+  the macOS and iOS `whisper-multi` bundles are pinned by archive digest only.
+- **Pins.** The archive (`whisper-win.tar.gz`, SHA-256 `e4fa834a...`) is the
+  download trust anchor, and the `.bin` file is pinned by SHA-256 and size
+  (`fcacbe37...`, 574,041,195 bytes), so an installed copy is proven on its own.
+  Install and repair fail closed on any mismatch.
+- **Access.** The archive is Pro-gated (`requires_auth`). The grant route for
+  this model has not been exercised, so `GrantConfig::model` for it is unverified.
+- **Availability.** On 2026-10-11 the worker answered 404 for
+  `/whisper-win.tar.gz`, so `ensure_whisper_model` cannot install this entry
+  until the route serves the archive. `resolve_whisper_model` returns `NotFound`
+  until then.
+
 ## RightApps promoted private artifacts (`rightapps` feature)
 
 The example below is illustrative and not compiled as a doctest. It shows the call sequence, and the host in the example is a placeholder, not a verified endpoint.

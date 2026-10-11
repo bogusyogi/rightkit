@@ -162,3 +162,4 @@ To reproduce (from rightkit/crates/rightkit-media on a macOS build host):
     --sources <src-dir> --work <work-dir> --out <out-dir>
   <out-dir>/ffmpeg-export-ass-macos-<arch>.evidence.json records sha256, size, the
   configuration, tool versions and otool -L.
+contentSha256 of the macOS arm64 build (signature-independent catalog identity, src/content_digest.rs): d94312160fccd06773132ddd7527e1cce676222294a102b86d24fbb01dfa7c22

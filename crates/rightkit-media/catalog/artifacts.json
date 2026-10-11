@@ -10,6 +10,7 @@
       "version": "7.1.5",
       "status": "approved",
       "sha256": "ded75c0edf344b9eed5876cd6cc469b7366b00c4dd0f25b3965062965c33990d",
+      "contentSha256": "293f16076954e8b53ac70908b1b29ae49a1bed2f9b0dc9fccb7f95aef49d297a",
       "sourceSha256": "de668509caf9e35e3cd162473441fdb29538c6d96ed080292b3cf9e6fc5d558f",
       "attribution": {
         "licenseSpdx": "LGPL-2.1-or-later",
@@ -35,6 +36,7 @@
       "version": "7.1.5",
       "status": "approved",
       "sha256": "a42a50dbfa8502481db21da247f7fe45ee0c8e8b1bb98bd68558faf64faf4258",
+      "contentSha256": "3703e58129e2090ebb1bf705c34d3130fe094179bbdb55aebd558d13f6bca1ab",
       "sourceSha256": "de668509caf9e35e3cd162473441fdb29538c6d96ed080292b3cf9e6fc5d558f",
       "attribution": {
         "licenseSpdx": "LGPL-2.1-or-later",
@@ -60,6 +62,7 @@
       "version": "7.1.5",
       "status": "approved",
       "sha256": "2ba456b336d5faa75e2783e4e2c49434d9b26e765621eae6669d10e5b4303929",
+      "contentSha256": "6684862b8fb65fe71547a7e921a0f878c9f098c6d5a9afa6bee406b907417efc",
       "sourceSha256": "de668509caf9e35e3cd162473441fdb29538c6d96ed080292b3cf9e6fc5d558f",
       "attribution": {
         "licenseSpdx": "LGPL-2.1-or-later",
@@ -85,6 +88,7 @@
       "version": "7.1.5",
       "status": "approved",
       "sha256": "1bd883a7180776049c5f4e17a9bc2350cc8e46828d94a1a47c5ee9e02fa336e9",
+      "contentSha256": "a558e277397fbcf3f0e409f9d88319d568da309d529df146e6d908005bb07675",
       "sourceSha256": "de668509caf9e35e3cd162473441fdb29538c6d96ed080292b3cf9e6fc5d558f",
       "attribution": {
         "licenseSpdx": "LGPL-2.1-or-later",
@@ -110,6 +114,7 @@
       "version": "7.1.5",
       "status": "approved",
       "sha256": "60325155d26a7b33eb7b2e582e61eb7bf829e38cbc3ea412c864ab942b5a1f02",
+      "contentSha256": "b6180a36053d99cc2308afa66faddc54c2f8ad3f153f3ef52d57d2cdf581439b",
       "sourceSha256": "de668509caf9e35e3cd162473441fdb29538c6d96ed080292b3cf9e6fc5d558f",
       "attribution": {
         "licenseSpdx": "LGPL-2.1-or-later",
@@ -135,6 +140,7 @@
       "version": "7.1.5",
       "status": "approved",
       "sha256": "08f310879e64b348befa7c566c00aa5b6c67e9b64b082fa424f4a181ebd538b8",
+      "contentSha256": "d94312160fccd06773132ddd7527e1cce676222294a102b86d24fbb01dfa7c22",
       "size": 16092616,
       "sourceSha256": "de668509caf9e35e3cd162473441fdb29538c6d96ed080292b3cf9e6fc5d558f",
       "attribution": {
@@ -195,6 +201,144 @@
         "--enable-libfreetype",
         "--enable-libharfbuzz",
         "--enable-zlib",
+        "--enable-videotoolbox",
+        "--enable-audiotoolbox"
+      ]
+    },
+    {
+      "id": "ffmpeg-7.1.5-decode-av1-macos-arm64",
+      "tool": "ffmpeg",
+      "variant": "decode-av1",
+      "os": "macos",
+      "arch": "aarch64",
+      "version": "7.1.5",
+      "status": "approved",
+      "sha256": "17fe97c209adce0dc0c0379709c7a56908478fb0db9ac44bcc8aebef3e7f6278",
+      "contentSha256": "50e744e1caeedae205c64f3258543b728db0891909d6297f732cf7f3d1e2b0bf",
+      "size": 14485032,
+      "sourceSha256": "de668509caf9e35e3cd162473441fdb29538c6d96ed080292b3cf9e6fc5d558f",
+      "attribution": {
+        "licenseSpdx": "LGPL-2.1-or-later AND BSD-2-Clause",
+        "sourceUrl": "https://ffmpeg.org/releases/ffmpeg-7.1.5.tar.xz",
+        "buildProvenance": "third-party/BUILD-NOTES-ffmpeg-dav1d-macos.txt",
+        "noticeFiles": [
+          "third-party/LGPL-2.1.txt",
+          "third-party/BUILD-NOTES-ffmpeg-dav1d-macos.txt",
+          "third-party/dav1d-COPYING.txt"
+        ],
+        "components": [
+          {
+            "name": "dav1d",
+            "version": "1.5.4",
+            "licenseSpdx": "BSD-2-Clause",
+            "sourceUrl": "https://github.com/videolan/dav1d.git",
+            "sourceCommit": "54706fc6bc0cdecab7e9593974a4039cc038fca7",
+            "enableFlag": "--enable-libdav1d",
+            "noticeFile": "third-party/dav1d-COPYING.txt"
+          }
+        ]
+      },
+      "requiredConfigureFlags": [
+        "--disable-gpl",
+        "--disable-nonfree",
+        "--disable-autodetect",
+        "--enable-libdav1d"
+      ]
+    },
+    {
+      "id": "ffmpeg-7.1.5-decode-av1-macos-x86_64",
+      "tool": "ffmpeg",
+      "variant": "decode-av1",
+      "os": "macos",
+      "arch": "x86_64",
+      "version": "7.1.5",
+      "status": "approved",
+      "sha256": "fbe151ea1cb8455e4387e25d4c27688a517216595863fd63416c990504546503",
+      "contentSha256": "520b517566bae475df61820e99c3d96ae5a2836384f6a0858afc8000cb48d309",
+      "size": 18801240,
+      "sourceSha256": "de668509caf9e35e3cd162473441fdb29538c6d96ed080292b3cf9e6fc5d558f",
+      "attribution": {
+        "licenseSpdx": "LGPL-2.1-or-later AND BSD-2-Clause",
+        "sourceUrl": "https://ffmpeg.org/releases/ffmpeg-7.1.5.tar.xz",
+        "buildProvenance": "third-party/BUILD-NOTES-ffmpeg-dav1d-macos.txt",
+        "noticeFiles": [
+          "third-party/LGPL-2.1.txt",
+          "third-party/BUILD-NOTES-ffmpeg-dav1d-macos.txt",
+          "third-party/dav1d-COPYING.txt"
+        ],
+        "components": [
+          {
+            "name": "dav1d",
+            "version": "1.5.4",
+            "licenseSpdx": "BSD-2-Clause",
+            "sourceUrl": "https://github.com/videolan/dav1d.git",
+            "sourceCommit": "54706fc6bc0cdecab7e9593974a4039cc038fca7",
+            "enableFlag": "--enable-libdav1d",
+            "noticeFile": "third-party/dav1d-COPYING.txt"
+          }
+        ]
+      },
+      "requiredConfigureFlags": [
+        "--disable-gpl",
+        "--disable-nonfree",
+        "--disable-autodetect",
+        "--enable-libdav1d"
+      ]
+    },
+    {
+      "id": "ffprobe-7.1.5-decode-apple-macos-arm64",
+      "tool": "ffprobe",
+      "variant": "decode-apple",
+      "os": "macos",
+      "arch": "aarch64",
+      "version": "7.1.5",
+      "status": "approved",
+      "sha256": "96fadf60eae56f60d75641f1ddfdc57ac955653e92776da82a8ba09521b9ce35",
+      "contentSha256": "07bc9a70fdb0eedb600f90acecd6a3eb6e70c43ecdbbf94491b99346de6170a8",
+      "size": 30673768,
+      "sourceSha256": "de668509caf9e35e3cd162473441fdb29538c6d96ed080292b3cf9e6fc5d558f",
+      "attribution": {
+        "licenseSpdx": "LGPL-2.1-or-later",
+        "sourceUrl": "https://ffmpeg.org/releases/ffmpeg-7.1.5.tar.xz",
+        "buildProvenance": "third-party/BUILD-NOTES-ffprobe-apple-macos.txt",
+        "noticeFiles": [
+          "third-party/LGPL-2.1.txt",
+          "third-party/BUILD-NOTES-ffprobe-apple-macos.txt"
+        ]
+      },
+      "requiredConfigureFlags": [
+        "--disable-gpl",
+        "--disable-nonfree",
+        "--disable-autodetect",
+        "--enable-videotoolbox",
+        "--enable-audiotoolbox"
+      ]
+    },
+    {
+      "id": "ffprobe-7.1.5-decode-apple-macos-x86_64",
+      "tool": "ffprobe",
+      "variant": "decode-apple",
+      "os": "macos",
+      "arch": "x86_64",
+      "version": "7.1.5",
+      "status": "approved",
+      "sha256": "96fadf60eae56f60d75641f1ddfdc57ac955653e92776da82a8ba09521b9ce35",
+      "contentSha256": "31dbd75f4a09fb3649c1f34ddeb5f608316f3928799b6c65284a7b29cb4e341a",
+      "size": 30673768,
+      "sourceSha256": "de668509caf9e35e3cd162473441fdb29538c6d96ed080292b3cf9e6fc5d558f",
+      "attribution": {
+        "licenseSpdx": "LGPL-2.1-or-later",
+        "sourceUrl": "https://ffmpeg.org/releases/ffmpeg-7.1.5.tar.xz",
+        "buildProvenance": "third-party/BUILD-NOTES-ffprobe-apple-macos.txt",
+        "noticeFiles": [
+          "third-party/LGPL-2.1.txt",
+          "third-party/BUILD-NOTES-ffprobe-apple-macos.txt"
+        ]
+      },
+      "requiredConfigureFlags": [
+        "--disable-gpl",
+        "--disable-nonfree",
+        "--disable-autodetect",
         "--enable-videotoolbox",
         "--enable-audiotoolbox"
       ]
@@ -277,6 +421,188 @@
           "<out-dir>/ffmpeg-export-ass-macos-x86_64 -hide_banner -buildconf / -filters / -encoders / -L  # on an x86_64-capable macOS host"
         ],
         "promote": "confirm the x86_64 digest above matches vendor/ffmpeg-lgpl/ffmpeg-export-ass-macos-x86_64, run the four probes, then record sha256 and size, set status approved and delete pending"
+      }
+    },
+    {
+      "id": "ffmpeg-7.1.5-export-ass-zimg-macos-arm64",
+      "tool": "ffmpeg",
+      "variant": "export-ass-zimg",
+      "os": "macos",
+      "arch": "aarch64",
+      "version": "7.1.5",
+      "status": "pending",
+      "sourceSha256": "de668509caf9e35e3cd162473441fdb29538c6d96ed080292b3cf9e6fc5d558f",
+      "attribution": {
+        "licenseSpdx": "LGPL-2.1-or-later AND FTL AND MIT-Modern-Variant AND ISC AND WTFPL",
+        "sourceUrl": "https://ffmpeg.org/releases/ffmpeg-7.1.5.tar.xz",
+        "buildProvenance": "third-party/BUILD-NOTES-ffmpeg-export-ass-zimg-macos.txt",
+        "noticeFiles": [
+          "third-party/LGPL-2.1.txt",
+          "third-party/BUILD-NOTES-ffmpeg-export-ass-zimg-macos.txt",
+          "third-party/FreeType-FTL.txt",
+          "third-party/FriBidi-COPYING.txt",
+          "third-party/HarfBuzz-COPYING.txt",
+          "third-party/libass-COPYING.txt",
+          "third-party/zimg-COPYING.txt"
+        ],
+        "components": [
+          {
+            "name": "freetype",
+            "version": "2.13.3",
+            "licenseSpdx": "FTL",
+            "sourceUrl": "https://download.savannah.gnu.org/releases/freetype/freetype-2.13.3.tar.xz",
+            "sourceSha256": "0550350666d427c74daeb85d5ac7bb353acba5f76956395995311a9c6f063289",
+            "enableFlag": "--enable-libfreetype",
+            "noticeFile": "third-party/FreeType-FTL.txt"
+          },
+          {
+            "name": "fribidi",
+            "version": "1.0.16",
+            "licenseSpdx": "LGPL-2.1-or-later",
+            "sourceUrl": "https://github.com/fribidi/fribidi/releases/download/v1.0.16/fribidi-1.0.16.tar.xz",
+            "sourceSha256": "1b1cde5b235d40479e91be2f0e88a309e3214c8ab470ec8a2744d82a5a9ea05c",
+            "noticeFile": "third-party/FriBidi-COPYING.txt"
+          },
+          {
+            "name": "harfbuzz",
+            "version": "10.1.0",
+            "licenseSpdx": "MIT-Modern-Variant",
+            "sourceUrl": "https://github.com/harfbuzz/harfbuzz/releases/download/10.1.0/harfbuzz-10.1.0.tar.xz",
+            "sourceSha256": "6ce3520f2d089a33cef0fc48321334b8e0b72141f6a763719aaaecd2779ecb82",
+            "enableFlag": "--enable-libharfbuzz",
+            "noticeFile": "third-party/HarfBuzz-COPYING.txt"
+          },
+          {
+            "name": "libass",
+            "version": "0.17.3",
+            "licenseSpdx": "ISC",
+            "sourceUrl": "https://github.com/libass/libass/releases/download/0.17.3/libass-0.17.3.tar.xz",
+            "sourceSha256": "eae425da50f0015c21f7b3a9c7262a910f0218af469e22e2931462fed3c50959",
+            "enableFlag": "--enable-libass",
+            "noticeFile": "third-party/libass-COPYING.txt"
+          },
+          {
+            "name": "zimg",
+            "version": "3.0.5",
+            "licenseSpdx": "WTFPL",
+            "sourceUrl": "https://github.com/sekrit-twc/zimg/archive/refs/tags/release-3.0.5.tar.gz",
+            "sourceSha256": "a9a0226bf85e0d83c41a8ebe4e3e690e1348682f6a2a7838f1b8cbff1b799bcf",
+            "enableFlag": "--enable-libzimg",
+            "noticeFile": "third-party/zimg-COPYING.txt"
+          }
+        ]
+      },
+      "requiredConfigureFlags": [
+        "--disable-gpl",
+        "--disable-nonfree",
+        "--disable-autodetect",
+        "--enable-libass",
+        "--enable-libfreetype",
+        "--enable-libharfbuzz",
+        "--enable-libzimg",
+        "--enable-zlib",
+        "--enable-videotoolbox",
+        "--enable-audiotoolbox"
+      ],
+      "pending": {
+        "reason": "Built from the pinned, verified sources and executed on this arm64 host (sha256 52f81f26277dce071cecae6c00555aac4b7d132a17a7e5016b7423942e78594d, 16346792 bytes; bit-reproducible across two builds; -version, -filters including zscale, an HDR to bt709 zscale + tonemap + h264_videotoolbox smoke, see the build notes). contentSha256 4fa975dac6830e5b3346b2056323912fb4cdc5b5062e4577658bdb8f83e8ca92 was computed with a Python port of src/content_digest.rs that reproduces the catalog's existing contentSha256 for the export-ass arm64 and decode arm64 binaries; it has not been confirmed by the crate's own content_identity_file yet. Approve only after it is.",
+        "recipe": "recipes/build-ffmpeg-macos.sh",
+        "commands": [
+          "MESON=<venv>/bin/meson NINJA=<venv>/bin/ninja recipes/build-ffmpeg-macos.sh build --variant export-ass-zimg --arch arm64 --tool ffmpeg --sources <src-dir> --work <work-dir> --out <out-dir>",
+          "content_identity_file(vendor/ffmpeg-lgpl/ffmpeg-export-ass-zimg-macos-arm64) must print slice aarch64 4fa975dac6830e5b3346b2056323912fb4cdc5b5062e4577658bdb8f83e8ca92"
+        ],
+        "promote": "confirm sha256 52f81f26277dce071cecae6c00555aac4b7d132a17a7e5016b7423942e78594d and the content digest above with the crate, then record sha256, contentSha256 and size 16346792, set status approved and delete pending"
+      }
+    },
+    {
+      "id": "ffmpeg-7.1.5-export-ass-zimg-macos-x86_64",
+      "tool": "ffmpeg",
+      "variant": "export-ass-zimg",
+      "os": "macos",
+      "arch": "x86_64",
+      "version": "7.1.5",
+      "status": "pending",
+      "sourceSha256": "de668509caf9e35e3cd162473441fdb29538c6d96ed080292b3cf9e6fc5d558f",
+      "attribution": {
+        "licenseSpdx": "LGPL-2.1-or-later AND FTL AND MIT-Modern-Variant AND ISC AND WTFPL",
+        "sourceUrl": "https://ffmpeg.org/releases/ffmpeg-7.1.5.tar.xz",
+        "buildProvenance": "third-party/BUILD-NOTES-ffmpeg-export-ass-zimg-macos.txt",
+        "noticeFiles": [
+          "third-party/LGPL-2.1.txt",
+          "third-party/BUILD-NOTES-ffmpeg-export-ass-zimg-macos.txt",
+          "third-party/FreeType-FTL.txt",
+          "third-party/FriBidi-COPYING.txt",
+          "third-party/HarfBuzz-COPYING.txt",
+          "third-party/libass-COPYING.txt",
+          "third-party/zimg-COPYING.txt"
+        ],
+        "components": [
+          {
+            "name": "freetype",
+            "version": "2.13.3",
+            "licenseSpdx": "FTL",
+            "sourceUrl": "https://download.savannah.gnu.org/releases/freetype/freetype-2.13.3.tar.xz",
+            "sourceSha256": "0550350666d427c74daeb85d5ac7bb353acba5f76956395995311a9c6f063289",
+            "enableFlag": "--enable-libfreetype",
+            "noticeFile": "third-party/FreeType-FTL.txt"
+          },
+          {
+            "name": "fribidi",
+            "version": "1.0.16",
+            "licenseSpdx": "LGPL-2.1-or-later",
+            "sourceUrl": "https://github.com/fribidi/fribidi/releases/download/v1.0.16/fribidi-1.0.16.tar.xz",
+            "sourceSha256": "1b1cde5b235d40479e91be2f0e88a309e3214c8ab470ec8a2744d82a5a9ea05c",
+            "noticeFile": "third-party/FriBidi-COPYING.txt"
+          },
+          {
+            "name": "harfbuzz",
+            "version": "10.1.0",
+            "licenseSpdx": "MIT-Modern-Variant",
+            "sourceUrl": "https://github.com/harfbuzz/harfbuzz/releases/download/10.1.0/harfbuzz-10.1.0.tar.xz",
+            "sourceSha256": "6ce3520f2d089a33cef0fc48321334b8e0b72141f6a763719aaaecd2779ecb82",
+            "enableFlag": "--enable-libharfbuzz",
+            "noticeFile": "third-party/HarfBuzz-COPYING.txt"
+          },
+          {
+            "name": "libass",
+            "version": "0.17.3",
+            "licenseSpdx": "ISC",
+            "sourceUrl": "https://github.com/libass/libass/releases/download/0.17.3/libass-0.17.3.tar.xz",
+            "sourceSha256": "eae425da50f0015c21f7b3a9c7262a910f0218af469e22e2931462fed3c50959",
+            "enableFlag": "--enable-libass",
+            "noticeFile": "third-party/libass-COPYING.txt"
+          },
+          {
+            "name": "zimg",
+            "version": "3.0.5",
+            "licenseSpdx": "WTFPL",
+            "sourceUrl": "https://github.com/sekrit-twc/zimg/archive/refs/tags/release-3.0.5.tar.gz",
+            "sourceSha256": "a9a0226bf85e0d83c41a8ebe4e3e690e1348682f6a2a7838f1b8cbff1b799bcf",
+            "enableFlag": "--enable-libzimg",
+            "noticeFile": "third-party/zimg-COPYING.txt"
+          }
+        ]
+      },
+      "requiredConfigureFlags": [
+        "--disable-gpl",
+        "--disable-nonfree",
+        "--disable-autodetect",
+        "--enable-libass",
+        "--enable-libfreetype",
+        "--enable-libharfbuzz",
+        "--enable-libzimg",
+        "--enable-zlib",
+        "--enable-videotoolbox",
+        "--enable-audiotoolbox"
+      ],
+      "pending": {
+        "reason": "Built from the pinned, verified sources (sha256 79f16bb6034f77d9ba8f3b5b0e4fbfa3f7f542cd8420127dda501ea4f4c34d13, 20016472 bytes, contentSha256 9bde9bfaaeb3b4ea7aef83a786d046c4c9183e0de89744b0f8e6d39ca01cf82d); otool -L shows only Apple system imports and /usr/lib/libc++, but this arm64 build host has no Rosetta 2, so the binary's -buildconf, -filters, -encoders and -L were not executed. Approve only after those run on an x86_64-capable macOS host. zimg built without its AVX-512 kernels (Apple clang 21 rejects the -mavx512er/-mavx512pf set configure.ac requires); SSE/AVX/AVX2 kernels are present.",
+        "recipe": "recipes/build-ffmpeg-macos.sh",
+        "commands": [
+          "MESON=<venv>/bin/meson NINJA=<venv>/bin/ninja recipes/build-ffmpeg-macos.sh build --variant export-ass-zimg --arch x86_64 --tool ffmpeg --sources <src-dir> --work <work-dir> --out <out-dir>",
+          "<out-dir>/ffmpeg-export-ass-zimg-macos-x86_64 -hide_banner -buildconf / -filters / -encoders / -L  # on an x86_64-capable macOS host"
+        ],
+        "promote": "confirm the x86_64 digest above matches the built file, run the four probes (and a zscale smoke), then record sha256, contentSha256 and size, set status approved and delete pending"
       }
     }
   ]

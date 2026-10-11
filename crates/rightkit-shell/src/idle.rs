@@ -14,7 +14,8 @@
 //! reveal) feed the machine automatically; an app that hides its window itself calls
 //! [`note_hidden`] / [`note_visible`] (or the `rk_shell_idle_note` command).
 
-use std::sync::Mutex;
+use std::fmt::Display;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use serde::Serialize;
@@ -24,6 +25,48 @@ use crate::{ShellState, EVENT_IDLE};
 
 /// Tray / minimise to suspend delay (MailRight, locked 2026-07-06).
 pub const DEFAULT_SUSPEND_AFTER: Duration = Duration::from_secs(30);
+
+/// Which platform webview action failed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum IdlePhase {
+    Suspend,
+    Resume,
+}
+
+/// A suspend or resume of the main webview that the platform reported as failed. Delivered to the
+/// callback set with [`crate::ShellBuilder::webview_idle_on_error`] so the host can log it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct IdleFailure {
+    pub phase: IdlePhase,
+    /// Label of the webview window the action targeted.
+    pub window: String,
+    /// The platform's message (for WebView2, the HRESULT text).
+    pub error: String,
+}
+
+/// Receives [`IdleFailure`]s. May run on a WebView2 callback thread, so it must be `Send + Sync`.
+pub type IdleErrorCallback = Arc<dyn Fn(&IdleFailure) + Send + Sync>;
+
+/// Carries failures from a platform callback (possibly on another thread) to the host callback.
+#[derive(Clone)]
+pub(crate) struct Reporter {
+    window: String,
+    sink: Option<IdleErrorCallback>,
+}
+
+impl Reporter {
+    #[cfg_attr(not(windows), allow(dead_code))]
+    pub(crate) fn fail(&self, phase: IdlePhase, error: impl Display) {
+        if let Some(sink) = &self.sink {
+            sink(&IdleFailure {
+                phase,
+                window: self.window.clone(),
+                error: error.to_string(),
+            });
+        }
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum IdleAction {
@@ -86,6 +129,8 @@ pub struct IdleHost {
     pub state: Mutex<IdleState>,
     /// How many times the platform suspend / resume action ran (diagnostics, QA).
     pub counters: Mutex<(u32, u32)>,
+    /// Receives platform suspend / resume failures. `None` keeps them silent (the default).
+    pub on_error: Option<IdleErrorCallback>,
 }
 
 impl IdleHost {
@@ -94,6 +139,25 @@ impl IdleHost {
             suspend_after,
             state: Mutex::new(IdleState::default()),
             counters: Mutex::new((0, 0)),
+            on_error: None,
+        }
+    }
+
+    /// Install (or clear, with `None`) the failure callback.
+    pub fn with_on_error(mut self, on_error: Option<IdleErrorCallback>) -> Self {
+        self.on_error = on_error;
+        self
+    }
+
+    /// Deliver a failure to the callback, if one is installed. Platform code and tests use this.
+    pub fn report_failure(&self, phase: IdlePhase, window: &str, error: &str) {
+        self.reporter(window).fail(phase, error);
+    }
+
+    pub(crate) fn reporter(&self, window: &str) -> Reporter {
+        Reporter {
+            window: window.to_owned(),
+            sink: self.on_error.clone(),
         }
     }
 }
@@ -161,6 +225,7 @@ pub fn note_hidden(app: &AppHandle<Wry>, controller_already_hidden: bool) {
         platform::set_visible(app, false);
     }
     let (app, delay) = (app.clone(), host.suspend_after);
+    let reporter = host.reporter(&state.main_label);
     let _ = std::thread::Builder::new()
         .name("rk-shell-idle".into())
         .spawn(move || {
@@ -174,7 +239,7 @@ pub fn note_hidden(app: &AppHandle<Wry>, controller_already_hidden: bool) {
                 .on_timer(generation);
             if action == IdleAction::SuspendNow {
                 host.counters.lock().unwrap_or_else(|e| e.into_inner()).0 += 1;
-                platform::suspend(&app);
+                platform::suspend(&app, &reporter);
                 emit(&app, "suspended");
             }
         });
@@ -196,7 +261,7 @@ pub fn note_visible(app: &AppHandle<Wry>) {
         }
         IdleAction::ResumeAndShowController => {
             host.counters.lock().unwrap_or_else(|e| e.into_inner()).1 += 1;
-            platform::resume(app);
+            platform::resume(app, &host.reporter(&state.main_label));
             platform::set_visible(app, true);
             emit(app, "resumed");
         }
@@ -210,6 +275,7 @@ mod platform {
     use crate::winapi::windows::core::Interface;
     use tauri::{AppHandle, Manager, Wry};
 
+    use super::{IdlePhase, Reporter};
     use crate::ShellState;
 
     fn main_window(app: &AppHandle<Wry>) -> Option<tauri::WebviewWindow<Wry>> {
@@ -226,40 +292,66 @@ mod platform {
         }
     }
 
-    pub fn suspend(app: &AppHandle<Wry>) {
-        if let Some(w) = main_window(app) {
-            let _ = w.with_webview(|webview| {
-                // SAFETY: COM calls on the live controller inside the webview closure.
-                unsafe {
-                    if let Ok(core) = webview.controller().CoreWebView2() {
-                        if let Ok(core3) = core.cast::<ICoreWebView2_3>() {
-                            let handler =
-                                crate::winapi::webview2_com::TrySuspendCompletedHandler::create(
-                                    Box::new(|error, _suspended| {
-                                        error?;
-                                        Ok(())
-                                    }),
-                                );
-                            let _ = core3.TrySuspend(&handler);
+    pub fn suspend(app: &AppHandle<Wry>, reporter: &Reporter) {
+        let Some(w) = main_window(app) else {
+            reporter.fail(IdlePhase::Suspend, "main window not found");
+            return;
+        };
+        let report = reporter.clone();
+        let dispatched = w.with_webview(move |webview| {
+            // SAFETY: COM calls on the live controller inside the webview closure.
+            unsafe {
+                let core = match webview.controller().CoreWebView2() {
+                    Ok(core) => core,
+                    Err(e) => return report.fail(IdlePhase::Suspend, e),
+                };
+                let core3 = match core.cast::<ICoreWebView2_3>() {
+                    Ok(core3) => core3,
+                    Err(e) => return report.fail(IdlePhase::Suspend, e),
+                };
+                let completion = report.clone();
+                let handler = crate::winapi::webview2_com::TrySuspendCompletedHandler::create(
+                    Box::new(move |error, _suspended| {
+                        if let Err(e) = error {
+                            completion.fail(IdlePhase::Suspend, e);
                         }
-                    }
+                        Ok(())
+                    }),
+                );
+                if let Err(e) = core3.TrySuspend(&handler) {
+                    report.fail(IdlePhase::Suspend, e);
                 }
-            });
+            }
+        });
+        if let Err(e) = dispatched {
+            reporter.fail(IdlePhase::Suspend, e);
         }
     }
 
-    pub fn resume(app: &AppHandle<Wry>) {
-        if let Some(w) = main_window(app) {
-            let _ = w.with_webview(|webview| {
-                // SAFETY: COM calls on the live controller inside the webview closure.
-                unsafe {
-                    if let Ok(core) = webview.controller().CoreWebView2() {
-                        if let Ok(core3) = core.cast::<ICoreWebView2_3>() {
-                            let _ = core3.Resume();
-                        }
-                    }
+    pub fn resume(app: &AppHandle<Wry>, reporter: &Reporter) {
+        let Some(w) = main_window(app) else {
+            reporter.fail(IdlePhase::Resume, "main window not found");
+            return;
+        };
+        let report = reporter.clone();
+        let dispatched = w.with_webview(move |webview| {
+            // SAFETY: COM calls on the live controller inside the webview closure.
+            unsafe {
+                let core = match webview.controller().CoreWebView2() {
+                    Ok(core) => core,
+                    Err(e) => return report.fail(IdlePhase::Resume, e),
+                };
+                let core3 = match core.cast::<ICoreWebView2_3>() {
+                    Ok(core3) => core3,
+                    Err(e) => return report.fail(IdlePhase::Resume, e),
+                };
+                if let Err(e) = core3.Resume() {
+                    report.fail(IdlePhase::Resume, e);
                 }
-            });
+            }
+        });
+        if let Err(e) = dispatched {
+            reporter.fail(IdlePhase::Resume, e);
         }
     }
 }
@@ -267,7 +359,9 @@ mod platform {
 #[cfg(not(windows))]
 mod platform {
     use tauri::{AppHandle, Wry};
+
+    use super::Reporter;
     pub fn set_visible(_: &AppHandle<Wry>, _: bool) {}
-    pub fn suspend(_: &AppHandle<Wry>) {}
-    pub fn resume(_: &AppHandle<Wry>) {}
+    pub fn suspend(_: &AppHandle<Wry>, _: &Reporter) {}
+    pub fn resume(_: &AppHandle<Wry>, _: &Reporter) {}
 }

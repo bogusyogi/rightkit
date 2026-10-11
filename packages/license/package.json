@@ -1,6 +1,6 @@
 {
   "name": "@rightkit/license",
-  "version": "0.1.8",
+  "version": "0.2.0",
   "packageManager": "pnpm@11.24.0",
   "description": "The one license client for every Right Suite app (online token-exchange against the unified RightApps backend, with per-kind offline grace).",
   "license": "MIT OR Apache-2.0",

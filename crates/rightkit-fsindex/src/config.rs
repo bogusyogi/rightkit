@@ -54,6 +54,20 @@ pub const PROTECTED_HOME_RELATIVE: &[&str] = &[
     "Library/Group Containers/group.com.apple.notes",
 ];
 
+/// Build, cache, and VCS-object directories excluded by default. Each entry is a glob over
+/// path components (`*`, `?`); a multi-component entry matches consecutive components
+/// anywhere below a root. Excluded directories stay in the index as empty, flagged entries.
+/// Set `Config::include_build_output` to index them.
+pub const DEFAULT_EXCLUDE_PATTERNS: &[&str] = &[
+    "target",
+    "node_modules",
+    "DerivedData",
+    ".build",
+    ".cache",
+    ".git/objects",
+    "Library/Caches",
+];
+
 /// Folders that raise a consent prompt when opened without Full Disk Access.
 pub const CONSENT_HOME_RELATIVE: &[&str] = &["Desktop", "Documents", "Downloads"];
 
@@ -73,11 +87,23 @@ pub struct Config {
     pub extra_package_extensions: Vec<String>,
     /// Keep the index live with the platform change feed. Default true.
     pub watch: bool,
+    /// Extra glob patterns over path components, excluded in addition to the defaults
+    /// (`DEFAULT_EXCLUDE_PATTERNS`, unless `include_build_output`). Matching is case-sensitive.
+    pub exclude_patterns: Vec<String>,
+    /// Index build, cache, and VCS-object directories too: drops `DEFAULT_EXCLUDE_PATTERNS`.
+    /// Default false. `exclude_patterns` still apply.
+    pub include_build_output: bool,
+    /// A folder that keeps changing is re-listed at most once per this interval. The
+    /// interval starts at this floor, doubles while changes keep arriving, and returns to the
+    /// floor once a folder is quiet. Zero disables the gate. Default 5 s.
+    pub relist_min_interval: Duration,
+    /// Upper bound for the re-list interval while a folder keeps changing. Default 60 s.
+    pub relist_max_interval: Duration,
     /// Home directories used to place protected and consent-gated exclusions. `None`: $HOME and /Users/*.
     pub home_dirs: Option<Vec<PathBuf>>,
-    /// FSEvents delivery latency.
+    /// FSEvents delivery latency. Default 500 ms.
     pub watch_latency: Duration,
-    /// Subscribers get at most one batch per this window.
+    /// Subscribers get at most one batch per this window. Default 1 s.
     pub change_coalesce: Duration,
     /// Max changed paths per batch (the rest is counted, not listed).
     pub max_change_paths: usize,
@@ -102,9 +128,13 @@ impl Config {
             allow_consent_prompts: false,
             extra_package_extensions: Vec::new(),
             watch: true,
+            exclude_patterns: Vec::new(),
+            include_build_output: false,
+            relist_min_interval: Duration::from_secs(5),
+            relist_max_interval: Duration::from_secs(60),
             home_dirs: None,
-            watch_latency: Duration::from_millis(50),
-            change_coalesce: Duration::from_millis(150),
+            watch_latency: Duration::from_millis(500),
+            change_coalesce: Duration::from_secs(1),
             max_change_paths: 1024,
             max_change_rollups: 2048,
             crawl_threads: cpus.clamp(2, 8),

@@ -1,0 +1,23 @@
+# crate: rightkit-send 0.1.0
+# command: rightkit remote windows cargo test --release -p rightkit-send --bench budget   (the remote verb 'bench' is denied: REMOTE_COMMAND_DENIED unregistered remote cargo verb: bench; 'test --release --bench budget' builds the same optimized bench binary and runs it)
+# broker receipt command: cargo test --release -p rightkit-send --bench budget --target x86_64-pc-windows-msvc --target-dir D:\.rightkit-managed\rightkit-build-control\ws\3e7ef838940e\g\001\t
+# host: windows x86_64 (the Dell via rightkit remote windows; the broker does not report the model); target x86_64-pc-windows-msvc
+# receipt: 63f60c46-74c0-43fb-a1f0-abaa2503e31d state SUCCEEDED submitted 2026-10-11T08:03:50.768Z terminal 2026-10-11T08:06:54.684Z queueMs 120233 runMs 63683
+# machine load: not reported by the Windows broker; the request waited in the disk-floor queue before running (other requests share the Dell)
+# commit: 0faaf2973e6b607b4624efc39ad6bdb9da583ca4 (HEAD at extraction; the tree under test had uncommitted changes)
+Running benches\budget.rs (D:\.rightkit-managed\rightkit-build-control\ws\3e7ef838940e\g\001\t\x86_64-pc-windows-msvc\release\deps\budget-957272cb19ad208d.exe)
+warm-up: service on port 64256, devices listed 50, resident 7.0 MiB (before start 5.4 MiB)
+RESULT devices_after_idle=50 devices
+RESULT warm_resident_bytes=7327744 bytes
+RESULT idle_resident_bytes=7598080 bytes
+RESULT resident_memory_bytes=7598080 bytes
+RESULT footprint_bytes=1974272 bytes
+RESULT idle_window_seconds=30.0 seconds
+RESULT idle_cpu_percent=0.156 percent
+RESULT wakeups_per_second=unavailable the host exposes no process wake-up counter
+RESULT disk_ops_per_second=0.000 per_second
+RESULT disk_read_bytes_per_second=0.000 bytes_per_second
+RESULT disk_write_bytes_per_second=0.000 bytes_per_second
+RESULT scale=50 devices listed on a running service (documentation-range addresses that never answer), service idle through one liveness sweep
+RESULT scope=synthetic
+RESULT budget crate=rightkit-send version=0.1.0 resident_bytes=7598080 idle_cpu_percent=0.156 wakeups_per_s=unavailable disk_ops_per_s=0.000 scale_unit=devices scale_count=50

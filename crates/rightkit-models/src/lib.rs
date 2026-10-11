@@ -23,6 +23,7 @@ pub mod download;
 pub mod error;
 pub mod hardware;
 pub mod hash;
+pub mod http;
 pub mod ids;
 pub mod install;
 pub mod lock;

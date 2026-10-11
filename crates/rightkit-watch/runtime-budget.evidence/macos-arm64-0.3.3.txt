@@ -1,0 +1,49 @@
+# crate: rightkit-watch 0.3.3
+# command: rightkit cargo bench -p rightkit-watch  --bench budget
+# host: macos arm64, Mac18,5 / Apple M6, 12 cpus, 24 GB, 27.0.1
+# date: 2026-10-11T04:23:31Z
+# machine load (1/5/15 min) before the build: 13.37 14.65 14.38 ; after the run: 8.26 11.32 13.08 (other builds were running; the queue admits one build at a time)
+# commit: f9c6433761c803b962b994b50d61d3c54e19e6a1 (HEAD; the tree under test has uncommitted changes)
+rightkit: request 3d549216-f0b7-4552-910a-cb2a5045df80
+[rightkit] target warm-candidate at start (3 entries, generation 2)
+   Compiling once_cell v1.21.4
+   Compiling pin-project-lite v0.2.17
+   Compiling same-file v1.0.6
+   Compiling log v0.4.33
+   Compiling notify-types v2.1.0
+   Compiling fsevent-sys v4.1.0
+   Compiling syn v2.0.118
+   Compiling walkdir v2.5.0
+   Compiling tracing-core v0.1.36
+   Compiling tempfile v3.27.0
+   Compiling tracing-attributes v0.1.31
+   Compiling tokio-macros v2.7.1
+   Compiling notify v8.2.0
+   Compiling tokio v1.53.0
+   Compiling tracing v0.1.44
+   Compiling rightkit-watch v0.3.3 (/Volumes/D/rightkit-publish/v10/claude/rightkit/crates/rightkit-watch)
+    Finished `bench` profile [optimized] target(s) in 53.71s
+     Running benches/budget.rs (/Volumes/D/.rightkit-managed/rightkit-build-control/ws/520b705fd794/g/002/target/aarch64-apple-darwin/release/deps/budget-2fa155d483a2e47b)
+built 50400 files (400 churned) in 2.8s
+before watch: resident     6.1 MB  footprint     1.9 MB  cpu 2.20 s
+watch started (recursive, idle 2 s): resident     7.0 MB  footprint     2.4 MB  cpu 2.20 s
+watch start: 5.6 ms
+after churn (watch on): resident     6.2 MB  footprint     2.9 MB  cpu 3.42 s
+after quiet period: resident     6.2 MB  footprint     2.9 MB  cpu 3.42 s
+churn window: files=50400 churn_ops_per_s=400 churn_s=60 wall_s=59.2 cpu_s=1.22 cpu_percent=2.1 records_queued_per_s=863.5 records_received_per_s=863.5 queue_depth_max=0 queue_depth_end=0 overflow_total=0 error_total=0 start_ms=5.6 watch_drained=51102 quiet_overflow=false
+churn window rates (include the bench's own file writes): wakeups_per_s=1.0 disk_ops_per_s=n/a
+RESULT queue_depth_after_idle=0 records
+RESULT warm_resident_bytes=6537216 bytes
+RESULT idle_resident_bytes=5324800 bytes
+RESULT resident_memory_bytes=6537216 bytes
+RESULT footprint_bytes=3080648 bytes
+RESULT idle_window_seconds=30.1 seconds
+RESULT idle_cpu_percent=0.000 percent
+RESULT wakeups_per_second=0.033 per_second
+RESULT disk_ops_per_second=unavailable the host exposes no process disk-operation counter
+RESULT disk_read_bytes_per_second=0.000 bytes_per_second
+RESULT disk_write_bytes_per_second=0.000 bytes_per_second
+RESULT scale=50400 files watched recursively after 400 modify ops/s churn, then idle
+RESULT scope=synthetic
+RESULT budget crate=rightkit-watch version=0.3.3 resident_bytes=6537216 idle_cpu_percent=0.000 wakeups_per_s=0.033 disk_ops_per_s=unavailable scale_unit=files scale_count=50400
+[rightkit] target unknown (target-nonempty-freshness-unavailable); not-fresh unknown (no cargo json stream)

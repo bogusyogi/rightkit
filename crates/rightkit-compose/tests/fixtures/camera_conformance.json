@@ -1,0 +1,612 @@
+{
+ "source": "ScreenRight b4e2104 src/postprocess.mjs cameraConformanceVectors()",
+ "note": "u in [0,1] at 0.01; values rounded to 6 decimals; panSpring uses bounce 0.15",
+ "vectors": [
+  {
+   "u": 0,
+   "cosine": 0,
+   "criticalSpring": 0,
+   "panSpring": 0
+  },
+  {
+   "u": 0.01,
+   "cosine": 0.000247,
+   "criticalSpring": 0.004006,
+   "panSpring": 0.003147
+  },
+  {
+   "u": 0.02,
+   "cosine": 0.000987,
+   "criticalSpring": 0.01508,
+   "panSpring": 0.01202
+  },
+  {
+   "u": 0.03,
+   "cosine": 0.002219,
+   "criticalSpring": 0.031943,
+   "panSpring": 0.025828
+  },
+  {
+   "u": 0.04,
+   "cosine": 0.003943,
+   "criticalSpring": 0.05349,
+   "panSpring": 0.043848
+  },
+  {
+   "u": 0.05,
+   "cosine": 0.006156,
+   "criticalSpring": 0.078762,
+   "panSpring": 0.065428
+  },
+  {
+   "u": 0.06,
+   "cosine": 0.008856,
+   "criticalSpring": 0.106935,
+   "panSpring": 0.089975
+  },
+  {
+   "u": 0.07,
+   "cosine": 0.012042,
+   "criticalSpring": 0.137302,
+   "panSpring": 0.116957
+  },
+  {
+   "u": 0.08,
+   "cosine": 0.015708,
+   "criticalSpring": 0.169257,
+   "panSpring": 0.145892
+  },
+  {
+   "u": 0.09,
+   "cosine": 0.019853,
+   "criticalSpring": 0.202283,
+   "panSpring": 0.176352
+  },
+  {
+   "u": 0.1,
+   "cosine": 0.024472,
+   "criticalSpring": 0.235943,
+   "panSpring": 0.207953
+  },
+  {
+   "u": 0.11,
+   "cosine": 0.02956,
+   "criticalSpring": 0.269869,
+   "panSpring": 0.240353
+  },
+  {
+   "u": 0.12,
+   "cosine": 0.035112,
+   "criticalSpring": 0.303753,
+   "panSpring": 0.27325
+  },
+  {
+   "u": 0.13,
+   "cosine": 0.041123,
+   "criticalSpring": 0.337337,
+   "panSpring": 0.306377
+  },
+  {
+   "u": 0.14,
+   "cosine": 0.047586,
+   "criticalSpring": 0.370411,
+   "panSpring": 0.3395
+  },
+  {
+   "u": 0.15,
+   "cosine": 0.054497,
+   "criticalSpring": 0.402804,
+   "panSpring": 0.372418
+  },
+  {
+   "u": 0.16,
+   "cosine": 0.061847,
+   "criticalSpring": 0.43438,
+   "panSpring": 0.404953
+  },
+  {
+   "u": 0.17,
+   "cosine": 0.069629,
+   "criticalSpring": 0.46503,
+   "panSpring": 0.436955
+  },
+  {
+   "u": 0.18,
+   "cosine": 0.077836,
+   "criticalSpring": 0.494672,
+   "panSpring": 0.468295
+  },
+  {
+   "u": 0.19,
+   "cosine": 0.08646,
+   "criticalSpring": 0.523246,
+   "panSpring": 0.498867
+  },
+  {
+   "u": 0.2,
+   "cosine": 0.095492,
+   "criticalSpring": 0.550709,
+   "panSpring": 0.528581
+  },
+  {
+   "u": 0.21,
+   "cosine": 0.104922,
+   "criticalSpring": 0.577036,
+   "panSpring": 0.557364
+  },
+  {
+   "u": 0.22,
+   "cosine": 0.114743,
+   "criticalSpring": 0.602213,
+   "panSpring": 0.585161
+  },
+  {
+   "u": 0.23,
+   "cosine": 0.124944,
+   "criticalSpring": 0.626239,
+   "panSpring": 0.611926
+  },
+  {
+   "u": 0.24,
+   "cosine": 0.135516,
+   "criticalSpring": 0.64912,
+   "panSpring": 0.637629
+  },
+  {
+   "u": 0.25,
+   "cosine": 0.146447,
+   "criticalSpring": 0.670872,
+   "panSpring": 0.662247
+  },
+  {
+   "u": 0.26,
+   "cosine": 0.157726,
+   "criticalSpring": 0.691515,
+   "panSpring": 0.685771
+  },
+  {
+   "u": 0.27,
+   "cosine": 0.169344,
+   "criticalSpring": 0.711077,
+   "panSpring": 0.708195
+  },
+  {
+   "u": 0.28,
+   "cosine": 0.181288,
+   "criticalSpring": 0.729588,
+   "panSpring": 0.729523
+  },
+  {
+   "u": 0.29,
+   "cosine": 0.193546,
+   "criticalSpring": 0.747081,
+   "panSpring": 0.749767
+  },
+  {
+   "u": 0.3,
+   "cosine": 0.206107,
+   "criticalSpring": 0.763591,
+   "panSpring": 0.76894
+  },
+  {
+   "u": 0.31,
+   "cosine": 0.218958,
+   "criticalSpring": 0.779155,
+   "panSpring": 0.787063
+  },
+  {
+   "u": 0.32,
+   "cosine": 0.232087,
+   "criticalSpring": 0.793813,
+   "panSpring": 0.80416
+  },
+  {
+   "u": 0.33,
+   "cosine": 0.245479,
+   "criticalSpring": 0.807603,
+   "panSpring": 0.820258
+  },
+  {
+   "u": 0.34,
+   "cosine": 0.259123,
+   "criticalSpring": 0.820564,
+   "panSpring": 0.835387
+  },
+  {
+   "u": 0.35,
+   "cosine": 0.273005,
+   "criticalSpring": 0.832736,
+   "panSpring": 0.849578
+  },
+  {
+   "u": 0.36,
+   "cosine": 0.28711,
+   "criticalSpring": 0.844156,
+   "panSpring": 0.862866
+  },
+  {
+   "u": 0.37,
+   "cosine": 0.301426,
+   "criticalSpring": 0.854862,
+   "panSpring": 0.875284
+  },
+  {
+   "u": 0.38,
+   "cosine": 0.315938,
+   "criticalSpring": 0.864892,
+   "panSpring": 0.886868
+  },
+  {
+   "u": 0.39,
+   "cosine": 0.330631,
+   "criticalSpring": 0.874281,
+   "panSpring": 0.897656
+  },
+  {
+   "u": 0.4,
+   "cosine": 0.345492,
+   "criticalSpring": 0.883065,
+   "panSpring": 0.907682
+  },
+  {
+   "u": 0.41,
+   "cosine": 0.360504,
+   "criticalSpring": 0.891278,
+   "panSpring": 0.916984
+  },
+  {
+   "u": 0.42,
+   "cosine": 0.375655,
+   "criticalSpring": 0.898951,
+   "panSpring": 0.925598
+  },
+  {
+   "u": 0.43,
+   "cosine": 0.390928,
+   "criticalSpring": 0.906117,
+   "panSpring": 0.933559
+  },
+  {
+   "u": 0.44,
+   "cosine": 0.406309,
+   "criticalSpring": 0.912804,
+   "panSpring": 0.940902
+  },
+  {
+   "u": 0.45,
+   "cosine": 0.421783,
+   "criticalSpring": 0.919042,
+   "panSpring": 0.947663
+  },
+  {
+   "u": 0.46,
+   "cosine": 0.437333,
+   "criticalSpring": 0.924858,
+   "panSpring": 0.953874
+  },
+  {
+   "u": 0.47,
+   "cosine": 0.452946,
+   "criticalSpring": 0.930277,
+   "panSpring": 0.959568
+  },
+  {
+   "u": 0.48,
+   "cosine": 0.468605,
+   "criticalSpring": 0.935325,
+   "panSpring": 0.964777
+  },
+  {
+   "u": 0.49,
+   "cosine": 0.484295,
+   "criticalSpring": 0.940025,
+   "panSpring": 0.969531
+  },
+  {
+   "u": 0.5,
+   "cosine": 0.5,
+   "criticalSpring": 0.944399,
+   "panSpring": 0.97386
+  },
+  {
+   "u": 0.51,
+   "cosine": 0.515705,
+   "criticalSpring": 0.948468,
+   "panSpring": 0.977792
+  },
+  {
+   "u": 0.52,
+   "cosine": 0.531395,
+   "criticalSpring": 0.952252,
+   "panSpring": 0.981353
+  },
+  {
+   "u": 0.53,
+   "cosine": 0.547054,
+   "criticalSpring": 0.955769,
+   "panSpring": 0.98457
+  },
+  {
+   "u": 0.54,
+   "cosine": 0.562667,
+   "criticalSpring": 0.959037,
+   "panSpring": 0.987468
+  },
+  {
+   "u": 0.55,
+   "cosine": 0.578217,
+   "criticalSpring": 0.962072,
+   "panSpring": 0.990068
+  },
+  {
+   "u": 0.56,
+   "cosine": 0.593691,
+   "criticalSpring": 0.964891,
+   "panSpring": 0.992395
+  },
+  {
+   "u": 0.57,
+   "cosine": 0.609072,
+   "criticalSpring": 0.967507,
+   "panSpring": 0.994469
+  },
+  {
+   "u": 0.58,
+   "cosine": 0.624345,
+   "criticalSpring": 0.969935,
+   "panSpring": 0.996309
+  },
+  {
+   "u": 0.59,
+   "cosine": 0.639496,
+   "criticalSpring": 0.972188,
+   "panSpring": 0.997935
+  },
+  {
+   "u": 0.6,
+   "cosine": 0.654508,
+   "criticalSpring": 0.974277,
+   "panSpring": 0.999364
+  },
+  {
+   "u": 0.61,
+   "cosine": 0.669369,
+   "criticalSpring": 0.976214,
+   "panSpring": 1.000613
+  },
+  {
+   "u": 0.62,
+   "cosine": 0.684062,
+   "criticalSpring": 0.978009,
+   "panSpring": 1.001697
+  },
+  {
+   "u": 0.63,
+   "cosine": 0.698574,
+   "criticalSpring": 0.979673,
+   "panSpring": 1.002631
+  },
+  {
+   "u": 0.64,
+   "cosine": 0.71289,
+   "criticalSpring": 0.981214,
+   "panSpring": 1.003428
+  },
+  {
+   "u": 0.65,
+   "cosine": 0.726995,
+   "criticalSpring": 0.982641,
+   "panSpring": 1.004101
+  },
+  {
+   "u": 0.66,
+   "cosine": 0.740877,
+   "criticalSpring": 0.983963,
+   "panSpring": 1.004663
+  },
+  {
+   "u": 0.67,
+   "cosine": 0.754521,
+   "criticalSpring": 0.985187,
+   "panSpring": 1.005123
+  },
+  {
+   "u": 0.68,
+   "cosine": 0.767913,
+   "criticalSpring": 0.986319,
+   "panSpring": 1.005492
+  },
+  {
+   "u": 0.69,
+   "cosine": 0.781042,
+   "criticalSpring": 0.987367,
+   "panSpring": 1.00578
+  },
+  {
+   "u": 0.7,
+   "cosine": 0.793893,
+   "criticalSpring": 0.988337,
+   "panSpring": 1.005996
+  },
+  {
+   "u": 0.71,
+   "cosine": 0.806454,
+   "criticalSpring": 0.989233,
+   "panSpring": 1.006146
+  },
+  {
+   "u": 0.72,
+   "cosine": 0.818712,
+   "criticalSpring": 0.990063,
+   "panSpring": 1.00624
+  },
+  {
+   "u": 0.73,
+   "cosine": 0.830656,
+   "criticalSpring": 0.99083,
+   "panSpring": 1.006283
+  },
+  {
+   "u": 0.74,
+   "cosine": 0.842274,
+   "criticalSpring": 0.991538,
+   "panSpring": 1.006282
+  },
+  {
+   "u": 0.75,
+   "cosine": 0.853553,
+   "criticalSpring": 0.992193,
+   "panSpring": 1.006242
+  },
+  {
+   "u": 0.76,
+   "cosine": 0.864484,
+   "criticalSpring": 0.992799,
+   "panSpring": 1.006169
+  },
+  {
+   "u": 0.77,
+   "cosine": 0.875056,
+   "criticalSpring": 0.993358,
+   "panSpring": 1.006068
+  },
+  {
+   "u": 0.78,
+   "cosine": 0.885257,
+   "criticalSpring": 0.993875,
+   "panSpring": 1.005942
+  },
+  {
+   "u": 0.79,
+   "cosine": 0.895078,
+   "criticalSpring": 0.994352,
+   "panSpring": 1.005796
+  },
+  {
+   "u": 0.8,
+   "cosine": 0.904508,
+   "criticalSpring": 0.994793,
+   "panSpring": 1.005633
+  },
+  {
+   "u": 0.81,
+   "cosine": 0.91354,
+   "criticalSpring": 0.995199,
+   "panSpring": 1.005456
+  },
+  {
+   "u": 0.82,
+   "cosine": 0.922164,
+   "criticalSpring": 0.995575,
+   "panSpring": 1.005269
+  },
+  {
+   "u": 0.83,
+   "cosine": 0.930371,
+   "criticalSpring": 0.995922,
+   "panSpring": 1.005073
+  },
+  {
+   "u": 0.84,
+   "cosine": 0.938153,
+   "criticalSpring": 0.996242,
+   "panSpring": 1.004872
+  },
+  {
+   "u": 0.85,
+   "cosine": 0.945503,
+   "criticalSpring": 0.996537,
+   "panSpring": 1.004666
+  },
+  {
+   "u": 0.86,
+   "cosine": 0.952414,
+   "criticalSpring": 0.996809,
+   "panSpring": 1.004458
+  },
+  {
+   "u": 0.87,
+   "cosine": 0.958877,
+   "criticalSpring": 0.997061,
+   "panSpring": 1.00425
+  },
+  {
+   "u": 0.88,
+   "cosine": 0.964888,
+   "criticalSpring": 0.997292,
+   "panSpring": 1.004042
+  },
+  {
+   "u": 0.89,
+   "cosine": 0.97044,
+   "criticalSpring": 0.997506,
+   "panSpring": 1.003836
+  },
+  {
+   "u": 0.9,
+   "cosine": 0.975528,
+   "criticalSpring": 0.997703,
+   "panSpring": 1.003634
+  },
+  {
+   "u": 0.91,
+   "cosine": 0.980147,
+   "criticalSpring": 0.997885,
+   "panSpring": 1.003434
+  },
+  {
+   "u": 0.92,
+   "cosine": 0.984292,
+   "criticalSpring": 0.998052,
+   "panSpring": 1.00324
+  },
+  {
+   "u": 0.93,
+   "cosine": 0.987958,
+   "criticalSpring": 0.998207,
+   "panSpring": 1.003051
+  },
+  {
+   "u": 0.94,
+   "cosine": 0.991144,
+   "criticalSpring": 0.998349,
+   "panSpring": 1.002867
+  },
+  {
+   "u": 0.95,
+   "cosine": 0.993844,
+   "criticalSpring": 0.99848,
+   "panSpring": 1.002689
+  },
+  {
+   "u": 0.96,
+   "cosine": 0.996057,
+   "criticalSpring": 0.998601,
+   "panSpring": 1.002518
+  },
+  {
+   "u": 0.97,
+   "cosine": 0.997781,
+   "criticalSpring": 0.998713,
+   "panSpring": 1.002353
+  },
+  {
+   "u": 0.98,
+   "cosine": 0.999013,
+   "criticalSpring": 0.998815,
+   "panSpring": 1.002195
+  },
+  {
+   "u": 0.99,
+   "cosine": 0.999753,
+   "criticalSpring": 0.99891,
+   "panSpring": 1.002044
+  },
+  {
+   "u": 1,
+   "cosine": 1,
+   "criticalSpring": 1,
+   "panSpring": 1
+  }
+ ]
+}

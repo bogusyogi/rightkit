@@ -14,6 +14,17 @@ use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
+/// Loopback-capable client for the local mock server. Production clients refuse
+/// loopback; this test client allows exactly 127.0.0.1.
+fn http() -> rightkit_models::http::ModelHttp {
+    rightkit_models::http::http_client_with_options(rightkit_models::http::ModelHttpOptions {
+        proxy: rightkit_models::http::ProxyMode::None,
+        address_policy: rightkit_http::AddressPolicy::public_web()
+            .allow_if(vec!["127.0.0.1".to_string()], |ip| ip.is_loopback()),
+        ..Default::default()
+    })
+}
+
 fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
@@ -237,7 +248,7 @@ fn digests() -> Vec<(&'static str, String)> {
     let expected = sha(&body);
     let url = format!("{}{route}", mock.base);
     download::download_resumable(
-        &download::http_agent(),
+        &http(),
         DownloadRequest {
             url: &url,
             part_path: &part,

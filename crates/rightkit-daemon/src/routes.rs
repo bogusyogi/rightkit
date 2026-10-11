@@ -1,5 +1,6 @@
 //! The daemon-api v1 route table. A conformance test pins this table to the
-//! contract fixture, so the code and the contract cannot drift silently.
+//! contract's concrete route list (the schema example and the valid fixture,
+//! which must agree), so the code and the contract cannot drift silently.
 
 use rightkit_contracts::types::daemon_api::{AuthClassId, Scope};
 
@@ -44,7 +45,7 @@ pub const ROUTES: &[RouteDef] = &[
         true,
         false,
         &[Venture],
-        &[201, 401, 409]
+        &[201, 400, 401, 409]
     ),
     route!(
         "upload.init",
@@ -54,7 +55,7 @@ pub const ROUTES: &[RouteDef] = &[
         true,
         false,
         &[Venture, Channel],
-        &[201, 401, 403]
+        &[201, 400, 401, 403]
     ),
     route!(
         "upload.chunk",
@@ -64,7 +65,7 @@ pub const ROUTES: &[RouteDef] = &[
         true,
         false,
         &[Venture, Channel],
-        &[204, 401, 409, 416]
+        &[204, 400, 401, 403, 404, 409, 416]
     ),
     route!(
         "upload.status",
@@ -74,7 +75,7 @@ pub const ROUTES: &[RouteDef] = &[
         false,
         false,
         &[Venture, Channel],
-        &[200, 401, 404]
+        &[200, 401, 403, 404]
     ),
     route!(
         "upload.complete",
@@ -84,7 +85,7 @@ pub const ROUTES: &[RouteDef] = &[
         true,
         false,
         &[Venture, Channel],
-        &[200, 400, 401]
+        &[200, 400, 401, 403, 404, 409]
     ),
     route!(
         "job.update",
@@ -104,7 +105,7 @@ pub const ROUTES: &[RouteDef] = &[
         false,
         false,
         &[Account],
-        &[302, 400]
+        &[302, 400, 502]
     ),
     route!(
         "webhook.inbound",
@@ -114,7 +115,7 @@ pub const ROUTES: &[RouteDef] = &[
         false,
         false,
         &[Account],
-        &[202, 401, 409]
+        &[202, 401, 409, 429]
     ),
 ];
 

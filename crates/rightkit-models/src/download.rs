@@ -17,6 +17,8 @@ use std::time::Duration;
 
 use crate::error::{Error, ErrorCode};
 use crate::hash::sha256_file;
+use crate::http::{AsHttpClient, IdleReader, ModelHttp};
+use rightkit_http::{HttpError, Request};
 
 const CANCELLED: &str = "download cancelled";
 const MAX_ATTEMPTS: usize = 3;
@@ -38,6 +40,7 @@ pub struct DownloadRequest<'a> {
     pub cancelled: &'a dyn Fn() -> bool,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DownloadResult {
     pub received: u64,
     pub total: u64,
@@ -180,18 +183,22 @@ fn valid_pin(pin: &str) -> bool {
 /// Download `request.url` into `request.dest_path`, resuming a matching
 /// `.part` when present. The dest is only ever replaced by a fully-downloaded,
 /// hash-verified `.part` via atomic rename.
+///
+/// Requests go through the vetted `rightkit-http` transport (see [`crate::http`]).
+/// Pass a [`Client`]; a legacy `&ureq::Agent` still compiles but only contributes
+/// its redirect limit.
 pub fn download_resumable(
-    agent: &ureq::Agent,
+    client: &impl AsHttpClient,
     request: DownloadRequest<'_>,
     progress: impl FnMut(u64, u64),
 ) -> Result<DownloadResult, Error> {
-    download_resumable_with_identity(agent, request, None, progress)
+    download_resumable_with_identity(&client.vetted_client(), request, None, progress)
 }
 
 /// As [`download_resumable`], with an immutable, hash-pinned resume identity
 /// independent of a rotating signed URL. Callers must bind it to object identity.
 pub(crate) fn download_resumable_with_identity(
-    agent: &ureq::Agent,
+    client: &ModelHttp,
     request: DownloadRequest<'_>,
     identity: Option<&str>,
     progress: impl FnMut(u64, u64),
@@ -199,7 +206,7 @@ pub(crate) fn download_resumable_with_identity(
     let resume_url = identity
         .filter(|_| request.expected_sha256.is_some())
         .unwrap_or(request.url);
-    download_inner(agent, request, resume_url, progress).map_err(|message| {
+    download_inner(client, request, resume_url, progress).map_err(|message| {
         let code = if message == CANCELLED {
             ErrorCode::Cancelled
         } else if message.contains("integrity check") {
@@ -212,7 +219,7 @@ pub(crate) fn download_resumable_with_identity(
 }
 
 fn download_inner(
-    agent: &ureq::Agent,
+    http: &ModelHttp,
     request: DownloadRequest<'_>,
     resume_url: &str,
     mut progress: impl FnMut(u64, u64),
@@ -261,40 +268,52 @@ fn download_inner(
             resume_state(request.part_path, &metadata_path, resume_url, &expected)?;
         // Byte ranges and the final file hash must describe the same wire
         // representation; disallow transparent content-encoding changes.
-        let mut builder = agent.get(request.url).header("Accept-Encoding", "identity");
+        let mut req = Request::get(request.url).header("Accept-Encoding", "identity");
         if let Some(authorization) = request.authorization {
-            builder = builder.header("Authorization", authorization);
+            req = req.secret_header("Authorization", authorization);
         }
         if offset > 0 {
-            builder = builder
+            req = req
                 .header("Range", format!("bytes={offset}-"))
                 .header("If-Range", stored_etag.as_deref().unwrap_or_default());
         }
 
-        let mut response = match builder.call() {
+        let response = match http.client().stream_any(&req) {
+            Ok(response) if response.status >= 300 => {
+                let status = response.status;
+                drop(response);
+                match status {
+                    401 | 403 => {
+                        return Err(format!("download authorization rejected ({status})"));
+                    }
+                    404 => {
+                        return Err(
+                            "model file not available on the download server (404)".to_string()
+                        );
+                    }
+                    412 | 416 if offset > 0 => {
+                        cleanup_poisoned(request.part_path, &metadata_path);
+                        last_transient = Some(
+                            "server rejected the saved range; restarting from zero".to_string(),
+                        );
+                        backoff(attempt);
+                        continue;
+                    }
+                    _ => {
+                        let message = format!("download request failed: http status: {status}");
+                        if !is_transient_status(status) {
+                            return Err(message);
+                        }
+                        last_transient = Some(message);
+                        backoff(attempt);
+                        continue;
+                    }
+                }
+            }
             Ok(response) => response,
             Err(error) => {
-                if matches!(error, ureq::Error::StatusCode(401 | 403)) {
-                    return Err(format!(
-                        "download authorization rejected ({})",
-                        match error {
-                            ureq::Error::StatusCode(status) => status,
-                            _ => unreachable!(),
-                        }
-                    ));
-                }
-                if matches!(error, ureq::Error::StatusCode(404)) {
-                    return Err("model file not available on the download server (404)".to_string());
-                }
-                if offset > 0 && matches!(error, ureq::Error::StatusCode(412 | 416)) {
-                    cleanup_poisoned(request.part_path, &metadata_path);
-                    last_transient =
-                        Some("server rejected the saved range; restarting from zero".to_string());
-                    backoff(attempt);
-                    continue;
-                }
                 let message = format!("download request failed: {error}");
-                if !is_transient_ureq_error(&error) {
+                if !is_transient_http_error(&error) {
                     return Err(message);
                 }
                 last_transient = Some(message);
@@ -302,21 +321,13 @@ fn download_inner(
                 continue;
             }
         };
-        let status = response.status().as_u16();
+        let status = response.status;
         let content_length = response
-            .headers()
-            .get("content-length")
-            .and_then(|value| value.to_str().ok())
-            .and_then(|value| value.parse::<u64>().ok());
-        let content_range = response
-            .headers()
-            .get("content-range")
-            .and_then(|value| value.to_str().ok())
-            .map(str::to_string);
+            .header("content-length")
+            .and_then(|value| value.trim().parse::<u64>().ok());
+        let content_range = response.header("content-range").map(str::to_string);
         let response_etag = response
-            .headers()
-            .get("etag")
-            .and_then(|value| value.to_str().ok())
+            .header("etag")
             .and_then(strong_etag)
             .map(str::to_string);
         let plan = plan_response(
@@ -348,11 +359,14 @@ fn download_inner(
                 total,
             },
         )?;
-        let mut reader = response.body_mut().as_reader();
+        let mut reader: Box<dyn std::io::Read + Send> = match http.read_timeout() {
+            Some(idle) => Box::new(IdleReader::new(response.into_reader(), idle)),
+            None => response.into_reader(),
+        };
         match write_response_body_with_progress(
             request.part_path,
             plan,
-            &mut reader,
+            &mut *reader,
             &mut progress,
             request.cancelled,
         ) {
@@ -499,21 +513,29 @@ fn cleanup_poisoned(part: &Path, metadata: &Path) {
     let _ = fs::remove_file(metadata);
 }
 
-fn is_transient_ureq_error(error: &ureq::Error) -> bool {
+fn is_transient_status(status: u16) -> bool {
+    status == 408 || status == 429 || (500..=599).contains(&status)
+}
+
+/// Transport failures are worth another attempt; a refused destination, a
+/// malformed request or an unfollowed redirect are not.
+fn is_transient_http_error(error: &HttpError) -> bool {
     match error {
-        ureq::Error::StatusCode(status) => {
-            *status == 408 || *status == 429 || (500..=599).contains(status)
+        HttpError::Status { status, .. } => is_transient_status(*status),
+        HttpError::InvalidRequest(_) | HttpError::AddressDenied { .. } | HttpError::Cancelled => {
+            false
         }
-        ureq::Error::BadUri(_) | ureq::Error::Http(_) => false,
         _ => true,
     }
 }
 
 /// Rough "is this a connectivity problem" classifier for offline-first-run
 /// messaging — anything that is not an HTTP status response counts (DNS,
-/// connect, TLS, timeout, body-read).
+/// connect, TLS, timeout, body-read). A destination refused by the address
+/// policy is not connectivity either: the network may be fine.
 pub fn is_connectivity_error(message: &str) -> bool {
     !(message.contains("status")
+        || message.contains("address denied")
         || message.contains("(404)")
         || message.contains("integrity check")
         || message.contains("not available"))
@@ -525,16 +547,18 @@ fn backoff(attempt: usize) {
     }
 }
 
-/// Shared HTTP agent for model downloads.
+/// Shared ureq agent from before downloads were vetted.
+///
+/// Nothing in this crate sends a request through it any more: the download
+/// entry points that still accept an agent read its redirect limit and use a
+/// vetted [`crate::http::http_client`] instead.
+#[deprecated(
+    since = "0.2.9",
+    note = "use `rightkit_models::http::http_client`; the agent's transport is no longer used"
+)]
 pub fn http_agent() -> ureq::Agent {
-    http_agent_with_redirects(10)
-}
-
-pub(crate) fn http_agent_with_redirects(max_redirects: u32) -> ureq::Agent {
     ureq::Agent::config_builder()
-        .max_redirects(max_redirects)
-        .timeout_connect(Some(Duration::from_secs(30)))
-        .timeout_recv_body(Some(Duration::from_secs(120)))
+        .max_redirects(crate::http::DEFAULT_MAX_REDIRECTS)
         .build()
         .into()
 }

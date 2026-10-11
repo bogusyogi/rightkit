@@ -202,3 +202,45 @@ fn real_local_artifacts_and_locks_match_their_catalog_records() {
     ));
     std::fs::remove_file(wrong).unwrap();
 }
+
+#[test]
+fn whisper_and_ggml_dylibs_are_catalogued_by_file_and_verify_by_content() {
+    let catalog = NativeCatalog::embedded().unwrap();
+    assert!(matches!(
+        catalog.approved(NativeLibrary::Ggml, "macos", "aarch64"),
+        Err(NativeCatalogError::Ambiguous { .. })
+    ));
+    let dir =
+        std::path::Path::new("/Volumes/D/rightkit-publish/artifacts/whisper-cpp-1.9.3/macos-arm64");
+    for (lib, file) in [
+        (NativeLibrary::WhisperCpp, "libwhisper.1.9.3.dylib"),
+        (NativeLibrary::Ggml, "libggml.0.20.2.dylib"),
+        (NativeLibrary::Ggml, "libggml-base.0.20.2.dylib"),
+        (NativeLibrary::Ggml, "libggml-cpu.0.20.2.dylib"),
+        (NativeLibrary::Ggml, "libggml-metal.0.20.2.dylib"),
+        (NativeLibrary::Ggml, "libggml-blas.0.20.2.dylib"),
+    ] {
+        let record = catalog
+            .approved_file(lib, "macos", "aarch64", file)
+            .unwrap();
+        assert!(
+            record.sha256.is_some() && record.content_sha256.is_some(),
+            "{file}"
+        );
+        let path = dir.join(file);
+        if !path.is_file() {
+            eprintln!("SKIPPED: {} not retained", path.display());
+            continue;
+        }
+        record.verify_file(&path).unwrap();
+        assert_eq!(
+            rightkit_media::sha256_file(&path).unwrap(),
+            record.sha256.clone().unwrap()
+        );
+        // A different file is refused by content.
+        let other = dir.join("LICENSE-whisper.cpp");
+        if other.is_file() {
+            assert!(record.verify_file(&other).is_err());
+        }
+    }
+}

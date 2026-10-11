@@ -123,7 +123,16 @@ mod platform {
     fn scrub_in_place(path: &Path) {
         if let Ok(bytes) = std::fs::read(path) {
             let text = String::from_utf8_lossy(&bytes);
-            let _ = std::fs::write(path, rightkit_logs::scrub_text(&text));
+            // Same owner-only, atomic publish as the panic report. Runs after the sampler exits,
+            // in ordinary code, never in a signal handler.
+            let scrubbed = rightkit_logs::scrub_text(&text);
+            let options = rightkit_fs::AtomicWriteOptions {
+                private: true,
+                ..rightkit_fs::AtomicWriteOptions::default()
+            };
+            let _ = rightkit_fs::atomic_write_with_options(path, options, |file| {
+                std::io::Write::write_all(file, scrubbed.as_bytes())
+            });
         }
     }
 }

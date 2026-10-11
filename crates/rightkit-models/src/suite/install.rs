@@ -6,12 +6,14 @@
 
 use std::path::{Path, PathBuf};
 
+use crate::http::{http_client, Client, ModelHttp};
 use crate::suite::catalog::{ModelSpec, SpecSource};
-use crate::suite::grant::{acquire_grant, ModelGrant, ModelGrantRequest};
+use crate::suite::grant::{
+    acquire_grant_pinned, acquire_grant_with_client, ModelGrant, ModelGrantRequest,
+};
 use crate::suite::manifest::VerifyMode;
 use crate::suite::store::{
-    ensure_ready_cancellable, http_agent, status_at, EnsureOptions, EntryState, ModelStatus,
-    Progress,
+    ensure_ready_cancellable, status_at, EnsureOptions, EntryState, ModelStatus, Progress,
 };
 
 /// Seconds before expiry at which a cached grant is replaced.
@@ -37,6 +39,7 @@ pub struct GrantSession<'a> {
     route: String,
     sha256: String,
     current: Option<ModelGrant>,
+    client: Option<Client>,
     pub acquisitions: u32,
 }
 
@@ -63,40 +66,62 @@ impl<'a> GrantSession<'a> {
             route,
             sha256,
             current: None,
+            client: None,
             acquisitions: 0,
         })
     }
 
-    fn fetch(&mut self, agent: &ureq::Agent) -> Result<String, String> {
-        let grant = acquire_grant(
-            agent,
-            ModelGrantRequest {
-                worker_base: &self.config.worker_base,
-                route: &self.route,
-                model: &self.config.model,
-                platform: &self.config.platform,
-                sha256: &self.sha256,
-                device_id: &self.config.device_id,
-            },
-        )?;
+    /// Send grant requests through `client` instead of one pinned to the worker
+    /// host over HTTPS. The caller owns that client's address policy.
+    pub fn with_client(mut self, client: Client) -> Self {
+        self.client = Some(client);
+        self
+    }
+
+    fn fetch(&mut self) -> Result<String, String> {
+        let request = ModelGrantRequest {
+            worker_base: &self.config.worker_base,
+            route: &self.route,
+            model: &self.config.model,
+            platform: &self.config.platform,
+            sha256: &self.sha256,
+            device_id: &self.config.device_id,
+        };
+        let grant = match &self.client {
+            Some(client) => acquire_grant_with_client(client, request)?,
+            None => acquire_grant_pinned(request)?,
+        };
         let bearer = grant.bearer();
         self.current = Some(grant);
         self.acquisitions += 1;
         Ok(bearer)
     }
 
-    /// Current `Authorization` value, acquiring or renewing as needed.
-    pub fn authorization(&mut self, agent: &ureq::Agent) -> Result<String, String> {
+    /// Current `Authorization` value, acquiring or renewing as needed. Requests
+    /// are pinned to the worker host over HTTPS (see [`GrantSession::with_client`]).
+    pub fn authorization_pinned(&mut self) -> Result<String, String> {
         match &self.current {
             Some(grant) if !grant.expires_within(REFRESH_SKEW) => Ok(grant.bearer()),
-            _ => self.fetch(agent),
+            _ => self.fetch(),
         }
     }
 
     /// Discard the cached grant and request a fresh one.
-    pub fn refresh(&mut self, agent: &ureq::Agent) -> Result<String, String> {
+    pub fn refresh_pinned(&mut self) -> Result<String, String> {
         self.current = None;
-        self.fetch(agent)
+        self.fetch()
+    }
+
+    /// Retired: `agent` is ignored; see [`GrantSession::authorization_pinned`].
+    #[deprecated(since = "0.2.9", note = "use `authorization_pinned`")]
+    pub fn authorization(&mut self, _agent: &ureq::Agent) -> Result<String, String> {
+        self.authorization_pinned()
+    }
+
+    /// Retired: `agent` is ignored; see [`GrantSession::refresh_pinned`].
+    #[deprecated(since = "0.2.9", note = "use `refresh_pinned`")]
+    pub fn refresh(&mut self, _agent: &ureq::Agent) -> Result<String, String> {
+        self.refresh_pinned()
     }
 }
 
@@ -128,7 +153,37 @@ pub fn device_id_in(dir: &Path) -> Result<String, String> {
 /// Make `spec` ready in the store at `root` (downloading only when there is no
 /// verified copy) and register `app_id`'s ref. For a gated archive, a grant is
 /// acquired up front and refreshed once if the worker rejects it.
+///
+/// Downloads use the public-web [`http_client`]; grant requests are pinned to the
+/// worker host over HTTPS. Use [`ensure_with_grant_via`] to supply the transport.
 pub fn ensure_with_grant(
+    root: &Path,
+    spec: &ModelSpec,
+    app_id: &str,
+    grant: Option<&GrantConfig>,
+    cancelled: &dyn Fn() -> bool,
+    progress: impl FnMut(Progress),
+) -> Result<ModelStatus, String> {
+    ensure_with_grant_inner(None, root, spec, app_id, grant, cancelled, progress)
+}
+
+/// As [`ensure_with_grant`] through `client` for both the model download and the
+/// grant requests. The caller owns its address policy, for example to reach a
+/// private mirror or worker that the app lists explicitly.
+pub fn ensure_with_grant_via(
+    client: &ModelHttp,
+    root: &Path,
+    spec: &ModelSpec,
+    app_id: &str,
+    grant: Option<&GrantConfig>,
+    cancelled: &dyn Fn() -> bool,
+    progress: impl FnMut(Progress),
+) -> Result<ModelStatus, String> {
+    ensure_with_grant_inner(Some(client), root, spec, app_id, grant, cancelled, progress)
+}
+
+fn ensure_with_grant_inner(
+    custom: Option<&ModelHttp>,
     root: &Path,
     spec: &ModelSpec,
     app_id: &str,
@@ -136,22 +191,36 @@ pub fn ensure_with_grant(
     cancelled: &dyn Fn() -> bool,
     mut progress: impl FnMut(Progress),
 ) -> Result<ModelStatus, String> {
-    let agent = http_agent();
-    let needs_grant =
-        spec.requires_auth() && status_at(root, spec, VerifyMode::Size).state != EntryState::Ready;
+    let client = custom.cloned().unwrap_or_else(http_client);
+    let missing = status_at(root, spec, VerifyMode::Size).state != EntryState::Ready;
+    if spec.requires_entitlement() && missing {
+        // No grant exists for an entitlement-gated model; asking the worker for one would
+        // only fail. The caller holds the signed entitlement and supplies it as the bearer.
+        return Err(format!(
+            "{} is an entitlement-gated add-on: download it with the app's signed Pro entitlement as the bearer (ensure_entitled)",
+            spec.label
+        ));
+    }
+    let needs_grant = spec.requires_grant() && missing;
     let mut session = match (needs_grant, grant) {
-        (true, Some(config)) => Some(GrantSession::for_spec(config, spec)?),
+        (true, Some(config)) => {
+            let session = GrantSession::for_spec(config, spec)?;
+            Some(match custom {
+                Some(client) => session.with_client(client.client().clone()),
+                None => session,
+            })
+        }
         (true, None) => return Err("a device id is required for model download".into()),
         (false, _) => None,
     };
     let mut authorization = match session.as_mut() {
-        Some(session) => Some(session.authorization(&agent)?),
+        Some(session) => Some(session.authorization_pinned()?),
         None => None,
     };
     let mut attempts = 0;
     loop {
         let result = ensure_ready_cancellable(
-            &agent,
+            &client,
             root,
             spec,
             &EnsureOptions {
@@ -167,7 +236,7 @@ pub fn ensure_with_grant(
                 if attempts == 0 && error.contains("download authorization rejected") =>
             {
                 attempts += 1;
-                authorization = Some(session.refresh(&agent)?);
+                authorization = Some(session.refresh_pinned()?);
             }
             (other, _) => return other,
         }

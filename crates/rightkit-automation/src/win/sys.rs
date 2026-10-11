@@ -308,7 +308,7 @@ pub fn post(pid: i32, window: Option<u64>, ev: &InputEvent) -> Result<()> {
 
 // ------------------------------------------------------------------ tier 4
 
-fn send(inputs: &[INPUT]) -> Result<()> {
+pub(super) fn send(inputs: &[INPUT]) -> Result<()> {
     let n = unsafe { SendInput(inputs, std::mem::size_of::<INPUT>() as i32) };
     if n as usize == inputs.len() {
         Ok(())

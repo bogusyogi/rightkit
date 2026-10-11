@@ -47,6 +47,20 @@ pub enum SpecSource {
     Files(&'static [RemoteFile]),
 }
 
+/// Whether every install needs a model or it is an optional extra.
+///
+/// The grouping is data on the spec, never a model's position in a list: code that asks for
+/// "what this install needs" asks for [`ModelTier::Base`], and an optional download is offered
+/// separately.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ModelTier {
+    /// Every install needs it (the base set: [`base_catalog`], and [`catalog`]).
+    Base,
+    /// Optional and usually entitlement-gated; offered on demand ([`add_ons`]). A missing
+    /// add-on never makes setup incomplete and never counts toward onboarding size.
+    AddOn,
+}
+
 /// Static description of one shared-store model.
 #[derive(Debug, Clone)]
 pub struct ModelSpec {
@@ -54,6 +68,12 @@ pub struct ModelSpec {
     pub id: &'static str,
     /// Human label for onboarding/Settings UI.
     pub label: &'static str,
+    /// Base (every install) or add-on (optional); see [`ModelTier`].
+    pub tier: ModelTier,
+    /// With `source` requiring auth: the bearer is the app's signed Pro entitlement, not a
+    /// worker download grant. Grants are never requested for such a model. Leave `false`
+    /// for grant-gated models; `requires_auth()` stays the one "needs a bearer" fact.
+    pub entitlement: bool,
     /// Version tag written into `manifest.json`.
     pub version: &'static str,
     /// Approximate installed size, for "downloads X GB" UX copy.
@@ -104,6 +124,37 @@ impl ModelSpec {
         match &self.source {
             SpecSource::Archive { requires_auth, .. } => *requires_auth,
             SpecSource::Files(_) => false,
+        }
+    }
+
+    /// True when the bearer is the app's signed Pro entitlement (no grant exists for it).
+    pub fn requires_entitlement(&self) -> bool {
+        self.entitlement && self.requires_auth()
+    }
+
+    /// True when the bearer is a worker download grant (`/v1/model-grants`).
+    pub fn requires_grant(&self) -> bool {
+        self.requires_auth() && !self.entitlement
+    }
+
+    /// True for an optional add-on.
+    pub fn is_add_on(&self) -> bool {
+        self.tier == ModelTier::AddOn
+    }
+
+    /// Label for the UI: add-ons say so, so a list never presents one as required.
+    pub fn display_label(&self) -> String {
+        match self.tier {
+            ModelTier::Base => self.label.to_string(),
+            ModelTier::AddOn => format!("{} (optional)", self.label),
+        }
+    }
+
+    /// Status text for a model that is not installed.
+    pub fn missing_status_label(&self) -> &'static str {
+        match self.tier {
+            ModelTier::Base => "Not installed",
+            ModelTier::AddOn => "Optional, not installed",
         }
     }
 }
@@ -302,6 +353,8 @@ pub fn parakeet_spec() -> ModelSpec {
     ModelSpec {
         id,
         label: "Parakeet TDT v3 speech model",
+        tier: ModelTier::Base,
+        entitlement: false,
         version: PARAKEET_ARCHIVE_SHA256.unwrap_or(id),
         size_hint_bytes: if cfg!(target_os = "macos") {
             444010064
@@ -415,6 +468,8 @@ pub fn ocr_spec() -> ModelSpec {
     ModelSpec {
         id: "pp-ocrv6",
         label: "PP-OCRv6 image-text fallback",
+        tier: ModelTier::Base,
+        entitlement: false,
         version: "pp-ocrv6",
         size_hint_bytes: 83_200_000,
         files: OCR_FILES,
@@ -425,12 +480,137 @@ pub fn ocr_spec() -> ModelSpec {
     }
 }
 
-/// Every model this app uses on this platform — the catalog the shell status,
-/// migration, and onboarding iterate.
-pub fn catalog() -> Vec<ModelSpec> {
+// ---------------------------------------------------------------------------
+// Whisper large-v3-turbo (Pro multilingual) — shared by HeardRight and
+// ScrapeRight. whisper.cpp 1.9.3 loads the ggml `.bin` below; it does not read
+// GGUF. Resolution lives in `suite::whisper`; the contract is in the README.
+// ---------------------------------------------------------------------------
+
+/// The ggml model file inside the `whisper-turbo` entry dir.
+pub const WHISPER_GGML_FILE: &str = "whisper_turbo_q5_k.bin";
+
+/// SHA-256 of the whole `whisper-win.tar.gz` archive (HeardRight
+/// `whisper_model.rs:78-89`). The archive is the download trust anchor and the
+/// entry's version tag.
+pub const WHISPER_GGML_ARCHIVE_SHA256: &str =
+    "e4fa834a3b6000ca51b71ac42799277b33496e2f86c43e95b3da57b170f76f9f";
+
+/// SHA-256 of `whisper_turbo_q5_k.bin` itself. Pinned so the installed file is
+/// proven, not only the archive that carried it. Recorded in
+/// `heardright/model_registry/FINAL_MANIFEST_SHA256.csv` (`final\asr\`) and
+/// matched by the local ScrapeRight copy; the archive was not reachable to
+/// confirm it against `WHISPER_GGML_ARCHIVE_SHA256` (see CHANGELOG 0.2.9).
+pub const WHISPER_GGML_FILE_SHA256: &str =
+    "fcacbe37c8ddd49a137b3ef7cccd2743bea1f9a9dd20d2b9755978972a02bb0b";
+
+/// Byte size of `whisper_turbo_q5_k.bin` (large-v3-turbo, q5_k).
+pub const WHISPER_GGML_FILE_SIZE: u64 = 574_041_195;
+
+const WHISPER_GGML_FILES: &[SpecFile] = &[SpecFile {
+    path: WHISPER_GGML_FILE,
+    sha256: Some(WHISPER_GGML_FILE_SHA256),
+    size: Some(WHISPER_GGML_FILE_SIZE),
+}];
+
+/// The shared ggml large-v3-turbo entry at `<models>/whisper-turbo/`. The
+/// archive has one top-level `whisper-win/` wrapper, stripped on install, so
+/// the `.bin` lands directly in the entry dir. Pro-gated: `requires_auth`.
+pub fn whisper_turbo_ggml_spec() -> ModelSpec {
+    ModelSpec {
+        id: "whisper-turbo",
+        label: "Whisper large-v3-turbo (ggml q5_k)",
+        tier: ModelTier::AddOn,
+        entitlement: true,
+        version: WHISPER_GGML_ARCHIVE_SHA256,
+        size_hint_bytes: WHISPER_GGML_FILE_SIZE,
+        files: WHISPER_GGML_FILES,
+        source: SpecSource::Archive {
+            url: Some("https://heardright-models.adrdsouza.workers.dev/whisper-win.tar.gz"),
+            sha256: Some(WHISPER_GGML_ARCHIVE_SHA256),
+            size: None,
+            requires_auth: true,
+        },
+        legacy_dirs: &[],
+        retired_legacy_paths: &[],
+        retired_store_ids: &[],
+    }
+}
+
+/// A Whisper archive pinned by its archive digest only. It is NOT a store
+/// entry: `verify_dir` marks any file without a size and SHA-256 pin as
+/// `Unverified`, so an entry built from these could never reach `Ready`. Per-file
+/// pins have not been measured (the worker does not serve the archive), so
+/// nothing installs from this descriptor yet.
+#[derive(Debug, Clone, Copy)]
+pub struct WhisperArchivePin {
+    /// Platform that consumes the bundle.
+    pub platform: &'static str,
+    /// Worker route the app downloads from (Pro-gated).
+    pub url: &'static str,
+    /// Lowercase SHA-256 of the whole `.tar.gz`.
+    pub sha256: &'static str,
+    /// Wrapper directory name inside the archive and the app's install dir.
+    pub directory_name: &'static str,
+    /// Entries the native loader requires beside or inside the bundle.
+    pub required_entries: &'static [&'static str],
+}
+
+/// macOS CoreML `whisper-multi` bundle (HeardRight `whisper_model.rs:72-76`).
+pub const WHISPER_COREML_ARCHIVE: WhisperArchivePin = WhisperArchivePin {
+    platform: "macos",
+    url: "https://heardright-models.adrdsouza.workers.dev/whisper-multi.tar.gz",
+    sha256: "046ce2aea772e2b102a31bfb52143b58b8ab97637dadc661d4723e4fd5a7f1d7",
+    directory_name: "whisper-multi",
+    required_entries: &[
+        "AudioEncoder.mlmodelc",
+        "TextDecoder.mlmodelc",
+        "tokenizer.json",
+    ],
+};
+
+/// iOS CoreML `whisper-multi` bundle (HeardRight `ModelArtifactInstaller.swift`
+/// `iosWhisperMulti`, lines 63-71). A different archive from the macOS one.
+pub const WHISPER_IOS_ARCHIVE: WhisperArchivePin = WhisperArchivePin {
+    platform: "ios",
+    url: "https://heardright-models.adrdsouza.workers.dev/whisper/ios/multi.tar.gz",
+    sha256: "a37fc293046bc9e77eafd592fc089bd75cb93079cda43bb1646461dee72de60c",
+    directory_name: "whisper-multi",
+    required_entries: &[
+        "AudioEncoder.mlmodelc",
+        "TextDecoder.mlmodelc",
+        "config.json",
+        "generation_config.json",
+        "tokenizer.json",
+    ],
+};
+
+/// What every install needs on this platform: the base set, in dependency-free order.
+/// Onboarding, setup-complete checks and size estimates iterate this. Every entry carries
+/// per-file size and SHA-256 pins (the `builtin_catalog_pins_every_file` test enforces it).
+pub fn base_catalog() -> Vec<ModelSpec> {
     #[allow(unused_mut)]
     let mut specs = vec![parakeet_spec()];
     #[cfg(windows)]
     specs.push(ocr_spec());
     specs
+}
+
+/// Optional downloads, each offered on demand and never part of setup. Currently the
+/// entitlement-gated Whisper large-v3-turbo.
+pub fn add_ons() -> Vec<ModelSpec> {
+    vec![whisper_turbo_ggml_spec()]
+}
+
+/// Base set followed by the add-ons: every model the crate knows, for code that manages the
+/// whole store (pruning, migration, a "downloads" settings page).
+pub fn all_models() -> Vec<ModelSpec> {
+    let mut specs = base_catalog();
+    specs.extend(add_ons());
+    specs
+}
+
+/// The models every install needs. Same as [`base_catalog`], and the meaning of this function
+/// in 0.2.8 (Parakeet, plus OCR on Windows); add-ons are reached only through [`add_ons`].
+pub fn catalog() -> Vec<ModelSpec> {
+    base_catalog()
 }

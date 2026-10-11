@@ -30,20 +30,24 @@ pub mod secret;
 pub mod sse;
 #[cfg(feature = "untrusted")]
 pub mod untrusted;
+mod trust;
 mod urlredact;
+mod wire;
 
 #[cfg(feature = "testing")]
 pub mod testing;
 
 pub use cancel::{is_cancelled_io, CancelToken};
 pub use client::{
-    form_encode, percent_decode, percent_encode, Client, ClientConfig, Method, ProxyMode, Request,
-    Response, ResponseHead, RetryEvent, StreamResponse,
+    form_encode, percent_decode, percent_encode, Client, ClientConfig, Method, ProxyDiagnostic,
+    ProxyMode, Request, Response, ResponseHead, RetryEvent, StreamResponse, TrustRoots,
 };
 pub use download::{DownloadError, DownloadOptions, DownloadProgress, DownloadReport};
 pub use error::{ErrorClass, HttpError, Phase};
 pub use multipart::Multipart;
-pub use netpolicy::{AddressClass, AddressPolicy, IpNet};
+pub use netpolicy::{
+    parse_host_ip, parse_legacy_ipv4, AddressClass, AddressPolicy, HostIpKind, IpNet, ParsedHostIp,
+};
 pub use retry::{parse_retry_after, RetryPolicy};
 pub use secret::{MemorySecretStore, Secret, SecretError, SecretStore};
 pub use sse::{SseDecoder, SseEvent, SseReader};

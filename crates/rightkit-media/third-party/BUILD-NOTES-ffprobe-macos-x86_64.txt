@@ -13,3 +13,4 @@ Cross-compiled (nasm 3.02); Mach-O x86_64 confirmed with file(1). Not run-verifi
 Use: shipped as a separate executable the app shells out to; notice + source offer.
 Binary: vendor/ffmpeg-lgpl/ffprobe-decode-macos-x86_64
 sha256: 60325155d26a7b33eb7b2e582e61eb7bf829e38cbc3ea412c864ab942b5a1f02
+contentSha256 (signature-independent catalog identity, src/content_digest.rs): b6180a36053d99cc2308afa66faddc54c2f8ad3f153f3ef52d57d2cdf581439b

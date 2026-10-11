@@ -1,6 +1,94 @@
 # Changelog
 
-## 0.2.6
+## 0.3.0
+
+This is the 0.2.6 work renumbered: it carries source-visible breaks (`HttpError` variants and shapes, new
+`ClientConfig` fields, the default address policy), so sibling crates' requirements on `rightkit-http`
+need updating. Fixes from the adversarial read (docs/audits/2026-10-11-astra-rightkit-http-0.2.6.md):
+
+- **Default trust source changes (behaviour change).** Both clients now verify servers against the
+  operating system's trust store by default (`ClientConfig::trust = TrustRoots::Platform`), where 0.2.x
+  trusted only the bundled Mozilla roots. Enterprise and TLS-inspection roots installed on the machine
+  are now honoured, and a certificate chaining only to a bundled root that the machine has removed is
+  no longer trusted. `TrustRoots::Bundled` restores the old behaviour. Blocking client: ureq
+  `platform-verifier` (`rustls-platform-verifier` 0.7, the OS verifier). Async client: the same
+  verifier installed in reqwest 0.12 (feature `rustls-tls`, unchanged) with `use_preconfigured_tls`; no
+  second reqwest major. `verifier_kind()` on both clients reports `"platform"` or `"bundled"`. Verification
+  cannot be disabled. New dependencies: `rustls-platform-verifier` (ureq, and directly under `async`), `rustls` 0.23
+  (direct, `async` only, `ring`), and the OS crates the verifier pulls in.
+- **`ClientConfig::https_only`** (default `false`, so existing behaviour is preserved) refuses a non-https
+  initial URL and every redirect hop to a non-https URL, in both clients and in downloads, with the new
+  `HttpError::HttpsRequired { host, scheme, redirect }` (`ErrorClass::Invalid`, never retried). Callers that
+  match `HttpError` exhaustively need an arm for it. `ClientConfig` gains `trust` and `https_only`:
+  struct-literal construction without `..Default::default()` needs both.
+- **Retry default changes (behaviour change).** `Request::retry_unsafe_statuses` now defaults to `false`:
+  POST and PATCH are not replayed after 429/5xx unless the request opts in. A replayed single-use OAuth code
+  exchange is harmful. Callers that relied on POST status retries (LLM calls) must opt in per request.
+- README documents the defaults of no redirects, quiet-stream timeouts (no idle cut after headers) and
+  lossy UTF-8 text decoding.
+- **Second independent read** (docs/audits/2026-10-11-astra-rightkit-http-0.3.0.md):
+  - Async TLS: both trust choices now install an explicit rustls `ClientConfig` through
+    `use_preconfigured_tls`, so `Bundled` is exactly the Mozilla roots even if another crate enables
+    reqwest `default-tls` or `rustls-tls-native-roots`; ALPN advertises `http/1.1` only (no `h2`,
+    no hyper-util panic without reqwest's `http2` feature). New direct dependencies under `async`:
+    `webpki-roots` (already in the lock through ureq). The blocking client names the rustls provider
+    and root source explicitly too.
+  - Proxy routing: one matcher decides proxy-or-direct per hop for both policy and transport; the
+    async client holds a direct and a proxied reqwest client and no longer lets reqwest read the
+    environment or apply its own `NO_PROXY` rules (they differ for wildcard entries).
+  - Downloads: whole-resource completion against the advertised total; the wire `Content-Encoding`
+    is read before ureq decodes, so chunked gzip is refused; a `Content-Range` ending at `u64::MAX`
+    is rejected and arithmetic on header integers is checked or saturating.
+  - Async retries: the drain of a retryable response and the retry sleep are clamped to the attempt
+    deadline, the request deadline and `recv_body_timeout`.
+  - `Debug` of `Response` and `ResponseHead` scrubs configured and per-request secrets.
+  - `testing::add_bundled_test_root` (feature `testing`) lets a test trust a throwaway CA under
+    `TrustRoots::Bundled`; new dev-dependencies `rcgen` and `rustls` (both already in the lock).
+- **Not done:** `ProxyMode::System` (OS proxy settings, gap ledger row 110 item 3) is not in this release: it needs per-scheme proxy selection per request, which the single-proxy client does not have.
+
+- **Security.** `Retry-After` values too large for a `Duration` no longer panic either client (also
+  present in published 0.2.5); they saturate and then meet `max_retry_after`. Legacy IPv4 spellings
+  (`127.1`, `0177.0.0.1`, `0x7f.0.0.1`, `2130706433`) are canonicalised the way `inet_aton` does before
+  classification, in both clients, through proxies and on redirects. The local-use NAT64 space
+  `64:ff9b:1::/48` (RFC 8215) is inspected for embedded IPv4 in every RFC 6052 layout
+  (`netpolicy::embedded_v4s`). Cloud metadata is now an unconditional block that no hook can allow:
+  link-local, `fd00:ec2::/32`, `100.100.100.200`, `168.63.129.16`, `192.0.0.192`, and IPv6 forms that embed
+  them. The trusted proxy endpoint is exempt only for the real proxy connection (host, port and a call
+  that goes through the proxy); `NO_PROXY` destinations and any other port get the full check. An `http`
+  proxy named by host is pinned by `AsyncClient` to the address it resolved at construction; an `https`
+  proxy named by host is vetted like a destination there. HTTPS to HTTP redirects are refused by default
+  (`AddressPolicy::allow_insecure_redirects` opts in; `allows_redirect` exposes the rule).
+- **Host spelling.** `parse_host_ip` and `parse_legacy_ipv4` are public, with `ParsedHostIp`,
+  `HostIpKind` and an `is_canonical` flag, so other transports can guard with the same parse (the
+  `inet_aton` rules: one to four parts, decimal, octal or hex, the last part filling the rest). The public-web
+  policy now refuses every non-canonical IPv4 host spelling (`127.1`, `0177.0.0.1`, `0x7f.0.0.1`,
+  `2130706433`, `1.1.1.1.`) outright with `AddressDenied`, in both clients, through proxies and on
+  redirects, instead of normalising it: parsers disagree about these spellings and a mismatch is an SSRF
+  bypass. `AddressPolicy::allow_legacy_ipv4()` opts out (the address classes still apply). No legitimate
+  URL spells a host this way, so refusing by default breaks nothing real.
+- **Proxy.** `Client::proxy_diagnostic()` and `AsyncClient::proxy_diagnostic()` report the proxy
+  endpoint (no credentials), whether it came from the environment, and that it is exempt from the
+  destination class check only because the caller or environment configured it. A destination denied
+  through a proxy says that only names and literals can be checked.
+- **Downloads.** `.part` is created exclusively or opened with `O_NOFOLLOW`; an existing link is removed,
+  never followed. The URL policy runs before the filesystem is touched. The file is fsynced, hashed
+  through the same handle and checked against the path just before the rename, and the directory is
+  fsynced. The resume validator belongs to the resource that supplied the prefix; a reconnect that lands
+  on another resource restarts. `Content-Range` is parsed strictly and must agree with `Content-Length`.
+  Bodies past `expected_bytes`, the declared range or the declared length stop the download. Responses
+  whose framing shows transparent decoding are refused. Error bodies are read with cancellation.
+- **Redaction.** `Request`'s `Debug` hides credential-named headers and every recorded secret inside any
+  header value. `Response` and `ResponseHead` `Debug` redact `Set-Cookie`, credential headers and URL
+  headers and print the body length only. `DownloadError` and JSON decode errors are scrubbed, and JSON
+  errors name only the category and position, never body text.
+- **Async parity.** `AsyncClient` now honours `Request::cancel`, `Request::deadline`,
+  `Request::max_response_bytes` and `Request::headers_only`, like `Client`.
+- **Timeouts.** Name lookup for blocking calls runs under the connect timeout (default 10 s), including
+  streams with no global timeout. Retry and error-body drains stop on cancellation.
+- **Not changed.** `ureq` logs the full URL only at TRACE, which its documentation describes as
+  unredacted wire logging; at DEBUG it prints the URL without its query. The crate cannot intercept the
+  global `log` filter, so do not enable TRACE for a process that carries secrets in URLs.
+
 
 Mostly additive. Call sites that use builders compile unchanged; source-level changes for code that
 builds structs by hand or matches `HttpError` exhaustively, and the new default address policy, are listed

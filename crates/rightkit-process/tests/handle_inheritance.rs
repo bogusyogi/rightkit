@@ -290,6 +290,25 @@ fn missing_native_configuration_fails_without_spawning() {
     );
 }
 
+/// A wrapped `Command` can carry stdio and environment settings the crate cannot read back.
+/// Without an explicit config the allowlisted spawn must refuse, never fall back to the
+/// parent's environment and stdout.
+#[cfg(windows)]
+#[test]
+fn a_wrapped_command_with_cleared_environment_and_piped_stdout_is_refused_without_config() {
+    let mut wrapped = std::process::Command::new("cmd.exe");
+    wrapped
+        .args(["/c", "exit 0"])
+        .env_clear()
+        .stdout(std::process::Stdio::piped());
+    let mut command = OwnedCommand::from_command(wrapped);
+    command.inherit_handles_only([]);
+    assert_eq!(
+        command.spawn().unwrap_err().kind(),
+        std::io::ErrorKind::InvalidInput
+    );
+}
+
 #[cfg(windows)]
 #[test]
 fn native_spawn_failure_restores_handle_flags() {

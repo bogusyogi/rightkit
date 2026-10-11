@@ -9,6 +9,7 @@
 //! * [`coalesce`] — rename-storm coalescing that reports net filesystem truth per batch.
 
 pub mod coalesce;
+pub mod native;
 pub mod options;
 #[cfg(feature = "async")]
 pub mod subscribe;
@@ -16,6 +17,7 @@ pub mod sync;
 pub mod typed;
 
 pub use coalesce::{ChangeBatch, ChangeCoalescer, Rename};
+pub use native::{Granularity, TypedOptions, WatchBackend, WatchCursor};
 /// Backend types use exactly this crate's `notify` dependency.
 pub use notify;
 pub use options::{EventFilter, FileSetReceiver, WatchEventKind, WatchEventRecord, WatchOptions};
@@ -28,4 +30,4 @@ pub use sync::{
     DirWatchSet, FileChange, FileChangeKind, FileSetWatcher, GrantCheck, DEFAULT_DEBOUNCE,
     DEFAULT_MAX_WAIT, EXPLORER_DEBOUNCE, EXPLORER_WATCH_CAP,
 };
-pub use typed::{TypedWatcher, WatchError, WatchEvent};
+pub use typed::{TypedWatcher, WatchError, WatchEvent, WatchMetrics, WatchStatus};

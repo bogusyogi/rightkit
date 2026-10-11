@@ -6,7 +6,52 @@ use crate::model::*;
 use crate::proof::{FieldText, TextSource, MAX_PROOF_BYTES};
 use std::ffi::c_void;
 
+use std::time::Duration;
+
+/// Default AX messaging timeout in seconds. Every element this crate creates uses it
+/// unless the caller passes an [`AxOptions`].
 pub const AX_TIMEOUT: f32 = 1.5;
+
+/// `AX_TIMEOUT` as a `Duration`.
+pub const DEFAULT_TIMEOUT: Duration = Duration::from_millis(1500);
+
+/// Per-call options for creating an AX element.
+///
+/// `timeout` is applied with `AXUIElementSetMessagingTimeout`: an unresponsive target app
+/// fails the call with `Error::Platform(-25204, ..)` (CannotComplete) after this long instead
+/// of the system default (about 6 s). `Duration::ZERO` asks AX to reset to its own default.
+///
+/// **Process-wide on the system-wide element.** Apple documents that the timeout set on the
+/// system-wide element becomes the timeout for every AX element in the process that has no
+/// timeout of its own, and AX offers no getter to restore the previous value. So
+/// [`system_wide`], [`system_wide_with`], [`element_at_position`] and
+/// [`element_at_position_with`] change that process-wide default (to 1.5 s, or to the value
+/// you pass). A host that has its own AX code and needs a different default should pass its
+/// value in `AxOptions` here, or set its own timeouts on the elements it owns.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct AxOptions {
+    pub timeout: Duration,
+}
+
+impl Default for AxOptions {
+    fn default() -> Self {
+        AxOptions {
+            timeout: DEFAULT_TIMEOUT,
+        }
+    }
+}
+
+impl AxOptions {
+    pub fn with_timeout(timeout: Duration) -> Self {
+        AxOptions { timeout }
+    }
+}
+
+/// Seconds as the `f32` AX takes. Clamped into `[0, f32::MAX]`, so an absurdly long
+/// `Duration` cannot become infinity.
+fn timeout_secs(d: Duration) -> f32 {
+    d.as_secs_f64().min(f64::from(f32::MAX)) as f32
+}
 
 #[derive(Clone)]
 pub struct El(pub Cf);
@@ -21,15 +66,83 @@ fn ax_err(code: i32, op: &'static str) -> Error {
     }
 }
 
+fn require_trusted() -> Result<()> {
+    if unsafe { AXIsProcessTrusted() } == 0 {
+        Err(Error::PermissionDenied("Accessibility"))
+    } else {
+        Ok(())
+    }
+}
+
+/// The system-wide element (`AXUIElementCreateSystemWide`) with the default 1.5 s timeout.
+/// Process-wide timeout effect: see [`AxOptions`].
+pub fn system_wide() -> Result<El> {
+    system_wide_with(&AxOptions::default())
+}
+
+/// The system-wide element with the caller's timeout. Process-wide timeout effect: see
+/// [`AxOptions`]. Fails with `PermissionDenied` when the process is not Accessibility-trusted.
+pub fn system_wide_with(opts: &AxOptions) -> Result<El> {
+    require_trusted()?;
+    let el = El(Cf::new(unsafe { AXUIElementCreateSystemWide() })
+        .ok_or(Error::Unsupported("system-wide accessibility element"))?);
+    el.set_timeout(opts.timeout);
+    Ok(el)
+}
+
+/// Outcome of `AXUIElementCopyElementAtPosition`: `Ok(true)` found, `Ok(false)` nothing at
+/// that point (kAXErrorNoValue), `Err` for everything else (permission, hung app, bad element).
+fn hit_test_outcome(code: i32) -> Result<bool> {
+    match code {
+        0 => Ok(true),
+        -25212 => Ok(false),
+        -25211 => Err(Error::PermissionDenied("Accessibility")),
+        c => Err(Error::Platform(i64::from(c), "element_at_position")),
+    }
+}
+
+/// The deepest accessible element under a point in global display coordinates (top-left
+/// origin, points; `f32` precision, as AX takes), across all apps, with the default 1.5 s timeout. `Ok(None)` when nothing
+/// accessible is there. The returned element carries the same timeout. Process-wide timeout
+/// effect: see [`AxOptions`].
+pub fn element_at_position(x: f64, y: f64) -> Result<Option<El>> {
+    element_at_position_with(x, y, &AxOptions::default())
+}
+
+/// [`element_at_position`] with the caller's timeout (for example 150 ms for a hit test in a
+/// latency-sensitive event tap). A hung app yields `Err(Error::Platform(-25204, ..))`.
+pub fn element_at_position_with(x: f64, y: f64, opts: &AxOptions) -> Result<Option<El>> {
+    let sys = system_wide_with(opts)?;
+    let mut out: CFTypeRef = std::ptr::null();
+    let code = unsafe { AXUIElementCopyElementAtPosition((sys.0).0, x as f32, y as f32, &mut out) };
+    if !hit_test_outcome(code)? {
+        return Ok(None);
+    }
+    let el = El(Cf::new(out).ok_or(Error::Unsupported("accessibility element at position"))?);
+    el.set_timeout(opts.timeout);
+    Ok(Some(el))
+}
+
 impl El {
+    /// Application element with the default 1.5 s messaging timeout.
     pub fn app(pid: i32) -> Result<El> {
-        if unsafe { AXIsProcessTrusted() } == 0 {
-            return Err(Error::PermissionDenied("Accessibility"));
-        }
+        El::app_with(pid, &AxOptions::default())
+    }
+
+    /// Application element with the caller's messaging timeout (per element).
+    pub fn app_with(pid: i32, opts: &AxOptions) -> Result<El> {
+        require_trusted()?;
         let r = Cf::new(unsafe { AXUIElementCreateApplication(pid) })
             .ok_or_else(|| Error::NotFound(format!("pid {pid}")))?;
-        unsafe { AXUIElementSetMessagingTimeout(r.0, AX_TIMEOUT) };
-        Ok(El(r))
+        let el = El(r);
+        el.set_timeout(opts.timeout);
+        Ok(el)
+    }
+
+    /// Set this element's messaging timeout (`AXUIElementSetMessagingTimeout`). On the
+    /// system-wide element this is the process-wide default; see [`AxOptions`].
+    pub fn set_timeout(&self, timeout: Duration) {
+        unsafe { AXUIElementSetMessagingTimeout((self.0).0, timeout_secs(timeout)) };
     }
 
     fn raw(&self, name: &str) -> Option<Cf> {
@@ -248,7 +361,7 @@ fn normalize_role(r: &str) -> String {
     .to_string()
 }
 
-pub fn read_node(el: &El) -> Option<RawNode> {
+pub(super) fn read_node(el: &El) -> Option<RawNode> {
     let native = el.str_attr("AXRole")?;
     let secure = el.is_secure();
     let nonempty = |s: Option<String>| s.filter(|v| !v.is_empty());
@@ -305,7 +418,7 @@ pub fn read_node(el: &El) -> Option<RawNode> {
 }
 
 /// The window element for a target: explicit window id, else focused, main, first.
-pub fn window_root(app: &El, window_id: Option<u64>) -> Option<El> {
+pub(super) fn window_root(app: &El, window_id: Option<u64>) -> Option<El> {
     let by_id = |id: u64| {
         app.list("AXWindows")
             .into_iter()
@@ -329,7 +442,7 @@ fn is_editable_role(role: &str) -> bool {
 
 /// Deepest focused element, resolved to an editable editor when the focus sits
 /// on a container (bounded search, as web/Electron composers require).
-pub fn focused_editor(app: &El) -> Option<El> {
+pub(super) fn focused_editor(app: &El) -> Option<El> {
     let mut f = app.el_attr("AXFocusedUIElement");
     if f.is_none() {
         let w = app.el_attr("AXFocusedWindow")?;
@@ -372,7 +485,7 @@ fn find_focused_descendant(root: &El, depth: usize, budget: &mut usize) -> Optio
     None
 }
 
-pub fn semantic(el: &El, action: &Action) -> Result<String> {
+pub(super) fn semantic(el: &El, action: &Action) -> Result<String> {
     match action {
         Action::Press => {
             let acts = el.actions();
@@ -416,7 +529,7 @@ pub fn semantic(el: &El, action: &Action) -> Result<String> {
     }
 }
 
-pub fn menu_press(app: &El, path: &[String]) -> Result<()> {
+pub(super) fn menu_press(app: &El, path: &[String]) -> Result<()> {
     let mut cur = app
         .el_attr("AXMenuBar")
         .ok_or_else(|| Error::NotFound("menu bar".into()))?;
@@ -438,7 +551,7 @@ pub fn menu_press(app: &El, path: &[String]) -> Result<()> {
     Err(Error::Invalid("empty menu path".into()))
 }
 
-pub fn field_text(el: &El) -> Option<FieldText> {
+pub(super) fn field_text(el: &El) -> Option<FieldText> {
     let selection = el.selected_range();
     if let Some(v) = el.raw("AXValue").and_then(|c| cf_to_string(c.0)) {
         if v.len() <= MAX_PROOF_BYTES {
@@ -461,13 +574,100 @@ pub fn field_text(el: &El) -> Option<FieldText> {
 /// HR's four-signal capability decision: a real native text control, not
 /// web/rich-editor content, whose value is directly readable and whose
 /// selected text is settable.
-pub fn native_write_capable(el: &El) -> bool {
+pub(super) fn native_write_capable(el: &El) -> bool {
     if unsafe { AXIsProcessTrusted() } == 0 || el.is_secure() || el.has_web_area_ancestor() {
         return false;
     }
     el.raw("AXValue").and_then(|c| cf_to_string(c.0)).is_some() && el.settable("AXSelectedText")
 }
 
-pub fn native_write(el: &El, text: &str) -> Result<()> {
+pub(super) fn native_write(el: &El, text: &str) -> Result<()> {
     el.set_str("AXSelectedText", text)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn trusted() -> bool {
+        let t = unsafe { AXIsProcessTrusted() } != 0;
+        if !t {
+            eprintln!("skipped: this process is not Accessibility-trusted (live AX test)");
+        }
+        t
+    }
+
+    #[test]
+    fn default_timeout_is_unchanged_at_one_and_a_half_seconds() {
+        assert_eq!(AX_TIMEOUT, 1.5);
+        assert_eq!(DEFAULT_TIMEOUT, Duration::from_millis(1500));
+        assert_eq!(AxOptions::default().timeout, DEFAULT_TIMEOUT);
+        assert_eq!(timeout_secs(AxOptions::default().timeout), AX_TIMEOUT);
+    }
+
+    #[test]
+    fn timeout_converts_to_f32_seconds_without_overflow() {
+        assert_eq!(timeout_secs(Duration::from_millis(150)), 0.15_f32);
+        assert_eq!(timeout_secs(Duration::ZERO), 0.0);
+        assert_eq!(timeout_secs(Duration::MAX), f32::MAX);
+        assert_eq!(
+            AxOptions::with_timeout(Duration::from_secs(3)).timeout,
+            Duration::from_secs(3)
+        );
+    }
+
+    #[test]
+    fn hit_test_codes_map_to_found_nothing_or_error() {
+        assert!(matches!(hit_test_outcome(0), Ok(true)));
+        // kAXErrorNoValue: nothing accessible at that point is not a failure.
+        assert!(matches!(hit_test_outcome(-25212), Ok(false)));
+        assert!(matches!(
+            hit_test_outcome(-25211),
+            Err(Error::PermissionDenied(_))
+        ));
+        // kAXErrorCannotComplete (hung or slow app) must surface, not read as "nothing".
+        assert!(matches!(
+            hit_test_outcome(-25204),
+            Err(Error::Platform(-25204, _))
+        ));
+        assert!(matches!(hit_test_outcome(-25202), Err(Error::Platform(..))));
+    }
+
+    #[test]
+    fn untrusted_process_is_refused_not_guessed() {
+        if unsafe { AXIsProcessTrusted() } != 0 {
+            eprintln!("skipped: process is trusted, so the refusal path cannot be reached");
+            return;
+        }
+        assert!(matches!(system_wide(), Err(Error::PermissionDenied(_))));
+        assert!(matches!(
+            element_at_position(10.0, 10.0),
+            Err(Error::PermissionDenied(_))
+        ));
+        assert!(matches!(El::app(1), Err(Error::PermissionDenied(_))));
+    }
+
+    /// Live: needs Accessibility for the test host. Skips (with a message) otherwise.
+    #[test]
+    fn live_system_wide_and_hit_test() {
+        if !trusted() {
+            return;
+        }
+        system_wide().expect("system-wide element");
+        let tight = AxOptions::with_timeout(Duration::from_millis(150));
+        // The menu bar's left edge is accessible on every Mac with a visible menu bar.
+        let hit = element_at_position_with(8.0, 4.0, &tight).expect("hit test must not error");
+        if let Some(el) = hit {
+            let pid = el.pid().expect("a hit element belongs to a process");
+            assert!(pid > 0);
+        }
+        // Far outside every display: never an element. AX answers NoValue (None) or an
+        // illegal-argument platform error depending on the OS build; both are non-hits.
+        assert!(!matches!(
+            element_at_position_with(-100_000.0, -100_000.0, &tight),
+            Ok(Some(_))
+        ));
+        // Restore the crate default so later tests in this process see 1.5 s again.
+        let _ = system_wide();
+    }
 }

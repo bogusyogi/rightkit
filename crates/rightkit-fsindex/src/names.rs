@@ -98,6 +98,18 @@ impl NameStore {
         }
     }
 
+    /// Resident bytes of the name segments and the hash columns.
+    pub fn resident_bytes(&self) -> usize {
+        self.segs
+            .iter()
+            .map(|m| crate::col::resident_bytes(m.as_ptr(), m.len()))
+            .sum::<usize>()
+            + self.off.resident_bytes()
+            + self.len.resident_bytes()
+            + self.next.resident_bytes()
+            + self.heads.resident_bytes()
+    }
+
     pub fn trim(&mut self) {
         if let Some(d) = &self.dir {
             for (i, s) in self.segs.iter_mut().enumerate() {

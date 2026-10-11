@@ -1,0 +1,7 @@
+{
+  "contract": "content-brief", "contractVersion": "1.1.0", "briefId": "brief.rev-1-1", "revision": 1,
+  "ruleRevision": 0,
+  "briefType": "talking_head", "channel": { "venture": "orthic", "channel": "legion-notes", "account": "main" },
+  "platforms": ["youtube_shorts"], "deliverables": ["video"],
+  "stages": [ { "id": "script", "requestId": "req.script.1", "inputHash": "blake3:8888888888888888888888888888888888888888888888888888888888888888", "dependsOn": [] } ]
+}

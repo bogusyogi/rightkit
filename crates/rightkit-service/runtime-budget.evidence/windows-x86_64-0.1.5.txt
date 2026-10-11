@@ -1,0 +1,23 @@
+# crate: rightkit-service 0.1.5
+# command: rightkit remote windows cargo test --release -p rightkit-service --bench budget   (the remote verb 'bench' is denied: REMOTE_COMMAND_DENIED unregistered remote cargo verb: bench; 'test --release --bench budget' builds the same optimized bench binary and runs it)
+# broker receipt command: cargo test --release -p rightkit-service --bench budget --target x86_64-pc-windows-msvc --target-dir D:\.rightkit-managed\rightkit-build-control\ws\9f066aa0b753\g\001\t
+# host: windows x86_64 (the Dell via rightkit remote windows; the broker does not report the model); target x86_64-pc-windows-msvc
+# receipt: 86cfe1dc-fa41-439e-a796-ca757acbd5cc state SUCCEEDED submitted 2026-10-11T08:02:18.388Z terminal 2026-10-11T08:06:41.911Z queueMs 204101 runMs 59422
+# machine load: not reported by the Windows broker; the request waited in the disk-floor queue before running (other requests share the Dell)
+# commit: 0faaf2973e6b607b4624efc39ad6bdb9da583ca4 (HEAD at extraction; the tree under test had uncommitted changes)
+Running benches\budget.rs (D:\.rightkit-managed\rightkit-build-control\ws\9f066aa0b753\g\001\t\x86_64-pc-windows-msvc\release\deps\budget-1dcf09838c249449.exe)
+warm-up: 20000 requests over 64 connections in 5.62 s (3557 req/s), open connections 64, inflight 0, resident 10.7 MiB (before host 6.0 MiB)
+RESULT open_connections=64 connections
+RESULT warm_resident_bytes=11202560 bytes
+RESULT idle_resident_bytes=11206656 bytes
+RESULT resident_memory_bytes=11206656 bytes
+RESULT footprint_bytes=6889472 bytes
+RESULT idle_window_seconds=30.0 seconds
+RESULT idle_cpu_percent=0.156 percent
+RESULT wakeups_per_second=unavailable the host exposes no process wake-up counter
+RESULT disk_ops_per_second=0.000 per_second
+RESULT disk_read_bytes_per_second=0.000 bytes_per_second
+RESULT disk_write_bytes_per_second=0.000 bytes_per_second
+RESULT scale=64 open connections after echo requests, then idle
+RESULT scope=synthetic
+RESULT budget crate=rightkit-service version=0.1.5 resident_bytes=11206656 idle_cpu_percent=0.156 wakeups_per_s=unavailable disk_ops_per_s=0.000 scale_unit=connections scale_count=64

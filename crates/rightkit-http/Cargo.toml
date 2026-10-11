@@ -20,7 +20,7 @@ untrusted = ["dep:rightkit-fs"]
 gzip = ["ureq/gzip", "reqwest?/gzip"]
 # Async client (reqwest + tokio, rustls only) with the same policy layer, body
 # streaming and an async SSE stream. Needs a tokio runtime at call time.
-async = ["dep:reqwest", "dep:tokio", "dep:futures-util", "dep:bytes"]
+async = ["dep:reqwest", "dep:tokio", "dep:futures-util", "dep:bytes", "dep:rustls", "dep:rustls-platform-verifier", "dep:webpki-roots"]
 # In-process mock HTTP server for tests of this crate and its consumers.
 testing = []
 
@@ -28,17 +28,31 @@ testing = []
 rightkit-fs = { version = "0.3", path = "../rightkit-fs", default-features = false, features = ["digest"], optional = true }
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.150"
-ureq = { version = "3.4", default-features = false, features = ["rustls"] }
+ureq = { version = "3.4", default-features = false, features = ["rustls", "platform-verifier"] }
 getrandom = "0.4"
 sha2 = "0.11"
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "stream"], optional = true }
 tokio = { version = "1", default-features = false, features = ["time", "net"], optional = true }
 futures-util = { version = "0.3", default-features = false, optional = true }
 bytes = { version = "1", optional = true }
+# Async `TrustRoots::Platform`: the same OS verifier the blocking client gets through ureq,
+# installed into reqwest with `use_preconfigured_tls`. Same rustls 0.23 as reqwest 0.12.
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"], optional = true }
+rustls-platform-verifier = { version = "0.7", default-features = false, optional = true }
+# Async `TrustRoots::Bundled`: Mozilla roots, installed explicitly (same crate ureq uses).
+webpki-roots = { version = "1", optional = true }
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
 
 [dev-dependencies]
+# Throwaway CAs and leaf certificates for the local TLS server in tests/tls_local.rs.
+rcgen = "0.13"
+# The test TLS server speaks rustls directly (ring), whatever features are on.
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 tokio = { version = "1", features = ["rt", "macros", "time"] }
 rightkit-http = { path = ".", default-features = false, features = ["testing"] }
+
+[package.metadata.rightkit]
+continuous = false
+continuous_reason = "sleep: cancellation-poll and retry waits inside one request (async_client.rs, cancel.rs), bounded by the request deadline; thread-spawn: one DNS-lookup thread per resolve with a timeout (netpolicy.rs), ends when getaddrinfo returns; listener: the loopback mock server in the opt-in testing feature, stopped and joined on drop; no timer, watcher or long-lived memory (reviewed 2026-10-11)"

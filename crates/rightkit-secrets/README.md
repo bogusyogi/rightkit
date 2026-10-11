@@ -14,7 +14,7 @@ Per-app OS credential storage for Right Suite applications. It provides macOS Ke
 
 ## Platform support
 
-- macOS: Keychain, with the `apple_helper` module driving the synced-credentials Swift helper (`RightKitAppleCredentials`).
+- macOS: the user-domain default keychain (explicit on every call; the search list is never used), with the `apple_helper` module driving the synced-credentials Swift helper (`RightKitAppleCredentials`).
 - Windows: Credential Manager (`src/windows.rs`).
 - Linux: no OS store is wired. Every call fails closed (`src/backend.rs`).
 

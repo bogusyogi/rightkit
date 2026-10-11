@@ -1,0 +1,34 @@
+# crate: rightkit-sync 0.1.1
+# command: rightkit cargo bench -p rightkit-sync  --bench budget
+# host: macos arm64, Mac18,5 / Apple M6, 12 cpus, 24 GB, 27.0.1
+# date: 2026-10-11T04:32:25Z
+# machine load (1/5/15 min) before the build: 8.64 11.34 13.08 ; after the run: 8.82 9.86 11.70 (other builds were running; the queue admits one build at a time)
+# commit: 2a591507d776a5757f7a47896cf3bf7e25535ab3 (HEAD; the tree under test has uncommitted changes)
+rightkit: request da195095-23ba-40c4-b007-c29da7f527e6
+[rightkit] target warm-candidate at start (3 entries, generation 2)
+   Compiling rightkit-process v0.3.4 (/Volumes/D/rightkit-publish/v10/claude/rightkit/crates/rightkit-process)
+   Compiling rightkit-fs v0.3.4 (/Volumes/D/rightkit-publish/v10/claude/rightkit/crates/rightkit-fs)
+   Compiling rightkit-sync v0.1.1 (/Volumes/D/rightkit-publish/v10/claude/rightkit/crates/rightkit-sync)
+    Finished `bench` profile [optimized] target(s) in 5.52s
+     Running benches/budget.rs (/Volumes/D/.rightkit-managed/rightkit-build-control/ws/520b705fd794/g/002/target/aarch64-apple-darwin/release/deps/budget-bcb48ec308f25ff4)
+seeded 100000 remote records in 58.4ms
+engine built: resident   109.8 MB  footprint   109.0 MB
+initial pull: 100000 records in 0.39 s
+after initial pull: resident   475.8 MB  footprint   232.3 MB
+after steady passes: resident   694.1 MB  footprint   770.3 MB
+steady passes: records=100000 passes=100 edits_per_side=100 initial_pull_s=0.39 pass_ms_mean=222.6 pass_ms_max=1028.6 passes_per_s=0.36 records_moved_per_s=71.1 cpu_s=226.73 cpu_percent=80.6 ledger_json_mb=7.78 remote_versions=100000 pending_uploads_max=0 failed_passes=0 not_synced_passes=0 wall_s=281.5
+RESULT pending_uploads_after_idle=0 records
+RESULT warm_resident_bytes=727842816 bytes
+RESULT idle_resident_bytes=310329344 bytes
+RESULT resident_memory_bytes=727842816 bytes
+RESULT footprint_bytes=808567936 bytes
+RESULT idle_window_seconds=30.0 seconds
+RESULT idle_cpu_percent=0.000 percent
+RESULT wakeups_per_second=0.033 per_second
+RESULT disk_ops_per_second=unavailable the host exposes no process disk-operation counter
+RESULT disk_read_bytes_per_second=0.000 bytes_per_second
+RESULT disk_write_bytes_per_second=0.000 bytes_per_second
+RESULT scale=100000 records in the ledger after bidirectional passes, engine idle between passes
+RESULT scope=synthetic
+RESULT budget crate=rightkit-sync version=0.1.1 resident_bytes=727842816 idle_cpu_percent=0.000 wakeups_per_s=0.033 disk_ops_per_s=unavailable scale_unit=records scale_count=100000
+[rightkit] target unknown (target-nonempty-freshness-unavailable); not-fresh unknown (no cargo json stream)

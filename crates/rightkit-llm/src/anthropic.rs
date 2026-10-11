@@ -56,14 +56,19 @@ impl AnthropicProvider {
         self
     }
 
-    fn request(&self, req: &ChatRequest, stream: bool) -> Result<Request, LlmError> {
+    /// The HTTP request, plus the credential text so provider error text can have it removed.
+    fn request(&self, req: &ChatRequest, stream: bool) -> Result<(Request, Option<String>), LlmError> {
         let credential = self
             .credentials
             .credential(&self.id)?
             .ok_or_else(|| LlmError::MissingCredential(self.id.clone()))?;
+        let secret = credential.expose().to_string();
         let body = build_body(req, stream);
+        // Replay after 429/5xx/529 is safe: a rejected or failed Messages call is not billed
+        // or applied server-side, and Anthropic documents these statuses as retryable.
         let mut http = Request::post(format!("{}/v1/messages", self.base_url))
-            .header("x-api-key", credential.expose())
+            .retry_unsafe_statuses(true)
+            .secret_header("x-api-key", credential.expose())
             .header("anthropic-version", ANTHROPIC_VERSION)
             .header(
                 "Accept",
@@ -77,7 +82,11 @@ impl AnthropicProvider {
         for (k, v) in &self.extra_headers {
             http = http.header(k.as_str(), v.as_str());
         }
-        Ok(http)
+        if let Some(limit) = req.timeout {
+            // Per-call total budget; `deadline` also bounds retry attempts and sleeps.
+            http = http.timeout(limit).deadline(limit);
+        }
+        Ok((http, Some(secret)))
     }
 }
 
@@ -103,7 +112,13 @@ pub fn build_body(req: &ChatRequest, stream: bool) -> Value {
         let mut tools: Vec<Value> = req
             .tools
             .iter()
-            .map(|t| json!({"name": t.name, "description": t.description, "input_schema": t.input_schema}))
+            .map(|t| {
+                let mut tool = json!({"name": t.name, "description": t.description, "input_schema": t.input_schema});
+                if t.strict {
+                    tool["strict"] = json!(true);
+                }
+                tool
+            })
             .collect();
         if auto {
             tools.last_mut().unwrap()["cache_control"] = ephemeral();
@@ -226,7 +241,19 @@ pub fn parse_response(v: &Value) -> Result<ChatResponse, LlmError> {
         content: blocks,
         stop_reason: parse_stop(v["stop_reason"].as_str()),
         usage: v.get("usage").map(parse_usage).unwrap_or_default(),
+        usage_known: v.get("usage").is_some(),
+        metering: Metering::PerToken,
     })
+}
+
+impl std::fmt::Debug for AnthropicProvider {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // The credential source and HTTP client are omitted: neither prints a key.
+        f.debug_struct("AnthropicProvider")
+            .field("id", &self.id)
+            .field("base_url", &self.base_url)
+            .finish_non_exhaustive()
+    }
 }
 
 impl Provider for AnthropicProvider {
@@ -235,7 +262,11 @@ impl Provider for AnthropicProvider {
     }
 
     fn complete(&self, req: &ChatRequest) -> Result<ChatResponse, LlmError> {
-        let resp = self.client.send(&self.request(req, false)?)?;
+        let (http, secret) = self.request(req, false)?;
+        let resp = self
+            .client
+            .send(&http)
+            .map_err(|e| LlmError::from_http(e, secret.as_deref()))?;
         let v: Value = resp
             .json()
             .map_err(|e| LlmError::Malformed(e.to_string()))?;
@@ -247,7 +278,12 @@ impl Provider for AnthropicProvider {
         req: &ChatRequest,
         on_event: &mut dyn FnMut(StreamEvent) -> ControlFlow<()>,
     ) -> Result<ChatResponse, LlmError> {
-        let response = self.client.stream(&self.request(req, true)?)?;
+        let (http, secret) = self.request(req, true)?;
+        let key = secret.as_deref();
+        let response = self
+            .client
+            .stream(&http)
+            .map_err(|e| LlmError::from_http(e, key))?;
         let mut asm = Assembler::default();
         let mut delivered = false;
         for item in response.sse() {
@@ -269,8 +305,8 @@ impl Provider for AnthropicProvider {
                 "error" => {
                     let e = &data["error"];
                     let (k, m) = (
-                        e["type"].as_str().unwrap_or("error").to_string(),
-                        e["message"].as_str().unwrap_or_default().to_string(),
+                        crate::error::redact_secret(e["type"].as_str().unwrap_or("error"), key),
+                        crate::error::redact_secret(e["message"].as_str().unwrap_or_default(), key),
                     );
                     return Err(if delivered {
                         LlmError::MidStream(format!("{k}: {m}"))
@@ -446,6 +482,8 @@ impl Assembler {
             content,
             stop_reason: parse_stop(self.stop.as_deref()),
             usage: self.usage,
+            usage_known: self.usage != Usage::default(),
+            metering: Metering::PerToken,
         })
     }
 }

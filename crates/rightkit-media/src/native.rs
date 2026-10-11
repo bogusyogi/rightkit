@@ -32,6 +32,7 @@ pub const ALLOWED_LICENSES: &[&str] = &[
     "GPL-2.0-only WITH GCC-exception-2.0",
 ];
 
+#[non_exhaustive]
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum NativeLibrary {
@@ -113,9 +114,14 @@ pub struct NativeRecord {
     pub linkage: Linkage,
     #[serde(default)]
     pub artifact_file_name: Option<String>,
-    /// SHA-256 of the runtime file as shipped.
+    /// SHA-256 of the retained runtime file. For a re-signed Mach-O or PE it is provenance;
+    /// verification matches `content_sha256` when the record has one.
     #[serde(default)]
     pub sha256: Option<String>,
+    /// Signature-independent content digest ([`crate::content_digest`]) of the runtime file.
+    /// Rows without one are verified by whole-file `sha256`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub content_sha256: Option<String>,
     #[serde(default)]
     pub archive: Option<ArchiveRef>,
     #[serde(default)]
@@ -129,6 +135,7 @@ pub struct NativeRecord {
     pub verification: Verification,
 }
 
+#[non_exhaustive]
 #[derive(Debug)]
 pub enum NativeCatalogError {
     Json(serde_json::Error),
@@ -252,6 +259,7 @@ impl NativeRecord {
         for d in self
             .sha256
             .iter()
+            .chain(self.content_sha256.iter())
             .chain(self.archive.iter().map(|a| &a.sha256))
         {
             if !is_digest(d) {
@@ -344,6 +352,9 @@ impl NativeRecord {
 
     /// Verify a real file against this record's shipped-file digest.
     pub fn verify_file(&self, path: &Path) -> Result<(), NativeCatalogError> {
+        if let Some(expected) = self.content_sha256.as_deref() {
+            return self.verify_content(path, expected);
+        }
         let expected = self
             .sha256
             .as_deref()
@@ -359,6 +370,33 @@ impl NativeRecord {
             });
         }
         Ok(())
+    }
+
+    /// Match the file's signature-independent content digest for this record's architecture.
+    fn verify_content(&self, path: &Path, expected: &str) -> Result<(), NativeCatalogError> {
+        let identity = crate::content_identity_file(path)?;
+        let actual = match self.arch.as_str() {
+            "universal" => {
+                return Err(NativeCatalogError::NotVerifiable {
+                    id: self.id.clone(),
+                })
+            }
+            "any" => identity.slices.first().map(|slice| slice.sha256.as_str()),
+            arch => match identity.format {
+                crate::ContentFormat::Plain => {
+                    identity.slices.first().map(|slice| slice.sha256.as_str())
+                }
+                _ => identity.digest_for(arch),
+            },
+        };
+        match actual {
+            Some(actual) if actual.eq_ignore_ascii_case(expected) => Ok(()),
+            other => Err(NativeCatalogError::DigestMismatch {
+                id: self.id.clone(),
+                expected: expected.to_owned(),
+                actual: other.unwrap_or("no slice for this architecture").to_owned(),
+            }),
+        }
     }
 
     /// Verify a downloaded/staged archive against the upstream archive digest.
@@ -519,6 +557,37 @@ impl NativeCatalog {
         }
         Ok(first)
     }
+
+    /// The single approved record of a multi-file library (for example the ggml dylibs)
+    /// for a platform and runtime file name. [`NativeCatalog::approved`] stays ambiguous
+    /// for such a library on purpose.
+    pub fn approved_file(
+        &self,
+        library: NativeLibrary,
+        os: &str,
+        arch: &str,
+        file_name: &str,
+    ) -> Result<&NativeRecord, NativeCatalogError> {
+        self.validate()?;
+        let mut hits = self.records(library).filter(|r| {
+            r.status == NativeStatus::Approved
+                && r.matches_platform(os, arch)
+                && r.artifact_file_name.as_deref() == Some(file_name)
+        });
+        let first = hits.next().ok_or_else(|| NativeCatalogError::NoApproved {
+            library,
+            os: os.to_owned(),
+            arch: arch.to_owned(),
+        })?;
+        if hits.next().is_some() {
+            return Err(NativeCatalogError::Ambiguous {
+                library,
+                os: os.to_owned(),
+                arch: arch.to_owned(),
+            });
+        }
+        Ok(first)
+    }
 }
 
 fn ffmpeg_record(a: &Artifact) -> NativeRecord {
@@ -543,6 +612,7 @@ fn ffmpeg_record(a: &Artifact) -> NativeRecord {
             .to_owned(),
         ),
         sha256: a.sha256.clone(),
+        content_sha256: a.content_sha256.clone(),
         archive: None,
         cargo: None,
         source_url: a.attribution.source_url.clone(),

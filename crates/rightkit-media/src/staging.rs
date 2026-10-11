@@ -14,7 +14,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use crate::{sha256_file, Artifact, MediaError, VerifiedFfmpeg, VerifiedFfprobe};
+use crate::{Artifact, MediaError, VerifiedFfmpeg, VerifiedFfprobe};
 
 /// A binary that passed catalog verification and may be staged.
 pub trait VerifiedArtifact {
@@ -70,9 +70,10 @@ pub fn external_bin_path(binaries_dir: &Path, stem: &str, target_triple: &str) -
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct StagedBinary {
     pub path: PathBuf,
+    /// The artifact's content digest (signature-independent), not a whole-file hash.
     pub sha256: String,
     pub artifact_id: String,
-    /// `false` when identical bytes were already staged.
+    /// `false` when a destination with the same content identity was already staged.
     pub changed: bool,
 }
 
@@ -86,7 +87,7 @@ pub fn stage_external_bin(
     target_triple: Option<&str>,
 ) -> Result<StagedBinary, MediaError> {
     let artifact = verified.verified_artifact();
-    let expected = artifact.approved_sha256()?.to_ascii_lowercase();
+    let expected = artifact.approved_content_sha256()?.to_ascii_lowercase();
     let own_triple = tauri_target_triple(&artifact.os, &artifact.arch).ok_or_else(|| {
         MediaError::StagingFailed(format!(
             "no Tauri target triple for {}/{}",
@@ -102,14 +103,10 @@ pub fn stage_external_bin(
     }
     let source = verified.verified_path();
     // The file may have changed since verification; never stage unverified bytes.
-    if !sha256_file(source)?.eq_ignore_ascii_case(&expected) {
-        return Err(MediaError::DigestMismatch {
-            path: source.to_owned(),
-        });
-    }
+    crate::verify_content(artifact, source)?;
     let dest = external_bin_path(binaries_dir, artifact.tool.stem(), triple);
     fs::create_dir_all(binaries_dir)?;
-    let already = dest.is_file() && sha256_file(&dest)?.eq_ignore_ascii_case(&expected);
+    let already = dest.is_file() && crate::verify_content(artifact, &dest).is_ok();
     if !already {
         // Temp file in the destination directory, fsync, atomic rename (rightkit-fs); the
         // mode is set before the rename so `dest` is never visible half-staged.
@@ -130,10 +127,9 @@ pub fn stage_external_bin(
                 dest.display()
             )));
         }
-        let staged = sha256_file(&dest)?;
-        if !staged.eq_ignore_ascii_case(&expected) {
+        if let Err(error) = crate::verify_content(artifact, &dest) {
             let _ = fs::remove_file(&dest);
-            return Err(MediaError::DigestMismatch { path: dest });
+            return Err(error);
         }
     }
     set_executable(&dest)?;
@@ -175,6 +171,8 @@ mod tests {
 
     use super::*;
     #[cfg(unix)]
+    use crate::sha256_file;
+    #[cfg(unix)]
     use crate::{
         resolve_ffmpeg, ArtifactStatus, Attribution, ResolutionRequest, ResolvedFfmpeg, Tool,
         DECODE_VARIANT,
@@ -191,6 +189,7 @@ mod tests {
             version: "7.1.5".into(),
             status: ArtifactStatus::Approved,
             sha256: Some(digest.into()),
+            content_sha256: Some(digest.into()),
             size: None,
             source_sha256: "de668509caf9e35e3cd162473441fdb29538c6d96ed080292b3cf9e6fc5d558f"
                 .into(),

@@ -143,17 +143,17 @@ fn pan_spring() -> Easing {
 fn segment(easing: Easing, span_ms: u64, local: u64) -> f64 {
     let track = vec![
         Keyframe {
-            at_ms: 0,
+            at: Ticks::from_ms(0),
             value: 0.0,
             easing,
         },
         Keyframe {
-            at_ms: span_ms,
+            at: Ticks::from_ms(span_ms),
             value: 1.0,
             easing: Easing::Linear,
         },
     ];
-    sample(&track, local).expect("non-empty track")
+    sample(&track, Ticks::from_ms(local)).expect("non-empty track")
 }
 
 #[test]
@@ -258,8 +258,6 @@ fn canvas() -> Canvas {
     Canvas {
         width: 1920,
         height: 1080,
-        frame_rate_num: 30,
-        frame_rate_den: 1,
     }
 }
 
@@ -283,8 +281,8 @@ fn click_layer(effect: ClickShape, onset_ms: u64, duration_ms: u64, easing: Easi
     Layer {
         id: "click".into(),
         timing: Timing {
-            start_ms: 0,
-            end_ms: 2000,
+            start: Ticks::from_ms(0),
+            end: Ticks::from_ms(2000),
         },
         transform: Vec::new(),
         opacity: Vec::new(),
@@ -295,8 +293,8 @@ fn click_layer(effect: ClickShape, onset_ms: u64, duration_ms: u64, easing: Easi
             anchor: Point { x: 0.5, y: 0.5 },
             effect,
             style: click_style(),
-            onset_ms,
-            duration_ms,
+            onset: Ticks::from_ms(onset_ms),
+            duration: Ticks::from_ms(duration_ms),
             easing,
         },
     }
@@ -306,13 +304,14 @@ fn composition_with(layer: Layer) -> Composition {
     Composition {
         schema: SCHEMA.to_string(),
         canvas: canvas(),
-        duration_ms: 3000,
+        fps: Rational::new(30, 1),
+        duration: Ticks::from_ms(3000),
         layers: vec![layer],
     }
 }
 
 fn ripple_at(composition: &Composition, t_ms: u64) -> (f64, f64) {
-    let frame = evaluate(composition, t_ms).expect("evaluates");
+    let frame = evaluate_ms(composition, t_ms).expect("evaluates");
     match frame.layers.first().map(|l| &l.payload) {
         Some(Payload::Ripple {
             radius_px, alpha, ..
@@ -376,7 +375,7 @@ fn highlight_grows_and_fades_within_its_animation() {
     let composition = composition_with(click_layer(highlight, 200, 800, Easing::Linear));
 
     let rect_at = |t_ms: u64| {
-        let frame = evaluate(&composition, t_ms).expect("evaluates");
+        let frame = evaluate_ms(&composition, t_ms).expect("evaluates");
         match &frame.layers[0].payload {
             Payload::Highlight { rect_px, alpha, .. } => (*rect_px, *alpha),
             other => panic!("expected highlight, got {other:?}"),
@@ -411,12 +410,12 @@ fn click_effects_are_pure_across_evaluation_order() {
     let times: Vec<u64> = (0..1500).step_by(50).collect();
     let forward: Vec<_> = times
         .iter()
-        .map(|&t| evaluate(&composition, t).unwrap())
+        .map(|&t| evaluate_ms(&composition, t).unwrap())
         .collect();
     let mut reverse: Vec<_> = times
         .iter()
         .rev()
-        .map(|&t| evaluate(&composition, t).unwrap())
+        .map(|&t| evaluate_ms(&composition, t).unwrap())
         .collect();
     reverse.reverse();
     assert_eq!(forward, reverse);
@@ -443,7 +442,7 @@ fn click_effect_json_round_trips_and_defaults_to_ease_out() {
     let back: Composition = serde_json::from_str(&json).expect("deserialises");
     assert_eq!(back, composition);
 
-    let without_easing = r#"{"schema":"rightkit.composition.v1","canvas":{"width":1920,"height":1080,"frame_rate_num":30,"frame_rate_den":1},"duration_ms":3000,"layers":[{"id":"c","timing":{"start_ms":0,"end_ms":1000},"content":{"kind":"click_effect","anchor":{"x":0.5,"y":0.5},"effect":{"shape":"ripple","max_radius":0.05,"stroke_width":0.005},"style":{"foreground":{"r":1,"g":1,"b":1,"a":1},"background":{"r":0,"g":0,"b":0,"a":0}},"onset_ms":0,"duration_ms":500}}]}"#;
+    let without_easing = r#"{"schema":"rightkit.composition.v2","canvas":{"width":1920,"height":1080},"fps":{"num":30,"den":1},"duration_ticks":2116800000,"layers":[{"id":"c","timing":{"start_ticks":0,"end_ticks":705600000},"content":{"kind":"click_effect","anchor":{"x":0.5,"y":0.5},"effect":{"shape":"ripple","max_radius":0.05,"stroke_width":0.005},"style":{"foreground":{"r":1,"g":1,"b":1,"a":1},"background":{"r":0,"g":0,"b":0,"a":0}},"onset_ticks":0,"duration_ticks":352800000}}]}"#;
     let parsed: Composition = serde_json::from_str(without_easing).expect("deserialises");
     match &parsed.layers[0].content {
         Content::ClickEffect { easing, .. } => assert_eq!(*easing, Easing::EaseOut),
@@ -487,7 +486,7 @@ fn rejects_invalid_spring_and_click_parameters() {
         ),
     ];
     for layer in rejected {
-        assert!(evaluate(&composition_with(layer), 0).is_err());
+        assert!(evaluate_ms(&composition_with(layer), 0).is_err());
     }
 
     // A spring on an opacity track is validated too.
@@ -497,7 +496,7 @@ fn rejects_invalid_spring_and_click_parameters() {
     };
     layer.opacity = vec![
         Keyframe {
-            at_ms: 0,
+            at: Ticks::from_ms(0),
             value: 0.0,
             easing: Easing::Spring {
                 stiffness: 10.0,
@@ -506,10 +505,10 @@ fn rejects_invalid_spring_and_click_parameters() {
             },
         },
         Keyframe {
-            at_ms: 500,
+            at: Ticks::from_ms(500),
             value: 1.0,
             easing: Easing::Linear,
         },
     ];
-    assert!(evaluate(&composition_with(layer), 0).is_err());
+    assert!(evaluate_ms(&composition_with(layer), 0).is_err());
 }

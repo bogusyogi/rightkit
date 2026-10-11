@@ -6,6 +6,8 @@
 
 use crate::error::{Error, Result};
 use crate::secret::Secret;
+use serde::de::{self, Visitor};
+use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::{json, Value};
 use std::ffi::OsString;
 use std::io::{Read, Write};
@@ -13,6 +15,54 @@ use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 use zeroize::Zeroizing;
+
+/// Response cap (and read buffer size) for one helper reply.
+const RESPONSE_CAP: usize = 1 << 20;
+
+#[derive(Serialize)]
+struct WriteRequest<'a> {
+    command: &'static str,
+    scope: &'static str,
+    account: &'a str,
+    value: &'a str,
+}
+
+/// A string that is zeroed when dropped, deserialized without an intermediate `Value`.
+struct WipedString(Zeroizing<String>);
+
+impl<'de> Deserialize<'de> for WipedString {
+    fn deserialize<D: Deserializer<'de>>(d: D) -> std::result::Result<Self, D::Error> {
+        struct V;
+        impl Visitor<'_> for V {
+            type Value = WipedString;
+            fn expecting(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                f.write_str("a string")
+            }
+            fn visit_str<E: de::Error>(self, v: &str) -> std::result::Result<WipedString, E> {
+                Ok(WipedString(Zeroizing::new(v.to_owned())))
+            }
+        }
+        d.deserialize_str(V)
+    }
+}
+
+#[derive(Deserialize)]
+struct ReadResponse {
+    ok: Option<bool>,
+    error: Option<String>,
+    value: Option<WipedString>,
+}
+
+fn check_ok(v: &Value) -> Result<()> {
+    if v.get("ok").and_then(Value::as_bool) != Some(true) {
+        let msg = v
+            .get("error")
+            .and_then(Value::as_str)
+            .unwrap_or("helper reported failure");
+        return Err(Error::Helper(msg.to_string()));
+    }
+    Ok(())
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Scope {
@@ -64,8 +114,27 @@ impl AppleHelper {
         self
     }
 
+    /// A request line (JSON + newline) in a buffer that is zeroed on drop. Used for requests that
+    /// carry no secret; `write` builds its own line so the secret is never copied into a
+    /// `serde_json::Value`.
     fn call(&self, request: Value) -> Result<Value> {
-        let line = Zeroizing::new(format!("{request}\n"));
+        let mut line = Zeroizing::new(
+            serde_json::to_vec(&request)
+                .map_err(|_| Error::Helper("cannot encode request".into()))?,
+        );
+        line.push(b'\n');
+        let out = self.exchange(line)?;
+        let first = out.lines().next().unwrap_or("");
+        let v: Value = serde_json::from_str(first)
+            .map_err(|_| Error::Helper("invalid helper response".into()))?;
+        check_ok(&v)?;
+        Ok(v)
+    }
+
+    /// Send one request line, return the raw response text (zeroed on drop). The response buffer
+    /// is allocated at its 1 MiB cap up front so it never reallocates while the helper's reply
+    /// (which may hold a secret) is read, leaving no smaller unwiped copy behind.
+    fn exchange(&self, line: Zeroizing<Vec<u8>>) -> Result<Zeroizing<String>> {
         let mut child = Command::new(&self.path)
             .args(&self.args)
             .stdin(Stdio::piped())
@@ -78,7 +147,7 @@ impl AppleHelper {
             .take()
             .ok_or_else(|| Error::Helper("no stdin".into()))?;
         stdin
-            .write_all(line.as_bytes())
+            .write_all(&line)
             .map_err(|e| Error::Helper(format!("write failed: {}", e.kind())))?;
         drop(stdin);
         let mut stdout = child
@@ -87,8 +156,11 @@ impl AppleHelper {
             .ok_or_else(|| Error::Helper("no stdout".into()))?;
         let (tx, rx) = std::sync::mpsc::channel();
         std::thread::spawn(move || {
-            let mut buf = Zeroizing::new(String::new());
-            let _ = stdout.by_ref().take(1 << 20).read_to_string(&mut buf);
+            let mut buf = Zeroizing::new(String::with_capacity(RESPONSE_CAP));
+            let _ = stdout
+                .by_ref()
+                .take(RESPONSE_CAP as u64)
+                .read_to_string(&mut buf);
             let _ = tx.send(buf);
         });
         let deadline = Instant::now() + self.timeout;
@@ -104,17 +176,7 @@ impl AppleHelper {
             }
         };
         let _ = child.wait();
-        let first = out.lines().next().unwrap_or("");
-        let v: Value = serde_json::from_str(first)
-            .map_err(|_| Error::Helper("invalid helper response".into()))?;
-        if v.get("ok").and_then(Value::as_bool) != Some(true) {
-            let msg = v
-                .get("error")
-                .and_then(Value::as_str)
-                .unwrap_or("helper reported failure");
-            return Err(Error::Helper(msg.to_string()));
-        }
-        Ok(v)
+        Ok(out)
     }
 
     pub fn status(&self) -> Result<HelperStatus> {
@@ -125,10 +187,25 @@ impl AppleHelper {
         })
     }
     pub fn read(&self, scope: Scope, account: &str) -> Result<Option<Secret>> {
-        let v = self.call(json!({"command": "read", "scope": scope.wire(), "account": account}))?;
-        Ok(v.get("value")
-            .and_then(Value::as_str)
-            .map(Secret::from_string))
+        let mut line = Zeroizing::new(
+            serde_json::to_vec(&json!({"command": "read", "scope": scope.wire(), "account": account}))
+                .map_err(|_| Error::Helper("cannot encode request".into()))?,
+        );
+        line.push(b'\n');
+        let out = self.exchange(line)?;
+        let first = out.lines().next().unwrap_or("");
+        // Typed parse: the value goes straight into a zeroed string, never a `Value::String`.
+        let resp: ReadResponse = serde_json::from_str(first)
+            .map_err(|_| Error::Helper("invalid helper response".into()))?;
+        if resp.ok != Some(true) {
+            return Err(Error::Helper(
+                resp.error
+                    .unwrap_or_else(|| "helper reported failure".to_string()),
+            ));
+        }
+        Ok(resp
+            .value
+            .map(|w| Secret::from_bytes(w.0.as_bytes())))
     }
     /// Presence only; the helper does not request the item's data.
     pub fn exists(&self, scope: Scope, account: &str) -> Result<bool> {
@@ -140,10 +217,32 @@ impl AppleHelper {
     }
     pub fn write(&self, scope: Scope, account: &str, secret: &Secret) -> Result<()> {
         let value = secret.expose_str()?;
-        self.call(
-            json!({"command": "write", "scope": scope.wire(), "account": account, "value": value}),
-        )?;
-        Ok(())
+        // Serialize straight from the borrowed secret into a zeroed buffer. JSON escaping grows a
+        // byte to at most six (`\u00XX`), so reserving that much up front means the buffer never
+        // reallocates and no smaller copy of the secret is left behind.
+        let mut line = Zeroizing::new(Vec::with_capacity(
+            value
+                .len()
+                .saturating_add(account.len())
+                .saturating_mul(6)
+                .saturating_add(128),
+        ));
+        serde_json::to_writer(
+            &mut *line,
+            &WriteRequest {
+                command: "write",
+                scope: scope.wire(),
+                account,
+                value,
+            },
+        )
+        .map_err(|_| Error::Helper("cannot encode request".into()))?;
+        line.push(b'\n');
+        let out = self.exchange(line)?;
+        let first = out.lines().next().unwrap_or("");
+        let v: Value = serde_json::from_str(first)
+            .map_err(|_| Error::Helper("invalid helper response".into()))?;
+        check_ok(&v)
     }
     /// Removes the synced AND device copy; Apple propagates the deletion to every device of the
     /// account, so call only for an explicit "forget everywhere" user action.

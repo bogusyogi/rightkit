@@ -1,6 +1,40 @@
 # Changelog
 
-## 0.2.8
+## 0.2.8 (additions for long-running desktop jobs)
+
+- **Recovery class.** `JobStore::submit_with(&NewJob, &Ext, &SubmitOptions)` takes
+  `Recovery::Resume` (default, unchanged behaviour) or `Recovery::Never`. Once a `Never` job has
+  begun an attempt, `Runner::resume_recoverable`, `Runner::recoverable_ids` and `Runner::run`
+  fail it (`failed`, error code `INTERRUPTED` = `interrupted`, an `interrupted` event, the store
+  hook's `on_transition`) and never hand it to a handler again; a retryable handler error fails
+  it the same way instead of pausing. A `Never` job that never began still runs. The class is in
+  the new crate-owned table `rk_job_meta`; the app's `jobs` table is not altered, and every row
+  written by 0.2.7 reads as `Resume`. Downgrading to 0.2.7 would let it resume such jobs again.
+  `recoverable_ids` is no longer purely passive for `Never` jobs.
+- **Pruning.** `JobStore::prune(&PrunePolicy)` (`older_than`, `keep_latest`; either limit
+  removes a job, a policy with neither is refused) deletes terminal jobs with their events,
+  artifact rows, submission rows and metadata in one transaction. Artifact files are never
+  deleted; `PruneReport::artifacts` returns the rows and paths. `SubmitOptions::prune` applies
+  the same bound inside the submit transaction (`Submitted::pruned`).
+- **Progress durability.** `StoreConfig::progress_policy(ProgressPolicy)`: `relaxed_durability`
+  (WAL only) and `coalesce(interval)` apply to `JobControl::progress` ticks that carry a fraction.
+  Default is unchanged. Transitions, results, runner lifecycle events and `Never` markers stay
+  fully durable, and pending ticks are flushed in the commit of the next state change.
+  `JobStore::progress_fenced`, `flush_progress`, `progress_stats`.
+- **Cancel token.** `JobControl::cancel_token()` / `JobStore::cancel_token(id)`: an atomic flag
+  set by `JobStore::cancel` and by a single-flight supersede in the same process.
+  `JobControl::is_cancelled` checks it first, then the database (cross-process cancel), which is
+  the source of truth.
+- **Single-flight.** `SubmitOptions::single_flight(key)`: the new job cancels every non-terminal
+  job with the same key (error code `SUPERSEDED`). A running predecessor is cancelled in the
+  database at once and signalled; its late result is discarded; nothing waits for it.
+- **Features.** New `contract` (gates `rightkit-framed-sidecar`: `Dispatcher`, `serve`,
+  `run_cli`, ...) and `supervisor` (gates `rightkit-process`: `EngineSupervisor`,
+  `EngineClient`, re-exports; implies `contract`). `service` now implies `contract`. Default is
+  `service` + `supervisor`, the same build as before. `default-features = false` is now the
+  store and runner only; consumers that serve the contract without defaults add `contract`.
+
+## 0.2.8 (supervisor and contract)
 
 - **Progress events carry the request id.** `EngineClient::call_with_frames` and
   `call_timeout_frames` take an `OnEventFrame` callback that receives an `EventFrame { id, event }`

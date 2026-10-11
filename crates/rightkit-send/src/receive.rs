@@ -1,0 +1,773 @@
+//! Receiving: the HTTPS routes `register`, `info`, `prepare-upload`, `upload`
+//! and `cancel`. Nothing is written until the user accepts, and every written
+//! name goes through `proto::sanitize_relative` and `proto::reserve_unique`.
+//!
+//! Naming rules. The final name is reserved with `create_new`: an existing file
+//! is never overwritten, the received file takes `name (1).ext`, `name (2).ext`,
+//! … instead. The bytes arrive in a partial created with `create_new` too
+//! (`.name<suffix>`, then `.name.N<suffix>` when that is taken). Only the
+//! reservation this transfer made is ever written, renamed over the (empty)
+//! final reservation, or deleted; a partial that was already on disk is neither
+//! adopted, truncated nor removed. Mode `0600` while partial, `0644` when whole,
+//! then the quarantine / Zone.Identifier mark (see `finish_received`).
+
+use super::net::{self, Request, Wire};
+use super::error::Error;
+use super::proto::{self, DeviceInfo, FileMeta, PrepareUploadRequest, PrepareUploadResponse};
+use super::trust::{PROOF_CERTIFICATE, normalize};
+use super::{
+    Config, Event, Incoming, IncomingFile, Inner, Pending, Session, SessionFile, Transfer,
+    TrustState, lock, now_ms,
+};
+use serde::Serialize;
+use sha2::{Digest, Sha256};
+use std::collections::HashMap;
+use std::io::{self, BufReader, Write};
+use std::net::{IpAddr, SocketAddr, TcpStream};
+use std::path::{Path, PathBuf};
+use std::sync::atomic::Ordering;
+use std::sync::{Arc, Condvar, Mutex};
+use std::time::{Duration, Instant};
+
+type Answer = (u16, Option<Vec<u8>>);
+
+/// Limits and folder names come from `Config::policy`; this is the only timing
+/// constant that is not a host choice.
+const SESSION_IDLE: Duration = Duration::from_secs(120);
+
+fn json<T: Serialize>(status: u16, value: &T) -> Answer {
+    (status, serde_json::to_vec(value).ok())
+}
+
+fn message(status: u16, text: &str) -> Answer {
+    (
+        status,
+        Some(
+            serde_json::json!({ "message": text })
+                .to_string()
+                .into_bytes(),
+        ),
+    )
+}
+
+pub(crate) fn handle_connection(inner: &Arc<Inner>, socket: TcpStream, address: SocketAddr) {
+    let _ = socket.set_read_timeout(Some(Duration::from_secs(30)));
+    let _ = socket.set_write_timeout(Some(Duration::from_secs(30)));
+    let Ok(wire) = net::accept_tls(&inner.tls, socket) else {
+        return;
+    };
+    let mut reader = BufReader::new(wire);
+    let Ok(request) = net::read_request(&mut reader) else {
+        return;
+    };
+    // The certificate the peer presented in the handshake, if any: Pulse peers
+    // present theirs, other LocalSend apps do not.
+    let presented = reader.get_ref().peer_fingerprint();
+    let (status, body) = route(inner, &mut reader, &request, address.ip(), presented);
+    let wire = reader.get_mut();
+    let _ = net::write_response(wire, status, body.as_deref());
+    wire.finish();
+}
+
+/// Read and drop a request body so an early answer is not lost to a reset.
+fn discard(reader: &mut BufReader<Wire>, request: &Request) {
+    let _ = net::read_body(reader, &request.headers, 8 * 1024 * 1024, &mut |_| Ok(()));
+}
+
+fn route(
+    inner: &Arc<Inner>,
+    reader: &mut BufReader<Wire>,
+    request: &Request,
+    ip: IpAddr,
+    presented: Option<String>,
+) -> Answer {
+    let path = request.path.trim_end_matches('/');
+    let Some(endpoint) = path.strip_prefix(proto::API) else {
+        discard(reader, request);
+        return message(404, "Not found");
+    };
+    match (request.method.as_str(), endpoint) {
+        ("GET", "/info") => {
+            let mut me = inner.me.clone();
+            me.announce = None;
+            json(200, &me)
+        }
+        ("POST", "/register") => register(inner, reader, request, ip),
+        ("POST", "/prepare-upload") => prepare_upload(inner, reader, request, ip, presented),
+        ("POST", "/upload") => upload(inner, reader, request, ip),
+        ("POST", "/cancel") => {
+            discard(reader, request);
+            cancel_session(inner, request, ip)
+        }
+        _ => {
+            discard(reader, request);
+            message(404, "Not found")
+        }
+    }
+}
+
+fn read_json_body(reader: &mut BufReader<Wire>, request: &Request, max: u64) -> Option<Vec<u8>> {
+    let mut body = Vec::new();
+    net::read_body(reader, &request.headers, max, &mut |chunk| {
+        body.extend_from_slice(chunk);
+        Ok(())
+    })
+    .ok()?;
+    Some(body)
+}
+
+fn register(
+    inner: &Arc<Inner>,
+    reader: &mut BufReader<Wire>,
+    request: &Request,
+    ip: IpAddr,
+) -> Answer {
+    let Some(body) = read_json_body(reader, request, 64 * 1024) else {
+        return message(400, "Invalid body");
+    };
+    let Ok(info) = serde_json::from_slice::<DeviceInfo>(&body) else {
+        return message(400, "Invalid body");
+    };
+    inner.upsert(&info, ip);
+    let mut me = inner.me.clone();
+    me.announce = None;
+    json(200, &me)
+}
+
+// ---- prepare-upload --------------------------------------------------------
+
+fn prepare_upload(
+    inner: &Arc<Inner>,
+    reader: &mut BufReader<Wire>,
+    request: &Request,
+    ip: IpAddr,
+    presented: Option<String>,
+) -> Answer {
+    let policy = lock(&inner.cfg).policy.clone();
+    let Some(body) = read_json_body(reader, request, 16 * 1024 * 1024) else {
+        return message(400, "Invalid body");
+    };
+    let Ok(parsed) = serde_json::from_slice::<PrepareUploadRequest>(&body) else {
+        return message(400, "Invalid body");
+    };
+    if parsed.files.is_empty() || parsed.files.len() > 20_000 {
+        return message(400, "Invalid body");
+    }
+    // Sizes are the sender's claims: no single file above the cap, and a sum that
+    // overflows is no request at all.
+    let mut total: u64 = 0;
+    for file in parsed.files.values() {
+        match total.checked_add(file.size) {
+            Some(sum) if file.size <= policy.max_file_bytes => total = sum,
+            _ => return message(400, "Invalid body"),
+        }
+    }
+
+    // Who is asking. A device that presented a certificate has proved it holds
+    // that key, and it must be the one the request names. One that presented a
+    // certificate for a different fingerprint, or none at all (the LocalSend
+    // phone app), is only its own claim; it is asked about, not refused, unless
+    // its claimed fingerprint is denied.
+    let claimed = normalize(&parsed.info.fingerprint);
+    let certified = presented.as_deref().is_some_and(|p| p == claimed);
+    let (state, had_certificate) = {
+        let mut store = lock(&inner.trust);
+        store.observe(
+            &claimed,
+            &parsed.info.alias,
+            parsed.info.device_model.as_deref(),
+            parsed.info.device_type.as_deref(),
+            certified.then_some(PROOF_CERTIFICATE),
+        );
+        let state = store.state_of(&claimed);
+        if state == TrustState::Deny {
+            store.refuse(&claimed);
+        }
+        (state, store.certificate_proven(&claimed))
+    };
+    if state == TrustState::Deny {
+        inner.emit(Event::Changed);
+        return message(403, "Rejected");
+    }
+
+    // One transfer at a time; an abandoned one is cleared.
+    {
+        let mut sessions = lock(&inner.sessions);
+        let stale: Vec<String> = sessions
+            .iter()
+            .filter(|(_, s)| s.activity.elapsed() > SESSION_IDLE)
+            .map(|(id, _)| id.clone())
+            .collect();
+        for id in stale {
+            if let Some(session) = sessions.remove(&id) {
+                session.cancel.store(true, Ordering::Relaxed);
+                inner.end_transfer(
+                    &session.transfer_id,
+                    "failed",
+                    Some(Error::SenderStopped),
+                );
+            }
+        }
+        if !sessions.is_empty() || !lock(&inner.pending).is_empty() {
+            return message(409, "Blocked by another session");
+        }
+    }
+
+    let config = lock(&inner.cfg).clone();
+    let is_message = proto::is_message(&parsed.files);
+    let alias: String = parsed
+        .info
+        .alias
+        .chars()
+        .filter(|c| !c.is_control())
+        .take(80)
+        .collect();
+    let request_id = proto::random_hex(8);
+
+    // Proof comes in two tiers.
+    // * Certificate (`certified`): the sender presented the key behind its
+    //   fingerprint in the handshake. This is identity: it is saved with the
+    //   owner's files, may use the clipboard, and has no size cap.
+    // * Callback: a sender with no certificate and an Allow record gets one
+    //   check, connecting back to the address it called from at the port it
+    //   announced. Passing only lets Allow skip the card. A plain TCP forwarder
+    //   to the real device passes it while that device is online, so it is a
+    //   convenience, not identity: such a sender is still unproven for
+    //   everything else. A record that has ever proved a certificate never
+    //   accepts it (a request without the certificate asks), and it never
+    //   changes that record's proof.
+    // Anything not certified is held to the unproven limits below.
+    if !certified
+        && (parsed.files.len() > policy.unproven_max_files || total > policy.unproven_max_bytes)
+    {
+        let error = Error::Unverified {
+            max_files: policy.unproven_max_files,
+            max_bytes: policy.unproven_max_bytes,
+        };
+        return message(413, &error.to_string());
+    }
+    let mut callback_ok = false;
+    if state == TrustState::Allow && presented.is_none() && !had_certificate {
+        let port = inner.announced_port(&claimed).unwrap_or(proto::PORT);
+        if net::prove_key(ip, port, &claimed) {
+            lock(&inner.trust).mark_callback(&claimed);
+            callback_ok = true;
+        }
+    }
+    let allowed = state == TrustState::Allow && (certified || callback_ok);
+    // Files from a sender without certificate proof never mix with the owner's own.
+    let save_dir = if certified {
+        config.save_dir.clone()
+    } else {
+        config.save_dir.join(&policy.unverified_folder)
+    };
+
+    let incoming = Incoming {
+        id: request_id.clone(),
+        from: if alias.is_empty() {
+            "A device".to_string()
+        } else {
+            alias.clone()
+        },
+        device_model: parsed.info.device_model.clone(),
+        fingerprint: claimed.clone(),
+        ip: ip.to_string(),
+        file_count: parsed.files.len(),
+        total_bytes: total,
+        is_message,
+        preview: None,
+        files: if is_message {
+            Vec::new()
+        } else {
+            parsed
+                .files
+                .values()
+                .take(8)
+                .map(|f| IncomingFile {
+                    name: proto::sanitize_relative(&f.file_name).join("/"),
+                    size: f.size,
+                })
+                .collect()
+        },
+        verified: certified,
+    };
+
+    // Allow skips the card, for text as for files, for a sender that proved its
+    // key (the next lines decide that before the card is built).
+    let accepted = if allowed {
+        true
+    } else {
+        let pending = Arc::new(Pending {
+            incoming: incoming.clone(),
+            decision: Mutex::new(None),
+            changed: Condvar::new(),
+        });
+        lock(&inner.pending).insert(request_id.clone(), pending.clone());
+        inner.emit(Event::Incoming(incoming.clone()));
+        let answer = {
+            let guard = lock(&pending.decision);
+            let (guard, _) = pending
+                .changed
+                .wait_timeout_while(guard, policy.answer_wait, |d| {
+                    d.is_none() && !inner.stop.load(Ordering::Relaxed)
+                })
+                .unwrap_or_else(|p| p.into_inner());
+            *guard
+        };
+        lock(&inner.pending).remove(&request_id);
+        inner.emit(Event::IncomingResolved(request_id.clone()));
+        // A device denied while its request waited stays denied.
+        answer == Some(true) && inner.trust_state(&claimed) != TrustState::Deny
+    };
+    // Deny set while the callback or the card was waiting wins, before any token.
+    if !accepted || inner.trust_state(&claimed) == TrustState::Deny {
+        return message(403, "Rejected");
+    }
+
+    let transfer_id = proto::random_hex(8);
+    inner.add_transfer(Transfer {
+        id: transfer_id.clone(),
+        direction: "receive".into(),
+        peer: incoming.from.clone(),
+        peer_fingerprint: claimed.clone(),
+        state: "active".into(),
+        total_bytes: total,
+        done_bytes: 0,
+        files_total: parsed.files.len(),
+        files_done: 0,
+        current: None,
+        saved_to: None,
+        saved_files: Vec::new(),
+        error: None,
+        message: None,
+        // Only an Allow sender with certificate proof may put things on the clipboard.
+        clipboard: state == TrustState::Allow
+            && certified
+            && parsed.pulse.as_ref().is_some_and(|p| p.clipboard),
+        started: now_ms(),
+        finished: None,
+    });
+
+    // A text message arrives in the request itself: hand it to the notch,
+    // which shows it with Copy. Nothing is written to disk.
+    if is_message {
+        let full: String = parsed
+            .files
+            .values()
+            .next()
+            .and_then(|f| f.preview.clone())
+            .unwrap_or_default()
+            .chars()
+            .take(policy.max_message_chars)
+            .collect();
+        inner.update_transfer(&transfer_id, true, |t| t.message = Some(full));
+        inner.end_transfer(&transfer_id, "done", None);
+        return (204, None);
+    }
+
+    let mut files = HashMap::new();
+    let mut tokens = std::collections::BTreeMap::new();
+    for (key, meta) in parsed.files {
+        let token = proto::random_hex(16);
+        tokens.insert(key.clone(), token.clone());
+        files.insert(
+            key,
+            SessionFile {
+                meta,
+                token,
+                done: false,
+            },
+        );
+    }
+    let session_id = proto::random_hex(16);
+    let cancel = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    lock(&inner.sessions).insert(
+        session_id.clone(),
+        Session {
+            transfer_id,
+            peer_ip: ip,
+            peer_fingerprint: claimed.clone(),
+            remaining: files.len(),
+            files,
+            cancel,
+            activity: Instant::now(),
+            saved: Vec::new(),
+            save_dir,
+            proven: certified,
+        },
+    );
+    json(
+        200,
+        &PrepareUploadResponse {
+            session_id,
+            files: tokens,
+        },
+    )
+}
+
+// ---- upload ----------------------------------------------------------------
+
+fn same_token(a: &str, b: &str) -> bool {
+    a.len() == b.len()
+        && a.bytes()
+            .zip(b.bytes())
+            .fold(0u8, |acc, (x, y)| acc | (x ^ y))
+            == 0
+}
+
+struct Claimed {
+    meta: FileMeta,
+    cancel: Arc<std::sync::atomic::AtomicBool>,
+    transfer_id: String,
+    save_dir: PathBuf,
+    proven: bool,
+}
+
+fn upload(
+    inner: &Arc<Inner>,
+    reader: &mut BufReader<Wire>,
+    request: &Request,
+    ip: IpAddr,
+) -> Answer {
+    let (Some(session_id), Some(file_id), Some(token)) = (
+        request.param("sessionId"),
+        request.param("fileId"),
+        request.param("token"),
+    ) else {
+        discard(reader, request);
+        return message(400, "Missing parameters");
+    };
+
+    let claim: Result<Option<Claimed>, Answer> = {
+        let mut sessions = lock(&inner.sessions);
+        match sessions.get_mut(session_id) {
+            Some(session) if session.peer_ip == ip => match session.files.get(file_id) {
+                Some(file) if same_token(&file.token, token) => {
+                    if file.done {
+                        Ok(None)
+                    } else {
+                        session.activity = Instant::now();
+                        Ok(Some(Claimed {
+                            meta: file.meta.clone(),
+                            cancel: session.cancel.clone(),
+                            transfer_id: session.transfer_id.clone(),
+                            save_dir: session.save_dir.clone(),
+                            proven: session.proven,
+                        }))
+                    }
+                }
+                _ => Err(message(403, "Invalid token or IP address")),
+            },
+            Some(_) => Err(message(403, "Invalid token or IP address")),
+            None => Err(message(403, "Invalid token or IP address")),
+        }
+    };
+    let claimed = match claim {
+        Ok(Some(claimed)) => claimed,
+        Ok(None) => {
+            discard(reader, request);
+            return (200, None);
+        }
+        Err(answer) => {
+            discard(reader, request);
+            return answer;
+        }
+    };
+
+    let parts = proto::sanitize_relative(&claimed.meta.file_name);
+    let final_path = match proto::reserve_unique(&claimed.save_dir, &parts) {
+        Ok(path) => path,
+        Err(e) => {
+            discard(reader, request);
+            inner.end_transfer(
+                &claimed.transfer_id,
+                "failed",
+                Some(Error::SaveFailed {
+                    file: parts.join("/"),
+                    detail: e.to_string(),
+                }),
+            );
+            return message(500, "Unknown error by receiver");
+        }
+    };
+    // The partial is created exclusively: this transfer owns it, and nothing that
+    // was already on disk (an earlier transfer's partial, a crash leftover, a
+    // user's file with the same name) is ever opened, truncated or deleted.
+    let suffix = lock(&inner.cfg).temp_suffix.clone();
+    let (mut out, part_path) = match reserve_partial(&final_path, &suffix) {
+        Ok(reserved) => reserved,
+        Err(e) => {
+            let _ = std::fs::remove_file(&final_path);
+            discard(reader, request);
+            inner.end_transfer(
+                &claimed.transfer_id,
+                "failed",
+                Some(Error::SaveFailed {
+                    file: parts.join("/"),
+                    detail: e.to_string(),
+                }),
+            );
+            return message(500, "Unknown error by receiver");
+        }
+    };
+
+    let display_name = parts.join("/");
+    let mut hasher = claimed.meta.sha256.as_ref().map(|_| Sha256::new());
+    let allowed = claimed.meta.size.saturating_add(1024 * 1024);
+    let streamed = net::read_body(reader, &request.headers, allowed, &mut |chunk| {
+        if claimed.cancel.load(Ordering::Relaxed) {
+            return Err(io::Error::new(io::ErrorKind::Interrupted, "cancelled"));
+        }
+        out.write_all(chunk)?;
+        if let Some(h) = hasher.as_mut() {
+            h.update(chunk);
+        }
+        inner.update_transfer(&claimed.transfer_id, false, |t| {
+            t.done_bytes += chunk.len() as u64;
+            t.current = Some(display_name.clone());
+        });
+        Ok(())
+    });
+    let flushed = out.flush();
+    drop(out);
+
+    // `Some(None)` is a cancel: the files go, and no failure is reported.
+    let cancelled = claimed.cancel.load(Ordering::Relaxed);
+    let failure: Option<Option<Error>> = match (&streamed, flushed) {
+        (Err(_), _) if cancelled => Some(None),
+        (Err(e), _) => Some(Some(Error::Interrupted {
+            file: display_name.clone(),
+            detail: e.to_string(),
+        })),
+        (_, Err(e)) => Some(Some(Error::SaveFailed {
+            file: display_name.clone(),
+            detail: e.to_string(),
+        })),
+        _ => None,
+    };
+    if let Some(error) = failure {
+        let _ = std::fs::remove_file(&part_path);
+        let _ = std::fs::remove_file(&final_path);
+        if let Some(error) = error {
+            inner.end_transfer(&claimed.transfer_id, "failed", Some(error));
+        }
+        return message(500, "Unknown error by receiver");
+    }
+    if let (Some(h), Some(expected)) = (hasher, claimed.meta.sha256.as_ref()) {
+        let actual: String = h.finalize().iter().map(|b| format!("{b:02x}")).collect();
+        if !actual.eq_ignore_ascii_case(expected) {
+            let _ = std::fs::remove_file(&part_path);
+            let _ = std::fs::remove_file(&final_path);
+            inner.end_transfer(
+                &claimed.transfer_id,
+                "failed",
+                Some(Error::Damaged {
+                    file: display_name.clone(),
+                }),
+            );
+            return message(422, "Checksum mismatch");
+        }
+    }
+    if let Err(e) = std::fs::rename(&part_path, &final_path) {
+        let _ = std::fs::remove_file(&part_path);
+        let _ = std::fs::remove_file(&final_path);
+        inner.end_transfer(
+            &claimed.transfer_id,
+            "failed",
+            Some(Error::SaveFailed {
+                    file: parts.join("/"),
+                    detail: e.to_string(),
+                }),
+        );
+        return message(500, "Unknown error by receiver");
+    }
+    let config = lock(&inner.cfg).clone();
+    if let Err(reason) = finish_received(&final_path, &config) {
+        if claimed.proven {
+            eprintln!("{} {reason}", config.log_prefix);
+        } else {
+            // An unproven sender's file that can't be marked as coming from
+            // outside is not kept.
+            let _ = std::fs::remove_file(&final_path);
+            inner.end_transfer(
+                &claimed.transfer_id,
+                "failed",
+                Some(Error::Mark {
+                    file: display_name.clone(),
+                    detail: reason.to_string(),
+                }),
+            );
+            return message(500, "Unknown error by receiver");
+        }
+    }
+    finish_file(inner, session_id, file_id, final_path);
+    (200, None)
+}
+
+/// A finished file: readable but never executable, and marked as coming from
+/// outside the computer (macOS quarantine, Windows Mark of the Web) so the system
+/// checks it before running it. An error says why the mark could not be written;
+/// the caller keeps a proven sender's file anyway and deletes an unproven one's.
+fn finish_received(path: &Path, config: &Config) -> io::Result<()> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        if let Err(e) = std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o644)) {
+            eprintln!(
+                "{} couldn't set permissions on a received file: {e}",
+                config.log_prefix
+            );
+        }
+    }
+    #[cfg(target_os = "macos")]
+    {
+        use std::os::unix::ffi::OsStrExt;
+        let seconds = now_ms() / 1000;
+        let value = format!("0083;{seconds:x};{};", config.quarantine_agent);
+        let name = std::ffi::CString::new(path.as_os_str().as_bytes())
+            .map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, e))?;
+        // SAFETY: NUL-terminated path and attribute name; `value` is valid for its length.
+        let rc = unsafe {
+            libc::setxattr(
+                name.as_ptr(),
+                c"com.apple.quarantine".as_ptr(),
+                value.as_ptr().cast(),
+                value.len(),
+                0,
+                0,
+            )
+        };
+        if rc != 0 {
+            return Err(io::Error::last_os_error());
+        }
+    }
+    #[cfg(windows)]
+    {
+        let _ = config;
+        let stream = format!("{}:Zone.Identifier", path.display());
+        std::fs::write(&stream, "[ZoneTransfer]\r\nZoneId=3\r\n")?;
+    }
+    #[cfg(not(any(unix, windows)))]
+    {
+        let _ = (path, config);
+    }
+    Ok(())
+}
+
+/// The name a received file is written under before it is complete, for
+/// attempt `n`: `.name<suffix>` first, then `.name.1<suffix>`, `.name.2<suffix>`, …
+fn partial_path(final_path: &Path, suffix: &str, n: u32) -> PathBuf {
+    let name = final_path
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    if n == 0 {
+        final_path.with_file_name(format!(".{name}{suffix}"))
+    } else {
+        final_path.with_file_name(format!(".{name}.{n}{suffix}"))
+    }
+}
+
+/// Create this transfer's own partial file next to `final_path`. `create_new`
+/// (`O_EXCL`) fails on anything already there, including a symlink, so a name
+/// taken by another transfer, a leftover from a crashed run or a user's file is
+/// skipped, never reused: the returned file is empty and exclusively ours.
+fn reserve_partial(final_path: &Path, suffix: &str) -> io::Result<(std::fs::File, PathBuf)> {
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        // Private while it arrives; made readable (never executable) when whole.
+        options.mode(0o600);
+    }
+    for n in 0..10_000u32 {
+        let path = partial_path(final_path, suffix, n);
+        match options.open(&path) {
+            Ok(file) => return Ok((file, path)),
+            Err(e) if e.kind() == io::ErrorKind::AlreadyExists => continue,
+            Err(e) => return Err(e),
+        }
+    }
+    Err(io::Error::new(
+        io::ErrorKind::AlreadyExists,
+        "too many partial files with that name",
+    ))
+}
+
+fn finish_file(inner: &Arc<Inner>, session_id: &str, file_id: &str, path: PathBuf) {
+    let finished = {
+        let mut sessions = lock(&inner.sessions);
+        let Some(session) = sessions.get_mut(session_id) else {
+            return;
+        };
+        if let Some(file) = session.files.get_mut(file_id)
+            && !file.done
+        {
+            file.done = true;
+            session.remaining = session.remaining.saturating_sub(1);
+            session.saved.push(path);
+        }
+        session.activity = Instant::now();
+        let transfer_id = session.transfer_id.clone();
+        let done = session.remaining == 0;
+        let completed = done.then(|| sessions.remove(session_id)).flatten();
+        (transfer_id, completed)
+    };
+    let (transfer_id, completed) = finished;
+    inner.update_transfer(&transfer_id, true, |t| t.files_done += 1);
+    if let Some(session) = completed {
+        let folder = session.save_dir.to_string_lossy().into_owned();
+        let saved: Vec<String> = session
+            .saved
+            .iter()
+            .map(|p| p.to_string_lossy().into_owned())
+            .collect();
+        inner.update_transfer(&transfer_id, true, |t| {
+            t.saved_to = Some(folder);
+            t.saved_files = saved;
+        });
+        inner.end_transfer(&transfer_id, "done", None);
+    }
+}
+
+// ---- cancel ----------------------------------------------------------------
+
+fn cancel_session(inner: &Arc<Inner>, request: &Request, ip: IpAddr) -> Answer {
+    let Some(session_id) = request.param("sessionId") else {
+        return message(400, "Missing parameters");
+    };
+    let removed = {
+        let mut sessions = lock(&inner.sessions);
+        match sessions.get(session_id).map(|s| s.peer_ip == ip) {
+            Some(true) => sessions.remove(session_id),
+            Some(false) => return message(403, "Invalid token or IP address"),
+            None => None,
+        }
+    };
+    if let Some(session) = removed {
+        session.cancel.store(true, Ordering::Relaxed);
+        inner.end_transfer(&session.transfer_id, "cancelled", None);
+    }
+    (200, None)
+}
+
+/// The user cancelled a receive from this side.
+pub(crate) fn cancel_receive(inner: &Arc<Inner>, transfer_id: &str) -> bool {
+    let removed = {
+        let mut sessions = lock(&inner.sessions);
+        let key = sessions
+            .iter()
+            .find(|(_, s)| s.transfer_id == transfer_id)
+            .map(|(k, _)| k.clone());
+        key.and_then(|k| sessions.remove(&k))
+    };
+    match removed {
+        Some(session) => {
+            session.cancel.store(true, Ordering::Relaxed);
+            inner.end_transfer(transfer_id, "cancelled", None);
+            true
+        }
+        None => false,
+    }
+}

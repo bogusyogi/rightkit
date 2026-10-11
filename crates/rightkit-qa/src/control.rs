@@ -66,6 +66,11 @@ pub struct StopReport {
     pub frontmost_states: Vec<String>,
     /// Every sampled foreground PID belonged to no app process started by this control session.
     /// This is the background invariant; `frontmost_unchanged` remains diagnostic only.
+    /// macOS checks the started pid and every process under the bundle executable; Windows
+    /// checks the started pid only (the owner of the foreground window, from
+    /// `GetForegroundWindow` + `GetWindowThreadProcessId`, sampled every 20 ms). Both fail
+    /// closed when a foreground owner exists but cannot be read. Other targets always report
+    /// `false` for a non-visible launch.
     pub owned_never_frontmost: bool,
     /// Owned fixture PIDs observed in foreground, if any.
     pub owned_frontmost_pids: Vec<u32>,
@@ -184,6 +189,60 @@ pub fn frontmost() -> Option<String> {
     }
 }
 
+/// What the Windows foreground query found.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(not(windows), allow(dead_code))]
+enum Foreground {
+    /// No foreground window at all (Windows reports this transiently, and on a desktop
+    /// with no active window). Nothing we own can be in front, so this is a measurement.
+    NoWindow,
+    /// The process that owns the foreground window.
+    Pid(u32),
+    /// A foreground window exists but its owner could not be read.
+    Unreadable,
+}
+
+/// Interpret `GetForegroundWindow` / `GetWindowThreadProcessId` results.
+#[cfg_attr(not(windows), allow(dead_code))]
+fn classify_foreground(window_present: bool, thread_id: u32, pid: u32) -> Foreground {
+    if !window_present {
+        Foreground::NoWindow
+    } else if thread_id == 0 || pid == 0 {
+        Foreground::Unreadable
+    } else {
+        Foreground::Pid(pid)
+    }
+}
+
+#[cfg(windows)]
+fn foreground_pid() -> Foreground {
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        GetForegroundWindow, GetWindowThreadProcessId,
+    };
+    unsafe {
+        let h = GetForegroundWindow();
+        if h.is_null() {
+            return classify_foreground(false, 0, 0);
+        }
+        let mut pid = 0u32;
+        let thread_id = GetWindowThreadProcessId(h, &mut pid);
+        classify_foreground(true, thread_id, pid)
+    }
+}
+
+/// The Windows background invariant: no sample found a process this session started in
+/// the foreground, and every foreground owner that existed could be read. Process
+/// identity is the started pid only; helper processes (WebView2 renderers) own no
+/// top-level window, so they cannot be the foreground window's owner.
+#[cfg_attr(not(windows), allow(dead_code))]
+fn windows_owned_never_frontmost(
+    enforce_owned: bool,
+    unreadable_owners: usize,
+    observed: &[u32],
+) -> bool {
+    !enforce_owned || (unreadable_owners == 0 && observed.is_empty())
+}
+
 /// Samples the foreground on its own thread for the whole life of a control session, so
 /// a transient steal (focus leaves and returns) is caught, and an unmeasurable
 /// foreground is reported as such instead of comparing equal.
@@ -193,6 +252,9 @@ struct FocusMonitor {
     owned: Arc<Mutex<(Vec<u32>, Option<String>)>>, // primary PID(s), exact executable prefix
     enforce_owned: bool,
     owned_frontmost: Arc<Mutex<Vec<u32>>>,
+    /// Foreground samples whose owning pid could not be read (Windows).
+    #[cfg_attr(not(windows), allow(dead_code))]
+    unreadable_owners: Arc<std::sync::atomic::AtomicUsize>,
     thread: Option<std::thread::JoinHandle<()>>,
 }
 
@@ -201,9 +263,11 @@ impl FocusMonitor {
         let seen: Arc<Mutex<(usize, usize, Vec<String>)>> = Arc::new(Mutex::new((0, 0, vec![])));
         let owned: Arc<Mutex<(Vec<u32>, Option<String>)>> = Arc::new(Mutex::new((vec![], None)));
         let owned_frontmost = Arc::new(Mutex::new(vec![]));
+        let unreadable_owners = Arc::new(std::sync::atomic::AtomicUsize::new(0));
         let record = move |seen: &Mutex<(usize, usize, Vec<String>)>,
                            _owned: &Mutex<(Vec<u32>, Option<String>)>,
-                           _owned_frontmost: &Mutex<Vec<u32>>| {
+                           _owned_frontmost: &Mutex<Vec<u32>>,
+                           _unreadable: &std::sync::atomic::AtomicUsize| {
             {
                 let mut g = seen.lock().unwrap_or_else(|e| e.into_inner());
                 match frontmost() {
@@ -214,6 +278,25 @@ impl FocusMonitor {
                         }
                     }
                     None => g.1 += 1,
+                }
+            }
+            #[cfg(windows)]
+            if enforce_owned {
+                match foreground_pid() {
+                    Foreground::Pid(pid) => {
+                        let owned = _owned.lock().unwrap_or_else(|e| e.into_inner()).0.clone();
+                        if owned.contains(&pid) {
+                            let mut observed =
+                                _owned_frontmost.lock().unwrap_or_else(|e| e.into_inner());
+                            if !observed.contains(&pid) {
+                                observed.push(pid);
+                            }
+                        }
+                    }
+                    Foreground::NoWindow => {}
+                    Foreground::Unreadable => {
+                        _unreadable.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                    }
                 }
             }
             #[cfg(target_os = "macos")]
@@ -250,18 +333,19 @@ impl FocusMonitor {
                 }
             }
         };
-        record(&seen, &owned, &owned_frontmost);
+        record(&seen, &owned, &owned_frontmost, &unreadable_owners);
         let stop = Arc::new(std::sync::atomic::AtomicBool::new(false));
-        let (s2, seen2, owned2, observed2) = (
+        let (s2, seen2, owned2, observed2, unreadable2) = (
             stop.clone(),
             seen.clone(),
             owned.clone(),
             owned_frontmost.clone(),
+            unreadable_owners.clone(),
         );
         let thread = std::thread::spawn(move || {
             while !s2.load(std::sync::atomic::Ordering::SeqCst) {
                 std::thread::sleep(Duration::from_millis(20));
-                record(&seen2, &owned2, &observed2);
+                record(&seen2, &owned2, &observed2, &unreadable2);
             }
         });
         FocusMonitor {
@@ -270,15 +354,15 @@ impl FocusMonitor {
             owned,
             enforce_owned,
             owned_frontmost,
+            unreadable_owners,
             thread: Some(thread),
         }
     }
     fn track_primary(&self, pid: u32) {
-        self.owned
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .0
-            .push(pid);
+        let mut owned = self.owned.lock().unwrap_or_else(|e| e.into_inner());
+        if !owned.0.contains(&pid) {
+            owned.0.push(pid);
+        }
     }
     #[cfg(target_os = "macos")]
     fn track_prefix(&self, prefix: String) {
@@ -309,9 +393,16 @@ impl FocusMonitor {
         #[cfg(target_os = "macos")]
         let owned_never_frontmost =
             !self.enforce_owned || (identity_registered && g.1 == 0 && observed.is_empty());
-        #[cfg(not(target_os = "macos"))]
-        // No native foreground-PID sampler exists on these targets yet; background
-        // claims fail closed instead of treating name-only sampling as proof.
+        #[cfg(windows)]
+        let owned_never_frontmost = windows_owned_never_frontmost(
+            self.enforce_owned,
+            self.unreadable_owners
+                .load(std::sync::atomic::Ordering::SeqCst),
+            &observed,
+        );
+        #[cfg(not(any(target_os = "macos", windows)))]
+        // No native foreground-PID sampler exists on this target; background claims fail
+        // closed instead of treating name-only sampling as proof.
         let owned_never_frontmost = !self.enforce_owned;
         (unchanged, g.2.clone(), owned_never_frontmost, observed)
     }
@@ -572,7 +663,11 @@ pub fn launch(spec: &LaunchSpec, ws: &QaWorkspace, tracker: &Tracker) -> Result<
     // launchd-started apps cannot open log files on external volumes (`open` fails with
     // -10810), so the live log goes to the system temp dir and is copied into the
     // evidence dir when the app stops.
-    let raw_log = ws.home.join(format!("app-{}.log", &id[..8]));
+    // Kept in a subdirectory: apps commonly list or watch HOME (file explorers, recents), and
+    // a live log written directly into it is a change source that can feed back into the app.
+    let log_dir = ws.home.join(".rightkit-qa");
+    fs::create_dir_all(&log_dir)?;
+    let raw_log = log_dir.join(format!("app-{}.log", &id[..8]));
     let env = launch_env(spec, ws, &suite, &service)?;
     let frontmost_before = frontmost();
     let focus = FocusMonitor::start(spec.mode != Mode::Visible);
@@ -619,8 +714,9 @@ pub fn launch(spec: &LaunchSpec, ws: &QaWorkspace, tracker: &Tracker) -> Result<
         if Instant::now() >= deadline {
             let _ = control.stop();
             return err(format!(
-                "control service did not answer within {}ms; was the app built with its control feature and launched with RIGHTKIT_CONTROL_SERVICE?",
-                spec.startup_timeout.as_millis()
+                "control service did not answer within {}ms; was the app built with its control feature and launched with RIGHTKIT_CONTROL_SERVICE?{}",
+                spec.startup_timeout.as_millis(),
+                non_interactive_hint()
             ));
         }
         sleep_ms(100);
@@ -634,15 +730,92 @@ pub fn launch(spec: &LaunchSpec, ws: &QaWorkspace, tracker: &Tracker) -> Result<
             }
         }
         if Instant::now() >= deadline {
+            let alive = is_alive(pid);
             let _ = control.stop();
             return err(format!(
-                "app window never became ready within {}ms",
-                spec.startup_timeout.as_millis()
+                "app window never became ready within {}ms (process alive: {}){}",
+                spec.startup_timeout.as_millis(),
+                alive,
+                non_interactive_hint()
             ));
         }
         sleep_ms(100);
     }
     Ok(control)
+}
+
+/// Extra explanation for a launch timeout when the harness itself runs outside the
+/// interactive desktop (SSH or a service on Windows): a WebView2 app launched from there
+/// never gets a ready window. Empty everywhere else.
+fn non_interactive_hint() -> String {
+    #[cfg(windows)]
+    if let Some(why) = windows_non_interactive_reason() {
+        return format!(
+            ". This harness process is not in the interactive desktop session ({why}); a hidden WebView2 app cannot get a ready window from a non-interactive session (SSH, service). Start the run from the logged-in user's desktop session, for example a one-shot `schtasks /create /it` task (see the rightkit-qa README, Windows section)"
+        );
+    }
+    String::new()
+}
+
+/// `Some(reason)` when this process is in session 0 or on a window station that is not
+/// visible (the shape of an SSH or service logon); `None` on an interactive desktop or when
+/// it cannot be determined.
+#[cfg(windows)]
+fn windows_non_interactive_reason() -> Option<String> {
+    use std::ffi::c_void;
+    #[repr(C)]
+    struct UserObjectFlags {
+        inherit: i32,
+        reserved: i32,
+        flags: u32,
+    }
+    #[link(name = "user32")]
+    extern "system" {
+        fn GetProcessWindowStation() -> *mut c_void;
+        fn GetUserObjectInformationW(
+            h: *mut c_void,
+            index: i32,
+            info: *mut c_void,
+            len: u32,
+            needed: *mut u32,
+        ) -> i32;
+    }
+    #[link(name = "kernel32")]
+    extern "system" {
+        fn GetCurrentProcessId() -> u32;
+        fn ProcessIdToSessionId(pid: u32, session: *mut u32) -> i32;
+    }
+    const UOI_FLAGS: i32 = 1;
+    const WSF_VISIBLE: u32 = 1;
+    let mut session = 0u32;
+    // SAFETY: plain Win32 queries on this process with correctly sized out-parameters.
+    unsafe {
+        if ProcessIdToSessionId(GetCurrentProcessId(), &mut session) != 0 && session == 0 {
+            return Some("session 0".into());
+        }
+        let station = GetProcessWindowStation();
+        if station.is_null() {
+            return None;
+        }
+        let mut info = UserObjectFlags {
+            inherit: 0,
+            reserved: 0,
+            flags: 0,
+        };
+        let mut needed = 0u32;
+        if GetUserObjectInformationW(
+            station,
+            UOI_FLAGS,
+            &mut info as *mut _ as *mut c_void,
+            std::mem::size_of::<UserObjectFlags>() as u32,
+            &mut needed,
+        ) != 0
+            && info.flags & WSF_VISIBLE == 0
+        {
+            return Some(format!("session {session}, non-visible window station"));
+        }
+    }
+    None
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -686,7 +859,7 @@ fn start_process(
     }
     #[cfg(not(target_os = "macos"))]
     {
-        let _ = (ws, id, focus);
+        let _ = (ws, id);
         let log = fs::File::create(log_path)?;
         let log2 = log.try_clone()?;
         let mut cmd = Command::new(&spec.binary);
@@ -705,6 +878,8 @@ fn start_process(
         let child = owned
             .spawn()
             .map_err(|e| Error(format!("failed to start {}: {e}", spec.binary.display())))?;
+        // Attribute foreground samples to the app from its first instant.
+        focus.track_primary(child.id());
         Ok((child.id(), Some(child)))
     }
 }
@@ -1041,6 +1216,26 @@ impl Drop for Control {
 #[cfg(test)]
 mod launch_path_tests {
     use super::*;
+
+    #[test]
+    fn windows_foreground_is_classified_without_a_windows_host() {
+        assert_eq!(classify_foreground(false, 0, 0), Foreground::NoWindow);
+        assert_eq!(classify_foreground(true, 7, 4242), Foreground::Pid(4242));
+        // A foreground window whose owner cannot be read is not "nothing in front".
+        assert_eq!(classify_foreground(true, 0, 0), Foreground::Unreadable);
+        assert_eq!(classify_foreground(true, 7, 0), Foreground::Unreadable);
+        assert_eq!(classify_foreground(true, 0, 4242), Foreground::Unreadable);
+    }
+
+    #[test]
+    fn windows_background_invariant_fails_closed() {
+        // Visible launches enforce nothing.
+        assert!(windows_owned_never_frontmost(false, 3, &[9]));
+        // Background: the owned pid in front, or an unreadable owner, both fail.
+        assert!(windows_owned_never_frontmost(true, 0, &[]));
+        assert!(!windows_owned_never_frontmost(true, 0, &[9]));
+        assert!(!windows_owned_never_frontmost(true, 1, &[]));
+    }
 
     fn fixture() -> (QaWorkspace, LaunchSpec) {
         let root = crate::storage::app_temp_dir().join(format!("rkqa-launch-{}", new_id()));

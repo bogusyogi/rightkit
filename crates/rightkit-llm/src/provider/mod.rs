@@ -1,3 +1,6 @@
+#[cfg(feature = "cli")]
+pub mod cli;
+
 use std::ops::ControlFlow;
 
 use crate::error::LlmError;

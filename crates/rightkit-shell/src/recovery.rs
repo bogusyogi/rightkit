@@ -1,18 +1,18 @@
-//! Setup recovery (crash-safe session snapshot) and startup cache repair.
+//! Setup recovery: a crash-safe session snapshot.
 //!
-//! Donor: ViewRight `setup_recovery.rs` and `startup_cache.rs`.
+//! Donor: ViewRight `setup_recovery.rs`. The app periodically saves a JSON snapshot of its open
+//! work; after a crash it loads it back. The write is atomic (`.new` written and synced, previous
+//! file kept as `.old` until the swap succeeds), validated (`version`, size cap) and
+//! *authority-checked*: every file path the snapshot names must already be granted by the
+//! [`PathBroker`], so a snapshot can never smuggle in a path the person did not open. Loading
+//! re-grants the recovered paths. `untitled:` entries have no file and are skipped.
 //!
-//! **Recovery.** The app periodically saves a JSON snapshot of its open work; after a crash it loads
-//! it back. The write is atomic (`.new` written and synced, previous file kept as `.old` until the
-//! swap succeeds), validated (`version`, size cap) and *authority-checked*: every file path named by
-//! the snapshot must already be granted by the [`PathBroker`], so a snapshot can never smuggle in a
-//! path the person did not open. Loading re-grants the recovered paths (they were authorised when
-//! saved). `untitled:` entries have no file and are skipped.
+//! The snapshot file is `<state>/recovery/<name>-v<version>.json` unless the spec pins an exact
+//! path with [`RecoverySpec::at_path`]. An app that moved its snapshot can migrate the old file once
+//! with [`RecoveryStore::migrate_legacy`].
 //!
-//! **Cache repair.** A dangling symlink or a stray file where a cache directory belongs makes
-//! `create_dir_all` fail with `AlreadyExists`, which aborts plugins that expect the directory
-//! (`tauri-plugin-http` cookie cache). Cache content is disposable, so [`ensure_cache_dir`] replaces
-//! the bad entry with a real directory. The shell runs it for the app cache dir at startup.
+//! Cache-directory repair moved to [`crate::startup_cache`]; it is re-exported here so existing
+//! paths keep working.
 
 use std::fs::{self, OpenOptions};
 use std::io::Write;
@@ -24,18 +24,22 @@ use serde_json::Value;
 use crate::broker::PathBroker;
 use crate::error::ShellError;
 
+pub use crate::startup_cache::{ensure_cache_dir, CacheDirOutcome};
+
 /// Lists the file paths a parsed snapshot names.
 pub type PathExtractor = Arc<dyn Fn(&Value) -> Vec<String> + Send + Sync>;
 
 /// What a recovery store accepts and how it finds file paths inside a snapshot.
 #[derive(Clone)]
 pub struct RecoverySpec {
-    /// File stem, e.g. `setup-recovery`; the file is `<state>/recovery/<name>-v<version>.json`.
+    /// File stem, e.g. `setup-recovery`; the default file is `<state>/recovery/<name>-v<version>.json`.
     pub name: String,
     pub version: u64,
     pub max_bytes: usize,
     /// File paths named by a parsed snapshot (anything starting `untitled:` is ignored).
     pub paths: PathExtractor,
+    /// Exact snapshot file, used instead of the default location when set.
+    pub exact_path: Option<PathBuf>,
 }
 
 impl RecoverySpec {
@@ -55,8 +59,27 @@ impl RecoverySpec {
                     })
                     .unwrap_or_default()
             }),
+            exact_path: None,
         }
     }
+
+    /// Store the snapshot at exactly `path` instead of the default location.
+    pub fn at_path(mut self, path: impl Into<PathBuf>) -> Self {
+        self.exact_path = Some(path.into());
+        self
+    }
+}
+
+/// Result of [`RecoveryStore::migrate_legacy`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MigrationOutcome {
+    /// No legacy snapshot exists; nothing to do.
+    NoLegacy,
+    /// The current snapshot already exists, so the legacy file was left untouched.
+    AlreadyCurrent,
+    /// The legacy snapshot was validated, written to the current path and removed.
+    Migrated,
 }
 
 pub struct RecoveryStore {
@@ -66,9 +89,12 @@ pub struct RecoveryStore {
 
 impl RecoveryStore {
     pub fn new(spec: RecoverySpec, state_dir: &Path) -> Self {
-        let path = state_dir
-            .join("recovery")
-            .join(format!("{}-v{}.json", spec.name, spec.version));
+        let path = match &spec.exact_path {
+            Some(exact) => exact.clone(),
+            None => state_dir
+                .join("recovery")
+                .join(format!("{}-v{}.json", spec.name, spec.version)),
+        };
         Self { spec, path }
     }
 
@@ -127,11 +153,34 @@ impl RecoveryStore {
         Ok(Some(raw))
     }
 
+    /// One-time migration of a snapshot an earlier version wrote to `legacy`.
+    ///
+    /// The legacy file is validated (size and version) and copied atomically to the current path,
+    /// then removed. Authority is not re-checked here: [`RecoveryStore::save`] and
+    /// [`RecoveryStore::load`] still apply it. An invalid legacy file is an error and is left in
+    /// place. If the current snapshot already exists, the legacy file is left alone.
+    pub fn migrate_legacy(&self, legacy: &Path) -> Result<MigrationOutcome, ShellError> {
+        let raw = match fs::read_to_string(legacy) {
+            Ok(r) => r,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                return Ok(MigrationOutcome::NoLegacy)
+            }
+            Err(e) => return Err(e.into()),
+        };
+        if self.path.exists() {
+            return Ok(MigrationOutcome::AlreadyCurrent);
+        }
+        self.validate(&raw)?;
+        write_atomic(&self.path, &raw)?;
+        let _ = fs::remove_file(legacy);
+        Ok(MigrationOutcome::Migrated)
+    }
+
     pub fn clear(&self) -> Result<(), ShellError> {
         for candidate in [
             self.path.clone(),
-            self.path.with_extension("json.new"),
-            self.path.with_extension("json.old"),
+            sidecar(&self.path, "new"),
+            sidecar(&self.path, "old"),
         ] {
             match fs::remove_file(candidate) {
                 Ok(()) => {}
@@ -143,15 +192,20 @@ impl RecoveryStore {
     }
 }
 
+/// `<path>.<suffix>`, appended to the whole file name (so `x.json` gives `x.json.new`).
+fn sidecar(path: &Path, suffix: &str) -> PathBuf {
+    let mut name = path.as_os_str().to_owned();
+    name.push(".");
+    name.push(suffix);
+    PathBuf::from(name)
+}
+
 fn write_atomic(path: &Path, content: &str) -> Result<(), ShellError> {
     let parent = path
         .parent()
         .ok_or_else(|| ShellError::Invalid("setup recovery path has no parent".into()))?;
     fs::create_dir_all(parent)?;
-    let (new, old) = (
-        path.with_extension("json.new"),
-        path.with_extension("json.old"),
-    );
+    let (new, old) = (sidecar(path, "new"), sidecar(path, "old"));
     let _ = fs::remove_file(&new);
     let _ = fs::remove_file(&old);
     let mut f = OpenOptions::new().create_new(true).write(true).open(&new)?;
@@ -169,39 +223,4 @@ fn write_atomic(path: &Path, content: &str) -> Result<(), ShellError> {
     }
     let _ = fs::remove_file(old);
     Ok(())
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum CacheDirOutcome {
-    Existing,
-    Created,
-    Repaired,
-}
-
-/// Make `path` a usable directory, replacing a dangling symlink or a regular file.
-pub fn ensure_cache_dir(path: &Path) -> std::io::Result<CacheDirOutcome> {
-    let mut repaired = false;
-    match fs::symlink_metadata(path) {
-        Ok(m) if m.is_dir() => return Ok(CacheDirOutcome::Existing),
-        Ok(m) if m.file_type().is_symlink() => {
-            if fs::metadata(path).is_ok_and(|t| t.is_dir()) {
-                return Ok(CacheDirOutcome::Existing);
-            }
-            fs::remove_file(path)?;
-            repaired = true;
-        }
-        Ok(_) => {
-            fs::remove_file(path)?;
-            repaired = true;
-        }
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
-        Err(e) => return Err(e),
-    }
-    fs::create_dir_all(path)?;
-    Ok(if repaired {
-        CacheDirOutcome::Repaired
-    } else {
-        CacheDirOutcome::Created
-    })
 }

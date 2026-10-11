@@ -45,6 +45,14 @@ pub(crate) fn check_account(account: &str) -> Result<()> {
     check("account", account)
 }
 
+/// Validation every [`crate::Backend`] applies to its inputs before any OS call, so a caller that
+/// bypasses [`crate::Store`] still cannot pass an empty account (which the macOS Keychain treats
+/// as "any account") or an otherwise invalid service or account.
+pub(crate) fn check_target(ns: &Namespace, account: &str) -> Result<()> {
+    check("namespace", ns.service())?;
+    check_account(account)
+}
+
 impl Namespace {
     /// `service` is frozen per app (changing it orphans every stored item): use the bundle
     /// identifier, e.g. `app.example.myapp`.

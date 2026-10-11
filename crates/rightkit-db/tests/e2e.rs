@@ -209,6 +209,7 @@ fn corrupt_plain_database_is_quarantined_without_deletion() {
         .open_writer_recovering(RecoveryPolicy {
             quarantine_corrupt: true,
             quarantine_keyed: false,
+            ..Default::default()
         })
         .unwrap();
     let moved = outcome.quarantined.unwrap();

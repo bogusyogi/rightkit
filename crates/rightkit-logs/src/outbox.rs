@@ -91,6 +91,20 @@ pub struct OutboxStatus {
     pub error: Option<String>,
 }
 
+/// Runtime figures of the outbox, computed on call by [`Outbox::health`].
+#[derive(Debug, Clone, PartialEq)]
+pub struct OutboxHealth {
+    /// Events queued now (the backlog).
+    pub events: usize,
+    /// The configured event cap.
+    pub max_events: usize,
+    /// Why the ledger could not load, if it could not.
+    pub error: Option<String>,
+    /// Resident memory, CPU time and I/O counters of the whole process, or `None` when the host
+    /// cannot report them. See `rightkit_process::ProcessUsage`.
+    pub process: Option<rightkit_process::ProcessUsage>,
+}
+
 #[derive(Debug)]
 struct State {
     ledger: Ledger,
@@ -223,6 +237,17 @@ impl Outbox {
         OutboxStatus {
             total: state.ledger.events.len(),
             error: state.load_error.clone(),
+        }
+    }
+
+    /// Backlog and process resource usage, read now. No polling thread runs for this.
+    pub fn health(&self) -> OutboxHealth {
+        let state = self.lock();
+        OutboxHealth {
+            events: state.ledger.events.len(),
+            max_events: self.config.max_events,
+            error: state.load_error.clone(),
+            process: rightkit_process::process_usage().ok(),
         }
     }
 

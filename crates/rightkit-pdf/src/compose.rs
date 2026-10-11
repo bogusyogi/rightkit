@@ -29,17 +29,16 @@
 //!
 //! ## Deliberate scope/judgment calls (not fully pinned by §8/§9)
 //!
-//! - **Strategy selection.** §9's `select_strategy` sketch references `same_font_encoding`,
-//!   `same_geometry`, `one_operand`, `locator_is_complete`, `local_rewrite_is_safe` as booleans
-//!   without defining them precisely. This implementation resolves them concretely: a
-//!   `ReplaceSourceText` command takes [`WriteStrategy::ExactOperandPatch`] only when (a) `before`
-//!   and `after` appearance are byte-for-byte identical (same font/size/color — "same font
-//!   encoding"), (b) the replacement text is pure ASCII (matches `pdf_text_edit.rs`'s existing
-//!   "simple-font glyph code equals ASCII byte" convention — the closest thing this codebase has to
-//!   "same geometry, reusable encoding" for a source font this composer never decodes), and (c) the
-//!   locator carries exactly one span (`one_operand`). Every other geometrically-valid, digest-
-//!   verified `ReplaceSourceText` command falls through to [`WriteStrategy::LocalTextObjectRewrite`].
-//!   `AddText` always uses [`WriteStrategy::AppendTextStream`].
+//! - **Strategy selection.** A `ReplaceSourceText` command takes
+//!   [`WriteStrategy::ExactOperandPatch`] when (a) `before` and `after` appearance are identical
+//!   (same font/size/color) and (b) the page graph reports the island `editable`, i.e. its own font
+//!   can re-encode text (`inspect::ReverseTable`, one decision shared with the graph) and all its
+//!   glyphs share one font, size and spacing. The island may span several operands (kerned `TJ`
+//!   text): the whole replacement is written into the earliest span and the later spans are
+//!   blanked. Text the font cannot encode is refused with `PdfEditError::MissingGlyphs` naming the
+//!   characters; nothing is ever substituted. Every other digest-verified command falls through
+//!   to [`WriteStrategy::LocalTextObjectRewrite`] (a catalog font). `AddText` always uses
+//!   [`WriteStrategy::AppendTextStream`].
 //! - **Font reuse vs. embed.** [`PdfFontResolver`] (§7.2) resolves *catalog* fonts only — it has no
 //!   notion of "the font already used at this source location," and `pdf_inspect.rs`'s
 //!   content-stream font decoder (`TextStateFont`) is a different, page-local abstraction this
@@ -67,12 +66,13 @@
 //!   page space on same baseline."
 //! - **Layout measurement.** `MeasuredRun`'s width for an embedded-font rewrite/add-text run is
 //!   measured exactly, by summing the resolved font's real per-glyph advances (via `ttf_parser`,
-//!   same source `subset_for_pdf` reads) scaled to `/1000` units. For the ASCII exact-operand-patch
-//!   path, no font metrics are available at all through this composer's `PdfFontResolver` seam
-//!   (§7.2 only resolves catalog fonts, not the page's already-embedded source font), so that path
-//!   uses a conservative `chars * size_pt * 0.5` em-width estimate — the standard rough average
-//!   glyph width — before falling back to a real check on save/render (`verifyPdfCandidate`, §10.2,
-//!   is the actual ground truth downstream).
+//!   same source `subset_for_pdf` reads) scaled to `/1000` units. For the in-place exact-operand-patch
+//!   path, the source font's own widths (the same `/Widths` or `/W` data the page graph's glyph
+//!   boxes are built from) are summed with the walker's pen-advance rules (`Tc`, `Tw`, `Tz`,
+//!   text matrix and CTM scale), so a replacement no wider than the original never overflows its
+//!   own box (within `OVERFLOW_EPSILON_PT`). Earlier versions estimated `chars * size_pt * 0.5`,
+//!   which refused same-width swaps whenever the real text was narrower than half an em per
+//!   character.
 //! - **`compose_pdf_preview`'s "affected pages as metadata."** Candidate bytes return as a JSON
 //!   byte array because WKWebView fails while decoding Tauri's raw-response stream. Frontend derives
 //!   affected pages from request commands, so no second metadata channel is required.
@@ -81,12 +81,22 @@ use lopdf::{dictionary, Dictionary, Document, Object, ObjectId, Stream, StringFo
 use serde::Deserialize;
 
 use crate::font::{build_to_unicode_cmap, subset_for_pdf};
-use crate::inspect::{simple_font_identity_bytes, walk_page_graph};
-use crate::model::{
-    document_sha256, effective_pdf_edit_commands, ComposedCandidate, Matrix, PdfColor,
-    PdfEditCommand, PdfEditError, PdfFontResolver, PdfOcrBackgroundProof, PdfPoint, PdfRect,
-    PdfSourceLocator, PdfSourceSpan, PdfTextAppearance, PdfTextEditState, ResolvedPdfFont,
+use crate::inspect::{
+    self, content_stream_ids, encode_middle_for_font, walk_page_graph, ReencodeFailure,
 };
+use crate::model::{
+    document_sha256, effective_pdf_edit_commands, ComposedCandidate, GapNumber, GlyphSourceAddress,
+    Matrix, PdfColor, PdfEditCommand, PdfEditError, PdfFontResolver, PdfOcrBackgroundProof,
+    PdfPoint, PdfRect, PdfSourceLocator, PdfSourceSpan, PdfTextAppearance, PdfTextEditState,
+    PdfTextIsland, ResolvedPdfFont, RunItem,
+};
+
+/// Slack, in device-space points, when a replacement's measured width is compared with the
+/// available box. A replacement whose advance is no wider than the original's lands within float
+/// summation error of the island's own box (the app also round-trips the box through JSON), so
+/// an exact `<=` would refuse a same-width swap. 0.05 pt is about 1/1400 inch: invisible, and well
+/// below the width of any glyph.
+const OVERFLOW_EPSILON_PT: f64 = 0.05;
 
 // -------------------------------------------------------------------------------------------
 // §9 — Strategy selection
@@ -99,16 +109,17 @@ enum WriteStrategy {
     LocalTextObjectRewrite,
 }
 
+/// `in_place_editable` is the page graph's own verdict for the island (`PdfTextIsland::editable`):
+/// the island's font can re-encode text, and its glyphs share one font, size and spacing. That is
+/// the single re-encodability decision; this function does not re-derive it.
 fn select_replace_strategy(
-    locator: &PdfSourceLocator,
     before: &PdfTextEditState,
     after: &PdfTextEditState,
+    in_place_editable: bool,
 ) -> WriteStrategy {
     let same_font_encoding = before.appearance == after.appearance;
-    let one_operand = locator.spans.len() == 1;
-    let ascii_only = after.text.is_ascii();
 
-    if same_font_encoding && one_operand && ascii_only {
+    if same_font_encoding && in_place_editable {
         WriteStrategy::ExactOperandPatch
     } else {
         WriteStrategy::LocalTextObjectRewrite
@@ -150,7 +161,7 @@ pub fn compose_candidate_on_base(
         });
     }
 
-    let mut doc = Document::load_mem(base).map_err(|_| PdfEditError::MalformedContent)?;
+    let mut doc = inspect::load_pdf(base).map_err(|_| PdfEditError::MalformedContent)?;
     if doc.is_encrypted() {
         return Err(PdfEditError::EncryptedDocument);
     }
@@ -249,7 +260,10 @@ fn apply_replace_source_text(
         .iter()
         .find(|isl| isl.locator.island_digest == locator.island_digest)
         .ok_or(PdfEditError::SourceDigestMismatch)?;
-    if !island.editable {
+    // A rejected island has no spans and nothing to remove. Whether the island is `editable` in
+    // place is decided per strategy below: a changed appearance redraws in a catalog font and
+    // needs no re-encoding through the source font.
+    if island.locator.spans.is_empty() {
         return Err(PdfEditError::UnsupportedEncoding);
     }
     for span in &locator.spans {
@@ -281,13 +295,27 @@ fn apply_replace_source_text(
     let stream_id: ObjectId = (stream_ref.0, stream_ref.1);
     let page_id = pages_lookup(doc, locator.page)?;
 
-    match select_replace_strategy(locator, before, after) {
+    // An island the graph calls non-editable is refused here, by the composer, before any
+    // strategy is chosen. Unchanged appearance is a request to keep the source font; an island
+    // that cannot be written through it (a positioned run, a mixed state, a font that cannot be
+    // re-encoded) must not fall through to a catalog-font redraw nobody asked for. A *changed*
+    // appearance is the explicit request to redraw in a catalog font (`substitution_editable`).
+    if before.appearance == after.appearance && !island.editable {
+        return Err(PdfEditError::UnsupportedEncoding);
+    }
+
+    // Both strategies rewrite the stream object in place; a page that shares it with another page
+    // gets its own copy first, so the other pages stay as they were.
+    isolate_shared_content_stream(doc, page_id, stream_id)?;
+
+    match select_replace_strategy(before, after, island.editable) {
         WriteStrategy::ExactOperandPatch => {
             apply_exact_operand_patch(
                 doc,
                 page_id,
+                locator.page,
                 stream_id,
-                &locator.spans[0],
+                island,
                 after,
                 available_bounds,
             )?;
@@ -308,6 +336,50 @@ fn apply_replace_source_text(
     Ok(locator.page)
 }
 
+/// Gives every *other* page that lists `stream_id` in its `/Contents` its own byte-identical copy
+/// of the stream, so rewriting `stream_id` in place changes only `page_id`. The edited page keeps
+/// the original object id on purpose: every locator in a batch is addressed by it. A later command
+/// aimed at one of the other pages therefore sees a different stream id and is refused as stale
+/// instead of being applied to the wrong page.
+fn isolate_shared_content_stream(
+    doc: &mut Document,
+    page_id: ObjectId,
+    stream_id: ObjectId,
+) -> Result<(), PdfEditError> {
+    let mut sharers: Vec<(ObjectId, Vec<ObjectId>)> = Vec::new();
+    for other in doc.get_pages().into_values() {
+        if other == page_id {
+            continue;
+        }
+        let Ok(Object::Dictionary(dict)) = doc.get_object(other) else {
+            continue;
+        };
+        let Ok(contents) = dict.get(b"Contents") else {
+            continue;
+        };
+        let ids = content_stream_ids(doc, contents)?;
+        if ids.contains(&stream_id) {
+            sharers.push((other, ids));
+        }
+    }
+    for (other, ids) in sharers {
+        let original = doc
+            .get_object(stream_id)
+            .map_err(|_| PdfEditError::MalformedContent)?
+            .clone();
+        let copy_id = doc.add_object(original);
+        let array = Object::Array(
+            ids.into_iter()
+                .map(|id| Object::Reference(if id == stream_id { copy_id } else { id }))
+                .collect(),
+        );
+        if let Ok(Object::Dictionary(dict)) = doc.get_object_mut(other) {
+            dict.set("Contents", array);
+        }
+    }
+    Ok(())
+}
+
 fn pages_lookup(doc: &Document, page: u32) -> Result<ObjectId, PdfEditError> {
     doc.get_pages()
         .get(&page)
@@ -319,74 +391,488 @@ fn pages_lookup(doc: &Document, page: u32) -> Result<ObjectId, PdfEditError> {
 // §9.1 — Exact operand patch
 // -------------------------------------------------------------------------------------------
 
+/// Which run items an edit replaces, and the new text for them.
+struct RunEdit {
+    /// `run[first..end]` is replaced; it always contains at least one real glyph.
+    first: usize,
+    end: usize,
+    middle: String,
+}
+
+/// Diffs `old` (the island text) against `new` and widens the changed middle to whole run items,
+/// so everything outside it - words, kerns and gaps - is left byte for byte.
+fn plan_run_edit(run: &[RunItem], old: &[char], new: &[char]) -> Result<RunEdit, PdfEditError> {
+    let mut prefix = 0;
+    while prefix < old.len() && prefix < new.len() && old[prefix] == new[prefix] {
+        prefix += 1;
+    }
+    let mut suffix = 0;
+    while suffix < old.len() - prefix
+        && suffix < new.len() - prefix
+        && old[old.len() - 1 - suffix] == new[new.len() - 1 - suffix]
+    {
+        suffix += 1;
+    }
+    let old_end = old.len() - suffix;
+
+    let mut bounds: Vec<(usize, usize)> = Vec::with_capacity(run.len());
+    let mut at = 0;
+    for item in run {
+        let n = item.text.chars().count();
+        bounds.push((at, at + n));
+        at += n;
+    }
+    if at != old.len() {
+        return Err(PdfEditError::UnsupportedEncoding);
+    }
+    let is_glyph = |i: usize| run[i].glyph.is_some();
+
+    let (mut first, mut end);
+    if prefix < old_end {
+        first = bounds
+            .iter()
+            .position(|&(s, e)| s <= prefix && prefix < e)
+            .ok_or(PdfEditError::UnsupportedEncoding)?;
+        end = bounds
+            .iter()
+            .rposition(|&(s, _)| s < old_end)
+            .ok_or(PdfEditError::UnsupportedEncoding)?
+            + 1;
+    } else {
+        // Pure insertion: anchor on the glyph before the cursor, else the glyph after it.
+        let before = (prefix > 0)
+            .then(|| bounds.iter().position(|&(s, e)| s < prefix && prefix <= e))
+            .flatten()
+            .filter(|&i| is_glyph(i));
+        let after = bounds
+            .iter()
+            .position(|&(s, e)| s <= prefix && prefix < e)
+            .filter(|&i| is_glyph(i));
+        let anchor = before.or(after).ok_or(PdfEditError::UnsupportedEncoding)?;
+        first = anchor;
+        end = anchor + 1;
+    }
+    if !(first..end).any(is_glyph) {
+        if first > 0 && is_glyph(first - 1) {
+            first -= 1;
+        } else if end < run.len() && is_glyph(end) {
+            end += 1;
+        } else {
+            return Err(PdfEditError::UnsupportedEncoding);
+        }
+    }
+    let region_start = bounds[first].0;
+    let region_end = bounds[end - 1].1;
+    let middle: String = new[region_start..new.len() - (old.len() - region_end)]
+        .iter()
+        .collect();
+    Ok(RunEdit { first, end, middle })
+}
+
+fn gap_sum(item: &RunItem) -> Option<f64> {
+    item.gap_numbers
+        .as_ref()
+        .map(|numbers| numbers.iter().map(|n| n.value).sum())
+}
+
+fn number_object(value: f64) -> Object {
+    if value.fract() == 0.0 && value.abs() < 1e9 {
+        Object::Integer(value as i64)
+    } else {
+        Object::Real(value as f32)
+    }
+}
+
+/// Sets the `TJ` number at `number` to 0, keeping the array length (and every other item's index).
+fn zero_tj_number(content: &mut Content, number: &GapNumber) -> Result<(), PdfEditError> {
+    let op = content
+        .operations
+        .get_mut(number.operator_index as usize)
+        .ok_or(PdfEditError::SourceDigestMismatch)?;
+    if op.operator != "TJ" {
+        return Err(PdfEditError::SourceDigestMismatch);
+    }
+    let Some(Object::Array(items)) = op.operands.get_mut(0) else {
+        return Err(PdfEditError::SourceDigestMismatch);
+    };
+    let item = items
+        .get_mut(number.item_index as usize)
+        .ok_or(PdfEditError::SourceDigestMismatch)?;
+    *item = Object::Integer(0);
+    Ok(())
+}
+
+/// Writes `pieces` (words, in order) into the string holding byte range `[start, end)` of the
+/// slot glyph, with `gaps` (TJ numbers) between consecutive pieces. Bytes of that string before
+/// and after the range stay as they are. A `Tj` becomes a `TJ` when gaps are needed.
+fn write_pieces(
+    content: &mut Content,
+    slot: &GlyphSourceAddress,
+    range: (u32, u32),
+    pieces: &[Vec<u8>],
+    gaps: &[f64],
+) -> Result<(), PdfEditError> {
+    if gaps.is_empty() {
+        return splice_operand_bytes(
+            content,
+            slot.operator_index,
+            slot.operand_index,
+            range.0,
+            range.1,
+            &pieces[0],
+        );
+    }
+    // Gaps need a TJ array. `'` and `"` carry a line move with them, so they cannot be split.
+    let cannot_split = || PdfEditError::MissingGlyphs(vec![' ']);
+    let op = content
+        .operations
+        .get_mut(slot.operator_index as usize)
+        .ok_or(PdfEditError::SourceDigestMismatch)?;
+    let (bytes, format) = match (op.operator.as_str(), op.operands.first()) {
+        ("Tj", Some(Object::String(bytes, format))) => (bytes.clone(), *format),
+        ("TJ", Some(Object::Array(items))) => match items.get(slot.operand_index as usize) {
+            Some(Object::String(bytes, format)) => (bytes.clone(), *format),
+            _ => return Err(PdfEditError::SourceDigestMismatch),
+        },
+        _ => return Err(cannot_split()),
+    };
+    let (start, end) = (range.0 as usize, range.1 as usize);
+    if start > end || end > bytes.len() {
+        return Err(PdfEditError::SourceDigestMismatch);
+    }
+    let mut new_items: Vec<Object> = Vec::with_capacity(pieces.len() * 2);
+    for (k, piece) in pieces.iter().enumerate() {
+        let mut text: Vec<u8> = Vec::new();
+        if k == 0 {
+            text.extend_from_slice(&bytes[..start]);
+        }
+        text.extend_from_slice(piece);
+        if k + 1 == pieces.len() {
+            text.extend_from_slice(&bytes[end..]);
+        }
+        if k > 0 {
+            new_items.push(number_object(gaps[k - 1]));
+        }
+        new_items.push(Object::String(text, format));
+    }
+    if op.operator == "Tj" {
+        op.operator = "TJ".to_string();
+        op.operands = vec![Object::Array(new_items)];
+    } else if let Some(Object::Array(items)) = op.operands.get_mut(0) {
+        let at = slot.operand_index as usize;
+        items.splice(at..=at, new_items);
+    }
+    Ok(())
+}
+
 fn apply_exact_operand_patch(
     doc: &mut Document,
     page_id: ObjectId,
+    page: u32,
     stream_id: ObjectId,
-    span: &PdfSourceSpan,
+    island: &PdfTextIsland,
     after: &PdfTextEditState,
     available_bounds: PdfRect,
 ) -> Result<(), PdfEditError> {
-    validate_layout_conservative(&after.text, after.appearance.size_pt, available_bounds)?;
+    let layout = island.layout.ok_or(PdfEditError::UnsupportedEncoding)?;
+    let old: Vec<char> = island.text.chars().collect();
+    let new: Vec<char> = after.text.chars().collect();
+    if old == new {
+        return Ok(());
+    }
+    let plan = plan_run_edit(&island.run, &old, &new)?;
+    let region = &island.run[plan.first..plan.end];
 
-    let content = decode_stream_content(doc, stream_id)?;
-    let resource_name = active_font_resource_name(&content, span.operator_index)
-        .ok_or(PdfEditError::UnsupportedEncoding)?;
-    // `after.text.is_ascii()` (§9's strategy selection) only says the Rust string is ASCII-shaped
-    // — it says nothing about whether this specific font's byte encoding maps those characters to
-    // the same byte values. Many embedded subset fonts remap codes via `/Differences`, where
-    // writing raw ASCII bytes directly silently produces wrong or blank glyphs instead of the
-    // requested text. Verify against the font's own encoding and fail closed (no fallback exists
-    // for a same-font edit whose font_id isn't a resolvable catalog font — see module doc) rather
-    // than ever writing an unverified byte sequence.
-    let replacement = simple_font_identity_bytes(doc, page_id, &resource_name, &after.text)
-        .ok_or(PdfEditError::UnsupportedEncoding)?;
+    // Re-encode through the very table that made the island `editable` (`inspect::ReverseTable`).
+    // Nothing is ever substituted: a character the font has no code for is a typed refusal that
+    // names it, before any mutation. Only the changed middle is encoded; every other word, kern
+    // and gap of the run is left exactly as it is.
+    let middle = encode_middle_for_font(doc, page_id, &island.appearance.font_id, &plan.middle)
+        .map_err(|failure| match failure {
+            ReencodeFailure::Blocked => PdfEditError::UnsupportedEncoding,
+            ReencodeFailure::MissingGlyphs(chars) => PdfEditError::MissingGlyphs(chars),
+        })?;
 
-    let mut content = content;
-    splice_operand_bytes(
+    // A word gap in the new middle with no space glyph in the font is regenerated from the gap it
+    // replaces (same order), else from the island's first gap: the same TJ numbers, so the
+    // original gap width. No reference gap means no faithful space: refuse, never drop it.
+    let size = layout.font_size;
+    let th = layout.horizontal_scale;
+    let gap_text = |value: f64| -(value / 1000.0) * size * th;
+    let mut gap_values: Vec<f64> = Vec::new();
+    if !middle.space_glyph {
+        // Gaps are the only space this font can show, and the page graph reads exactly one gap
+        // between neighbouring glyphs. Two spaces in a row (an empty word between them), or a
+        // space at either edge of the replaced region, would come back as a different text.
+        if middle.pieces.len() > 1 && middle.pieces.iter().any(|piece| piece.char_count() == 0) {
+            return Err(PdfEditError::MissingGlyphs(vec![' ']));
+        }
+        let replaced: Vec<f64> = region.iter().filter_map(gap_sum).collect();
+        let reference = island.run.iter().find_map(gap_sum);
+        for k in 0..middle.pieces.len().saturating_sub(1) {
+            let value = replaced
+                .get(k)
+                .copied()
+                .or(reference)
+                .ok_or_else(|| PdfEditError::MissingGlyphs(vec![' ']))?;
+            gap_values.push(value);
+        }
+    }
+
+    // Same number of glyphs in, same number out, no gap involved: write each new code over the
+    // old glyph in place. Code widths are equal, so no byte offset or array index moves, and the
+    // kerns between glyphs stay where they were (a flattened word would end `sum(kerns)` too far
+    // to the right and eat into the gap after it).
+    let region_glyphs: Vec<&RunItem> = region.iter().filter(|i| i.glyph.is_some()).collect();
+    let code_len = |i: &&RunItem| {
+        i.glyph
+            .as_ref()
+            .map_or(0, |g| (g.glyph_end - g.glyph_start) as usize)
+    };
+    let positional = !region_glyphs.is_empty()
+        && region_glyphs.len() == region.len()
+        && region_glyphs.iter().all(|i| i.text.chars().count() == 1)
+        && middle.pieces.len() == 1
+        && gap_values.is_empty()
+        && middle.pieces[0].char_count() == region_glyphs.len()
+        && region_glyphs
+            .iter()
+            .all(|i| code_len(i) * region_glyphs.len() == middle.pieces[0].bytes.len());
+
+    // Fit: the island's length with the region's old extent swapped for the new run's pen length.
+    let scale = layout.axis.0.hypot(layout.axis.1);
+    if !(scale.is_finite() && scale > 0.0) {
+        return Err(PdfEditError::UnsupportedEncoding);
+    }
+    let advance = |piece: &inspect::EncodedRun| {
+        piece.advance(size, layout.char_spacing, layout.word_spacing, th)
+    };
+    let mut new_region_text: f64 = middle.pieces.iter().map(advance).sum();
+    for value in &gap_values {
+        new_region_text += layout.char_spacing * th + gap_text(*value);
+    }
+    let island_len = island.run.last().map_or(0.0, |i| i.end) - island.run[0].start;
+    let old_region = region[region.len() - 1].end - region[0].start;
+    let region_reaches_island_end = plan.end == island.run.len();
+    let new_len_text = if positional {
+        // Pen end is unchanged by the in-place write except for the glyph widths themselves and
+        // for `Tw`: a space glyph advances the pen by `Tw` more than any other glyph, so turning a
+        // letter into a space (or back) moves everything after it. The island's very last glyph
+        // has no trailing advance inside the island, so it contributes no `Tw`.
+        let old_widths: f64 = region.iter().map(|i| i.end - i.start).sum();
+        let new_widths = middle.pieces[0].advance(size, 0.0, 0.0, th);
+        let new_chars: Vec<char> = plan.middle.chars().collect();
+        let mut tw_delta = 0.0;
+        for (k, item) in region_glyphs.iter().enumerate() {
+            if region_reaches_island_end && k + 1 == region_glyphs.len() {
+                continue;
+            }
+            let was_space = item.text == " ";
+            let is_space = new_chars.get(k) == Some(&' ');
+            tw_delta += layout.word_spacing * th * (f64::from(is_space) - f64::from(was_space));
+        }
+        island_len / scale + new_widths - old_widths / scale + tw_delta
+    } else {
+        // The region's last glyph is followed by its own `Tc`/`Tw`: a space there carries `Tw`
+        // across to whatever follows, and the new last glyph may or may not.
+        let trailing_tw = if region_reaches_island_end {
+            0.0
+        } else {
+            let was_space = region.last().is_some_and(|i| i.glyph.is_some() && i.text == " ");
+            let is_space = plan.middle.chars().last() == Some(' ');
+            layout.word_spacing * th * (f64::from(is_space) - f64::from(was_space))
+        };
+        (island_len - old_region) / scale + new_region_text + trailing_tw
+    };
+    validate_layout_advance(new_len_text, layout.axis, available_bounds)?;
+
+    let mut content = decode_stream_content(doc, stream_id)?;
+
+    if positional {
+        let bytes = &middle.pieces[0].bytes;
+        let width = bytes.len() / region_glyphs.len();
+        for (item, chunk) in region_glyphs.iter().zip(bytes.chunks(width)) {
+            let g = item.glyph.as_ref().expect("filtered to glyphs");
+            splice_operand_bytes(
+                &mut content,
+                g.operator_index,
+                g.operand_index,
+                g.glyph_start,
+                g.glyph_end,
+                chunk,
+            )?;
+        }
+        write_stream_content(doc, stream_id, &content)?;
+        return verify_written(doc, page, island, &after.text, available_bounds);
+    }
+
+    // 1. Gap numbers inside the region are replaced by the regenerated gaps: zero them in place
+    //    (array length and every other index unchanged).
+    for item in region {
+        for number in item.gap_numbers.iter().flatten() {
+            zero_tj_number(&mut content, number)?;
+        }
+    }
+    // 2. Region glyphs other than the slot's operand are blanked, last first, so no remaining
+    //    byte offset shifts.
+    let glyphs: Vec<&GlyphSourceAddress> = region.iter().filter_map(|i| i.glyph.as_ref()).collect();
+    let slot = glyphs[0];
+    // The region is flattened into one run of new words: every kern that sat between its old
+    // glyphs (inside a word, or across the blanked strings) would otherwise survive in front of
+    // the new text and push it - and everything after it - sideways. The fit above counts the
+    // new region as the new words and the regenerated gaps and nothing else.
+    zero_numbers_between(&mut content, slot, glyphs[glyphs.len() - 1])?;
+    let same_operand = |g: &GlyphSourceAddress| {
+        g.operator_index == slot.operator_index && g.operand_index == slot.operand_index
+    };
+    for g in glyphs.iter().rev().filter(|g| !same_operand(g)) {
+        splice_operand_bytes(
+            &mut content,
+            g.operator_index,
+            g.operand_index,
+            g.glyph_start,
+            g.glyph_end,
+            &[],
+        )?;
+    }
+    // 3. The slot's own bytes become the new words (and gaps).
+    let slot_end = glyphs
+        .iter()
+        .filter(|g| same_operand(g))
+        .map(|g| g.glyph_end)
+        .max()
+        .unwrap_or(slot.glyph_end);
+    let pieces: Vec<Vec<u8>> = middle.pieces.iter().map(|p| p.bytes.clone()).collect();
+    write_pieces(
         &mut content,
-        span.operator_index,
-        span.operand_index,
-        span.glyph_start,
-        span.glyph_end,
-        &replacement,
+        slot,
+        (slot.glyph_start, slot_end),
+        &pieces,
+        &gap_values,
     )?;
-    write_stream_content(doc, stream_id, &content)
+    write_stream_content(doc, stream_id, &content)?;
+    verify_written(doc, page, island, &after.text, available_bounds)
 }
 
-/// Best-effort resolution of the `Tf` resource name governing `operator_index` — the most recent
-/// `Tf` operator at or before it in the stream's linear operator order. Matches this module's
-/// existing simplification (the walker's own `TextState.font` tracking is likewise a linear scan,
-/// not `q`/`Q`-scoped): good enough for the vast majority of real content streams, and a wrong
-/// guess here fails closed via [`simple_font_identity_bytes`]'s reverse-encoding check rather than
-/// producing wrong output.
-fn active_font_resource_name(content: &Content, operator_index: u32) -> Option<Vec<u8>> {
-    let mut name: Option<Vec<u8>> = None;
-    for op in content.operations.iter().take(operator_index as usize + 1) {
-        if op.operator == "Tf" {
-            if let Some(Object::Name(n)) = op.operands.first() {
-                name = Some(n.clone());
+/// Sets every numeric `TJ` item strictly between glyph `first` and glyph `last` to 0 (array length
+/// and every index unchanged). The numbers inside the span a flatten rewrites are the kerns of
+/// the text being replaced.
+fn zero_numbers_between(
+    content: &mut Content,
+    first: &GlyphSourceAddress,
+    last: &GlyphSourceAddress,
+) -> Result<(), PdfEditError> {
+    if (last.operator_index, last.operand_index) < (first.operator_index, first.operand_index) {
+        return Err(PdfEditError::SourceDigestMismatch);
+    }
+    for op_index in first.operator_index..=last.operator_index {
+        let op = content
+            .operations
+            .get_mut(op_index as usize)
+            .ok_or(PdfEditError::SourceDigestMismatch)?;
+        if op.operator != "TJ" {
+            continue;
+        }
+        let Some(Object::Array(items)) = op.operands.get_mut(0) else {
+            continue;
+        };
+        let from = if op_index == first.operator_index {
+            first.operand_index as usize + 1
+        } else {
+            0
+        };
+        let to = if op_index == last.operator_index {
+            (last.operand_index as usize).min(items.len())
+        } else {
+            items.len()
+        };
+        for item in items.iter_mut().take(to).skip(from) {
+            if matches!(item, Object::Integer(_) | Object::Real(_)) {
+                *item = Object::Integer(0);
             }
         }
     }
-    name
+    Ok(())
 }
 
-/// Conservative overflow check for the ASCII exact-patch path, where no real font metrics are
-/// reachable (see module doc's "Layout measurement" note): average glyph width ≈ `0.5 * size_pt`.
-fn validate_layout_conservative(
-    text: &str,
-    size_pt: f64,
+/// Reads the page back after an in-place write and checks what was actually written against what
+/// was asked: the island that starts where the edited one started must read as exactly
+/// `wanted` (spaces included - a requested spacing the encoding cannot represent comes back
+/// different), and that text must still fit `available`, measured from the pen positions the
+/// walker now sees rather than from the arithmetic that predicted them. Any mismatch is a refusal;
+/// the caller drops the document, so nothing partial is returned.
+fn verify_written(
+    doc: &Document,
+    page: u32,
+    island: &PdfTextIsland,
+    wanted: &str,
     available: PdfRect,
 ) -> Result<(), PdfEditError> {
-    let width = text.chars().count() as f64 * size_pt * 0.5;
-    let run_bounds = PdfRect {
-        x: available.x,
-        y: available.y,
-        width,
-        height: available.height,
-    };
-    if !available.contains(run_bounds) {
+    if wanted.is_empty() {
+        return Ok(());
+    }
+    let first = island
+        .locator
+        .spans
+        .first()
+        .ok_or(PdfEditError::VerificationFailed)?;
+    let graph =
+        walk_page_graph(doc, "", page).map_err(|_| PdfEditError::VerificationFailed)?;
+    let written = graph
+        .islands
+        .iter()
+        .find(|candidate| {
+            candidate.locator.spans.first().is_some_and(|span| {
+                span.stream_ref == first.stream_ref
+                    && span.contents_index == first.contents_index
+                    && span.operator_index == first.operator_index
+                    && span.operand_index == first.operand_index
+                    && span.glyph_start == first.glyph_start
+            })
+        })
+        .ok_or(PdfEditError::VerificationFailed)?;
+
+    // The run items that make up `wanted`. Anything after them is a neighbour the island may now
+    // touch, not part of this edit.
+    let wanted_chars = wanted.chars().count();
+    let mut text = String::new();
+    let mut last_item = None;
+    for (index, item) in written.run.iter().enumerate() {
+        text.push_str(&item.text);
+        if text.chars().count() >= wanted_chars {
+            last_item = Some(index);
+            break;
+        }
+    }
+    let last_item = last_item.ok_or(PdfEditError::VerificationFailed)?;
+    if text != wanted {
+        return Err(PdfEditError::VerificationFailed);
+    }
+    let layout = written.layout.ok_or(PdfEditError::VerificationFailed)?;
+    let scale = layout.axis.0.hypot(layout.axis.1);
+    if !(scale.is_finite() && scale > 0.0) {
+        return Err(PdfEditError::VerificationFailed);
+    }
+    let extent = written.run[last_item].end - written.run[0].start;
+    validate_layout_advance(extent / scale, layout.axis, available)
+}
+
+/// Overflow check for an in-place write. `advance` is the replacement's text-space length along
+/// the baseline (see `EncodedRun::advance`); `axis` is the device-space vector of one text unit.
+/// The projected extents must fit `available`, within [`OVERFLOW_EPSILON_PT`]. The measure is the
+/// glyph *advances*, exactly what the island's own box is built from, so a replacement no wider
+/// than the original never overflows its own box.
+fn validate_layout_advance(
+    advance: f64,
+    axis: (f64, f64),
+    available: PdfRect,
+) -> Result<(), PdfEditError> {
+    let width = (advance * axis.0).abs();
+    let height = (advance * axis.1).abs();
+    if !(width.is_finite() && height.is_finite())
+        || width > available.width + OVERFLOW_EPSILON_PT
+        || height > available.height + OVERFLOW_EPSILON_PT
+    {
         return Err(PdfEditError::TextOverflow);
     }
     Ok(())
@@ -469,7 +955,7 @@ fn validate_layout_measured(
 ) -> Result<(), PdfEditError> {
     // Anchored at `available`'s own lower-left corner (§8: "Available expansion beyond original
     // island requires verified empty page space on same baseline" — `available_bounds` IS that
-    // verified, baseline-anchored usable rect already, per `validate_layout_conservative`'s
+    // verified, baseline-anchored usable rect already, per `validate_layout_advance`'s
     // matching convention). No extra guessed descender offset below `anchor.y`/`available.y`: that
     // previously pushed `run_bounds` below `available`'s own bottom edge and produced a false
     // `TextOverflow` even for text that fits comfortably.
@@ -660,7 +1146,11 @@ fn page_rotation(doc: &Document, page_id: ObjectId) -> Result<i64, PdfEditError>
 }
 
 fn inherited_page_array(doc: &Document, mut page_id: ObjectId, key: &[u8]) -> Option<Vec<f64>> {
+    let mut seen = std::collections::HashSet::new();
     for _ in 0..64 {
+        if !seen.insert(page_id) {
+            return None; // a /Parent cycle
+        }
         let dict = doc.get_object(page_id).ok()?.as_dict().ok()?;
         if let Ok(value) = dict.get(key) {
             let value = match value {
@@ -687,7 +1177,11 @@ fn object_number(value: &Object) -> Option<f64> {
 }
 
 fn inherited_page_number(doc: &Document, mut page_id: ObjectId, key: &[u8]) -> Option<i64> {
+    let mut seen = std::collections::HashSet::new();
     for _ in 0..64 {
+        if !seen.insert(page_id) {
+            return None; // a /Parent cycle
+        }
         let dict = doc.get_object(page_id).ok()?.as_dict().ok()?;
         if let Ok(value) = dict.get(key) {
             let value = match value {
@@ -718,16 +1212,11 @@ fn append_content_stream(
         .as_dict()
         .map_err(|_| PdfEditError::MalformedContent)?;
 
+    // `/Contents` may be an indirect reference to an array of streams; expand it so the new page
+    // array lists streams, never the array object itself.
     let mut ids: Vec<ObjectId> = match page_dict.get(b"Contents") {
-        Ok(Object::Reference(id)) => vec![*id],
-        Ok(Object::Array(items)) => items
-            .iter()
-            .filter_map(|o| match o {
-                Object::Reference(id) => Some(*id),
-                _ => None,
-            })
-            .collect(),
-        _ => Vec::new(),
+        Ok(contents) => content_stream_ids(doc, contents)?,
+        Err(_) => Vec::new(),
     };
     ids.push(new_stream_id);
 
@@ -937,17 +1426,7 @@ fn page_content_ctm(doc: &Document, page_id: ObjectId) -> Result<Matrix, PdfEdit
     let contents = page
         .get(b"Contents")
         .map_err(|_| PdfEditError::MalformedContent)?;
-    let ids: Vec<ObjectId> = match contents {
-        Object::Reference(id) => vec![*id],
-        Object::Array(items) => items
-            .iter()
-            .filter_map(|item| match item {
-                Object::Reference(id) => Some(*id),
-                _ => None,
-            })
-            .collect(),
-        _ => Vec::new(),
-    };
+    let ids = content_stream_ids(doc, contents)?;
     let mut ctm = Matrix::IDENTITY;
     let mut stack = Vec::new();
     for id in ids {
@@ -957,7 +1436,7 @@ fn page_content_ctm(doc: &Document, page_id: ObjectId) -> Result<Matrix, PdfEdit
             .as_stream()
             .map_err(|_| PdfEditError::MalformedContent)?;
         let bytes = stream
-            .decompressed_content()
+            .decompressed_content_with_limit(inspect::MAX_DECOMPRESSED_BYTES)
             .map_err(|_| PdfEditError::MalformedContent)?;
         let content = Content::decode(&bytes).map_err(|_| PdfEditError::MalformedContent)?;
         for operation in content.operations {
@@ -1139,9 +1618,11 @@ fn decode_stream_content(doc: &Document, id: ObjectId) -> Result<Content, PdfEdi
         .as_stream()
         .map_err(|_| PdfEditError::MalformedContent)?;
     let bytes = stream
-        .decompressed_content()
+        .decompressed_content_with_limit(inspect::MAX_DECOMPRESSED_BYTES)
         .map_err(|_| PdfEditError::MalformedContent)?;
-    Content::decode(&bytes).map_err(|_| PdfEditError::MalformedContent)
+    // Strict: the lenient decoder silently drops everything after the first byte it cannot
+    // parse, and a stream rewritten from a truncated parse would permanently lose that tail.
+    Content::decode_strict(&bytes).map_err(|_| PdfEditError::MalformedContent)
 }
 
 /// Replaces the stream object at `id` in place (same object number/generation, so every other
@@ -1251,6 +1732,7 @@ mod tests {
     use super::*;
     use lopdf::{dictionary, Object as LObject};
 
+    use crate::inspect::simple_font_identity_bytes;
     use crate::model::{GlyphId, PdfColor, PdfEditCommand, PdfOcrBackgroundProof, PdfPageGraph};
 
     // -----------------------------------------------------------------------------------
@@ -1922,5 +2404,977 @@ mod tests {
             .expect("empty batch always succeeds");
         assert_eq!(candidate.bytes, source);
         assert!(candidate.affected_pages.is_empty());
+    }
+    // -----------------------------------------------------------------------------------
+    // Honest editability, typed missing glyphs, exact overflow, multi-span and CID writes
+    // -----------------------------------------------------------------------------------
+
+    use crate::test_fixtures::{
+        custom_page_pdf, differences_encoding, helvetica_font, identity_h_font, subset_type1_font,
+    };
+
+    /// Axis-aligned bounds of an island's glyph quads: exactly what a UI derives for "the
+    /// island's own box".
+    fn island_box(island: &crate::model::PdfTextIsland) -> PdfRect {
+        let mut min_x = f64::MAX;
+        let mut min_y = f64::MAX;
+        let mut max_x = f64::MIN;
+        let mut max_y = f64::MIN;
+        for quad in &island.quads {
+            for corner in 0..4 {
+                min_x = min_x.min(quad[corner * 2]);
+                max_x = max_x.max(quad[corner * 2]);
+                min_y = min_y.min(quad[corner * 2 + 1]);
+                max_y = max_y.max(quad[corner * 2 + 1]);
+            }
+        }
+        PdfRect {
+            x: min_x,
+            y: min_y,
+            width: max_x - min_x,
+            height: max_y - min_y,
+        }
+    }
+
+    const PAGE_WIDE: PdfRect = PdfRect {
+        x: 0.0,
+        y: 0.0,
+        width: 612.0,
+        height: 792.0,
+    };
+
+    #[test]
+    fn same_glyph_swap_fits_the_islands_own_box() {
+        // Ledger #93: "Page 1: external link below" -> "Page 1: xternale link below" (same length,
+        // same glyph multiset) was `text_overflow` in the island's own box and fine page-wide,
+        // because the old fit check guessed half an em per character (27 x 12 = 324 pt) against a
+        // box that is 286.8 pt of real Helvetica advances.
+        let source = include_bytes!("../tests/fixtures/proof-text-50page.pdf");
+        let doc = Document::load_mem(source).expect("fixture");
+        let sha = document_sha256(source);
+        let island = locate_island(&doc, &sha, 1, "Page 1: external link below");
+        assert!(island.editable, "{:?}", island.edit_blocker);
+        let own = island_box(&island);
+        assert!((own.width - 286.8).abs() < 0.01, "{}", own.width);
+
+        for (label, bounds) in [("own box", own), ("page wide", PAGE_WIDE)] {
+            let command = replace_cmd(
+                "swap",
+                &island,
+                "Page 1: xternale link below",
+                island.appearance.clone(),
+                bounds,
+            );
+            let candidate = compose_candidate(source, &[command], &FailingFontResolver)
+                .unwrap_or_else(|error| panic!("{label}: {error}"));
+            let (_, graph) = reinspect(&candidate, 1);
+            assert!(
+                graph
+                    .islands
+                    .iter()
+                    .any(|isl| isl.text == "Page 1: xternale link below"),
+                "{label}"
+            );
+        }
+
+        // The check is still real: one point narrower than the true width overflows.
+        let narrow = PdfRect {
+            width: own.width - 1.0,
+            ..own
+        };
+        let command = replace_cmd(
+            "swap",
+            &island,
+            "Page 1: xternale link below",
+            island.appearance.clone(),
+            narrow,
+        );
+        assert!(matches!(
+            compose_candidate(source, &[command], &FailingFontResolver),
+            Err(PdfEditError::TextOverflow)
+        ));
+    }
+
+    #[test]
+    fn narrower_replacement_never_overflows_its_own_box_under_character_and_word_spacing() {
+        let doc = build_pdf(b"BT /F1 12 Tf 1 Tc 3 Tw 72 700 Td (a b c) Tj ET");
+        let source = doc_bytes(&doc);
+        let sha = document_sha256(&source);
+        let island = locate_island(&doc, &sha, 1, "a b c");
+        let own = island_box(&island);
+        // Same widths in a different order: the spacing terms must match the walker's exactly.
+        let command = replace_cmd("order", &island, "c b a", island.appearance.clone(), own);
+        compose_candidate(&source, &[command], &FailingFontResolver)
+            .expect("same advance fits its own box");
+    }
+
+    fn subset_with_differences(first_widths: &[i64]) -> Document {
+        let encoding = differences_encoding(
+            None,
+            true,
+            vec![
+                LObject::Integer(65),
+                LObject::Name(b"A".to_vec()),
+                LObject::Name(b"B".to_vec()),
+            ],
+        );
+        custom_page_pdf(
+            |d| {
+                vec![(
+                    "F1",
+                    subset_type1_font(d, 65, first_widths, Some(encoding), None),
+                )]
+            },
+            &[b"BT /F1 12 Tf 72 700 Td (AB) Tj ET"],
+            false,
+        )
+    }
+
+    #[test]
+    fn missing_glyph_error_names_every_character_the_subset_lacks() {
+        let doc = subset_with_differences(&[500, 600, 700]);
+        let source = doc_bytes(&doc);
+        let sha = document_sha256(&source);
+        let island = locate_island(&doc, &sha, 1, "AB");
+        assert!(island.editable);
+
+        let command = replace_cmd(
+            "miss",
+            &island,
+            "ABC!C",
+            island.appearance.clone(),
+            PAGE_WIDE,
+        );
+        let error = compose_candidate(&source, &[command], &FailingFontResolver)
+            .expect_err("missing glyphs are refused");
+        assert_eq!(error.missing_chars(), Some(&['C', '!'][..]));
+        assert_eq!(error.code(), "missing_glyph");
+        assert!(error.to_string().contains("'C', '!'"), "{error}");
+    }
+
+    #[test]
+    fn graph_editable_and_compose_agree_for_every_island() {
+        // F1: Helvetica (re-encodable). F2: an embedded symbolic subset with a built-in encoding
+        // (never re-encodable). Replacing an island with its own text, same appearance, in its own
+        // box must succeed exactly when the graph says `editable`.
+        let doc = custom_page_pdf(
+            |d| {
+                vec![
+                    ("F1", helvetica_font(d)),
+                    ("F2", subset_type1_font(d, 65, &[500, 600], None, None)),
+                ]
+            },
+            &[b"BT /F1 12 Tf 72 700 Td (Hello) Tj ET BT /F2 12 Tf 72 600 Td (AB) Tj ET"],
+            false,
+        );
+        let source = doc_bytes(&doc);
+        let sha = document_sha256(&source);
+        let graph = walk_page_graph(&doc, &sha, 1).expect("graph");
+        assert_eq!(graph.islands.len(), 2);
+        for island in &graph.islands {
+            let command = replace_cmd(
+                "same",
+                island,
+                &island.text,
+                island.appearance.clone(),
+                island_box(island),
+            );
+            let outcome = compose_candidate(&source, &[command], &FailingFontResolver);
+            if island.editable {
+                assert!(outcome.is_ok(), "{}: {:?}", island.text, outcome.err());
+            } else {
+                assert!(
+                    matches!(outcome, Err(PdfEditError::UnsupportedEncoding)),
+                    "{}",
+                    island.text
+                );
+            }
+        }
+        assert_eq!(
+            graph.islands.iter().filter(|i| i.editable).count(),
+            1,
+            "exactly the Helvetica island is editable"
+        );
+    }
+
+    #[test]
+    fn kerned_tj_replacement_writes_one_run_into_the_first_span() {
+        let doc = build_pdf(b"BT /F1 12 Tf 72 700 Td [(Hel) -20 (lo)] TJ ET");
+        let source = doc_bytes(&doc);
+        let sha = document_sha256(&source);
+        let island = locate_island(&doc, &sha, 1, "Hello");
+        assert_eq!(island.locator.spans.len(), 2);
+
+        let command = replace_cmd(
+            "kern",
+            &island,
+            "Help!",
+            island.appearance.clone(),
+            PAGE_WIDE,
+        );
+        let candidate = compose_candidate(&source, &[command], &FailingFontResolver)
+            .expect("multi-operand island composes in place");
+        let (out, graph) = reinspect(&candidate, 1);
+        assert!(graph.islands.iter().any(|isl| isl.text == "Help!"));
+        assert!(!graph.islands.iter().any(|isl| isl.text.contains("lo")));
+
+        // The numeric adjustment survives; the second string is blanked, not removed.
+        let page_id = out.get_pages()[&1];
+        let stream_id = content_stream_ids(
+            &out,
+            out.get_object(page_id)
+                .expect("page")
+                .as_dict()
+                .expect("dict")
+                .get(b"Contents")
+                .expect("contents"),
+        )
+        .expect("ids")[0];
+        let content = decode_stream_content(&out, stream_id).expect("content");
+        let tj = content
+            .operations
+            .iter()
+            .find(|op| op.operator == "TJ")
+            .expect("TJ kept");
+        let Some(Object::Array(items)) = tj.operands.first() else {
+            panic!("TJ array");
+        };
+        // Only the changed tail is rewritten; "Hel" and the kern in front of it are untouched.
+        assert!(matches!(&items[0], Object::String(b, _) if b == b"Hel"));
+        assert!(matches!(&items[1], Object::Integer(-20)));
+        assert!(matches!(&items[2], Object::String(b, _) if b == b"p!"));
+    }
+
+    #[test]
+    fn adjacent_tj_operators_replace_in_place_when_the_font_can_encode() {
+        let doc = build_pdf(b"BT /F1 12 Tf 72 700 Td (Hello) Tj (World) Tj ET");
+        let source = doc_bytes(&doc);
+        let sha = document_sha256(&source);
+        let island = locate_island(&doc, &sha, 1, "HelloWorld");
+        assert_eq!(island.locator.spans.len(), 2);
+        let command = replace_cmd(
+            "two-tj",
+            &island,
+            "Hi there",
+            island.appearance.clone(),
+            PAGE_WIDE,
+        );
+        let candidate = compose_candidate(&source, &[command], &FailingFontResolver)
+            .expect("two Tj operators compose in place");
+        let (_, graph) = reinspect(&candidate, 1);
+        assert!(graph.islands.iter().any(|isl| isl.text == "Hi there"));
+        assert!(!graph.islands.iter().any(|isl| isl.text.contains("World")));
+    }
+
+    #[test]
+    fn identity_h_island_is_rewritten_with_two_byte_codes_and_refuses_unknown_characters() {
+        let doc = custom_page_pdf(
+            |d| {
+                vec![(
+                    "F1",
+                    identity_h_font(
+                        d,
+                        &[(1, 600), (2, 300), (3, 500)],
+                        &[(1, 'H'), (2, 'i'), (3, '!')],
+                    ),
+                )]
+            },
+            &[b"BT /F1 12 Tf 72 700 Td <00010002> Tj ET"],
+            false,
+        );
+        let source = doc_bytes(&doc);
+        let sha = document_sha256(&source);
+        let island = locate_island(&doc, &sha, 1, "Hi");
+        assert!(island.editable);
+
+        let command = replace_cmd("cid", &island, "i!H", island.appearance.clone(), PAGE_WIDE);
+        let candidate = compose_candidate(&source, &[command], &FailingFontResolver)
+            .expect("CID island composes in place");
+        let (_, graph) = reinspect(&candidate, 1);
+        assert!(graph.islands.iter().any(|isl| isl.text == "i!H"));
+
+        let command = replace_cmd(
+            "cid-miss",
+            &island,
+            "Hx",
+            island.appearance.clone(),
+            PAGE_WIDE,
+        );
+        let error = compose_candidate(&source, &[command], &FailingFontResolver)
+            .expect_err("unknown character refused");
+        assert_eq!(error.missing_chars(), Some(&['x'][..]));
+    }
+
+    #[test]
+    fn add_text_on_an_indirect_array_contents_page_keeps_the_stream_list_flat() {
+        let doc = custom_page_pdf(
+            |d| vec![("F1", helvetica_font(d))],
+            &[b"BT /F1 12 Tf 72 700 Td ", b"(Existing) Tj ET"],
+            true,
+        );
+        let source = doc_bytes(&doc);
+        let command = PdfEditCommand::AddText {
+            id: "add".to_string(),
+            page: 1,
+            anchor: PdfPoint { x: 100.0, y: 100.0 },
+            text: "Hi".to_string(),
+            appearance: appearance("test-font", 18.0),
+        };
+        let candidate =
+            compose_candidate(&source, &[command], &test_resolver()).expect("add text composes");
+        let (out, graph) = reinspect(&candidate, 1);
+        assert!(graph.islands.iter().any(|isl| isl.text == "Existing"));
+        assert!(graph.islands.iter().any(|isl| isl.text == "Hi"));
+
+        let page_id = out.get_pages()[&1];
+        let contents = out
+            .get_object(page_id)
+            .expect("page")
+            .as_dict()
+            .expect("dict")
+            .get(b"Contents")
+            .expect("contents")
+            .as_array()
+            .expect("a direct array now");
+        assert_eq!(contents.len(), 3);
+        for item in contents {
+            let id = item.as_reference().expect("reference");
+            out.get_object(id)
+                .expect("object")
+                .as_stream()
+                .expect("every entry is a stream, never the old array object");
+        }
+    }
+
+    #[test]
+    fn unparseable_stream_tail_is_refused_rather_than_truncated_on_write() {
+        // The lenient parser stops at the unterminated string and would drop it on rewrite.
+        let doc = build_pdf(b"BT /F1 12 Tf 72 700 Td (Hello) Tj ET (unterminated");
+        let source = doc_bytes(&doc);
+        let sha = document_sha256(&source);
+        let island = locate_island(&doc, &sha, 1, "Hello");
+        let command = replace_cmd(
+            "tail",
+            &island,
+            "Howdy",
+            island.appearance.clone(),
+            PAGE_WIDE,
+        );
+        assert!(matches!(
+            compose_candidate(&source, &[command], &FailingFontResolver),
+            Err(PdfEditError::MalformedContent)
+        ));
+    }
+    // -----------------------------------------------------------------------------------
+    // TJ-positioned word gaps: synthesised spaces, byte-for-byte preservation, pen positions
+    // -----------------------------------------------------------------------------------
+
+    use crate::test_fixtures::tex_style_pdf;
+
+    const KERNED: &[u8] = b"BT /F1 10 Tf 72 700 Td [(hello) -333 (big) -333 (world)] TJ ET";
+
+    fn lefts(island: &crate::model::PdfTextIsland) -> Vec<f64> {
+        island.quads.iter().map(|q| q[0]).collect()
+    }
+
+    /// The first `TJ` array of the first content stream, as strings (`"<n>"` for numbers).
+    fn tj_shape(candidate: &ComposedCandidate) -> Vec<String> {
+        let (out, _) = reinspect(candidate, 1);
+        let page_id = out.get_pages()[&1];
+        let ids = content_stream_ids(
+            &out,
+            out.get_object(page_id)
+                .expect("page")
+                .as_dict()
+                .expect("dict")
+                .get(b"Contents")
+                .expect("contents"),
+        )
+        .expect("ids");
+        let content = decode_stream_content(&out, ids[0]).expect("content");
+        let tj = content
+            .operations
+            .iter()
+            .find(|op| op.operator == "TJ")
+            .expect("TJ");
+        let Some(Object::Array(items)) = tj.operands.first() else {
+            panic!("TJ array");
+        };
+        items
+            .iter()
+            .map(|item| match item {
+                Object::String(bytes, _) => String::from_utf8_lossy(bytes).into_owned(),
+                Object::Integer(n) => format!("<{n}>"),
+                Object::Real(n) => format!("<{n}>"),
+                other => panic!("{other:?}"),
+            })
+            .collect()
+    }
+
+    fn edit_text(
+        doc: &Document,
+        island: &crate::model::PdfTextIsland,
+        after: &str,
+    ) -> Result<ComposedCandidate, PdfEditError> {
+        let command = replace_cmd(
+            "gap",
+            island,
+            after,
+            island.appearance.clone(),
+            island_box_wide(island),
+        );
+        compose_candidate(&doc_bytes(doc), &[command], &FailingFontResolver)
+    }
+
+    /// The island's own box widened to the page, as the app does when the line has room.
+    fn island_box_wide(island: &crate::model::PdfTextIsland) -> PdfRect {
+        let own = island_box(island);
+        PdfRect {
+            width: PAGE_WIDE.width - own.x,
+            ..own
+        }
+    }
+
+    #[test]
+    fn tj_word_gaps_become_spaces_in_island_text_with_recorded_widths() {
+        let doc = tex_style_pdf(false, KERNED);
+        let sha = document_sha256(&doc_bytes(&doc));
+        let island = locate_island(&doc, &sha, 1, "hello big world");
+        assert!(island.editable, "{:?}", island.edit_blocker);
+        assert_eq!(island.quads.len(), 13, "gaps are not glyphs");
+        let gaps: Vec<(usize, f64)> = island
+            .gaps
+            .iter()
+            .map(|g| (g.char_index, g.width_pt))
+            .collect();
+        assert_eq!(gaps.len(), 2);
+        assert_eq!((gaps[0].0, gaps[1].0), (5, 9));
+        assert!(
+            (gaps[0].1 - 3.33).abs() < 0.01 && (gaps[1].1 - 3.33).abs() < 0.01,
+            "{gaps:?}"
+        );
+        let json = serde_json::to_value(&island).expect("serializes");
+        assert_eq!(json["gaps"][0]["charIndex"], 5);
+    }
+
+    #[test]
+    fn small_kerns_letter_spacing_and_real_spaces_do_not_become_gaps() {
+        let doc = build_pdf(b"BT /F1 12 Tf 3 Tc 72 700 Td [(h) (e) (l) (l) (o)] TJ ET");
+        let sha = document_sha256(&doc_bytes(&doc));
+        let island = locate_island(&doc, &sha, 1, "hello");
+        assert!(island.gaps.is_empty());
+
+        let doc = tex_style_pdf(true, b"BT /F1 10 Tf 72 700 Td [(hello ) -333 (big)] TJ ET");
+        let sha = document_sha256(&doc_bytes(&doc));
+        let island = locate_island(&doc, &sha, 1, "hello big");
+        assert!(
+            island.gaps.is_empty(),
+            "a real space already marks the word break"
+        );
+    }
+
+    #[test]
+    fn word_rotation_keeps_every_gap_and_every_glyph_position() {
+        for space_glyph in [false, true] {
+            let doc = tex_style_pdf(space_glyph, KERNED);
+            let sha = document_sha256(&doc_bytes(&doc));
+            let island = locate_island(&doc, &sha, 1, "hello big world");
+            let candidate = edit_text(&doc, &island, "hello big orldw").expect("composes");
+            let (_, graph) = reinspect(&candidate, 1);
+            let after = graph
+                .islands
+                .iter()
+                .find(|i| i.text == "hello big orldw")
+                .expect("island text equals the request, spaces included");
+            assert_eq!(after.gaps.len(), 2);
+            let (before_x, after_x) = (lefts(&island), lefts(after));
+            assert_eq!(before_x.len(), after_x.len());
+            for (b, a) in before_x.iter().zip(&after_x) {
+                assert!((b - a).abs() < 0.01, "glyph moved: {b} -> {a}");
+            }
+            // The untouched words and both adjustments are byte for byte what they were.
+            assert_eq!(
+                tj_shape(&candidate),
+                ["hello", "<-333>", "big", "<-333>", "orldw"]
+            );
+        }
+    }
+
+    #[test]
+    fn inserting_a_word_regenerates_a_gap_of_the_original_width() {
+        let doc = tex_style_pdf(false, KERNED);
+        let sha = document_sha256(&doc_bytes(&doc));
+        let island = locate_island(&doc, &sha, 1, "hello big world");
+        let candidate = edit_text(&doc, &island, "hello a big world").expect("composes");
+        assert_eq!(
+            tj_shape(&candidate),
+            ["hello", "<-333>", "a", "<-333>", "big", "<-333>", "world"]
+        );
+        let (_, graph) = reinspect(&candidate, 1);
+        let after = graph
+            .islands
+            .iter()
+            .find(|i| i.text == "hello a big world")
+            .expect("exact text");
+        let (b, a) = (lefts(&island), lefts(after));
+        for i in 0..5 {
+            assert!((b[i] - a[i]).abs() < 0.01, "hello moved");
+        }
+        // "big" and "world" move by exactly the inserted word plus one regenerated gap.
+        let shift = 500.0 / 1000.0 * 10.0 + 3.33;
+        for i in 5..13 {
+            assert!((a[i + 1] - b[i] - shift).abs() < 0.01, "glyph {i}");
+        }
+    }
+
+    #[test]
+    fn removing_a_word_drops_its_gap_instead_of_leaving_two() {
+        let doc = tex_style_pdf(false, KERNED);
+        let sha = document_sha256(&doc_bytes(&doc));
+        let island = locate_island(&doc, &sha, 1, "hello big world");
+        let candidate = edit_text(&doc, &island, "hello world").expect("composes");
+        assert_eq!(
+            tj_shape(&candidate),
+            ["hello", "<-333>", "", "<0>", "world"]
+        );
+        let (_, graph) = reinspect(&candidate, 1);
+        let after = graph
+            .islands
+            .iter()
+            .find(|i| i.text == "hello world")
+            .expect("exact text");
+        let (b, a) = (lefts(&island), lefts(after));
+        let shift = 3.0 * 5.0 + 3.33;
+        for i in 0..5 {
+            assert!((b[i] - a[i]).abs() < 0.01, "hello moved");
+        }
+        for i in 8..13 {
+            assert!((b[i] - a[i - 3] - shift).abs() < 0.01, "world glyph {i}");
+        }
+    }
+
+    #[test]
+    fn a_real_space_glyph_is_used_when_the_font_has_one() {
+        let doc = tex_style_pdf(true, b"BT /F1 10 Tf 72 700 Td [(hello) -333 (big)] TJ ET");
+        let sha = document_sha256(&doc_bytes(&doc));
+        let island = locate_island(&doc, &sha, 1, "hello big");
+        let candidate = edit_text(&doc, &island, "hello a big").expect("composes");
+        assert_eq!(tj_shape(&candidate), ["hello", "<-333>", "a big"]);
+        let (_, graph) = reinspect(&candidate, 1);
+        assert!(graph.islands.iter().any(|i| i.text == "hello a big"));
+    }
+
+    #[test]
+    fn a_new_space_with_no_glyph_and_no_reference_gap_is_refused_not_dropped() {
+        let doc = tex_style_pdf(false, b"BT /F1 10 Tf 72 700 Td (hello) Tj ET");
+        let sha = document_sha256(&doc_bytes(&doc));
+        let island = locate_island(&doc, &sha, 1, "hello");
+        let error = edit_text(&doc, &island, "hello a").expect_err("refused");
+        assert_eq!(error.missing_chars(), Some(&[' '][..]));
+    }
+
+    #[test]
+    fn a_gap_made_by_a_position_move_is_a_positioned_run_and_not_editable() {
+        let doc = build_pdf(b"BT /F1 12 Tf 72 700 Td (Hello) Tj 35 0 Td (World) Tj ET");
+        let sha = document_sha256(&doc_bytes(&doc));
+        let island = locate_island(&doc, &sha, 1, "Hello World");
+        assert_eq!(island.gaps.len(), 1);
+        assert!(!island.editable);
+        assert_eq!(
+            island.edit_blocker,
+            Some(crate::model::PdfEditBlocker::PositionedTextRun)
+        );
+        let error = edit_text(&doc, &island, "Hallo World").expect_err("refused");
+        assert!(
+            matches!(error, PdfEditError::UnsupportedEncoding),
+            "{error}"
+        );
+    }
+    #[test]
+    fn a_positioning_operator_between_two_show_operators_makes_the_run_positioned() {
+        // "Hel" is 18 pt wide, so the Td lands "lo" flush against it: no gap, but a seam. Merging
+        // both strings into one would move whatever the second operator positioned.
+        let doc = build_pdf(b"BT /F1 12 Tf 72 700 Td (Hel) Tj 18 0 Td (lo) Tj ET");
+        let sha = document_sha256(&doc_bytes(&doc));
+        let island = locate_island(&doc, &sha, 1, "Hello");
+        assert!(!island.editable);
+        assert_eq!(
+            island.edit_blocker,
+            Some(crate::model::PdfEditBlocker::PositionedTextRun)
+        );
+    }
+
+    #[test]
+    fn same_length_edit_overwrites_glyphs_in_place_and_keeps_inner_kerns() {
+        let doc = tex_style_pdf(
+            false,
+            b"BT /F1 10 Tf 72 700 Td [(h) 40 (e) 40 (llo) -333 (big)] TJ ET",
+        );
+        let sha = document_sha256(&doc_bytes(&doc));
+        let island = locate_island(&doc, &sha, 1, "hello big");
+        let candidate = edit_text(&doc, &island, "elloh big").expect("composes");
+        assert_eq!(
+            tj_shape(&candidate),
+            ["e", "<40>", "l", "<40>", "loh", "<-333>", "big"]
+        );
+        let (_, graph) = reinspect(&candidate, 1);
+        let after = graph
+            .islands
+            .iter()
+            .find(|i| i.text == "elloh big")
+            .expect("gap survives: exact text");
+        for (b, a) in lefts(&island).iter().zip(lefts(after)) {
+            assert!((b - a).abs() < 0.01);
+        }
+    }
+
+    // -----------------------------------------------------------------------------------
+    // Astra read of 0.2.1, 2026-10-11: findings 2, 4, 5, 6, 7, 8 (composition side)
+    // -----------------------------------------------------------------------------------
+
+    fn rect(width: f64) -> PdfRect {
+        PdfRect {
+            x: 72.0,
+            y: 0.0,
+            width,
+            height: 800.0,
+        }
+    }
+
+    /// The island whose text is `text` in the candidate's page 1, with its box width.
+    fn island_after(candidate: &ComposedCandidate, text: &str) -> (crate::model::PdfTextIsland, f64) {
+        let (_, graph) = reinspect(candidate, 1);
+        let island = graph
+            .islands
+            .into_iter()
+            .find(|i| i.text == text)
+            .unwrap_or_else(|| panic!("no island {text:?} in the candidate"));
+        let width = island_box(&island).width;
+        (island, width)
+    }
+
+    #[test]
+    fn finding2_array_cmap_edit_writes_the_codes_the_reader_sees() {
+        // Codes 1,2,3 are A, Z, B. Only codes that decode to the requested letters may be written.
+        let doc = custom_page_pdf(
+            |d| {
+                vec![(
+                    "F1",
+                    crate::test_fixtures::identity_h_font_with_cmap(
+                        d,
+                        &[(1, 500), (2, 500), (3, 500)],
+                        crate::test_fixtures::raw_to_unicode_cmap(
+                            "1 beginbfrange\n<0001> <0003> [<0041> <005A> <0042>]\nendbfrange",
+                        ),
+                    ),
+                )]
+            },
+            &[b"BT /F1 12 Tf 72 700 Td <000100020003> Tj ET"],
+            false,
+        );
+        let source = doc_bytes(&doc);
+        let sha = document_sha256(&source);
+        let island = locate_island(&doc, &sha, 1, "AZB");
+
+        // The old reader read ABC, so "ACB" was writable and landed on A, B, Z.
+        let command = replace_cmd("c", &island, "ACB", island.appearance.clone(), PAGE_WIDE);
+        let error = compose_candidate(&source, &[command], &FailingFontResolver)
+            .expect_err("C has no code in this font");
+        assert_eq!(error.missing_chars(), Some(&['C'][..]));
+
+        let command = replace_cmd("c", &island, "BZA", island.appearance.clone(), PAGE_WIDE);
+        let candidate = compose_candidate(&source, &[command], &FailingFontResolver)
+            .expect("letters the font has");
+        let (_, graph) = reinspect(&candidate, 1);
+        assert!(graph.islands.iter().any(|i| i.text == "BZA"));
+    }
+
+    #[test]
+    fn finding4_flattened_edit_leaves_no_internal_kerns_and_fits_what_it_wrote() {
+        // Replacing the kerned word "hello" with "aa" used to leave -100 -100 behind between the
+        // blanked strings: the fit predicted 28.33 pt, the page drew 30.33 pt.
+        let doc = tex_style_pdf(
+            false,
+            b"BT /F1 10 Tf 72 700 Td [(h) -100 (e) -100 (llo) -333 (big)] TJ ET",
+        );
+        let source = doc_bytes(&doc);
+        let sha = document_sha256(&source);
+        let island = locate_island(&doc, &sha, 1, "hello big");
+        // 5 glyphs x 5 pt + 2 pt of kern + 3.33 pt gap + 3 x 5 pt.
+        assert!((island_box(&island).width - 45.33).abs() < 0.01);
+
+        let command = replace_cmd(
+            "flat",
+            &island,
+            "aa big",
+            island.appearance.clone(),
+            rect(28.33),
+        );
+        let candidate = compose_candidate(&source, &[command], &FailingFontResolver)
+            .expect("fits the width it predicted");
+        let (written, width) = island_after(&candidate, "aa big");
+        assert!(
+            (width - 28.33).abs() < 0.01,
+            "predicted 28.33 pt, page draws {width} pt"
+        );
+        assert_eq!(written.gaps.len(), 1);
+        // Every number between the old glyphs is zero; the gap before "big" is untouched.
+        let shape = tj_shape(&candidate);
+        assert!(shape.contains(&"<-333>".to_string()), "{shape:?}");
+        assert!(!shape.contains(&"<-100>".to_string()), "{shape:?}");
+    }
+
+    #[test]
+    fn finding4_flatten_across_two_operators_zeroes_the_kerns_between_them() {
+        let doc = tex_style_pdf(
+            false,
+            b"BT /F1 10 Tf 72 700 Td [(he) -100 (l)] TJ [(lo) -333 (big)] TJ ET",
+        );
+        let source = doc_bytes(&doc);
+        let sha = document_sha256(&source);
+        let island = locate_island(&doc, &sha, 1, "hello big");
+        let command = replace_cmd(
+            "flat2",
+            &island,
+            "aa big",
+            island.appearance.clone(),
+            rect(28.33),
+        );
+        let candidate = compose_candidate(&source, &[command], &FailingFontResolver)
+            .expect("composes");
+        let (_, width) = island_after(&candidate, "aa big");
+        assert!((width - 28.33).abs() < 0.01, "{width}");
+    }
+
+    #[test]
+    fn finding5_same_length_edit_that_adds_a_space_accounts_for_word_spacing() {
+        // 10 Tw: the new space (2.5 pt wide) advances the pen 12.5 pt, so "a b" is 22.5 pt wide,
+        // not the 12.5 pt the glyph-width difference alone predicts.
+        let doc = tex_style_pdf(true, b"BT /F1 10 Tf 10 Tw 72 700 Td (axb) Tj ET");
+        let source = doc_bytes(&doc);
+        let sha = document_sha256(&source);
+        let island = locate_island(&doc, &sha, 1, "axb");
+        let own = island_box(&island);
+        assert!((own.width - 15.0).abs() < 0.01);
+
+        let command = replace_cmd("tw", &island, "a b", island.appearance.clone(), own);
+        assert!(matches!(
+            compose_candidate(&source, &[command], &FailingFontResolver),
+            Err(PdfEditError::TextOverflow)
+        ));
+
+        let command = replace_cmd("tw", &island, "a b", island.appearance.clone(), rect(22.5));
+        let candidate = compose_candidate(&source, &[command], &FailingFontResolver)
+            .expect("fits when given the width it needs");
+        let (_, width) = island_after(&candidate, "a b");
+        assert!((width - 22.5).abs() < 0.01, "{width}");
+    }
+
+    #[test]
+    fn finding5_removing_a_space_shrinks_by_word_spacing_too() {
+        let doc = tex_style_pdf(true, b"BT /F1 10 Tf 10 Tw 72 700 Td (a b) Tj ET");
+        let source = doc_bytes(&doc);
+        let sha = document_sha256(&source);
+        let island = locate_island(&doc, &sha, 1, "a b");
+        assert!((island_box(&island).width - 22.5).abs() < 0.01);
+        let command = replace_cmd("tw", &island, "axb", island.appearance.clone(), rect(15.0));
+        let candidate = compose_candidate(&source, &[command], &FailingFontResolver)
+            .expect("narrower fits");
+        let (_, width) = island_after(&candidate, "axb");
+        assert!((width - 15.0).abs() < 0.01, "{width}");
+    }
+
+    #[test]
+    fn finding6_editing_one_page_leaves_a_page_that_shares_its_stream_alone() {
+        let mut doc = Document::with_version("1.7");
+        let pages_id = doc.new_object_id();
+        let font = helvetica_font(&mut doc);
+        let resources = doc.add_object(dictionary! { "Font" => dictionary! { "F1" => font } });
+        let shared = doc.add_object(Stream::new(
+            dictionary! {},
+            b"BT /F1 12 Tf 72 700 Td (Hello) Tj ET".to_vec(),
+        ));
+        let mut page_ids = Vec::new();
+        for _ in 0..2 {
+            page_ids.push(doc.add_object(dictionary! {
+                "Type" => "Page",
+                "Parent" => pages_id,
+                "Contents" => shared,
+                "Resources" => resources,
+                "MediaBox" => vec![0.into(), 0.into(), 612.into(), 792.into()],
+            }));
+        }
+        doc.objects.insert(
+            pages_id,
+            Object::Dictionary(dictionary! {
+                "Type" => "Pages",
+                "Kids" => page_ids.iter().map(|id| Object::Reference(*id)).collect::<Vec<_>>(),
+                "Count" => 2,
+            }),
+        );
+        let catalog = doc.add_object(dictionary! { "Type" => "Catalog", "Pages" => pages_id });
+        doc.trailer.set("Root", catalog);
+
+        let source = doc_bytes(&doc);
+        let sha = document_sha256(&source);
+        let island = locate_island(&doc, &sha, 1, "Hello");
+        let command = replace_cmd("p1", &island, "Howdy", island.appearance.clone(), PAGE_WIDE);
+        let candidate =
+            compose_candidate(&source, &[command], &FailingFontResolver).expect("composes");
+        // Truthful: only page 1's content changed; page 2 got its own byte-identical copy.
+        assert_eq!(candidate.affected_pages, vec![1]);
+
+        let (_, page1) = reinspect(&candidate, 1);
+        let (_, page2) = reinspect(&candidate, 2);
+        assert!(page1.islands.iter().any(|i| i.text == "Howdy"));
+        assert!(!page1.islands.iter().any(|i| i.text == "Hello"));
+        assert!(
+            page2.islands.iter().any(|i| i.text == "Hello"),
+            "page 2 must still read Hello: {:?}",
+            page2.islands.iter().map(|i| &i.text).collect::<Vec<_>>()
+        );
+        assert!(!page2.islands.iter().any(|i| i.text == "Howdy"));
+
+        // A second command aimed at the other page, captured against the same pristine source,
+        // is refused as stale (its stream was copied) rather than applied to the wrong page.
+        let island2 = {
+            let graph = walk_page_graph(&doc, &sha, 2).expect("page 2");
+            graph.islands.into_iter().next().expect("island")
+        };
+        let c1 = replace_cmd("p1", &island, "Howdy", island.appearance.clone(), PAGE_WIDE);
+        let c2 = replace_cmd("p2", &island2, "Hi", island2.appearance.clone(), PAGE_WIDE);
+        let outcome = compose_candidate(&source, &[c1, c2], &FailingFontResolver);
+        assert!(
+            matches!(outcome, Err(PdfEditError::SourceDigestMismatch)),
+            "{:?}",
+            outcome.map(|c| c.affected_pages)
+        );
+    }
+
+    #[test]
+    fn finding7_non_editable_island_with_unchanged_appearance_is_refused_by_the_composer() {
+        // A Td between the strings makes this a positioned run. A *working* resolver for the
+        // island's own font id is provided, so the refusal can only come from the blocker.
+        let doc = build_pdf(b"BT /F1 10 Tf 72 700 Td (A) Tj 6.67 0 Td (B) Tj ET");
+        let source = doc_bytes(&doc);
+        let sha = document_sha256(&source);
+        let island = locate_island(&doc, &sha, 1, "AB");
+        assert!(!island.editable);
+        assert_eq!(
+            island.edit_blocker,
+            Some(crate::model::PdfEditBlocker::PositionedTextRun)
+        );
+        let resolver = TestFontResolver {
+            id: "F1",
+            bytes: installable_font(),
+        };
+        // The resolver really would have produced a candidate for this text and appearance.
+        assert!(resolver.resolve("F1").is_ok());
+        assert!(resolver.glyphs_for_text(&resolver.resolve("F1").unwrap(), "AC").is_ok());
+
+        let command = replace_cmd("ac", &island, "AC", island.appearance.clone(), PAGE_WIDE);
+        let outcome = compose_candidate(&source, &[command], &resolver);
+        assert!(
+            matches!(outcome, Err(PdfEditError::UnsupportedEncoding)),
+            "{:?}",
+            outcome.map(|c| c.bytes.len())
+        );
+    }
+
+    #[test]
+    fn finding7_every_blocker_is_refused_before_strategy_selection() {
+        // F1 Helvetica; F2 an embedded symbolic subset; mixed sizes; cross-stream split.
+        let doc = custom_page_pdf(
+            |d| {
+                vec![
+                    ("F1", helvetica_font(d)),
+                    ("F2", subset_type1_font(d, 65, &[500, 600], None, None)),
+                ]
+            },
+            &[
+                b"BT /F2 12 Tf 72 600 Td (AB) Tj ET BT /F1 12 Tf 72 500 Td (Hel) Tj ET \
+                  BT /F1 12 Tf 72 400 Td (Big) Tj /F1 20 Tf (Bad) Tj ET",
+            ],
+            false,
+        );
+        let source = doc_bytes(&doc);
+        let sha = document_sha256(&source);
+        let graph = walk_page_graph(&doc, &sha, 1).expect("graph");
+        let resolver = TestFontResolver {
+            id: "F1",
+            bytes: installable_font(),
+        };
+        let mut refused = 0;
+        for island in graph.islands.iter().filter(|i| !i.editable) {
+            let command = replace_cmd(
+                "same",
+                island,
+                &island.text,
+                island.appearance.clone(),
+                PAGE_WIDE,
+            );
+            assert!(
+                matches!(
+                    compose_candidate(&source, &[command], &resolver),
+                    Err(PdfEditError::UnsupportedEncoding)
+                ),
+                "{:?} ({:?})",
+                island.text,
+                island.edit_blocker
+            );
+            refused += 1;
+        }
+        assert!(refused >= 2, "fixture must contain non-editable islands");
+    }
+
+    #[test]
+    fn finding7_a_changed_appearance_still_redraws_a_non_editable_island() {
+        // The explicit substitution request is unchanged (see also the split-run test above).
+        let doc = build_pdf(b"BT /F1 10 Tf 72 700 Td (A) Tj 6.67 0 Td (B) Tj ET");
+        let source = doc_bytes(&doc);
+        let sha = document_sha256(&source);
+        let island = locate_island(&doc, &sha, 1, "AB");
+        assert!(!island.editable && island.substitution_editable);
+        let command = replace_cmd(
+            "sub",
+            &island,
+            "Hi",
+            appearance("test-font", 12.0),
+            PdfRect {
+                x: 72.0,
+                y: 690.0,
+                width: 200.0,
+                height: 30.0,
+            },
+        );
+        compose_candidate(&source, &[command], &test_resolver()).expect("substitution composes");
+    }
+
+    #[test]
+    fn finding8_repeated_spaces_in_a_space_less_font_are_refused_not_returned() {
+        let doc = tex_style_pdf(false, b"BT /F1 10 Tf 72 700 Td [(hello) -333 (big)] TJ ET");
+        let source = doc_bytes(&doc);
+        let sha = document_sha256(&source);
+        let island = locate_island(&doc, &sha, 1, "hello big");
+        for after in ["hello  big", "hello big ", " hello big"] {
+            let outcome = edit_text(&doc, &island, after);
+            let error = outcome.expect_err(after);
+            assert_eq!(error.missing_chars(), Some(&[' '][..]), "{after:?}");
+        }
+        // One space is still fine.
+        edit_text(&doc, &island, "hello bog").expect("unchanged spacing");
+    }
+
+    #[test]
+    fn composed_text_always_reads_back_as_requested_or_is_refused() {
+        // The backstop behind 4, 5 and 8: verify_written rejects a write whose read-back differs.
+        let doc = tex_style_pdf(true, b"BT /F1 10 Tf 72 700 Td (ab) Tj ET");
+        let source = doc_bytes(&doc);
+        let sha = document_sha256(&source);
+        let island = locate_island(&doc, &sha, 1, "ab");
+        // A document that does not contain the wanted text fails the check.
+        let outcome = verify_written(&doc, 1, &island, "zz", PAGE_WIDE);
+        assert!(matches!(outcome, Err(PdfEditError::VerificationFailed)));
+        verify_written(&doc, 1, &island, "ab", PAGE_WIDE).expect("matches what is there");
     }
 }

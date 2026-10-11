@@ -2,7 +2,7 @@
 //! No Python, no Swift, no third-party crates.
 
 mod appkit;
-mod ax;
+pub mod ax;
 mod capture;
 mod events;
 mod ffi;

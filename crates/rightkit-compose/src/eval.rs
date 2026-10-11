@@ -9,17 +9,20 @@ use crate::model::{
     AssetRef, ClickShape, Clip, Composition, Content, CursorSample, CursorSprite, Layer, Pattern,
     Point, Rect, Rgba, Style, Timing, Transform,
 };
+use crate::retime::{source_time_at, RetimeSegment};
+use crate::ticks::{Rational, Ticks, TICKS_PER_SECOND};
 use crate::track::{sample, Easing, Keyframe};
 use crate::validate::validate;
 
-pub const FRAME_SCHEMA: &str = "rightkit.frame.v1";
+pub const FRAME_SCHEMA: &str = "rightkit.frame.v2";
 
 /// Everything a renderer needs to draw one frame. Layers are in stack order,
-/// back to front, and include only layers active at `t_ms`.
+/// back to front, and include only layers active at `t`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct FrameDescription {
     pub schema: String,
-    pub t_ms: u64,
+    /// The evaluated timeline time, in ticks.
+    pub t: Ticks,
     pub width: u32,
     pub height: u32,
     pub layers: Vec<FrameLayer>,
@@ -52,11 +55,11 @@ pub struct ShadowPx {
     pub color: Rgba,
 }
 
-/// Sub-frame time offsets, in milliseconds relative to `t_ms`. A renderer
+/// Sub-frame time offsets, in signed ticks relative to `t`. A renderer
 /// evaluates the composition at each offset and averages the results.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct MotionBlurFrame {
-    pub offsets_ms: Vec<f64>,
+    pub offsets_ticks: Vec<i64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -64,7 +67,8 @@ pub struct MotionBlurFrame {
 pub enum Payload {
     Video {
         asset_id: String,
-        source_ms: f64,
+        /// Source time to show, in ticks, after retime and clamping to the asset.
+        source: Ticks,
         crop: Rect,
         dest_px: Rect,
     },
@@ -75,7 +79,7 @@ pub enum Payload {
     },
     Webcam {
         asset_id: String,
-        source_ms: f64,
+        source: Ticks,
         dest_px: Rect,
     },
     /// `tip_px` is where the hotspot lands. `visible` is false when the cursor
@@ -117,17 +121,21 @@ pub enum Payload {
     },
 }
 
-/// Evaluates the composition at `t_ms`. Validation runs first, so an invalid
-/// composition is reported rather than drawn.
-pub fn evaluate(
-    composition: &Composition,
-    t_ms: u64,
-) -> Result<FrameDescription, CompositionError> {
+/// Evaluates the composition at a millisecond time. A thin wrapper over
+/// [`evaluate`] that converts exactly, 705,600 ticks per millisecond. A value
+/// past the composition's duration returns `OutOfRange`.
+pub fn evaluate_ms(composition: &Composition, t_ms: u64) -> Result<FrameDescription, CompositionError> {
+    evaluate(composition, Ticks::from_ms(t_ms))
+}
+
+/// Evaluates the composition at timeline time `t`. Validation runs first, so
+/// an invalid composition is reported rather than drawn.
+pub fn evaluate(composition: &Composition, t: Ticks) -> Result<FrameDescription, CompositionError> {
     validate(composition)?;
-    if t_ms >= composition.duration_ms {
+    if t >= composition.duration {
         return Err(CompositionError::OutOfRange {
-            t_ms,
-            duration_ms: composition.duration_ms,
+            t,
+            duration: composition.duration,
         });
     }
     let canvas = composition.canvas;
@@ -136,12 +144,12 @@ pub fn evaluate(
 
     let mut layers = Vec::new();
     for (stack_index, layer) in composition.layers.iter().enumerate() {
-        if !is_active(layer.timing, t_ms) {
+        if !is_active(layer.timing, t) {
             continue;
         }
-        let local = t_ms - layer.timing.start_ms;
+        let local = Ticks(t.0 - layer.timing.start.0);
         let opacity = sample(&layer.opacity, local).unwrap_or(1.0);
-        let payload = payload_at(composition, layer, t_ms, (width, height));
+        let payload = payload_at(composition, layer, t, (width, height));
         let clip = layer.clip.map(|c| match c {
             Clip::RoundedRect { radius } => ClipPx::RoundedRect {
                 radius_px: radius * min_side,
@@ -155,12 +163,7 @@ pub fn evaluate(
             color: s.color,
         });
         let motion_blur = layer.motion_blur.map(|m| MotionBlurFrame {
-            offsets_ms: blur_offsets(
-                m.samples,
-                m.shutter_degrees,
-                canvas.frame_rate_num,
-                canvas.frame_rate_den,
-            ),
+            offsets_ticks: blur_offsets(m.samples, m.shutter_degrees, composition.fps),
         });
         layers.push(FrameLayer {
             id: layer.id.clone(),
@@ -175,32 +178,31 @@ pub fn evaluate(
 
     Ok(FrameDescription {
         schema: FRAME_SCHEMA.to_string(),
-        t_ms,
+        t,
         width: canvas.width,
         height: canvas.height,
         layers,
     })
 }
 
-fn is_active(timing: Timing, t_ms: u64) -> bool {
-    t_ms >= timing.start_ms && t_ms < timing.end_ms
+fn is_active(timing: Timing, t: Ticks) -> bool {
+    t >= timing.start && t < timing.end
 }
 
-fn payload_at(composition: &Composition, layer: &Layer, t_ms: u64, canvas: (f64, f64)) -> Payload {
+fn payload_at(composition: &Composition, layer: &Layer, t: Ticks, canvas: (f64, f64)) -> Payload {
     let (width, height) = canvas;
-    let local = t_ms - layer.timing.start_ms;
+    let local = Ticks(t.0 - layer.timing.start.0);
     match &layer.content {
         Content::Video {
             asset,
             placement,
             crop,
-            source_start_ms,
-            speed,
+            retime,
         } => {
             let (dest, crop) = media_geometry(layer, *placement, crop, local);
             Payload::Video {
                 asset_id: asset.id.clone(),
-                source_ms: source_time(*source_start_ms, *speed, local, asset),
+                source: video_source(retime, local, asset),
                 crop,
                 dest_px: to_px(dest, width, height),
             }
@@ -220,12 +222,12 @@ fn payload_at(composition: &Composition, layer: &Layer, t_ms: u64, canvas: (f64,
         Content::Webcam {
             asset,
             placement,
-            source_start_ms,
+            source_start,
         } => {
             let dest = place(*placement, layer_transform(layer, local));
             Payload::Webcam {
                 asset_id: asset.id.clone(),
-                source_ms: source_time(*source_start_ms, 1.0, local, asset),
+                source: clamp_to_asset(source_start.saturating_add(local), asset),
                 dest_px: to_px(dest, width, height),
             }
         }
@@ -241,7 +243,7 @@ fn payload_at(composition: &Composition, layer: &Layer, t_ms: u64, canvas: (f64,
                 sprite,
                 samples,
             };
-            cursor_payload(composition, &spec, local, t_ms, canvas)
+            cursor_payload(composition, &spec, local, t, canvas)
         }
         Content::Background { pattern } => Payload::Background {
             pattern: pattern.clone(),
@@ -267,14 +269,14 @@ fn payload_at(composition: &Composition, layer: &Layer, t_ms: u64, canvas: (f64,
             anchor,
             effect,
             style,
-            onset_ms,
-            duration_ms,
+            onset,
+            duration,
             easing,
         } => click_payload(
             *anchor,
             *effect,
             *style,
-            (*onset_ms, *duration_ms, *easing),
+            (*onset, *duration, *easing),
             local,
             (width, height),
         ),
@@ -284,29 +286,24 @@ fn payload_at(composition: &Composition, layer: &Layer, t_ms: u64, canvas: (f64,
 /// Animation progress of a click effect at a layer-local time. Returns
 /// `None` before onset; `Some((eased, linear))` while running and `None`
 /// once the animation has completed.
-fn click_progress(
-    onset_ms: u64,
-    duration_ms: u64,
-    easing: Easing,
-    local: u64,
-) -> Option<(f64, f64)> {
-    if local < onset_ms {
+fn click_progress(onset: Ticks, duration: Ticks, easing: Easing, local: Ticks) -> Option<(f64, f64)> {
+    if local < onset {
         return None;
     }
-    let elapsed = local - onset_ms;
-    if elapsed >= duration_ms {
+    let elapsed = Ticks(local.0 - onset.0);
+    if elapsed >= duration {
         return None;
     }
-    let linear = elapsed as f64 / duration_ms as f64;
-    Some((easing.apply_over(linear, duration_ms as f64), linear))
+    let linear = elapsed.0 as f64 / duration.0 as f64;
+    Some((easing.apply_over(linear, duration), linear))
 }
 
 fn click_payload(
     anchor: Point,
     effect: ClickShape,
     style: Style,
-    (onset_ms, duration_ms, easing): (u64, u64, Easing),
-    local: u64,
+    (onset, duration, easing): (Ticks, Ticks, Easing),
+    local: Ticks,
     canvas: (f64, f64),
 ) -> Payload {
     let (width, height) = canvas;
@@ -315,7 +312,7 @@ fn click_payload(
         x: anchor.x * width,
         y: anchor.y * height,
     };
-    let progress = click_progress(onset_ms, duration_ms, easing, local);
+    let progress = click_progress(onset, duration, easing, local);
     match effect {
         ClickShape::Ripple {
             max_radius,
@@ -359,7 +356,7 @@ fn click_payload(
     }
 }
 
-fn layer_transform(layer: &Layer, local: u64) -> Transform {
+fn layer_transform(layer: &Layer, local: Ticks) -> Transform {
     sample(&layer.transform, local).unwrap_or(Transform::IDENTITY)
 }
 
@@ -368,7 +365,7 @@ fn media_geometry(
     layer: &Layer,
     placement: Rect,
     crop: &[Keyframe<Rect>],
-    local: u64,
+    local: Ticks,
 ) -> (Rect, Rect) {
     let dest = place(placement, layer_transform(layer, local));
     let crop = sample(crop, local).unwrap_or(Rect::FULL);
@@ -389,11 +386,23 @@ fn place(placement: Rect, transform: Transform) -> Rect {
     }
 }
 
-fn source_time(source_start_ms: u64, speed: f64, local: u64, asset: &AssetRef) -> f64 {
-    let raw = source_start_ms as f64 + speed * local as f64;
-    match asset.duration_ms {
-        Some(duration) => raw.clamp(0.0, duration as f64),
-        None => raw.max(0.0),
+/// Source time of a video layer at layer-local `local`. An empty retime is
+/// identity. Otherwise the retime maps the time, and validation guarantees the
+/// segments cover the layer.
+fn video_source(retime: &[RetimeSegment], local: Ticks, asset: &AssetRef) -> Ticks {
+    let raw = if retime.is_empty() {
+        local
+    } else {
+        source_time_at(retime, local).unwrap_or(Ticks::ZERO)
+    };
+    clamp_to_asset(raw, asset)
+}
+
+/// Clamps a source time to the asset's known duration, if it has one.
+fn clamp_to_asset(raw: Ticks, asset: &AssetRef) -> Ticks {
+    match asset.duration {
+        Some(duration) => raw.min(duration),
+        None => raw,
     }
 }
 
@@ -407,18 +416,18 @@ fn to_px(r: Rect, width: f64, height: f64) -> Rect {
 }
 
 /// Finds the followed Video or Still layer and returns its asset, destination
-/// (canvas fractions) and crop (source fractions) at `t_ms`. `None` when the
-/// layer is inactive at `t_ms`.
+/// (canvas fractions) and crop (source fractions) at `t`. `None` when the
+/// layer is inactive at `t`.
 fn follow_geometry<'a>(
     composition: &'a Composition,
     follows: &str,
-    t_ms: u64,
+    t: Ticks,
 ) -> Option<(&'a AssetRef, Rect, Rect)> {
     let target = composition.layers.iter().find(|l| l.id == follows)?;
-    if !is_active(target.timing, t_ms) {
+    if !is_active(target.timing, t) {
         return None;
     }
-    let local = t_ms - target.timing.start_ms;
+    let local = Ticks(t.0 - target.timing.start.0);
     match &target.content {
         Content::Video {
             asset,
@@ -440,19 +449,19 @@ fn follow_geometry<'a>(
 
 /// Interpolated cursor state at a layer-local time: position and visibility.
 /// Visibility holds from the earlier sample until the next one.
-fn cursor_state(samples: &[CursorSample], local: u64) -> Option<(f64, f64, bool)> {
+fn cursor_state(samples: &[CursorSample], local: Ticks) -> Option<(f64, f64, bool)> {
     let first = samples.first()?;
-    if local <= first.at_ms {
+    if local <= first.at {
         return Some((first.x, first.y, first.visible));
     }
     let last = samples.last()?;
-    if local >= last.at_ms {
+    if local >= last.at {
         return Some((last.x, last.y, last.visible));
     }
-    let index = samples.partition_point(|s| s.at_ms <= local) - 1;
+    let index = samples.partition_point(|s| s.at <= local) - 1;
     let a = &samples[index];
     let b = &samples[index + 1];
-    let u = (local - a.at_ms) as f64 / (b.at_ms - a.at_ms) as f64;
+    let u = (local.0 - a.at.0) as f64 / (b.at.0 - a.at.0) as f64;
     Some((a.x + (b.x - a.x) * u, a.y + (b.y - a.y) * u, a.visible))
 }
 
@@ -467,8 +476,8 @@ struct CursorSpec<'a> {
 fn cursor_payload(
     composition: &Composition,
     spec: &CursorSpec,
-    local: u64,
-    t_ms: u64,
+    local: Ticks,
+    t: Ticks,
     canvas: (f64, f64),
 ) -> Payload {
     let (width, height) = canvas;
@@ -486,7 +495,7 @@ fn cursor_payload(
     let Some((x, y, sample_visible)) = cursor_state(spec.samples, local) else {
         return hidden;
     };
-    let Some((source, dest, crop)) = follow_geometry(composition, spec.follows, t_ms) else {
+    let Some((source, dest, crop)) = follow_geometry(composition, spec.follows, t) else {
         return hidden;
     };
 
@@ -525,18 +534,18 @@ fn cursor_payload(
     }
 }
 
-/// Sub-frame offsets for a shutter of `shutter_degrees` sampled `samples`
-/// times, centred on the frame time.
-fn blur_offsets(
-    samples: u32,
-    shutter_degrees: f64,
-    frame_rate_num: u32,
-    frame_rate_den: u32,
-) -> Vec<f64> {
-    let frame_ms = 1000.0 * f64::from(frame_rate_den) / f64::from(frame_rate_num);
+/// Sub-frame offsets in ticks for a shutter of `shutter_degrees` sampled
+/// `samples` times, centred on the frame time. The frame duration is
+/// `TICKS_PER_SECOND * den / num`, exact for NTSC rates, and each offset is
+/// rounded to the nearest tick.
+fn blur_offsets(samples: u32, shutter_degrees: f64, fps: Rational) -> Vec<i64> {
+    let frame_ticks = TICKS_PER_SECOND as f64 * f64::from(fps.den) / f64::from(fps.num);
     let count = f64::from(samples);
     let shutter = shutter_degrees / 360.0;
     (0..samples)
-        .map(|k| ((f64::from(k) + 0.5) / count - 0.5) * shutter * frame_ms)
+        .map(|k| {
+            let u = (f64::from(k) + 0.5) / count - 0.5;
+            (u * shutter * frame_ticks).round() as i64
+        })
         .collect()
 }

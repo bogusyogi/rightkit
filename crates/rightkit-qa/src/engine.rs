@@ -8,12 +8,15 @@ use rightkit_process::{OwnedChild, OwnedCommand};
 use serde_json::{json, Value};
 use std::io::{BufReader, Write};
 use std::path::{Path, PathBuf};
-use std::process::{ChildStdin, Command, Stdio};
+use std::process::{Command, Stdio};
 use std::sync::mpsc::{channel, Receiver, RecvTimeoutError};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 pub const FRAME_LIMIT: usize = 16 * 1024 * 1024;
+
+/// Start of the error a `Sidecar` request returns when no frame arrives in time.
+const TIMEOUT_PREFIX: &str = "sidecar timeout after";
 
 #[derive(Debug, Clone)]
 pub struct EngineTarget {
@@ -143,7 +146,7 @@ impl EngineTarget {
 /// and answering `{"type":"response","status":"ok|err","id":N,"result|error":...}`.
 pub struct Sidecar {
     child: Option<OwnedChild>,
-    stdin: Option<ChildStdin>,
+    stdin: Option<Box<dyn Write + Send>>,
     rx: Receiver<Value>,
     seq: u64,
     pub hello: Value,
@@ -151,7 +154,88 @@ pub struct Sidecar {
     stderr: Arc<Mutex<String>>,
     /// Frames that were neither hello nor the awaited response (events).
     pub events: Vec<Value>,
+    /// Forces the old GenRight `status` frames for every command when true. `false` does not
+    /// force jobs frames: the shape then comes from the hello (see [`Sidecar::set_frame_shape`]
+    /// to pin the jobs contract against a legacy hello).
+    pub legacy_status_frames: bool,
+    /// Shape the hello announced (see [`detect_legacy_frames`]); `None` when it names neither.
+    detected_legacy: Option<bool>,
+    /// Sidecar-level pin set by `set_frame_shape`; beats `legacy_status_frames` and the hello.
+    frame_shape: Option<bool>,
     tracker: Tracker,
+}
+
+/// Runtime figures of a running sidecar, computed on call by [`Sidecar::status`].
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct SidecarStatus {
+    pub pid: u32,
+    /// Requests sent so far (the frame sequence).
+    pub requests_sent: u64,
+    /// Frames buffered in [`Sidecar::events`] (neither hello nor an awaited response). Nothing
+    /// bounds this: a long run with a chatty engine grows it.
+    pub events_buffered: usize,
+    /// Bytes of engine stderr kept in memory (all of it, until the sidecar is dropped).
+    pub stderr_bytes: usize,
+    /// Resident memory, CPU time and I/O counters of the harness process (the sidecar's reader
+    /// threads run in it; the engine child is a separate process), or `None` when the host cannot
+    /// report them. See `rightkit_process::ProcessUsage`.
+    pub process: Option<rightkit_process::ProcessUsage>,
+}
+
+/// Frame shape a sidecar's hello announces. rightkit-jobs' `Dispatcher::hello()` always carries
+/// `contract_version`; GenRight's engine hello (`genright-protocol`, `EngineFrame::Hello`) carries
+/// `rpc_version` and never `contract_version`. `Some(false)` is the rightkit-jobs contract,
+/// `Some(true)` the legacy GenRight frames, `None` when the hello has neither field.
+pub(crate) fn detect_legacy_frames(hello: &Value) -> Option<bool> {
+    if hello.get("contract_version").is_some() {
+        Some(false)
+    } else if hello.get("rpc_version").is_some() {
+        Some(true)
+    } else {
+        None
+    }
+}
+
+fn command_frame(name: &str, input: Value, legacy: bool) -> Value {
+    if legacy {
+        json!({"type": "request", "method": {"method": "command", "params": {"name": name, "input": input}}})
+    } else {
+        json!({"type": "request", "method": name, "params": input})
+    }
+}
+
+fn command_outcome(f: &Value, legacy: bool) -> Result<Value> {
+    let failed = if legacy {
+        f["status"] == "err"
+    } else {
+        f["ok"] != json!(true)
+    };
+    if failed {
+        return err(format!(
+            "{}: {}",
+            f["error"]["code"].as_str().unwrap_or("error"),
+            f["error"]["message"].as_str().unwrap_or("")
+        ));
+    }
+    Ok(f["result"].clone())
+}
+
+/// Where the frame shape of a command came from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ShapeSource {
+    /// A per-command `Option`, `set_frame_shape`, or `legacy_status_frames = true`.
+    Explicit,
+    /// The hello announced it.
+    Detected,
+    /// The hello named neither shape, so the jobs contract was used by default.
+    Fallback,
+}
+
+/// A request that got no response: the error, its id, and whether any frame carried that id.
+struct Exchange {
+    error: Error,
+    id: u64,
+    answered: bool,
 }
 
 impl Sidecar {
@@ -212,19 +296,28 @@ impl Sidecar {
                 }
             }
         });
-        let mut me = Self {
+        Self {
             child: Some(child),
-            stdin,
+            stdin: stdin.map(|s| Box::new(s) as Box<dyn Write + Send>),
             rx,
             seq: 0,
             hello: Value::Null,
             pid,
             stderr,
             events: vec![],
+            legacy_status_frames: false,
+            detected_legacy: None,
+            frame_shape: None,
             tracker: tracker.clone(),
-        };
-        me.hello = me.await_frame(Duration::from_secs(30), |f| f["type"] == "hello")?;
-        Ok(me)
+        }
+        .finish_start()
+    }
+
+    /// Reads the hello and records the frame shape it announces.
+    fn finish_start(mut self) -> Result<Self> {
+        self.hello = self.await_frame(Duration::from_secs(30), |f| f["type"] == "hello")?;
+        self.detected_legacy = detect_legacy_frames(&self.hello);
+        Ok(self)
     }
 
     fn await_frame(
@@ -240,7 +333,8 @@ impl Sidecar {
                 Ok(f) => self.events.push(f),
                 Err(RecvTimeoutError::Timeout) => {
                     return err(format!(
-                        "sidecar timeout after {}ms; stderr tail: {}",
+                        "{} {}ms; stderr tail: {}",
+                        TIMEOUT_PREFIX,
                         timeout.as_millis(),
                         self.stderr_tail()
                     ))
@@ -255,35 +349,123 @@ impl Sidecar {
         }
     }
 
+    /// Buffers and process resource usage, read now. No polling thread runs for this.
+    pub fn status(&self) -> SidecarStatus {
+        SidecarStatus {
+            pid: self.pid,
+            requests_sent: self.seq,
+            events_buffered: self.events.len(),
+            stderr_bytes: self.stderr.lock().map(|s| s.len()).unwrap_or(0),
+            process: rightkit_process::process_usage().ok(),
+        }
+    }
+
     pub fn stderr_tail(&self) -> String {
         crate::util::tail(&self.stderr.lock().unwrap(), 1500)
     }
 
     /// Send an arbitrary frame and return the response with the same id.
-    pub fn raw(&mut self, mut frame: Value, timeout: Duration) -> Result<Value> {
+    pub fn raw(&mut self, frame: Value, timeout: Duration) -> Result<Value> {
+        self.request(frame, timeout).map_err(|x| x.error)
+    }
+
+    /// Writes `frame` with a fresh id and waits for the response with that id. A failure says
+    /// whether any frame carrying that id arrived, so a silent engine can be told apart.
+    fn request(
+        &mut self,
+        mut frame: Value,
+        timeout: Duration,
+    ) -> std::result::Result<Value, Exchange> {
         self.seq += 1;
         let id = self.seq;
         frame["id"] = json!(id);
-        let stdin = self
-            .stdin
-            .as_mut()
-            .ok_or_else(|| Error("sidecar stdin closed".into()))?;
-        write_json_line(stdin, &frame, FRAME_LIMIT).map_err(|e| Error(e.to_string()))?;
-        stdin.flush()?;
+        let before = self.events.len();
+        let written = match self.stdin.as_mut() {
+            Some(stdin) => write_json_line(stdin, &frame, FRAME_LIMIT)
+                .map_err(|e| Error(e.to_string()))
+                .and_then(|()| stdin.flush().map_err(|e| Error(e.to_string()))),
+            None => Err(Error("sidecar stdin closed".into())),
+        };
+        if let Err(error) = written {
+            return Err(Exchange {
+                error,
+                id,
+                answered: false,
+            });
+        }
         self.await_frame(timeout, |f| f["type"] == "response" && f["id"] == json!(id))
+            .map_err(|error| {
+                let answered = self.events[before..].iter().any(|f| f["id"] == json!(id));
+                Exchange {
+                    error,
+                    id,
+                    answered,
+                }
+            })
     }
 
-    /// A command; `Ok(result)` for `status: ok`, `Err("code: message")` for `err`.
-    pub fn command(&mut self, name: &str, input: Value, timeout: Duration) -> Result<Value> {
-        let f = self.raw(json!({"type": "request", "method": {"method": "command", "params": {"name": name, "input": input}}}), timeout)?;
-        if f["status"] == "err" {
-            return err(format!(
-                "{}: {}",
-                f["error"]["code"].as_str().unwrap_or("error"),
-                f["error"]["message"].as_str().unwrap_or("")
-            ));
+    /// The shape a command is sent in: a per-command `Option`, then the sidecar pin, then the
+    /// `legacy_status_frames` field, then what the hello announced, then the jobs contract.
+    fn resolve_shape(&self, per_command: Option<bool>) -> (bool, ShapeSource) {
+        if let Some(legacy) = per_command.or(self.frame_shape) {
+            return (legacy, ShapeSource::Explicit);
         }
-        Ok(f["result"].clone())
+        if self.legacy_status_frames {
+            return (true, ShapeSource::Explicit);
+        }
+        match self.detected_legacy {
+            Some(legacy) => (legacy, ShapeSource::Detected),
+            None => (false, ShapeSource::Fallback),
+        }
+    }
+
+    /// A command. Default is the rightkit-jobs contract: `{type:"request", id, method: name,
+    /// params: input}` answered by `{type:"response", id, ok, result | error:{code,message}}`.
+    /// With `legacy_status_frames` the old GenRight shape is used (`method:{method:"command",
+    /// params:{name,input}}`, answered with `status: ok|err`). The shape a hello announces is
+    /// used when nothing is set; see [`Sidecar::resolve_shape`].
+    pub fn command(&mut self, name: &str, input: Value, timeout: Duration) -> Result<Value> {
+        self.command_with(name, input, timeout, None)
+    }
+
+    pub fn command_with(
+        &mut self,
+        name: &str,
+        input: Value,
+        timeout: Duration,
+        legacy_status_frames: Option<bool>,
+    ) -> Result<Value> {
+        let (legacy, source) = self.resolve_shape(legacy_status_frames);
+        match self.request(command_frame(name, input, legacy), timeout) {
+            Ok(f) => command_outcome(&f, legacy),
+            Err(x)
+                if source == ShapeSource::Fallback
+                    && !x.answered
+                    && x.error.0.starts_with(TIMEOUT_PREFIX) =>
+            {
+                err(format!(
+                    "engine did not answer the frame shape that was sent for `{name}`: sent the \
+                     rightkit-jobs contract {{type:\"request\", id, method, params}} and no frame \
+                     came back for request id {} within {}ms. The hello carried neither \
+                     contract_version nor rpc_version, so the shape was not detected. If this engine \
+                     speaks GenRight's legacy frames ({{type:\"request\", id, \
+                     method:{{method:\"command\", params:{{name, input}}}}}} answered by status: \
+                     ok|err), set legacy_status_frames = true on sidecar_start or on this \
+                     sidecar_command. stderr tail: {}",
+                    x.id,
+                    timeout.as_millis(),
+                    self.stderr_tail()
+                ))
+            }
+            Err(x) => Err(x.error),
+        }
+    }
+
+    /// Pins the frame shape for every command on this sidecar: `Some(true)` the legacy GenRight
+    /// frames, `Some(false)` the rightkit-jobs contract, `None` clears the pin. A per-command
+    /// `Option` still wins over the pin.
+    pub fn set_frame_shape(&mut self, legacy: Option<bool>) {
+        self.frame_shape = legacy;
     }
 
     pub fn shutdown(&mut self) {
@@ -368,4 +550,215 @@ pub fn build_engine(
                 "build produced no executable for package {package}"
             ))
         })
+}
+
+#[cfg(test)]
+mod command_shape_tests {
+    use super::*;
+
+    #[test]
+    fn jobs_contract_is_the_default_frame() {
+        let f = command_frame("scan", json!({"a": 1}), false);
+        assert_eq!(
+            f,
+            json!({"type":"request","method":"scan","params":{"a":1}})
+        );
+        let ok = json!({"type":"response","id":1,"ok":true,"result":{"n":2}});
+        assert_eq!(command_outcome(&ok, false).unwrap(), json!({"n":2}));
+        let bad =
+            json!({"type":"response","id":1,"ok":false,"error":{"code":"nope","message":"m"}});
+        assert_eq!(command_outcome(&bad, false).unwrap_err().0, "nope: m");
+        // A response with no `ok` is not success.
+        assert!(command_outcome(&json!({"type":"response","id":1}), false).is_err());
+    }
+
+    #[test]
+    fn legacy_status_frames_keep_the_old_shape() {
+        let f = command_frame("scan", json!({"a": 1}), true);
+        assert_eq!(
+            f,
+            json!({"type":"request","method":{"method":"command","params":{"name":"scan","input":{"a":1}}}})
+        );
+        let ok = json!({"type":"response","id":1,"status":"ok","result":{"n":2}});
+        assert_eq!(command_outcome(&ok, true).unwrap(), json!({"n":2}));
+        let bad =
+            json!({"type":"response","id":1,"status":"err","error":{"code":"c","message":"m"}});
+        assert_eq!(command_outcome(&bad, true).unwrap_err().0, "c: m");
+    }
+}
+
+#[cfg(test)]
+mod frame_shape_tests {
+    use super::*;
+    use std::sync::mpsc::Sender;
+
+    /// Bytes the sidecar wrote to its stdin, shared with the test.
+    #[derive(Clone, Default)]
+    struct Wire(Arc<Mutex<Vec<u8>>>);
+
+    impl Write for Wire {
+        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+            self.0.lock().unwrap().extend_from_slice(buf);
+            Ok(buf.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    impl Wire {
+        fn sent(&self) -> Vec<Value> {
+            let bytes = self.0.lock().unwrap().clone();
+            String::from_utf8(bytes)
+                .unwrap()
+                .lines()
+                .map(|l| serde_json::from_str(l).unwrap())
+                .collect()
+        }
+    }
+
+    /// An in-memory sidecar. `frames` are the engine's output in order: the hello first, then
+    /// any answers. The returned sender keeps the reader open, so silence is a timeout, not a
+    /// closed stream.
+    fn sidecar(frames: Vec<Value>) -> (Sidecar, Wire, Sender<Value>) {
+        let (tx, rx) = channel();
+        for f in frames {
+            tx.send(f).unwrap();
+        }
+        let wire = Wire::default();
+        let s = Sidecar {
+            child: None,
+            stdin: Some(Box::new(wire.clone())),
+            rx,
+            seq: 0,
+            hello: Value::Null,
+            pid: 0,
+            stderr: Arc::default(),
+            events: vec![],
+            legacy_status_frames: false,
+            detected_legacy: None,
+            frame_shape: None,
+            tracker: Tracker::new(),
+        }
+        .finish_start()
+        .unwrap();
+        (s, wire, tx)
+    }
+
+    fn legacy_hello() -> Value {
+        json!({"type": "hello", "rpc_version": 1, "build": "0.1.0", "pid": 7})
+    }
+    fn jobs_hello() -> Value {
+        json!({"type": "hello", "engine": "demo", "version": "1.0.0", "contract_version": 1})
+    }
+    /// A hello that names neither field.
+    fn bare_hello() -> Value {
+        json!({"type": "hello", "engine": "demo"})
+    }
+    fn legacy_ok(id: u64) -> Value {
+        json!({"type": "response", "status": "ok", "id": id, "result": {"n": 2}})
+    }
+    fn jobs_ok(id: u64) -> Value {
+        json!({"type": "response", "id": id, "ok": true, "result": {"n": 2}})
+    }
+    fn input() -> Value {
+        json!({"a": 1})
+    }
+    fn legacy_frame(id: u64) -> Value {
+        json!({"type": "request", "id": id,
+               "method": {"method": "command", "params": {"name": "scan", "input": {"a": 1}}}})
+    }
+    fn jobs_frame(id: u64) -> Value {
+        json!({"type": "request", "id": id, "method": "scan", "params": {"a": 1}})
+    }
+    const WAIT: Duration = Duration::from_secs(5);
+    const SILENT: Duration = Duration::from_millis(50);
+
+    #[test]
+    fn detection_reads_the_hello_fields() {
+        assert_eq!(detect_legacy_frames(&legacy_hello()), Some(true));
+        assert_eq!(detect_legacy_frames(&jobs_hello()), Some(false));
+        assert_eq!(detect_legacy_frames(&bare_hello()), None);
+    }
+
+    #[test]
+    fn legacy_hello_selects_legacy_frames_without_a_flag() {
+        let (mut s, wire, _tx) = sidecar(vec![legacy_hello(), legacy_ok(1)]);
+        assert_eq!(s.command("scan", input(), WAIT).unwrap(), json!({"n": 2}));
+        assert_eq!(wire.sent(), vec![legacy_frame(1)]);
+    }
+
+    #[test]
+    fn jobs_hello_selects_contract_frames() {
+        let (mut s, wire, _tx) = sidecar(vec![jobs_hello(), jobs_ok(1)]);
+        assert_eq!(s.command("scan", input(), WAIT).unwrap(), json!({"n": 2}));
+        assert_eq!(wire.sent(), vec![jobs_frame(1)]);
+    }
+
+    #[test]
+    fn per_command_flag_beats_a_jobs_hello_both_ways() {
+        let (mut s, wire, _tx) = sidecar(vec![jobs_hello(), legacy_ok(1), jobs_ok(2)]);
+        s.command_with("scan", input(), WAIT, Some(true)).unwrap();
+        s.command_with("scan", input(), WAIT, Some(false)).unwrap();
+        assert_eq!(wire.sent(), vec![legacy_frame(1), jobs_frame(2)]);
+    }
+
+    #[test]
+    fn per_command_flag_beats_a_legacy_hello() {
+        let (mut s, wire, _tx) = sidecar(vec![legacy_hello(), jobs_ok(1)]);
+        s.command_with("scan", input(), WAIT, Some(false)).unwrap();
+        assert_eq!(wire.sent(), vec![jobs_frame(1)]);
+    }
+
+    #[test]
+    fn sidecar_field_and_pin_beat_the_hello() {
+        let (mut s, wire, _tx) = sidecar(vec![jobs_hello(), legacy_ok(1), jobs_ok(2)]);
+        s.legacy_status_frames = true;
+        s.command("scan", input(), WAIT).unwrap();
+        s.set_frame_shape(Some(false));
+        s.command("scan", input(), WAIT).unwrap();
+        assert_eq!(wire.sent(), vec![legacy_frame(1), jobs_frame(2)]);
+    }
+
+    #[test]
+    fn sidecar_pin_beats_a_legacy_hello() {
+        let (mut s, wire, _tx) = sidecar(vec![legacy_hello(), jobs_ok(1)]);
+        s.set_frame_shape(Some(false));
+        s.command("scan", input(), WAIT).unwrap();
+        assert_eq!(wire.sent(), vec![jobs_frame(1)]);
+    }
+
+    #[test]
+    fn ambiguous_hello_and_silence_names_the_shape_and_the_switch() {
+        let (mut s, wire, _tx) = sidecar(vec![bare_hello()]);
+        let e = s.command("scan", input(), SILENT).unwrap_err().0;
+        assert!(
+            e.contains("did not answer the frame shape that was sent"),
+            "{e}"
+        );
+        assert!(e.contains("{type:\"request\", id, method, params}"), "{e}");
+        assert!(e.contains("legacy_status_frames"), "{e}");
+        assert!(e.contains("`scan`"), "{e}");
+        assert_eq!(wire.sent(), vec![jobs_frame(1)]);
+    }
+
+    #[test]
+    fn ambiguous_hello_with_a_frame_for_the_id_keeps_the_plain_timeout() {
+        let event = json!({"type": "event", "id": 1, "event": "progress"});
+        let (mut s, _wire, _tx) = sidecar(vec![bare_hello(), event]);
+        let e = s.command("scan", input(), SILENT).unwrap_err().0;
+        assert!(e.starts_with("sidecar timeout"), "{e}");
+        assert!(!e.contains("did not answer"), "{e}");
+    }
+
+    #[test]
+    fn explicit_shape_and_silence_keep_the_plain_timeout() {
+        let (mut s, _wire, _tx) = sidecar(vec![bare_hello()]);
+        let e = s
+            .command_with("scan", input(), SILENT, Some(false))
+            .unwrap_err()
+            .0;
+        assert!(e.starts_with("sidecar timeout"), "{e}");
+        assert!(!e.contains("did not answer"), "{e}");
+    }
 }

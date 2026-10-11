@@ -21,3 +21,7 @@ native = ["rightkit-qts-ggml-sys/native"]
 
 [dependencies]
 rightkit-qts-ggml-sys = { path = "../rightkit-qts-ggml-sys", version = "0.1.0", default-features = false }
+
+[package.metadata.rightkit]
+continuous = false
+continuous_reason = "no thread-spawn, task-spawn, sleep, timer, listener or watcher in non-test src: deprecated facade whose only resource is a caller-owned fixed-size ggml_context arena freed on drop (lib.rs Context), the resident model and thread use belong to rightkit-qts (reviewed 2026-10-11)"

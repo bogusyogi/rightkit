@@ -5,7 +5,9 @@
 //!
 //! 1. [`Subject`] describes one artifact and the brief declarations it is
 //!    checked against. Measurements arrive as data; this crate never decodes media.
-//! 2. [`RuleSet`] holds typed deterministic rules. Each rule returns one
+//! 2. [`RuleSet`] holds typed deterministic rules, for media and text
+//!    (`RuleKind::Extension` admits consumer rules through a [`RuleRegistry`]).
+//!    Each rule returns one
 //!    [`Verdict`]: verified, failed, unverified, inconclusive, held, or not
 //!    applicable. A declared hold in the brief exempts a deliberate pause,
 //!    silence, or static region.
@@ -22,22 +24,26 @@
 #![forbid(unsafe_code)]
 
 mod error;
+mod extension;
 mod judge;
 mod record;
 mod repair;
 mod rules;
 mod subject;
+mod text;
 mod verdict;
 
 pub use error::ReviewError;
+pub use extension::{ExtensionRule, RuleRegistry};
 pub use judge::{Judge, JudgeRecord, JudgeScore, NoJudge};
 pub use record::{Attempt, VerdictRecord, VERDICT_RECORD_SCHEMA, VERDICT_RECORD_VERSION};
 pub use repair::{
-    run_repair_loop, LoopOutcome, RepairCap, Repairer, StopReason, HARD_MAX_REPAIR_ATTEMPTS,
+    run_repair_loop, run_repair_loop_with, LoopOutcome, RepairCap, Repairer, StopReason,
+    HARD_MAX_REPAIR_ATTEMPTS,
 };
-pub use rules::{rule_ids, Rule, RuleKind, RuleSet};
+pub use rules::{rule_ids, ApprovedProof, Rule, RuleKind, RuleSet};
 pub use subject::{
-    ArtifactDescription, ArtifactKind, Declarations, DeclaredWindow, DeterminismProbe, FrameStat,
-    Subject, TextRegion, WindowKind,
+    ArtifactDescription, ArtifactKind, ClaimAnnotation, Declarations, DeclaredWindow,
+    DeterminismProbe, FrameStat, Subject, TextBody, TextRegion, WindowKind,
 };
 pub use verdict::{disposition, Disposition, Finding, Verdict};

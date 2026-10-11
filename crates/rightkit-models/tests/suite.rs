@@ -18,6 +18,17 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
+/// Loopback-capable client for the local mock server. Production clients refuse
+/// loopback; this test client allows exactly 127.0.0.1.
+fn http() -> rightkit_models::http::ModelHttp {
+    rightkit_models::http::http_client_with_options(rightkit_models::http::ModelHttpOptions {
+        proxy: rightkit_models::http::ProxyMode::None,
+        address_policy: rightkit_http::AddressPolicy::public_web()
+            .allow_if(vec!["127.0.0.1".to_string()], |ip| ip.is_loopback()),
+        ..Default::default()
+    })
+}
+
 fn sha(bytes: &[u8]) -> String {
     Sha256::digest(bytes)
         .iter()
@@ -268,6 +279,8 @@ fn archive_spec(
     auth: bool,
 ) -> ModelSpec {
     ModelSpec {
+        tier: rightkit_models::suite::catalog::ModelTier::Base,
+        entitlement: false,
         id,
         label: "Archive model",
         version: leak(sha(archive)),
@@ -320,7 +333,7 @@ fn gated_archive_install_uses_grant_writes_manifest_and_registers_ref() {
         platform: "macos".into(),
         device_id: "device-0123456789abcdef".into(),
     };
-    let store = ModelStore::at_models_root(&lay.models, "heardright");
+    let store = ModelStore::at_models_root(&lay.models, "heardright").with_http_client(http());
     let mut events = Vec::new();
     let status = store
         .ensure(&spec, Some(&grant), &|| false, |p| {
@@ -391,7 +404,7 @@ fn rejected_grant_is_refreshed_once_and_download_proceeds() {
         device_id: "device-0123456789abcdef".into(),
     };
 
-    let store = ModelStore::at_models_root(&lay.models, "cutright");
+    let store = ModelStore::at_models_root(&lay.models, "cutright").with_http_client(http());
     store
         .ensure(&spec, Some(&grant), &|| false, |_| {})
         .unwrap();
@@ -434,6 +447,7 @@ fn grant_scope_mismatch_and_expired_grants_never_download() {
             device_id: "device-0123456789abcdef".into(),
         };
         let err = ModelStore::at_models_root(&lay.models, "a")
+            .with_http_client(http())
             .ensure(&spec, Some(&grant), &|| false, |_| {})
             .unwrap_err();
         assert!(err.contains(needle), "{err}");
@@ -460,11 +474,11 @@ fn gated_download_without_device_id_or_token_fails_before_network() {
         true,
     );
     let err = ModelStore::at_models_root(&lay.models, "a")
+        .with_http_client(http())
         .ensure(&spec, None, &|| false, |_| {})
         .unwrap_err();
     assert!(err.contains("device id"), "{err}");
-    let err = store::ensure_ready(&store::http_agent(), &lay.models, &spec, &opts("a"), |_| {})
-        .unwrap_err();
+    let err = store::ensure_ready(&http(), &lay.models, &spec, &opts("a"), |_| {}).unwrap_err();
     assert!(err.contains("download token"), "{err}");
     assert!(server.requests("GET").is_empty());
 }
@@ -487,8 +501,7 @@ fn corrupted_archive_fails_integrity_and_leaves_no_entry() {
         &good,
         false,
     );
-    let err = store::ensure_ready(&store::http_agent(), &lay.models, &spec, &opts("a"), |_| {})
-        .unwrap_err();
+    let err = store::ensure_ready(&http(), &lay.models, &spec, &opts("a"), |_| {}).unwrap_err();
     assert!(err.contains("integrity check"), "{err}");
     assert!(!lay.models.join("evil-model").exists());
     assert!(
@@ -514,7 +527,7 @@ fn interrupted_download_resumes_with_range_and_verifies() {
         false,
     );
     spec.files = spec_files(&[("weights.bin", &[7u8; 4096]), ("sub/vocab.txt", VOCAB)]);
-    store::ensure_ready(&store::http_agent(), &lay.models, &spec, &opts("a"), |_| {}).unwrap();
+    store::ensure_ready(&http(), &lay.models, &spec, &opts("a"), |_| {}).unwrap();
     let gets = server.requests("GET /m/t.tar.gz");
     assert!(
         gets.len() >= 2 && gets[0].contains("range=None") && gets[1].contains("range=Some("),
@@ -539,18 +552,12 @@ fn cancelled_download_keeps_part_file_and_next_call_resumes() {
         false,
     );
     spec.files = spec_files(&[("weights.bin", &big), ("sub/vocab.txt", VOCAB)]);
-    let err = store::ensure_ready_cancellable(
-        &store::http_agent(),
-        &lay.models,
-        &spec,
-        &opts("a"),
-        &|| true,
-        |_| {},
-    )
-    .unwrap_err();
+    let err =
+        store::ensure_ready_cancellable(&http(), &lay.models, &spec, &opts("a"), &|| true, |_| {})
+            .unwrap_err();
     assert!(err.contains("cancelled"), "{err}");
     assert!(!lay.models.join("cancel-model").exists());
-    store::ensure_ready(&store::http_agent(), &lay.models, &spec, &opts("a"), |_| {}).unwrap();
+    store::ensure_ready(&http(), &lay.models, &spec, &opts("a"), |_| {}).unwrap();
     assert_eq!(read(&lay.models.join("cancel-model/weights.bin")), big);
 }
 
@@ -583,6 +590,8 @@ fn files_spec(base: &str, seed_pin: &[u8]) -> ModelSpec {
         .into_boxed_slice(),
     );
     ModelSpec {
+        tier: rightkit_models::suite::catalog::ModelTier::Base,
+        entitlement: false,
         id: "files-model",
         label: "Files model",
         version: "files-v1",
@@ -616,7 +625,7 @@ fn files_source_downloads_seeds_and_repairs_only_drifted_files() {
         app_id: "scraperight",
     };
 
-    store::ensure_ready(&store::http_agent(), &lay.models, &spec, &o, |_| {}).unwrap();
+    store::ensure_ready(&http(), &lay.models, &spec, &o, |_| {}).unwrap();
     let dir = lay.models.join("files-model");
     assert_eq!(read(&dir.join("config.json")), cfg_bytes);
     assert_eq!(server.requests("GET").len(), 2);
@@ -630,7 +639,7 @@ fn files_source_downloads_seeds_and_repairs_only_drifted_files() {
     let full = store::status_at(&lay.models, &spec, VerifyMode::Full);
     assert_eq!(full.state, EntryState::Partial);
     assert_eq!(full.needed, vec!["vocab.txt"]);
-    store::ensure_ready(&store::http_agent(), &lay.models, &spec, &o, |_| {}).unwrap();
+    store::ensure_ready(&http(), &lay.models, &spec, &o, |_| {}).unwrap();
     assert_eq!(read(&dir.join("vocab.txt")), VOCAB);
     let gets = server.requests("GET");
     assert_eq!(gets.len(), 3, "{gets:?}");
@@ -652,8 +661,7 @@ fn stale_bundled_seed_fails_its_pin_and_is_not_installed() {
         authorization: None,
         app_id: "a",
     };
-    let err =
-        store::ensure_ready(&store::http_agent(), &lay.models, &spec, &o, |_| {}).unwrap_err();
+    let err = store::ensure_ready(&http(), &lay.models, &spec, &o, |_| {}).unwrap_err();
     assert!(err.contains("failed integrity check"), "{err}");
     assert!(!lay.models.join("files-model/config.json").exists());
     assert!(!lay.models.join("refs/a.json").exists());
@@ -667,6 +675,8 @@ fn stale_bundled_seed_fails_its_pin_and_is_not_installed() {
 fn self_described_manifest_never_defines_identity_but_matching_bytes_are_adopted() {
     let lay = layout();
     let spec = ModelSpec {
+        tier: rightkit_models::suite::catalog::ModelTier::Base,
+        entitlement: false,
         id: "trust-model",
         label: "t",
         version: "pinned-rev",
@@ -704,8 +714,7 @@ fn self_described_manifest_never_defines_identity_but_matching_bytes_are_adopted
     );
 
     // ensure with no download endpoint adopts bytes that verify against the catalog pins.
-    let status =
-        store::ensure_ready(&store::http_agent(), &lay.models, &spec, &opts("a"), |_| {}).unwrap();
+    let status = store::ensure_ready(&http(), &lay.models, &spec, &opts("a"), |_| {}).unwrap();
     assert_eq!(status.state, EntryState::Ready);
     assert_eq!(
         manifest::read_manifest(&dir).unwrap().unwrap().version,
@@ -714,15 +723,14 @@ fn self_described_manifest_never_defines_identity_but_matching_bytes_are_adopted
 
     // Different bytes + no endpoint: honest "unavailable", and the bad file is untouched.
     fs::write(dir.join("weights.bin"), b"weights-byteZ").unwrap();
-    let err = store::ensure_ready(&store::http_agent(), &lay.models, &spec, &opts("a"), |_| {})
-        .unwrap_err();
+    let err = store::ensure_ready(&http(), &lay.models, &spec, &opts("a"), |_| {}).unwrap_err();
     assert!(err.contains("no download endpoint"), "{err}");
 }
 
 #[test]
 fn builtin_catalog_pins_every_file_and_variant_descriptor_matches() {
-    use rightkit_models::suite::catalog::{catalog, parakeet_spec};
-    for spec in catalog() {
+    use rightkit_models::suite::catalog::{all_models, parakeet_spec};
+    for spec in all_models() {
         assert!(!spec.files.is_empty());
         for f in spec.files {
             assert!(
@@ -934,6 +942,8 @@ fn leases_across_roots_are_all_or_nothing() {
 
 fn mig_spec() -> ModelSpec {
     ModelSpec {
+        tier: rightkit_models::suite::catalog::ModelTier::Base,
+        entitlement: false,
         id: "current",
         label: "migrating",
         version: "v1",
@@ -1297,14 +1307,7 @@ fn ensure_prunes_retired_store_ids_only_when_unreferenced_and_identical() {
         fs::write(d.join("sub/vocab.txt"), VOCAB).unwrap();
     }
     store::register_ref(&lay.models, "scraperight", "old-ref").unwrap();
-    store::ensure_ready(
-        &store::http_agent(),
-        &lay.models,
-        &spec,
-        &opts("heardright"),
-        |_| {},
-    )
-    .unwrap();
+    store::ensure_ready(&http(), &lay.models, &spec, &opts("heardright"), |_| {}).unwrap();
     assert!(
         !lay.models.join("old-same").exists(),
         "identical + unreferenced: reclaimed"
@@ -1327,6 +1330,8 @@ fn ensure_prunes_retired_store_ids_only_when_unreferenced_and_identical() {
 fn discover_finds_peer_copy_only_when_every_pin_matches() {
     use rightkit_models::suite::discover;
     let spec = ModelSpec {
+        tier: rightkit_models::suite::catalog::ModelTier::Base,
+        entitlement: false,
         id: "parakeet-tdt-v3-coreml-compiled-5f8888117f47",
         label: "d",
         version: "v",
@@ -1371,6 +1376,8 @@ fn discover_finds_peer_copy_only_when_every_pin_matches() {
 fn model_store_handle_resolves_registers_ref_and_accepts_verified_sibling() {
     let lay = layout();
     let spec = ModelSpec {
+        tier: rightkit_models::suite::catalog::ModelTier::Base,
+        entitlement: false,
         id: "handle-model",
         label: "h",
         version: "h1",
@@ -1381,7 +1388,7 @@ fn model_store_handle_resolves_registers_ref_and_accepts_verified_sibling() {
         retired_legacy_paths: &[],
         retired_store_ids: &[],
     };
-    let store = ModelStore::at_models_root(&lay.models, "cutright");
+    let store = ModelStore::at_models_root(&lay.models, "cutright").with_http_client(http());
     assert!(store
         .resolve(&spec, &[])
         .unwrap_err()
@@ -1456,7 +1463,15 @@ fn revisioned_store_shares_refs_gc_and_pin_enforcement_with_suite_layout() {
             measured: vec![],
         }],
     };
-    let st = Store::new(&lay.models, "cutright");
+    let st = Store::new(&lay.models, "cutright")
+        .with_http_options(rightkit_models::http::ModelHttpOptions {
+            proxy: rightkit_models::http::ProxyMode::None,
+            ..Default::default()
+        })
+        .with_address_policy(
+            rightkit_http::AddressPolicy::public_web()
+                .allow_if(vec!["127.0.0.1".to_string()], |ip| ip.is_loopback()),
+        );
 
     // Trusted-catalog mode refuses unpinned files before any network traffic.
     let strict = InstallOptions {

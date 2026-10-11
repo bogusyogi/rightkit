@@ -14,3 +14,4 @@ Reproducible: a clean second build from the same recipe/toolchain produced the i
 Use: shipped as a separate executable the app shells out to; notice + source offer.
 Binary: vendor/ffmpeg-lgpl/ffprobe-decode-macos-arm64
 sha256: 1bd883a7180776049c5f4e17a9bc2350cc8e46828d94a1a47c5ee9e02fa336e9
+contentSha256 (signature-independent catalog identity, src/content_digest.rs): a558e277397fbcf3f0e409f9d88319d568da309d529df146e6d908005bb07675

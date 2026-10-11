@@ -1,19 +1,36 @@
 //! Cross-process advisory file locks.
 //!
 //! The lock is an OS advisory lock, so the OS releases it when the owner exits or is killed:
-//! there is no TTL and no way for a live holder to be displaced. Unix uses POSIX record locks
-//! (`fcntl` `F_SETLK`), Windows uses `LockFileEx` through `std::fs::File::lock*`. Owner details
-//! (pid, host, label, start time) live in a sibling `<lock>.owner` file because Windows blocks
-//! other processes from reading a locked file. An
-//! owner file whose lock can be acquired is stale evidence of a crashed holder and is reported
-//! through [`FileLock::recovered_stale`].
+//! there is no TTL and no way for a live holder to be displaced. Owner details (pid, host,
+//! label, start time) live in a sibling `<lock>.owner` file because Windows blocks other
+//! processes from reading a locked file. An owner file whose lock can be acquired is stale
+//! evidence of a crashed holder and is reported through [`FileLock::recovered_stale`].
+//!
+//! Unix takes one of two lock primitives, chosen per acquisition by [`LockKind`]:
+//!
+//! - [`LockKind::Fcntl`] (the default) is a POSIX record lock (`fcntl` `F_SETLK`). It belongs
+//!   to the process, is not inherited across `fork`, and is dropped when the process closes
+//!   *any* descriptor for the file, so the crate keeps one descriptor per lock file per process.
+//! - [`LockKind::Flock`] is a `flock(2)` lock, the primitive `std::fs::File::try_lock` uses on
+//!   Unix. It belongs to the open file description, which a child forked before its `exec`
+//!   inherits. The crate unlocks explicitly on drop, so an inherited descriptor cannot keep a
+//!   released lock busy.
+//!
+//! Windows uses `LockFileEx` for both kinds, so the kind has no effect there.
+//!
+//! Do not rely on exclusion between the two kinds. A probe on macOS (Darwin 27, 0.3.4) found
+//! that a `flock` held by one process refused an `fcntl` record lock in another process, and
+//! the reverse. That is an observation, not a documented guarantee. Give one lock file one kind
+//! for every user.
 //!
 //! The lock file itself is never deleted: removing it after unlock lets a second process lock
 //! the old inode while a third creates and locks a new one for the same path.
 //!
 //! Owner records are JSON, so they need the `json` feature. Without it, `acquire` writes no
-//! owner file, `recovered_stale` is always `None`, and `current_owner` returns `None`. The lock
-//! itself behaves the same either way.
+//! owner file, `recovered_stale` is always `None`, and `current_owner` and `probe_owner` return
+//! `None`. The lock itself behaves the same either way. An owner record carries both
+//! `started_unix_ms` and an RFC 3339 `started` field (the shape CutRight reads), and a read
+//! accepts either one, so records written by older builds still parse.
 //!
 //! Consolidates CutRight project/model-store/qa locks and CodeRight `DaemonDbLock`.
 
@@ -28,8 +45,13 @@ use std::fs::{File, OpenOptions};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
+/// Who holds a lock: recorded in `<lock>.owner` and read back by [`probe_owner`].
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "json", derive(Serialize, Deserialize))]
+#[cfg_attr(
+    feature = "json",
+    serde(try_from = "OwnerRecord", into = "OwnerRecord")
+)]
 pub struct LockOwner {
     pub pid: u32,
     pub hostname: String,
@@ -50,11 +72,65 @@ impl LockOwner {
         }
     }
 
+    /// When the holder recorded it started.
+    pub fn started(&self) -> SystemTime {
+        UNIX_EPOCH + Duration::from_millis(self.started_unix_ms)
+    }
+
     pub fn describe(&self) -> String {
         format!(
             "pid {} on {} ({}) since unix-ms {}",
             self.pid, self.hostname, self.label, self.started_unix_ms
         )
+    }
+}
+
+/// The owner file's JSON shape. Writes always carry both start-time fields. Reads prefer
+/// `started_unix_ms` and fall back to RFC 3339 `started`, and a missing `label` reads as empty
+/// (CutRight's records have none).
+#[cfg(feature = "json")]
+#[derive(Serialize, Deserialize)]
+struct OwnerRecord {
+    pid: u32,
+    hostname: String,
+    #[serde(default)]
+    label: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    started_unix_ms: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    started: Option<String>,
+}
+
+#[cfg(feature = "json")]
+impl TryFrom<OwnerRecord> for LockOwner {
+    type Error = String;
+
+    fn try_from(record: OwnerRecord) -> std::result::Result<Self, String> {
+        let started_unix_ms = match (record.started_unix_ms, record.started.as_deref()) {
+            (Some(ms), _) => ms,
+            (None, Some(text)) => parse_rfc3339_ms(text)
+                .ok_or_else(|| format!("start time {text:?} is not RFC 3339 UTC"))?,
+            (None, None) => return Err("owner record has no start time".into()),
+        };
+        Ok(Self {
+            pid: record.pid,
+            hostname: record.hostname,
+            label: record.label,
+            started_unix_ms,
+        })
+    }
+}
+
+#[cfg(feature = "json")]
+impl From<LockOwner> for OwnerRecord {
+    fn from(owner: LockOwner) -> Self {
+        Self {
+            started: Some(format_rfc3339_secs(owner.started_unix_ms)),
+            started_unix_ms: Some(owner.started_unix_ms),
+            pid: owner.pid,
+            hostname: owner.hostname,
+            label: owner.label,
+        }
     }
 }
 
@@ -91,6 +167,24 @@ impl LockOptions {
     }
 }
 
+/// Which Unix lock primitive a lock uses. The default is [`LockKind::Fcntl`]. Windows ignores
+/// the kind and takes `LockFileEx` for both.
+///
+/// - `Fcntl`: POSIX record lock. Per process, not inherited across `fork`. Closing any
+///   descriptor for the file in this process releases it, so the crate shares one descriptor
+///   per lock file within a process.
+/// - `Flock`: `flock(2)`. Per open file description. A child forked before its `exec` inherits
+///   the description, so an unlock must be explicit (the crate does this on drop). Two
+///   descriptors in one process exclude each other, which `Fcntl` does not do.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum LockKind {
+    /// POSIX record lock (`fcntl` `F_SETLK`). The default.
+    #[default]
+    Fcntl,
+    /// `flock(2)`, the primitive `std::fs::File::try_lock` uses on Unix.
+    Flock,
+}
+
 /// Held until dropped (or the process dies).
 #[derive(Debug)]
 pub struct FileLock {
@@ -110,9 +204,15 @@ enum Mode {
     Shared,
 }
 
-/// Unix: a process-held POSIX record lock. Windows: the locked file.
+/// Unix: a process-held POSIX record lock or a `flock`, per the [`LockKind`] taken. Windows:
+/// the locked file. The payloads are never read; each one releases its lock when dropped.
 #[cfg(unix)]
-type Handle = posix::Handle;
+#[derive(Debug)]
+#[allow(dead_code)]
+enum Handle {
+    Fcntl(posix::Handle),
+    Flock(flock::Handle),
+}
 #[cfg(not(unix))]
 type Handle = File;
 
@@ -122,6 +222,11 @@ pub fn owner_path_for(lock_path: &Path) -> PathBuf {
     PathBuf::from(os)
 }
 
+/// Opens (creating if needed) the lock file itself, never what a link at that name points to.
+/// Unix opens with `O_NOFOLLOW`; Windows opens with `FILE_FLAG_OPEN_REPARSE_POINT` and refuses a
+/// reparse point (symlink, junction) by its attributes. Either way a link at `path` is
+/// [`FsError::Symlink`]. Only the final component is checked; a symlinked parent directory is
+/// followed, as for any path.
 fn open_lock_file(path: &Path) -> Result<File> {
     let mut options = OpenOptions::new();
     options.read(true).write(true).create(true).truncate(false);
@@ -132,15 +237,47 @@ fn open_lock_file(path: &Path) -> Result<File> {
             .mode(0o600)
             .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC);
     }
-    options.open(path).map_err(|e| FsError::io(path, e))
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::OpenOptionsExt;
+        const FILE_FLAG_OPEN_REPARSE_POINT: u32 = 0x0020_0000;
+        options.custom_flags(FILE_FLAG_OPEN_REPARSE_POINT);
+    }
+    let file = options.open(path).map_err(|e| {
+        #[cfg(unix)]
+        if e.raw_os_error() == Some(libc::ELOOP) {
+            return FsError::Symlink(path.to_path_buf());
+        }
+        FsError::io(path, e)
+    })?;
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::MetadataExt;
+        const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x400;
+        let attributes = file
+            .metadata()
+            .map_err(|e| FsError::io(path, e))?
+            .file_attributes();
+        if attributes & FILE_ATTRIBUTE_REPARSE_POINT != 0 {
+            return Err(FsError::Symlink(path.to_path_buf()));
+        }
+    }
+    Ok(file)
 }
 
 impl FileLock {
     /// Exclusive lock, the first of the two lock primitives. Waits up to `options.timeout`
     /// (`Duration::ZERO` tries once), then records this process as owner in `<path>.owner`.
+    /// Uses [`LockKind::Fcntl`]; see [`FileLock::acquire_kind`] to choose.
     /// Returns `FsError::Locked` (with the owner) or `FsError::LockTimeout` when busy.
     pub fn acquire(path: &Path, options: &LockOptions) -> Result<Self> {
-        let file = lock_with_retry(path, options, Mode::Exclusive)?;
+        Self::acquire_kind(path, LockKind::Fcntl, options)
+    }
+
+    /// Exclusive lock with an explicit primitive. Waiting, owner recording and stale reporting
+    /// are the same as [`FileLock::acquire`].
+    pub fn acquire_kind(path: &Path, kind: LockKind, options: &LockOptions) -> Result<Self> {
+        let file = lock_with_retry(path, options, kind, Mode::Exclusive)?;
         let recovered_stale = read_owner(&owner_path_for(path));
         let owner_path = record_owner(path, &options.label)?;
         Ok(Self {
@@ -156,11 +293,22 @@ impl FileLock {
         Self::acquire(path, &LockOptions::default())
     }
 
+    /// Exclusive lock with the given primitive, waiting up to `timeout` (`Duration::ZERO`
+    /// tries once). Records this process as owner with an empty label.
+    pub fn try_lock_with(path: &Path, kind: LockKind, timeout: Duration) -> Result<Self> {
+        Self::acquire_kind(path, kind, &LockOptions::wait(timeout))
+    }
+
     /// Shared lock, the second primitive: any number of shared holders may coexist, and an
     /// exclusive holder excludes them all. Waits up to `options.timeout`. Writes no owner
-    /// record, so `recovered_stale` is always `None`.
+    /// record, so `recovered_stale` is always `None`. Uses [`LockKind::Fcntl`].
     pub fn acquire_shared(path: &Path, options: &LockOptions) -> Result<Self> {
-        let file = lock_with_retry(path, options, Mode::Shared)?;
+        Self::acquire_shared_kind(path, LockKind::Fcntl, options)
+    }
+
+    /// Shared lock with an explicit primitive. Behaves as [`FileLock::acquire_shared`].
+    pub fn acquire_shared_kind(path: &Path, kind: LockKind, options: &LockOptions) -> Result<Self> {
+        let file = lock_with_retry(path, options, kind, Mode::Shared)?;
         Ok(Self {
             file,
             path: path.to_path_buf(),
@@ -173,18 +321,35 @@ impl FileLock {
         &self.path
     }
 
-    /// The holder recorded on disk for `lock_path` (diagnostics; may be stale).
+    /// The holder recorded on disk for `lock_path` (diagnostics; may be stale). Same as
+    /// [`probe_owner`].
     pub fn current_owner(lock_path: &Path) -> Option<LockOwner> {
-        read_owner(&owner_path_for(lock_path))
+        probe_owner(lock_path)
     }
 }
 
-/// Retries `mode` on `path` until granted, timed out, or the lock file fails.
+/// The owner record for `lock_path`, read without taking the lock. `None` when there is no
+/// record, when it does not parse, or when the `json` feature is off. The record may name a
+/// holder that has since exited.
+pub fn probe_owner(lock_path: &Path) -> Option<LockOwner> {
+    read_owner(&owner_path_for(lock_path))
+}
+
+/// Retries `mode` on `path` with `kind` until granted, timed out, or the lock file fails.
 #[cfg(unix)]
-fn lock_with_retry(path: &Path, options: &LockOptions, mode: Mode) -> Result<Handle> {
+fn lock_with_retry(
+    path: &Path,
+    options: &LockOptions,
+    kind: LockKind,
+    mode: Mode,
+) -> Result<Handle> {
     let started = Instant::now();
     loop {
-        if let Some(handle) = posix::try_lock(path, mode)? {
+        let granted = match kind {
+            LockKind::Fcntl => posix::try_lock(path, mode)?.map(Handle::Fcntl),
+            LockKind::Flock => flock::try_lock(path, mode)?.map(Handle::Flock),
+        };
+        if let Some(handle) = granted {
             return Ok(handle);
         }
         wait_or_fail(path, options, started, mode)?;
@@ -192,8 +357,14 @@ fn lock_with_retry(path: &Path, options: &LockOptions, mode: Mode) -> Result<Han
 }
 
 /// Windows: `LockFileEx` is per handle and not inherited, so one handle serves every attempt.
+/// The kind has no effect here.
 #[cfg(not(unix))]
-fn lock_with_retry(path: &Path, options: &LockOptions, mode: Mode) -> Result<Handle> {
+fn lock_with_retry(
+    path: &Path,
+    options: &LockOptions,
+    _kind: LockKind,
+    mode: Mode,
+) -> Result<Handle> {
     let file = open_lock_file(path)?;
     let started = Instant::now();
     loop {
@@ -239,7 +410,7 @@ impl Drop for FileLock {
         if let Some(owner) = &self.owner_path {
             let _ = std::fs::remove_file(owner);
         }
-        // Unix: dropping `self.file` releases the POSIX record lock (see `posix`).
+        // Unix: dropping `self.file` releases the lock (see `posix` and `flock`).
         #[cfg(not(unix))]
         let _ = self.file.unlock();
     }
@@ -247,9 +418,10 @@ impl Drop for FileLock {
 
 /// Unix locks are POSIX record locks, not `flock`.
 ///
-/// `flock` belongs to the open file description. A child forked by another thread inherits
-/// the descriptor and keeps the lock alive until it execs, so a released lock looks busy.
-/// Record locks belong to the process and are not inherited across `fork`.
+/// `flock` belongs to the open file description. A child forked by another thread (for
+/// example a `rightkit-process` spawn with `pre_exec`) inherits the descriptor and keeps the
+/// lock alive until it execs. Record locks belong to the process and are not inherited across
+/// `fork`.
 ///
 /// Closing any descriptor for a file releases every record lock this process holds on it.
 /// So a process keeps one descriptor per lock file: shared holders share it, and a registry
@@ -400,6 +572,58 @@ mod posix {
     }
 }
 
+/// `flock(2)` locks, for [`LockKind::Flock`].
+///
+/// Each attempt opens its own descriptor, so two `Flock` holders in one process exclude each
+/// other, and `flock` does not need the per-process registry that `posix` uses. The lock is
+/// per open file description, which a child forked before its `exec` inherits. Drop therefore
+/// unlocks explicitly, so an inherited descriptor cannot keep a released lock busy.
+#[cfg(unix)]
+mod flock {
+    use super::{open_lock_file, Mode};
+    use crate::error::{FsError, Result};
+    use std::fs::File;
+    use std::os::fd::AsRawFd;
+    use std::path::Path;
+
+    /// A `flock` lock held through one open file description. Released on drop.
+    #[derive(Debug)]
+    pub struct Handle {
+        file: File,
+    }
+
+    /// Tries `mode` on the lock file at `path`. `Ok(None)` when busy, in this process or another.
+    pub fn try_lock(path: &Path, mode: Mode) -> Result<Option<Handle>> {
+        let file = open_lock_file(path)?;
+        let operation = match mode {
+            Mode::Exclusive => libc::LOCK_EX,
+            Mode::Shared => libc::LOCK_SH,
+        };
+        loop {
+            // SAFETY: the descriptor is open for the duration of the call; `flock` takes no pointers.
+            let rc = unsafe { libc::flock(file.as_raw_fd(), operation | libc::LOCK_NB) };
+            if rc == 0 {
+                return Ok(Some(Handle { file }));
+            }
+            let error = std::io::Error::last_os_error();
+            match error.raw_os_error() {
+                Some(libc::EINTR) => continue,
+                Some(libc::EWOULDBLOCK) => return Ok(None),
+                _ => return Err(FsError::io(path, error)),
+            }
+        }
+    }
+
+    impl Drop for Handle {
+        fn drop(&mut self) {
+            // SAFETY: the descriptor is still open here; `self.file` closes it after this body.
+            // The explicit unlock releases the lock for every descriptor sharing this open file
+            // description, including one a forked child has not yet exec'd away from.
+            unsafe { libc::flock(self.file.as_raw_fd(), libc::LOCK_UN) };
+        }
+    }
+}
+
 /// Run `f` while holding the exclusive lock at `path`.
 pub fn with_lock<T>(path: &Path, options: &LockOptions, f: impl FnOnce() -> T) -> Result<T> {
     let _guard = FileLock::acquire(path, options)?;
@@ -430,6 +654,151 @@ fn read_owner(_path: &Path) -> Option<LockOwner> {
     None
 }
 
+/// Days from 1970-01-01 to the given proleptic Gregorian date (Howard Hinnant's algorithm).
+#[cfg(feature = "json")]
+fn days_from_civil(year: i64, month: u32, day: u32) -> i64 {
+    let y = if month <= 2 { year - 1 } else { year };
+    let era = y.div_euclid(400);
+    let yoe = y.rem_euclid(400);
+    let m = month as i64;
+    let mp = if m > 2 { m - 3 } else { m + 9 };
+    let doy = (153 * mp + 2) / 5 + day as i64 - 1;
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    era * 146_097 + doe - 719_468
+}
+
+/// The proleptic Gregorian `(year, month, day)` for days since 1970-01-01.
+#[cfg(feature = "json")]
+fn civil_from_days(days: i64) -> (i64, u32, u32) {
+    let z = days + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z.rem_euclid(146_097);
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let day = (doy - (153 * mp + 2) / 5 + 1) as u32;
+    let month = (if mp < 10 { mp + 3 } else { mp - 9 }) as u32;
+    let year = if month <= 2 {
+        yoe + era * 400 + 1
+    } else {
+        yoe + era * 400
+    };
+    (year, month, day)
+}
+
+/// RFC 3339 UTC with whole seconds (`2020-01-01T00:00:00Z`), the form CutRight writes.
+/// Sub-second precision is dropped here; `started_unix_ms` keeps it.
+#[cfg(feature = "json")]
+fn format_rfc3339_secs(unix_ms: u64) -> String {
+    let secs = (unix_ms / 1000) as i64;
+    let (year, month, day) = civil_from_days(secs.div_euclid(86_400));
+    let second_of_day = secs.rem_euclid(86_400);
+    format!(
+        "{year:04}-{month:02}-{day:02}T{:02}:{:02}:{:02}Z",
+        second_of_day / 3600,
+        second_of_day % 3600 / 60,
+        second_of_day % 60
+    )
+}
+
+/// Parses an RFC 3339 timestamp with a `T` or `t` separator, `Z` or a numeric offset, and an
+/// optional fraction (first three digits kept). Returns milliseconds since the Unix epoch, or
+/// `None` for anything out of range or before 1970.
+#[cfg(feature = "json")]
+fn parse_rfc3339_ms(text: &str) -> Option<u64> {
+    // Byte slices below assume ASCII, so anything else is rejected before any slicing.
+    if !text.is_ascii() {
+        return None;
+    }
+    let bytes = text.as_bytes();
+    if bytes.len() < 20
+        || bytes[4] != b'-'
+        || bytes[7] != b'-'
+        || !matches!(bytes[10], b'T' | b't')
+        || bytes[13] != b':'
+        || bytes[16] != b':'
+    {
+        return None;
+    }
+    let number = |s: &str| -> Option<u64> {
+        if s.is_empty() || !s.bytes().all(|c| c.is_ascii_digit()) {
+            return None;
+        }
+        s.parse().ok()
+    };
+    let year = number(&text[0..4])? as i64;
+    let month = number(&text[5..7])? as u32;
+    let day = number(&text[8..10])? as u32;
+    let hour = number(&text[11..13])?;
+    let minute = number(&text[14..16])?;
+    let second = number(&text[17..19])?;
+    if !(1..=12).contains(&month)
+        || day == 0
+        || day > days_in_month(year, month)
+        || hour > 23
+        || minute > 59
+        || second > 59
+    {
+        return None;
+    }
+
+    let mut index = 19;
+    let mut millis = 0u64;
+    if bytes.get(index) == Some(&b'.') {
+        index += 1;
+        let start = index;
+        while index < bytes.len() && bytes[index].is_ascii_digit() {
+            index += 1;
+        }
+        if index == start {
+            return None;
+        }
+        let mut kept: String = text[start..index].chars().take(3).collect();
+        while kept.len() < 3 {
+            kept.push('0');
+        }
+        millis = kept.parse().ok()?;
+    }
+
+    let offset_secs: i64 = match bytes.get(index)? {
+        b'Z' | b'z' if index + 1 == bytes.len() => 0,
+        sign @ (b'+' | b'-') if bytes.len() == index + 6 && bytes[index + 3] == b':' => {
+            let hours = number(&text[index + 1..index + 3])? as i64;
+            let minutes = number(&text[index + 4..index + 6])? as i64;
+            if hours > 23 || minutes > 59 {
+                return None;
+            }
+            let magnitude = hours * 3600 + minutes * 60;
+            if *sign == b'+' {
+                magnitude
+            } else {
+                -magnitude
+            }
+        }
+        _ => return None,
+    };
+
+    let days = days_from_civil(year, month, day);
+    let utc_secs =
+        days * 86_400 + hour as i64 * 3600 + minute as i64 * 60 + second as i64 - offset_secs;
+    if utc_secs < 0 {
+        return None;
+    }
+    Some(utc_secs as u64 * 1000 + millis)
+}
+
+#[cfg(feature = "json")]
+fn days_in_month(year: i64, month: u32) -> u32 {
+    let leap = (year % 4 == 0 && year % 100 != 0) || year % 400 == 0;
+    match month {
+        1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
+        4 | 6 | 9 | 11 => 30,
+        2 if leap => 29,
+        2 => 28,
+        _ => 0,
+    }
+}
+
 pub fn hostname() -> String {
     #[cfg(unix)]
     {
@@ -452,4 +821,54 @@ pub fn hostname() -> String {
         }
     }
     "unknown".into()
+}
+
+#[cfg(all(test, feature = "json"))]
+mod time_tests {
+    use super::{days_from_civil, format_rfc3339_secs, parse_rfc3339_ms};
+
+    #[test]
+    fn known_dates_round_trip() {
+        assert_eq!(days_from_civil(1970, 1, 1), 0);
+        assert_eq!(
+            format_rfc3339_secs(1_577_836_800_000),
+            "2020-01-01T00:00:00Z"
+        );
+        assert_eq!(
+            parse_rfc3339_ms("2020-01-01T00:00:00Z"),
+            Some(1_577_836_800_000)
+        );
+        // Leap day and end of year.
+        assert_eq!(
+            format_rfc3339_secs(parse_rfc3339_ms("2024-02-29T23:59:59Z").unwrap()),
+            "2024-02-29T23:59:59Z"
+        );
+        assert_eq!(
+            format_rfc3339_secs(parse_rfc3339_ms("1999-12-31T23:59:59Z").unwrap()),
+            "1999-12-31T23:59:59Z"
+        );
+    }
+
+    #[test]
+    fn offsets_fractions_and_bad_input() {
+        assert_eq!(
+            parse_rfc3339_ms("2020-01-01T01:00:00+01:00"),
+            parse_rfc3339_ms("2020-01-01T00:00:00Z")
+        );
+        assert_eq!(
+            parse_rfc3339_ms("2020-01-01T00:00:00.5Z"),
+            Some(1_577_836_800_500)
+        );
+        assert_eq!(
+            parse_rfc3339_ms("2020-01-01t00:00:00.123456z"),
+            Some(1_577_836_800_123)
+        );
+        assert_eq!(parse_rfc3339_ms("2020-02-30T00:00:00Z"), None);
+        assert_eq!(parse_rfc3339_ms("2019-02-29T00:00:00Z"), None);
+        assert_eq!(parse_rfc3339_ms("2020-01-01T00:00:00"), None);
+        assert_eq!(parse_rfc3339_ms("2020-01-01 00:00:00Z"), None);
+        assert_eq!(parse_rfc3339_ms("2020-01-0\u{e9}T00:00:00Z"), None);
+        assert_eq!(parse_rfc3339_ms("1969-12-31T23:59:59Z"), None);
+        assert_eq!(parse_rfc3339_ms("not a time"), None);
+    }
 }

@@ -139,6 +139,11 @@ fn reveal_window(app: &AppHandle<Wry>, w: &WebviewWindow<Wry>) {
             return;
         }
     } else {
+        // Back to a Regular app first (a hide-to-background host is an Accessory app while
+        // hidden), so the activation below can bring a Dock icon and menu bar with it.
+        if w.label() == app.state::<ShellState>().main_label {
+            crate::lifecycle::note_visibility(app, crate::lifecycle::Visibility::Revealed);
+        }
         #[cfg(target_os = "macos")]
         let _ = app.show();
         let _ = w.unminimize();
@@ -286,6 +291,7 @@ pub fn toggle(app: &AppHandle<Wry>, label: &str) {
             let _ = w.hide();
             if w.label() == app.state::<ShellState>().main_label {
                 crate::idle::note_hidden(app, false);
+                crate::lifecycle::note_visibility(app, crate::lifecycle::Visibility::Hidden);
             }
         } else {
             reveal_window(app, &w);

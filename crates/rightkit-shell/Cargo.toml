@@ -7,7 +7,7 @@ description = "Shared Tauri desktop shell for Right Suite apps: webview hardenin
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/bogusyogi/rightkit"
 readme = "README.md"
-include = ["src/**", "tests/**", "README.md", "LICENSE-MIT", "LICENSE-APACHE", "CHANGELOG.md"]
+include = ["build.rs", "src/**", "tests/**", "README.md", "LICENSE-MIT", "LICENSE-APACHE", "CHANGELOG.md"]
 
 [features]
 default = ["wv2-0_38"]
@@ -19,7 +19,7 @@ wv2-0_38 = ["dep:windows_061", "dep:webview2_com_038"]
 wv2-0_39 = ["dep:windows_062", "dep:webview2_com_039"]
 # Engine sidecar wiring over rightkit-jobs EngineClient + rightkit-process. Off by default: it pulls
 # rightkit-jobs (db, time, uuid); apps that run an engine sidecar opt in.
-engine = ["dep:rightkit-jobs", "dep:rightkit-process"]
+engine = ["dep:rightkit-jobs"]
 # Lets `Devtools::On` / `DebugBuilds` open the inspector in release builds. Off in production.
 devtools = ["tauri/devtools"]
 
@@ -27,7 +27,7 @@ devtools = ["tauri/devtools"]
 tauri = { version = "2", features = ["tray-icon", "image-png"] }
 rightkit-service = { version = "0.1.0", path = "../rightkit-service" }
 rightkit-jobs = { version = "0.2.2", path = "../rightkit-jobs", optional = true }
-rightkit-process = { version = "0.3.0", path = "../rightkit-process", optional = true }
+rightkit-process = { version = "0.3.4", path = "../rightkit-process" }
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.150"
 
@@ -60,5 +60,10 @@ windows_062 = { package = "windows", version = "0.62", optional = true, features
 ] }
 webview2_com_039 = { package = "webview2-com", version = "0.39", optional = true }
 
+[[bench]]
+name = "budget"
+harness = false
+
 [dev-dependencies]
 tempfile = "3"
+tauri = { version = "2", features = ["test"] }

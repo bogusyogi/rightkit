@@ -91,6 +91,10 @@ pub struct NotificationRequest {
     pub sound_enabled: bool,
     #[serde(default)]
     pub sound_name: Option<String>,
+    /// Post even while the shell's Do-Not-Disturb (manual or an automatic meeting) is in effect.
+    /// Default `false`. The OS Focus mode is not bypassed.
+    #[serde(default)]
+    pub bypass_do_not_disturb: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -235,24 +239,28 @@ pub struct NotifyStatus {
     pub badge: u32,
 }
 
+/// Why a request is not posted before reaching the platform (`empty-title`, `dnd`), if it is not.
+/// `bypass_do_not_disturb` skips only the Do-Not-Disturb check.
+pub fn suppression(req: &NotificationRequest, dnd: bool) -> Option<&'static str> {
+    if req.title.trim().is_empty() {
+        Some("empty-title")
+    } else if dnd && !req.bypass_do_not_disturb {
+        Some("dnd")
+    } else {
+        None
+    }
+}
+
 /// Post a notification unless the request is empty or Do-Not-Disturb is in effect.
 pub fn post(
     req: &NotificationRequest,
     state: &NotificationState,
     dnd: bool,
 ) -> Result<NotifyOutcome, ShellError> {
-    if req.title.trim().is_empty() {
+    if let Some(why) = suppression(req, dnd) {
         return Ok(NotifyOutcome {
             delivered: false,
-            suppressed: Some("empty-title"),
-            id: None,
-            sound: false,
-        });
-    }
-    if dnd {
-        return Ok(NotifyOutcome {
-            delivered: false,
-            suppressed: Some("dnd"),
+            suppressed: Some(why),
             id: None,
             sound: false,
         });
@@ -548,6 +556,7 @@ mod tests {
             navigate_path: None,
             sound_enabled: sound,
             sound_name: name.map(Into::into),
+            bypass_do_not_disturb: false,
         }
     }
 

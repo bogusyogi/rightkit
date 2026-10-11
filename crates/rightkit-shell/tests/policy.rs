@@ -219,6 +219,7 @@ fn state(x: f64, y: f64, w: f64, h: f64, on: MonitorSnapshot) -> WindowState {
         width: w,
         height: h,
         maximized: false,
+        minimized: false,
         monitor: on,
         version: 1,
     }
@@ -288,4 +289,53 @@ fn base64_round_trips_and_rejects_garbage() {
     }
     assert_eq!(b64::encode(b"foobar"), "Zm9vYmFy");
     assert!(b64::decode("not base64!").is_none());
+}
+
+#[test]
+fn a_host_can_add_internal_schemes_and_the_default_set_is_unchanged() {
+    let default = release_policy();
+    assert_eq!(
+        default.decide(&url("pulse-app://localhost/x")),
+        NavDecision::Block
+    );
+
+    let p = release_policy().with_internal_scheme("Pulse-App").unwrap();
+    assert_eq!(
+        p.decide(&url("pulse-app://localhost/x")),
+        NavDecision::Allow
+    );
+    // The built-ins and the other decisions are untouched.
+    assert_eq!(
+        p.decide(&url("tauri://localhost/index.html")),
+        NavDecision::Allow
+    );
+    assert_eq!(p.decide(&url("ftp://example.com/")), NavDecision::Block);
+    assert!(matches!(
+        p.decide(&url("https://example.com/")),
+        NavDecision::External { .. }
+    ));
+}
+
+#[test]
+fn schemes_that_would_open_the_webview_to_the_world_are_refused() {
+    let refused = [
+        "",
+        "javascript",
+        "file",
+        "http",
+        "https",
+        "mailto",
+        "vbscript",
+        "9app",
+        "a b",
+        "a:b",
+    ];
+    for bad in refused {
+        assert!(
+            release_policy().with_internal_scheme(bad).is_err(),
+            "{bad:?}"
+        );
+    }
+    let p = release_policy().with_internal_scheme("my-app+x.y").unwrap();
+    assert_eq!(p.internal_schemes, vec!["my-app+x.y".to_owned()]);
 }

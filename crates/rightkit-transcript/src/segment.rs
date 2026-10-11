@@ -164,8 +164,14 @@ fn text_chars(group: &[TimedWord]) -> usize {
         .saturating_sub(1)
 }
 
+/// Duration of a group, first start to last end, in milliseconds. A reversed span
+/// (end before start) is zero length, as in `group_words`, and an empty group is zero.
+/// Neither can underflow.
 fn span(group: &[TimedWord]) -> u64 {
-    group.last().unwrap().end_ms - group.first().unwrap().start_ms
+    match (group.first(), group.last()) {
+        (Some(first), Some(last)) => last.end_ms.saturating_sub(first.start_ms),
+        _ => 0,
+    }
 }
 
 fn needs_split(group: &[TimedWord], cfg: &CaptionConfig) -> bool {
@@ -390,7 +396,9 @@ pub fn group_words(words: &[TimedWord], rules: &GroupRules) -> Vec<Cue> {
         match current.as_mut() {
             Some(c) => {
                 let gap_over = word.start_ms > c.end && word.start_ms - c.end > rules.max_gap_ms;
-                if gap_over || c.count >= rules.max_words || c.end - c.start >= rules.max_span_ms {
+                // An inverted word (end before start) is a zero-length span, not an underflow.
+                let span = c.end.saturating_sub(c.start);
+                if gap_over || c.count >= rules.max_words || span >= rules.max_span_ms {
                     cues.push(close(c));
                     current = Some(open(i, word));
                 } else {
@@ -465,4 +473,36 @@ pub fn build_cues(words: &[TimedWord], cfg: &CaptionConfig) -> Vec<Cue> {
         }
     }
     cues
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn group_words_treats_an_inverted_word_as_zero_length() {
+        // Not normalised input: the first word ends before it starts.
+        let words = [TimedWord::new("a", 500, 100), TimedWord::new("b", 600, 700)];
+        let cues = group_words(&words, &GroupRules::default());
+        assert_eq!(cues.len(), 1, "inverted span must not force a split");
+        assert_eq!(cues[0].start_ms, 500);
+        assert!(cues[0].end_ms >= cues[0].start_ms);
+        assert_eq!(cues[0].lines, vec!["a b".to_string()]);
+
+        let lone = group_words(&[TimedWord::new("x", 900, 10)], &GroupRules::default());
+        assert_eq!(lone.len(), 1);
+        assert_eq!(lone[0].start_ms, 900);
+        assert_eq!(lone[0].end_ms, 900 + GroupRules::default().min_cue_ms);
+    }
+
+    #[test]
+    fn span_of_a_reversed_or_empty_group_is_zero_and_never_underflows() {
+        // Last word ends before the first word starts: zero, not a u64 underflow.
+        let reversed = [TimedWord::new("a", 500, 100), TimedWord::new("b", 600, 200)];
+        assert_eq!(span(&reversed), 0);
+        // Ordinary groups still measure first start to last end.
+        let ordered = [TimedWord::new("a", 100, 300), TimedWord::new("b", 320, 900)];
+        assert_eq!(span(&ordered), 800);
+        assert_eq!(span(&[]), 0);
+    }
 }

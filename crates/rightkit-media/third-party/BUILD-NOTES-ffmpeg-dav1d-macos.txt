@@ -1,0 +1,40 @@
+FFmpeg 7.1.5 + libdav1d 1.5.4 -- "decode-av1" LGPL static build for macOS arm64 and x86_64
+Built 2026-10-06/07 on an Apple Silicon Mac (Apple clang 21.0.0, clang-2100.3.34.2) by the
+ScrapeRight AV1 native lane (cache scraperight-av1-native-mac-r1). Retained bytes:
+/Volumes/D/rightkit-publish/artifacts/ffmpeg-7.1.5-lgpl-dav1d/ (SHA256SUMS, provenance.json,
+build-ffmpeg-macos.sh = the exact script that ran).
+
+Purpose: AV1 decode (libdav1d) for ScrapeRight; keeps the catalog LGPL-only posture.
+
+Sources
+  ffmpeg-7.1.5.tar.xz  sha256 de668509caf9e35e3cd162473441fdb29538c6d96ed080292b3cf9e6fc5d558f
+                       https://ffmpeg.org/releases/ffmpeg-7.1.5.tar.xz (unmodified)
+  dav1d 1.5.4          https://github.com/videolan/dav1d.git tag 1.5.4,
+                       commit 54706fc6bc0cdecab7e9593974a4039cc038fca7 (git checkout; no
+                       tarball digest exists, so the catalog pins the commit). BSD-2-Clause;
+                       third-party/dav1d-COPYING.txt is that checkout's COPYING.
+  meson 1.9.2 (commit d11b8f26f372c844fcd24a82fa745244bb13c6e0) built dav1d.
+
+dav1d: meson, --default-library static --buildtype release -Denable_tools=false
+       -Denable_tests=false, cross file `clang -arch <arch>`, installed to a private prefix.
+FFmpeg configure (exact; arm64):
+  --disable-gpl --disable-nonfree --disable-autodetect --enable-static --disable-shared
+  --disable-doc --disable-debug --disable-ffplay --enable-small --arch=arm64
+  --target-os=darwin --enable-cross-compile --cc='clang -arch arm64' --enable-libdav1d
+  --pkg-config-flags=--static
+x86_64 is identical with arm64 replaced by x86_64. PKG_CONFIG_PATH is the private prefix only.
+
+Identity (catalog `contentSha256`, signature-independent; see src/content_digest.rs)
+  arm64   sha256 (retained thin file, 14485032 bytes) 17fe97c209adce0dc0c0379709c7a56908478fb0db9ac44bcc8aebef3e7f6278
+          contentSha256 50e744e1caeedae205c64f3258543b728db0891909d6297f732cf7f3d1e2b0bf
+  x86_64  sha256 (retained thin file, 18801240 bytes) fbe151ea1cb8455e4387e25d4c27688a517216595863fd63416c990504546503
+          contentSha256 520b517566bae475df61820e99c3d96ae5a2836384f6a0858afc8000cb48d309
+  universal (lipo of the two, 33293864 bytes) sha256
+          181e75823eacaa72de1321e4c746716bda7ab6f0384d9cca50bfae1af8074817; its two slices
+          carry exactly the two contentSha256 values above and verify against these rows.
+
+Verified: the arm64 and universal binaries ran on the build host (-version shows the
+configuration line above). The x86_64 binary was NOT executed (no Rosetta on the build
+host); its configuration line was read from the binary's embedded string and matches. The
+runtime -version probe checks it again on first use on an x86_64 host.
+Use: separate executable the app shells out to; notice + source offer apply.

@@ -651,7 +651,7 @@ impl Drop for AdvancedHttp {
     }
 }
 fn transport_error(error: HttpError) -> McpError {
-    if matches!(error, HttpError::Timeout(_)) {
+    if matches!(error, HttpError::Timeout { .. }) {
         McpError::Timeout
     } else {
         McpError::Transport(error.to_string())

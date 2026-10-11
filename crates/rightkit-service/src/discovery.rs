@@ -25,6 +25,32 @@ pub struct InstalledApp {
     pub engine_path: String,
     pub version: Option<String>,
     pub source: String,
+    /// Whether the engine executable was found. Always [`Completeness::Complete`] unless
+    /// [`DiscoverOptions::include_incomplete`] was set.
+    pub completeness: Completeness,
+}
+
+/// Whether an installed app is usable as a service host.
+#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum Completeness {
+    /// The app bundle and its engine executable are both present.
+    #[default]
+    Complete,
+    /// The app is installed but its engine executable is missing (a broken or partial
+    /// install). `engine_path` names where the engine was expected.
+    EngineMissing,
+}
+
+/// Options for discovery. `DiscoverOptions::default()` reproduces the original behaviour.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct DiscoverOptions {
+    /// Also return an app whose bundle is installed but whose engine is missing, marked
+    /// [`Completeness::EngineMissing`]. A complete install in any root always wins over an
+    /// incomplete one. Default `false`. Honoured on macOS ([`discover_macos_with`]) and on
+    /// Windows ([`discover_windows_with`], where an entry whose install directory exists
+    /// but whose engine file is missing is reported).
+    pub include_incomplete: bool,
 }
 
 /// The original Right Suite table. Deprecated: the crate hard-coded one product
@@ -48,19 +74,31 @@ const SUITE_APPS: &[(&str, &str)] = &[
 /// Discover installed apps from the caller's `(app bundle or display name, engine executable)`
 /// registry. The first complete match per app wins.
 pub fn discover_apps_in(registry: &[(&str, &str)]) -> Vec<InstalledApp> {
+    discover_apps_in_with(registry, &DiscoverOptions::default())
+}
+
+/// [`discover_apps_in`] with explicit [`DiscoverOptions`].
+pub fn discover_apps_in_with(
+    registry: &[(&str, &str)],
+    options: &DiscoverOptions,
+) -> Vec<InstalledApp> {
     #[cfg(target_os = "macos")]
     {
-        discover_macos(&default_macos_roots(), registry)
+        discover_macos_with(&default_macos_roots(), registry, options)
     }
     #[cfg(windows)]
     {
-        discover_windows(&read_windows_uninstall_entries(), registry, |p| {
-            Path::new(p).is_file()
-        })
+        discover_windows_with(
+            &read_windows_uninstall_entries(),
+            registry,
+            |p| Path::new(p).is_file(),
+            |p| Path::new(p).is_dir(),
+            options,
+        )
     }
     #[cfg(not(any(target_os = "macos", windows)))]
     {
-        let _ = registry;
+        let _ = (registry, options);
         Vec::new()
     }
 }
@@ -83,23 +121,48 @@ pub fn discover_apps() -> Vec<InstalledApp> {
 
 /// Scan roots in order; first complete bundle wins per app.
 pub fn discover_macos(roots: &[PathBuf], apps: &[(&str, &str)]) -> Vec<InstalledApp> {
+    discover_macos_with(roots, apps, &DiscoverOptions::default())
+}
+
+/// [`discover_macos`] with explicit [`DiscoverOptions`]. With `include_incomplete`, an app
+/// that has a bundle directory but no engine in any root is returned once, from the first
+/// root that has its bundle, as [`Completeness::EngineMissing`].
+pub fn discover_macos_with(
+    roots: &[PathBuf],
+    apps: &[(&str, &str)],
+    options: &DiscoverOptions,
+) -> Vec<InstalledApp> {
     let mut found = Vec::new();
     for (name, engine) in apps {
+        let mut incomplete: Option<InstalledApp> = None;
+        let mut complete: Option<InstalledApp> = None;
         for root in roots {
             let bundle = root.join(format!("{name}.app"));
             let binary = bundle.join("Contents/MacOS").join(engine);
-            if !binary.is_file() {
+            let present = binary.is_file();
+            if !present && (!options.include_incomplete || incomplete.is_some() || !bundle.is_dir())
+            {
                 continue;
             }
-            found.push(InstalledApp {
+            let app = InstalledApp {
                 app: (*name).to_string(),
                 app_path: bundle.to_string_lossy().into_owned(),
                 engine_path: binary.to_string_lossy().into_owned(),
                 version: read_plist_version(&bundle.join("Contents/Info.plist")),
                 source: "macos-bundle".into(),
-            });
-            break;
+                completeness: if present {
+                    Completeness::Complete
+                } else {
+                    Completeness::EngineMissing
+                },
+            };
+            if present {
+                complete = Some(app);
+                break;
+            }
+            incomplete = Some(app);
         }
+        found.extend(complete.or(incomplete));
     }
     found
 }
@@ -217,22 +280,49 @@ pub fn resolve_install_dir(entry: &UninstallEntry) -> Option<String> {
         })
 }
 
+/// Discover complete Windows installs only. Equivalent to [`discover_windows_with`] with
+/// [`DiscoverOptions::default`].
 pub fn discover_windows(
     entries: &[UninstallEntry],
     apps: &[(&str, &str)],
     exists: impl Fn(&str) -> bool,
 ) -> Vec<InstalledApp> {
+    discover_windows_with(
+        entries,
+        apps,
+        exists,
+        |_| false,
+        &DiscoverOptions::default(),
+    )
+}
+
+/// Windows discovery with explicit options. `exists` checks the engine file and `dir_exists`
+/// checks the install directory. With `include_incomplete`, an entry whose directory exists but
+/// whose engine is missing is returned as [`Completeness::EngineMissing`]. A complete install
+/// from any entry of the same app always wins.
+pub fn discover_windows_with(
+    entries: &[UninstallEntry],
+    apps: &[(&str, &str)],
+    exists: impl Fn(&str) -> bool,
+    dir_exists: impl Fn(&str) -> bool,
+    options: &DiscoverOptions,
+) -> Vec<InstalledApp> {
     let mut found = Vec::new();
     for (name, engine) in apps {
+        let mut incomplete: Option<InstalledApp> = None;
+        let mut complete: Option<InstalledApp> = None;
         for entry in entries.iter().filter(|entry| entry.display_name == *name) {
             let Some(dir) = resolve_install_dir(entry) else {
                 continue;
             };
             let engine_path = format!(r"{dir}\{engine}.exe");
-            if !exists(&engine_path) {
+            let present = exists(&engine_path);
+            if !present
+                && (!options.include_incomplete || incomplete.is_some() || !dir_exists(&dir))
+            {
                 continue;
             }
-            found.push(InstalledApp {
+            let app = InstalledApp {
                 app: (*name).to_string(),
                 app_path: dir,
                 engine_path,
@@ -241,8 +331,20 @@ pub fn discover_windows(
                     .clone()
                     .filter(|v| !v.trim().is_empty()),
                 source: "windows-uninstall".into(),
-            });
-            break;
+                completeness: if present {
+                    Completeness::Complete
+                } else {
+                    Completeness::EngineMissing
+                },
+            };
+            if present {
+                complete = Some(app);
+                break;
+            }
+            incomplete = Some(app);
+        }
+        if let Some(app) = complete.or(incomplete) {
+            found.push(app);
         }
     }
     found
@@ -709,6 +811,84 @@ mod tests {
         .unwrap();
         let apps = discover_macos(&[d.path().to_path_buf()], &[("DemoApp", "demo-engine")]);
         assert_eq!(apps[0].version.as_deref(), Some("1.2"));
+    }
+
+    #[test]
+    fn mac_discovery_reports_incomplete_installs_only_on_request() {
+        let d = tempfile::tempdir().unwrap();
+        // Broken install in the first root (bundle, no engine); nothing in the second.
+        let first = d.path().join("first");
+        let second = d.path().join("second");
+        fs::create_dir_all(first.join("DemoApp.app/Contents/MacOS")).unwrap();
+        fs::create_dir_all(&second).unwrap();
+        let roots = [first.clone(), second.clone()];
+        let reg = [("DemoApp", "demo-engine"), ("Absent", "absent-engine")];
+
+        // Default behaviour is unchanged: incomplete installs are not reported.
+        assert!(discover_macos(&roots, &reg).is_empty());
+        assert!(discover_macos_with(&roots, &reg, &DiscoverOptions::default()).is_empty());
+
+        let opts = DiscoverOptions {
+            include_incomplete: true,
+        };
+        let apps = discover_macos_with(&roots, &reg, &opts);
+        assert_eq!(
+            apps.len(),
+            1,
+            "an app with no bundle at all is never reported"
+        );
+        assert_eq!(apps[0].app, "DemoApp");
+        assert_eq!(apps[0].completeness, Completeness::EngineMissing);
+        assert!(std::path::Path::new(&apps[0].engine_path).ends_with(
+            std::path::Path::new("Contents")
+                .join("MacOS")
+                .join("demo-engine")
+        ));
+        assert!(apps[0].app_path.starts_with(first.to_str().unwrap()));
+
+        // A complete install in a later root beats the incomplete one in an earlier root.
+        let good = second.join("DemoApp.app/Contents/MacOS");
+        fs::create_dir_all(&good).unwrap();
+        fs::write(good.join("demo-engine"), b"engine").unwrap();
+        let apps = discover_macos_with(&roots, &reg, &opts);
+        assert_eq!(apps.len(), 1);
+        assert_eq!(apps[0].completeness, Completeness::Complete);
+        assert!(apps[0].app_path.starts_with(second.to_str().unwrap()));
+        assert_eq!(discover_macos(&roots, &reg).len(), 1);
+    }
+
+    #[test]
+    fn windows_discovery_reports_incomplete_installs_only_on_request() {
+        let entry = |location: &str| UninstallEntry {
+            display_name: "DemoApp".into(),
+            install_location: Some(location.into()),
+            display_icon: None,
+            uninstall_string: None,
+            display_version: Some("3.0".into()),
+        };
+        let reg = [("DemoApp", "demo-engine")];
+        let broken = r"C:\Apps\Broken";
+        let entries = [entry(broken), entry(r"C:\Apps\Gone")];
+        // `Broken` has its directory but no engine; `Gone` has neither.
+        let engine = |p: &str| p.starts_with("C:\\Apps\\Good\\");
+        let dirs = |p: &str| p == broken;
+
+        assert!(discover_windows(&entries, &reg, engine).is_empty());
+        let opts = DiscoverOptions {
+            include_incomplete: true,
+        };
+        let apps = discover_windows_with(&entries, &reg, engine, dirs, &opts);
+        assert_eq!(apps.len(), 1);
+        assert_eq!(apps[0].app_path, broken);
+        assert_eq!(apps[0].completeness, Completeness::EngineMissing);
+        assert_eq!(apps[0].version.as_deref(), Some("3.0"));
+
+        // A complete install in a later entry beats the incomplete one.
+        let entries = [entry(broken), entry(r"C:\Apps\Good")];
+        let apps = discover_windows_with(&entries, &reg, engine, dirs, &opts);
+        assert_eq!(apps.len(), 1);
+        assert_eq!(apps[0].completeness, Completeness::Complete);
+        assert_eq!(apps[0].app_path, r"C:\Apps\Good");
     }
 
     #[test]

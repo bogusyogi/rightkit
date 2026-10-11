@@ -7,8 +7,9 @@
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::time::Duration;
 
-use rightkit_fs::{FileLock, LockOptions};
+use rightkit_fs::{FileLock, LockKind, LockOptions};
 
 /// Spawns children from a sibling thread. `pre_exec` forces a plain fork (as
 /// `rightkit-process` does), so each child exists with the parent's descriptors open until
@@ -149,6 +150,80 @@ fn failed_acquire_releases_lock_while_other_threads_spawn_children() {
         std::fs::remove_dir(&owner).unwrap();
         FileLock::try_acquire(&path)
             .unwrap_or_else(|e| panic!("round {round}: lock leaked by failed acquire: {e}"));
+    }
+    stop.store(true, Ordering::SeqCst);
+    spawn_thread.join().unwrap();
+}
+
+#[test]
+fn two_flock_descriptors_in_one_process_exclude_each_other() {
+    // Each flock attempt opens its own open file description, and flock conflicts between
+    // descriptions even inside one process. (Fcntl record locks would not conflict here.)
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("x.lock");
+    let first = FileLock::try_lock_with(&path, LockKind::Flock, Duration::ZERO).unwrap();
+    assert!(FileLock::try_lock_with(&path, LockKind::Flock, Duration::ZERO).is_err());
+    drop(first);
+    FileLock::try_lock_with(&path, LockKind::Flock, Duration::ZERO)
+        .expect("free after the first flock drops");
+}
+
+#[test]
+fn flock_shared_holders_coexist_in_one_process() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("y.lock");
+    let options = LockOptions::default();
+    let a = FileLock::acquire_shared_kind(&path, LockKind::Flock, &options).unwrap();
+    let b = FileLock::acquire_shared_kind(&path, LockKind::Flock, &options)
+        .expect("shared flock holders must not block each other");
+    assert!(FileLock::try_lock_with(&path, LockKind::Flock, Duration::ZERO).is_err());
+    drop(a);
+    drop(b);
+    FileLock::try_lock_with(&path, LockKind::Flock, Duration::ZERO)
+        .expect("exclusive free after all shared flock holders drop");
+}
+
+#[test]
+fn released_flock_lock_is_free_while_other_threads_spawn_children() {
+    // A child forked while the flock descriptor is open inherits it until exec. Drop unlocks
+    // explicitly, so the inherited description must not keep the released lock busy.
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("state.lock");
+    let stop = Arc::new(AtomicBool::new(false));
+    let spawn_thread = spawner(stop.clone());
+    for round in 0..400 {
+        let held = FileLock::try_lock_with(&path, LockKind::Flock, Duration::ZERO)
+            .unwrap_or_else(|e| panic!("round {round}: free flock reported busy: {e}"));
+        assert!(
+            FileLock::try_lock_with(&path, LockKind::Flock, Duration::ZERO).is_err(),
+            "round {round}: live flock holder must block"
+        );
+        drop(held);
+        FileLock::try_lock_with(&path, LockKind::Flock, Duration::ZERO)
+            .unwrap_or_else(|e| panic!("round {round}: released flock reported busy: {e}"));
+    }
+    stop.store(true, Ordering::SeqCst);
+    spawn_thread.join().unwrap();
+}
+
+#[test]
+fn failed_flock_acquire_releases_lock_while_other_threads_spawn_children() {
+    // The owner record cannot be written, so the flock is taken and then dropped by the failed
+    // call. The lock must be free afterwards even with a child holding the inherited descriptor.
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("state.lock");
+    let owner = dir.path().join("state.lock.owner");
+    let stop = Arc::new(AtomicBool::new(false));
+    let spawn_thread = spawner(stop.clone());
+    for round in 0..400 {
+        std::fs::create_dir(&owner).unwrap();
+        assert!(
+            FileLock::try_lock_with(&path, LockKind::Flock, Duration::ZERO).is_err(),
+            "round {round}: owner write should fail"
+        );
+        std::fs::remove_dir(&owner).unwrap();
+        FileLock::try_lock_with(&path, LockKind::Flock, Duration::ZERO)
+            .unwrap_or_else(|e| panic!("round {round}: flock leaked by failed acquire: {e}"));
     }
     stop.store(true, Ordering::SeqCst);
     spawn_thread.join().unwrap();

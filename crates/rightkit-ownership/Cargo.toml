@@ -25,3 +25,7 @@ spki = { version = "0.7", features = ["pem", "std"] }
 
 [dev-dependencies]
 tempfile = "3"
+
+[package.metadata.rightkit]
+continuous = false
+continuous_reason = "thread-spawn: per-call stdin writer and stdout and stderr reader threads for one git or scanner child (gitio.rs, runner.rs), ended at pipe EOF or when the child is killed at the deadline; sleep: 2 ms try_wait and POLL_INTERVAL scanner poll bounded by the call timeout; the admission verdict cache is capped at CACHE_LIMIT 128; no listener, timer or watcher (reviewed 2026-10-11)"

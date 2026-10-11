@@ -9,7 +9,7 @@ use std::path::Path;
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 
-use rightkit_fs::{FileLock, LockOptions};
+use rightkit_fs::{probe_owner, FileLock, LockKind, LockOptions};
 
 const HOLDER_ENV: &str = "RIGHTKIT_FS_TEST_LOCK_HOLDER";
 
@@ -22,9 +22,13 @@ fn holder_entry_point() {
     };
     let (mode, path) = spec.split_once(':').unwrap();
     let options = LockOptions::default();
+    let path = Path::new(path);
     let _lock = match mode {
-        "shared" => FileLock::acquire_shared(Path::new(path), &options).unwrap(),
-        _ => FileLock::try_acquire(Path::new(path)).unwrap(),
+        "shared" => FileLock::acquire_shared(path, &options).unwrap(),
+        "flock" => FileLock::try_lock_with(path, LockKind::Flock, Duration::ZERO).unwrap(),
+        "flock-shared" => FileLock::acquire_shared_kind(path, LockKind::Flock, &options).unwrap(),
+        "fcntl" => FileLock::try_lock_with(path, LockKind::Fcntl, Duration::ZERO).unwrap(),
+        _ => FileLock::try_acquire(path).unwrap(),
     };
     println!("HELD");
     std::io::stdout().flush().unwrap();
@@ -128,4 +132,89 @@ fn waiting_acquire_succeeds_once_the_other_process_releases() {
     assert!(started.elapsed() >= Duration::from_millis(200));
     drop(lock);
     releaser.join().unwrap();
+}
+
+#[test]
+fn flock_exclusive_holder_in_another_process_blocks_flock_callers() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("f.lock");
+    let mut holder = spawn_holder("flock", &path);
+
+    assert!(FileLock::try_lock_with(&path, LockKind::Flock, Duration::ZERO).is_err());
+    assert!(
+        FileLock::acquire_shared_kind(&path, LockKind::Flock, &LockOptions::default()).is_err(),
+        "a flock writer must exclude shared flock readers"
+    );
+
+    drop(holder.stdin.take());
+    holder.wait().unwrap();
+    FileLock::try_lock_with(&path, LockKind::Flock, Duration::ZERO)
+        .expect("free after the flock holder exits");
+}
+
+#[test]
+fn flock_shared_holder_in_another_process_admits_readers_and_blocks_writers() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("g.lock");
+    let mut holder = spawn_holder("flock-shared", &path);
+
+    let reader = FileLock::acquire_shared_kind(&path, LockKind::Flock, &LockOptions::default())
+        .expect("shared flock coexists across processes");
+    assert!(FileLock::try_lock_with(&path, LockKind::Flock, Duration::ZERO).is_err());
+    drop(reader);
+    assert!(
+        FileLock::try_lock_with(&path, LockKind::Flock, Duration::ZERO).is_err(),
+        "dropping our descriptor must not release the other process's flock"
+    );
+
+    drop(holder.stdin.take());
+    holder.wait().unwrap();
+    FileLock::try_lock_with(&path, LockKind::Flock, Duration::ZERO)
+        .expect("free after the flock holder exits");
+}
+
+#[test]
+fn killed_flock_holder_releases_the_lock() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("h.lock");
+    let mut holder = spawn_holder("flock", &path);
+    assert!(FileLock::try_lock_with(&path, LockKind::Flock, Duration::ZERO).is_err());
+
+    holder.kill().unwrap();
+    holder.wait().unwrap();
+    FileLock::try_lock_with(&path, LockKind::Flock, Duration::ZERO)
+        .expect("the kernel releases a flock when its last descriptor closes");
+}
+
+#[test]
+fn fcntl_exclusive_holder_in_another_process_blocks_explicit_fcntl_callers() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("r.lock");
+    let mut holder = spawn_holder("fcntl", &path);
+
+    assert!(FileLock::try_lock_with(&path, LockKind::Fcntl, Duration::ZERO).is_err());
+    assert!(FileLock::acquire_shared(&path, &LockOptions::default()).is_err());
+
+    drop(holder.stdin.take());
+    holder.wait().unwrap();
+    FileLock::try_lock_with(&path, LockKind::Fcntl, Duration::ZERO)
+        .expect("free after the fcntl holder exits");
+}
+
+#[test]
+fn probe_owner_reads_a_live_holder_in_another_process() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("o.lock");
+    let mut holder = spawn_holder("exclusive", &path);
+
+    let owner = probe_owner(&path).expect("the live holder's record is readable");
+    assert_eq!(owner.pid, holder.id());
+    assert!(
+        FileLock::try_acquire(&path).is_err(),
+        "probing must not disturb the holder"
+    );
+
+    drop(holder.stdin.take());
+    holder.wait().unwrap();
+    assert!(probe_owner(&path).is_none(), "record removed on clean exit");
 }

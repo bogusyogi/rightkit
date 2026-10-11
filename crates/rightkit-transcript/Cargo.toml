@@ -22,3 +22,7 @@ path = "src/lib.rs"
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.150"
 thiserror = "2"
+
+[package.metadata.rightkit]
+continuous = false
+continuous_reason = "transcript contract, cue segmentation and SRT/VTT/JSON import/export per call; no thread-spawn, task-spawn, sleep, timer, listener or watcher in non-test src (checked by runtime-budgets.mjs)"

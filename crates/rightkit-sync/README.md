@@ -32,3 +32,16 @@ Illustrative; not compiled as a doctest. For compiled usage, see `tests/converge
 // Build a sync engine over MemoryBackend in tests, or over CloudKitHelper
 // in the app's macOS host, and drive it with the app's record mapper.
 ```
+
+## Runtime budget
+
+Generated from `runtime-budget.json`; edit that file, then run `node packages/release/runtime-budgets.mjs sync <crate-dir>`.
+
+- Resident memory ceiling: undeclared.
+- CPU ceiling (idle, steady state): 1%.
+- Wake-ups ceiling: 1 per second.
+- Disk operations ceiling: 1 operations per second.
+- Required scale: 100,000 records or more.
+- Required hosts: macOS and Windows.
+- Status exposure: `SyncEngine::status()` in `src/engine.rs`; exposes resident memory, idle CPU, wake-ups, disk operations.
+- Measured: not yet measured.

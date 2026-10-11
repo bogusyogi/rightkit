@@ -1,22 +1,26 @@
 //! Resumable download to a file, with optional SHA-256 and length verification.
 //!
-//! Bytes go to `<dest>.part`. On success the file is fsynced and renamed to `dest`.
+//! Bytes go to `<dest>.part`, created without following links. On success the file is
+//! fsynced, hashed through the same open handle and renamed to `dest`. The URL policy runs
+//! before the filesystem is touched.
 //! Every request goes through the same policy layer as [`Client::send`]: timeouts,
 //! retry/backoff, redirect and size settings.
 
 use std::fmt;
 use std::fs::{self, File, OpenOptions};
-use std::io::{self, Read, Write};
+use std::io::{self, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicBool;
 
 use sha2::{Digest, Sha256};
 
-use crate::cancel::is_set;
+use crate::cancel::{is_set, CheckedReader};
 use crate::client::{
-    header_of, map_ureq_error_in, read_limited, status_error, Client, Raw, Request,
+    header_of, map_ureq_error_in, read_limited, redact_str, redaction_values_for, scrub_error,
+    status_error, Client, Raw, Request,
 };
 use crate::error::{HttpError, Phase, MAX_ERROR_BODY_BYTES};
+use crate::urlredact::redact_urls_in_text;
 
 const CHUNK: usize = 64 * 1024;
 
@@ -118,7 +122,12 @@ struct FetchState {
     written: u64,
     resumed_from: u64,
     total: Option<u64>,
+    /// Hard cap on the bytes this response may deliver: the end of a `206` range, or the
+    /// `Content-Length` of a `200`.
+    limit: Option<u64>,
     etag: Option<String>,
+    /// Resource (final URL without query) that supplied the bytes on disk and the ETag.
+    source: Option<String>,
     attempts: u32,
     reconnects: u32,
     restarted: bool,
@@ -132,6 +141,17 @@ impl Client {
     /// and restarts. A `416` whose `Content-Range` total equals the local length verifies
     /// the file without fetching bytes. Any other `416` restarts once from zero. A
     /// mid-body failure reconnects from the current length, up to `max_reconnects` times.
+    /// The saved prefix and its ETag belong to the resource (final URL without its query)
+    /// that supplied them: a reconnect that lands on another resource restarts from zero.
+    ///
+    /// Safety rules: the URL is checked against the address policy before any file is
+    /// opened. `.part` is never opened through a symbolic link: an existing link is removed
+    /// (never followed) and the file is created exclusively, or on resume opened with
+    /// `O_NOFOLLOW`. The bytes are hashed through the same handle that wrote them, after an
+    /// fsync, and the path is compared with the handle just before the rename. A body that
+    /// runs past `expected_bytes` (or the declared range or length) stops the download and
+    /// deletes `.part`. A response whose framing shows transparent content decoding is
+    /// refused, because byte offsets would then describe decoded data.
     ///
     /// Note: `If-Range` is only sent once this call has seen an ETag. Resuming a `.part`
     /// left by an earlier call is protected only by `expected_sha256`.
@@ -140,6 +160,17 @@ impl Client {
         url: &str,
         dest: &Path,
         mut opts: DownloadOptions<'_>,
+    ) -> Result<DownloadReport, DownloadError> {
+        let values = redaction_values_for(&self.config, &Request::get(url));
+        self.download_inner(url, dest, &mut opts)
+            .map_err(|e| scrub_download_error(e, &values))
+    }
+
+    fn download_inner(
+        &self,
+        url: &str,
+        dest: &Path,
+        opts: &mut DownloadOptions<'_>,
     ) -> Result<DownloadReport, DownloadError> {
         if opts
             .headers
@@ -151,13 +182,10 @@ impl Client {
             )
             .into());
         }
+        // Policy first: a denied URL must not touch the filesystem.
+        self.preflight_url(url)?;
         let part = part_path(dest);
-        let mut file = OpenOptions::new()
-            .create(true)
-            .append(true)
-            .read(true)
-            .open(&part)
-            .map_err(io_error("open partial file"))?;
+        let mut file = open_part(&part, opts.resume)?;
         let mut st = FetchState::default();
         if opts.resume {
             st.written = file
@@ -165,28 +193,36 @@ impl Client {
                 .map_err(io_error("stat partial file"))?
                 .len();
             st.resumed_from = st.written;
-        } else {
-            file.set_len(0).map_err(io_error("truncate partial file"))?;
         }
 
-        let fetched = self.fetch_into(url, &mut file, &mut st, &mut opts);
-        drop(file);
-        fetched?;
+        match self.fetch_into(url, &mut file, &mut st, opts) {
+            Err(e @ DownloadError::LengthMismatch { .. }) => {
+                drop(file);
+                let _ = fs::remove_file(&part);
+                return Err(e);
+            }
+            other => other?,
+        }
 
-        let mismatch = st
-            .total
+        // Whole-resource completion: the advertised total when there is one. `limit` is only
+        // where this response's range ends, which may fall short of the resource.
+        let expected_len = st.total.or(st.limit);
+        let mismatch = expected_len
             .filter(|t| *t != st.written)
             .or(opts.expected_bytes.filter(|e| *e != st.written));
         if let Some(expected) = mismatch {
+            drop(file);
             remove_part(&part)?;
             return Err(DownloadError::LengthMismatch {
                 expected,
                 actual: st.written,
             });
         }
-        let actual = sha256_file(&part).map_err(io_error("hash partial file"))?;
+        file.sync_all().map_err(io_error("fsync partial file"))?;
+        let actual = sha256_handle(&mut file).map_err(io_error("hash partial file"))?;
         if let Some(expected) = &opts.expected_sha256 {
             if !expected.eq_ignore_ascii_case(&actual) {
+                drop(file);
                 remove_part(&part)?;
                 return Err(DownloadError::Integrity {
                     expected: expected.clone(),
@@ -194,7 +230,10 @@ impl Client {
                 });
             }
         }
+        ensure_same_file(&file, &part).map_err(io_error("check partial file"))?;
         fs::rename(&part, dest).map_err(io_error("rename into place"))?;
+        drop(file);
+        sync_parent(dest);
         Ok(DownloadReport {
             path: dest.to_path_buf(),
             bytes: st.written,
@@ -241,30 +280,74 @@ impl Client {
                 headers,
                 body,
                 attempts,
+                final_url,
+                wire_content_encoding,
                 ..
             } = raw;
             st.attempts += attempts;
-            if let Some(encoding) = header_of(&headers, "content-encoding") {
+            let source = resource_key(&final_url);
+            // What the server really sent: ureq strips the header when it decodes, so the
+            // wire value is the one to trust.
+            let encoding = wire_content_encoding
+                .as_deref()
+                .or_else(|| header_of(&headers, "content-encoding"));
+            if let Some(encoding) = encoding {
                 if !encoding.trim().eq_ignore_ascii_case("identity") {
                     return Err(stream_error(format!(
                         "unexpected Content-Encoding {encoding} for a download"
                     )));
                 }
             }
+            if matches!(status, 200 | 206) && frames_like_decoding(&headers, &body) {
+                return Err(stream_error(
+                    "response is neither length-delimited nor chunked, which is how a transparently \
+                     decoded or unframed body looks; refusing it for a download"
+                        .into(),
+                ));
+            }
             match status {
                 206 if offset > 0 => {
                     let range = header_of(&headers, "content-range")
                         .and_then(parse_content_range)
                         .ok_or_else(|| stream_error("206 without a valid Content-Range".into()))?;
-                    if range.start != Some(offset) {
+                    let (Some(start), Some(end)) = (range.start, range.end) else {
+                        return Err(stream_error("206 Content-Range has no byte range".into()));
+                    };
+                    if start != offset {
                         return Err(stream_error(
                             "Content-Range does not start at the requested offset".into(),
                         ));
                     }
+                    // `parse_content_range` guarantees `start <= end < u64::MAX`, so neither
+                    // expression below can overflow.
+                    let span = end - start + 1;
+                    let end_exclusive = end + 1;
+                    if let Some(length) = header_of(&headers, "content-length")
+                        .and_then(|v| v.trim().parse::<u64>().ok())
+                    {
+                        if length != span {
+                            return Err(stream_error(
+                                "Content-Length disagrees with Content-Range".into(),
+                            ));
+                        }
+                    }
+                    if st.source.as_deref().is_some_and(|s| s != source) {
+                        // The saved prefix came from another resource: start over.
+                        file.set_len(0).map_err(io_error("truncate partial file"))?;
+                        st.written = 0;
+                        st.resumed_from = 0;
+                        st.etag = None;
+                        st.source = None;
+                        st.total = None;
+                        st.limit = None;
+                        continue;
+                    }
                     st.total = range.total;
+                    st.limit = Some(end_exclusive);
                     if st.etag.is_none() {
                         st.etag = header_of(&headers, "etag").map(str::to_string);
                     }
+                    st.source.get_or_insert(source);
                 }
                 200 => {
                     if offset > 0 {
@@ -274,7 +357,9 @@ impl Client {
                     }
                     st.total = header_of(&headers, "content-length")
                         .and_then(|v| v.trim().parse::<u64>().ok());
+                    st.limit = st.total;
                     st.etag = header_of(&headers, "etag").map(str::to_string);
+                    st.source = Some(source);
                 }
                 416 => {
                     let range_total = header_of(&headers, "content-range")
@@ -283,6 +368,7 @@ impl Client {
                     if offset > 0 && range_total == Some(offset) {
                         // The local file is the whole object: verify only.
                         st.total = Some(offset);
+                        st.limit = Some(offset);
                         return Ok(());
                     }
                     if offset > 0 && !st.restarted {
@@ -292,14 +378,24 @@ impl Client {
                         st.resumed_from = 0;
                         continue;
                     }
-                    let bytes = read_error_body(body);
+                    let bytes = read_error_body(body, opts.cancel);
+                    if is_set(opts.cancel) {
+                        return Err(DownloadError::Cancelled {
+                            partial_bytes: st.written,
+                        });
+                    }
                     return Err(status_error(416, &headers, bytes, st.attempts).into());
                 }
                 s if (200..300).contains(&s) => {
                     return Err(stream_error(format!("unexpected HTTP {s} for a download")));
                 }
                 s => {
-                    let bytes = read_error_body(body);
+                    let bytes = read_error_body(body, opts.cancel);
+                    if is_set(opts.cancel) {
+                        return Err(DownloadError::Cancelled {
+                            partial_bytes: st.written,
+                        });
+                    }
                     return Err(status_error(s, &headers, bytes, st.attempts).into());
                 }
             }
@@ -315,9 +411,22 @@ impl Client {
                 match reader.read(&mut buf) {
                     Ok(0) => return Ok(()),
                     Ok(n) => {
+                        let cap = match (opts.expected_bytes, st.limit) {
+                            (Some(a), Some(b)) => Some(a.min(b)),
+                            (a, b) => a.or(b),
+                        };
+                        if let Some(cap) = cap {
+                            let after = st.written.saturating_add(n as u64);
+                            if after > cap {
+                                return Err(DownloadError::LengthMismatch {
+                                    expected: cap,
+                                    actual: after,
+                                });
+                            }
+                        }
                         file.write_all(&buf[..n])
                             .map_err(io_error("write partial file"))?;
-                        st.written += n as u64;
+                        st.written = st.written.saturating_add(n as u64);
                         if let Some(cb) = opts.on_progress.as_deref_mut() {
                             cb(&DownloadProgress {
                                 downloaded: st.written,
@@ -344,9 +453,130 @@ impl Client {
     }
 }
 
-fn read_error_body(body: ureq::Body) -> Vec<u8> {
-    let mut reader = body.into_reader();
-    read_limited(&mut reader, MAX_ERROR_BODY_BYTES).unwrap_or_default()
+/// Final URL without query or fragment: the identity of the resource that answered.
+fn resource_key(final_url: &str) -> String {
+    final_url
+        .split(['?', '#'])
+        .next()
+        .unwrap_or(final_url)
+        .to_string()
+}
+
+/// A `200` or `206` with neither a `Content-Length` nor chunked framing. `ureq` removes
+/// `Content-Encoding` and `Content-Length` when it decodes gzip transparently, so this is how
+/// that case (and an unframed, close-delimited body) shows up.
+fn frames_like_decoding(headers: &[(String, String)], body: &ureq::Body) -> bool {
+    let chunked = header_of(headers, "transfer-encoding")
+        .is_some_and(|v| v.to_ascii_lowercase().contains("chunked"));
+    header_of(headers, "content-length").is_none() && body.content_length().is_none() && !chunked
+}
+
+/// Open `.part` without following a link at that path.
+fn open_part(part: &Path, resume: bool) -> Result<File, DownloadError> {
+    match fs::symlink_metadata(part) {
+        Ok(meta) if meta.file_type().is_symlink() => {
+            // Remove the link itself; its target is never touched.
+            fs::remove_file(part).map_err(io_error("remove partial-file link"))?;
+        }
+        Ok(meta) if !meta.is_file() => {
+            return Err(DownloadError::Io(
+                "partial path exists and is not a regular file".into(),
+            ));
+        }
+        Ok(_) if !resume => {
+            fs::remove_file(part).map_err(io_error("remove stale partial file"))?;
+        }
+        _ => {}
+    }
+    let file = if resume {
+        let mut existing = OpenOptions::new();
+        existing.read(true).append(true);
+        no_follow(&mut existing);
+        match existing.open(part) {
+            Ok(f) => f,
+            Err(e) if e.kind() == io::ErrorKind::NotFound => create_new(part)?,
+            Err(e) => return Err(io_error("open partial file")(e)),
+        }
+    } else {
+        create_new(part)?
+    };
+    let meta = file.metadata().map_err(io_error("stat partial file"))?;
+    if !meta.is_file() {
+        return Err(DownloadError::Io(
+            "partial path is not a regular file".into(),
+        ));
+    }
+    Ok(file)
+}
+
+fn create_new(part: &Path) -> Result<File, DownloadError> {
+    let mut options = OpenOptions::new();
+    options.read(true).append(true).create_new(true);
+    no_follow(&mut options);
+    options.open(part).map_err(io_error("create partial file"))
+}
+
+#[cfg(unix)]
+fn no_follow(options: &mut OpenOptions) {
+    use std::os::unix::fs::OpenOptionsExt;
+    options.custom_flags(libc::O_NOFOLLOW);
+}
+
+#[cfg(not(unix))]
+fn no_follow(_options: &mut OpenOptions) {}
+
+/// Fail when `path` no longer names the file `file` is open on.
+fn ensure_same_file(file: &File, path: &Path) -> io::Result<()> {
+    let on_disk = fs::symlink_metadata(path)?;
+    if on_disk.file_type().is_symlink() {
+        return Err(io::Error::other("partial path became a link"));
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        let open = file.metadata()?;
+        if open.dev() != on_disk.dev() || open.ino() != on_disk.ino() {
+            return Err(io::Error::other("partial path was replaced"));
+        }
+    }
+    #[cfg(not(unix))]
+    let _ = file;
+    Ok(())
+}
+
+/// Flush the directory entry of the renamed file, where the platform allows it.
+fn sync_parent(dest: &Path) {
+    #[cfg(unix)]
+    if let Some(parent) = dest.parent() {
+        let dir = if parent.as_os_str().is_empty() {
+            Path::new(".")
+        } else {
+            parent
+        };
+        if let Ok(d) = File::open(dir) {
+            let _ = d.sync_all();
+        }
+    }
+    #[cfg(not(unix))]
+    let _ = dest;
+}
+
+fn scrub_download_error(err: DownloadError, values: &[String]) -> DownloadError {
+    match err {
+        DownloadError::Http(e) => DownloadError::Http(scrub_error(e, values)),
+        DownloadError::Io(m) => DownloadError::Io(redact_str(&redact_urls_in_text(&m), values)),
+        other => other,
+    }
+}
+
+fn read_error_body(body: ureq::Body, cancel: Option<&AtomicBool>) -> Vec<u8> {
+    let mut body = body;
+    let mut reader = body.as_reader();
+    let mut checked = CheckedReader {
+        inner: &mut reader,
+        cancel,
+    };
+    read_limited(&mut checked, MAX_ERROR_BODY_BYTES).unwrap_or_default()
 }
 
 fn stream_error(message: String) -> DownloadError {
@@ -369,10 +599,12 @@ fn part_path(dest: &Path) -> PathBuf {
 
 struct ContentRange {
     start: Option<u64>,
+    end: Option<u64>,
     total: Option<u64>,
 }
 
-/// Parse `bytes <start>-<end>/<total>` or `bytes */<total>`; `*` means unknown.
+/// Strictly parse `bytes <start>-<end>/<total>` or `bytes */<total>`. `*` after the slash
+/// means the total is unknown. Anything else, `end < start`, or `end >= total`, is invalid.
 fn parse_content_range(value: &str) -> Option<ContentRange> {
     let rest = value.trim().strip_prefix("bytes ")?;
     let (range, total) = rest.split_once('/')?;
@@ -380,15 +612,28 @@ fn parse_content_range(value: &str) -> Option<ContentRange> {
         "*" => None,
         t => Some(t.parse::<u64>().ok()?),
     };
-    let start = match range.trim() {
-        "*" => None,
-        r => Some(r.split_once('-')?.0.trim().parse::<u64>().ok()?),
+    let (start, end) = match range.trim() {
+        "*" => (None, None),
+        r => {
+            let (a, b) = r.split_once('-')?;
+            (
+                Some(a.trim().parse::<u64>().ok()?),
+                Some(b.trim().parse::<u64>().ok()?),
+            )
+        }
     };
-    Some(ContentRange { start, total })
+    if let (Some(s), Some(e)) = (start, end) {
+        // `e + 1` (the exclusive end) must be representable: callers compute it.
+        if e < s || e.checked_add(1).is_none() || total.is_some_and(|t| e >= t) {
+            return None;
+        }
+    }
+    Some(ContentRange { start, end, total })
 }
 
-fn sha256_file(path: &Path) -> io::Result<String> {
-    let mut file = File::open(path)?;
+/// SHA-256 of the whole file, read through the handle that wrote it.
+fn sha256_handle(file: &mut File) -> io::Result<String> {
+    file.seek(SeekFrom::Start(0))?;
     let mut hasher = Sha256::new();
     let mut buf = vec![0u8; CHUNK];
     loop {
@@ -403,4 +648,42 @@ fn sha256_file(path: &Path) -> io::Result<String> {
         .iter()
         .map(|b| format!("{b:02x}"))
         .collect())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn content_range_parsing_is_strict() {
+        assert!(parse_content_range("bytes 1-18446744073709551615/*").is_none());
+        assert!(parse_content_range("bytes 0-18446744073709551615/18446744073709551616").is_none());
+        assert!(parse_content_range("bytes 0-18446744073709551614/*").is_some());
+        let r = parse_content_range("bytes 80-199/200").unwrap();
+        assert_eq!((r.start, r.end, r.total), (Some(80), Some(199), Some(200)));
+        let r = parse_content_range("bytes 80-199/*").unwrap();
+        assert_eq!((r.start, r.end, r.total), (Some(80), Some(199), None));
+        let r = parse_content_range("bytes */200").unwrap();
+        assert_eq!((r.start, r.end, r.total), (None, None, Some(200)));
+        for bad in [
+            "bytes 80-garbage/*",
+            "bytes garbage-90/*",
+            "bytes 90-80/*",
+            "bytes 0-200/200",
+            "bytes 0-9",
+            "items 0-9/10",
+            "bytes 0-9/ten",
+            "",
+        ] {
+            assert!(parse_content_range(bad).is_none(), "{bad}");
+        }
+    }
+
+    #[test]
+    fn resource_key_drops_query_and_fragment() {
+        assert_eq!(
+            resource_key("https://h.example/a/b?sig=1#x"),
+            "https://h.example/a/b"
+        );
+    }
 }

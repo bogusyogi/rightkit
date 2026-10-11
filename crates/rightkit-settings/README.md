@@ -70,6 +70,26 @@ let preview = store.patch_dry_run(&serde_json::json!({ "theme": "dark" }), None)
 
 `patch` rejects undeclared keys unless `allow_unknown_keys` accepts them. An allow-list (`Some(&[...])`) refuses undeclared keys.
 
+### Repair, optional fields, remove, and sidecars
+
+- One resolver serves `Store::open`, `get()`, and `read_with_defaults` / `read_with_options`. It starts from the caller's defaults and overlays the file's keys one at a time; a key is dropped only if it stops the settings type parsing. Legacy `#[serde(alias)]` spellings in the file win over the default's canonical key, and a null-valued key that collides with another spelling is the one dropped. `T::default()` is never substituted; unusable defaults are `Error::Invalid`.
+- `fill_optional(bool)` (`StoreOptions`, `ReadOptions`; default `false`). A key is optional when the type parses without it (`#[serde(default)]`, `Option`). By default a field the file omits keeps plain serde behaviour; with `true` it is filled from the defaults. Required fields the file omits, and fields the file holds with an invalid value, always take the defaults. A missing file uses the defaults whole.
+- `Store::remove_keys(&["k"])` (and `remove_keys_dry_run`) deletes a key if present and does nothing, with no write, if absent, in either `NullMeans` mode. A declared key returns to the value the type yields when the key is absent.
+- Sidecar read rule: with `sidecars(false)` the crate never reads `<path>.bak` (a missing file with a stale `.bak` reads as defaults, also under `OnCorrupt::Refuse`). Use `ReadOptions::sidecars(false)` to match on `read_with_options`.
+
+### Durability, damaged files, formatting, flat migration
+
+- **Replace mode** (`replace_mode`, `durable`, `retry_sharing_violation`). Default `Rename` with `durable(true)`: on Unix and macOS the temp file is flushed, renamed, and the directory flushed (power-loss safe). On Windows the rename is not write-through, so a power loss can bring back the previous (complete) file. Apps that need Windows write-through choose `ReplaceMode::ReplaceFile` (or `MoveWriteThrough`) and a retry, because those modes can hit a sharing violation when another process holds the file open:
+
+  ```rust,ignore
+  let opts = StoreOptions::new(schema)
+      .replace_mode(ReplaceMode::ReplaceFile)
+      .retry_sharing_violation(5, std::time::Duration::from_millis(50));
+  ```
+- **Damaged files**: `OnCorrupt::Quarantine` (default) renames it aside; `Refuse` errors; `Overwrite` leaves it in place until the atomic replace succeeds (add `keep_corrupt_copy(true)` for a copy made before the replace). Name the quarantine file with `quarantine_name(QuarantineName::Fixed(".corrupt".into()))` to overwrite one fixed file, or keep the timestamped default.
+- **Formatting**: `trailing_newline(true)` ends every write with a newline without sorting keys or rewriting unchanged values.
+- **Flat migration**: `flat_migration(|map| ...)` returns `(migrated, changed)`; it runs once on open, before defaults and repair, never read-only.
+
 ### Custom backends
 
 `SettingsBackend` is the storage seam. The default is `FileBackend`. An app can plug in its own, for example an encrypted database. Implement `load` and `patch` (`patch` runs the edit under the backend's exclusion), then open with `Store::with_backend(backend, options)`. The trait documentation carries an illustrative SQLCipher example. No SQLCipher implementation ships in this crate.

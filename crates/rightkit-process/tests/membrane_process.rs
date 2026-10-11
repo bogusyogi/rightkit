@@ -182,16 +182,15 @@ fn session_mode_creates_session_and_group_led_by_child() {
 
 #[cfg(unix)]
 #[test]
-fn tree_termination_reaches_descendant_after_parent_was_reaped() {
+fn tree_termination_reaches_descendant_while_the_exited_parent_is_unreaped() {
     let mut child = helper("sleep 2 & printf 'READY\\n'; exit 0", "unused")
         .spawn()
         .unwrap();
     let mut stdout = read_ready(&mut child);
-    assert!(child
-        .wait_timeout(Duration::from_secs(1))
-        .unwrap()
-        .unwrap()
-        .success());
+    // The parent exits on its own and is deliberately not reaped: the unreaped zombie still
+    // pins the group id, which is what makes the group signal below safe. (After a reap,
+    // group signalling is over; tests/tree_identity.rs covers that.)
+    thread::sleep(Duration::from_millis(200));
     // Descendant inherited stdout; EOF proves its retained group was killed.
     let (sender, receiver) = mpsc::channel();
     let reader = thread::spawn(move || {

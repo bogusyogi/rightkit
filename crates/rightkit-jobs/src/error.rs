@@ -27,6 +27,10 @@ pub const HOST_HANDOFF: &str = "host_handoff";
 pub const STALLED: &str = "stalled";
 /// Stable wire code for [`JobError::stale_attempt`].
 pub const STALE_ATTEMPT: &str = "stale_attempt";
+/// Stable wire code of the terminal error a `Recovery::Never` job gets when its runner is lost.
+pub const INTERRUPTED: &str = "interrupted";
+/// Stable wire code of the cancel error a single-flight submit leaves on the job it replaced.
+pub const SUPERSEDED: &str = "superseded";
 /// Stable wire code for [`JobError::contract_mismatch`].
 pub const CONTRACT_VERSION_MISMATCH: &str = "contract_version_mismatch";
 
@@ -90,6 +94,34 @@ impl JobError {
         Self::supervisor(
             CONTRACT_VERSION_MISMATCH,
             format!("engine speaks contract_version {advertised}; this shell requires {required}"),
+        )
+    }
+    /// A `Recovery::Never` job began an attempt and lost its runner (crash or lost lock). It is
+    /// failed with this error and never handed to a handler again.
+    pub fn interrupted(job_id: &str) -> Self {
+        Self::new(
+            INTERRUPTED,
+            format!(
+                "job {job_id} was interrupted after it started and its recovery class is never; it was not run again"
+            ),
+        )
+    }
+    /// A `Recovery::Never` job's handler ended with a retryable error. The handler may already
+    /// have had effects, so the job fails instead of pausing for a later re-run.
+    pub fn interrupted_by(job_id: &str, cause: &JobError) -> Self {
+        Self::new(
+            INTERRUPTED,
+            format!(
+                "job {job_id} stopped after it started ({}: {}) and its recovery class is never; it was not run again",
+                cause.code, cause.message
+            ),
+        )
+    }
+    /// The job was replaced by a newer single-flight submit (`successor`).
+    pub fn superseded(successor: &str) -> Self {
+        Self::new(
+            SUPERSEDED,
+            format!("superseded by job {successor} (single-flight submit)"),
         )
     }
     pub fn cancelled() -> Self {

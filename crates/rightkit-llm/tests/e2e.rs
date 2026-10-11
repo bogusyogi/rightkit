@@ -13,7 +13,8 @@ use rightkit_llm::{ChatRequest, LlmError, Message, Provider, StreamEvent};
 fn client() -> Client {
     Client::new(ClientConfig {
         retry: RetryPolicy::none(),
-        ..ClientConfig::default()
+        // The mock server binds 127.0.0.1, which the default public-web policy refuses.
+        ..rightkit_http::testing::loopback_config()
     })
 }
 
@@ -40,6 +41,7 @@ fn anthropic_complete_sends_exact_headers_body_and_parses_tool() {
         name: "lookup".into(),
         description: "Find item".into(),
         input_schema: serde_json::json!({"type":"object"}),
+        strict: false,
     });
     let answer = provider.complete(&req).unwrap();
     assert_eq!(answer.tool_input("lookup").unwrap()["q"], "rust");
@@ -170,7 +172,7 @@ fn failover_retries_retryable_route_but_surfaces_auth_and_midstream_errors() {
     let auth_provider =
         OpenAiCompatProvider::new("auth", &auth.base_url(), client(), creds("auth"));
     assert!(
-        matches!(auth_provider.complete(&ChatRequest::new("g", vec![Message::user("x")])), Err(LlmError::Http(e)) if e.status() == Some(401))
+        matches!(auth_provider.complete(&ChatRequest::new("g", vec![Message::user("x")])), Err(LlmError::Status { status: 401, .. }))
     );
 
     let mid = MockServer::start(|_, _| {
@@ -245,4 +247,64 @@ fn failover_first_token_deadline_and_breaker_skip_unhealthy_route() {
         .unwrap();
     assert_eq!(slow.request_count(), 1, "breaker skipped cooling route");
     assert_eq!(good.request_count(), 2);
+}
+
+fn retrying_client() -> Client {
+    Client::new(ClientConfig {
+        retry: RetryPolicy {
+            max_attempts: 3,
+            initial_backoff: Duration::from_millis(5),
+            max_backoff: Duration::from_millis(10),
+            jitter: 0.0,
+            ..RetryPolicy::default()
+        },
+        ..rightkit_http::testing::loopback_config()
+    })
+}
+
+#[test]
+fn anthropic_post_retries_429_then_succeeds() {
+    let server = MockServer::start(|_, n| {
+        if n == 0 {
+            MockResponse::text(429, "slow down")
+        } else {
+            MockResponse::json(
+                200,
+                &serde_json::json!({
+                    "id": "msg_1", "model": "claude-test", "stop_reason": "end_turn",
+                    "content": [{"type": "text", "text": "ok"}],
+                    "usage": {"input_tokens": 1, "output_tokens": 1}
+                }),
+            )
+        }
+    });
+    let provider = AnthropicProvider::new(&server.base_url(), retrying_client(), creds("anthropic"));
+    let answer = provider
+        .complete(&ChatRequest::simple("claude-test", "s", "hi"))
+        .unwrap();
+    assert_eq!(answer.text(), "ok");
+    assert_eq!(server.request_count(), 2);
+}
+
+#[test]
+fn openai_post_retries_429_then_succeeds() {
+    let server = MockServer::start(|_, n| {
+        if n == 0 {
+            MockResponse::text(429, "slow down")
+        } else {
+            MockResponse::json(
+                200,
+                &serde_json::json!({
+                    "id":"ok", "model":"gpt", "choices":[{"message":{"role":"assistant","content":"yes"},"finish_reason":"stop"}], "usage":{}
+                }),
+            )
+        }
+    });
+    let provider =
+        OpenAiCompatProvider::new("one", &server.base_url(), retrying_client(), creds("one"));
+    let answer = provider
+        .complete(&ChatRequest::simple("gpt", "s", "hi"))
+        .unwrap();
+    assert_eq!(answer.text(), "yes");
+    assert_eq!(server.request_count(), 2);
 }

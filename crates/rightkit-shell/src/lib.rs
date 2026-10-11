@@ -27,14 +27,21 @@ pub mod frameless;
 pub mod harden;
 pub mod idle;
 pub mod instance;
+mod legacy_hold;
+mod legacy_instance;
 pub mod lifecycle;
 pub mod menu;
+pub mod modules;
 pub mod nav;
 pub mod notify;
 pub mod open_url;
 pub mod opener;
 pub mod presence;
+pub mod quit;
 pub mod recovery;
+pub mod single_instance;
+pub mod site;
+pub mod startup_cache;
 pub mod stream;
 pub mod tray;
 pub mod watchdog;
@@ -60,17 +67,26 @@ use tauri::menu::MenuItem;
 use tauri::plugin::{Builder as PluginBuilder, TauriPlugin};
 use tauri::{AppHandle, Manager, Wry};
 
+pub use autostart::{AutostartMigration, AutostartOptions, LegacyAutostartNames};
 pub use broker::PathBroker;
+pub use clipboard::{ClipboardItem, ClipboardPolicy};
 pub use error::ShellError;
 pub use harden::{Devtools, Hardening, HardeningScript};
+pub use idle::{IdleErrorCallback, IdleFailure, IdlePhase};
 pub use menu::{MenuEntry, MenuGroup, MenuSpec};
+pub use modules::{Module, ModuleSet, ShellPlugin, ShellPluginBuilder};
 pub use nav::{NavDecision, NavPolicy};
 pub use opener::{ExternalOpener, SystemOpener};
 pub use presence::{AutoPrefs, PresenceState};
-pub use recovery::RecoverySpec;
+pub use recovery::{MigrationOutcome, RecoverySpec};
+pub use single_instance::{
+    ClaimFailure, ClaimOptions, ClaimOutcome, InstanceMessage, LegacySingleInstanceNames,
+    SingleInstance, SingleInstanceGuard,
+};
+pub use site::SitePolicy;
 pub use stream::StreamPolicy;
 pub use tray::{LeftClick, TraySpec};
-pub use watchdog::{StallReport, WatchdogConfig};
+pub use watchdog::{ShellRuntimeStatus, StallReport, WatchdogConfig, WatchdogStatus};
 
 pub const EVENT_MENU: &str = "rightkit-shell://menu";
 pub const EVENT_TRAY: &str = "rightkit-shell://tray";
@@ -81,9 +97,26 @@ pub const EVENT_ENGINE: &str = "rightkit-shell://engine";
 pub const EVENT_WINDOW: &str = "rightkit-shell://window";
 pub const EVENT_IDLE: &str = "rightkit-shell://idle";
 pub const EVENT_PRESENCE: &str = "rightkit-shell://presence";
+/// Emitted instead of exiting when the host opted into [`ShellBuilder::quit_drain`].
+pub const EVENT_QUIT_REQUESTED: &str = "rightkit-shell://quit-requested";
 
 type MenuCallback = Arc<dyn Fn(&AppHandle<Wry>, &str) + Send + Sync>;
 type PresenceCallback = Arc<dyn Fn(&AppHandle<Wry>, PresenceState) + Send + Sync>;
+type VisibilityCallback = Arc<dyn Fn(&AppHandle<Wry>, lifecycle::Visibility) + Send + Sync>;
+type RevealDecider = lifecycle::RevealDecider<AppHandle<Wry>>;
+
+/// What closing the main window does.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum CloseBehavior {
+    /// Closing the last window quits (the default).
+    #[default]
+    Quit,
+    /// Closing hides the main window; the app keeps running (what `close_to_tray(true)` does).
+    HideToTray,
+    /// Like `HideToTray`, and on macOS the app also drops to an Accessory app (no Dock icon, no menu
+    /// bar) while hidden and returns to Regular when revealed. On other platforms it is `HideToTray`.
+    HideToBackground,
+}
 
 /// Everything the shell shares at runtime (managed Tauri state).
 pub struct ShellState {
@@ -97,6 +130,12 @@ pub struct ShellState {
     pub opener: Arc<dyn ExternalOpener>,
     pub frameless: bool,
     pub close_to_tray: bool,
+    /// `CloseBehavior::HideToBackground`: hide and reveal also change the macOS activation policy.
+    pub hide_to_background: bool,
+    pub on_visibility: Option<VisibilityCallback>,
+    pub(crate) activation: lifecycle::ActivationTracker,
+    /// The opt-in quit drain (see [`quit`]).
+    pub quit: Arc<quit::QuitGate>,
     pub windows: Arc<window_state::WindowStateStore>,
     pub deep: deep_link::DeepLinkQueue,
     pub schemes: Vec<String>,
@@ -120,8 +159,18 @@ pub struct ShellState {
     pub recovery: Option<recovery::RecoveryStore>,
     /// Result of the startup cache-directory repair (`None` when disabled).
     pub cache_repair: Mutex<Option<(PathBuf, recovery::CacheDirOutcome)>>,
-    /// Scheme registered with [`ShellBuilder::stream_protocol`].
+    /// First scheme registered with [`ShellBuilder::stream_protocol`]; the default for `rk_shell_stream_grant`.
     pub stream_scheme: Option<String>,
+    /// Every scheme registered with [`ShellBuilder::stream_protocol`].
+    pub stream_schemes: Vec<String>,
+    /// Scheme registered with [`ShellBuilder::site_protocol`].
+    pub site_scheme: Option<String>,
+    pub site_policy: site::SitePolicy,
+    /// Modules this app installed (see [`Module`]).
+    pub modules: ModuleSet,
+    pub clipboard: clipboard::ClipboardPolicy,
+    /// Per-app temp directory for clipboard images.
+    pub clipboard_dir: PathBuf,
 }
 
 /// Called on the first instance when a later launch forwards its argv and working directory.
@@ -134,11 +183,17 @@ pub struct ShellBuilder {
     hardening: Hardening,
     hardening_script: HardeningScript,
     nav: NavPolicy,
+    extra_internal_schemes: Vec<String>,
     opener: Arc<dyn ExternalOpener>,
     single_instance: bool,
     close_to_tray: bool,
+    hide_to_background: bool,
+    on_visibility: Option<VisibilityCallback>,
+    qa_instance_exempt: bool,
+    on_second_instance_reveal: Option<RevealDecider>,
+    quit_drain: Option<std::time::Duration>,
     frameless: bool,
-    show_on_ready: bool,
+    show_on_ready: Option<bool>,
     state_dir: Option<PathBuf>,
     schemes: Vec<String>,
     menu: Option<MenuSpec>,
@@ -146,7 +201,12 @@ pub struct ShellBuilder {
     watchdog: Option<WatchdogConfig>,
     on_menu: Option<MenuCallback>,
     on_second_instance: Option<SecondInstanceCallback>,
-    stream: Option<(String, StreamPolicy)>,
+    streams: Vec<(String, StreamPolicy)>,
+    site: Option<(String, site::SitePolicy)>,
+    modules: ModuleSet,
+    clipboard: clipboard::ClipboardPolicy,
+    idle_on_error: Option<idle::IdleErrorCallback>,
+    autostart: autostart::AutostartOptions,
     recovery: Option<RecoverySpec>,
     idle_after: Option<std::time::Duration>,
     cache_dir: Option<PathBuf>,
@@ -171,11 +231,17 @@ impl Shell {
             hardening: Hardening::default(),
             hardening_script: HardeningScript::default(),
             nav: NavPolicy::default(),
+            extra_internal_schemes: Vec::new(),
             opener: Arc::new(SystemOpener),
             single_instance: true,
             close_to_tray: false,
+            hide_to_background: false,
+            on_visibility: None,
+            qa_instance_exempt: false,
+            on_second_instance_reveal: None,
+            quit_drain: None,
             frameless: false,
-            show_on_ready: true,
+            show_on_ready: None,
             state_dir: None,
             schemes: Vec::new(),
             menu: None,
@@ -183,7 +249,12 @@ impl Shell {
             watchdog: Some(WatchdogConfig::default()),
             on_menu: None,
             on_second_instance: None,
-            stream: None,
+            streams: Vec::new(),
+            site: None,
+            modules: ModuleSet::all(),
+            clipboard: clipboard::ClipboardPolicy::default(),
+            idle_on_error: None,
+            autostart: autostart::AutostartOptions::default(),
             recovery: None,
             idle_after: None,
             cache_dir: None,
@@ -218,6 +289,17 @@ impl ShellBuilder {
         self.nav = p;
         self
     }
+    /// Treat `scheme` as the app's own content: the webview loads it in place. Adds to
+    /// `nav_policy` whatever order they are called in. See [`NavPolicy::with_internal_scheme`].
+    ///
+    /// # Panics
+    /// Panics on a scheme that is empty, malformed, or a web or script scheme (`http`, `https`,
+    /// `file`, `javascript`, ...): a programmer error at startup, like an invalid app id.
+    pub fn internal_scheme(mut self, scheme: &str) -> Self {
+        nav::validate_internal_scheme(scheme).expect("rightkit-shell: internal_scheme");
+        self.extra_internal_schemes.push(scheme.to_owned());
+        self
+    }
     /// Replace the system link handler (tests, or an app that routes links itself).
     pub fn opener(mut self, o: impl ExternalOpener) -> Self {
         self.opener = Arc::new(o);
@@ -230,6 +312,62 @@ impl ShellBuilder {
     /// Closing the main window hides it; the app keeps running in the tray until Quit.
     pub fn close_to_tray(mut self, on: bool) -> Self {
         self.close_to_tray = on;
+        if !on {
+            self.hide_to_background = false;
+        }
+        self
+    }
+    /// What closing the main window does. The last of `close_to_tray` and `close_behavior` wins.
+    /// [`CloseBehavior::HideToBackground`] is for an app with no tray: it leaves the Dock while
+    /// hidden on macOS and is reachable from wherever the host reveals it (a menu-bar item, a
+    /// notch, a hotkey, a second launch).
+    pub fn close_behavior(mut self, behavior: CloseBehavior) -> Self {
+        self.close_to_tray = behavior != CloseBehavior::Quit;
+        self.hide_to_background = behavior == CloseBehavior::HideToBackground;
+        self
+    }
+    /// Called after the main window is hidden (close, tray toggle) or revealed (tray, second launch,
+    /// Dock reopen, opened URL), on the thread that raised the event. Runs after the shell's own
+    /// activation-policy change, so a host can drive its own policy with `close_to_tray(true)`
+    /// instead of `HideToBackground`.
+    pub fn on_visibility(
+        mut self,
+        f: impl Fn(&AppHandle<Wry>, lifecycle::Visibility) + Send + Sync + 'static,
+    ) -> Self {
+        self.on_visibility = Some(Arc::new(f));
+        self
+    }
+    /// A launch with `RIGHTKIT_QA_HIDDEN=1` neither claims the primary nor forwards to the running
+    /// instance, so a hidden QA copy never reveals the user's app and is never revealed by it.
+    /// Default off (a hidden QA launch arbitrates like any other).
+    pub fn qa_instance_exempt(mut self, on: bool) -> Self {
+        self.qa_instance_exempt = on;
+        self
+    }
+    /// Keep the default second-launch behaviour (the `second-instance` event and deep links) but let
+    /// the host decide whether it reveals and focuses the main window: `f` returns true to reveal.
+    /// Ignored when [`ShellBuilder::on_second_instance`] replaces the default.
+    pub fn second_instance_reveal(
+        mut self,
+        f: impl Fn(&AppHandle<Wry>, &[String], &str) -> bool + Send + Sync + 'static,
+    ) -> Self {
+        self.on_second_instance_reveal = Some(Arc::new(f));
+        self
+    }
+    /// Let the renderer drain before the app exits. A quit request (tray Quit, Cmd+Q, the last
+    /// window closing with a webview still alive) then emits `rightkit-shell://quit-requested`
+    /// instead of exiting, and the app exits when the renderer calls `rk_shell_finish_quit` or after
+    /// [`quit::DEFAULT_QUIT_DRAIN_BOUND`] (15 s), whichever comes first. Off by default: quit is
+    /// immediate. `rk_shell_quit` (and `shell.quit({force: true})`) stays immediate either way.
+    pub fn quit_drain(mut self, on: bool) -> Self {
+        self.quit_drain = on.then_some(quit::DEFAULT_QUIT_DRAIN_BOUND);
+        self
+    }
+    /// [`ShellBuilder::quit_drain`] with the host-side bound set (clamped to
+    /// [`quit::MAX_QUIT_DRAIN_BOUND`], 120 s). Give the renderer's own `quitTimeoutMs` (10 s by
+    /// default) less than this so its timeout reports before the host gives up.
+    pub fn quit_drain_bound(mut self, bound: std::time::Duration) -> Self {
+        self.quit_drain = Some(bound);
         self
     }
     /// Frameless chrome for windows created through `windows::builder`/`open` (see `frameless`).
@@ -237,8 +375,10 @@ impl ShellBuilder {
         self.frameless = on;
         self
     }
+    /// Show the main window when its webview is ready (default on). Calling this is an explicit
+    /// visibility decision: `RIGHTKIT_QA_HIDDEN` no longer overrides it. `--background` still does.
     pub fn show_on_ready(mut self, on: bool) -> Self {
-        self.show_on_ready = on;
+        self.show_on_ready = Some(on);
         self
     }
     /// Directory for window-state.json (default: `<app data dir>/shell`).
@@ -257,6 +397,21 @@ impl ShellBuilder {
     }
     pub fn tray(mut self, t: TraySpec) -> Self {
         self.tray = Some(t);
+        self
+    }
+    /// Login-item options: the launch arguments, macOS `LowPriorityIO`, and removing the entry
+    /// `tauri-plugin-autostart` wrote (see [`autostart`]).
+    pub fn autostart_options(mut self, options: autostart::AutostartOptions) -> Self {
+        self.autostart = options;
+        self
+    }
+    /// Called once per stall episode with the stall duration, on the watchdog thread (a host can
+    /// write a hang dump here). Applies to the watchdog config in place: call it after
+    /// [`ShellBuilder::watchdog`], or it has no effect. No effect when the watchdog is disabled.
+    pub fn on_stall(mut self, f: impl Fn(&watchdog::StallReport) + Send + Sync + 'static) -> Self {
+        if let Some(config) = self.watchdog.as_mut() {
+            config.on_stall = Some(Arc::new(f));
+        }
         self
     }
     pub fn watchdog(mut self, w: Option<WatchdogConfig>) -> Self {
@@ -282,7 +437,20 @@ impl ShellBuilder {
     /// Serve broker-granted files over a ranged custom protocol: `<scheme>://localhost/<id>` with
     /// the id from `rk_shell_stream_grant` (see [`stream`]). Off unless this is called.
     pub fn stream_protocol(mut self, scheme: &str, policy: StreamPolicy) -> Self {
-        self.stream = Some((scheme.to_ascii_lowercase(), policy));
+        let scheme = scheme.to_ascii_lowercase();
+        self.streams.retain(|(s, _)| *s != scheme);
+        self.streams.push((scheme, policy));
+        self
+    }
+    /// Serve allowlisted subresources of granted site roots over `<scheme>://localhost/<token>/<path>`
+    /// (see [`site`]). Granted with the `rk_shell_site_grant` command. Off unless this is called.
+    pub fn site_protocol(mut self, scheme: &str, policy: site::SitePolicy) -> Self {
+        self.site = Some((scheme.to_ascii_lowercase(), policy));
+        self
+    }
+    /// Age after which clipboard temp images are purged (default one hour; see [`clipboard`]).
+    pub fn clipboard_purge_after(mut self, age: std::time::Duration) -> Self {
+        self.clipboard.purge_after = age;
         self
     }
     /// Enable crash-safe setup recovery commands (see [`recovery`]).
@@ -293,6 +461,15 @@ impl ShellBuilder {
     /// Suspend the main webview after it has been hidden this long (see [`idle`]). Off by default.
     pub fn webview_idle(mut self, suspend_after: std::time::Duration) -> Self {
         self.idle_after = Some(suspend_after);
+        self
+    }
+    /// Receive suspend and resume failures of the main webview (see [`idle::IdleFailure`]). Without
+    /// this, platform failures are silent.
+    pub fn webview_idle_on_error(
+        mut self,
+        f: impl Fn(&idle::IdleFailure) + Send + Sync + 'static,
+    ) -> Self {
+        self.idle_on_error = Some(Arc::new(f));
         self
     }
     /// App cache directory to keep usable (default: Tauri's app cache dir).
@@ -347,83 +524,127 @@ impl Shell {
             .setup(move |app, _api| {
                 let handle = app.clone();
                 let version = app.package_info().version.to_string();
-                let arbitration = instance::arbitrate(
+                let identifier = app.config().identifier.clone();
+                let arbitration = instance::arbitrate_with_legacy(
                     &app_id,
                     &version,
+                    Some(identifier.as_str()),
                     Arc::new(move |second| {
                         on_second_instance(&handle, &second.argv, &second.cwd);
                     }),
                 );
                 match arbitration {
                     instance::Arbitration::Primary(hosted) => {
-                        app.manage(SingleInstanceGuard(Mutex::new(Some(hosted))));
+                        app.manage(PluginClaim(single_instance::hold(hosted)));
                     }
                     instance::Arbitration::Secondary => std::process::exit(0),
+                    // Fail closed: an undecidable claim must not run as a second primary.
                     instance::Arbitration::Unavailable(why) => {
-                        eprintln!("rightkit-shell: single-instance unavailable: {why}");
+                        return Err(unavailable_error(&why));
                     }
                 }
                 Ok(())
             })
             .on_event(|app, event| {
                 if matches!(event, tauri::RunEvent::Exit) {
-                    if let Some(guard) = app.try_state::<SingleInstanceGuard>() {
-                        guard.0.lock().unwrap_or_else(|e| e.into_inner()).take();
+                    if let Some(claim) = app.try_state::<PluginClaim>() {
+                        single_instance::release(claim.0);
                     }
                 }
             })
             .build()
     }
 
-    /// The single Tauri plugin that installs the whole shell. Add it FIRST so single-instance
-    /// arbitration runs before any other plugin does work.
-    pub fn plugin(self) -> TauriPlugin<Wry> {
-        let cfg = self.cfg;
-        let nav = Arc::new(cfg.nav.clone());
-        let opener = Arc::clone(&cfg.opener);
-        let hardening = cfg.hardening.clone();
-        let script_scope = cfg.hardening_script;
-        let (nav_hook, opener_hook) = (Arc::clone(&nav), Arc::clone(&opener));
-        let hardening_for_views = hardening.clone();
-        let show_on_ready = cfg.show_on_ready;
-        let main_label = cfg.main_label.clone();
-        let stream = cfg.stream.clone();
+    /// The shell's lifecycle without its webview policy: single instance, close behaviour, tray,
+    /// menu, second-launch routing, deep links, quit and the commands, but no hardening init script
+    /// or native hardening, no navigation policy, no presence thread, no watchdog and no
+    /// window-state restore or save. The same as
+    /// `ShellPlugin::builder().shell(self).lifecycle_only()`. [`Shell::plugin`] is unchanged.
+    pub fn lifecycle_plugin(self) -> TauriPlugin<Wry> {
+        ShellPlugin::builder().shell(self).lifecycle_only()
+    }
 
-        let mut plugin = PluginBuilder::<Wry>::new("rightkit-shell")
-            .on_navigation(move |_webview, url| match nav_hook.decide(url) {
-                NavDecision::Allow => true,
-                NavDecision::External { url } => {
-                    let _ = opener::open_checked(opener_hook.as_ref(), &url);
-                    false
-                }
-                NavDecision::Block => false,
-            })
-            .on_webview_ready(move |webview| {
+    /// The single Tauri plugin that installs the whole shell, with every module enabled. Add it FIRST
+    /// so single-instance arbitration runs before any other plugin does work. To opt modules out, use
+    /// [`ShellPlugin::builder`].
+    pub fn plugin(self) -> TauriPlugin<Wry> {
+        ShellPlugin::builder().shell(self).build()
+    }
+}
+
+/// Build the plugin for `cfg`, honouring `cfg.modules`. Shared by [`Shell::plugin`] and
+/// [`ShellPluginBuilder::build`].
+pub(crate) fn install(cfg: ShellBuilder) -> TauriPlugin<Wry> {
+    let modules = cfg.modules;
+    let mut nav_policy = cfg.nav.clone();
+    for scheme in &cfg.extra_internal_schemes {
+        nav_policy = nav_policy
+            .with_internal_scheme(scheme)
+            .expect("rightkit-shell: internal_scheme");
+    }
+    let nav = Arc::new(nav_policy);
+    let opener = Arc::clone(&cfg.opener);
+    let hardening = cfg.hardening.clone();
+    let script_scope = cfg.hardening_script;
+    let (nav_hook, opener_hook) = (Arc::clone(&nav), Arc::clone(&opener));
+    let hardening_for_views = hardening.clone();
+    let harden_webviews = modules.contains(Module::JsHardening);
+    let show_on_ready_explicit = cfg.show_on_ready;
+    let show_on_ready_module = modules.contains(Module::ShowOnReady);
+    let restore_windows = modules.contains(Module::WindowState);
+    let main_label = cfg.main_label.clone();
+    let (streams, site) = if modules.contains(Module::Stream) {
+        (cfg.streams.clone(), cfg.site.clone())
+    } else {
+        (Vec::new(), None)
+    };
+
+    let mut plugin = PluginBuilder::<Wry>::new("rightkit-shell");
+    if modules.contains(Module::NavigationPolicy) {
+        plugin = plugin.on_navigation(move |_webview, url| match nav_hook.decide(url) {
+            NavDecision::Allow => true,
+            NavDecision::External { url } => {
+                let _ = opener::open_checked(opener_hook.as_ref(), &url);
+                false
+            }
+            NavDecision::Block => false,
+        });
+    }
+    plugin = plugin
+        .on_webview_ready(move |webview| {
+            if harden_webviews {
                 harden::apply_native(&webview, &hardening_for_views);
-                let app = webview.app_handle().clone();
-                let label = webview.label().to_owned();
+            }
+            let app = webview.app_handle().clone();
+            let label = webview.label().to_owned();
+            if restore_windows {
                 if let Some(state) = app.try_state::<ShellState>() {
                     let _ = state.windows.restore(&app, &label);
                 }
-                if show_on_ready
-                    && label == main_label
-                    && !lifecycle::launched_in_background()
-                    && !lifecycle::qa_hidden()
-                {
-                    if let Some(w) = app.get_webview_window(&label) {
-                        let _ = crate::windows::show_background_aware(&w);
-                    }
+            }
+            if label == main_label
+                && lifecycle::show_on_ready_decision(
+                    show_on_ready_explicit,
+                    show_on_ready_module,
+                    lifecycle::launched_in_background(),
+                    lifecycle::qa_hidden(),
+                )
+            {
+                if let Some(w) = app.get_webview_window(&label) {
+                    let _ = crate::windows::show_background_aware(&w);
                 }
-            })
-            .on_event(|app, event| {
-                if app.try_state::<ShellState>().is_some() {
-                    lifecycle::run_event(app, event);
-                }
-            })
-            .setup(move |app, _api| {
-                let app = app.clone();
-                setup(&app, cfg, nav, opener)
-            });
+            }
+        })
+        .on_event(|app, event| {
+            if app.try_state::<ShellState>().is_some() {
+                lifecycle::run_event(app, event);
+            }
+        })
+        .setup(move |app, _api| {
+            let app = app.clone();
+            setup(&app, cfg, nav, opener)
+        });
+    if harden_webviews {
         plugin = match script_scope {
             HardeningScript::AllFrames => plugin.js_init_script_on_all_frames(hardening.script()),
             // WebView2 injects even main-frame-only scripts into child frames. Guard the body
@@ -434,22 +655,39 @@ impl Shell {
             )),
             HardeningScript::Off => plugin,
         };
-        if let Some((scheme, policy)) = stream {
-            plugin = plugin.register_asynchronous_uri_scheme_protocol(
-                scheme,
-                move |ctx, request, responder| {
-                    let state = ctx.app_handle().state::<ShellState>();
-                    stream::serve(&state.broker, &policy, &request, move |response| {
-                        responder.respond(response)
-                    });
-                },
-            );
-        }
-        plugin.build()
     }
+    for (scheme, policy) in streams {
+        plugin = plugin.register_asynchronous_uri_scheme_protocol(
+            scheme,
+            move |ctx, request, responder| {
+                let state = ctx.app_handle().state::<ShellState>();
+                stream::serve(&state.broker, &policy, &request, move |response| {
+                    responder.respond(response)
+                });
+            },
+        );
+    }
+    if let Some((scheme, policy)) = site {
+        plugin = plugin.register_asynchronous_uri_scheme_protocol(
+            scheme,
+            move |ctx, request, responder| {
+                let state = ctx.app_handle().state::<ShellState>();
+                site::serve_site_request(&state.broker, &policy, &request, move |response| {
+                    responder.respond(response)
+                });
+            },
+        );
+    }
+    plugin.build()
 }
 
-struct SingleInstanceGuard(Mutex<Option<rightkit_service::Hosted>>);
+/// The claim token of the primary the single-instance plugin holds for the process lifetime.
+struct PluginClaim(u64);
+
+/// The startup error for an undecidable single-instance claim.
+fn unavailable_error(why: &str) -> Box<dyn std::error::Error> {
+    format!("rightkit-shell: single-instance could not be decided, refusing to start as a second primary: {why}").into()
+}
 
 fn setup(
     app: &AppHandle<Wry>,
@@ -458,31 +696,45 @@ fn setup(
     opener: Arc<dyn ExternalOpener>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     // 1. Single-instance arbitration, before anything heavy.
-    let mut hosted = None;
     let mut single = String::from("disabled");
-    if cfg.single_instance {
+    let mode = lifecycle::instance_mode(
+        cfg.single_instance,
+        cfg.qa_instance_exempt,
+        lifecycle::qa_hidden(),
+    );
+    if mode == lifecycle::InstanceMode::QaExempt {
+        single = "qa-exempt".into();
+    }
+    if mode == lifecycle::InstanceMode::Arbitrate {
         let for_cb = app.clone();
         let custom = cfg.on_second_instance.clone();
+        let decider = cfg.on_second_instance_reveal.clone();
         let version = app.package_info().version.to_string();
-        match instance::arbitrate(
+        let identifier = app.config().identifier.clone();
+        match instance::arbitrate_with_legacy(
             &cfg.app_id,
             &version,
+            Some(identifier.as_str()),
             Arc::new(move |s| {
                 lifecycle::route_second_instance(
                     &for_cb,
                     custom.as_ref(),
                     &s.argv,
                     &s.cwd,
-                    lifecycle::on_second_instance,
+                    |app, argv, cwd| {
+                        lifecycle::on_second_instance(app, argv, cwd, decider.as_ref())
+                    },
                 )
             }),
         ) {
             instance::Arbitration::Primary(h) => {
-                hosted = Some(h);
+                // Held for the process lifetime (or until `SingleInstance::destroy`).
+                let _claim = single_instance::hold(h);
                 single = "primary".into();
             }
             instance::Arbitration::Secondary => std::process::exit(0),
-            instance::Arbitration::Unavailable(why) => single = format!("unavailable: {why}"),
+            // Fail closed: setup errors abort startup instead of running as a second primary.
+            instance::Arbitration::Unavailable(why) => return Err(unavailable_error(&why)),
         }
     }
 
@@ -517,7 +769,7 @@ fn setup(
         None
     };
     let presence = Arc::new(presence::PresenceDnd::new());
-    {
+    if cfg.modules.contains(Module::Presence) {
         let (handle, on_presence) = (app.clone(), cfg.on_presence.clone());
         presence::start_loop(Arc::clone(&presence), cfg.app_name.clone(), move |s| {
             use tauri::Emitter;
@@ -527,10 +779,43 @@ fn setup(
             }
         });
     }
-    let recovery = cfg
-        .recovery
-        .clone()
-        .map(|spec| recovery::RecoveryStore::new(spec, &state_dir));
+    let recovery = if cfg.modules.contains(Module::Recovery) {
+        cfg.recovery
+            .clone()
+            .map(|spec| recovery::RecoveryStore::new(spec, &state_dir))
+    } else {
+        None
+    };
+    let stream_schemes: Vec<String> = if cfg.modules.contains(Module::Stream) {
+        cfg.streams.iter().map(|(s, _)| s.clone()).collect()
+    } else {
+        Vec::new()
+    };
+    let site_scheme = if cfg.modules.contains(Module::Stream) {
+        cfg.site.as_ref().map(|(s, _)| s.clone())
+    } else {
+        None
+    };
+    let autostart_spec = autostart::AutostartSpec {
+        app_id: cfg.app_id.clone(),
+        app_name: cfg.app_name.clone(),
+        executable: exe,
+        options: cfg.autostart.clone(),
+        legacy_plugin_name: cfg
+            .autostart
+            .migrate_from_plugin_entry
+            .then(|| app.package_info().name.clone()),
+    };
+    if cfg.autostart.migrate_from_plugin_entry {
+        let legacy = app.package_info().name.clone();
+        match autostart::migrate_plugin_entry(&autostart_spec, &legacy) {
+            Ok(_) => {}
+            // A failed migration must not stop startup: the old entry stays until the next launch.
+            Err(e) => eprintln!(
+                "rightkit-shell: could not migrate the tauri-plugin-autostart login entry: {e}"
+            ),
+        }
+    }
     app.manage(ShellState {
         main_thread_id: std::thread::current().id(),
         app_id: cfg.app_id.clone(),
@@ -538,34 +823,46 @@ fn setup(
         main_label: cfg.main_label.clone(),
         nav,
         opener,
-        frameless: cfg.frameless,
+        frameless: cfg.frameless && cfg.modules.contains(Module::Frameless),
         close_to_tray: cfg.close_to_tray,
+        hide_to_background: cfg.hide_to_background,
+        on_visibility: cfg.on_visibility.clone(),
+        activation: Default::default(),
+        quit: Arc::new(quit::QuitGate::new(cfg.quit_drain)),
         windows: Arc::new(window_state::WindowStateStore::new(state_dir)),
         deep: Default::default(),
         schemes: cfg.schemes.clone(),
         frontend_ready: AtomicBool::new(false),
         exiting: AtomicBool::new(false),
         traffic: Default::default(),
-        autostart: autostart::AutostartSpec {
-            app_id: cfg.app_id.clone(),
-            app_name: cfg.app_name.clone(),
-            executable: exe,
-        },
+        autostart: autostart_spec,
         menu_items: Mutex::new(HashMap::new()),
         menu_rows: Mutex::new(Vec::new()),
         tray: tray_runtime,
         on_menu: cfg.on_menu.clone(),
         #[cfg(feature = "engine")]
         engine: engine.clone(),
-        hosted: Mutex::new(hosted),
+        hosted: Mutex::new(None),
         single_instance: Mutex::new(single),
         broker: Arc::new(PathBroker::new()),
         notifications: notify::NotificationState::new(),
         presence,
-        idle: cfg.idle_after.map(idle::IdleHost::new),
+        idle: cfg
+            .idle_after
+            .map(|d| idle::IdleHost::new(d).with_on_error(cfg.idle_on_error.clone())),
         recovery,
         cache_repair: Mutex::new(cache_repair),
-        stream_scheme: cfg.stream.as_ref().map(|(s, _)| s.clone()),
+        stream_scheme: stream_schemes.first().cloned(),
+        stream_schemes,
+        site_scheme,
+        site_policy: cfg
+            .site
+            .as_ref()
+            .map(|(_, p)| p.clone())
+            .unwrap_or_default(),
+        modules: cfg.modules,
+        clipboard: cfg.clipboard,
+        clipboard_dir: clipboard::clipboard_temp_dir(&cfg.app_id),
     });
 
     // 3. Native menu.
@@ -616,8 +913,10 @@ fn setup(
     }
 
     // 6. Watchdog.
-    if let Some(w) = cfg.watchdog.clone() {
-        watchdog::install(app.clone(), w);
+    if cfg.modules.contains(Module::Watchdog) {
+        if let Some(w) = cfg.watchdog.clone() {
+            watchdog::install(app.clone(), w);
+        }
     }
 
     // 8 (queue only). Links on the launch argv wait for the frontend.
@@ -650,6 +949,8 @@ macro_rules! handler {
             $crate::commands::rk_shell_engine_call,
             $crate::commands::rk_shell_traffic_lights,
             $crate::commands::rk_shell_quit,
+            $crate::commands::rk_shell_finish_quit,
+            $crate::commands::rk_shell_capabilities,
             $crate::commands::rk_shell_set_theme,
             $crate::commands::rk_shell_notify,
             $crate::commands::rk_shell_notify_status,
@@ -669,7 +970,10 @@ macro_rules! handler {
             $crate::commands::rk_shell_stream_grant,
             $crate::commands::rk_shell_recovery_save,
             $crate::commands::rk_shell_recovery_load,
-            $crate::commands::rk_shell_recovery_clear
+            $crate::commands::rk_shell_recovery_clear,
+            $crate::commands::rk_shell_clipboard_item,
+            $crate::commands::rk_shell_site_grant,
+            $crate::commands::rk_shell_site_revoke
             $(, $app_cmd)*
         ]
     };

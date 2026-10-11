@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.2.6 - 2026-10-11
+
+- Add `PresetSpeaker::parse(&str) -> Option<PresetSpeaker>`: trims whitespace, ignores ASCII case,
+  and accepts only the `as_str` names (`"uncle_fu"`, not `"uncle-fu"`).
+- Add `ModeModelPaths::with_vocoder` and `Qwen3TtsEngine::from_model_dir_for_mode_with_vocoder(dir,
+  vocoder, mode)`, so a mode loads the shared 12 Hz vocoder from a caller-supplied path.
+- Public API is otherwise unchanged; 0.6B Base loading and synthesis are untouched.
+
 ## 0.2.5 - 2026-10-10
 
 - Hand-write the three `qwen3tts.prompt` protobuf messages (`TensorI32`, `TensorF32`, `VoiceClonePromptV2`) with `#[derive(prost::Message)]`. Field tags and wire types are unchanged; `proto/voice_clone_prompt.proto` stays as the schema reference. This removes `build.rs`, the `prost-build` and `protoc-bin-vendored` build dependencies, and the prost 0.13 build-time copy. New tests round-trip both checked-in fixtures (decode, encode, decode compares equal; the fixtures were written by another encoder that emits empty proto3 scalars, so their bytes are not compared) and pin the wire layout byte for byte.

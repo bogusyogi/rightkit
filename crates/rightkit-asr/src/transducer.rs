@@ -30,10 +30,45 @@ struct ModelJson {
 }
 fn default_feat() -> usize { 80 }
 
+/// What a strict load demands of a model directory. Mirrors the strict CoreML
+/// layout: each flag removes one silent fallback or surprise.
+///
+/// - `require_mel_nemo`: `mel_nemo.onnx` must exist. Without it the crate would
+///   silently use the Rust mel (a different front end, measurable drift).
+/// - `allow_int8`: `false` never selects an int8 encoder or decoder, even when it
+///   is the first candidate. An int8-only directory is refused.
+/// - `require_static_window`: the encoder must be a fixed-window export. Dynamic
+///   encoders are refused.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct StrictLayout {
+    pub require_mel_nemo: bool,
+    pub allow_int8: bool,
+    pub require_static_window: bool,
+}
+
+impl StrictLayout {
+    /// The layout a production caller should use: fp32 only, mel stage present,
+    /// static encoder.
+    pub const PRODUCTION: StrictLayout = StrictLayout {
+        require_mel_nemo: true,
+        allow_int8: false,
+        require_static_window: true,
+    };
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TransducerOptions {
-    pub max_tokens_per_step: Option<usize>,
+    /// TDT duration cap (frames) applied to the predicted duration index before
+    /// the frame advance, and to the token end times of `decode_with_timestamps`
+    /// (`(frame + duration) * 0.08 s`). Default **2**. Predicted durations above
+    /// the cap are reported as the cap, so ends can be shorter than the model's
+    /// raw prediction. Unchanged from 0.1.0 (the ONNX policy).
     pub duration_cap: usize,
+    /// Greedy-loop cap on symbols emitted at one encoder frame before a forced
+    /// advance. `None` takes the model's `max_tokens_per_step` when present,
+    /// otherwise **5** (the greedy default). The beam path has its own cap,
+    /// [`BeamOptions::max_symbols`] (default 10).
+    pub max_tokens_per_step: Option<usize>,
     pub window_overlap_mel: usize,
     pub debug_diagnostics: bool,
 }
@@ -103,7 +138,43 @@ impl Transducer {
         config: Option<ExecutionConfig>,
         options: TransducerOptions,
     ) -> Result<Self> {
+        Self::load_inner(path, config, options, None)
+    }
+
+    /// Strict load: refuses any layout the `layout` does not explicitly allow
+    /// (see [`StrictLayout`]). Default execution config; use
+    /// [`load_strict_with_options`](Self::load_strict_with_options) to choose one.
+    pub fn load_strict<P: AsRef<Path>>(path: P, layout: StrictLayout) -> Result<Self> {
+        Self::load_inner(path, None, TransducerOptions::default(), Some(layout))
+    }
+
+    /// [`load_strict`](Self::load_strict) with an explicit execution config and options.
+    pub fn load_strict_with_options<P: AsRef<Path>>(
+        path: P,
+        config: Option<ExecutionConfig>,
+        options: TransducerOptions,
+        layout: StrictLayout,
+    ) -> Result<Self> {
+        Self::load_inner(path, config, options, Some(layout))
+    }
+
+    fn load_inner<P: AsRef<Path>>(
+        path: P,
+        config: Option<ExecutionConfig>,
+        options: TransducerOptions,
+        strict: Option<StrictLayout>,
+    ) -> Result<Self> {
         let path = path.as_ref();
+        if let Some(layout) = strict {
+            // Checked before any session is built, so the refusal names the layout
+            // problem and not a later "encoder missing" error.
+            if layout.require_mel_nemo && !path.join("mel_nemo.onnx").is_file() {
+                return Err(Error::Config(format!(
+                    "strict layout: mel_nemo.onnx is required in {} (no Rust-mel fallback)",
+                    path.display()
+                )));
+            }
+        }
         if !path.is_dir() {
             return Err(Error::Config(format!("model path must be a directory: {}", path.display())));
         }
@@ -142,7 +213,17 @@ impl Transducer {
             window_overlap_mel: options.window_overlap_mel,
             debug_diagnostics: options.debug_diagnostics,
         };
-        let model = TransducerModel::from_pretrained(path, config.unwrap_or_default(), tcfg)?;
+        let allow_int8 = strict.map_or(true, |s| s.allow_int8);
+        let model =
+            TransducerModel::from_pretrained_with(path, config.unwrap_or_default(), tcfg, allow_int8)?;
+        if let Some(layout) = strict {
+            if layout.require_static_window && model.static_window.is_none() {
+                return Err(Error::Config(format!(
+                    "strict layout: the encoder in {} is dynamic; a static-window export is required",
+                    path.display()
+                )));
+            }
+        }
 
         // Optional NeMo-exact mel stage (real-DFT ONNX). CPU EP — it's a few small matmuls.
         let mel_path = path.join("mel_nemo.onnx");
@@ -252,11 +333,24 @@ impl Transducer {
     /// It is used by buffered/partial experiments to decide which overlapped
     /// window tokens are stable enough to commit.
     pub fn transcribe_result(&mut self, audio: &[f32]) -> Result<TranscriptionResult> {
+        self.transcribe_result_with_pieces(audio).map(|(result, _)| result)
+    }
+
+    /// As [`transcribe_result`](Self::transcribe_result), plus sample-exact
+    /// [`TimedPiece`]s computed from the frame indices before detokenisation. The
+    /// `TimedToken` result is identical to `transcribe_result`'s.
+    pub fn transcribe_result_with_pieces(
+        &mut self,
+        audio: &[f32],
+    ) -> Result<(TranscriptionResult, Vec<TimedPiece>)> {
         let features = self.extract_features(audio)?;
         let (tokens, frames, durations) = self.model.forward(features)?;
-        self.decoder.decode_with_timestamps(
-            &tokens, &frames, &durations, self.pre.hop_length, self.pre.sampling_rate,
-        )
+        // RNN-T has no duration head: pass none so each end follows the next token's start.
+        let durations: Vec<usize> = if self.model.has_duration() { durations } else { Vec::new() };
+        let (hop, sr) = (self.pre.hop_length, self.pre.sampling_rate);
+        let result = self.decoder.decode_with_timestamps(&tokens, &frames, &durations, hop, sr)?;
+        let pieces = self.decoder.timed_pieces(&tokens, &frames, &durations, hop, sr);
+        Ok((result, pieces))
     }
 
     /// Offline transcribe of 16k mono samples -> text plus grouped timestamps.
@@ -283,6 +377,7 @@ impl Transducer {
 // Production decode: beam search + shared detokenizer + long-form route
 // ---------------------------------------------------------------------------
 
+use crate::decoder::TimedPiece;
 use crate::longform::{self, LongFormOptions, LongFormProgress, SeamPolicy};
 use crate::onnx_beam::{onnx_decode_policy, Hit};
 use crate::parakeet_core::detok::{assemble_timed_pieces, DetokPolicy};
@@ -296,9 +391,17 @@ use std::sync::atomic::AtomicBool;
 #[derive(Debug, Clone)]
 pub struct BeamOptions {
     pub policy: DecodePolicy,
+    /// Beam-path cap on symbols emitted at one encoder frame before a forced
+    /// advance. Default **10**. The greedy loop's cap is separate
+    /// ([`TransducerOptions::max_tokens_per_step`], default 5).
     pub max_symbols: usize,
     pub detok: DetokPolicy,
     pub seam: SeamPolicy,
+    /// Token end times come from frame indices only. Each token ends where the
+    /// next emitted token starts (its frame); the last token ends one frame
+    /// (0.08 s) after its start. Model duration logits are then not used for
+    /// end times. Default `false` keeps `start + duration * 0.08`.
+    pub frames_only_ends: bool,
 }
 
 impl Default for BeamOptions {
@@ -308,6 +411,7 @@ impl Default for BeamOptions {
             max_symbols: 10,
             detok: DetokPolicy::canonical_rust(),
             seam: SeamPolicy::DedupOverlap,
+            frames_only_ends: false,
         }
     }
 }
@@ -337,6 +441,19 @@ impl Transducer {
             .unwrap_or_else(longform::padded_window_samples)
     }
 
+    /// Longest audio one window decode accepts: [`window_samples`](Self::window_samples)
+    /// plus one mel hop (the model's 15 s window for dynamic encoders). Longer input
+    /// fails with [`Error::WindowTooLong`]; use [`transcribe_long`](Self::transcribe_long).
+    pub fn max_window_samples(&self) -> usize {
+        self.window_samples() + self.pre.hop_length
+    }
+
+    /// The encoder's fixed mel window in frames, or `None` for a dynamic encoder
+    /// (the padded 15 s contract applies). Set from the graph, not from config.json.
+    pub fn static_window(&self) -> Option<usize> {
+        self.model.static_window
+    }
+
     /// Decode ONE window with beam search, fresh predictor state and the shared
     /// first-party detokenizer. Times are relative to the window start. Use
     /// [`transcribe_long`](Self::transcribe_long) for longer audio; the greedy
@@ -346,12 +463,19 @@ impl Transducer {
         audio: &[f32],
         opts: &BeamOptions,
     ) -> Result<TranscriptionResult> {
-        if audio.len() > self.window_samples() + self.pre.hop_length {
-            return Err(Error::Audio(format!(
-                "audio is {:.1}s but this primitive decodes one {:.1}s window; use transcribe_long",
-                audio.len() as f32 / 16_000.0,
-                self.window_samples() as f32 / 16_000.0
-            )));
+        self.transcribe_window_beam_with_pieces(audio, opts).map(|(result, _)| result)
+    }
+
+    /// As [`transcribe_window_beam`](Self::transcribe_window_beam), plus the
+    /// window's sample-exact [`TimedPiece`]s (window-relative samples).
+    pub fn transcribe_window_beam_with_pieces(
+        &mut self,
+        audio: &[f32],
+        opts: &BeamOptions,
+    ) -> Result<(TranscriptionResult, Vec<TimedPiece>)> {
+        let max_samples = self.max_window_samples();
+        if audio.len() > max_samples {
+            return Err(Error::WindowTooLong { samples: audio.len(), max_samples });
         }
         let features = self.extract_features(audio)?;
         let bias = self.model.context_bias.clone();
@@ -367,16 +491,47 @@ impl Transducer {
             0.0,
             &bonuses,
         )?;
+        // Same span arithmetic as the greedy path (decoder_tdt::token_span), so a
+        // width-1 beam and greedy decode report identical timings for one lattice.
+        let spans = crate::decoder_tdt::beam_hit_spans(
+            &hits,
+            self.pre.hop_length,
+            self.pre.sampling_rate,
+            opts.frames_only_ends,
+        );
         let pieces: Vec<DecodedPiece> = hits
             .iter()
-            .map(|&(id, start, dur)| DecodedPiece {
+            .zip(spans)
+            .map(|(&(id, _, _), (start, end))| DecodedPiece {
                 token_id: id,
                 piece: self.vocab.id_to_text(id).unwrap_or("").to_string(),
                 start,
-                end: start + dur as f32 * 0.08,
+                end,
             })
             .collect();
-        Ok(assemble_timed_pieces(&pieces, opts.detok))
+        // Sample-exact pieces from the same hits, before detokenisation (see
+        // decoder_tdt::lattice_pieces). Frames are window-relative.
+        let frames = crate::decoder_tdt::beam_hit_frames(&hits, self.pre.hop_length, self.pre.sampling_rate);
+        let entries: Vec<(usize, usize, usize)> = hits
+            .iter()
+            .zip(frames)
+            .map(|(&(id, _, dur), frame)| (id, frame, dur))
+            .collect();
+        let mode = if opts.frames_only_ends {
+            crate::decoder_tdt::DurationMode::FramesOnly
+        } else {
+            crate::decoder_tdt::DurationMode::Predicted
+        };
+        let sample_pieces = crate::decoder_tdt::lattice_pieces(
+            &entries,
+            mode,
+            &|id| self.vocab.id_to_text(id).map(str::to_string),
+            crate::decoder_tdt::MissingText::Empty,
+            opts.detok,
+            self.pre.hop_length,
+            self.pre.sampling_rate,
+        );
+        Ok((assemble_timed_pieces(&pieces, opts.detok), sample_pieces))
     }
 
     /// The one long-form route (padded window, quiet cut, seam stitching).
@@ -387,13 +542,28 @@ impl Transducer {
         cancel: Option<&AtomicBool>,
         progress: &dyn Fn(&LongFormProgress),
     ) -> Result<TranscriptionResult> {
+        self.transcribe_long_with_pieces(audio, opts, cancel, progress).map(|(result, _)| result)
+    }
+
+    /// As [`transcribe_long`](Self::transcribe_long), plus sample-exact
+    /// [`TimedPiece`]s over the whole recording. Window offsets are accumulated in
+    /// samples. Pieces are committed as decoded, with no seam de-duplication.
+    pub fn transcribe_long_with_pieces(
+        &mut self,
+        audio: &[f32],
+        opts: &BeamOptions,
+        cancel: Option<&AtomicBool>,
+        progress: &dyn Fn(&LongFormProgress),
+    ) -> Result<(TranscriptionResult, Vec<TimedPiece>)> {
         let long_opts = LongFormOptions {
             window_samples: self.window_samples(),
             terminal_silence: cfg!(target_os = "windows"),
             seam: opts.seam,
+            word_assembly_floor_ms: Some(longform::DEFAULT_WORD_ASSEMBLY_FLOOR_MS),
+            pad_policy: longform::PadPolicy::FinalSegmentOnly,
         };
-        longform::transcribe_padded_window(audio, &long_opts, cancel, progress, |seg| {
-            self.transcribe_window_beam(seg, opts)
+        longform::transcribe_padded_window_with_pieces(audio, &long_opts, cancel, progress, |seg| {
+            self.transcribe_window_beam_with_pieces(seg, opts)
         })
     }
 }

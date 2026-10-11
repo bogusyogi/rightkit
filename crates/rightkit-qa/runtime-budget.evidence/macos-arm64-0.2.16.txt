@@ -1,0 +1,39 @@
+# crate: rightkit-qa 0.2.16
+# command: rightkit cargo bench -p rightkit-qa  --bench budget
+# host: macos arm64, Mac18,5 / Apple M6, 12 cpus, 24 GB, 27.0.1
+# date: 2026-10-11T05:02:32Z
+# machine load (1/5/15 min) before the build: 6.92 8.03 9.72 ; after the run: 11.12 10.53 10.49 (other builds were running; the queue admits one build at a time)
+# commit: cc3c43059b469b71839d1ee38b3feaf26134ed12 (HEAD; the tree under test has uncommitted changes)
+rightkit: request e18ec17e-5c8e-4430-b6ab-82527e9e89c2
+[rightkit] target warm-candidate at start (3 entries, generation 2)
+   Compiling winnow v0.5.40
+   Compiling bitflags v2.13.0
+   Compiling rightkit-control v0.2.0 (/Volumes/D/rightkit-publish/v10/claude/rightkit/crates/rightkit-control)
+   Compiling toml_datetime v0.6.3
+   Compiling serde_spanned v0.6.9
+   Compiling rightkit-fs v0.3.4 (/Volumes/D/rightkit-publish/v10/claude/rightkit/crates/rightkit-fs)
+   Compiling rightkit-framed-sidecar v0.2.0 (/Volumes/D/rightkit-publish/v10/claude/rightkit/crates/rightkit-framed-sidecar)
+   Compiling png v0.18.1
+   Compiling toml_edit v0.20.2
+   Compiling rightkit-service v0.1.5 (/Volumes/D/rightkit-publish/v10/claude/rightkit/crates/rightkit-service)
+   Compiling toml v0.8.2
+   Compiling rightkit-qa v0.2.16 (/Volumes/D/rightkit-publish/v10/claude/rightkit/crates/rightkit-qa)
+    Finished `bench` profile [optimized] target(s) in 25.44s
+     Running benches/budget.rs (/Volumes/D/.rightkit-managed/rightkit-build-control/ws/520b705fd794/g/002/target/aarch64-apple-darwin/release/deps/budget-4f0de18971d7d773)
+warm-up: 10000 commands in 0.50 s (20081 cmd/s), buffered events 10000, stderr bytes 758894, resident 22.1 MiB (before start 6.9 MiB)
+RESULT events_buffered=10000 frames
+RESULT stderr_bytes_buffered=758894 bytes
+RESULT warm_resident_bytes=23166976 bytes
+RESULT idle_resident_bytes=6979584 bytes
+RESULT resident_memory_bytes=23166976 bytes
+RESULT footprint_bytes=17629688 bytes
+RESULT idle_window_seconds=30.1 seconds
+RESULT idle_cpu_percent=0.000 percent
+RESULT wakeups_per_second=0.033 per_second
+RESULT disk_ops_per_second=unavailable the host exposes no process disk-operation counter
+RESULT disk_read_bytes_per_second=0.000 bytes_per_second
+RESULT disk_write_bytes_per_second=0.000 bytes_per_second
+RESULT scale=10000 echo commands to a stdio sidecar (one event frame and one stderr line each), sidecar open and idle
+RESULT scope=synthetic
+RESULT budget crate=rightkit-qa version=0.2.16 resident_bytes=23166976 idle_cpu_percent=0.000 wakeups_per_s=0.033 disk_ops_per_s=unavailable scale_unit=commands scale_count=10000
+[rightkit] target unknown (target-nonempty-freshness-unavailable); not-fresh unknown (no cargo json stream)

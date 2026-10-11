@@ -18,6 +18,7 @@ mod config;
 #[cfg(feature = "content")]
 mod content;
 mod error;
+mod gate;
 mod index;
 mod names;
 mod query;
@@ -30,3 +31,11 @@ pub use index::{
     SearchOptions, SizeInfo, SortKey, Status,
 };
 pub use query::Query;
+
+/// macOS typed FSEvents watcher (0.2.0). See [`FsEventsWatcher`].
+#[cfg(target_os = "macos")]
+pub use backend::macos::events::{FsEvent, FsEventsWatcher, ItemFlags, WatchFlags, WatchOptions};
+/// macOS bulk directory listing (0.2.0). Data-fork sizes, optional creation time,
+/// and a typed refusal for dataless files. See [`list_dir_fd`].
+#[cfg(target_os = "macos")]
+pub use backend::macos::listing::{list_dir_fd, Entry, EntrySize, ListOptions, Listing};

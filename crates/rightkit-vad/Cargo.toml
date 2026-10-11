@@ -32,14 +32,18 @@ hound = "3.5"
 rightkit-media = { path = "../rightkit-media", version = "0.2.3" }
 
 [features]
-# Default: the Silero scorer over ONNX Runtime tracing only. The crate fetches and copies no
+# Default: the Silero scorer over ONNX Runtime. The crate fetches and copies no
 # runtime. Consumers supply ONNX Runtime through rightkit-ort. The API level is fixed by
 # rightkit-ort: rc.13's own `default` raises it to ORT 1.27, which the suite's 1.24.4 cannot serve.
 # `default-features = false` keeps only the pure policy layers (spans, chunking, frame carry,
 # `FrameScorer`) and compiles no ONNX Runtime.
 default = ["silero"]
 # The `Silero` scorer and `SileroOptions`, over rightkit-ort.
-silero = ["dep:rightkit-ort", "rightkit-ort/tracing"]
+silero = ["dep:rightkit-ort", "rightkit-ort/session"]
+# Opt-in: forward ONNX Runtime's own log lines into `tracing`. Off by default because Cargo
+# feature unification turns it on for EVERY ONNX Runtime session in the process, and the
+# runtime logs thousands of INFO lines per model load.
+ort-tracing = ["silero", "rightkit-ort/tracing"]
 # Opt-in: fetch prebuilt ONNX Runtime during the build (needs tls-native to download).
 download-binaries = ["silero", "rightkit-ort/download-binaries"]
 # Opt-in: TLS backend used by download-binaries.

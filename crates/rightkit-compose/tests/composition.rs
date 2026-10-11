@@ -10,9 +10,11 @@ fn canvas() -> Canvas {
     Canvas {
         width: 1920,
         height: 1080,
-        frame_rate_num: 30,
-        frame_rate_den: 1,
     }
+}
+
+fn fps() -> Rational {
+    Rational::new(30, 1)
 }
 
 fn asset(id: &str, width: u32, height: u32, duration_ms: Option<u64>) -> AssetRef {
@@ -21,7 +23,7 @@ fn asset(id: &str, width: u32, height: u32, duration_ms: Option<u64>) -> AssetRe
         blake3: format!("blake3-{id}"),
         width,
         height,
-        duration_ms,
+        duration: duration_ms.map(Ticks::from_ms),
     }
 }
 
@@ -44,7 +46,10 @@ fn style() -> Style {
 fn layer(id: &str, start_ms: u64, end_ms: u64, content: Content) -> Layer {
     Layer {
         id: id.into(),
-        timing: Timing { start_ms, end_ms },
+        timing: Timing {
+            start: Ticks::from_ms(start_ms),
+            end: Ticks::from_ms(end_ms),
+        },
         transform: Vec::new(),
         opacity: Vec::new(),
         clip: None,
@@ -63,21 +68,20 @@ fn video(id: &str, source: AssetRef, start_ms: u64, end_ms: u64) -> Layer {
             asset: source,
             placement: Rect::FULL,
             crop: Vec::new(),
-            source_start_ms: 0,
-            speed: 1.0,
+            retime: Vec::new(),
         },
     )
 }
 
 fn composition(layers: Vec<Layer>) -> Composition {
-    let mut c = Composition::new(canvas(), 10_000);
+    let mut c = Composition::new(canvas(), fps(), Ticks::from_ms(10_000));
     c.layers = layers;
     c
 }
 
 fn kf<T>(at_ms: u64, value: T) -> Keyframe<T> {
     Keyframe {
-        at_ms,
+        at: Ticks::from_ms(at_ms),
         value,
         easing: Easing::Linear,
     }
@@ -102,7 +106,7 @@ fn cursor_layer(follows: &str, samples: Vec<CursorSample>) -> Layer {
 
 fn sample_at(at_ms: u64, x: f64, y: f64, visible: bool) -> CursorSample {
     CursorSample {
-        at_ms,
+        at: Ticks::from_ms(at_ms),
         x,
         y,
         visible,
@@ -121,50 +125,56 @@ fn payload(frame: &FrameDescription, id: &str) -> Payload {
 
 // --- keyframe sampling and easing -----------------------------------------
 
+/// `sample` takes layer-local `Ticks`; these tests think in milliseconds, which
+/// convert exactly (705,600 ticks per ms).
+fn sample_ms<T: Lerp>(track: &[Keyframe<T>], local_ms: u64) -> Option<T> {
+    sample(track, Ticks::from_ms(local_ms))
+}
+
 #[test]
 fn linear_track_interpolates_between_keyframes_and_holds_at_the_ends() {
     let track = vec![kf(0, 0.0), kf(1000, 1.0)];
-    assert!(close(sample(&track, 250).unwrap(), 0.25));
-    assert!(close(sample(&track, 0).unwrap(), 0.0));
-    assert!(close(sample(&track, 1000).unwrap(), 1.0));
-    assert!(close(sample(&track, 5000).unwrap(), 1.0));
+    assert!(close(sample_ms(&track, 250).unwrap(), 0.25));
+    assert!(close(sample_ms(&track, 0).unwrap(), 0.0));
+    assert!(close(sample_ms(&track, 1000).unwrap(), 1.0));
+    assert!(close(sample_ms(&track, 5000).unwrap(), 1.0));
 }
 
 #[test]
 fn track_holds_first_value_before_its_first_keyframe() {
     let track = vec![kf(100, 0.5), kf(200, 0.8)];
-    assert!(close(sample(&track, 0).unwrap(), 0.5));
-    assert!(close(sample(&track, 300).unwrap(), 0.8));
+    assert!(close(sample_ms(&track, 0).unwrap(), 0.5));
+    assert!(close(sample_ms(&track, 300).unwrap(), 0.8));
     let empty: Track<f64> = Vec::new();
-    assert!(sample(&empty, 10).is_none());
+    assert!(sample_ms(&empty, 10).is_none());
 }
 
 #[test]
 fn easing_shapes_each_segment_by_its_starting_keyframe() {
     let ease_in = vec![
         Keyframe {
-            at_ms: 0,
+            at: Ticks::from_ms(0),
             value: 0.0,
             easing: Easing::EaseIn,
         },
         kf(1000, 1.0),
     ];
-    assert!(close(sample(&ease_in, 500).unwrap(), 0.125));
+    assert!(close(sample_ms(&ease_in, 500).unwrap(), 0.125));
 
     let ease_in_out = vec![
         Keyframe {
-            at_ms: 0,
+            at: Ticks::from_ms(0),
             value: 0.0,
             easing: Easing::EaseInOut,
         },
         kf(1000, 1.0),
     ];
-    assert!(close(sample(&ease_in_out, 500).unwrap(), 0.5));
-    assert!(sample(&ease_in_out, 250).unwrap() < 0.25);
+    assert!(close(sample_ms(&ease_in_out, 500).unwrap(), 0.5));
+    assert!(sample_ms(&ease_in_out, 250).unwrap() < 0.25);
 
     let bezier_linear = vec![
         Keyframe {
-            at_ms: 0,
+            at: Ticks::from_ms(0),
             value: 0.0,
             easing: Easing::CubicBezier {
                 x1: 0.0,
@@ -175,21 +185,21 @@ fn easing_shapes_each_segment_by_its_starting_keyframe() {
         },
         kf(1000, 1.0),
     ];
-    assert!((sample(&bezier_linear, 250).unwrap() - 0.25).abs() < 1e-6);
+    assert!((sample_ms(&bezier_linear, 250).unwrap() - 0.25).abs() < 1e-6);
 }
 
 #[test]
 fn hold_easing_keeps_its_value_until_the_next_keyframe() {
     let track = vec![
         Keyframe {
-            at_ms: 0,
+            at: Ticks::from_ms(0),
             value: 0.0,
             easing: Easing::Hold,
         },
         kf(1000, 1.0),
     ];
-    assert!(close(sample(&track, 999).unwrap(), 0.0));
-    assert!(close(sample(&track, 1000).unwrap(), 1.0));
+    assert!(close(sample_ms(&track, 999).unwrap(), 0.0));
+    assert!(close(sample_ms(&track, 1000).unwrap(), 1.0));
 }
 
 // --- evaluation at keyframes and between them -----------------------------
@@ -199,7 +209,7 @@ fn transform_keyframes_scale_about_the_placement_centre() {
     let mut v = video("screen", asset("screen-src", 1920, 1080, None), 0, 10_000);
     v.transform = vec![
         Keyframe {
-            at_ms: 0,
+            at: Ticks::from_ms(0),
             value: Transform {
                 dx: 0.0,
                 dy: 0.0,
@@ -208,7 +218,7 @@ fn transform_keyframes_scale_about_the_placement_centre() {
             easing: Easing::Linear,
         },
         Keyframe {
-            at_ms: 1000,
+            at: Ticks::from_ms(1000),
             value: Transform {
                 dx: 0.0,
                 dy: 0.0,
@@ -219,20 +229,20 @@ fn transform_keyframes_scale_about_the_placement_centre() {
     ];
     let c = composition(vec![v]);
 
-    let at_start = evaluate(&c, 0).unwrap();
+    let at_start = evaluate_ms(&c, 0).unwrap();
     let Payload::Video { dest_px, .. } = payload(&at_start, "screen") else {
         panic!("video payload")
     };
     assert!(close(dest_px.x, 0.0) && close(dest_px.width, 1920.0) && close(dest_px.height, 1080.0));
 
-    let midway = evaluate(&c, 500).unwrap();
+    let midway = evaluate_ms(&c, 500).unwrap();
     let Payload::Video { dest_px, .. } = payload(&midway, "screen") else {
         panic!("video payload")
     };
     assert!(close(dest_px.width, 2880.0), "width {}", dest_px.width);
     assert!(close(dest_px.x, -480.0), "x {}", dest_px.x);
 
-    let at_end = evaluate(&c, 1000).unwrap();
+    let at_end = evaluate_ms(&c, 1000).unwrap();
     let Payload::Video { dest_px, .. } = payload(&at_end, "screen") else {
         panic!("video payload")
     };
@@ -245,7 +255,7 @@ fn opacity_track_is_sampled_at_layer_local_time() {
     let mut v = video("screen", asset("screen-src", 1920, 1080, None), 1000, 5000);
     v.opacity = vec![kf(0, 0.0), kf(2000, 1.0)];
     let c = composition(vec![v]);
-    let frame = evaluate(&c, 2000).unwrap();
+    let frame = evaluate_ms(&c, 2000).unwrap();
     assert!(close(frame.layers[0].opacity, 0.5));
 }
 
@@ -257,30 +267,31 @@ fn video_source_time_follows_speed_and_clamps_to_media_duration() {
         1000,
         5000,
     );
-    if let Content::Video {
-        source_start_ms,
-        speed,
-        ..
-    } = &mut v.content
-    {
-        *source_start_ms = 500;
-        *speed = 2.0;
+    // Source 500 ms onward at double speed over the 4000 ms layer: the
+    // segment covers 8000 ms of source in 4000 ms of output.
+    if let Content::Video { retime, .. } = &mut v.content {
+        *retime = vec![RetimeSegment::Play {
+            source_in: Ticks::from_ms(500),
+            source_out: Ticks::from_ms(8500),
+            speed: 2.0,
+        }];
     }
     let c = composition(vec![v]);
 
-    let early = evaluate(&c, 1500).unwrap();
-    let Payload::Video { source_ms, .. } = payload(&early, "screen") else {
+    let early = evaluate_ms(&c, 1500).unwrap();
+    let Payload::Video { source, .. } = payload(&early, "screen") else {
         panic!()
     };
-    assert!(close(source_ms, 1500.0));
+    assert_eq!(source, Ticks::from_ms(1500));
 
-    let late = evaluate(&c, 4000).unwrap();
-    let Payload::Video { source_ms, .. } = payload(&late, "screen") else {
+    let late = evaluate_ms(&c, 4000).unwrap();
+    let Payload::Video { source, .. } = payload(&late, "screen") else {
         panic!()
     };
-    assert!(
-        close(source_ms, 2000.0),
-        "clamped to duration, got {source_ms}"
+    assert_eq!(
+        source,
+        Ticks::from_ms(2000),
+        "clamped to the 2000 ms media duration"
     );
 }
 
@@ -316,7 +327,7 @@ fn crop_keyframes_pan_the_visible_region_of_a_still() {
         },
     );
     let c = composition(vec![still]);
-    let frame = evaluate(&c, 1000).unwrap();
+    let frame = evaluate_ms(&c, 1000).unwrap();
     let Payload::Still { crop, .. } = payload(&frame, "photo") else {
         panic!()
     };
@@ -336,7 +347,7 @@ fn rounded_clip_radius_scales_with_the_shorter_canvas_side() {
         color: rgba(0.4),
     });
     let c = composition(vec![v]);
-    let frame = evaluate(&c, 0).unwrap();
+    let frame = evaluate_ms(&c, 0).unwrap();
     let f = &frame.layers[0];
     let Some(ClipPx::RoundedRect { radius_px }) = f.clip else {
         panic!("rounded clip")
@@ -361,21 +372,21 @@ fn webcam_is_independently_timed_with_its_own_source_offset() {
                 width: 0.18,
                 height: 0.25,
             },
-            source_start_ms: 4000,
+            source_start: Ticks::from_ms(4000),
         },
     );
     let mut webcam = webcam;
     webcam.clip = Some(Clip::Circle);
     let c = composition(vec![screen, webcam]);
 
-    let before = evaluate(&c, 2000).unwrap();
+    let before = evaluate_ms(&c, 2000).unwrap();
     assert!(before.layers.iter().all(|l| l.id != "webcam"));
 
-    let during = evaluate(&c, 3500).unwrap();
-    let Payload::Webcam { source_ms, .. } = payload(&during, "webcam") else {
+    let during = evaluate_ms(&c, 3500).unwrap();
+    let Payload::Webcam { source, .. } = payload(&during, "webcam") else {
         panic!()
     };
-    assert!(close(source_ms, 4500.0));
+    assert_eq!(source, Ticks::from_ms(4500));
     let cam = during.layers.iter().find(|l| l.id == "webcam").unwrap();
     assert_eq!(cam.clip, Some(ClipPx::Circle));
 }
@@ -388,16 +399,18 @@ fn motion_blur_offsets_are_centred_on_the_frame_time() {
         samples: 4,
     });
     let c = composition(vec![v]);
-    let frame = evaluate(&c, 0).unwrap();
+    let frame = evaluate_ms(&c, 0).unwrap();
     let offsets = &frame.layers[0]
         .motion_blur
         .as_ref()
         .expect("blur")
-        .offsets_ms;
+        .offsets_ticks;
+    // 30 fps frame = 23,520,000 ticks; a 180 degree shutter sampled 4 times
+    // spreads offsets over half a frame, -6.25 ms and +6.25 ms at the ends.
     assert_eq!(offsets.len(), 4);
-    assert!(close(offsets[0], -6.25), "first offset {}", offsets[0]);
-    assert!(close(offsets[3], 6.25));
-    assert!(offsets.iter().sum::<f64>().abs() < EPS);
+    assert_eq!(offsets[0], -4_410_000);
+    assert_eq!(offsets[3], 4_410_000);
+    assert_eq!(offsets.iter().sum::<i64>(), 0);
 }
 
 // --- layer order, overlays, cursor ----------------------------------------
@@ -426,7 +439,7 @@ fn layers_are_emitted_in_stack_order_back_to_front() {
     );
     let c = composition(vec![background, screen, cursor, badge]);
 
-    let frame = evaluate(&c, 100).unwrap();
+    let frame = evaluate_ms(&c, 100).unwrap();
     let ids: Vec<&str> = frame.layers.iter().map(|l| l.id.as_str()).collect();
     assert_eq!(ids, ["bg", "screen", "cursor", "badge"]);
     let indices: Vec<usize> = frame.layers.iter().map(|l| l.stack_index).collect();
@@ -446,7 +459,7 @@ fn badge_anchor_is_placed_in_canvas_pixels() {
         },
     );
     let c = composition(vec![badge]);
-    let frame = evaluate(&c, 0).unwrap();
+    let frame = evaluate_ms(&c, 0).unwrap();
     let Payload::Badge { anchor_px, .. } = payload(&frame, "badge") else {
         panic!()
     };
@@ -472,7 +485,7 @@ fn cursor_tip_and_sprite_follow_a_zoomed_source_layer() {
         screen,
         cursor_layer("screen", vec![sample_at(0, 0.25, 0.25, true)]),
     ]);
-    let frame = evaluate(&c, 0).unwrap();
+    let frame = evaluate_ms(&c, 0).unwrap();
     let Payload::Cursor {
         visible,
         tip_px,
@@ -514,7 +527,7 @@ fn cursor_outside_the_visible_crop_is_hidden() {
         screen,
         cursor_layer("screen", vec![sample_at(0, 0.9, 0.9, true)]),
     ]);
-    let frame = evaluate(&c, 0).unwrap();
+    let frame = evaluate_ms(&c, 0).unwrap();
     let Payload::Cursor { visible, .. } = payload(&frame, "cursor") else {
         panic!()
     };
@@ -530,7 +543,7 @@ fn cursor_interpolates_position_and_holds_visibility_from_the_earlier_sample() {
     ];
     let c = composition(vec![screen, cursor_layer("screen", samples)]);
 
-    let mid = evaluate(&c, 500).unwrap();
+    let mid = evaluate_ms(&c, 500).unwrap();
     let Payload::Cursor {
         visible, tip_px, ..
     } = payload(&mid, "cursor")
@@ -540,7 +553,7 @@ fn cursor_interpolates_position_and_holds_visibility_from_the_earlier_sample() {
     assert!(visible, "earlier sample visibility holds");
     assert!(close(tip_px.x, 960.0) && close(tip_px.y, 540.0));
 
-    let later = evaluate(&c, 1000).unwrap();
+    let later = evaluate_ms(&c, 1000).unwrap();
     let Payload::Cursor { visible, .. } = payload(&later, "cursor") else {
         panic!()
     };
@@ -559,7 +572,7 @@ fn cursor_is_hidden_while_its_followed_layer_is_inactive() {
         screen,
         cursor_layer("screen", vec![sample_at(0, 0.5, 0.5, true)]),
     ]);
-    let before = evaluate(&c, 1000).unwrap();
+    let before = evaluate_ms(&c, 1000).unwrap();
     assert!(before.layers.iter().all(|l| l.id != "screen"));
     let Payload::Cursor { visible, .. } = payload(&before, "cursor") else {
         panic!()
@@ -585,7 +598,7 @@ fn caption_rect_is_scaled_to_canvas_pixels() {
         },
     );
     let c = composition(vec![caption]);
-    let frame = evaluate(&c, 0).unwrap();
+    let frame = evaluate_ms(&c, 0).unwrap();
     let Payload::Caption { rect_px, .. } = payload(&frame, "caption") else {
         panic!()
     };
@@ -601,7 +614,7 @@ fn rejects_wrong_schema_duplicate_ids_and_out_of_range_times() {
     let mut wrong = composition(vec![]);
     wrong.schema = "rightkit.composition.v0".into();
     assert!(matches!(
-        evaluate(&wrong, 0),
+        evaluate_ms(&wrong, 0),
         Err(CompositionError::Schema(_))
     ));
 
@@ -609,11 +622,11 @@ fn rejects_wrong_schema_duplicate_ids_and_out_of_range_times() {
         video("screen", asset("a", 10, 10, None), 0, 10_000),
         video("screen", asset("b", 10, 10, None), 0, 10_000),
     ]);
-    assert!(matches!(evaluate(&dup, 0), Err(CompositionError::LayerId(id)) if id == "screen"));
+    assert!(matches!(evaluate_ms(&dup, 0), Err(CompositionError::LayerId(id)) if id == "screen"));
 
     let ok = composition(vec![video("screen", asset("a", 10, 10, None), 0, 10_000)]);
     assert!(matches!(
-        evaluate(&ok, 10_000),
+        evaluate_ms(&ok, 10_000),
         Err(CompositionError::OutOfRange { .. })
     ));
 }
@@ -630,7 +643,7 @@ fn rejects_transform_on_background_and_cursor_following_a_later_layer() {
     );
     bg.transform = vec![kf(0, Transform::IDENTITY)];
     assert!(matches!(
-        evaluate(&composition(vec![bg]), 0),
+        evaluate_ms(&composition(vec![bg]), 0),
         Err(CompositionError::Invalid { .. })
     ));
 
@@ -640,7 +653,7 @@ fn rejects_transform_on_background_and_cursor_following_a_later_layer() {
         video("screen", asset("a", 10, 10, None), 0, 10_000),
     ]);
     assert!(
-        matches!(evaluate(&c, 0), Err(CompositionError::Invalid { layer, .. }) if layer == "cursor")
+        matches!(evaluate_ms(&c, 0), Err(CompositionError::Invalid { layer, .. }) if layer == "cursor")
     );
 }
 
@@ -649,21 +662,21 @@ fn rejects_unsorted_keyframes_bad_opacity_and_bezier_points() {
     let mut unsorted = video("screen", asset("a", 10, 10, None), 0, 10_000);
     unsorted.opacity = vec![kf(500, 0.5), kf(100, 1.0)];
     assert!(matches!(
-        evaluate(&composition(vec![unsorted]), 0),
+        evaluate_ms(&composition(vec![unsorted]), 0),
         Err(CompositionError::Invalid { .. })
     ));
 
     let mut bad_opacity = video("screen", asset("a", 10, 10, None), 0, 10_000);
     bad_opacity.opacity = vec![kf(0, 1.5)];
     assert!(matches!(
-        evaluate(&composition(vec![bad_opacity]), 0),
+        evaluate_ms(&composition(vec![bad_opacity]), 0),
         Err(CompositionError::Invalid { .. })
     ));
 
     let mut bad_bezier = video("screen", asset("a", 10, 10, None), 0, 10_000);
     bad_bezier.opacity = vec![
         Keyframe {
-            at_ms: 0,
+            at: Ticks::from_ms(0),
             value: 1.0,
             easing: Easing::CubicBezier {
                 x1: 1.5,
@@ -675,7 +688,7 @@ fn rejects_unsorted_keyframes_bad_opacity_and_bezier_points() {
         kf(1000, 0.0),
     ];
     assert!(matches!(
-        evaluate(&composition(vec![bad_bezier]), 0),
+        evaluate_ms(&composition(vec![bad_bezier]), 0),
         Err(CompositionError::Invalid { .. })
     ));
 }
@@ -684,7 +697,7 @@ fn rejects_unsorted_keyframes_bad_opacity_and_bezier_points() {
 fn rejects_layers_whose_timing_exceeds_the_composition() {
     let late = video("screen", asset("a", 10, 10, None), 5000, 20_000);
     assert!(matches!(
-        evaluate(&composition(vec![late]), 0),
+        evaluate_ms(&composition(vec![late]), 0),
         Err(CompositionError::Invalid { .. })
     ));
 }
@@ -700,12 +713,12 @@ fn full_composition() -> Composition {
     );
     screen.transform = vec![
         Keyframe {
-            at_ms: 0,
+            at: Ticks::from_ms(0),
             value: Transform::IDENTITY,
             easing: Easing::EaseInOut,
         },
         Keyframe {
-            at_ms: 2000,
+            at: Ticks::from_ms(2000),
             value: Transform {
                 dx: -0.1,
                 dy: 0.0,
@@ -714,7 +727,7 @@ fn full_composition() -> Composition {
             easing: Easing::Hold,
         },
         Keyframe {
-            at_ms: 4000,
+            at: Ticks::from_ms(4000),
             value: Transform {
                 dx: 0.0,
                 dy: 0.0,
@@ -772,7 +785,7 @@ fn full_composition() -> Composition {
                 width: 0.2,
                 height: 0.28,
             },
-            source_start_ms: 500,
+            source_start: Ticks::from_ms(500),
         },
     );
     let cursor = cursor_layer(
@@ -808,7 +821,7 @@ fn full_composition() -> Composition {
             style: style(),
         },
     );
-    let mut c = Composition::new(canvas(), 10_000);
+    let mut c = Composition::new(canvas(), fps(), Ticks::from_ms(10_000));
     c.layers = vec![background, screen, webcam, cursor, badge, caption];
     c
 }
@@ -818,14 +831,14 @@ fn composition_survives_serialisation_with_identical_frames() {
     let original = full_composition();
     validate(&original).expect("fixture is valid");
     let json = serde_json::to_string_pretty(&original).unwrap();
-    assert!(json.contains("\"schema\": \"rightkit.composition.v1\""));
+    assert!(json.contains("\"schema\": \"rightkit.composition.v2\""));
     let reopened: Composition = serde_json::from_str(&json).unwrap();
     assert_eq!(reopened, original);
 
     for t in [0, 1, 999, 2000, 3000, 3499, 3500, 4500, 6000, 7999] {
         assert_eq!(
-            evaluate(&original, t).unwrap(),
-            evaluate(&reopened, t).unwrap(),
+            evaluate_ms(&original, t).unwrap(),
+            evaluate_ms(&reopened, t).unwrap(),
             "frame {t}"
         );
     }
@@ -834,7 +847,7 @@ fn composition_survives_serialisation_with_identical_frames() {
 #[test]
 fn edit_then_reopen_changes_only_the_edited_frames() {
     let original = full_composition();
-    let before = evaluate(&original, 2000).unwrap();
+    let before = evaluate_ms(&original, 2000).unwrap();
 
     let mut edited = original.clone();
     if let Some(screen) = edited.layers.iter_mut().find(|l| l.id == "screen") {
@@ -848,7 +861,7 @@ fn edit_then_reopen_changes_only_the_edited_frames() {
     let reopened: Composition = serde_json::from_str(&json).unwrap();
     assert_eq!(reopened, edited);
 
-    let after = evaluate(&reopened, 2000).unwrap();
+    let after = evaluate_ms(&reopened, 2000).unwrap();
     assert_ne!(before, after, "the edited keyframe changes its frame");
     let Payload::Video { dest_px, .. } = payload(&after, "screen") else {
         panic!()
@@ -861,7 +874,7 @@ fn edit_then_reopen_changes_only_the_edited_frames() {
 
     // Frames after the last keyframe of the edited track are unchanged.
     assert_eq!(
-        evaluate(&original, 5000).unwrap(),
-        evaluate(&reopened, 5000).unwrap()
+        evaluate_ms(&original, 5000).unwrap(),
+        evaluate_ms(&reopened, 5000).unwrap()
     );
 }

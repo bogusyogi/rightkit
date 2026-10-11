@@ -9,7 +9,12 @@
 //! `load` refuses any library whose `whisper_version()` is not
 //! [`PINNED_WHISPER_VERSION`]. To upgrade: rebuild from the new tag, re-diff
 //! this file against that tag's `whisper.h`, then bump the pin.
-use super::{Segment, WindowDecoder};
+//!
+//! Symbols added in 0.2.0 each carry the exact `whisper.h` declaration (v1.9.3,
+//! fetched from the `v1.9.3` tag) in a comment on their type alias. Scalar
+//! accessors are used for token data; `whisper_full_get_token_data` (returns a
+//! 56-byte struct by value) is deliberately not bound.
+use super::{LanguageDetection, Segment, WindowDecoder, WindowOutput, WindowRequest, WordSpan};
 use crate::error::{Error, Result};
 use std::ffi::{c_char, c_float, c_int, c_void, CStr, CString};
 use std::path::Path;
@@ -18,6 +23,12 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 pub const PINNED_WHISPER_VERSION: &str = "1.9.3";
+
+/// whisper.cpp's input rate. Centisecond timestamps (10 ms) are exact multiples
+/// of 160 samples, so token and segment sample positions need no float math.
+const SAMPLES_PER_CS: u64 = 160;
+/// Samples of the first whisper window (30 s at 16 kHz).
+const DETECT_SAMPLES: usize = 480_000;
 
 #[repr(C)]
 struct WhisperContext {
@@ -111,6 +122,26 @@ type FnLangStr = unsafe extern "C" fn(c_int) -> *const c_char;
 type FnLangMaxId = unsafe extern "C" fn() -> c_int;
 type FnVersion = unsafe extern "C" fn() -> *const c_char;
 
+// ---- Symbols added in 0.2.0 (declarations from whisper.h v1.9.3) ----------
+
+/// `WHISPER_API int whisper_pcm_to_mel(struct whisper_context * ctx, const float * samples, int n_samples, int n_threads);` (whisper.h:276-280)
+type FnPcmToMel = unsafe extern "C" fn(*mut WhisperContext, *const c_float, c_int, c_int) -> c_int;
+/// `WHISPER_API int whisper_lang_auto_detect(struct whisper_context * ctx, int offset_ms, int n_threads, float * lang_probs);` (whisper.h:378-382)
+type FnLangAutoDetect = unsafe extern "C" fn(*mut WhisperContext, c_int, c_int, *mut c_float) -> c_int;
+/// `WHISPER_API whisper_token whisper_token_eot (struct whisper_context * ctx);` (whisper.h:424); `whisper_token` is `int32_t` (whisper.h:85).
+type FnTokenEot = unsafe extern "C" fn(*mut WhisperContext) -> i32;
+/// `WHISPER_API int whisper_full_n_tokens (struct whisper_context * ctx, int i_segment);` (whisper.h:655)
+type FnSegNTokens = unsafe extern "C" fn(*mut WhisperContext, c_int) -> c_int;
+/// `WHISPER_API const char * whisper_full_get_token_text (struct whisper_context * ctx, int i_segment, int i_token);` (whisper.h:659)
+type FnTokText = unsafe extern "C" fn(*mut WhisperContext, c_int, c_int) -> *const c_char;
+/// `WHISPER_API whisper_token whisper_full_get_token_id (struct whisper_context * ctx, int i_segment, int i_token);` (whisper.h:662)
+type FnTokId = unsafe extern "C" fn(*mut WhisperContext, c_int, c_int) -> i32;
+/// `WHISPER_API int64_t whisper_full_get_token_t0 (struct whisper_context * ctx, int i_segment, int i_token);` (whisper.h:675), centiseconds.
+/// `WHISPER_API int64_t whisper_full_get_token_t1 (struct whisper_context * ctx, int i_segment, int i_token);` (whisper.h:677), centiseconds.
+type FnTokTime = unsafe extern "C" fn(*mut WhisperContext, c_int, c_int) -> i64;
+/// `WHISPER_API float whisper_full_get_token_p (struct whisper_context * ctx, int i_segment, int i_token);` (whisper.h:681)
+type FnTokP = unsafe extern "C" fn(*mut WhisperContext, c_int, c_int) -> c_float;
+
 struct AbortFlag(AtomicBool);
 
 extern "C" fn abort_trampoline(user_data: *mut c_void) -> bool {
@@ -136,6 +167,15 @@ pub struct WhisperCpp {
     lang_id: FnLangId,
     lang_str: FnLangStr,
     lang_max_id: FnLangMaxId,
+    pcm_to_mel: FnPcmToMel,
+    lang_auto_detect: FnLangAutoDetect,
+    token_eot: FnTokenEot,
+    seg_n_tokens: FnSegNTokens,
+    tok_text: FnTokText,
+    tok_id: FnTokId,
+    tok_t0: FnTokTime,
+    tok_t1: FnTokTime,
+    tok_p: FnTokP,
     ctx: *mut WhisperContext,
     threads: c_int,
     deadline: Option<Duration>,
@@ -199,6 +239,15 @@ impl WhisperCpp {
         let lang_id: FnLangId = sym!(b"whisper_full_lang_id\0", FnLangId);
         let lang_str: FnLangStr = sym!(b"whisper_lang_str\0", FnLangStr);
         let lang_max_id: FnLangMaxId = sym!(b"whisper_lang_max_id\0", FnLangMaxId);
+        let pcm_to_mel: FnPcmToMel = sym!(b"whisper_pcm_to_mel\0", FnPcmToMel);
+        let lang_auto_detect: FnLangAutoDetect = sym!(b"whisper_lang_auto_detect\0", FnLangAutoDetect);
+        let token_eot: FnTokenEot = sym!(b"whisper_token_eot\0", FnTokenEot);
+        let seg_n_tokens: FnSegNTokens = sym!(b"whisper_full_n_tokens\0", FnSegNTokens);
+        let tok_text: FnTokText = sym!(b"whisper_full_get_token_text\0", FnTokText);
+        let tok_id: FnTokId = sym!(b"whisper_full_get_token_id\0", FnTokId);
+        let tok_t0: FnTokTime = sym!(b"whisper_full_get_token_t0\0", FnTokTime);
+        let tok_t1: FnTokTime = sym!(b"whisper_full_get_token_t1\0", FnTokTime);
+        let tok_p: FnTokP = sym!(b"whisper_full_get_token_p\0", FnTokP);
 
         let model_c = CString::new(model.to_string_lossy().as_bytes())
             .map_err(|e| Error::Config(format!("model path has NUL byte: {e}")))?;
@@ -230,6 +279,15 @@ impl WhisperCpp {
             lang_id,
             lang_str,
             lang_max_id,
+            pcm_to_mel,
+            lang_auto_detect,
+            token_eot,
+            seg_n_tokens,
+            tok_text,
+            tok_id,
+            tok_t0,
+            tok_t1,
+            tok_p,
             ctx,
             threads,
             deadline,
@@ -245,6 +303,52 @@ impl WhisperCpp {
                     .to_str()
                     .map(|s| s == code)
                     .unwrap_or(false)
+        })
+    }
+
+    fn lang_name(&self, id: c_int) -> Option<String> {
+        // SAFETY: resolved export; returns a static string or null.
+        let p = unsafe { (self.lang_str)(id) };
+        (!p.is_null()).then(|| unsafe { CStr::from_ptr(p) }.to_string_lossy().into_owned())
+    }
+
+    /// Language identification on the first 30 s of `samples`: `whisper_pcm_to_mel`
+    /// then `whisper_lang_auto_detect` (whisper.h:276-280, :378-382). No text
+    /// decode runs. Takes `&self`: the context is reached only through its raw
+    /// pointer and `Whisper` is not `Sync`, so no other thread can touch it.
+    /// The deadline set at load time is not applied to this call.
+    pub(crate) fn detect_pcm(&self, samples: &[f32]) -> Result<LanguageDetection> {
+        if samples.is_empty() {
+            return Err(Error::Audio("no samples to detect the language from".into()));
+        }
+        let n = samples.len().min(DETECT_SAMPLES);
+        // SAFETY: ctx valid until Drop; `samples[..n]` outlives the call.
+        let rc = unsafe { (self.pcm_to_mel)(self.ctx, samples.as_ptr(), n as c_int, self.threads) };
+        if rc != 0 {
+            return Err(Error::Model(format!("whisper_pcm_to_mel returned {rc}")));
+        }
+        // SAFETY: resolved export, no arguments.
+        let max_id = unsafe { (self.lang_max_id)() };
+        if max_id < 0 {
+            return Err(Error::Model("whisper_lang_max_id returned a negative id".into()));
+        }
+        let count = max_id as usize + 1;
+        let mut probs = vec![0f32; count];
+        // SAFETY: `probs` holds whisper_lang_max_id()+1 floats, as the header requires.
+        let top = unsafe { (self.lang_auto_detect)(self.ctx, 0, self.threads, probs.as_mut_ptr()) };
+        if top < 0 || top as usize >= count {
+            return Err(Error::Model(format!(
+                "whisper_lang_auto_detect returned {top} (the model may not be multilingual)"
+            )));
+        }
+        let mut candidates: Vec<(String, f32)> = (0..count)
+            .map(|i| (self.lang_name(i as c_int).unwrap_or_default(), probs[i]))
+            .collect();
+        candidates.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+        Ok(LanguageDetection {
+            lang: self.lang_name(top).unwrap_or_default(),
+            probability: probs[top as usize],
+            candidates,
         })
     }
 }
@@ -275,13 +379,19 @@ fn open_library(path: &Path) -> Result<libloading::Library> {
         .map_err(|e| Error::Model(format!("load {}: {e}", path.display())))
 }
 
+/// Accumulates one word's token bytes. Bytes, not `String`: a multi-byte
+/// character can span two tokens, so decoding happens once per word.
+struct WordAcc {
+    bytes: Vec<u8>,
+    start_cs: i64,
+    end_cs: i64,
+    p_sum: f32,
+    n: u32,
+}
+
 impl WindowDecoder for WhisperCpp {
-    fn decode_window(
-        &mut self,
-        samples: &[f32],
-        lang: Option<&str>,
-    ) -> Result<(Vec<Segment>, String)> {
-        if let Some(code) = lang {
+    fn decode_window(&mut self, samples: &[f32], req: &WindowRequest<'_>) -> Result<WindowOutput> {
+        if let Some(code) = req.lang {
             if !self.lang_known(code) {
                 return Err(Error::Config(format!(
                     "unknown Whisper language code `{code}`"
@@ -289,24 +399,32 @@ impl WindowDecoder for WhisperCpp {
             }
         }
         let lang_c =
-            CString::new(lang.unwrap_or("auto")).map_err(|e| Error::Config(e.to_string()))?;
+            CString::new(req.lang.unwrap_or("auto")).map_err(|e| Error::Config(e.to_string()))?;
         // SAFETY: resolved export; struct layout pinned (module docs).
         let mut p = unsafe { (self.defaults)(GREEDY) };
         p.n_threads = self.threads;
         p.translate = false;
+        // Text-only and timed modes differ only here. `no_context` is always set:
+        // windows are disjoint and must not condition on each other.
         p.no_context = true;
-        p.no_timestamps = false;
+        p.no_timestamps = !req.timed;
+        p.token_timestamps = req.timed && req.token_timestamps;
+        p.max_len = req.max_len as c_int;
+        p.split_on_word = req.split_on_word;
         p.single_segment = false;
         p.print_special = false;
         p.print_progress = false;
         p.print_realtime = false;
         p.print_timestamps = false;
         p.language = lang_c.as_ptr();
-        // whisper_full performs AUTO detection itself when language is "auto";
-        // `detect_language=true` is detect-only and returns before decoding.
+        // Stays false on purpose. whisper.cpp returns from `whisper_full` before
+        // decoding when this is set (existing 0.1.0 finding, re-confirmed in 0.2.0
+        // design). Language identification is done by `detect_pcm` instead.
         p.detect_language = false;
         p.greedy_best_of = 1;
         p.beam_search_beam_size = 1;
+        // Copy before `p` moves into `whisper_full` below.
+        let token_timestamps = p.token_timestamps;
 
         let flag = Arc::new(AbortFlag(AtomicBool::new(false)));
         p.abort_callback = Some(abort_trampoline);
@@ -340,10 +458,13 @@ impl WindowDecoder for WhisperCpp {
         if rc != 0 {
             return Err(Error::Model(format!("whisper_full returned {rc}")));
         }
+        let max_sample = samples.len() as u64;
         // SAFETY: exports resolved; ctx just decoded into; strings are owned by
         // ctx until the next decode.
         let n = unsafe { (self.n_seg)(self.ctx) };
+        let eot = unsafe { (self.token_eot)(self.ctx) };
         let mut segs = Vec::new();
+        let mut words = Vec::new();
         for i in 0..n {
             let ptr = unsafe { (self.seg_text)(self.ctx, i) };
             if ptr.is_null() {
@@ -353,25 +474,103 @@ impl WindowDecoder for WhisperCpp {
                 .to_string_lossy()
                 .trim()
                 .to_string();
+            let (t0, t1) = unsafe { ((self.seg_t0)(self.ctx, i), (self.seg_t1)(self.ctx, i)) };
             if text.is_empty() {
                 continue;
             }
-            let (t0, t1) = unsafe { ((self.seg_t0)(self.ctx, i), (self.seg_t1)(self.ctx, i)) };
+            let start_sample = cs_to_sample(t0, max_sample);
+            let end_sample = cs_to_sample(t1, max_sample).max(start_sample);
             segs.push(Segment {
                 text,
                 start: t0 as f32 / 100.0,
                 end: t1 as f32 / 100.0,
+                start_sample,
+                end_sample,
             });
+            if token_timestamps {
+                self.collect_words(i, eot, max_sample, &mut words);
+            }
         }
         let id = unsafe { (self.lang_id)(self.ctx) };
-        let sp = unsafe { (self.lang_str)(id) };
-        let used = match (lang, sp.is_null()) {
-            (Some(l), _) => l.to_string(),
-            (None, false) => unsafe { CStr::from_ptr(sp) }.to_string_lossy().into_owned(),
-            (None, true) => "en".into(),
+        let used = match req.lang {
+            Some(l) => l.to_string(),
+            None => self.lang_name(id).unwrap_or_else(|| "en".into()),
         };
-        Ok((segs, used))
+        Ok(WindowOutput { segments: segs, words, language: used })
     }
+
+    fn detect_window(&mut self, samples: &[f32]) -> Result<LanguageDetection> {
+        self.detect_pcm(samples)
+    }
+}
+
+impl WhisperCpp {
+    /// Assemble words from one segment's tokens. Special tokens (id >= EOT:
+    /// SOT, language, task, timestamp tokens) are skipped. A token whose text
+    /// begins with a space starts a new word (Whisper's BPE convention); other
+    /// tokens extend the current word. Word time = first token start to last
+    /// token end; probability = mean token probability.
+    fn collect_words(&self, seg: c_int, eot: i32, max_sample: u64, out: &mut Vec<WordSpan>) {
+        let mut cur: Option<WordAcc> = None;
+        // SAFETY: called right after whisper_full on the same context.
+        let ntok = unsafe { (self.seg_n_tokens)(self.ctx, seg) };
+        let flush = |acc: WordAcc, out: &mut Vec<WordSpan>| {
+            let text = String::from_utf8_lossy(&acc.bytes).trim().to_string();
+            if text.is_empty() {
+                return;
+            }
+            let start_sample = cs_to_sample(acc.start_cs, max_sample);
+            out.push(WordSpan {
+                text,
+                start_sample,
+                end_sample: cs_to_sample(acc.end_cs, max_sample).max(start_sample),
+                probability: acc.p_sum / acc.n.max(1) as f32,
+            });
+        };
+        for j in 0..ntok {
+            // SAFETY: indices are within 0..n_tokens for this segment.
+            let id = unsafe { (self.tok_id)(self.ctx, seg, j) };
+            if id >= eot {
+                continue;
+            }
+            let ptr = unsafe { (self.tok_text)(self.ctx, seg, j) };
+            if ptr.is_null() {
+                continue;
+            }
+            let bytes = unsafe { CStr::from_ptr(ptr) }.to_bytes();
+            if bytes.is_empty() {
+                continue;
+            }
+            let (t0, t1, p) = unsafe {
+                (
+                    (self.tok_t0)(self.ctx, seg, j),
+                    (self.tok_t1)(self.ctx, seg, j),
+                    (self.tok_p)(self.ctx, seg, j),
+                )
+            };
+            if bytes[0] == b' ' || cur.is_none() {
+                if let Some(acc) = cur.take() {
+                    flush(acc, out);
+                }
+                cur = Some(WordAcc { bytes: Vec::new(), start_cs: t0, end_cs: t1, p_sum: 0.0, n: 0 });
+            }
+            if let Some(acc) = cur.as_mut() {
+                acc.bytes.extend_from_slice(bytes);
+                acc.end_cs = t1;
+                acc.p_sum += p;
+                acc.n += 1;
+            }
+        }
+        if let Some(acc) = cur.take() {
+            flush(acc, out);
+        }
+    }
+}
+
+/// Centiseconds (window-relative) to a window-relative sample index, clamped
+/// to the window. Exact: 1 cs = 160 samples at 16 kHz.
+fn cs_to_sample(cs: i64, max_sample: u64) -> u64 {
+    (cs.max(0) as u64).saturating_mul(SAMPLES_PER_CS).min(max_sample)
 }
 
 impl Drop for WhisperCpp {
@@ -381,5 +580,49 @@ impl Drop for WhisperCpp {
             unsafe { (self.free)(self.ctx) };
             self.ctx = std::ptr::null_mut();
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Resolves every 0.2.0 symbol in the pinned library and checks the
+    /// language table length against it. Skips (printing SKIP) when
+    /// `RIGHTKIT_WHISPER_LIB` is unset; the e2e suite is the hard gate.
+    #[test]
+    fn new_symbols_resolve_in_pinned_library() {
+        let Some(lib_path) = std::env::var_os("RIGHTKIT_WHISPER_LIB") else {
+            eprintln!("SKIP: RIGHTKIT_WHISPER_LIB not set");
+            return;
+        };
+        let lib = open_library(Path::new(&lib_path)).expect("open whisper library");
+        for name in [
+            &b"whisper_pcm_to_mel\0"[..],
+            b"whisper_lang_auto_detect\0",
+            b"whisper_token_eot\0",
+            b"whisper_full_n_tokens\0",
+            b"whisper_full_get_token_text\0",
+            b"whisper_full_get_token_id\0",
+            b"whisper_full_get_token_t0\0",
+            b"whisper_full_get_token_t1\0",
+            b"whisper_full_get_token_p\0",
+        ] {
+            let found = unsafe { lib.get::<*const c_void>(name) };
+            assert!(found.is_ok(), "missing export {}", String::from_utf8_lossy(name));
+        }
+        let max_id = unsafe { lib.get::<FnLangMaxId>(b"whisper_lang_max_id\0") }
+            .map(|f| unsafe { f() })
+            .expect("whisper_lang_max_id");
+        assert_eq!(max_id as usize + 1, crate::whisper::languages::WHISPER_LANGUAGES.len());
+    }
+
+    #[test]
+    fn centiseconds_map_to_exact_samples_and_clamp() {
+        assert_eq!(cs_to_sample(0, 1_000_000), 0);
+        assert_eq!(cs_to_sample(1, 1_000_000), 160);
+        assert_eq!(cs_to_sample(57, 1_000_000), 9_120);
+        assert_eq!(cs_to_sample(-5, 1_000_000), 0);
+        assert_eq!(cs_to_sample(100_000, 480_000), 480_000);
     }
 }

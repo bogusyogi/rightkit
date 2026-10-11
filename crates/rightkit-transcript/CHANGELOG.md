@@ -3,6 +3,37 @@
 All notable changes to `rightkit-transcript`. Versions follow Cargo semver; while the
 version is `0.x`, a minor bump may carry breaking changes.
 
+## Unreleased
+
+- Fixed: the `span()` helper behind cue splitting no longer underflows on a reversed group (last end
+  before first start) or an empty group. Both measure zero, as `group_words` does. The helper is
+  private, so no public signature changed and no checked variant was added.
+
+## 0.3.0
+
+Existing values serialise exactly as before. This is a minor (0.x) bump because two
+enums gained variants: `EndSource::SourceBoundary` and `TranscriptError::MissingField`.
+Downstream exhaustive `match`es on either enum need a new arm.
+
+- Fixed: `group_words` no longer underflows (a panic in debug builds) on a word whose
+  end precedes its start; such a span is treated as zero length.
+- Added `EndSource::SourceBoundary` (serde tag `"source_boundary"`), the variant
+  CutRight writes when a word is clamped to the media boundary. CutRight project
+  files now parse. Downstream exhaustive `match`es on `EndSource` need a new arm;
+  the workspace's `rightkit-align::word_timing_confidence` is one.
+- Added `Transcript::constrain_duration`, ported from CutRight: clamps to a media
+  duration (never grows), reserves one millisecond per trailing word, marks
+  changed words `SourceBoundary`, clamps and drops VAD spans, and fails without
+  mutation when the cap is below the word count.
+- Added `Transcript::from_json_strict`, which matches CutRight: it rejects unknown
+  fields at every level and requires `source_blake3`, `language`, `vad` and `model`
+  (with `model.id`, `model.revision`, `model.backend`), refusing an empty
+  `source_blake3`. Absence is reported as the new `TranscriptError::MissingField`.
+  `from_json` stays lenient and keeps its defaults.
+- Added `Transcript::to_json_with_schema_id` and `ACCEPTED_SCHEMAS`. The writer
+  accepts only readable ids, so a consumer can keep emitting
+  `cutright.transcript.v1` and the output still reads back.
+
 ## 0.2.0
 
 - `TimedWord` is now the single word-timing owner for the suite: added

@@ -48,6 +48,12 @@ name = "lock_owner"
 path = "tests/lock_owner.rs"
 required-features = ["json"]
 
+# Fault-injection seam and the flags each replace call receives.
+[[test]]
+name = "atomic_testing"
+path = "tests/atomic_testing.rs"
+required-features = ["testing"]
+
 [features]
 default = ["fs", "lock", "json", "digest"]
 # Atomic writes, owner-only files, StateDir, netfs, clonefile, and the error type. Pulls
@@ -60,6 +66,9 @@ lock = ["fs"]
 json = ["lock", "dep:serde", "dep:serde_json"]
 # `digest` module: streaming and in-memory SHA-256, lowercase hex. No other dependency.
 digest = ["dep:sha2"]
+# Fault injection around the replace call (`atomic::testing`), for consumer tests. Off by default;
+# a release build (no `debug_assertions`) with it enabled fails to compile.
+testing = ["fs"]
 
 [dependencies]
 serde = { version = "1", features = ["derive"], optional = true }
@@ -72,3 +81,7 @@ libc = { version = "0.2", optional = true }
 
 [dev-dependencies]
 tempfile = "3"
+
+[package.metadata.rightkit]
+continuous = false
+continuous_reason = "sleep: bounded retry delay for a transient rename or sharing violation (atomic.rs, RetryPolicy attempts) and lock acquisition poll bounded by LockOptions.timeout (lock.rs); no thread, task, timer, listener, watcher or growing memory (reviewed 2026-10-11)"

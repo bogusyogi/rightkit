@@ -26,12 +26,15 @@ mod recover;
 pub use backup::{online_backup_to, restore_from, BackupProgress};
 pub use migrate::{
     add_column_if_missing, column_exists, migrate, migration_version, pending_marker, rollback_to,
-    rollback_to_with_storage, user_version, MigrateOptions, Migration, MigrationReport,
-    PendingMarker, Step, VersionStorage,
+    rollback_to_with_storage, user_version, LegacyVersionTable, MigrateOptions, Migration,
+    MigrationReport, PendingMarker, Step, VersionStorage,
 };
 #[cfg(feature = "cipher")]
 pub use recover::rekey;
-pub use recover::{quarantine_database, OpenOutcome, RecoveryPolicy};
+pub use recover::{
+    quarantine_database, quarantine_database_opts, quarantine_database_with, MoveMode, OpenOutcome,
+    QuarantineOptions, QuarantineStamp, RecoveryPolicy, SidecarPolicy,
+};
 
 const BUSY_TIMEOUT_MS: u64 = 5_000;
 const JOURNAL_SIZE_LIMIT: i64 = 67_108_864;
@@ -46,8 +49,12 @@ pub enum DbError {
     SqlcipherFeatureRequired,
     #[error("SQLCipher key contains characters that are unsafe for PRAGMA interpolation")]
     InvalidSqlcipherKey,
+    /// An open-time `quick_check` or `integrity_check` failed. Open-time recovery treats it as an
+    /// unreadable database (see `DbOptions::open_writer_recovering`).
     #[error("database integrity check failed: {0}")]
     Integrity(String),
+    #[error("quarantine suffix {0:?} must be non-empty and contain no path separator or NUL")]
+    InvalidQuarantineSuffix(String),
     #[error("read-pool capacity must be greater than zero")]
     InvalidPoolCapacity,
     #[error("database path has no file name")]
@@ -113,6 +120,19 @@ impl JournalSelect {
 pub const JOURNAL_ENV: &str = "RIGHTKIT_SQLITE_JOURNAL_MODE";
 
 /// Post-key, pre-pragma per-connection initializer (register functions, collations, ...).
+/// Open-time integrity check, selected by [`DbOptions::integrity`].
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum IntegrityCheck {
+    /// No check at open (default).
+    #[default]
+    Off,
+    /// `PRAGMA quick_check`: structural page checks, without the index-to-table cross-check. It
+    /// costs far less than `Full` on large databases.
+    Quick,
+    /// `PRAGMA integrity_check`, or `PRAGMA cipher_integrity_check` for a keyed database.
+    Full,
+}
+
 pub type ConnInit = Arc<dyn Fn(&Connection) -> rusqlite::Result<()> + Send + Sync>;
 
 #[derive(Clone)]
@@ -128,9 +148,15 @@ pub struct DbOptions {
     pub profile: CacheProfile,
     pub durability: DurabilityProfile,
     pub foreign_keys: bool,
+    /// Legacy switch: `true` runs a full check on every open. Ignored when `integrity` is not `Off`.
     pub integrity_check_on_open: bool,
+    /// Open-time integrity check (default `Off`). A failed check is [`DbError::Integrity`], which
+    /// `open_writer_recovering` treats as unreadable.
+    pub integrity: IntegrityCheck,
     pub journal: JournalSelect,
-    /// Narrow the database and its sidecars to owner-only (0600) on unix. Default on.
+    /// Narrow the database and its sidecars to owner-only (0600) on unix. Default on. Set it to
+    /// `false` when sibling processes must read the file (for example a helper running as another
+    /// user); that is the intended switch, not a bug.
     pub owner_only: bool,
     pub init: Option<ConnInit>,
     /// The app's own kill-switch variable (e.g. `CODERIGHT_SQLITE_JOURNAL_MODE`), checked
@@ -141,6 +167,9 @@ pub struct DbOptions {
     /// sharing a network directory never share one rollback-journaled database. The
     /// requested file is not created. Default off.
     pub per_host_fallback: bool,
+    /// Sets `PRAGMA secure_delete` on every connection at open: `Some(true)` overwrites freed
+    /// pages, `Some(false)` does not, `None` (default) leaves SQLite's compile-time default.
+    pub secure_delete: Option<bool>,
 }
 
 impl DbOptions {
@@ -154,11 +183,13 @@ impl DbOptions {
             durability: DurabilityProfile::Normal,
             foreign_keys: false,
             integrity_check_on_open: false,
+            integrity: IntegrityCheck::Off,
             journal: JournalSelect::WalWithFallback,
             owner_only: true,
             init: None,
             journal_env: None,
             per_host_fallback: false,
+            secure_delete: None,
         }
     }
 
@@ -231,9 +262,7 @@ impl DbOptions {
         let conn = Connection::open_in_memory()?;
         self.initialize(&conn, key.as_ref().map(|k| k.as_str()))?;
         configure_connection(&conn, self, ConnectionKind::Memory, None)?;
-        if self.integrity_check_on_open {
-            integrity_check(&conn, self.is_keyed())?;
-        }
+        self.check_on_open(&conn)?;
         Ok(conn)
     }
 
@@ -246,9 +275,7 @@ impl DbOptions {
         conn.busy_timeout(self.busy_timeout)?;
         apply_key_first(&conn, key.as_ref().map(|k| k.as_str()))?;
         verify_key(&conn)?;
-        if self.integrity_check_on_open {
-            integrity_check(&conn, self.is_keyed())?;
-        }
+        self.check_on_open(&conn)?;
         Ok(conn)
     }
 
@@ -310,14 +337,31 @@ impl DbOptions {
             rightkit_fs::restrict_owner_only(path)?;
         }
         self.initialize(&conn, key.as_ref().map(|k| k.as_str()))?;
-        let journal = configure_connection(&conn, self, kind, forced)?;
-        if self.integrity_check_on_open {
-            integrity_check(&conn, self.is_keyed())?;
+        if let Some(on) = self.secure_delete {
+            conn.pragma_update(None, "secure_delete", if on { "ON" } else { "OFF" })?;
         }
+        let journal = configure_connection(&conn, self, kind, forced)?;
+        self.check_on_open(&conn)?;
         if self.owner_only {
             harden_sidecars(path)?;
         }
         Ok((conn, journal))
+    }
+
+    /// Run the open-time check selected by `integrity`; `integrity_check_on_open` alone means `Full`.
+    fn check_on_open(&self, conn: &Connection) -> Result<()> {
+        let mode = match self.integrity {
+            IntegrityCheck::Off if self.integrity_check_on_open => IntegrityCheck::Full,
+            mode => mode,
+        };
+        match (mode, self.is_keyed()) {
+            (IntegrityCheck::Off, _) => Ok(()),
+            (IntegrityCheck::Quick, _) => run_integrity_pragma(conn, "PRAGMA quick_check"),
+            (IntegrityCheck::Full, true) => {
+                run_integrity_pragma(conn, "PRAGMA cipher_integrity_check")
+            }
+            (IntegrityCheck::Full, false) => run_integrity_pragma(conn, "PRAGMA integrity_check"),
+        }
     }
 
     /// The `PRAGMA key` right-hand side (already quoted), validated against injection.
@@ -557,12 +601,7 @@ fn verify_key(conn: &Connection) -> Result<()> {
     Ok(())
 }
 
-fn integrity_check(conn: &Connection, keyed: bool) -> Result<()> {
-    let pragma = if keyed {
-        "PRAGMA cipher_integrity_check"
-    } else {
-        "PRAGMA integrity_check"
-    };
+fn run_integrity_pragma(conn: &Connection, pragma: &str) -> Result<()> {
     let mut statement = conn.prepare(pragma)?;
     let rows = statement.query_map([], |row| row.get::<_, String>(0))?;
     let messages = rows.collect::<std::result::Result<Vec<_>, _>>()?;

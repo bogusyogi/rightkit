@@ -74,18 +74,86 @@ impl Listing {
     }
 }
 
-/// Path prefixes never descended into.
+/// Directories never descended into: exact path prefixes, plus glob patterns over path
+/// components. Pattern matching is relative to the root that contains the path, so a root
+/// placed under a pattern's name is still indexed.
 #[derive(Clone, Debug, Default)]
 pub struct Excludes {
     pub prefixes: Vec<Vec<u8>>,
+    /// Each pattern is split on `/`; each segment matches one path component with `*` and `?`.
+    /// A pattern matches wherever its segments appear as consecutive components.
+    pub patterns: Vec<Vec<Vec<u8>>>,
+    /// Roots, without a trailing slash (`/` is stored as the empty string).
+    pub roots: Vec<Vec<u8>>,
 }
 
 impl Excludes {
     pub fn matches(&self, path: &[u8]) -> bool {
-        self.prefixes
+        if self
+            .prefixes
             .iter()
             .any(|s| path.starts_with(s) && (path.len() == s.len() || path[s.len()] == b'/'))
+        {
+            return true;
+        }
+        if self.patterns.is_empty() {
+            return false;
+        }
+        let rel = self.relative(path);
+        let comps: Vec<&[u8]> = rel
+            .split(|&b| b == b'/')
+            .filter(|c| !c.is_empty())
+            .collect();
+        self.patterns.iter().any(|segs| {
+            segs.len() <= comps.len()
+                && (0..=comps.len() - segs.len()).any(|i| {
+                    segs.iter()
+                        .zip(&comps[i..])
+                        .all(|(seg, comp)| glob_match(seg, comp))
+                })
+        })
     }
+
+    /// The part of `path` below the longest root that contains it, or the whole path.
+    fn relative<'a>(&self, path: &'a [u8]) -> &'a [u8] {
+        let mut best: Option<usize> = None;
+        for r in &self.roots {
+            let inside = path.starts_with(r) && (path.len() == r.len() || path[r.len()] == b'/');
+            if inside && best.is_none_or(|b| r.len() > b) {
+                best = Some(r.len());
+            }
+        }
+        match best {
+            Some(n) => &path[n..],
+            None => path,
+        }
+    }
+}
+
+/// `*` matches any run of bytes and `?` one byte; everything else matches itself.
+pub fn glob_match(pat: &[u8], text: &[u8]) -> bool {
+    let (mut p, mut t) = (0usize, 0usize);
+    let (mut star, mut mark) = (None::<usize>, 0usize);
+    while t < text.len() {
+        if p < pat.len() && (pat[p] == b'?' || pat[p] == text[t]) {
+            p += 1;
+            t += 1;
+        } else if p < pat.len() && pat[p] == b'*' {
+            star = Some(p);
+            mark = t;
+            p += 1;
+        } else if let Some(sp) = star {
+            p = sp + 1;
+            mark += 1;
+            t = mark;
+        } else {
+            return false;
+        }
+    }
+    while p < pat.len() && pat[p] == b'*' {
+        p += 1;
+    }
+    p == pat.len()
 }
 
 pub const EV_MUST_SCAN_SUBDIRS: u32 = 0x1;
@@ -158,5 +226,62 @@ pub fn default_backend() -> Arc<dyn Backend> {
     #[cfg(not(target_os = "macos"))]
     {
         Arc::new(windows_stub::UnsupportedBackend)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn glob_matches_star_question_and_literals() {
+        assert!(glob_match(b"target", b"target"));
+        assert!(glob_match(b"*.app", b"Foo.app"));
+        assert!(!glob_match(b"*.app", b"Foo.apps"));
+        assert!(glob_match(b"a?c", b"abc"));
+        assert!(!glob_match(b"a?c", b"ac"));
+        assert!(glob_match(b"*", b""));
+        assert!(glob_match(b"a*b*c", b"aXXbYYc"));
+        assert!(!glob_match(b"a*b", b"ba"));
+        assert!(
+            !glob_match(b"Target", b"target"),
+            "matching is case-sensitive"
+        );
+    }
+
+    #[test]
+    fn a_pattern_matches_consecutive_components_below_the_root() {
+        let ex = Excludes {
+            patterns: vec![vec![b".git".to_vec(), b"objects".to_vec()]],
+            roots: vec![b"/work".to_vec()],
+            ..Excludes::default()
+        };
+        assert!(ex.matches(b"/work/repo/.git/objects"));
+        assert!(ex.matches(b"/work/repo/.git/objects/ab"));
+        assert!(!ex.matches(b"/work/repo/.git"));
+        assert!(!ex.matches(b"/work/repo/objects"));
+    }
+
+    #[test]
+    fn a_root_under_a_pattern_name_is_not_excluded() {
+        let ex = Excludes {
+            patterns: vec![vec![b"target".to_vec()]],
+            roots: vec![b"/work/target/proj".to_vec()],
+            ..Excludes::default()
+        };
+        assert!(!ex.matches(b"/work/target/proj"));
+        assert!(!ex.matches(b"/work/target/proj/src"));
+        assert!(ex.matches(b"/work/target/proj/x/target"));
+    }
+
+    #[test]
+    fn exact_prefixes_still_match_on_component_boundaries() {
+        let ex = Excludes {
+            prefixes: vec![b"/work/private".to_vec()],
+            ..Excludes::default()
+        };
+        assert!(ex.matches(b"/work/private"));
+        assert!(ex.matches(b"/work/private/x"));
+        assert!(!ex.matches(b"/work/privateer"));
     }
 }

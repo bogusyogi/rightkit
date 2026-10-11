@@ -94,3 +94,97 @@ fn windows_credential_manager_real_round_trip() {
     assert!(store.delete("probe").unwrap());
     assert!(store.get("probe").unwrap().is_none());
 }
+
+/// Reads back only the first 32 bytes, as a lossy destination would.
+struct TruncatingBackend(MemoryBackend);
+
+impl rightkit_secrets::Backend for TruncatingBackend {
+    fn name(&self) -> &'static str {
+        "truncating-test"
+    }
+    fn get(
+        &self,
+        ns: &Namespace,
+        account: &str,
+        mode: rightkit_secrets::Interaction,
+    ) -> rightkit_secrets::Result<Option<Secret>> {
+        Ok(self
+            .0
+            .get(ns, account, mode)?
+            .map(|s| Secret::from_bytes(&s.expose_bytes()[..32.min(s.len())])))
+    }
+    fn exists(
+        &self,
+        ns: &Namespace,
+        account: &str,
+        mode: rightkit_secrets::Interaction,
+    ) -> rightkit_secrets::Result<bool> {
+        self.0.exists(ns, account, mode)
+    }
+    fn set(
+        &self,
+        ns: &Namespace,
+        account: &str,
+        secret: &Secret,
+        mode: rightkit_secrets::Interaction,
+    ) -> rightkit_secrets::Result<()> {
+        self.0.set(ns, account, secret, mode)
+    }
+    fn add_if_absent(
+        &self,
+        ns: &Namespace,
+        account: &str,
+        secret: &Secret,
+        mode: rightkit_secrets::Interaction,
+    ) -> rightkit_secrets::Result<bool> {
+        self.0.add_if_absent(ns, account, secret, mode)
+    }
+    fn delete(
+        &self,
+        ns: &Namespace,
+        account: &str,
+        mode: rightkit_secrets::Interaction,
+    ) -> rightkit_secrets::Result<bool> {
+        self.0.delete(ns, account, mode)
+    }
+}
+
+#[test]
+fn migration_does_not_accept_a_destination_that_returns_a_32_byte_prefix_of_a_288_byte_secret() {
+    let from = memory_store("dev.rightkit.secrets.test.mig-len-from");
+    let to = Store::open(
+        Config::new(Namespace::new("dev.rightkit.secrets.test.mig-len-to").unwrap())
+            .backend(Arc::new(TruncatingBackend(MemoryBackend::new()))),
+    );
+    from.set("acct", &Secret::from_bytes(vec![7u8; 288])).unwrap();
+    let report = rightkit_secrets::migrate_between(&from, &to, &["acct"]);
+    assert!(report.moved.is_empty(), "{report:?}");
+    assert_eq!(report.failed, vec!["acct"]);
+    assert_eq!(from.get("acct").unwrap().unwrap().len(), 288, "original deleted");
+}
+
+#[test]
+fn memory_and_unavailable_backends_reject_invalid_accounts_at_the_boundary() {
+    use rightkit_secrets::{Backend, Interaction, UnavailableBackend};
+    let ns = Namespace::new("dev.rightkit.secrets.test.boundary").unwrap();
+    let ni = Interaction::NonInteractive;
+    let mem = MemoryBackend::new();
+    let un = UnavailableBackend("test");
+    for b in [&mem as &dyn Backend, &un as &dyn Backend] {
+        for acct in ["", "bad\naccount"] {
+            assert!(matches!(b.get(&ns, acct, ni), Err(Error::Invalid { .. })));
+            assert!(matches!(b.exists(&ns, acct, ni), Err(Error::Invalid { .. })));
+            assert!(matches!(
+                b.set(&ns, acct, &Secret::from_string("x"), ni),
+                Err(Error::Invalid { .. })
+            ));
+            assert!(matches!(
+                b.add_if_absent(&ns, acct, &Secret::from_string("x"), ni),
+                Err(Error::Invalid { .. })
+            ));
+            assert!(matches!(b.delete(&ns, acct, ni), Err(Error::Invalid { .. })));
+        }
+    }
+    // Valid account on the unavailable backend stays Unavailable.
+    assert!(matches!(un.get(&ns, "ok", ni), Err(Error::Unavailable(_))));
+}

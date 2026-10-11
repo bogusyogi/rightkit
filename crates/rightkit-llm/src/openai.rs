@@ -63,18 +63,32 @@ impl OpenAiCompatProvider {
         self
     }
 
-    fn request(&self, req: &ChatRequest, stream: bool) -> Result<Request, LlmError> {
+    /// The HTTP request, plus the credential text (when one was sent) so that error text
+    /// from the provider can have it removed.
+    fn request(
+        &self,
+        req: &ChatRequest,
+        stream: bool,
+    ) -> Result<(Request, Option<String>), LlmError> {
         let body = build_body(req, stream, self.max_tokens_field);
-        let mut http = Request::post(format!("{}/chat/completions", self.base_url)).header(
-            "Accept",
-            if stream {
-                "text/event-stream"
-            } else {
-                "application/json"
-            },
-        );
+        // Replay after 429/5xx is safe: a chat completion has no server-side effect and
+        // OpenAI-compatible providers document 429 and 5xx as retryable.
+        let mut http = Request::post(format!("{}/chat/completions", self.base_url))
+            .retry_unsafe_statuses(true)
+            .header(
+                "Accept",
+                if stream {
+                    "text/event-stream"
+                } else {
+                    "application/json"
+                },
+            );
+        let mut secret = None;
         match self.credentials.credential(&self.id)? {
-            Some(c) => http = http.bearer(c.expose()),
+            Some(c) => {
+                secret = Some(c.expose().to_string());
+                http = http.bearer(c.expose());
+            }
             None if self.requires_credential => {
                 return Err(LlmError::MissingCredential(self.id.clone()))
             }
@@ -83,7 +97,23 @@ impl OpenAiCompatProvider {
         for (k, v) in &self.extra_headers {
             http = http.header(k.as_str(), v.as_str());
         }
-        Ok(http.json(&body)?)
+        if let Some(limit) = req.timeout {
+            // Per-call total budget; `deadline` also bounds retry attempts and sleeps.
+            http = http.timeout(limit).deadline(limit);
+        }
+        Ok((http.json(&body)?, secret))
+    }
+}
+
+impl std::fmt::Debug for OpenAiCompatProvider {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // The credential source and HTTP client are omitted: neither prints a key.
+        f.debug_struct("OpenAiCompatProvider")
+            .field("id", &self.id)
+            .field("base_url", &self.base_url)
+            .field("requires_credential", &self.requires_credential)
+            .field("max_tokens_field", &self.max_tokens_field)
+            .finish_non_exhaustive()
     }
 }
 
@@ -102,7 +132,9 @@ pub fn build_body(req: &ChatRequest, stream: bool, field: MaxTokensField) -> Val
         MaxTokensField::MaxTokens => "max_tokens",
         MaxTokensField::MaxCompletionTokens => "max_completion_tokens",
     };
-    body.insert(key.into(), json!(req.max_tokens));
+    if !req.omit_max_tokens {
+        body.insert(key.into(), json!(req.max_tokens));
+    }
     if let Some(t) = req.temperature {
         body.insert("temperature".into(), json!(t));
     }
@@ -114,8 +146,12 @@ pub fn build_body(req: &ChatRequest, stream: bool, field: MaxTokensField) -> Val
             .tools
             .iter()
             .map(|t| {
-                json!({"type": "function", "function": {
-                    "name": t.name, "description": t.description, "parameters": t.input_schema}})
+                let mut tool = json!({"type": "function", "function": {
+                    "name": t.name, "description": t.description, "parameters": t.input_schema}});
+                if t.strict {
+                    tool["function"]["strict"] = json!(true);
+                }
+                tool
             })
             .collect();
         body.insert("tools".into(), Value::Array(tools));
@@ -229,6 +265,8 @@ pub fn parse_response(v: &Value) -> Result<ChatResponse, LlmError> {
         content,
         stop_reason: parse_finish(choice["finish_reason"].as_str()),
         usage: v.get("usage").map(parse_usage).unwrap_or_default(),
+        usage_known: v.get("usage").is_some(),
+        metering: Metering::PerToken,
     })
 }
 
@@ -238,7 +276,11 @@ impl Provider for OpenAiCompatProvider {
     }
 
     fn complete(&self, req: &ChatRequest) -> Result<ChatResponse, LlmError> {
-        let resp = self.client.send(&self.request(req, false)?)?;
+        let (http, secret) = self.request(req, false)?;
+        let resp = self
+            .client
+            .send(&http)
+            .map_err(|e| LlmError::from_http(e, secret.as_deref()))?;
         let v: Value = resp
             .json()
             .map_err(|e| LlmError::Malformed(e.to_string()))?;
@@ -250,7 +292,12 @@ impl Provider for OpenAiCompatProvider {
         req: &ChatRequest,
         on_event: &mut dyn FnMut(StreamEvent) -> ControlFlow<()>,
     ) -> Result<ChatResponse, LlmError> {
-        let response = self.client.stream(&self.request(req, true)?)?;
+        let (http, secret) = self.request(req, true)?;
+        let key = secret.as_deref();
+        let response = self
+            .client
+            .stream(&http)
+            .map_err(|e| LlmError::from_http(e, key))?;
         let mut id = String::new();
         let mut model = String::new();
         let mut text = String::new();
@@ -284,11 +331,14 @@ impl Provider for OpenAiCompatProvider {
             let chunk: Value = serde_json::from_str(&ev.data)
                 .map_err(|e| fail(format!("bad SSE JSON: {e}"), delivered))?;
             if let Some(err) = chunk.get("error").filter(|e| !e.is_null()) {
-                let message = err["message"]
-                    .as_str()
-                    .unwrap_or("provider error")
-                    .to_string();
-                let kind = err["type"].as_str().unwrap_or("error").to_string();
+                let message = crate::error::redact_secret(
+                    err["message"].as_str().unwrap_or("provider error"),
+                    key,
+                );
+                let kind = crate::error::redact_secret(
+                    err["type"].as_str().unwrap_or("error"),
+                    key,
+                );
                 return Err(if delivered {
                     LlmError::MidStream(format!("{kind}: {message}"))
                 } else {
@@ -372,6 +422,8 @@ impl Provider for OpenAiCompatProvider {
             content,
             stop_reason: parse_finish(finish.as_deref()),
             usage,
+            usage_known: usage != Usage::default(),
+            metering: Metering::PerToken,
         })
     }
 }

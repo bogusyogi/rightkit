@@ -30,3 +30,7 @@ windows-sys = { version = "0.61.2", features = [
 
 [target.'cfg(windows)'.dev-dependencies]
 windows-sys = { version = "0.61.2", features = ["Win32_System_Pipes"] }
+
+[package.metadata.rightkit]
+continuous = false
+continuous_reason = "bounded JSON-lines framing primitives driven by the caller's reads and writes; no thread-spawn, task-spawn, sleep, timer, listener or watcher in non-test src (checked by runtime-budgets.mjs)"

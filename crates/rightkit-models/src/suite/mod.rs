@@ -40,22 +40,39 @@ pub mod paths;
 pub mod refs;
 pub mod store;
 pub mod variant;
+pub mod whisper;
 
 pub use crate::lock;
-pub use catalog::{catalog, ModelSpec, RemoteFile, SpecFile, SpecSource};
-pub use grant::{acquire_grant, acquire_model_grant, ModelGrant, ModelGrantRequest};
+pub use catalog::{
+    add_ons, all_models, base_catalog, catalog, ModelSpec, ModelTier, RemoteFile, SpecFile,
+    SpecSource,
+};
+#[allow(deprecated)]
+pub use grant::{acquire_grant, acquire_model_grant};
+pub use grant::{
+    acquire_grant_pinned, acquire_grant_with_client, acquire_model_grant_pinned, grant_client,
+    grant_policy, ModelGrant, ModelGrantRequest,
+};
 pub use handle::{ModelStore, ResolvedModel};
-pub use install::{device_id_get_or_create, ensure_with_grant, GrantConfig, GrantSession};
+pub use install::{
+    device_id_get_or_create, ensure_with_grant, ensure_with_grant_via, GrantConfig, GrantSession,
+};
 pub use manifest::{FileState, Manifest, ManifestFile, VerifyMode, VerifyReport};
 pub use migration::{verify_source_checked, verify_trusted_source, JournalPhase, MigrationJournal};
 pub use paths::{legacy_compatibility, legacy_suite_root, LegacyCompatibility};
 pub use refs::{
     acquire_registries, migrate_root_refs, migrate_root_refs_with_map, unregister_across_roots,
 };
+#[allow(deprecated)]
+pub use store::http_agent;
 pub use store::{
-    ensure_ready, ensure_ready_cancellable, http_agent, migrate_legacy, migrate_legacy_checked,
-    migrate_source_checked, prune_unref_entries, prune_unref_entries_with, register_ref,
-    resolve_ready_dir, status_at, status_in, EnsureOptions, EntryState, MigrateOutcome,
-    ModelStatus, Progress,
+    base_size_hint_bytes, base_status_at, ensure_ready, ensure_ready_cancellable, migrate_legacy,
+    migrate_legacy_checked, migrate_source_checked, prune_unref_entries, prune_unref_entries_with,
+    register_ref, resolve_ready_dir, set_status_at, size_hint_bytes, status_at, status_in,
+    EnsureOptions, EntryState, MigrateOutcome, ModelStatus, Progress, SetStatus,
 };
 pub use variant::{parakeet_variant_descriptor, VariantDescriptor};
+pub use whisper::{
+    ensure_whisper_model, ensure_whisper_model_at, resolve_whisper_model, resolve_whisper_model_at,
+    WhisperKind,
+};

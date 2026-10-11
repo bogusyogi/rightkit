@@ -89,7 +89,10 @@ impl LoudnessMeasurement {
     }
 }
 
-/// `loudnorm` filter text; with `measured` it is the linear second pass.
+/// The in-graph `loudnorm` filter text: `measured` makes it the linear second pass, and
+/// `print_format` (`json` for a measurement, `summary` for a human-readable report) sets
+/// what `loudnorm` prints. Callers composing their own graphs want
+/// [`two_pass_normalize_filter`], which has the same text without forcing a print format.
 pub fn loudnorm_filter(
     target: &LoudnessTarget,
     measured: Option<&LoudnessMeasurement>,
@@ -100,15 +103,46 @@ pub fn loudnorm_filter(
         target.integrated_lufs, target.true_peak_db, target.lra
     );
     if let Some(m) = measured {
-        f.push_str(&format!(
-            ":measured_I={:.2}:measured_TP={:.2}:measured_LRA={:.2}:measured_thresh={:.2}:offset={:.2}:linear=true",
-            m.input_i, m.input_tp, m.input_lra, m.input_thresh, m.target_offset
-        ));
+        f.push_str(&linear_pass_parameters(m));
     }
     f.push_str(&format!(":print_format={print_format}"));
     f
 }
 
+/// The `measured_*`/`offset`/`linear` tail that turns `loudnorm` into its linear pass.
+fn linear_pass_parameters(m: &LoudnessMeasurement) -> String {
+    format!(
+        ":measured_I={:.2}:measured_TP={:.2}:measured_LRA={:.2}:measured_thresh={:.2}:offset={:.2}:linear=true",
+        m.input_i, m.input_tp, m.input_lra, m.input_thresh, m.target_offset
+    )
+}
+
+/// The in-graph second pass for callers that compose their own filter graph: a single
+/// `loudnorm` with the first pass's measurement fed back, so it applies one linear gain
+/// (no dynamic compression) and the output lands on `target`. `print_format` is appended
+/// when given, so `two_pass_normalize_filter(m, t, Some("summary"))` equals
+/// [`loudnorm_filter`]`(t, Some(m), "summary")`. The measurement only describes the audio
+/// this filter receives: any filter placed before it must also have been in the graph
+/// that was measured.
+pub fn two_pass_normalize_filter(
+    measured: &LoudnessMeasurement,
+    target: &LoudnessTarget,
+    print_format: Option<&str>,
+) -> String {
+    let mut filter = format!(
+        "loudnorm=I={:.1}:TP={:.1}:LRA={:.1}{}",
+        target.integrated_lufs,
+        target.true_peak_db,
+        target.lra,
+        linear_pass_parameters(measured)
+    );
+    if let Some(print_format) = print_format {
+        filter.push_str(&format!(":print_format={print_format}"));
+    }
+    filter
+}
+
+#[non_exhaustive]
 #[derive(Debug)]
 pub enum LoudnessError {
     Run(RunError),
@@ -125,6 +159,11 @@ pub enum LoudnessError {
         measured_i: f64,
         target_i: f64,
         tolerance_lu: f64,
+    },
+    /// The measured true peak is above the ceiling in a [`LoudnessAcceptance`].
+    TruePeakExceeded {
+        measured_tp: f64,
+        ceiling_dbtp: f64,
     },
 }
 
@@ -143,6 +182,13 @@ impl std::fmt::Display for LoudnessError {
             } => write!(
                 f,
                 "closest render measured {measured_i:.2} LUFS, outside {target_i:.1} ± {tolerance_lu:.2} LU"
+            ),
+            Self::TruePeakExceeded {
+                measured_tp,
+                ceiling_dbtp,
+            } => write!(
+                f,
+                "measured true peak {measured_tp:.2} dBTP is above the {ceiling_dbtp:.2} dBTP ceiling"
             ),
         }
     }
@@ -165,29 +211,130 @@ struct RawLoudnorm {
     target_offset: String,
 }
 
+/// The last JSON object in `stderr` (the one `loudnorm` prints at the end).
+fn last_json_object(stderr: &str) -> Result<&str, LoudnessError> {
+    let missing = || LoudnessError::Unparsed("no loudnorm output".into());
+    let end = stderr.rfind('}').ok_or_else(missing)?;
+    let start = stderr[..end].rfind('{').ok_or_else(missing)?;
+    Ok(&stderr[start..=end])
+}
+
+fn number(text: &str) -> Result<f64, LoudnessError> {
+    text.trim()
+        .parse::<f64>()
+        .map_err(|_| LoudnessError::Unparsed(format!("unreadable number {text:?}")))
+}
+
 /// Parse the last JSON object `loudnorm` printed in `stderr`.
 pub fn parse_loudnorm(stderr: &str) -> Result<LoudnessMeasurement, LoudnessError> {
-    let bad = |why: String| LoudnessError::Unparsed(why);
-    let end = stderr
-        .rfind('}')
-        .ok_or_else(|| bad("no loudnorm output".into()))?;
-    let start = stderr[..end]
-        .rfind('{')
-        .ok_or_else(|| bad("no loudnorm output".into()))?;
-    let raw: RawLoudnorm =
-        serde_json::from_str(&stderr[start..=end]).map_err(|e| bad(e.to_string()))?;
-    let num = |s: &str| -> Result<f64, LoudnessError> {
-        s.trim()
-            .parse::<f64>()
-            .map_err(|_| bad(format!("unreadable number {s:?}")))
-    };
+    let raw: RawLoudnorm = serde_json::from_str(last_json_object(stderr)?)
+        .map_err(|e| LoudnessError::Unparsed(e.to_string()))?;
     Ok(LoudnessMeasurement {
-        input_i: num(&raw.input_i)?,
-        input_tp: num(&raw.input_tp)?,
-        input_lra: num(&raw.input_lra)?,
-        input_thresh: num(&raw.input_thresh)?,
-        target_offset: num(&raw.target_offset)?,
+        input_i: number(&raw.input_i)?,
+        input_tp: number(&raw.input_tp)?,
+        input_lra: number(&raw.input_lra)?,
+        input_thresh: number(&raw.input_thresh)?,
+        target_offset: number(&raw.target_offset)?,
     })
+}
+
+/// The `output_*` values `loudnorm` prints next to the `input_*` ones. In a measurement
+/// pass they describe the dynamically normalised stream, not the input; in a linear pass
+/// (one built with [`two_pass_normalize_filter`]) they describe that pass's output, so
+/// `output_tp` is the delivered true peak. A file's own true peak is `input_tp` when it
+/// is the thing measured.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+pub struct LoudnessOutput {
+    pub output_i: f64,
+    pub output_tp: f64,
+    pub output_lra: f64,
+    pub output_thresh: f64,
+}
+
+#[derive(Deserialize)]
+struct RawLoudnormOutput {
+    output_i: String,
+    output_tp: String,
+    output_lra: String,
+    output_thresh: String,
+}
+
+/// Parse the `output_*` fields of the last JSON object `loudnorm` printed in `stderr`.
+pub fn parse_loudnorm_output(stderr: &str) -> Result<LoudnessOutput, LoudnessError> {
+    let raw: RawLoudnormOutput = serde_json::from_str(last_json_object(stderr)?)
+        .map_err(|e| LoudnessError::Unparsed(e.to_string()))?;
+    Ok(LoudnessOutput {
+        output_i: number(&raw.output_i)?,
+        output_tp: number(&raw.output_tp)?,
+        output_lra: number(&raw.output_lra)?,
+        output_thresh: number(&raw.output_thresh)?,
+    })
+}
+
+/// What a measured file must meet. The default is the tolerance GenRight ships
+/// (±0.5 LU of the target integrated loudness) with no true-peak ceiling. Unlike
+/// [`ConvergeOptions`], the tolerance is not capped at 0.5 LU here: a verifier may be
+/// looser than the render loop, but it must be positive and finite.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize)]
+pub struct LoudnessAcceptance {
+    /// Allowed distance, in LU, between the measured integrated loudness and the target.
+    pub lufs_tolerance_lu: f64,
+    /// Highest allowed true peak, dBTP. `None` enforces no ceiling.
+    pub true_peak_max_dbtp: Option<f64>,
+}
+
+impl Default for LoudnessAcceptance {
+    fn default() -> Self {
+        Self {
+            lufs_tolerance_lu: DEFAULT_TOLERANCE_LU,
+            true_peak_max_dbtp: None,
+        }
+    }
+}
+
+impl LoudnessAcceptance {
+    /// Check one measurement (a file's own, as measured) against `target`. Silent input
+    /// is [`LoudnessError::Silent`]; invalid bounds are [`LoudnessError::InvalidOptions`].
+    pub fn verify(
+        &self,
+        measured: &LoudnessMeasurement,
+        target: &LoudnessTarget,
+    ) -> Result<(), LoudnessError> {
+        if !(self.lufs_tolerance_lu > 0.0 && self.lufs_tolerance_lu.is_finite()) {
+            return Err(LoudnessError::InvalidOptions(format!(
+                "tolerance {} LU must be a positive, finite number",
+                self.lufs_tolerance_lu
+            )));
+        }
+        if let Some(ceiling) = self.true_peak_max_dbtp {
+            if !ceiling.is_finite() {
+                return Err(LoudnessError::InvalidOptions(format!(
+                    "true-peak ceiling {ceiling} dBTP must be finite"
+                )));
+            }
+        }
+        if measured.is_silent() {
+            return Err(LoudnessError::Silent);
+        }
+        // `input_i` is finite here (`is_silent` rejected the rest), so this is a plain test.
+        let error = (measured.input_i - target.integrated_lufs).abs();
+        if error > self.lufs_tolerance_lu {
+            return Err(LoudnessError::OutOfTolerance {
+                measured_i: measured.input_i,
+                target_i: target.integrated_lufs,
+                tolerance_lu: self.lufs_tolerance_lu,
+            });
+        }
+        if let Some(ceiling) = self.true_peak_max_dbtp {
+            if measured.input_tp.is_nan() || measured.input_tp > ceiling {
+                return Err(LoudnessError::TruePeakExceeded {
+                    measured_tp: measured.input_tp,
+                    ceiling_dbtp: ceiling,
+                });
+            }
+        }
+        Ok(())
+    }
 }
 
 /// First-pass measurement of `file`'s audio (integrated, true peak, LRA).
@@ -211,6 +358,22 @@ pub fn measure_loudness(
         ));
     }
     parse_loudnorm(&out.stderr)
+}
+
+/// [`measure_loudness`], then [`LoudnessAcceptance::verify`] on that same measurement.
+/// [`measure_loudness`] itself never judges the result, so callers that only want the
+/// numbers keep using it.
+pub fn measure_loudness_verified(
+    ffmpeg: &dyn FfmpegBinary,
+    file: &Path,
+    target: &LoudnessTarget,
+    acceptance: &LoudnessAcceptance,
+    timeout: Duration,
+    cancel: &CancellationToken,
+) -> Result<LoudnessMeasurement, LoudnessError> {
+    let measured = measure_loudness(ffmpeg, file, target, timeout, cancel)?;
+    acceptance.verify(&measured, target)?;
+    Ok(measured)
 }
 
 /// Iteration policy for [`normalize_file`].
@@ -391,6 +554,13 @@ impl LoudnessReport {
     /// Integrated loudness of the kept, measured render.
     pub fn kept_measured_i(&self) -> f64 {
         self.convergence.kept().measured_i
+    }
+
+    /// Check the file as delivered (`delivered`, measured after encoding) against
+    /// `acceptance`. Unlike [`LoudnessReport::ensure_within_tolerance`], which judges the
+    /// kept render against the convergence tolerance, this is what a receiver sees.
+    pub fn verify(&self, acceptance: &LoudnessAcceptance) -> Result<(), LoudnessError> {
+        acceptance.verify(&self.delivered, &self.target)
     }
 
     /// Turn a best-effort result into a hard guarantee.
@@ -648,5 +818,167 @@ mod tests {
                 lra: 11.0
             }
         );
+    }
+
+    fn measured() -> LoudnessMeasurement {
+        LoudnessMeasurement {
+            input_i: -23.456,
+            input_tp: -3.2,
+            input_lra: 7.8,
+            input_thresh: -33.9,
+            target_offset: 0.55,
+        }
+    }
+
+    /// `loudnorm`'s JSON as ffmpeg prints it after a measurement pass (values are strings).
+    const LOUDNORM_JSON: &str = r#"[Parsed_loudnorm_0 @ 0x7f8b]
+{
+	"input_i" : "-23.46",
+	"input_tp" : "-3.20",
+	"input_lra" : "7.80",
+	"input_thresh" : "-33.90",
+	"output_i" : "-16.02",
+	"output_tp" : "-1.48",
+	"output_lra" : "7.10",
+	"output_thresh" : "-26.44",
+	"normalization_type" : "dynamic",
+	"target_offset" : "0.55"
+}"#;
+
+    #[test]
+    fn two_pass_filter_is_the_linear_pass_and_shares_the_first_pass_text() {
+        let target = LoudnessTarget::SPEECH_EXPORT;
+        let bare = two_pass_normalize_filter(&measured(), &target, None);
+        assert_eq!(
+            bare,
+            "loudnorm=I=-16.0:TP=-1.5:LRA=11.0:measured_I=-23.46:measured_TP=-3.20:measured_LRA=7.80:measured_thresh=-33.90:offset=0.55:linear=true"
+        );
+        assert_eq!(
+            loudnorm_filter(&target, Some(&measured()), "json"),
+            format!("{bare}:print_format=json")
+        );
+        assert_eq!(
+            two_pass_normalize_filter(&measured(), &target, Some("summary")),
+            loudnorm_filter(&target, Some(&measured()), "summary")
+        );
+    }
+
+    #[test]
+    fn loudnorm_json_yields_input_and_output_values() {
+        let m = parse_loudnorm(LOUDNORM_JSON).unwrap();
+        assert_eq!(
+            (m.input_i, m.input_tp, m.target_offset),
+            (-23.46, -3.2, 0.55)
+        );
+        let out = parse_loudnorm_output(LOUDNORM_JSON).unwrap();
+        assert_eq!(
+            (out.output_i, out.output_tp, out.output_lra),
+            (-16.02, -1.48, 7.1)
+        );
+        assert!(matches!(
+            parse_loudnorm_output("no json here"),
+            Err(LoudnessError::Unparsed(_))
+        ));
+        assert!(matches!(
+            parse_loudnorm("{\"input_i\":\"-x\"}"),
+            Err(LoudnessError::Unparsed(_))
+        ));
+    }
+
+    #[test]
+    fn acceptance_defaults_to_half_an_lu_with_no_ceiling_and_checks_the_measurement() {
+        let d = LoudnessAcceptance::default();
+        assert_eq!((d.lufs_tolerance_lu, d.true_peak_max_dbtp), (0.5, None));
+        let target = LoudnessTarget::SPEECH_EXPORT;
+        let mut m = LoudnessMeasurement {
+            input_i: -16.4,
+            input_tp: -2.0,
+            input_lra: 5.0,
+            input_thresh: -26.0,
+            target_offset: 0.0,
+        };
+        assert!(d.verify(&m, &target).is_ok());
+        m.input_i = -15.4;
+        assert!(matches!(
+            d.verify(&m, &target),
+            Err(LoudnessError::OutOfTolerance { .. })
+        ));
+        let wider = LoudnessAcceptance {
+            lufs_tolerance_lu: 1.0,
+            ..d
+        };
+        assert!(wider.verify(&m, &target).is_ok());
+
+        m.input_i = -16.0;
+        let ceiling = LoudnessAcceptance {
+            true_peak_max_dbtp: Some(-1.5),
+            ..d
+        };
+        m.input_tp = -1.2;
+        assert!(matches!(
+            ceiling.verify(&m, &target),
+            Err(LoudnessError::TruePeakExceeded { measured_tp, ceiling_dbtp })
+                if measured_tp == -1.2 && ceiling_dbtp == -1.5
+        ));
+        m.input_tp = -1.5;
+        assert!(ceiling.verify(&m, &target).is_ok());
+
+        m.input_i = f64::NEG_INFINITY;
+        assert!(matches!(d.verify(&m, &target), Err(LoudnessError::Silent)));
+        m.input_i = -16.0;
+        for bad in [0.0, -0.5, f64::NAN, f64::INFINITY] {
+            let r = LoudnessAcceptance {
+                lufs_tolerance_lu: bad,
+                ..d
+            }
+            .verify(&m, &target);
+            assert!(matches!(r, Err(LoudnessError::InvalidOptions(_))), "{bad}");
+        }
+        let nan_ceiling = LoudnessAcceptance {
+            true_peak_max_dbtp: Some(f64::NAN),
+            ..d
+        };
+        assert!(matches!(
+            nan_ceiling.verify(&m, &target),
+            Err(LoudnessError::InvalidOptions(_))
+        ));
+    }
+
+    #[test]
+    fn report_verify_judges_the_delivered_file_not_the_kept_render() {
+        let report = LoudnessReport {
+            target: LoudnessTarget::SPEECH_EXPORT,
+            options: ConvergeOptions::default(),
+            source: measured(),
+            convergence: Convergence {
+                attempts: vec![RenderAttempt {
+                    gain_db: 0.0,
+                    measured_i: -16.0,
+                }],
+                best: 0,
+                within_tolerance: true,
+            },
+            delivered: LoudnessMeasurement {
+                input_i: -17.2,
+                input_tp: -1.0,
+                input_lra: 5.0,
+                input_thresh: -27.0,
+                target_offset: 0.0,
+            },
+            within_tolerance: true,
+        };
+        assert!(report.ensure_within_tolerance().is_ok());
+        assert!(matches!(
+            report.verify(&LoudnessAcceptance::default()),
+            Err(LoudnessError::OutOfTolerance { .. })
+        ));
+        let wide_with_ceiling = LoudnessAcceptance {
+            lufs_tolerance_lu: 2.0,
+            true_peak_max_dbtp: Some(-1.5),
+        };
+        assert!(matches!(
+            report.verify(&wide_with_ceiling),
+            Err(LoudnessError::TruePeakExceeded { .. })
+        ));
     }
 }

@@ -1,0 +1,33 @@
+{
+  "schema": 1,
+  "crate": "rightkit-send",
+  "ceilings": {
+    "residentMemoryBytes": 15728640,
+    "idleCpuPercent": 1,
+    "wakeupsPerSecond": null,
+    "diskOpsPerSecond": 1
+  },
+  "ceilingSources": {
+    "residentMemoryBytes": "rule: 2x the larger measured resident set (7598080 B over the recorded hosts), rounded up to a whole MiB; evidence runtime-budget.evidence/",
+    "idleCpuPercent": "rule: 1 percent absolute for an idle crate; measured at most 0.156 percent on the recorded hosts",
+    "diskOpsPerSecond": "rule: max(1, 2x measured) per second; Windows measured 0.0 (GetProcessIoCounters, all I/O including pipes); macOS exposes no per-process disk-operation counter"
+  },
+  "requiredScale": {
+    "unit": "devices",
+    "minCount": 50,
+    "source": "crates/rightkit-send/benches/budget.rs:41"
+  },
+  "status": {
+    "api": "Service::status()",
+    "file": "src/lib.rs",
+    "exposes": [
+      "residentMemoryBytes",
+      "idleCpuPercent",
+      "wakeupsPerSecond",
+      "diskOpsPerSecond"
+    ],
+    "note": "The status call returns rightkit_process::ProcessUsage (resident and footprint bytes, cumulative CPU seconds, wake-up and disk-operation totals where the host reports them) beside the crate's own queue figures; the rates come from two calls (ProcessUsage::rates_since). Wake-ups are macOS only; disk operations are Windows and Linux only."
+  },
+  "measurements": [],
+  "notes": "Ceilings come from the recorded measurements by stated rules (ceilingSources); a ceiling left null names its reason below. wakeupsPerSecond left null: measured 15.3 per second: the acceptor sleeps 50 ms on WouldBlock (src/lib.rs spawn_acceptor) and the liveness thread wakes every 100 ms (spawn_liveness); polling is a defect, not a budget."
+}

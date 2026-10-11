@@ -14,7 +14,7 @@ fn runtime(tools: &Path, kind: &str, version: &str) -> PathBuf {
 
 fn fixture() -> (tempfile::TempDir, Store) {
     let tmp = tempfile::tempdir().unwrap();
-    let store = Store::new(tmp.path().join("models"), "heardright");
+    let store = local(Store::new(tmp.path().join("models"), "heardright"));
     (tmp, store)
 }
 
@@ -136,4 +136,17 @@ fn gc_shared_never_follows_symlinks() {
     std::os::unix::fs::symlink(&outside, kind.join("9.9.9")).unwrap();
     assert!(store.gc_shared(&["onnxruntime"]).unwrap().is_empty());
     assert!(outside.join("keep.txt").exists());
+}
+
+/// Test stores may reach the local mock server on 127.0.0.1 and nothing else.
+fn local(store: Store) -> Store {
+    store
+        .with_http_options(rightkit_models::http::ModelHttpOptions {
+            proxy: rightkit_models::http::ProxyMode::None,
+            ..Default::default()
+        })
+        .with_address_policy(
+            rightkit_http::AddressPolicy::public_web()
+                .allow_if(vec!["127.0.0.1".to_string()], |ip| ip.is_loopback()),
+        )
 }

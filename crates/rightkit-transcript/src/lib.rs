@@ -3,7 +3,8 @@
 //! Pipeline: producer (ASR, TTS manifest, SRT/VTT file) -> [`Transcript`] ->
 //! [`build_cues`] ([`CaptionConfig`]) -> [`to_srt`] / [`to_vtt`] / timing JSON.
 //!
-//! - [`contract`]: `rightkit.transcript.v1` (reads `cutright.transcript.v1`).
+//! - [`contract`]: `rightkit.transcript.v1` (reads `cutright.transcript.v1`; see
+//!   [`ACCEPTED_SCHEMAS`]), strict and lenient JSON reads, `constrain_duration`.
 //! - [`words`]: [`TimedWord`] normalisation and source -> output time mapping.
 //! - [`segment`]: deterministic cue segmentation with named profiles, plus the
 //!   lightweight [`group_words`] grouper for already-clean engine words.
@@ -23,7 +24,8 @@ pub mod words;
 
 pub use align::{check_alignment, AlignmentIssue, ALIGNMENT_TOLERANCE_MS};
 pub use contract::{
-    EndSource, ModelRef, Span, Transcript, TranscriptError, Word, LEGACY_SCHEMA, SCHEMA,
+    EndSource, ModelRef, Span, Transcript, TranscriptError, Word, ACCEPTED_SCHEMAS, LEGACY_SCHEMA,
+    SCHEMA,
 };
 pub use export::{to_plain_text, to_srt, to_timing_json, to_vtt, Newline};
 pub use parse::{parse_srt, parse_timing_json, parse_vtt, words_from_cues, ParseError, ParsedCue};

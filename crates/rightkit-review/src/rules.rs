@@ -1,9 +1,14 @@
 //! Typed deterministic rules. Each rule reads measurements from a `Subject`
 //! and returns one verdict. No rule calls a model, and none reads pixels.
+//! Text rules read the supplied text body against thresholds and lists carried
+//! in their `RuleKind`. Consumer rules plug in through `RuleKind::Extension`
+//! and a `RuleRegistry`.
 
 use serde::{Deserialize, Serialize};
 
+use crate::extension::RuleRegistry;
 use crate::subject::{ArtifactKind, FrameStat, Subject, WindowKind};
+use crate::text;
 use crate::verdict::{Finding, Verdict};
 use crate::ReviewError;
 
@@ -18,8 +23,19 @@ pub mod rule_ids {
     pub const LICENCE: &str = "det.licence";
     pub const DURATION: &str = "det.duration";
     pub const RESOLUTION: &str = "det.resolution";
+    pub const TEXT_BANNED_PHRASE: &str = "det.text.banned_phrase";
+    pub const TEXT_DASH_DENSITY: &str = "det.text.dash_density";
+    pub const TEXT_SEMICOLON_DENSITY: &str = "det.text.semicolon_density";
+    pub const TEXT_SENTENCE_LENGTH_VARIANCE: &str = "det.text.sentence_length_variance";
+    pub const TEXT_TRICOLON_FREQUENCY: &str = "det.text.tricolon_frequency";
+    pub const TEXT_STOCK_OPENER: &str = "det.text.stock_opener";
+    pub const TEXT_CLAIM_PROOF: &str = "det.text.claim_proof";
 }
 
+/// The kinds of rule a set can hold. The enum is non-exhaustive: match it with
+/// a wildcard arm. Built-in kinds carry their thresholds as data. A consumer
+/// adds its own check through [`RuleKind::Extension`] without editing this crate.
+#[non_exhaustive]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum RuleKind {
@@ -41,6 +57,66 @@ pub enum RuleKind {
     DurationWithinDelivery,
     /// The dimensions must equal the brief's target dimensions.
     ResolutionMatchesDelivery,
+    /// No listed phrase may occur in the text. Case-insensitive, whole-word
+    /// match. Fails on any match. See `text` for normalisation.
+    BannedPhrase {
+        phrases: Vec<String>,
+        min_words: u32,
+    },
+    /// U+2014 and U+2013 per 100 words must not exceed `max_per_100_words`.
+    DashDensity {
+        max_per_100_words: f64,
+        min_words: u32,
+    },
+    /// U+003B per 100 words must not exceed `max_per_100_words`.
+    SemicolonDensity {
+        max_per_100_words: f64,
+        min_words: u32,
+    },
+    /// Population variance of word counts per sentence must not fall below `min_variance`.
+    SentenceLengthVariance {
+        min_variance: f64,
+        min_sentences: u32,
+        min_words: u32,
+    },
+    /// Tricolon sentences per 100 sentences must not exceed `max_per_100_sentences`.
+    TricolonFrequency {
+        max_per_100_sentences: f64,
+        min_sentences: u32,
+        min_words: u32,
+    },
+    /// No sentence may open with any listed opener (one to three words).
+    StockOpener {
+        openers: Vec<String>,
+        min_words: u32,
+    },
+    /// Each claim annotation must match an approved proof on value, unit and
+    /// subject, with its date inside that proof's validity window.
+    ClaimProof {
+        approved_proofs: Vec<ApprovedProof>,
+        min_words: u32,
+    },
+    /// A consumer-defined rule. `kind` names a rule registered in a
+    /// [`RuleRegistry`]; `params` is passed to it as data. An unregistered
+    /// kind is inconclusive, so it blocks when the rule is required.
+    Extension {
+        kind: String,
+        params: serde_json::Value,
+    },
+}
+
+/// An approved proof entry supplied as policy data for `RuleKind::ClaimProof`.
+/// `value` is a decimal string such as `"12.5"`. `valid_from` and `valid_until`
+/// are inclusive `YYYY-MM-DD` dates.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ApprovedProof {
+    pub id: String,
+    pub value: String,
+    pub unit: String,
+    pub subject: String,
+    pub valid_from: String,
+    pub valid_until: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -89,17 +165,9 @@ impl RuleSet {
                     rule.id
                 )));
             }
-            let valid = match &rule.kind {
-                RuleKind::NoUnexpectedFrozenRun { min_run_ms } => *min_run_ms > 0,
-                RuleKind::TextContrast { min_ratio } => min_ratio.is_finite() && *min_ratio > 0.0,
-                RuleKind::FlashRate { max_per_second } => {
-                    max_per_second.is_finite() && *max_per_second > 0.0
-                }
-                _ => true,
-            };
-            if !valid {
+            if let Some(problem) = kind_problem(&rule.kind) {
                 return Err(ReviewError::InvalidRuleSet(format!(
-                    "rule `{}` has a threshold outside its domain",
+                    "rule `{}` {problem}",
                     rule.id
                 )));
             }
@@ -111,8 +179,9 @@ impl RuleSet {
         })
     }
 
-    /// The shared standard set, covering the deterministic checks named in
-    /// the G6 and P3 plans. Every rule is required.
+    /// The shared standard set, covering the deterministic media checks named in
+    /// the G6 and P3 plans. Every rule is required. Text rules carry policy
+    /// data and are not part of this set.
     pub fn standard() -> Self {
         let rule = |id: &str, kind: RuleKind| Rule {
             id: id.to_string(),
@@ -147,26 +216,72 @@ impl RuleSet {
         }
     }
 
-    /// Validates the subject, then runs every rule in order.
+    /// Validates the subject, then runs every rule in order. Extension rules
+    /// find no registry here, so each one is inconclusive. Use
+    /// [`RuleSet::evaluate_with`] to run them.
     pub fn evaluate(&self, subject: &Subject) -> Result<Vec<Finding>, ReviewError> {
+        self.evaluate_with(subject, &RuleRegistry::new())
+    }
+
+    /// Validates the subject, then runs every rule in order, resolving
+    /// extension kinds through `registry`.
+    pub fn evaluate_with(
+        &self,
+        subject: &Subject,
+        registry: &RuleRegistry,
+    ) -> Result<Vec<Finding>, ReviewError> {
         subject.validate()?;
         Ok(self
             .rules
             .iter()
-            .map(|rule| evaluate_rule(rule, subject))
+            .map(|rule| evaluate_rule(rule, subject, registry))
             .collect())
     }
 }
 
-fn evaluate_rule(rule: &Rule, subject: &Subject) -> Finding {
-    Finding {
-        rule_id: rule.id.clone(),
-        required: rule.required,
-        verdict: check(&rule.kind, subject),
+/// The problem with a rule kind's data, or `None` when the data is in its domain.
+/// The phrasing completes "rule `id` ...".
+fn kind_problem(kind: &RuleKind) -> Option<String> {
+    let outside = || Some("has a threshold outside its domain".to_string());
+    match kind {
+        RuleKind::NoUnexpectedFrozenRun { min_run_ms } if *min_run_ms == 0 => outside(),
+        RuleKind::TextContrast { min_ratio } if !(min_ratio.is_finite() && *min_ratio > 0.0) => {
+            outside()
+        }
+        RuleKind::FlashRate { max_per_second }
+            if !(max_per_second.is_finite() && *max_per_second > 0.0) =>
+        {
+            outside()
+        }
+        RuleKind::Extension { kind, .. } if kind.trim().is_empty() => {
+            Some("names an empty extension kind".to_string())
+        }
+        _ => text::policy_problem(kind),
     }
 }
 
-fn check(kind: &RuleKind, subject: &Subject) -> Verdict {
+fn evaluate_rule(rule: &Rule, subject: &Subject, registry: &RuleRegistry) -> Finding {
+    Finding {
+        rule_id: rule.id.clone(),
+        required: rule.required,
+        verdict: check(&rule.kind, subject, registry),
+    }
+}
+
+fn is_text_kind(kind: &RuleKind) -> bool {
+    matches!(
+        kind,
+        RuleKind::BannedPhrase { .. }
+            | RuleKind::DashDensity { .. }
+            | RuleKind::SemicolonDensity { .. }
+            | RuleKind::SentenceLengthVariance { .. }
+            | RuleKind::TricolonFrequency { .. }
+            | RuleKind::StockOpener { .. }
+            | RuleKind::ClaimProof { .. }
+    )
+}
+
+fn check(kind: &RuleKind, subject: &Subject, registry: &RuleRegistry) -> Verdict {
     let artifact = &subject.artifact;
     let video_only = matches!(
         kind,
@@ -180,6 +295,11 @@ fn check(kind: &RuleKind, subject: &Subject) -> Verdict {
             reason: "rule applies to video artifacts only".to_string(),
         };
     }
+    if is_text_kind(kind) && artifact.kind != ArtifactKind::Text {
+        return Verdict::NotApplicable {
+            reason: "rule applies to text artifacts only".to_string(),
+        };
+    }
     match kind {
         RuleKind::NoUnexpectedBlackFrames => black_frames(subject),
         RuleKind::NoUnexpectedFrozenRun { min_run_ms } => frozen_runs(subject, *min_run_ms),
@@ -190,6 +310,40 @@ fn check(kind: &RuleKind, subject: &Subject) -> Verdict {
         RuleKind::LicenceAllowed => licence(subject),
         RuleKind::DurationWithinDelivery => duration(subject),
         RuleKind::ResolutionMatchesDelivery => resolution(subject),
+        RuleKind::BannedPhrase { phrases, min_words } => {
+            text::banned_phrase(subject, phrases, *min_words)
+        }
+        RuleKind::DashDensity {
+            max_per_100_words,
+            min_words,
+        } => text::dash_density(subject, *max_per_100_words, *min_words),
+        RuleKind::SemicolonDensity {
+            max_per_100_words,
+            min_words,
+        } => text::semicolon_density(subject, *max_per_100_words, *min_words),
+        RuleKind::SentenceLengthVariance {
+            min_variance,
+            min_sentences,
+            min_words,
+        } => text::sentence_length_variance(subject, *min_variance, *min_sentences, *min_words),
+        RuleKind::TricolonFrequency {
+            max_per_100_sentences,
+            min_sentences,
+            min_words,
+        } => text::tricolon_frequency(subject, *max_per_100_sentences, *min_sentences, *min_words),
+        RuleKind::StockOpener { openers, min_words } => {
+            text::stock_opener(subject, openers, *min_words)
+        }
+        RuleKind::ClaimProof {
+            approved_proofs,
+            min_words,
+        } => text::claim_proof(subject, approved_proofs, *min_words),
+        RuleKind::Extension { kind: name, params } => match registry.get(name) {
+            Some(rule) => rule.check(subject, params),
+            None => Verdict::Inconclusive {
+                reason: format!("no rule is registered for extension kind `{name}`"),
+            },
+        },
     }
 }
 

@@ -3,6 +3,7 @@
 
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use crate::backoff::BackoffPolicy;
 use crate::error::{SyncError, SyncResult};
@@ -85,6 +86,53 @@ impl PassReport {
     }
 }
 
+/// Cumulative engine counters and current ledger queue sizes, from [`SyncEngine::metrics`].
+/// Queue sizes are the figures that grow resident memory: the ledger keeps one remote
+/// version per record and is serialized in full on every durable write.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct SyncMetrics {
+    /// Passes run since the engine was built (including deferred ones).
+    pub passes: u64,
+    /// Passes that ended `Failed` or `Unavailable`.
+    pub failed_passes: u64,
+    /// Wall-clock duration of the most recent pass, in milliseconds.
+    pub last_pass_ms: u64,
+    pub downloaded_total: u64,
+    pub uploaded_total: u64,
+    pub tombstones_applied_total: u64,
+    pub tombstones_written_total: u64,
+    /// Remote versions cached in the ledger (one per known record).
+    pub remote_versions: u64,
+    /// Tombstones the ledger blocks re-import of, forever.
+    pub tombstones: u64,
+    pub pending_uploads: u64,
+    pub pending_tombstones: u64,
+    /// Downloaded records whose local apply was deferred.
+    pub pending_apply: u64,
+}
+
+/// Runtime figures of the engine, computed on call by [`SyncEngine::status`].
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct SyncStatus {
+    /// Pass counters and the ledger queue sizes (`pending_*`, `remote_versions`).
+    pub metrics: SyncMetrics,
+    /// Resident memory, CPU time and I/O counters of the whole process (the engine runs in it and
+    /// has no thread of its own), or `None` when the host cannot report them. See
+    /// `rightkit_process::ProcessUsage`.
+    pub process: Option<rightkit_process::ProcessUsage>,
+}
+
+#[derive(Debug, Default)]
+struct Counters {
+    passes: u64,
+    failed_passes: u64,
+    last_pass_ms: u64,
+    downloaded: u64,
+    uploaded: u64,
+    tombstones_applied: u64,
+    tombstones_written: u64,
+}
+
 const MAX_CONFLICT_ROUNDS: usize = 4;
 
 enum Resolved {
@@ -136,6 +184,7 @@ pub struct SyncEngine<M: RecordMapper> {
     config: SyncConfig,
     store: LedgerStore,
     replay_flags: Vec<String>,
+    counters: Counters,
 }
 
 pub struct SyncEngineBuilder<M: RecordMapper> {
@@ -216,6 +265,7 @@ impl<M: RecordMapper + 'static> SyncEngineBuilder<M> {
             config: self.config,
             store,
             replay_flags: Vec::new(),
+            counters: Counters::default(),
         })
     }
 }
@@ -261,7 +311,54 @@ where
         }
     }
 
+    /// Runs one sync pass and records it in [`SyncEngine::metrics`].
     pub fn run_pass(&mut self) -> PassReport {
+        let started = Instant::now();
+        let rep = self.run_pass_once();
+        self.record_pass(&rep, started.elapsed());
+        rep
+    }
+
+    fn record_pass(&mut self, rep: &PassReport, elapsed: Duration) {
+        let c = &mut self.counters;
+        c.passes += 1;
+        if matches!(rep.outcome, PassOutcome::Failed(_) | PassOutcome::Unavailable(_)) {
+            c.failed_passes += 1;
+        }
+        c.last_pass_ms = elapsed.as_millis() as u64;
+        c.downloaded += rep.downloaded as u64;
+        c.uploaded += rep.uploaded as u64;
+        c.tombstones_applied += rep.tombstones_applied as u64;
+        c.tombstones_written += rep.tombstones_written as u64;
+    }
+
+    /// Pass counters, ledger queue sizes and process resource usage, read now. No polling thread
+    /// runs for this.
+    pub fn status(&self) -> SyncStatus {
+        SyncStatus { metrics: self.metrics(), process: rightkit_process::process_usage().ok() }
+    }
+
+    /// Cumulative pass counters and current ledger queue sizes.
+    pub fn metrics(&self) -> SyncMetrics {
+        let l = self.store.ledger();
+        let c = &self.counters;
+        SyncMetrics {
+            passes: c.passes,
+            failed_passes: c.failed_passes,
+            last_pass_ms: c.last_pass_ms,
+            downloaded_total: c.downloaded,
+            uploaded_total: c.uploaded,
+            tombstones_applied_total: c.tombstones_applied,
+            tombstones_written_total: c.tombstones_written,
+            remote_versions: l.remote_versions.len() as u64,
+            tombstones: l.tombstones.len() as u64,
+            pending_uploads: l.pending_uploads.len() as u64,
+            pending_tombstones: l.pending_tombstones.len() as u64,
+            pending_apply: l.pending_apply.len() as u64,
+        }
+    }
+
+    fn run_pass_once(&mut self) -> PassReport {
         let mut rep = PassReport::new();
         if !self.auth.enabled() {
             rep.outcome = PassOutcome::Disabled;

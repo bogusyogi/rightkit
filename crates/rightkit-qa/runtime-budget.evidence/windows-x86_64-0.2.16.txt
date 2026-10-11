@@ -1,0 +1,24 @@
+# crate: rightkit-qa 0.2.16
+# command: rightkit remote windows cargo test --release -p rightkit-qa --bench budget   (the remote verb 'bench' is denied: REMOTE_COMMAND_DENIED unregistered remote cargo verb: bench; 'test --release --bench budget' builds the same optimized bench binary and runs it)
+# broker receipt command: cargo test --release -p rightkit-qa --bench budget --target x86_64-pc-windows-msvc --target-dir D:\.rightkit-managed\rightkit-build-control\ws\cf3a3ecf53c6\g\001\t
+# host: windows x86_64 (the Dell via rightkit remote windows; the broker does not report the model); target x86_64-pc-windows-msvc
+# receipt: 3e6c6943-1068-4967-94d3-a882f3f3b73f state SUCCEEDED submitted 2026-10-11T07:26:51.088Z terminal 2026-10-11T07:34:38.210Z queueMs 127948 runMs 339174
+# machine load: not reported by the Windows broker; the request waited in the disk-floor queue before running (other requests share the Dell)
+# commit: c9c52eae674ca57fbf22b1cc7809c5cee6560d48 (HEAD at extraction; the tree under test had uncommitted changes)
+Running benches\budget.rs (D:\.rightkit-managed\rightkit-build-control\ws\cf3a3ecf53c6\g\001\t\x86_64-pc-windows-msvc\release\deps\budget-3a963bfffe065911.exe)
+warm-up: 10000 commands in 0.42 s (23689 cmd/s), buffered events 10000, stderr bytes 758894, resident 20.7 MiB (before start 5.3 MiB)
+RESULT events_buffered=10000 frames
+RESULT stderr_bytes_buffered=758894 bytes
+RESULT warm_resident_bytes=21696512 bytes
+RESULT idle_resident_bytes=21684224 bytes
+RESULT resident_memory_bytes=21696512 bytes
+RESULT footprint_bytes=17321984 bytes
+RESULT idle_window_seconds=30.0 seconds
+RESULT idle_cpu_percent=0.000 percent
+RESULT wakeups_per_second=unavailable the host exposes no process wake-up counter
+RESULT disk_ops_per_second=0.000 per_second
+RESULT disk_read_bytes_per_second=0.000 bytes_per_second
+RESULT disk_write_bytes_per_second=0.000 bytes_per_second
+RESULT scale=10000 echo commands to a stdio sidecar (one event frame and one stderr line each), sidecar open and idle
+RESULT scope=synthetic
+RESULT budget crate=rightkit-qa version=0.2.16 resident_bytes=21696512 idle_cpu_percent=0.000 wakeups_per_s=unavailable disk_ops_per_s=0.000 scale_unit=commands scale_count=10000

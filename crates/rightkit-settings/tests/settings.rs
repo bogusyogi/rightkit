@@ -26,11 +26,13 @@ fn schema() -> Schema {
             if let Some(t) = m.remove("colorTheme") {
                 m.insert("theme".into(), t);
             }
+            Ok(())
         })
         .migration(2, |m| {
             if m.get("theme") == Some(&json!("legacy")) {
                 m.insert("theme".into(), json!("auto"));
             }
+            Ok(())
         })
 }
 

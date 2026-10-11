@@ -64,7 +64,11 @@ whisper-tokenizers = ["dep:tokenizers"]
 # ort rc.13's own `default` raises the API floor to 27 (ORT 1.27), which the
 # suite's approved 1.24.4 runtime cannot serve. Keep rc.12's default set with
 # the suite API level instead of `ort/default`.
-ort-defaults = ["rightkit-ort/tracing"]
+# Kept as a name for existing feature lists; it no longer enables ONNX Runtime log forwarding.
+ort-defaults = []
+# Opt-in: forward ONNX Runtime's own log lines into `tracing` (process-wide through feature
+# unification; thousands of INFO lines per model load).
+ort-tracing = ["rightkit-ort/tracing"]
 # Build-time ONNX Runtime fetch is opt-in (inventory 1.1); the suite loads ORT through rightkit-ort.
 ort-download = ["rightkit-ort/download-binaries", "rightkit-ort/tls-native", "rightkit-ort/copy-dylibs"]
 cuda = ["rightkit-ort/cuda"]

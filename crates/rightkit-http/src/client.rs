@@ -9,7 +9,7 @@ use serde::Serialize;
 
 use crate::cancel::{is_cancelled_io, is_set, sleep_cancellable, CancelToken, CheckedReader};
 use crate::error::{HttpError, Phase, MAX_ERROR_BODY_BYTES};
-use crate::netpolicy::{denial_in_chain, normalize_host, AddressPolicy, VettingResolver};
+use crate::netpolicy::{denial_in_chain, normalize_host, AddressPolicy, VettingResolver, ViaProxy};
 use crate::redirect;
 use crate::retry::{parse_retry_after, RetryPolicy};
 use crate::sse::SseReader;
@@ -104,6 +104,61 @@ impl fmt::Debug for ProxyMode {
     }
 }
 
+/// Which certificate roots verify a server's TLS certificate.
+///
+/// Verification is always on; there is no option that turns it off. `Platform` hands the
+/// decision to the operating system (macOS Security framework, Windows CryptoAPI, the
+/// system roots on Linux) through `rustls-platform-verifier` in both clients, so roots an
+/// enterprise or an inspection proxy installed on the machine are honoured, as curl and
+/// browsers honour them.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum TrustRoots {
+    /// The operating system's trust store. This is the default. When the store cannot be
+    /// used the client fails closed: the handshake (blocking) or `AsyncClient::new` (async)
+    /// returns an error.
+    #[default]
+    Platform,
+    /// Mozilla's root certificates compiled into the crate (`webpki-roots`), ignoring the
+    /// machine's store. Use it when the machine's roots must not be trusted, or when
+    /// results must not depend on the machine. A host behind TLS inspection will fail.
+    Bundled,
+}
+
+/// ureq TLS settings for a trust choice. The provider and the root source are named
+/// explicitly, so no other crate's additive features change what is trusted.
+fn blocking_tls_config(trust: TrustRoots) -> ureq::tls::TlsConfig {
+    let roots = match trust {
+        TrustRoots::Platform => ureq::tls::RootCerts::PlatformVerifier,
+        TrustRoots::Bundled => {
+            let extra = crate::trust::test_roots();
+            if extra.is_empty() {
+                ureq::tls::RootCerts::WebPki
+            } else {
+                ureq::tls::RootCerts::Specific(std::sync::Arc::new(
+                    extra
+                        .iter()
+                        .map(|d| ureq::tls::Certificate::from_der(d).to_owned())
+                        .collect(),
+                ))
+            }
+        }
+    };
+    ureq::tls::TlsConfig::builder()
+        .provider(ureq::tls::TlsProvider::Rustls)
+        .root_certs(roots)
+        .build()
+}
+
+impl TrustRoots {
+    /// `"platform"` or `"bundled"`: the verifier a client built from this setting uses.
+    pub fn verifier_kind(self) -> &'static str {
+        match self {
+            TrustRoots::Platform => "platform",
+            TrustRoots::Bundled => "bundled",
+        }
+    }
+}
+
 /// Proxy settings resolved from a [`ProxyMode`].
 pub(crate) struct ResolvedProxy {
     pub(crate) host: String,
@@ -112,9 +167,45 @@ pub(crate) struct ResolvedProxy {
     /// The proxy URL as configured. It may carry credentials: never print it.
     #[cfg_attr(not(feature = "async"), allow(dead_code))]
     pub(crate) url: String,
-    /// `NO_PROXY`-style entries.
-    #[cfg_attr(not(feature = "async"), allow(dead_code))]
+    /// `NO_PROXY`-style entries as configured (the matcher lives in `ureq`).
+    #[allow(dead_code)]
     pub(crate) no_proxy: Vec<String>,
+    /// True when the proxy came from the environment.
+    pub(crate) from_env: bool,
+}
+
+/// What a client knows about the proxy it uses, for diagnostics. Credentials are never part
+/// of it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ProxyDiagnostic {
+    /// `scheme://host:port` of the proxy, without credentials, path or query.
+    pub endpoint: String,
+    /// True when the proxy was taken from the environment, false for `ProxyMode::Explicit`.
+    pub from_environment: bool,
+    /// The proxy endpoint is exempt from the destination class check because the caller or
+    /// the environment configured it. Destinations are still checked: literals by class,
+    /// names by the name rules, and `NO_PROXY` hosts fully.
+    pub endpoint_exempt_from_class_check: bool,
+}
+
+impl ProxyDiagnostic {
+    pub(crate) fn of(p: &ResolvedProxy) -> Self {
+        Self {
+            endpoint: format!("{}://{}:{}", p.scheme(), p.host, p.port),
+            from_environment: p.from_env,
+            endpoint_exempt_from_class_check: true,
+        }
+    }
+}
+
+impl ResolvedProxy {
+    fn scheme(&self) -> &'static str {
+        if self.ureq.protocol() == ureq::ProxyProtocol::Https {
+            "https"
+        } else {
+            "http"
+        }
+    }
 }
 
 const PROXY_ENV: [&str; 6] = [
@@ -156,6 +247,7 @@ fn build_proxy(url: &str, no_proxy: &[String]) -> Result<ResolvedProxy, HttpErro
         ureq,
         url: url.to_string(),
         no_proxy: no_proxy.to_vec(),
+        from_env: false,
     })
 }
 
@@ -175,7 +267,8 @@ pub(crate) fn proxy_from_lookup(
         .unwrap_or_default();
     for name in PROXY_ENV {
         if let Some(url) = get(name).filter(|v| !v.trim().is_empty()) {
-            if let Ok(proxy) = build_proxy(url.trim(), &no_proxy) {
+            if let Ok(mut proxy) = build_proxy(url.trim(), &no_proxy) {
+                proxy.from_env = true;
                 return Ok(Some(proxy));
             }
         }
@@ -234,6 +327,15 @@ pub struct ClientConfig {
     /// When the address policy is first-party, connect to the first-party hosts directly
     /// even if `proxy` is set. Default `false`: first-party calls use the proxy too.
     pub proxy_bypass_first_party: bool,
+    /// Certificate roots used to verify servers. The default is [`TrustRoots::Platform`]
+    /// (the OS trust store); [`TrustRoots::Bundled`] restores the Mozilla set used before
+    /// 0.3.0. Verification cannot be disabled.
+    pub trust: TrustRoots,
+    /// Refuse any URL that is not `https`, on the first request and on every redirect hop,
+    /// with [`HttpError::HttpsRequired`]. Default `false`, which keeps the earlier
+    /// behaviour (plain `http` allowed; an HTTPS to HTTP redirect is still refused by the
+    /// address policy unless it opts in).
+    pub https_only: bool,
 }
 
 impl Default for ClientConfig {
@@ -254,6 +356,8 @@ impl Default for ClientConfig {
             address_policy: AddressPolicy::default(),
             proxy: ProxyMode::None,
             proxy_bypass_first_party: false,
+            trust: TrustRoots::Platform,
+            https_only: false,
         }
     }
 }
@@ -275,6 +379,18 @@ impl ClientConfig {
     /// Set the proxy mode; see [`ProxyMode`].
     pub fn proxy(mut self, mode: ProxyMode) -> Self {
         self.proxy = mode;
+        self
+    }
+
+    /// Choose the certificate roots; see [`TrustRoots`].
+    pub fn trust(mut self, trust: TrustRoots) -> Self {
+        self.trust = trust;
+        self
+    }
+
+    /// Refuse non-`https` URLs and redirect hops; see [`ClientConfig::https_only`].
+    pub fn https_only(mut self, https_only: bool) -> Self {
+        self.https_only = https_only;
         self
     }
 
@@ -302,17 +418,17 @@ pub struct Request {
     /// Per-attempt total timeout (buffered calls and stream headers).
     pub timeout: Option<Duration>,
     pub retry: Option<RetryPolicy>,
-    /// Allow retrying a POST/PATCH after HTTP-status failures (default true for
-    /// status codes; transport errors on non-idempotent methods only retry in
-    /// the connect phase regardless). Set `false` to stop status retries on
-    /// unsafe methods; see the README for how this interacts with
-    /// `RetryPolicy::none()`.
+    /// Allow retrying a POST/PATCH after HTTP-status failures (429, 5xx, ...). Default
+    /// `false` since 0.3.0: a replayed POST (a single-use OAuth code exchange, a payment) can
+    /// be harmful. Transport errors on non-idempotent methods retry only in the connect
+    /// phase regardless. Set `true` per request for an idempotent POST; see the README for
+    /// how this interacts with `RetryPolicy::none()`.
     pub retry_unsafe_statuses: bool,
-    max_response_bytes: Option<usize>,
-    deadline: Option<Duration>,
-    cancel: Option<CancelToken>,
-    secret_values: Vec<String>,
-    headers_only: bool,
+    pub(crate) max_response_bytes: Option<usize>,
+    pub(crate) deadline: Option<Duration>,
+    pub(crate) cancel: Option<CancelToken>,
+    pub(crate) secret_values: Vec<String>,
+    pub(crate) headers_only: bool,
 }
 
 impl fmt::Debug for Request {
@@ -321,10 +437,10 @@ impl fmt::Debug for Request {
             .headers
             .iter()
             .map(|(k, v)| {
-                let shown = if self.secret_values.iter().any(|s| s == v) {
+                let shown = if redirect::is_secret_header_name(k) {
                     REDACTED.to_string()
                 } else {
-                    v.clone()
+                    redact_str(&redact_urls_in_text(v), &sorted_values(&self.secret_values))
                 };
                 (k.clone(), shown)
             })
@@ -357,7 +473,7 @@ impl Request {
             body: Vec::new(),
             timeout: None,
             retry: None,
-            retry_unsafe_statuses: true,
+            retry_unsafe_statuses: false,
             max_response_bytes: None,
             deadline: None,
             cancel: None,
@@ -420,7 +536,7 @@ impl Request {
         self
     }
     pub fn json<T: Serialize>(mut self, value: &T) -> Result<Self, HttpError> {
-        self.body = serde_json::to_vec(value).map_err(|e| HttpError::Json(e.to_string()))?;
+        self.body = serde_json::to_vec(value).map_err(json_error)?;
         self.headers
             .push(("Content-Type".into(), "application/json".into()));
         Ok(self)
@@ -451,7 +567,7 @@ impl Request {
         self.retry = Some(policy);
         self
     }
-    /// Stop retrying POST/PATCH after HTTP-status failures (`false`) or allow it (`true`, default).
+    /// Allow retrying POST/PATCH after HTTP-status failures (`true`) or not (`false`, the default).
     pub fn retry_unsafe_statuses(mut self, allow: bool) -> Self {
         self.retry_unsafe_statuses = allow;
         self
@@ -525,13 +641,16 @@ pub fn form_encode(pairs: &[(&str, &str)]) -> String {
         .join("&")
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct Response {
     pub status: u16,
     /// Lower-cased header names.
     pub headers: Vec<(String, String)>,
     pub body: Vec<u8>,
     pub attempts: u32,
+    /// Secrets to scrub from `Debug` output: the client's `redact_values` and the
+    /// request's secret values and URL secrets.
+    pub(crate) redact: Vec<String>,
 }
 
 impl Response {
@@ -541,8 +660,34 @@ impl Response {
     pub fn text(&self) -> String {
         String::from_utf8_lossy(&self.body).into_owned()
     }
+    /// Decode the body. The error names the failure category and position only: serde's
+    /// own text can echo fragments of the body, which may be secret.
     pub fn json<T: DeserializeOwned>(&self) -> Result<T, HttpError> {
-        serde_json::from_slice(&self.body).map_err(|e| HttpError::Json(e.to_string()))
+        serde_json::from_slice(&self.body).map_err(json_error)
+    }
+}
+
+/// A [`HttpError::Json`] that never quotes the input.
+pub(crate) fn json_error(e: serde_json::Error) -> HttpError {
+    HttpError::Json(format!(
+        "{:?} error at line {} column {}",
+        e.classify(),
+        e.line(),
+        e.column()
+    ))
+}
+
+impl fmt::Debug for Response {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Response")
+            .field("status", &self.status)
+            .field(
+                "headers",
+                &redact_headers_with(&self.headers, &self.redact),
+            )
+            .field("body_len", &self.body.len())
+            .field("attempts", &self.attempts)
+            .finish()
     }
 }
 
@@ -560,6 +705,8 @@ pub struct ResponseHead {
     pub hops: u32,
     /// HTTP requests made, counting retries (not redirect hops).
     pub attempts: u32,
+    /// Secrets to scrub from `Debug` output; see [`Response`].
+    pub(crate) redact: Vec<String>,
 }
 
 impl ResponseHead {
@@ -572,8 +719,14 @@ impl fmt::Debug for ResponseHead {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("ResponseHead")
             .field("status", &self.status)
-            .field("headers", &self.headers)
-            .field("final_url", &redact_url(&self.final_url))
+            .field(
+                "headers",
+                &redact_headers_with(&self.headers, &self.redact),
+            )
+            .field(
+                "final_url",
+                &redact_str(&redact_url(&self.final_url), &self.redact),
+            )
             .field("hops", &self.hops)
             .field("attempts", &self.attempts)
             .finish()
@@ -613,6 +766,7 @@ pub struct Client {
     pub(crate) config: ClientConfig,
     /// The proxy in use, for the `NO_PROXY` decision and destination vetting.
     proxy: Option<ureq::Proxy>,
+    proxy_diagnostic: Option<ProxyDiagnostic>,
     /// Set when the proxy settings were invalid; every request then fails closed.
     config_error: Option<String>,
 }
@@ -626,6 +780,9 @@ pub(crate) struct Raw {
     pub(crate) final_url: String,
     /// Redirects followed.
     pub(crate) hops: u32,
+    /// `Content-Encoding` the server really sent, read off the wire before ureq could
+    /// decode and strip it (see `wire.rs`).
+    pub(crate) wire_content_encoding: Option<String>,
 }
 
 impl Client {
@@ -657,7 +814,10 @@ impl Client {
             .http_status_as_error(false)
             .max_redirects(0)
             .user_agent(config.user_agent.clone())
-            .timeout_connect(config.connect_timeout);
+            .timeout_connect(config.connect_timeout)
+            .timeout_resolve(config.connect_timeout)
+            .tls_config(blocking_tls_config(config.trust));
+        let diagnostic = proxy.as_ref().map(ProxyDiagnostic::of);
         let (builder, endpoint, proxy) = match proxy {
             Some(p) => (
                 builder.proxy(Some(p.ureq.clone())),
@@ -671,18 +831,31 @@ impl Client {
         // through a proxy are vetted by name and literal in `once_hop` instead.
         let agent = ureq::Agent::with_parts(
             builder.build(),
-            ureq::unversioned::transport::DefaultConnector::default(),
+            crate::wire::SniffConnector(ureq::unversioned::transport::DefaultConnector::default()),
             VettingResolver {
                 policy: Arc::new(config.address_policy.clone()),
                 proxy: endpoint,
+                lookup_limit: config.connect_timeout.unwrap_or(Duration::from_secs(10)),
             },
         );
         Self {
             agent,
             config,
             proxy,
+            proxy_diagnostic: diagnostic,
             config_error: None,
         }
+    }
+
+    /// Which certificate verifier this client was built with: `"platform"` (the OS verifier)
+    /// or `"bundled"` (Mozilla roots). It follows [`ClientConfig::trust`].
+    pub fn verifier_kind(&self) -> &'static str {
+        self.config.trust.verifier_kind()
+    }
+
+    /// The proxy this client uses, if any, without credentials. See [`ProxyDiagnostic`].
+    pub fn proxy_diagnostic(&self) -> Option<&ProxyDiagnostic> {
+        self.proxy_diagnostic.as_ref()
     }
 
     /// Client that may reach only `hosts` (exact match), only over HTTPS; see
@@ -714,6 +887,7 @@ impl Client {
         let timeout = req.timeout.unwrap_or(self.config.request_timeout);
         let cancel = request_cancel(req);
         let mut raw = self.execute(req, Some(timeout), cancel)?;
+        let values = self.redaction_values(req);
         if req.headers_only {
             // Dropping the body unread closes the connection.
             return Ok(Response {
@@ -721,12 +895,12 @@ impl Client {
                 headers: raw.headers,
                 body: Vec::new(),
                 attempts: raw.attempts,
+                redact: values,
             });
         }
         let limit = req
             .max_response_bytes
             .unwrap_or(self.config.max_response_bytes);
-        let values = self.redaction_values(req);
         let mut body_reader = raw.body.as_reader();
         let mut reader = CheckedReader {
             inner: &mut body_reader,
@@ -738,6 +912,7 @@ impl Client {
             headers: raw.headers,
             body,
             attempts: raw.attempts,
+            redact: values,
         })
     }
 
@@ -755,6 +930,7 @@ impl Client {
             attempts,
             final_url,
             hops,
+            ..
         } = raw;
         drop(body);
         Ok(ResponseHead {
@@ -763,6 +939,7 @@ impl Client {
             final_url,
             hops,
             attempts,
+            redact: self.redaction_values(req),
         })
     }
 
@@ -808,6 +985,9 @@ impl Client {
                 cancel,
             };
             let body = read_limited(&mut reader, MAX_ERROR_BODY_BYTES).unwrap_or_default();
+            if is_set(cancel) {
+                return Err(HttpError::Cancelled);
+            }
             return Err(scrub_error(
                 status_error(raw.status, &raw.headers, body, raw.attempts),
                 &values,
@@ -817,8 +997,9 @@ impl Client {
     }
 
     pub fn get_json<T: DeserializeOwned>(&self, url: &str) -> Result<T, HttpError> {
-        self.send(&Request::get(url).header("Accept", "application/json"))?
-            .json()
+        let req = Request::get(url).header("Accept", "application/json");
+        let values = self.redaction_values(&req);
+        self.send(&req)?.json().map_err(|e| scrub_error(e, &values))
     }
 
     /// Configured secrets plus this request's secret values, longest first.
@@ -893,7 +1074,14 @@ impl Client {
                     // Drain so the connection is released.
                     let mut body = raw.body;
                     let mut reader = body.as_reader();
-                    let _ = read_limited(&mut reader, MAX_ERROR_BODY_BYTES);
+                    let mut checked = CheckedReader {
+                        inner: &mut reader,
+                        cancel,
+                    };
+                    let _ = read_limited(&mut checked, MAX_ERROR_BODY_BYTES);
+                    if is_set(cancel) {
+                        return Err(HttpError::Cancelled);
+                    }
                     (format!("HTTP {}", raw.status), delay)
                 }
                 Err(err) => {
@@ -958,7 +1146,7 @@ impl Client {
                     Some(left)
                 }
             };
-            let raw = match self.once_hop(method, &url, &headers, &body, remaining) {
+            let raw = match self.once_hop(method, &url, &headers, &body, remaining, hops > 0) {
                 Ok(raw) => raw,
                 Err(e) if hops > 0 => return Err(e.into_redirect_phase()),
                 Err(e) => return Err(e),
@@ -998,6 +1186,16 @@ impl Client {
             let next_url = redirect::resolve_location(&url, location).ok_or_else(|| {
                 HttpError::InvalidRequest("redirect with an unusable Location".into())
             })?;
+            if let (Some(from), Some(to), Some(host)) = (
+                redirect::scheme_of(&url),
+                redirect::scheme_of(&next_url),
+                redirect::host_of(&next_url),
+            ) {
+                self.config
+                    .address_policy
+                    .check_redirect_scheme(&from, &to, &host)
+                    .map_err(|d| HttpError::from(d).into_redirect_phase())?;
+            }
             if redirect::origin(&url) != redirect::origin(&next_url) {
                 redirect::strip_cross_origin(&mut headers, secrets);
             }
@@ -1018,6 +1216,7 @@ impl Client {
         headers: &[(String, String)],
         body: &[u8],
         total: Option<Duration>,
+        redirect_hop: bool,
     ) -> Result<Raw, HttpError> {
         let mut builder = ureq::http::Request::builder()
             .method(method.as_str())
@@ -1031,7 +1230,16 @@ impl Client {
         if let Some(reason) = &self.config_error {
             return Err(HttpError::InvalidRequest(reason.clone()));
         }
-        self.vet_proxied_destination(request.uri())?;
+        // Every hop, not only the first, so a path that skips the redirect loop still
+        // cannot reach plain http.
+        redirect::require_https(
+            self.config.https_only,
+            request.uri().scheme_str().unwrap_or(""),
+            request.uri().host().unwrap_or(""),
+            redirect_hop,
+        )?;
+        let via_proxy = self.vet_proxied_destination(request.uri())?;
+        let _scope = ViaProxy::enter(via_proxy);
         let configured = self
             .agent
             .configure_request(request)
@@ -1039,7 +1247,9 @@ impl Client {
             .timeout_recv_response(self.config.response_timeout)
             .timeout_recv_body(self.config.recv_body_timeout)
             .build();
+        crate::wire::clear();
         let response = self.agent.run(configured).map_err(map_ureq_error)?;
+        let wire_content_encoding = crate::wire::take_content_encoding();
         let status = response.status().as_u16();
         let headers = response
             .headers()
@@ -1058,28 +1268,95 @@ impl Client {
             attempts: 1,
             final_url: String::new(),
             hops: 0,
+            wire_content_encoding,
         })
     }
 }
 
 impl Client {
+    /// Apply the address policy to `url` without sending anything: used by downloads so a
+    /// denied URL never touches the filesystem. Through a proxy only literals and names are
+    /// checked; otherwise the name is resolved and every address vetted (a pre-check: the
+    /// request itself resolves again and connects to its own vetted addresses).
+    pub(crate) fn preflight_url(&self, url: &str) -> Result<(), HttpError> {
+        if let Some(reason) = &self.config_error {
+            return Err(HttpError::InvalidRequest(reason.clone()));
+        }
+        let uri: ureq::http::Uri = url
+            .parse()
+            .map_err(|_| HttpError::InvalidRequest("invalid URL".into()))?;
+        let scheme = uri.scheme_str().unwrap_or("").to_ascii_lowercase();
+        let raw_host = uri.host().unwrap_or("");
+        redirect::require_https(self.config.https_only, &scheme, raw_host, false)?;
+        let host = normalize_host(raw_host);
+        let policy = &self.config.address_policy;
+        policy.admit(&scheme, raw_host)?;
+        if self.vet_proxied_destination(&uri)? {
+            return Ok(());
+        }
+        let port = uri
+            .port_u16()
+            .unwrap_or(if scheme == "http" { 80 } else { 443 });
+        policy.resolve_vetted(&host, port).map(|_| ())
+    }
+
     /// Through a proxy the destination's address cannot be checked, so vet its name and
     /// literal form first. Hosts that bypass the proxy (`NO_PROXY`) are vetted by the
     /// resolver like direct connections.
-    fn vet_proxied_destination(&self, uri: &ureq::http::Uri) -> Result<(), HttpError> {
+    /// Returns whether the request goes through the proxy.
+    fn vet_proxied_destination(&self, uri: &ureq::http::Uri) -> Result<bool, HttpError> {
         let Some(proxy) = &self.proxy else {
-            return Ok(());
+            return Ok(false);
         };
         if proxy.is_no_proxy(uri) {
-            return Ok(());
+            return Ok(false);
         }
         let policy = &self.config.address_policy;
         let scheme = uri.scheme_str().unwrap_or("").to_ascii_lowercase();
-        let host = normalize_host(uri.host().unwrap_or(""));
-        policy.admit(&scheme, &host)?;
-        policy.vet_via_proxy(&host)?;
-        Ok(())
+        let raw_host = uri.host().unwrap_or("");
+        policy.admit(&scheme, raw_host)?;
+        policy.vet_via_proxy(raw_host)?;
+        Ok(true)
     }
+}
+
+fn sorted_values(values: &[String]) -> Vec<String> {
+    let mut v: Vec<String> = values.iter().filter(|v| !v.is_empty()).cloned().collect();
+    v.sort_by_key(|s| std::cmp::Reverse(s.len()));
+    v
+}
+
+/// Header list safe to print: credential-named headers (including cookies) are replaced,
+/// URL-bearing headers lose their query and userinfo, and any `scheme://` text in other
+/// values is redacted the same way.
+pub(crate) fn redact_headers_for_debug(headers: &[(String, String)]) -> Vec<(String, String)> {
+    headers
+        .iter()
+        .map(|(k, v)| {
+            let shown = if redirect::is_secret_header_name(k) {
+                REDACTED.to_string()
+            } else if matches!(
+                k.to_ascii_lowercase().as_str(),
+                "location" | "content-location" | "refresh" | "link" | "referer"
+            ) {
+                redact_urls_in_text(&redact_url(v))
+            } else {
+                redact_urls_in_text(v)
+            };
+            (k.clone(), shown)
+        })
+        .collect()
+}
+
+/// [`redact_headers_for_debug`] plus every recorded secret value scrubbed from what is left.
+pub(crate) fn redact_headers_with(
+    headers: &[(String, String)],
+    values: &[String],
+) -> Vec<(String, String)> {
+    redact_headers_for_debug(headers)
+        .into_iter()
+        .map(|(k, v)| (k, redact_str(&v, values)))
+        .collect()
 }
 
 /// Configured secrets, the request's secret values, and the query and userinfo of its URL,
@@ -1196,6 +1473,15 @@ pub(crate) fn scrub_error(err: HttpError, values: &[String]) -> HttpError {
         HttpError::Json(m) => HttpError::Json(r(m)),
         HttpError::Stream(m) => HttpError::Stream(r(m)),
         HttpError::Cancelled => HttpError::Cancelled,
+        HttpError::HttpsRequired {
+            host,
+            scheme,
+            redirect,
+        } => HttpError::HttpsRequired {
+            host: r(host),
+            scheme,
+            redirect,
+        },
         HttpError::AddressDenied {
             host,
             addr,

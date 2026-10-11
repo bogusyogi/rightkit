@@ -32,6 +32,12 @@ Environment variables used by the crate:
 Caller-owned locations: `QtsClient::with_data_root(path)` resolves models, voices and the worker's runtime
 under `path` (absolute). `RIGHTKIT_TTS_MODEL_DIR` still overrides the model folder.
 
+Explicit setters beat the environment: `with_model_dir`, `with_vocoder`, `with_mode_location(ModeLocation)` /
+`with_mode_model_dir(mode, dir)` (each mode may live in its own folder), `with_worker_exe(path)` (exact; absent is
+`worker_missing`, never a fall back; `worker_exe()` reports what a launch would use), `with_idle_secs(n)` (beats
+`RIGHTKIT_TTS_IDLE_SECS` / `GENRIGHT_QTS_IDLE_SECS`; `0` is a zero window). The worker keeps one engine per mode and
+does not respawn when the mode changes. `QtsClient::engine_info(backend)` uses the client's own configuration.
+
 Model modes: `SynthOptions::mode` selects `Base` (0.6B, the default), `CustomVoice` (speaker) or
 `VoiceDesign` (instruct). The 1.7B modes need their exports in the model folder.
 

@@ -81,11 +81,15 @@ fn retry_unsafe_statuses_false_stops_post_status_retries() {
 }
 
 #[test]
-fn retry_unsafe_statuses_default_retries_post() {
+fn retry_unsafe_statuses_default_does_not_replay_post() {
     let server = MockServer::start(|_req, _i| MockResponse::new(503));
     let c = client(fast(3));
     let _ = c.send(&Request::post(server.url("/paid")));
-    assert_eq!(server.request_count(), 3);
+    assert_eq!(server.request_count(), 1);
+    let _ = c.send(&Request::post(server.url("/paid")).retry_unsafe_statuses(true));
+    assert_eq!(server.request_count(), 4);
+    let _ = c.send(&Request::get(server.url("/idem")));
+    assert_eq!(server.request_count(), 7);
 }
 
 #[test]

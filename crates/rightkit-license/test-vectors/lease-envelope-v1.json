@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "note": "Lease envelope signature vector. Signed by Node crypto Ed25519 over `canonical` (seven camelCase fields, this order, compact JSON). `entitlement` and `signature` are not part of the signed bytes.",
+  "publicKeyBase64url": "6kpsY-KcUgq-9VB7Ey7F-ZVHdq6-vnuSQh7qaRRG0iw",
+  "canonical": "{\"leaseId\":\"lease_01HZX\",\"deviceIdHash\":\"9f2c1a7be04d3f56\",\"pool\":\"pro\",\"issuedAt\":\"2026-10-01T00:00:00.000Z\",\"expiresAt\":\"2026-11-01T00:00:00.000Z\",\"graceSeconds\":604800,\"generation\":3}",
+  "envelope": {
+    "leaseId": "lease_01HZX",
+    "deviceIdHash": "9f2c1a7be04d3f56",
+    "pool": "pro",
+    "issuedAt": "2026-10-01T00:00:00.000Z",
+    "expiresAt": "2026-11-01T00:00:00.000Z",
+    "graceSeconds": 604800,
+    "generation": 3,
+    "entitlement": "ENTITLEMENT.TOKEN.NOT-COVERED-BY-ENVELOPE-SIGNATURE",
+    "signature": "oPLiisnLIjJDhXrJVyv5t9paEpBFRChGEsIj_85N-8y6F-ZMFmFJEqxWksNDlmxf_dkrdWp9Tpd1hvIik0PiBw"
+  }
+}

@@ -6,20 +6,49 @@ use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
+/// Failures a [`JsonlStore`] has absorbed instead of returning or printing them. Read with
+/// [`JsonlStore::status`].
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct StoreStatus {
+    /// Best-effort appends that did not write their event (including refusals at the hard cap).
+    pub failed_appends: u64,
+    /// Rotations that failed. The event was still appended to the current file while that file was
+    /// below the hard cap (see [`JsonlStore::new`]).
+    pub failed_rotations: u64,
+    /// Message of the most recent failure, append or rotation.
+    pub last_error: Option<String>,
+}
+
 #[derive(Debug)]
 pub struct JsonlStore {
     path: PathBuf,
     max_file_bytes: u64,
     append_lock: Mutex<()>,
+    failures: Mutex<StoreStatus>,
 }
 
 impl JsonlStore {
+    /// `max_file_bytes` is the rotation size; `0` disables rotation.
+    ///
+    /// If rotation fails (for example the rotated name is blocked), the event is still appended to
+    /// the current file, and the failure is counted in [`StoreStatus`]. That fallback is bounded:
+    /// once the current file reaches twice `max_file_bytes` (the hard cap), appends are refused,
+    /// counted in `failed_appends`, and the file does not grow further until rotation succeeds.
     pub fn new(path: impl Into<PathBuf>, max_file_bytes: u64) -> Self {
         Self {
             path: path.into(),
             max_file_bytes,
             append_lock: Mutex::new(()),
+            failures: Mutex::new(StoreStatus::default()),
         }
+    }
+
+    /// Counts and last-error for failures this store has absorbed. Never blocks on a write.
+    pub fn status(&self) -> StoreStatus {
+        self.failures
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .clone()
     }
 
     pub fn path(&self) -> &Path {
@@ -39,17 +68,27 @@ impl JsonlStore {
         self.append_value_locked(value)
     }
 
+    /// Append, absorbing failure: the event is not written, the failure is counted and its message
+    /// kept in [`JsonlStore::status`]. Nothing is printed.
     pub fn append_best_effort(&self, event: &EventRecord) {
         if let Err(error) = self.append(event) {
-            let stderr = io::stderr();
-            let mut stderr = stderr.lock();
-            let _ = writeln!(
-                stderr,
-                "[rightkit-logs] append to {} failed ({error}); event={}",
-                self.path.display(),
-                event.event
-            );
+            self.record(|status| {
+                status.failed_appends = status.failed_appends.saturating_add(1);
+                status.last_error = Some(format!(
+                    "append to {} failed ({error}); event={}",
+                    self.path.display(),
+                    event.event
+                ));
+            });
         }
+    }
+
+    fn record(&self, update: impl FnOnce(&mut StoreStatus)) {
+        let mut status = self
+            .failures
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        update(&mut status);
     }
 
     pub fn clear(&self) -> io::Result<()> {
@@ -65,13 +104,38 @@ impl JsonlStore {
         if let Some(parent) = self.path.parent() {
             fs::create_dir_all(parent)?;
         }
-        self.rotate_if_needed()?;
+        if let Err(error) = self.rotate_if_needed() {
+            self.record(|status| {
+                status.failed_rotations = status.failed_rotations.saturating_add(1);
+                status.last_error = Some(format!(
+                    "rotate {} failed ({error}); event kept in the current file",
+                    self.path.display()
+                ));
+            });
+            self.refuse_at_hard_cap()?;
+        }
         let mut file = OpenOptions::new()
             .create(true)
             .append(true)
             .open(&self.path)?;
         serde_json::to_writer(&mut file, value).map_err(io::Error::other)?;
         file.write_all(b"\n")
+    }
+
+    /// After a failed rotation: refuse the append once the current file is at the hard cap.
+    fn refuse_at_hard_cap(&self) -> io::Result<()> {
+        if self.max_file_bytes == 0 {
+            return Ok(());
+        }
+        let hard_cap = self.max_file_bytes.saturating_mul(2);
+        let len = fs::metadata(&self.path).map(|m| m.len()).unwrap_or(0);
+        if len < hard_cap {
+            return Ok(());
+        }
+        Err(io::Error::other(format!(
+            "rotation failed and {} reached its hard cap of {hard_cap} bytes",
+            self.path.display()
+        )))
     }
 
     fn rotate_if_needed(&self) -> io::Result<()> {

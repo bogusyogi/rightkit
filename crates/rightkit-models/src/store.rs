@@ -112,6 +112,8 @@ pub struct Store {
     legacy_alias_map: Option<AliasMap>,
     alias_allowed_roots: Vec<PathBuf>,
     url_rewrite: Option<String>,
+    address_policy: Option<rightkit_http::AddressPolicy>,
+    http_options: Option<crate::http::ModelHttpOptions>,
 }
 
 /// App-supplied `id -> alias path` mapping ([`Store::with_legacy_alias_map`]).
@@ -181,7 +183,28 @@ impl Store {
             legacy_alias_map: None,
             alias_allowed_roots: Vec::new(),
             url_rewrite: None,
+            address_policy: None,
+            http_options: None,
         }
+    }
+
+    /// Proxy, user agent and timeouts for this store's downloads (see
+    /// [`crate::http::ModelHttpOptions`]). `max_redirects` is taken from
+    /// `InstallOptions::max_download_redirects`; an address policy set with
+    /// [`Store::with_address_policy`] wins over the one in `options`.
+    pub fn with_http_options(mut self, options: crate::http::ModelHttpOptions) -> Self {
+        self.http_options = Some(options);
+        self
+    }
+
+    /// Replace the outbound address policy for this store's downloads. The default
+    /// is public-web: loopback, private, link-local and metadata destinations are
+    /// refused on the first request and on every redirect hop. Use this to reach a
+    /// private mirror the app lists explicitly, for example
+    /// `AddressPolicy::public_web().allow_if(vec!["models.corp".into()], |ip| ...)`.
+    pub fn with_address_policy(mut self, policy: rightkit_http::AddressPolicy) -> Self {
+        self.address_policy = Some(policy);
+        self
     }
 
     /// Declare where files of shared-runtime `kind` live
@@ -406,6 +429,36 @@ impl Store {
             format!("/{path}")
         };
         format!("{base}{path}")
+    }
+
+    /// HTTP client for this store's downloads: public-web address policy, except
+    /// that a store with a loopback URL rewrite ([`Store::with_url_rewrite`]) may
+    /// also reach that one loopback host, which is what the rewrite is for.
+    pub(crate) fn download_client(&self, max_redirects: u32) -> crate::http::ModelHttp {
+        let mut options = self.http_options.clone().unwrap_or_default();
+        options.max_redirects = max_redirects;
+        let mut policy = self
+            .address_policy
+            .clone()
+            .unwrap_or_else(|| options.address_policy.clone());
+        if let Some(base) = &self.url_rewrite {
+            let authority = base
+                .strip_prefix("http://")
+                .and_then(|rest| rest.split(['/', '?', '#']).next())
+                .unwrap_or("");
+            let host = match authority.strip_prefix('[') {
+                Some(v6) => v6.split(']').next().unwrap_or("").to_string(),
+                None => authority
+                    .rsplit_once(':')
+                    .map_or(authority, |(h, _)| h)
+                    .to_string(),
+            };
+            if !host.is_empty() {
+                policy = policy.allow_if(vec![host], |ip| ip.is_loopback());
+            }
+        }
+        options.address_policy = policy;
+        crate::http::http_client_with_options(options)
     }
 
     /// `<root>/<id>`; fails for any id that is not a single safe path component.

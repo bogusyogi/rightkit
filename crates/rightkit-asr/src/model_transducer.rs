@@ -40,18 +40,35 @@ pub struct TransducerModel {
     /// decode: the encoder can only ingest exactly `W` frames, so longer audio is
     /// split into `W`-frame windows, each encoded + decoded with a fresh decoder
     /// state. `None` = dynamic encoder, full-sequence encode in one pass.
-    pub(crate) static_window: Option<usize>,
+    pub static_window: Option<usize>,
 }
 
 impl TransducerModel {
+    /// True for TDT models (durations predicted per token), false for RNN-T.
+    pub fn has_duration(&self) -> bool {
+        self.config.has_duration
+    }
+
     pub fn from_pretrained<P: AsRef<Path>>(
         model_dir: P,
         exec_config: ExecutionConfig,
         config: TransducerConfig,
     ) -> Result<Self> {
+        Self::from_pretrained_with(model_dir, exec_config, config, true)
+    }
+
+    /// As [`from_pretrained`](Self::from_pretrained). With `allow_int8 = false`
+    /// the int8 encoder and decoder variants are never selected (strict layout:
+    /// no silent preference); a directory holding only int8 files is an error.
+    pub(crate) fn from_pretrained_with<P: AsRef<Path>>(
+        model_dir: P,
+        exec_config: ExecutionConfig,
+        config: TransducerConfig,
+        allow_int8: bool,
+    ) -> Result<Self> {
         let dir = model_dir.as_ref();
-        let enc = Self::find(dir, &["encoder-model.int8.onnx", "encoder-model.onnx", "encoder.onnx"], "encoder")?;
-        let dec = Self::find(dir, &["decoder_joint-model.int8.onnx", "decoder_joint-model.onnx", "decoder_joint.onnx"], "decoder_joint")?;
+        let enc = Self::find(dir, &["encoder-model.int8.onnx", "encoder-model.onnx", "encoder.onnx"], "encoder", allow_int8)?;
+        let dec = Self::find(dir, &["decoder_joint-model.int8.onnx", "decoder_joint-model.onnx", "decoder_joint.onnx"], "decoder_joint", allow_int8)?;
 
         // DirectML graph-fusion bug (onnxruntime-directml 1.24.4): the fused kernel for
         // the STATIC-shape conformer encoder silently produces near-zero output on DML
@@ -149,10 +166,21 @@ impl TransducerModel {
         })
     }
 
-    fn find(dir: &Path, cands: &[&str], kind: &str) -> Result<PathBuf> {
+    fn find(dir: &Path, cands: &[&str], kind: &str, allow_int8: bool) -> Result<PathBuf> {
+        let mut skipped_int8 = false;
         for c in cands {
+            if !allow_int8 && c.contains("int8") {
+                skipped_int8 |= dir.join(c).exists();
+                continue;
+            }
             let p = dir.join(c);
             if p.exists() { return Ok(p); }
+        }
+        if skipped_int8 {
+            return Err(Error::Config(format!(
+                "No fp {kind} model in {} (only an int8 variant is present; the strict layout refuses int8)",
+                dir.display()
+            )));
         }
         Err(Error::Config(format!("No {kind} model in {}", dir.display())))
     }
@@ -396,6 +424,10 @@ impl TransducerModel {
     }
 }
 
+// Tie rule (unchanged from 0.1.0, kept deliberately): `Iterator::max_by` returns
+// the LAST maximal index on an exact float tie. The greedy path keeps it so no
+// locked benchmark moves. The beam path's `rank_top_k` keeps the FIRST index.
+// The two rules differ on exact ties only; see CHANGELOG 0.2.0.
 fn argmax<'a, I: Iterator<Item = &'a f32>>(it: I) -> usize {
     it.enumerate()
         .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))

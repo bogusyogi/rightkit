@@ -278,7 +278,11 @@ impl<R: Runtime> Control<R> {
             lease,
         } = self;
         let commands = Arc::new(commands);
-        tauri::plugin::Builder::new("rightkit-control")
+        let builder = tauri::plugin::Builder::new("rightkit-control");
+        // RIGHTKIT_CONTROL_TRACE: log WebView2 events from webview creation on (Windows only).
+        #[cfg(windows)]
+        let builder = builder.on_webview_ready(|webview| native::install_trace(&webview));
+        builder
             .setup(move |app, _| {
                 if let Some(service) = service_from_env() {
                     serve(

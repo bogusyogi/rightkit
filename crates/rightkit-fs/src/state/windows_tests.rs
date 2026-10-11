@@ -334,3 +334,168 @@ fn windows_name_limit_counts_utf16_units_and_keeps_temps_sweepable() {
         assert!(matches!(state.child(&name), Err(FsError::BadName(_))));
     }
 }
+
+#[test]
+fn rename_while_open_is_refused_by_default_and_allowed_by_the_option() {
+    let (_guard, root) = tmp();
+    let options = StateOptions {
+        allow_rename_while_open: true,
+        ..StateOptions::default()
+    };
+    let path = root.join("state");
+    let state = StateDir::create_with(&path, &options).unwrap();
+    state.write("before", b"1").unwrap();
+    let moved = root.join("moved");
+    fs::rename(&path, &moved).expect("FILE_SHARE_DELETE lets the directory be renamed");
+    fs::create_dir(&path).unwrap();
+    state.write("after", b"2").unwrap();
+    assert_eq!(fs::read(moved.join("after")).unwrap(), b"2");
+    assert_eq!(state.read("before", 10).unwrap(), b"1");
+    assert!(fs::read_dir(&path).unwrap().next().is_none());
+    let child = state.child("kid").unwrap();
+    child.write("n", b"3").unwrap();
+    assert_eq!(fs::read(moved.join("kid/n")).unwrap(), b"3");
+    assert!(state.remove("before").unwrap());
+    assert!(!moved.join("before").exists());
+    // The default still pins the path.
+    drop((child, state));
+    let pinned = StateDir::create(&moved).unwrap();
+    assert!(fs::rename(&moved, root.join("again")).is_err());
+    drop(pinned);
+}
+
+#[test]
+fn list_entries_reports_kinds_from_the_directory_records() {
+    use crate::EntryKind;
+    let (_guard, root) = tmp();
+    let state = StateDir::create(&root.join("state")).unwrap();
+    state.write("file", b"x").unwrap();
+    state.child("sub").unwrap();
+    let target = root.join("outside");
+    fs::write(&target, b"o").unwrap();
+    let linked = symlink_file(&target, root.join("state/link")).is_ok();
+    let junctioned = {
+        let outside = root.join("outside-dir");
+        fs::create_dir(&outside).unwrap();
+        junction(&root.join("state/junction"), &outside).is_ok()
+    };
+    let entries = state.list_entries(100).unwrap();
+    let kind = |name: &str| entries.iter().find(|e| e.name == name).unwrap().kind;
+    assert_eq!(kind("file"), EntryKind::File);
+    assert_eq!(kind("sub"), EntryKind::Dir);
+    if linked {
+        assert_eq!(kind("link"), EntryKind::Symlink);
+    }
+    if junctioned {
+        assert_eq!(kind("junction"), EntryKind::Symlink);
+    }
+    // One long name over the unix write cap and a lone surrogate-free Unicode name both list.
+    state.write(&"é".repeat(120), b"u").unwrap();
+    assert!(state.list(100).unwrap().contains(&"é".repeat(120)));
+}
+
+#[test]
+fn directory_removal_and_creation_need_no_directory_flush() {
+    let (_guard, root) = tmp();
+    let state = StateDir::create(&root.join("state")).unwrap();
+    // `sync` is the documented no-op; every mutation that claims durability still succeeds.
+    assert!(state.dir.sync(SyncPolicy::Strict).unwrap().is_none());
+    state.write("a", b"1").unwrap();
+    state.write_new("b", b"2").unwrap();
+    state.child("c").unwrap();
+    assert!(state.remove("a").unwrap());
+    assert_eq!(state.write_reporting("d", b"3").unwrap(), SyncLevel::Full);
+}
+
+#[test]
+fn inherit_acl_option_leaves_the_parent_acl_in_charge() {
+    use std::os::windows::ffi::OsStrExt;
+    #[link(name = "advapi32")]
+    unsafe extern "system" {
+        fn GetNamedSecurityInfoW(
+            path: *const u16,
+            object_type: u32,
+            information: u32,
+            owner: *mut *mut c_void,
+            group: *mut *mut c_void,
+            dacl: *mut *mut c_void,
+            sacl: *mut *mut c_void,
+            descriptor: *mut *mut c_void,
+        ) -> u32;
+        fn ConvertSecurityDescriptorToStringSecurityDescriptorW(
+            descriptor: *mut c_void,
+            revision: u32,
+            information: u32,
+            out: *mut *mut u16,
+            len: *mut u32,
+        ) -> i32;
+    }
+    fn sddl(path: &Path) -> String {
+        let wide: Vec<u16> = path.as_os_str().encode_wide().chain(Some(0)).collect();
+        unsafe {
+            let mut descriptor = null_mut();
+            let status = GetNamedSecurityInfoW(
+                wide.as_ptr(),
+                1,
+                4,
+                null_mut(),
+                null_mut(),
+                null_mut(),
+                null_mut(),
+                &mut descriptor,
+            );
+            assert_eq!(status, 0, "GetNamedSecurityInfoW({})", path.display());
+            let mut text = null_mut();
+            assert_ne!(
+                ConvertSecurityDescriptorToStringSecurityDescriptorW(
+                    descriptor,
+                    1,
+                    4,
+                    &mut text,
+                    null_mut()
+                ),
+                0
+            );
+            let len = (0..).take_while(|&i| *text.add(i) != 0).count();
+            let out = String::from_utf16_lossy(std::slice::from_raw_parts(text, len));
+            LocalFree(text.cast());
+            LocalFree(descriptor);
+            out
+        }
+    }
+    let (_guard, root) = tmp();
+    let owner_only = root.join("owner/state");
+    let inherit = root.join("inherit/state");
+    let options = StateOptions {
+        privacy: crate::Privacy::OwnerOnlyUnixInheritWindows,
+        ..StateOptions::default()
+    };
+    let strict = StateDir::create(&owner_only).unwrap();
+    let loose = StateDir::create_with(&inherit, &options).unwrap();
+    strict.write("f", b"x").unwrap();
+    loose.write("f", b"x").unwrap();
+    for (label, path) in [
+        (
+            "owner-only ancestor",
+            owner_only.parent().unwrap().to_path_buf(),
+        ),
+        ("owner-only dir", owner_only.clone()),
+        ("owner-only file", owner_only.join("f")),
+    ] {
+        let text = sddl(&path);
+        println!("{label}: {text}");
+        assert!(text.starts_with("D:P"), "{label} must be protected: {text}");
+    }
+    for (label, path) in [
+        ("inherit ancestor", inherit.parent().unwrap().to_path_buf()),
+        ("inherit dir", inherit.clone()),
+        ("inherit file", inherit.join("f")),
+    ] {
+        let text = sddl(&path);
+        println!("{label}: {text}");
+        assert!(
+            !text.starts_with("D:P") && text.contains("ID;"),
+            "{label} must carry the parent's inherited ACL: {text}"
+        );
+    }
+}

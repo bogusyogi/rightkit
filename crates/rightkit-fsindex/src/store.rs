@@ -482,6 +482,62 @@ impl Store {
     }
 
     /// Drop clean mapped pages from this process's resident set (they refault on demand).
+    /// Resident bytes of every mapping this store owns (columns, names, header).
+    pub fn mapped_resident_bytes(&self) -> usize {
+        let hdr = self
+            .hdr
+            .as_ref()
+            .map_or(0, |m| crate::col::resident_bytes(m.as_ptr(), m.len()));
+        hdr + self.names.resident_bytes()
+            + [
+                self.c_name.resident_bytes(),
+                self.c_parent.resident_bytes(),
+                self.c_first.resident_bytes(),
+                self.c_next.resident_bytes(),
+                self.c_prev.resident_bytes(),
+                self.c_dir.resident_bytes(),
+                self.c_meta.resident_bytes(),
+                self.c_flags.resident_bytes(),
+                self.c_nlink.resident_bytes(),
+                self.c_mtime.resident_bytes(),
+                self.c_dev.resident_bytes(),
+                self.c_fileid.resident_bytes(),
+                self.c_logical.resident_bytes(),
+                self.c_alloc.resident_bytes(),
+                self.c_private.resident_bytes(),
+                self.c_clone.resident_bytes(),
+                self.d_owner.resident_bytes(),
+                self.d_roll.resident_bytes(),
+            ]
+            .iter()
+            .sum::<usize>()
+    }
+
+    /// Tracked heap: the capacity of the collections this store owns on the heap (free lists,
+    /// hard-link and clone tables, package list). An estimate of what the index allocates
+    /// itself; allocator bookkeeping and transient buffers are not included.
+    pub fn heap_bytes(&self) -> usize {
+        let links: usize = self
+            .links
+            .values()
+            .map(|v| v.capacity() * 4 + 48)
+            .sum::<usize>()
+            + self.links.capacity() * 40;
+        let clones: usize = self
+            .clones
+            .values()
+            .map(|g| g.members.capacity() * 16 + g.per_dir.capacity() * 12 + 48)
+            .sum::<usize>()
+            + self.clones.capacity() * 40;
+        let pkgs: usize = self.package_exts.iter().map(|p| p.capacity() + 24).sum();
+        self.free.capacity() * 4
+            + self.dir_free.capacity() * 4
+            + self.roots.capacity() * 4
+            + pkgs
+            + links
+            + clones
+    }
+
     pub fn trim(&mut self) {
         self.names.trim();
         self.c_name.trim();

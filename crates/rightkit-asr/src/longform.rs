@@ -17,6 +17,7 @@
 //! command quiet-cut, control alignment) stay in the HeardRight adapter.
 
 use crate::error::{Error, Result};
+use crate::decoder::TimedPiece;
 use crate::parakeet_core::{TimedToken, TranscriptionResult};
 use rightkit_transcript::{
     cues_from_spans, group_words, to_srt, to_timing_json, to_vtt, GroupRules, Newline,
@@ -53,6 +54,18 @@ pub enum SeamPolicy {
     Exact,
 }
 
+/// Where the terminal-silence pad is applied (only when `terminal_silence` is on).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum PadPolicy {
+    /// Pad only the last segment of the recording (the 0.1.0 behaviour).
+    #[default]
+    FinalSegmentOnly,
+    /// Pad every window that still ends in speech. Each window's silence goes
+    /// after its real samples, so window offsets and word times are unchanged,
+    /// but every window pays the decode cost of up to 480 ms more audio.
+    EveryWindow,
+}
+
 /// Long-form schedule options. Defaults reproduce each platform's locked
 /// production policy: windows are 15 s; only Windows (ONNX beam) appends a
 /// terminal-silence flush to a final segment that still ends in speech. macOS
@@ -65,7 +78,17 @@ pub struct LongFormOptions {
     /// ends in speech (never past one mel hop below the window).
     pub terminal_silence: bool,
     pub seam: SeamPolicy,
+    /// Minimum word duration in milliseconds applied by
+    /// [`LongFormOptions::assemble_words`]. Default `Some(80)`, one frame, as in
+    /// 0.1.0. `None` removes the floor: a word keeps the model's end, clamped only
+    /// to the next word's start.
+    pub word_assembly_floor_ms: Option<u32>,
+    /// Which windows receive the terminal-silence pad (see [`PadPolicy`]).
+    pub pad_policy: PadPolicy,
 }
+
+/// Default word-assembly floor: one 80 ms encoder frame.
+pub const DEFAULT_WORD_ASSEMBLY_FLOOR_MS: u32 = 80;
 
 impl Default for LongFormOptions {
     fn default() -> Self {
@@ -73,7 +96,23 @@ impl Default for LongFormOptions {
             window_samples: padded_window_samples(),
             terminal_silence: cfg!(target_os = "windows"),
             seam: SeamPolicy::DedupOverlap,
+            word_assembly_floor_ms: Some(DEFAULT_WORD_ASSEMBLY_FLOOR_MS),
+            pad_policy: PadPolicy::FinalSegmentOnly,
         }
+    }
+}
+
+/// Seconds for an integer sample count. Computed in `f64` and rounded to `f32`
+/// once, at the edge; window offsets are accumulated as sample counts, never as
+/// seconds.
+pub fn samples_to_secs(samples: u64) -> f32 {
+    (samples as f64 / SAMPLE_RATE as f64) as f32
+}
+
+impl LongFormOptions {
+    /// Words from decoded pieces using this policy's word-assembly floor.
+    pub fn assemble_words(&self, pieces: &[TimedToken]) -> Vec<TimedWord> {
+        timed_pieces_to_words_with(pieces, self.word_assembly_floor_ms)
     }
 }
 
@@ -83,6 +122,11 @@ pub struct LongFormProgress {
     pub windows_done: usize,
     /// Estimate: `ceil((len - padding) / (window - padding))`, at least 1.
     pub windows_estimated: usize,
+    /// The estimate before it is raised to `windows_done`:
+    /// `ceil((len - padding) / (window - padding))`, at least 1. It falls below
+    /// `windows_done` when the estimate undershoots, so a consumer can reproduce
+    /// `done / (estimated + 1)` style progress.
+    pub windows_estimated_raw: usize,
     pub samples_done: usize,
     pub samples_total: usize,
 }
@@ -185,7 +229,7 @@ fn ends_in_speech(segment: &[f32]) -> bool {
 /// up to 480 ms of silence to a segment that still ends in speech (a recording
 /// stopped mid-word), leaving one mel hop of headroom below the window. Timing
 /// is unaffected (silence goes after every real sample).
-fn final_segment<'a>(segment: &'a [f32], opts: &LongFormOptions) -> Cow<'a, [f32]> {
+pub fn pad_terminal_silence<'a>(segment: &'a [f32], opts: &LongFormOptions) -> Cow<'a, [f32]> {
     if !opts.terminal_silence {
         return Cow::Borrowed(segment);
     }
@@ -277,11 +321,16 @@ pub fn append_exact_result(
 /// at most ONE decode so a caller can interleave other work (live dictation,
 /// UI) between windows. [`transcribe_padded_window`] drives this, so there is a
 /// single production algorithm.
+///
+/// Window offsets are accumulated as sample counts; seconds are derived at the
+/// edge ([`samples_to_secs`]). Sample-exact [`TimedPiece`]s are committed as
+/// decoded (no seam de-duplication), shifted to absolute recording samples.
 #[derive(Debug, Default)]
 pub struct PaddedWindowCursor {
     start: usize,
     text: String,
     pieces: Vec<TimedToken>,
+    sample_pieces: Vec<TimedPiece>,
     finished: bool,
 }
 
@@ -303,8 +352,14 @@ impl PaddedWindowCursor {
         self.finished
     }
 
-    fn commit(&mut self, opts: &LongFormOptions, result: TranscriptionResult, start: usize) {
-        let offset = start as f32 / SAMPLE_RATE as f32;
+    fn commit(
+        &mut self,
+        opts: &LongFormOptions,
+        result: TranscriptionResult,
+        pieces: Vec<TimedPiece>,
+        start: usize,
+    ) {
+        let offset = samples_to_secs(start as u64);
         match opts.seam {
             SeamPolicy::DedupOverlap => {
                 append_timed_result(&mut self.text, &mut self.pieces, result, offset);
@@ -313,18 +368,27 @@ impl PaddedWindowCursor {
                 append_exact_result(&mut self.text, &mut self.pieces, result, offset);
             }
         }
+        let base = start as u64;
+        let index_base = self.sample_pieces.len() as u32;
+        self.sample_pieces.extend(pieces.into_iter().map(|mut p| {
+            p.start_sample += base;
+            p.end_sample += base;
+            p.token_index += index_base;
+            p
+        }));
     }
 
-    /// Decode one window. `Ok(None)` means more windows remain; `Ok(Some(_))`
-    /// is the final transcript (the cursor is then finished).
-    pub fn step<F>(
+    /// Decode one window and return its sample-exact pieces with the window's
+    /// text. `Ok(None)` means more windows remain; `Ok(Some(_))` is the final
+    /// transcript and its pieces (the cursor is then finished).
+    pub fn step_with_pieces<F>(
         &mut self,
         samples: &[f32],
         opts: &LongFormOptions,
         mut decode: F,
-    ) -> Result<Option<TranscriptionResult>>
+    ) -> Result<Option<(TranscriptionResult, Vec<TimedPiece>)>>
     where
-        F: FnMut(&[f32]) -> Result<TranscriptionResult>,
+        F: FnMut(&[f32]) -> Result<(TranscriptionResult, Vec<TimedPiece>)>,
     {
         if self.finished {
             return Err(Error::Config("padded window cursor already finished".into()));
@@ -332,7 +396,7 @@ impl PaddedWindowCursor {
         let window = opts.window_samples;
         if samples.len() <= window {
             self.finished = true;
-            return decode(&final_segment(samples, opts)).map(Some);
+            return decode(&pad_terminal_silence(samples, opts)).map(Some);
         }
         if self.start < samples.len() && self.start + window < samples.len() {
             let padding = ms_to_samples(PADDED_WINDOW_PADDING_MS);
@@ -346,27 +410,49 @@ impl PaddedWindowCursor {
             } else {
                 &[]
             };
-            let result = match decode(segment) {
+            let padded = match opts.pad_policy {
+                PadPolicy::EveryWindow => pad_terminal_silence(segment, opts),
+                PadPolicy::FinalSegmentOnly => Cow::Borrowed(segment),
+            };
+            let (result, pieces) = match decode(&padded) {
                 Ok(r) => r,
                 Err(e) => {
                     self.finished = true;
                     return Err(e);
                 }
             };
-            self.commit(opts, result, start);
+            self.commit(opts, result, pieces, start);
             self.start = stable_end.max(start + 1);
             return Ok(None);
         }
         // Tail after the final quiet cut.
         self.finished = true;
         if self.start < samples.len() {
-            let result = decode(&final_segment(&samples[self.start..], opts))?;
-            self.commit(opts, result, self.start);
+            let (result, pieces) = decode(&pad_terminal_silence(&samples[self.start..], opts))?;
+            self.commit(opts, result, pieces, self.start);
         }
-        Ok(Some(TranscriptionResult {
-            text: self.text.trim().to_string(),
-            tokens: std::mem::take(&mut self.pieces),
-        }))
+        Ok(Some((
+            TranscriptionResult {
+                text: self.text.trim().to_string(),
+                tokens: std::mem::take(&mut self.pieces),
+            },
+            std::mem::take(&mut self.sample_pieces),
+        )))
+    }
+
+    /// Decode one window. `Ok(None)` means more windows remain; `Ok(Some(_))`
+    /// is the final transcript (the cursor is then finished).
+    pub fn step<F>(
+        &mut self,
+        samples: &[f32],
+        opts: &LongFormOptions,
+        mut decode: F,
+    ) -> Result<Option<TranscriptionResult>>
+    where
+        F: FnMut(&[f32]) -> Result<TranscriptionResult>,
+    {
+        self.step_with_pieces(samples, opts, |seg| decode(seg).map(|r| (r, Vec::new())))
+            .map(|step| step.map(|(result, _)| result))
     }
 }
 
@@ -384,6 +470,24 @@ pub fn transcribe_padded_window<F>(
 where
     F: FnMut(&[f32]) -> Result<TranscriptionResult>,
 {
+    transcribe_padded_window_with_pieces(samples, opts, cancel, progress, |seg| {
+        decode(seg).map(|r| (r, Vec::new()))
+    })
+    .map(|(result, _)| result)
+}
+
+/// [`transcribe_padded_window`] with sample-exact [`TimedPiece`]s for the whole
+/// recording. `decode` returns each window's result and its window-relative pieces.
+pub fn transcribe_padded_window_with_pieces<F>(
+    samples: &[f32],
+    opts: &LongFormOptions,
+    cancel: Option<&AtomicBool>,
+    progress: &dyn Fn(&LongFormProgress),
+    mut decode: F,
+) -> Result<(TranscriptionResult, Vec<TimedPiece>)>
+where
+    F: FnMut(&[f32]) -> Result<(TranscriptionResult, Vec<TimedPiece>)>,
+{
     let padding = ms_to_samples(PADDED_WINDOW_PADDING_MS);
     let target = opts.window_samples.saturating_sub(padding).max(1);
     let estimated = samples.len().saturating_sub(padding).div_ceil(target).max(1);
@@ -393,28 +497,40 @@ where
         if cancel.is_some_and(|c| c.load(Ordering::SeqCst)) {
             return Err(Error::Cancelled);
         }
-        let step = cursor.step(samples, opts, &mut decode)?;
+        let step = cursor.step_with_pieces(samples, opts, &mut decode)?;
         done += 1;
         progress(&LongFormProgress {
             windows_done: done,
             windows_estimated: estimated.max(done),
+            windows_estimated_raw: estimated,
             samples_done: cursor.done_samples(samples.len()),
             samples_total: samples.len(),
         });
-        if let Some(result) = step {
-            return Ok(result);
+        if let Some(output) = step {
+            return Ok(output);
         }
     }
 }
+
 
 // ---------------------------------------------------------------------------
 // Words, cues and exports
 // ---------------------------------------------------------------------------
 
-/// Join sub-word pieces into words. Word ends come from the model's own TDT
+/// Join sub-word pieces into words with the default 80 ms floor (see
+/// [`timed_pieces_to_words_with`]). Word ends come from the model's own TDT
 /// durations with two clamps only: never shorter than one 80 ms frame, and
 /// never past the next word's start. Real pauses are preserved.
 pub fn timed_pieces_to_words(pieces: &[TimedToken]) -> Vec<TimedWord> {
+    timed_pieces_to_words_with(pieces, Some(DEFAULT_WORD_ASSEMBLY_FLOOR_MS))
+}
+
+/// [`timed_pieces_to_words`] with an explicit floor in milliseconds. `Some(ms)`
+/// raises each word's end to `start + ms` (when the model's end is shorter) and
+/// never lets it pass the next word's start, or `start + ms` if that is later.
+/// `None` skips the floor: the end is the model's own end, clamped only to the
+/// next word's start.
+pub fn timed_pieces_to_words_with(pieces: &[TimedToken], floor_ms: Option<u32>) -> Vec<TimedWord> {
     // (text, start_s, end_s): clamped in engine seconds, then converted to ms.
     let mut words: Vec<(String, f32, f32)> = Vec::new();
     let mut pending_boundary = false;
@@ -435,10 +551,21 @@ pub fn timed_pieces_to_words(pieces: &[TimedToken]) -> Vec<TimedWord> {
         }
     }
     for i in 0..words.len() {
-        let floor = words[i].1 + 0.08;
-        let mut end = words[i].2.max(floor);
-        if let Some(next) = words.get(i + 1) {
-            end = end.min(next.1.max(floor));
+        let start = words[i].1;
+        let mut end = words[i].2;
+        match floor_ms {
+            Some(ms) => {
+                let floor = start + ms as f32 / 1000.0;
+                end = end.max(floor);
+                if let Some(next) = words.get(i + 1) {
+                    end = end.min(next.1.max(floor));
+                }
+            }
+            None => {
+                if let Some(next) = words.get(i + 1) {
+                    end = end.min(next.1.max(start));
+                }
+            }
         }
         words[i].2 = end;
     }

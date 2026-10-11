@@ -85,6 +85,15 @@ extern "C" {
 extern "C" {
     pub fn AXIsProcessTrusted() -> u8;
     pub fn AXUIElementCreateApplication(pid: c_int) -> CFTypeRef;
+    pub fn AXUIElementCreateSystemWide() -> CFTypeRef;
+    /// `x`/`y` are global display coordinates (top-left origin, points). `el` is normally
+    /// the system-wide element; an application element restricts the hit test to that app.
+    pub fn AXUIElementCopyElementAtPosition(
+        el: CFTypeRef,
+        x: f32,
+        y: f32,
+        out: *mut CFTypeRef,
+    ) -> c_int;
     pub fn AXUIElementCopyAttributeValue(
         el: CFTypeRef,
         attr: CFTypeRef,

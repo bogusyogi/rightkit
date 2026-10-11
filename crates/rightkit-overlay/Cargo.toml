@@ -17,3 +17,7 @@ windows-sys = { version = "0.61.2", features = [
     "Win32_Foundation",
     "Win32_UI_WindowsAndMessaging",
 ] }
+
+[package.metadata.rightkit]
+continuous = false
+continuous_reason = "no thread-spawn, task-spawn, sleep, timer, listener or watcher in non-test src: pure geometry and hover models plus, on Windows only, a window-procedure subclass installed on the caller's own window by make_noactivate (lib.rs) that runs only when that window receives a message and holds one map entry per window (reviewed 2026-10-11)"

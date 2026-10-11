@@ -10,7 +10,7 @@ const MEL_N_FFT: usize = 400;
 const MEL_HOP: usize = 160;
 pub(crate) const MEL_N_MELS: usize = 128;
 const MEL_N_FREQ: usize = 201; // n_fft/2 + 1
-static MEL_FILTERS_BIN: &[u8] = include_bytes!("../whisper_mel_128.bin"); // 128*201 f32 LE
+static MEL_FILTERS_BIN: &[u8] = include_bytes!("../../whisper_mel_128.bin"); // 128*201 f32 LE
 
 fn mel_filters() -> Vec<f32> {
     MEL_FILTERS_BIN

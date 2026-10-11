@@ -2,13 +2,18 @@
 //! (`Input.dispatchMouseEvent` / `Input.dispatchKeyEvent` / `Runtime.evaluate`
 //! / `Page.captureScreenshot`). No `SendInput`, no window activation.
 //!
-//! UNVERIFIED: written against webview2-com 0.39 / windows 0.61 but not yet
-//! compiled or run on a Windows host (see design.md section 8).
+//! Verified on Windows by Pulse's hub journey, which drives a hidden WebView2 through this
+//! module on a `windows-2025` GitHub runner (rightkit-control 0.1.11 with `wv2-0_39`; the
+//! passing run is Pulse CI 38084463429). That run covers move, down/up, click, eval and
+//! screenshot; it does not cover every method here (for example wheel and key paths are
+//! exercised only where the journey uses them).
 
 use super::{Button, Mouse};
 use crate::json::str_field;
+use std::sync::atomic::{AtomicU64, AtomicU8, Ordering};
 use std::sync::mpsc::channel;
-use std::time::Duration;
+use std::sync::{Arc, OnceLock};
+use std::time::{Duration, Instant};
 use tauri::{Runtime, WebviewWindow};
 #[cfg(not(any(feature = "wv2-0_38", feature = "wv2-0_39")))]
 compile_error!("rightkit-control's Windows plugin needs one of `wv2-0_38` (Tauri 2.11) or `wv2-0_39` (Tauri 2.12+); neither is a default feature");
@@ -19,10 +24,79 @@ use ::{webview2_com_038 as webview2_com, windows_061 as windows};
 #[cfg(feature = "wv2-0_39")]
 use ::{webview2_com_039 as webview2_com, windows_062 as windows};
 
-fn cdp<R: Runtime>(win: &WebviewWindow<R>, method: &str, params: String) -> Result<String, String> {
+const CDP_TIMEOUT: Duration = Duration::from_secs(15);
+const PROBE_TIMEOUT: Duration = Duration::from_secs(3);
+
+/// Opt-in tracing: `RIGHTKIT_CONTROL_TRACE=1` writes to stderr, any other non-empty value is
+/// a file path to append to. Off by default; nothing is formatted when off.
+fn trace_sink() -> &'static Option<String> {
+    static SINK: OnceLock<Option<String>> = OnceLock::new();
+    SINK.get_or_init(|| {
+        std::env::var("RIGHTKIT_CONTROL_TRACE")
+            .ok()
+            .map(|v| v.trim().to_string())
+            .filter(|v| !v.is_empty() && v != "0")
+    })
+}
+
+fn trace_enabled() -> bool {
+    trace_sink().is_some()
+}
+
+#[link(name = "kernel32")]
+extern "system" {
+    fn GetCurrentThreadId() -> u32;
+}
+
+fn trace(line: impl FnOnce() -> String) {
+    let Some(sink) = trace_sink() else { return };
+    let ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis())
+        .unwrap_or(0);
+    let line = format!(
+        "[rk-control-trace {ms} tid={}] {}\n",
+        unsafe { GetCurrentThreadId() },
+        line()
+    );
+    if sink == "1" {
+        eprint!("{line}");
+    } else if let Ok(mut f) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(sink)
+    {
+        use std::io::Write;
+        let _ = f.write_all(line.as_bytes());
+    }
+}
+
+/// How far a devtools call got: 0 queued for the UI thread, 1 issued to WebView2, 2 completed.
+const STAGE_QUEUED: u8 = 0;
+const STAGE_ISSUED: u8 = 1;
+const STAGE_DONE: u8 = 2;
+
+fn cdp_once<R: Runtime>(
+    win: &WebviewWindow<R>,
+    id: u64,
+    method: &str,
+    params: String,
+    timeout: Duration,
+    stage: Arc<AtomicU8>,
+) -> Result<String, String> {
     let (tx, rx) = channel::<Result<String, String>>();
-    let method = method.to_string();
+    let method_owned = method.to_string();
+    let queued = Instant::now();
+    trace(|| format!("devtools#{id} enqueue {method}"));
+    let stage_ui = stage.clone();
     win.with_webview(move |pv| unsafe {
+        stage_ui.store(STAGE_ISSUED, Ordering::SeqCst);
+        trace(|| {
+            format!(
+                "devtools#{id} dispatch {method_owned} after {}ms on the UI thread",
+                queued.elapsed().as_millis()
+            )
+        });
         let core = match pv.controller().CoreWebView2() {
             Ok(c) => c,
             Err(e) => {
@@ -31,13 +105,23 @@ fn cdp<R: Runtime>(win: &WebviewWindow<R>, method: &str, params: String) -> Resu
             }
         };
         let tx2 = tx.clone();
+        let stage_done = stage_ui.clone();
+        let name = method_owned.clone();
         let handler =
             CallDevToolsProtocolMethodCompletedHandler::create(Box::new(move |res, json| {
+                stage_done.store(STAGE_DONE, Ordering::SeqCst);
+                trace(|| {
+                    format!(
+                        "devtools#{id} complete {name} after {}ms ok={}",
+                        queued.elapsed().as_millis(),
+                        res.is_ok()
+                    )
+                });
                 let _ = tx2.send(res.map(|_| json).map_err(|e| e.to_string()));
                 Ok(())
             }));
         if let Err(e) = core.CallDevToolsProtocolMethod(
-            &HSTRING::from(method),
+            &HSTRING::from(method_owned),
             &HSTRING::from(params),
             &handler,
         ) {
@@ -45,8 +129,402 @@ fn cdp<R: Runtime>(win: &WebviewWindow<R>, method: &str, params: String) -> Resu
         }
     })
     .map_err(|e| e.to_string())?;
-    rx.recv_timeout(Duration::from_secs(15))
-        .map_err(|_| "devtools call timed out".to_string())?
+    match rx.recv_timeout(timeout) {
+        Ok(r) => r,
+        Err(_) => Err("devtools call timed out".to_string()),
+    }
+}
+
+fn cdp<R: Runtime>(win: &WebviewWindow<R>, method: &str, params: String) -> Result<String, String> {
+    static SEQ: AtomicU64 = AtomicU64::new(0);
+    let id = SEQ.fetch_add(1, Ordering::SeqCst) + 1;
+    let stage = Arc::new(AtomicU8::new(STAGE_QUEUED));
+    match cdp_once(win, id, method, params, CDP_TIMEOUT, stage.clone()) {
+        Err(e) if e == "devtools call timed out" => {
+            let why = match stage.load(Ordering::SeqCst) {
+                STAGE_QUEUED => format!(
+                    "{method}: the UI thread never ran the call within {}s (the main thread is blocked or not dispatching)",
+                    CDP_TIMEOUT.as_secs()
+                ),
+                _ => {
+                    // The call reached WebView2. A browser-level call that is answered by the
+                    // browser process separates "renderer unresponsive" from "channel dead".
+                    let probe_stage = Arc::new(AtomicU8::new(STAGE_QUEUED));
+                    let probe = cdp_once(
+                        win,
+                        id,
+                        "Browser.getVersion",
+                        "{}".into(),
+                        PROBE_TIMEOUT,
+                        probe_stage,
+                    );
+                    let mut why = if probe.as_ref().err().map(|e| e.as_str())
+                        == Some("devtools call timed out")
+                    {
+                        format!(
+                            "{method} was issued but neither it nor a browser-level probe completed (devtools channel or browser process unresponsive)"
+                        )
+                    } else {
+                        format!(
+                            "{method} was issued and the browser process still answers, but the page did not complete it within {}s (renderer main thread busy or blocked, a modal script dialog, or a paused debugger)",
+                            CDP_TIMEOUT.as_secs()
+                        )
+                    };
+                    if capture_enabled() {
+                        why.push_str("; page stacks: ");
+                        why.push_str(&capture_stacks(win, id));
+                    }
+                    why
+                }
+            };
+            trace(|| format!("devtools#{id} TIMEOUT {why}"));
+            Err(format!("devtools call timed out: {why}"))
+        }
+        other => other,
+    }
+}
+
+/// Stack capture on a devtools timeout is on with `RIGHTKIT_CONTROL_TRACE` or
+/// `RIGHTKIT_CONTROL_STACK_ON_TIMEOUT=1`. It enables the V8 debugger at webview creation
+/// (`Debugger.enable` is not an interrupting command, so it would queue behind a busy script if
+/// sent only after the hang) and later interrupts the running script with `Debugger.pause`.
+fn capture_enabled() -> bool {
+    static ON: OnceLock<bool> = OnceLock::new();
+    *ON.get_or_init(|| {
+        trace_enabled()
+            || std::env::var("RIGHTKIT_CONTROL_STACK_ON_TIMEOUT")
+                .map(|v| v.trim() == "1")
+                .unwrap_or(false)
+    })
+}
+
+/// Receives the next `Debugger.paused` payload while a capture is waiting for it.
+static PAUSE_TX: std::sync::Mutex<Option<std::sync::mpsc::Sender<String>>> =
+    std::sync::Mutex::new(None);
+
+/// `fn url:line:col` for the top `limit` frames of a `Debugger.paused` payload.
+fn frames_summary(paused: &str, limit: usize) -> String {
+    let Ok(v) = serde_json::from_str::<serde_json::Value>(paused) else {
+        return format!(
+            "unparsable Debugger.paused payload: {}",
+            &paused[..paused.len().min(200)]
+        );
+    };
+    let reason = v["reason"].as_str().unwrap_or("?");
+    let frames: Vec<String> = v["callFrames"]
+        .as_array()
+        .map(|a| {
+            a.iter()
+                .take(limit)
+                .map(|f| {
+                    let name = f["functionName"]
+                        .as_str()
+                        .filter(|n| !n.is_empty())
+                        .unwrap_or("(anonymous)");
+                    let url = f["url"].as_str().filter(|u| !u.is_empty()).unwrap_or("?");
+                    format!(
+                        "{name} {url}:{}:{}",
+                        f["location"]["lineNumber"].as_i64().unwrap_or(-1) + 1,
+                        f["location"]["columnNumber"].as_i64().unwrap_or(-1) + 1
+                    )
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    format!("[reason={reason}] {}", frames.join(" <- "))
+}
+
+/// Interrupt the page's main thread up to three times and report where it was. Out of band: the
+/// stuck `Runtime.evaluate` is not involved. If no pause arrives within 2 s the renderer is in
+/// native code or gone.
+fn capture_stacks<R: Runtime>(win: &WebviewWindow<R>, id: u64) -> String {
+    let quiet = || Arc::new(AtomicU8::new(STAGE_QUEUED));
+    // Normally a no-op (armed at webview creation); re-sent in case a navigation reset the agent.
+    let _ = cdp_once(
+        win,
+        id,
+        "Debugger.enable",
+        "{}".into(),
+        Duration::from_millis(500),
+        quiet(),
+    );
+    let mut samples = Vec::new();
+    for n in 1..=3 {
+        let (tx, rx) = channel::<String>();
+        *PAUSE_TX.lock().unwrap_or_else(|e| e.into_inner()) = Some(tx);
+        let sent = cdp_once(
+            win,
+            id,
+            "Debugger.pause",
+            "{}".into(),
+            Duration::from_secs(2),
+            quiet(),
+        );
+        let paused = rx.recv_timeout(Duration::from_secs(2));
+        *PAUSE_TX.lock().unwrap_or_else(|e| e.into_inner()) = None;
+        match paused {
+            Ok(p) => {
+                let line = frames_summary(&p, 15);
+                trace(|| format!("devtools#{id} STACK sample {n}: {line}"));
+                samples.push(format!("sample {n}: {line}"));
+                let _ = cdp_once(
+                    win,
+                    id,
+                    "Debugger.resume",
+                    "{}".into(),
+                    Duration::from_secs(2),
+                    quiet(),
+                );
+            }
+            Err(_) => {
+                let line = format!(
+                    "sample {n}: no Debugger.paused within 2s (Debugger.pause {}); the renderer is in native code, not running script, or gone",
+                    match &sent { Ok(_) => "was accepted".to_string(), Err(e) => format!("failed: {e}") }
+                );
+                trace(|| format!("devtools#{id} STACK {line}"));
+                samples.push(line);
+                break;
+            }
+        }
+        std::thread::sleep(Duration::from_millis(300));
+    }
+    samples.join(" | ")
+}
+
+/// Enable the V8 debugger at webview creation and route `Debugger.paused` events: to a waiting
+/// capture, or (unrequested pauses, for example a `debugger;` statement) logged and resumed at
+/// once so the page behaves as it would without the harness.
+fn arm_debugger<R: Runtime>(webview: &tauri::Webview<R>) {
+    use webview2_com::{
+        DevToolsProtocolEventReceivedEventHandler, NavigationCompletedEventHandler,
+    };
+    let label = webview.label().to_string();
+    let _ = webview.with_webview(move |pv| unsafe {
+        let Ok(core) = pv.controller().CoreWebView2() else {
+            return;
+        };
+        let mut token: i64 = 0;
+        if let Ok(receiver) =
+            core.GetDevToolsProtocolEventReceiver(&HSTRING::from("Debugger.paused"))
+        {
+            let l = label.clone();
+            let h =
+                DevToolsProtocolEventReceivedEventHandler::create(Box::new(move |sender, args| {
+                    let Some(a) = args else { return Ok(()) };
+                    let mut p = windows::core::PWSTR::null();
+                    let _ = a.ParameterObjectAsJson(&mut p);
+                    let payload = pwstr_string(p);
+                    let waiting = PAUSE_TX
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .as_ref()
+                        .map(|tx| tx.send(payload.clone()).is_ok())
+                        .unwrap_or(false);
+                    if !waiting {
+                        trace(|| {
+                            format!(
+                                "[{l}] unrequested Debugger.paused {} (resuming)",
+                                frames_summary(&payload, 5)
+                            )
+                        });
+                        if let Some(core) = sender {
+                            let noop = CallDevToolsProtocolMethodCompletedHandler::create(
+                                Box::new(|_, _| Ok(())),
+                            );
+                            let _ = core.CallDevToolsProtocolMethod(
+                                &HSTRING::from("Debugger.resume"),
+                                &HSTRING::from("{}"),
+                                &noop,
+                            );
+                        }
+                    }
+                    Ok(())
+                }));
+            let _ = receiver.add_DevToolsProtocolEventReceived(&h, &mut token);
+        }
+        let send_enable = |core: &webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2| {
+            let h = CallDevToolsProtocolMethodCompletedHandler::create(Box::new(|_, _| Ok(())));
+            let _ = core.CallDevToolsProtocolMethod(
+                &HSTRING::from("Debugger.enable"),
+                &HSTRING::from("{}"),
+                &h,
+            );
+        };
+        send_enable(&core);
+        // A navigation can reset the agent; re-enable after each one.
+        let nav = NavigationCompletedEventHandler::create(Box::new(move |sender, _| {
+            if let Some(core) = sender {
+                send_enable(&core);
+            }
+            Ok(())
+        }));
+        let _ = core.add_NavigationCompleted(&nav, &mut token);
+        trace(|| format!("[{label}] debugger armed for stack capture"));
+    });
+}
+
+fn pwstr_string(p: windows::core::PWSTR) -> String {
+    if p.is_null() {
+        String::new()
+    } else {
+        unsafe { p.to_string() }.unwrap_or_default()
+    }
+}
+
+/// Opt-in (`RIGHTKIT_CONTROL_TRACE`): log WebView2 navigation, dialog, new-window and process
+/// failure events for this webview so a stuck devtools call can be matched to what the page did.
+pub fn install_trace<R: Runtime>(webview: &tauri::Webview<R>) {
+    use webview2_com::{
+        NavigationCompletedEventHandler, NavigationStartingEventHandler,
+        NewWindowRequestedEventHandler, ProcessFailedEventHandler, ScriptDialogOpeningEventHandler,
+    };
+    if capture_enabled() {
+        arm_debugger(webview);
+    }
+    if !trace_enabled() {
+        return;
+    }
+    let label = webview.label().to_string();
+    let _ = webview.with_webview(move |pv| unsafe {
+        let core = match pv.controller().CoreWebView2() {
+            Ok(c) => c,
+            Err(e) => {
+                trace(|| format!("[{label}] install_trace: no CoreWebView2: {e}"));
+                return;
+            }
+        };
+        let mut token: i64 = 0;
+        let l = label.clone();
+        let h = NavigationStartingEventHandler::create(Box::new(move |_s, args| {
+            if let Some(a) = args {
+                let (mut uri, mut id, mut user) = (
+                    windows::core::PWSTR::null(),
+                    0u64,
+                    windows::core::BOOL::default(),
+                );
+                let _ = a.Uri(&mut uri);
+                let _ = a.NavigationId(&mut id);
+                let _ = a.IsUserInitiated(&mut user);
+                trace(|| {
+                    format!(
+                        "[{l}] NavigationStarting id={id} user={} uri={}",
+                        user.as_bool(),
+                        pwstr_string(uri)
+                    )
+                });
+            }
+            Ok(())
+        }));
+        let _ = core.add_NavigationStarting(&h, &mut token);
+        let l = label.clone();
+        let h = NavigationCompletedEventHandler::create(Box::new(move |_s, args| {
+            if let Some(a) = args {
+                let (mut id, mut ok) = (0u64, windows::core::BOOL::default());
+                let mut status = Default::default();
+                let _ = a.NavigationId(&mut id);
+                let _ = a.IsSuccess(&mut ok);
+                let _ = a.WebErrorStatus(&mut status);
+                trace(|| {
+                    format!(
+                        "[{l}] NavigationCompleted id={id} success={} webErrorStatus={}",
+                        ok.as_bool(),
+                        status.0
+                    )
+                });
+            }
+            Ok(())
+        }));
+        let _ = core.add_NavigationCompleted(&h, &mut token);
+        let l = label.clone();
+        let h = ScriptDialogOpeningEventHandler::create(Box::new(move |_s, args| {
+            if let Some(a) = args {
+                let (mut uri, mut msg) =
+                    (windows::core::PWSTR::null(), windows::core::PWSTR::null());
+                let mut kind = Default::default();
+                let _ = a.Uri(&mut uri);
+                let _ = a.Message(&mut msg);
+                let _ = a.Kind(&mut kind);
+                trace(|| {
+                    format!(
+                        "[{l}] ScriptDialogOpening kind={} uri={} message={}",
+                        kind.0,
+                        pwstr_string(uri),
+                        pwstr_string(msg)
+                    )
+                });
+            }
+            Ok(())
+        }));
+        let _ = core.add_ScriptDialogOpening(&h, &mut token);
+        let l = label.clone();
+        let h = NewWindowRequestedEventHandler::create(Box::new(move |_s, args| {
+            if let Some(a) = args {
+                let mut uri = windows::core::PWSTR::null();
+                let _ = a.Uri(&mut uri);
+                trace(|| format!("[{l}] NewWindowRequested uri={}", pwstr_string(uri)));
+            }
+            Ok(())
+        }));
+        let _ = core.add_NewWindowRequested(&h, &mut token);
+        let l = label.clone();
+        let h = ProcessFailedEventHandler::create(Box::new(move |_s, args| {
+            if let Some(a) = args {
+                let mut kind = Default::default();
+                let _ = a.ProcessFailedKind(&mut kind);
+                trace(|| format!("[{l}] ProcessFailed kind={}", kind.0));
+            }
+            Ok(())
+        }));
+        let _ = core.add_ProcessFailed(&h, &mut token);
+        trace(|| format!("[{label}] install_trace: handlers registered"));
+    });
+    // Every 2 s: controller visibility and bounds plus a browser-level round trip, so a
+    // hidden or zero-sized controller and a stalled browser process are visible in the log.
+    let probe_webview = webview.clone();
+    let label = webview.label().to_string();
+    std::thread::spawn(move || loop {
+        std::thread::sleep(Duration::from_secs(2));
+        let label = label.clone();
+        let queued = Instant::now();
+        let sent = probe_webview.with_webview(move |pv| unsafe {
+            let controller = pv.controller();
+            let mut visible = windows::core::BOOL::default();
+            let mut bounds = windows::Win32::Foundation::RECT::default();
+            let _ = controller.IsVisible(&mut visible);
+            let _ = controller.Bounds(&mut bounds);
+            let dispatched = queued.elapsed().as_millis();
+            let Ok(core) = controller.CoreWebView2() else {
+                return;
+            };
+            let sent = Instant::now();
+            let handler = CallDevToolsProtocolMethodCompletedHandler::create(Box::new(
+                move |res, _json| {
+                    trace(|| {
+                        format!(
+                            "[{label}] probe isVisible={} bounds={}x{} at ({},{}) ui_dispatch={}ms Browser.getVersion={}ms ok={}",
+                            visible.as_bool(),
+                            bounds.right - bounds.left,
+                            bounds.bottom - bounds.top,
+                            bounds.left,
+                            bounds.top,
+                            dispatched,
+                            sent.elapsed().as_millis(),
+                            res.is_ok()
+                        )
+                    });
+                    Ok(())
+                },
+            ));
+            let _ = core.CallDevToolsProtocolMethod(
+                &HSTRING::from("Browser.getVersion"),
+                &HSTRING::from("{}"),
+                &handler,
+            );
+        });
+        if sent.is_err() {
+            break;
+        }
+    });
 }
 
 fn cdp_mods(flags: u64) -> u32 {

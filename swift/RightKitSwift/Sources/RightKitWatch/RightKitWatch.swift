@@ -189,6 +189,30 @@ public struct RightKitWatchConfiguration: Sendable, Equatable {
 /// Iteration ends when the watcher is stopped. Cancelling or abandoning the iteration also stops
 /// the watcher. A running watcher keeps itself alive, so it need not be retained by the caller.
 /// Not available on iOS.
+///
+/// ## Delivery queue
+///
+/// FSEvents callbacks run on one private serial queue, `org.rightkit.watch` (default QoS, not
+/// configurable); they only decode and enqueue, so that queue never runs caller code. The stream
+/// (``events``) is consumed wherever the caller iterates it. To have caller code run on a queue of the
+/// caller's choosing, once per FSEvents batch, use ``init(_:queue:onBatch:)`` instead.
+///
+/// ## Batch boundaries
+///
+/// One FSEvents callback is one batch. In stream mode the boundary is not marked (events of a batch
+/// are contiguous but not delimited; the enum gains no case, so existing exhaustive switches keep
+/// compiling). In handler mode each batch is exactly one `onBatch` call.
+///
+/// ## What ``stop()`` guarantees
+///
+/// - Stream mode: once `stop()` returns, no event that FSEvents reports afterwards is yielded to
+///   ``events``. Events already yielded before `stop()` returned stay buffered and the iterator still
+///   receives them, in order, before it ends; cancel the consuming task to discard them.
+/// - Handler mode: once `stop()` returns, no `onBatch` call is running and none will begin. A call
+///   in flight on another thread is waited for (do not block that handler on the thread that calls
+///   `stop()`). Called from inside `onBatch`, `stop()` returns at once and that call finishes normally;
+///   no later one begins. Batches queued but not yet started are discarded.
+/// - Both modes: `stop()` is idempotent and thread-safe.
 public final class RightKitWatcher: Sendable {
     /// Typed events in delivery order. Consume from one task.
     public let events: AsyncStream<RightKitWatchEvent>
@@ -205,6 +229,36 @@ public final class RightKitWatcher: Sendable {
         let engine = Engine(continuation: continuation, since: configuration.sinceWhen, roots: configuration.paths)
         try engine.start(configuration)
         continuation.onTermination = { _ in engine.stop() }
+        self.events = stream
+        self.engine = engine
+    }
+
+    /// Handler mode: delivers each FSEvents batch to `onBatch` as one array, on `queue`, instead of
+    /// through ``events`` (which is already finished in this mode).
+    ///
+    /// - Each call carries every event of one FSEvents callback, in order, and is never empty.
+    /// - Calls are serial and in order, whatever `queue` is (a concurrent queue gets one at a time).
+    /// - The backlog is bounded by ``RightKitWatchConfiguration/maxBufferedEvents``. When a slow
+    ///   handler lets it fill, the newest events are discarded (a batch may be cut) and one batch
+    ///   of ``RightKitWatchEvent/mustRescan(path:reason:eventID:)`` with
+    ///   ``RightKitWatchRescanReason/bufferOverflow``, one per watched path, follows the kept events.
+    /// - ``stop()`` is the only way to end the watcher: nothing observes abandonment in this mode.
+    ///   See the type documentation for what `stop()` guarantees.
+    public init(
+        _ configuration: RightKitWatchConfiguration,
+        queue: DispatchQueue,
+        onBatch: @escaping @Sendable ([RightKitWatchEvent]) -> Void
+    ) throws {
+        guard !configuration.paths.isEmpty, !configuration.paths.contains(where: \.isEmpty),
+              configuration.maxBufferedEvents >= 1
+        else {
+            throw RightKitWatchError.invalidConfiguration
+        }
+        let (stream, continuation) = AsyncStream<RightKitWatchEvent>.makeStream(bufferingPolicy: .bufferingOldest(1))
+        continuation.finish()
+        let sink = BatchSink(queue: queue, capacity: configuration.maxBufferedEvents, roots: configuration.paths, handler: onBatch)
+        let engine = Engine(continuation: continuation, since: configuration.sinceWhen, roots: configuration.paths, batches: sink)
+        try engine.start(configuration)
         self.events = stream
         self.engine = engine
     }
@@ -245,10 +299,12 @@ extension RightKitWatcher {
         private var newestDropped: UInt64 = 0
         private var dropped = 0
         private var retryTimer: DispatchSourceTimer?
+        private let batches: BatchSink?
 
-        init(continuation: AsyncStream<RightKitWatchEvent>.Continuation, since: RightKitWatchEventID, roots: [String]) {
+        init(continuation: AsyncStream<RightKitWatchEvent>.Continuation, since: RightKitWatchEventID, roots: [String], batches: BatchSink? = nil) {
             self.continuation = continuation
             self.roots = roots
+            self.batches = batches
             // "Since now" is a sentinel, not a position; start the high-water mark at the real now.
             self.latest = since == .sinceNow ? FSEventsGetCurrentEventId() : since.rawValue
         }
@@ -300,10 +356,23 @@ extension RightKitWatcher {
 
         var droppedEventCount: Int {
             lock.lock(); defer { lock.unlock() }
-            return dropped
+            return dropped + (batches?.droppedEventCount ?? 0)
         }
 
         func deliver(_ records: [(path: String, flags: UInt32, id: UInt64)]) {
+            if let batches {
+                lock.lock()
+                var events: [RightKitWatchEvent] = []
+                for record in records {
+                    for event in RightKitWatchEvent.decode(path: record.path, flags: record.flags, id: record.id) {
+                        if let id = event.eventID?.rawValue { latest = max(latest, id) }
+                        events.append(event)
+                    }
+                }
+                lock.unlock()
+                batches.submit(events)   // outside the engine lock: it may schedule onto the caller's queue
+                return
+            }
             lock.lock(); defer { lock.unlock() }
             for record in records {
                 for event in RightKitWatchEvent.decode(path: record.path, flags: record.flags, id: record.id) {
@@ -360,6 +429,7 @@ extension RightKitWatcher {
         }
 
         func stop() {
+            batches?.markStopped()   // first: no handler call may begin from here on
             lock.lock()
             let current = stream
             stream = nil
@@ -372,6 +442,116 @@ extension RightKitWatcher {
                 FSEventStreamRelease(current)
             }
             continuation.finish()
+            batches?.waitForRunningHandler()   // outside every lock: the handler may read the watcher
+        }
+    }
+
+    /// Handler-mode delivery: bounded backlog of batches, drained serially onto the caller's queue.
+    ///
+    /// `running` counts handler calls past their start check. A call begins only if `stopped` is
+    /// false at that check, made under the same lock `markStopped()` takes, so once `markStopped()`
+    /// has run, `running` can only fall; `waitForRunningHandler()` then waits for it to reach zero,
+    /// except on a thread that is itself inside a handler call (it would wait for itself).
+    final class BatchSink: @unchecked Sendable {
+        private let queue: DispatchQueue
+        private let handler: @Sendable ([RightKitWatchEvent]) -> Void
+        private let capacity: Int
+        private let roots: [String]
+        private let condition = NSCondition()
+        private let threadKey = "org.rightkit.watch.handler.\(UUID().uuidString)"
+        private var stopped = false
+        private var running = 0
+        private var pending: [[RightKitWatchEvent]] = []
+        private var pendingEvents = 0
+        private var scheduled = false
+        private var overflowPending = false
+        private var newestDropped: UInt64 = 0
+        private var dropped = 0
+
+        init(queue: DispatchQueue, capacity: Int, roots: [String], handler: @escaping @Sendable ([RightKitWatchEvent]) -> Void) {
+            self.queue = queue; self.capacity = capacity; self.roots = roots; self.handler = handler
+        }
+
+        var droppedEventCount: Int {
+            condition.lock(); defer { condition.unlock() }
+            return dropped
+        }
+
+        func submit(_ events: [RightKitWatchEvent]) {
+            guard !events.isEmpty else { return }
+            condition.lock()
+            if stopped { condition.unlock(); return }
+            // Once anything is lost, everything after it is lost too, so the marker's position is exact.
+            let room = overflowPending ? 0 : max(0, capacity - pendingEvents)
+            if room >= events.count {
+                pending.append(events); pendingEvents += events.count
+            } else {
+                if room > 0 { pending.append(Array(events.prefix(room))); pendingEvents += room }
+                let lost = events.dropFirst(room)
+                dropped += lost.count
+                newestDropped = max(newestDropped, lost.compactMap { $0.eventID?.rawValue }.max() ?? 0)
+                overflowPending = true
+            }
+            let needsDrain = !scheduled
+            scheduled = true
+            condition.unlock()
+            if needsDrain { queue.async { self.drain() } }
+        }
+
+        private func drain() {
+            condition.lock()
+            if stopped {
+                pending = []; pendingEvents = 0; overflowPending = false; scheduled = false
+                condition.unlock(); return
+            }
+            var batches = pending
+            pending = []; pendingEvents = 0
+            if overflowPending {
+                batches.append(roots.map {
+                    .mustRescan(path: $0, reason: .bufferOverflow, eventID: RightKitWatchEventID(rawValue: newestDropped))
+                })
+                overflowPending = false; newestDropped = 0
+            }
+            condition.unlock()
+
+            for batch in batches { run(batch) }
+
+            condition.lock()
+            let more = !pending.isEmpty || overflowPending
+            if !more { scheduled = false }
+            condition.unlock()
+            // One drain per turn so a busy watcher does not monopolise the caller's queue.
+            if more { queue.async { self.drain() } }
+        }
+
+        private func run(_ batch: [RightKitWatchEvent]) {
+            condition.lock()
+            if stopped { condition.unlock(); return }
+            running += 1
+            condition.unlock()
+            let threadDictionary = Thread.current.threadDictionary
+            let outer = threadDictionary[threadKey]
+            threadDictionary[threadKey] = true
+            handler(batch)
+            if let outer { threadDictionary[threadKey] = outer } else { threadDictionary.removeObject(forKey: threadKey) }
+            condition.lock()
+            running -= 1
+            condition.broadcast()
+            condition.unlock()
+        }
+
+        func markStopped() {
+            condition.lock()
+            stopped = true
+            pending = []; pendingEvents = 0; overflowPending = false
+            condition.unlock()
+        }
+
+        func waitForRunningHandler() {
+            if Thread.current.threadDictionary[threadKey] != nil { return }
+            condition.lock()
+            while running > 0 { condition.wait() }
+            condition.unlock()
         }
     }
 }

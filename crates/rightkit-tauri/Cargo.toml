@@ -11,4 +11,8 @@ include = ["src/**", "tests/**", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LI
 
 [dependencies]
 getrandom = "0.3"
-rightkit-license = { version = "0.1.3", path = "../rightkit-license" }
+rightkit-license = { version = "0.2.0", path = "../rightkit-license" }
+
+[package.metadata.rightkit]
+continuous = false
+continuous_reason = "no thread-spawn, task-spawn, sleep, timer, listener or watcher in non-test src: stateless storage, device-identity, authorization and log-bridge services that delegate to host traits per call, the only state is a creation Mutex (reviewed 2026-10-11)"

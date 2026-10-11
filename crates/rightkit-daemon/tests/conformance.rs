@@ -58,6 +58,37 @@ fn route_table_matches_the_contract() {
     }
 }
 
+/// The schema example carries the concrete route list; the valid fixture repeats
+/// it. Both must equal the code's table, route by route and status by status.
+#[test]
+fn schema_example_routes_match_fixture_and_code() {
+    let schema = schema();
+    let example = schema["examples"][0]["routes"].as_array().unwrap();
+    let fixture: Value = serde_json::from_str(&std::fs::read_to_string(FIXTURE).unwrap()).unwrap();
+    assert_eq!(
+        example,
+        fixture["routes"].as_array().unwrap(),
+        "schema example and fixture disagree"
+    );
+    assert_eq!(example.len(), ROUTES.len());
+    for r in ROUTES {
+        let c = example
+            .iter()
+            .find(|c| c["routeId"] == r.id)
+            .unwrap_or_else(|| panic!("{} missing from the schema example", r.id));
+        let responses: Vec<u64> = c["responses"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_u64().unwrap())
+            .collect();
+        let code: Vec<u64> = r.responses.iter().map(|s| u64::from(*s)).collect();
+        assert_eq!(responses, code, "{} responses", r.id);
+        assert_eq!(c["method"], r.method, "{}", r.id);
+        assert_eq!(c["path"], r.pattern, "{}", r.id);
+    }
+}
+
 #[test]
 fn exactly_three_classes_and_their_rules() {
     let api = api();
@@ -192,9 +223,39 @@ fn statuses_and_error_codes_are_declared() {
     );
 
     let id = init.body["uploadId"].as_str().unwrap().to_string();
+    // Statuses added to the contract in 0.1.2 that only another scope or an
+    // unknown upload reach: 400 bad chunk size, 403 scope, 404 unknown upload.
+    declared(
+        "upload.init",
+        dev.json(
+            &h,
+            "POST",
+            "/v1/uploads",
+            &json!({"size": 100, "chunkBytes": 1}),
+        )
+        .status,
+    );
+    declared(
+        "upload.status",
+        readonly
+            .call(&h, "GET", &format!("/v1/uploads/{id}"), b"")
+            .status,
+    );
     declared(
         "upload.chunk",
-        dev.put_chunk(&h, &id, 0, &pattern_bytes(50)).status,
+        readonly.put_chunk(&h, &id, 0, &pattern_bytes(50)).status,
+    );
+    declared(
+        "upload.chunk",
+        dev.put_chunk(&h, "up_none", 0, &pattern_bytes(50)).status,
+    );
+    declared(
+        "upload.complete",
+        readonly.complete(&h, &id, &"0".repeat(64)).status,
+    );
+    declared(
+        "upload.complete",
+        dev.complete(&h, "up_none", &"0".repeat(64)).status,
     );
     declared(
         "upload.chunk",
@@ -270,8 +331,18 @@ fn statuses_and_error_codes_are_declared() {
         headers: BTreeMap::new(),
         body: vec![],
     };
+    // This harness wires no OAuth handler: the callback answers 502 oauth_unavailable.
     let r = h.call(cb);
-    assert_eq!(r.status, 502); // no handler wired in this harness: not a contract outcome
+    declared("oauth.callback", r.status);
+    assert_eq!(
+        (r.status, &r.body["error"]),
+        (502, &json!("oauth_unavailable"))
+    );
+
+    let full = Harness::with(|c| c.max_webhook_inbox = 0);
+    let r = full.call(full.webhook("meta", b"meta-secret", full.now(), b"{}"));
+    declared("webhook.inbound", r.status);
+    assert_eq!((r.status, &r.body["error"]), (429, &json!("rate_limited")));
 }
 
 #[test]
@@ -374,36 +445,65 @@ fn source_error_codes() -> std::collections::BTreeSet<String> {
     codes
 }
 
+/// The schema's `errors` enum is exactly the set of codes the daemon returns,
+/// plus `x-reservedErrors`: names in the vocabulary that no route returns yet.
 #[test]
 fn every_error_code_the_daemon_returns_is_in_the_schema_enum() {
     let schema = schema();
-    let allowed: Vec<&str> = schema["properties"]["errors"]["items"]["properties"]["code"]["enum"]
+    let enum_codes: std::collections::BTreeSet<String> = schema["properties"]["errors"]["items"]
+        ["properties"]["code"]["enum"]
         .as_array()
         .unwrap()
         .iter()
-        .map(|v| v.as_str().unwrap())
+        .map(|v| v.as_str().unwrap().to_string())
         .collect();
-    let codes = source_error_codes();
+    let reserved: std::collections::BTreeSet<String> = schema["properties"]["errors"]
+        ["x-reservedErrors"]
+        .as_array()
+        .expect("schema marks reserved error codes")
+        .iter()
+        .map(|v| v.as_str().unwrap().to_string())
+        .collect();
+    let returned = source_error_codes();
     // The scanner must actually see the codes it guards.
     for known in [
         "unauthenticated",
         "precondition_required",
         "idempotency_key_reuse",
+        "rate_limited",
     ] {
-        assert!(codes.contains(known), "scanner missed {known}: {codes:?}");
+        assert!(
+            returned.contains(known),
+            "scanner missed {known}: {returned:?}"
+        );
     }
-    let missing: Vec<_> = codes
-        .iter()
-        .filter(|c| !allowed.contains(&c.as_str()))
-        .collect();
+    let missing: Vec<_> = returned.difference(&enum_codes).collect();
     assert!(
         missing.is_empty(),
-        "codes missing from the schema enum: {missing:?}"
+        "codes the daemon returns but the schema enum lacks: {missing:?}"
+    );
+    let unlisted: Vec<_> = enum_codes
+        .difference(&returned)
+        .filter(|c| !reserved.contains(*c))
+        .collect();
+    assert!(
+        unlisted.is_empty(),
+        "enum codes no route returns and not reserved: {unlisted:?}"
+    );
+    let stray: Vec<_> = reserved.difference(&enum_codes).collect();
+    assert!(
+        stray.is_empty(),
+        "reserved codes not in the enum: {stray:?}"
+    );
+    let emitted: Vec<_> = reserved.intersection(&returned).collect();
+    assert!(
+        emitted.is_empty(),
+        "reserved codes the daemon now returns; unreserve them: {emitted:?}"
     );
 }
 
-/// Internal event names passed to `emit(`, mapped to the contract vocabulary.
-fn emitted_contract_events() -> std::collections::BTreeSet<String> {
+/// Every internal event name passed as a literal to `emit(`.
+fn emitted_event_literals() -> std::collections::BTreeSet<String> {
     let mut internal = std::collections::BTreeSet::new();
     for (_, src) in DAEMON_SRC {
         for (i, _) in src.match_indices(".emit(") {
@@ -414,6 +514,46 @@ fn emitted_contract_events() -> std::collections::BTreeSet<String> {
             }
         }
     }
+    internal
+}
+
+/// Internal events with no lifecycle-vocabulary name, by design: they are
+/// diagnostics in `events.jsonl`. Naming one means adding it to the schema's
+/// `lifecycleEvents` enum and to `events::contract_name`.
+/// AUTH_REJECTED is mapped to `webhook_rejected` for the signed-webhook class
+/// only; every other AUTH_REJECTED stays internal.
+const INTERNAL_EVENTS: &[&str] = &[
+    "AUTH_REJECTED",
+    "OAUTH_COMPLETED",
+    "STORAGE_ERROR",
+    "UPLOAD_REJECTED",
+    "WEBHOOK_ACCEPTED",
+];
+
+#[test]
+fn every_emitted_event_is_mapped_or_classified_internal() {
+    let internal = emitted_event_literals();
+    for ev in &internal {
+        assert!(
+            contract_name(ev).is_some() || INTERNAL_EVENTS.contains(&ev.as_str()),
+            "{ev} has no contract name and is not classified internal"
+        );
+    }
+    for ev in INTERNAL_EVENTS {
+        assert!(
+            contract_name(ev).is_none(),
+            "{ev} is mapped to a contract name; drop it from INTERNAL_EVENTS"
+        );
+        assert!(
+            internal.contains(*ev),
+            "{ev} is classified internal but never emitted"
+        );
+    }
+}
+
+/// Contract names of the emitted events, plus `webhook_rejected`.
+fn emitted_contract_events() -> std::collections::BTreeSet<String> {
+    let internal = emitted_event_literals();
     let mut out = std::collections::BTreeSet::new();
     for ev in &internal {
         if let Some(n) = contract_name(ev) {
@@ -465,7 +605,14 @@ fn every_schema_event_has_an_emitter_or_is_reserved() {
 
 #[test]
 fn job_update_documents_every_status_it_returns() {
+    let api = api();
+    let contract = api
+        .routes
+        .iter()
+        .find(|r| r.route_id == "job.update")
+        .unwrap();
     let r = ROUTES.iter().find(|r| r.id == "job.update").unwrap();
+    assert_eq!(contract.responses.as_slice(), r.responses);
     for status in [200, 400, 401, 403, 409, 422, 428] {
         assert!(r.responses.contains(&status), "{status}");
     }

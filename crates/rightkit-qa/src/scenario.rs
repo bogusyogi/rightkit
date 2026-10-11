@@ -481,6 +481,8 @@ fn exec(ctx: &mut Ctx, kind: &str, p: &Map<String, Value>) -> Result<Value> {
             let s = ctx
                 .engine()?
                 .start_sidecar(&cli_opts(ctx, p), ctx.tracker)?;
+            let mut s = s;
+            s.set_frame_shape(pv(p, "legacy_status_frames").and_then(Value::as_bool));
             let hello = s.hello.clone();
             ctx.sidecars.insert(id, s);
             Ok(hello)
@@ -494,7 +496,8 @@ fn exec(ctx: &mut Ctx, kind: &str, p: &Map<String, Value>) -> Result<Value> {
                 .sidecars
                 .get_mut(&id)
                 .ok_or_else(|| Error(format!("no sidecar '{id}'")))?;
-            match s.command(&name, input, timeout) {
+            let legacy = pv(p, "legacy_status_frames").and_then(Value::as_bool);
+            match s.command_with(&name, input, timeout, legacy) {
                 Ok(v) => Ok(v),
                 Err(e) if pb(p, "allow_error") => Ok(json!({"error": e.0})),
                 Err(e) => Err(e),

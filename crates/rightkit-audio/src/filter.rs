@@ -47,6 +47,14 @@ impl Filter {
         self
     }
 
+    /// Positional option, rendered as the bare value in call order (`aresample=44100`, `atrim=0:5`).
+    /// FFmpeg requires positional options before named ones; call `pos` before `opt`/`num`/`quoted`.
+    /// The caller guarantees the value has no special characters.
+    pub fn pos(mut self, value: impl Display) -> Self {
+        self.opts.push((String::new(), value.to_string()));
+        self
+    }
+
     pub fn num(self, key: &str, value: f64) -> Self {
         self.opt(key, num(value))
     }
@@ -61,7 +69,11 @@ impl Filter {
         if self.opts.is_empty() {
             return self.name.clone();
         }
-        let body: Vec<String> = self.opts.iter().map(|(k, v)| format!("{k}={v}")).collect();
+        let body: Vec<String> = self
+            .opts
+            .iter()
+            .map(|(k, v)| if k.is_empty() { v.clone() } else { format!("{k}={v}") })
+            .collect();
         format!("{}={}", self.name, body.join(":"))
     }
 }
@@ -73,4 +85,21 @@ pub fn render_chain(filters: &[Filter]) -> String {
         .map(Filter::render)
         .collect::<Vec<_>>()
         .join(",")
+}
+
+#[cfg(test)]
+mod pos_tests {
+    use super::*;
+
+    #[test]
+    fn positional_options_render_as_bare_values_before_named_ones() {
+        assert_eq!(Filter::new("aresample").pos(44100).render(), "aresample=44100");
+        assert_eq!(Filter::new("atrim").pos(0).pos(12.5).render(), "atrim=0:12.5");
+        assert_eq!(Filter::new("volume").pos(0.22).render(), "volume=0.22");
+        assert_eq!(
+            Filter::new("amix").opt("inputs", 2).opt("duration", "first").render(),
+            "amix=inputs=2:duration=first"
+        );
+        assert_eq!(Filter::new("apad").pos(1).opt("whole_dur", 3).render(), "apad=1:whole_dur=3");
+    }
 }

@@ -62,6 +62,17 @@ impl PresetSpeaker {
     }
 }
 
+impl PresetSpeaker {
+    /// Parse a preset name (`as_str` form, e.g. `"uncle_fu"`). Matching ignores ASCII case and
+    /// surrounding whitespace; any other spelling, including `"uncle-fu"`, returns `None`.
+    pub fn parse(value: &str) -> Option<Self> {
+        let value = value.trim().to_ascii_lowercase();
+        Self::ALL
+            .into_iter()
+            .find(|speaker| speaker.as_str() == value)
+    }
+}
+
 /// Additive mode API: existing `SynthesizeRequest` literals remain compatible.
 #[derive(Debug, Clone, Default)]
 pub struct ModeSynthesizeRequest<'a> {
@@ -134,6 +145,26 @@ mod tests {
             }),
             ..Default::default()
         }
+    }
+
+    #[test]
+    fn preset_speaker_parse_accepts_every_name_in_any_case() {
+        for speaker in PresetSpeaker::ALL {
+            assert_eq!(PresetSpeaker::parse(speaker.as_str()), Some(speaker));
+            assert_eq!(
+                PresetSpeaker::parse(&speaker.as_str().to_ascii_uppercase()),
+                Some(speaker)
+            );
+            assert_eq!(
+                PresetSpeaker::parse(&format!("  {}  ", speaker.as_str())),
+                Some(speaker)
+            );
+        }
+        assert_eq!(PresetSpeaker::parse("Vivian"), Some(PresetSpeaker::Vivian));
+        assert_eq!(PresetSpeaker::parse("uncle-fu"), None);
+        assert_eq!(PresetSpeaker::parse("uncle fu"), None);
+        assert_eq!(PresetSpeaker::parse(""), None);
+        assert_eq!(PresetSpeaker::parse("nobody"), None);
     }
 
     #[test]

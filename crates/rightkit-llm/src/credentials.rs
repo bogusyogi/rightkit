@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::fmt;
 use std::sync::Arc;
 
 use rightkit_http::{Secret, SecretStore};
@@ -34,9 +35,19 @@ impl CredentialSource for SecretStoreCredentials {
     }
 }
 
-/// Fixed in-memory credentials (tests, one-shot CLI use).
+/// Fixed in-memory credentials (tests, one-shot CLI use). An app that already holds keys
+/// in its own store implements [`CredentialSource`] itself, returning [`Secret`] values.
 #[derive(Default, Clone)]
 pub struct StaticCredentials(pub HashMap<String, Secret>);
+
+impl fmt::Debug for StaticCredentials {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        // Provider ids only: the values are secrets.
+        let mut ids: Vec<&String> = self.0.keys().collect();
+        ids.sort();
+        f.debug_struct("StaticCredentials").field("providers", &ids).finish()
+    }
+}
 
 impl StaticCredentials {
     pub fn with(mut self, provider: &str, value: &str) -> Self {

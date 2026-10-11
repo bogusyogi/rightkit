@@ -1,6 +1,7 @@
 use crate::audio;
 use crate::config::PreprocessorConfig;
-use crate::decoder::{ParakeetDecoder, TranscriptionResult};
+use crate::decoder::TranscriptionResult;
+use crate::decoder_ctc::ParakeetDecoder;
 use crate::error::{Error, Result};
 use crate::execution::ModelConfig as ExecutionConfig;
 use crate::model::ParakeetModel;

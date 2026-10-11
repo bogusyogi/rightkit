@@ -2,7 +2,10 @@ use crate::discovery::{record_process_matches, try_lock_exclusive};
 use crate::error::{ServiceError, ERROR_NOT_ALLOWED};
 use crate::record::*;
 use crate::suite::{make_private_dir, valid_service_name, Suite, SuiteError};
-use crate::transport::{self, endpoint_for, pid_alive, probe_endpoint, Conn, Listener};
+use crate::transport::{
+    self, endpoint_for, pid_alive, probe_endpoint, Accepted, Conn, Listener,
+    DEFAULT_MAX_PIPE_INSTANCES,
+};
 use rightkit_framed_sidecar::{read_json_line, write_json_line, FrameError};
 use serde_json::{json, Value};
 use std::collections::HashMap;
@@ -76,6 +79,12 @@ pub enum ServiceEvent {
         app: String,
         reason: String,
     },
+    /// A connection was closed unread because the OS reported its peer is not the current
+    /// user (or could not be identified). `reason` is the typed peer error: a uid or pid,
+    /// never request content.
+    PeerRejected {
+        reason: String,
+    },
     Denied {
         conn: u64,
         app: String,
@@ -127,6 +136,44 @@ impl ServiceConfig {
             known_roles: Default::default(),
             endpoint: None,
         }
+    }
+}
+
+/// Host-side transport options, passed to [`host_with_options`]. `HostOptions::default()`
+/// is what [`host`] uses.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct HostOptions {
+    max_pipe_instances: u32,
+}
+
+impl Default for HostOptions {
+    fn default() -> Self {
+        Self {
+            max_pipe_instances: DEFAULT_MAX_PIPE_INSTANCES,
+        }
+    }
+}
+
+impl HostOptions {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Cap on simultaneous instances of the Windows named pipe: live connections plus the
+    /// one instance waiting for the next client. A client that arrives when the cap is
+    /// reached gets "pipe busy" and retries, so a flood of connections cannot grow the
+    /// host without bound. Default [`DEFAULT_MAX_PIPE_INSTANCES`] (16); clamped to
+    /// `1..=254` (255 is "unlimited" to Win32 and is never used). Ignored on Unix, where
+    /// there is no pipe.
+    #[must_use]
+    pub fn max_pipe_instances(mut self, n: u32) -> Self {
+        self.max_pipe_instances = n.clamp(1, 254);
+        self
+    }
+
+    /// The effective (clamped) cap.
+    pub fn get_max_pipe_instances(&self) -> u32 {
+        self.max_pipe_instances
     }
 }
 
@@ -222,6 +269,22 @@ impl Shared {
     }
 }
 
+/// Runtime figures of a running host, computed on call by [`Hosted::status`].
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ServiceStatus {
+    /// Connections open now.
+    pub connections: usize,
+    /// Requests being served now (the queue the handoff waits on).
+    pub inflight: usize,
+    /// A takeover was accepted and the host is draining.
+    pub handoff_requested: bool,
+    /// The host has released the service.
+    pub released: bool,
+    /// Resident memory, CPU time and I/O counters of the whole process (the host runs in it), or
+    /// `None` when the host cannot report them. See `rightkit_process::ProcessUsage`.
+    pub process: Option<rightkit_process::ProcessUsage>,
+}
+
 /// A running host. Dropping it releases the service.
 pub struct Hosted {
     shared: Arc<Shared>,
@@ -236,6 +299,26 @@ impl Hosted {
     }
     pub fn inflight(&self) -> usize {
         self.shared.inflight.load(Ordering::SeqCst)
+    }
+    /// Connections, in-flight requests and process resource usage, read now. No polling thread
+    /// runs for this.
+    pub fn status(&self) -> ServiceStatus {
+        ServiceStatus {
+            connections: self
+                .shared
+                .conns
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .len(),
+            inflight: self.shared.inflight.load(Ordering::SeqCst),
+            handoff_requested: self.shared.handoff.load(Ordering::SeqCst),
+            released: *self
+                .shared
+                .released
+                .lock()
+                .unwrap_or_else(|e| e.into_inner()),
+            process: rightkit_process::process_usage().ok(),
+        }
     }
     /// Block until the host has released (clean shutdown or takeover).
     pub fn wait_released(&self, timeout: Duration) -> bool {
@@ -271,6 +354,17 @@ pub fn host(
     suite: &Suite,
     cfg: ServiceConfig,
     handler: Arc<dyn Handler>,
+) -> Result<Hosted, HostError> {
+    host_with_options(suite, cfg, handler, HostOptions::default())
+}
+
+/// [`host`] with explicit [`HostOptions`].
+#[allow(clippy::result_large_err)]
+pub fn host_with_options(
+    suite: &Suite,
+    cfg: ServiceConfig,
+    handler: Arc<dyn Handler>,
+    options: HostOptions,
 ) -> Result<Hosted, HostError> {
     if !valid_service_name(&cfg.service) {
         return Err(HostError::InvalidName(cfg.service.clone()));
@@ -315,7 +409,7 @@ pub fn host(
                 // PID generation and endpoint checks rejected the old record.
                 // Only the elected process may remove it or a dead Unix socket.
                 let _ = std::fs::remove_file(record_path(suite, &cfg.service));
-                match Listener::bind(&endpoint) {
+                match Listener::bind(&endpoint, options.max_pipe_instances) {
                     Ok(listener) => break (listener, election.unwrap()),
                     // A legacy host may have bound without publishing yet, or a
                     // Windows incumbent may still be closing its pipe handles.
@@ -406,7 +500,7 @@ pub(crate) fn now_ms() -> u64 {
 fn accept_loop(s: Arc<Shared>) {
     while !s.stop.load(Ordering::SeqCst) {
         match s.listener.accept() {
-            Ok(Some(conn)) => {
+            Ok(Accepted::Conn(conn)) => {
                 if s.stop.load(Ordering::SeqCst) {
                     break;
                 }
@@ -415,7 +509,14 @@ fn accept_loop(s: Arc<Shared>) {
                     .name("rk-svc-conn".into())
                     .spawn(move || serve_conn(s2, conn));
             }
-            Ok(None) => {} // wrong user: dropped
+            // Wrong user (or unidentifiable): already closed unread. Log it, except for the
+            // shutdown wake-up, which is our own connection.
+            Ok(Accepted::Rejected(reason)) => {
+                if !s.stop.load(Ordering::SeqCst) {
+                    s.event(ServiceEvent::PeerRejected { reason });
+                }
+            }
+            Ok(Accepted::Vanished) => {}
             Err(_) => {
                 if s.stop.load(Ordering::SeqCst) {
                     break;
@@ -645,4 +746,35 @@ fn serve_conn(s: Arc<Shared>, conn: Conn) {
 #[allow(dead_code)]
 fn _assert_transport_used() {
     let _ = transport::current_uid;
+}
+
+#[cfg(test)]
+mod options_tests {
+    use super::*;
+
+    #[test]
+    fn pipe_instance_cap_is_small_finite_and_clamped() {
+        let d = HostOptions::default();
+        assert_eq!(d.get_max_pipe_instances(), DEFAULT_MAX_PIPE_INSTANCES);
+        assert!(d.get_max_pipe_instances() >= 1 && d.get_max_pipe_instances() < 255);
+        assert_eq!(
+            HostOptions::new()
+                .max_pipe_instances(4)
+                .get_max_pipe_instances(),
+            4
+        );
+        assert_eq!(
+            HostOptions::new()
+                .max_pipe_instances(0)
+                .get_max_pipe_instances(),
+            1
+        );
+        // 255 is PIPE_UNLIMITED_INSTANCES to Win32; never reachable.
+        assert_eq!(
+            HostOptions::new()
+                .max_pipe_instances(u32::MAX)
+                .get_max_pipe_instances(),
+            254
+        );
+    }
 }

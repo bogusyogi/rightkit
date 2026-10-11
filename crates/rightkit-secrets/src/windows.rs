@@ -5,7 +5,7 @@
 use crate::backend::{Backend, Interaction};
 use crate::error::{Error, Result};
 use crate::keyring_compat;
-use crate::namespace::Namespace;
+use crate::namespace::{check_target, Namespace};
 use crate::secret::Secret;
 use std::sync::Mutex;
 use windows_sys::Win32::Foundation::{
@@ -144,12 +144,15 @@ impl Backend for CredentialManagerBackend {
         "windows-credential-manager"
     }
     fn get(&self, ns: &Namespace, account: &str, _: Interaction) -> Result<Option<Secret>> {
+        check_target(ns, account)?;
         self.read(ns, account, true)
     }
     fn exists(&self, ns: &Namespace, account: &str, _: Interaction) -> Result<bool> {
+        check_target(ns, account)?;
         Ok(self.read(ns, account, false)?.is_some())
     }
     fn set(&self, ns: &Namespace, account: &str, secret: &Secret, _: Interaction) -> Result<()> {
+        check_target(ns, account)?;
         let name = wide(&ns.windows_target_name(account));
         let user = wide(account);
         let blob = zeroize::Zeroizing::new(if ns.is_keyring_compat() {
@@ -178,6 +181,7 @@ impl Backend for CredentialManagerBackend {
         secret: &Secret,
         mode: Interaction,
     ) -> Result<bool> {
+        check_target(ns, account)?;
         let _g = ADD_LOCK
             .lock()
             .map_err(|_| Error::Unavailable("lock poisoned".into()))?;
@@ -189,6 +193,7 @@ impl Backend for CredentialManagerBackend {
         Ok(true)
     }
     fn delete(&self, ns: &Namespace, account: &str, _: Interaction) -> Result<bool> {
+        check_target(ns, account)?;
         let name = wide(&ns.windows_target_name(account));
         unsafe {
             if CredDeleteW(name.as_ptr(), CRED_TYPE_GENERIC, 0) == 0 {

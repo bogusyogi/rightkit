@@ -238,9 +238,10 @@ impl Provider for FailoverChain {
                     Ok(Msg::Done(res)) => return res,
                     Err(RecvTimeoutError::Timeout) => {
                         cancel.store(true, std::sync::atomic::Ordering::SeqCst);
-                        return Err(LlmError::Http(rightkit_http::HttpError::Timeout(
-                            "first token deadline".into(),
-                        )));
+                        return Err(LlmError::Http(rightkit_http::HttpError::Timeout {
+                            message: "first token deadline".into(),
+                            phase: rightkit_http::Phase::Body,
+                        }));
                     }
                     Err(RecvTimeoutError::Disconnected) => {
                         return Err(LlmError::Malformed(

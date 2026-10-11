@@ -5,15 +5,22 @@ use std::{
     time::{Duration, SystemTime},
 };
 #[cfg(unix)]
-type PlatformChild = std::process::Child;
+type PlatformChild = crate::unix_child::UnixChild;
 #[cfg(windows)]
 type PlatformChild = crate::spawn_windows::WindowsChild;
 #[cfg(unix)]
 use std::{thread, time::Instant};
 
-/// An independent exit reader. On Unix it shares std's cached reap state;
+/// An independent exit reader. On Unix it shares the owner's cached reap state;
 /// on Windows it owns a duplicated process handle, never a borrowed handle value.
 /// Keeping this reader alive does not keep an owned process tree alive.
+///
+/// Unix: `wait`, `try_wait` and `wait_timeout` reap the leader when it has exited. The first
+/// reap by any path, this reader or the owner, permanently ends process-group signalling for
+/// the `OwnedChild` and every clone: the group id may be recycled from then on, so nothing is
+/// sent to it again. A reader that exists to observe exit therefore also means the owner can
+/// no longer kill descendants that outlive the leader; terminate the tree through the owner
+/// before the leader is reaped if that matters.
 #[derive(Debug)]
 pub struct ProcessHandle {
     #[cfg(unix)]
@@ -128,8 +135,8 @@ impl ProcessHandle {
                 }
                 loop {
                     let mut info = std::mem::MaybeUninit::<libc::siginfo_t>::uninit();
-                    // Block without reaping or holding the std-child lock. std's
-                    // waitpid below remains the sole reap/cache owner. This lets
+                    // Block without reaping or holding the child lock; the try_wait
+                    // below is the reap, under the lock, and records it. This lets
                     // concurrent timeouts & detached-drop stdio cleanup proceed.
                     if unsafe {
                         libc::waitid(
@@ -169,14 +176,10 @@ impl ProcessHandle {
                 target_os = "illumos"
             )))]
             {
-                // Other Unix hosts use std's blocking waitpid & shared cache.
-                let mut child = lock_child(&self.child);
-                // An independent reader must not close owner stdin. OwnedChild::wait
-                // already closes it explicitly, matching std Child::wait.
-                let stdin = child.stdin.take();
-                let result = child.wait();
-                child.stdin = stdin;
-                result
+                // Other Unix hosts use std's blocking waitpid & shared cache. An independent
+                // reader must not close owner stdin; OwnedChild::wait closes it explicitly,
+                // matching std Child::wait.
+                lock_child(&self.child).wait_reaping()
             }
         }
         #[cfg(windows)]

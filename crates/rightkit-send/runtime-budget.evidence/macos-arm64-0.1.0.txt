@@ -1,0 +1,28 @@
+# crate: rightkit-send 0.1.0
+# command: rightkit cargo bench -p rightkit-send  --bench budget
+# host: macos arm64, Mac18,5 / Apple M6, 12 cpus, 24 GB, 27.0.1
+# date: 2026-10-11T07:41:44Z
+# machine load (1/5/15 min) before the build: 14.84 8.16 6.52 ; after the run: 4.25 5.04 5.87 (other builds were running; the queue admits one build at a time)
+# commit: 0d8ec774acfbeeb56e5fc975a24e76908e4dd85c (HEAD; the tree under test has uncommitted changes)
+rightkit: request c9ddfd30-f60a-4b08-bf2e-1f22cc0d0021
+[rightkit] target warm-candidate at start (4 entries, generation 2)
+   Compiling rightkit-process v0.3.4 (/Volumes/D/rightkit-publish/v10/claude/rightkit/crates/rightkit-process)
+   Compiling rightkit-send v0.1.0 (/Volumes/D/rightkit-publish/v10/claude/rightkit/crates/rightkit-send)
+    Finished `bench` profile [optimized] target(s) in 1m 43s
+     Running benches/budget.rs (/Volumes/D/.rightkit-managed/rightkit-build-control/ws/520b705fd794/g/002/target/aarch64-apple-darwin/release/deps/budget-c37158a88bcaa895)
+warm-up: service on port 58077, devices listed 50, resident 3.4 MiB (before start 2.0 MiB)
+RESULT devices_after_idle=50 devices
+RESULT warm_resident_bytes=3588096 bytes
+RESULT idle_resident_bytes=3686400 bytes
+RESULT resident_memory_bytes=3686400 bytes
+RESULT footprint_bytes=2965960 bytes
+RESULT idle_window_seconds=30.1 seconds
+RESULT idle_cpu_percent=0.051 percent
+RESULT wakeups_per_second=15.329 per_second
+RESULT disk_ops_per_second=unavailable the host exposes no process disk-operation counter
+RESULT disk_read_bytes_per_second=0.000 bytes_per_second
+RESULT disk_write_bytes_per_second=0.000 bytes_per_second
+RESULT scale=50 devices listed on a running service (documentation-range addresses that never answer), service idle through one liveness sweep
+RESULT scope=synthetic
+RESULT budget crate=rightkit-send version=0.1.0 resident_bytes=3686400 idle_cpu_percent=0.051 wakeups_per_s=15.329 disk_ops_per_s=unavailable scale_unit=devices scale_count=50
+[rightkit] target warm (target-nonempty-with-fresh-artifacts); not-fresh 0/71

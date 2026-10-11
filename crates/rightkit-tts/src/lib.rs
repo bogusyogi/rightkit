@@ -15,14 +15,22 @@ pub mod chunk;
 #[cfg(feature = "client")]
 pub mod client;
 #[cfg(feature = "client")]
+pub mod mode_location;
+#[cfg(feature = "client")]
 pub mod models;
 #[cfg(feature = "client")]
 pub mod protocol;
 #[cfg(feature = "system")]
 pub mod system;
+#[cfg(feature = "client")]
+pub mod worker_args;
 
 #[cfg(feature = "client")]
 pub use client::{QtsClient, QtsError, SynthOptions, SynthResult};
+#[cfg(feature = "client")]
+pub use mode_location::ModeLocation;
+#[cfg(feature = "client")]
+pub use protocol::{Mode, PRESET_SPEAKERS};
 #[cfg(feature = "system")]
 pub use system::{
     chunk_sentences, SentenceChunk, SystemTts, SystemTtsError, SystemTtsManifest, SystemTtsOptions,

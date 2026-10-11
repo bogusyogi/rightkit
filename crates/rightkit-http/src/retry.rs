@@ -52,7 +52,7 @@ impl RetryPolicy {
         } else {
             capped
         };
-        Duration::from_secs_f64(shaved.max(0.0))
+        Duration::try_from_secs_f64(shaved.max(0.0)).unwrap_or(self.max_backoff)
     }
 
     /// Delay for a given failure: the larger of backoff and a (capped) Retry-After.
@@ -79,5 +79,48 @@ pub fn parse_retry_after(value: &str) -> Option<Duration> {
     v.parse::<f64>()
         .ok()
         .filter(|s| s.is_finite() && *s >= 0.0)
-        .map(Duration::from_secs_f64)
+        .map(|s| Duration::try_from_secs_f64(s).unwrap_or(Duration::MAX))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn huge_retry_after_saturates_instead_of_panicking() {
+        for v in [
+            "18446744073709551616",
+            "1e300",
+            "99999999999999999999999999999999999999",
+            "1.7976931348623157e308",
+        ] {
+            assert_eq!(parse_retry_after(v), Some(Duration::MAX), "{v}");
+        }
+        assert_eq!(parse_retry_after("1.5"), Some(Duration::from_millis(1500)));
+        assert_eq!(parse_retry_after("-1"), None);
+        assert_eq!(parse_retry_after("NaN"), None);
+        assert_eq!(parse_retry_after("inf"), None);
+    }
+
+    #[test]
+    fn delay_caps_a_saturated_retry_after() {
+        let p = RetryPolicy {
+            max_retry_after: Duration::from_secs(30),
+            jitter: 0.0,
+            ..RetryPolicy::default()
+        };
+        assert_eq!(p.delay(1, Some(Duration::MAX)), Duration::from_secs(30));
+    }
+
+    #[test]
+    fn backoff_with_absurd_settings_does_not_panic() {
+        let p = RetryPolicy {
+            initial_backoff: Duration::MAX,
+            max_backoff: Duration::MAX,
+            multiplier: f64::MAX,
+            jitter: 0.0,
+            ..RetryPolicy::default()
+        };
+        let _ = p.backoff(40);
+    }
 }

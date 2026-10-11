@@ -57,6 +57,40 @@ pub struct NavPolicy {
     pub broker_host: Option<String>,
     /// Origins (scheme://host[:port]) allowed to open popup windows in-app.
     pub popup_origins: Vec<String>,
+    /// Extra schemes the host serves as its own content, loaded in place like `tauri:` (a custom
+    /// protocol registered by the app). Empty by default; add with [`NavPolicy::with_internal_scheme`].
+    pub internal_schemes: Vec<String>,
+}
+
+/// Schemes no host may mark internal: web and script schemes would let the webview load the world,
+/// and `file:` the disk, in place.
+const NEVER_INTERNAL: &[&str] = &[
+    "http",
+    "https",
+    "mailto",
+    "file",
+    "javascript",
+    "vbscript",
+    "ftp",
+    "ws",
+    "wss",
+];
+
+/// `Ok(lowercased scheme)` when `scheme` can be treated as internal content.
+pub fn validate_internal_scheme(scheme: &str) -> Result<String, String> {
+    let lower = scheme.to_ascii_lowercase();
+    let mut chars = lower.chars();
+    let well_formed = chars.next().is_some_and(|c| c.is_ascii_lowercase())
+        && chars.all(|c| {
+            c.is_ascii_lowercase() || c.is_ascii_digit() || matches!(c, '+' | '-' | '.')
+        });
+    if !well_formed {
+        return Err(format!("{scheme:?} is not a URL scheme"));
+    }
+    if NEVER_INTERNAL.contains(&lower.as_str()) {
+        return Err(format!("{lower}: cannot be an internal scheme"));
+    }
+    Ok(lower)
 }
 
 impl Default for NavPolicy {
@@ -66,6 +100,7 @@ impl Default for NavPolicy {
             allow_loopback: cfg!(debug_assertions),
             broker_host: None,
             popup_origins: OAUTH_POPUP_ORIGINS.iter().map(|s| s.to_string()).collect(),
+            internal_schemes: Vec::new(),
         }
     }
 }
@@ -103,9 +138,21 @@ pub fn origin_of(url: &Url) -> Option<String> {
 }
 
 impl NavPolicy {
+    /// This policy with `scheme` also loaded in place (see [`NavPolicy::internal_schemes`]). Errors
+    /// on a malformed scheme or a web, script or file scheme. The built-in set is unchanged.
+    pub fn with_internal_scheme(mut self, scheme: &str) -> Result<Self, String> {
+        let scheme = validate_internal_scheme(scheme)?;
+        if !self.internal_schemes.contains(&scheme) {
+            self.internal_schemes.push(scheme);
+        }
+        Ok(self)
+    }
+
     fn serves_in_place(&self, url: &Url) -> bool {
         let scheme = url.scheme();
-        if INTERNAL_SCHEMES.contains(&scheme) {
+        if INTERNAL_SCHEMES.contains(&scheme)
+            || self.internal_schemes.iter().any(|s| s == scheme)
+        {
             return true;
         }
         let Some(host) = url.host_str() else {

@@ -8,4 +8,17 @@ The `{provider}` segment of `/v1/oauth/{provider}/callback` and `/v1/webhooks/{p
 
 ## Drift guards
 
-`tests/conformance.rs` pins the route table, fixtures, error codes and lifecycle events to the schema. Events the daemon cannot emit are listed under `x-reservedEvents` in the schema.
+`tests/conformance.rs` pins the route table, fixtures, error codes and lifecycle events to the schema. The schema example, the valid fixture and `routes.rs` must list the same routes and statuses. Error codes the daemon cannot return are listed under `x-reservedErrors`, and lifecycle events it cannot emit under `x-reservedEvents`.
+
+## Runtime budget
+
+Generated from `runtime-budget.json`; edit that file, then run `node packages/release/runtime-budgets.mjs sync <crate-dir>`.
+
+- Resident memory ceiling: 95.0 MiB.
+- CPU ceiling (idle, steady state): 1%.
+- Wake-ups ceiling: 1 per second.
+- Disk operations ceiling: 1 operations per second.
+- Required scale: 10,000 submissions or more.
+- Required hosts: macOS and Windows.
+- Status exposure: `Daemon::status()` in `src/daemon.rs`; exposes resident memory, idle CPU, wake-ups, disk operations.
+- Measured: not yet measured.

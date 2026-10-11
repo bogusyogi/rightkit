@@ -76,6 +76,7 @@ fn main() {
                     let _ = std::fs::write(p, format!("stalled_ms={} threshold_ms={}\n", r.stalled_ms, r.threshold_ms));
                 }
             })),
+            ..Default::default()
         }))
         .stream_protocol("rk-stream", StreamPolicy::default())
         .recovery(RecoverySpec::documents())

@@ -121,9 +121,9 @@ pub fn log_softmax(logits: &[f32]) -> Vec<f32> {
 /// `argmax`/`biased_argmax` used — so `rank_top_k(_, _, 1)` always picks the
 /// same index those functions did. Ties keep the FIRST (lowest) index: the
 /// sort is stable and candidates are enumerated in ascending index order, so
-/// a tied group keeps its original relative order — same convention as
-/// `argmax`'s strict `>` left-to-right scan (a later equal value never
-/// displaces an earlier one).
+/// a tied group keeps its original relative order. This is NOT the greedy
+/// path's rule: the greedy `argmax` (`model_transducer`) keeps the LAST maximum
+/// (`Iterator::max_by`). Both rules are 0.1.0 behaviour, documented in CHANGELOG 0.2.0.
 pub fn rank_top_k(
     logits: &[f32],
     bonuses: &std::collections::HashMap<usize, f32>,

@@ -91,7 +91,11 @@ fn retries_503_with_backoff_then_succeeds_and_notifies_observer() {
     let client = Client::new(cfg);
     let start = Instant::now();
     let resp = client
-        .send(&Request::post(server.url("/x")).body(b"payload".to_vec()))
+        .send(
+            &Request::post(server.url("/x"))
+                .body(b"payload".to_vec())
+                .retry_unsafe_statuses(true),
+        )
         .unwrap();
     assert_eq!(resp.text(), "finally");
     assert_eq!(resp.attempts, 3);
@@ -529,7 +533,11 @@ fn stream_error_status_carries_body_and_retries_before_first_byte() {
     let mut policy = fast_retry(3);
     policy.retry_statuses.push(529);
     let client = client_with(policy);
-    match client.stream(&Request::post(server.url("/")).body(b"x".to_vec())) {
+    match client.stream(
+        &Request::post(server.url("/"))
+            .body(b"x".to_vec())
+            .retry_unsafe_statuses(true),
+    ) {
         Err(HttpError::Status {
             status: 400,
             body,

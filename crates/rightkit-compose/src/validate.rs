@@ -8,6 +8,8 @@ use crate::model::{
     AssetRef, ClickShape, Clip, Composition, Content, Layer, MotionBlur, Pattern, Point, Rect,
     Rgba, Shadow, Stop, Style, Transform, SCHEMA,
 };
+use crate::retime::check_retime;
+use crate::ticks::Ticks;
 use crate::track::{Easing, Keyframe};
 
 const EDGE_EPSILON: f64 = 1e-9;
@@ -18,14 +20,13 @@ pub fn validate(composition: &Composition) -> Result<(), CompositionError> {
         return Err(CompositionError::Schema(composition.schema.clone()));
     }
     let canvas = composition.canvas;
-    if canvas.width == 0
-        || canvas.height == 0
-        || canvas.frame_rate_num == 0
-        || canvas.frame_rate_den == 0
-    {
+    if canvas.width == 0 || canvas.height == 0 {
         return Err(CompositionError::Canvas);
     }
-    if composition.duration_ms == 0 {
+    if composition.fps.num == 0 || composition.fps.den == 0 {
+        return Err(CompositionError::FrameRate);
+    }
+    if composition.duration == Ticks::ZERO {
         return Err(CompositionError::Duration);
     }
     let mut seen: HashSet<&str> = HashSet::new();
@@ -51,7 +52,7 @@ fn check_layer(
     layer: &Layer,
 ) -> Result<(), CompositionError> {
     let timing = layer.timing;
-    if timing.start_ms >= timing.end_ms || timing.end_ms > composition.duration_ms {
+    if timing.start >= timing.end || timing.end > composition.duration {
         return Err(invalid(
             layer,
             "timing must satisfy start < end <= composition duration",
@@ -105,15 +106,13 @@ fn check_layer(
             asset,
             placement,
             crop,
-            speed,
-            ..
+            retime,
         } => {
             check_asset(layer, asset)?;
             check_rect(layer, placement, "placement")?;
             check_crop_track(layer, crop)?;
-            if !speed.is_finite() || *speed == 0.0 {
-                return Err(invalid(layer, "speed must be finite and non-zero"));
-            }
+            let span = Ticks(timing.end.0 - timing.start.0);
+            check_retime(retime, span).map_err(|reason| invalid(layer, reason))?;
         }
         Content::Still {
             asset,
@@ -159,7 +158,7 @@ fn check_layer(
                 return Err(invalid(layer, "cursor hotspot must be finite"));
             }
             for pair in samples.windows(2) {
-                if pair[0].at_ms >= pair[1].at_ms {
+                if pair[0].at >= pair[1].at {
                     return Err(invalid(
                         layer,
                         "cursor samples must be strictly increasing in time",
@@ -193,13 +192,13 @@ fn check_layer(
             anchor,
             effect,
             style,
-            duration_ms,
+            duration,
             easing,
             ..
         } => {
             check_point_unit(layer, *anchor, "click anchor")?;
             check_style(layer, style)?;
-            if *duration_ms == 0 {
+            if *duration == Ticks::ZERO {
                 return Err(invalid(layer, "click effect duration must be positive"));
             }
             check_easing_params(layer, easing)?;
@@ -264,6 +263,11 @@ fn check_easing_params(layer: &Layer, easing: &Easing) -> Result<(), Composition
             ));
         }
     }
+    if let Easing::CameraSpring { bounce } = *easing {
+        if !bounce.is_finite() {
+            return Err(invalid(layer, "camera spring bounce must be finite"));
+        }
+    }
     Ok(())
 }
 
@@ -278,7 +282,7 @@ fn check_track<T>(
     value_ok: impl Fn(&T) -> bool,
 ) -> Result<(), String> {
     for pair in track.windows(2) {
-        if pair[0].at_ms >= pair[1].at_ms {
+        if pair[0].at >= pair[1].at {
             return Err(format!(
                 "{name} keyframes must be strictly increasing in time"
             ));
@@ -287,16 +291,24 @@ fn check_track<T>(
     for keyframe in track {
         if !value_ok(&keyframe.value) {
             return Err(format!(
-                "{name} keyframe at {} ms has an invalid value",
-                keyframe.at_ms
+                "{name} keyframe at {} has an invalid value",
+                keyframe.at
             ));
         }
         if let Easing::CubicBezier { x1, y1, x2, y2 } = keyframe.easing {
             let x_ok = (0.0..=1.0).contains(&x1) && (0.0..=1.0).contains(&x2);
             if !x_ok || !y1.is_finite() || !y2.is_finite() {
                 return Err(format!(
-                    "{name} keyframe at {} ms has invalid bezier control points",
-                    keyframe.at_ms
+                    "{name} keyframe at {} has invalid bezier control points",
+                    keyframe.at
+                ));
+            }
+        }
+        if let Easing::CameraSpring { bounce } = keyframe.easing {
+            if !bounce.is_finite() {
+                return Err(format!(
+                    "{name} keyframe at {} has a non-finite camera spring bounce",
+                    keyframe.at
                 ));
             }
         }
@@ -308,8 +320,8 @@ fn check_track<T>(
         {
             if !spring_params_ok(stiffness, damping, mass) {
                 return Err(format!(
-                    "{name} keyframe at {} ms has invalid spring parameters",
-                    keyframe.at_ms
+                    "{name} keyframe at {} has invalid spring parameters",
+                    keyframe.at
                 ));
             }
         }

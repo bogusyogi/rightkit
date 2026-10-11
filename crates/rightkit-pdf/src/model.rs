@@ -65,6 +65,12 @@ pub enum PdfEditError {
     UnsupportedEncoding,
     #[error("selected font lacks a required glyph")]
     MissingGlyph,
+    /// A replacement needs characters the island's own (subset) font cannot encode. Distinct from
+    /// [`PdfEditError::UnsupportedEncoding`] ("this font can never be re-encoded"): the island is
+    /// editable, this particular text is not. Wire `code` is `missing_glyph`, the same as
+    /// [`PdfEditError::MissingGlyph`]; the `message` names the characters.
+    #[error("selected font lacks a required glyph for: {}", format_missing_chars(.0))]
+    MissingGlyphs(Vec<char>),
     #[error("font license forbids embedding")]
     FontEmbeddingDenied,
     #[error("text exceeds safe bounds")]
@@ -81,7 +87,25 @@ pub enum PdfEditError {
     WriteConflict,
 }
 
+/// Renders characters for [`PdfEditError::MissingGlyphs`]: quoted, `Debug`-escaped (so a control
+/// character is readable), comma separated.
+fn format_missing_chars(chars: &[char]) -> String {
+    chars
+        .iter()
+        .map(|c| format!("{c:?}"))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
 impl PdfEditError {
+    /// The characters a [`PdfEditError::MissingGlyphs`] refusal names, in first-appearance order.
+    pub fn missing_chars(&self) -> Option<&[char]> {
+        match self {
+            PdfEditError::MissingGlyphs(chars) => Some(chars),
+            _ => None,
+        }
+    }
+
     /// Stable snake_case wire code for this variant — the `code` half of the `{ code, message }`
     /// envelope below, matching `pdfEditModel.ts`'s `PdfEditErrorCode` union 1:1 by name.
     pub fn code(&self) -> &'static str {
@@ -91,7 +115,7 @@ impl PdfEditError {
             PdfEditError::NoUniqueMatch => "no_unique_match",
             PdfEditError::UnsupportedTransform => "unsupported_transform",
             PdfEditError::UnsupportedEncoding => "unsupported_encoding",
-            PdfEditError::MissingGlyph => "missing_glyph",
+            PdfEditError::MissingGlyph | PdfEditError::MissingGlyphs(_) => "missing_glyph",
             PdfEditError::FontEmbeddingDenied => "font_embedding_denied",
             PdfEditError::TextOverflow => "text_overflow",
             PdfEditError::MalformedContent => "malformed_content",
@@ -201,6 +225,80 @@ pub struct PdfPageGraph {
     pub islands: Vec<PdfTextIsland>,
 }
 
+/// Why an island's own font cannot be used to write replacement text. Serialized as a snake_case
+/// string in [`PdfTextIsland::edit_blocker`]. `editable == false` with one of these means "no
+/// replacement can be written through this island's font at all"; a replacement that merely needs
+/// a glyph the font lacks is not a blocker (see [`PdfEditError::MissingGlyphs`]).
+#[derive(Clone, Copy, Debug, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum PdfEditBlocker {
+    /// Type3, an unrecognised font subtype, a Type0 font whose CMap is not `Identity-H`, or no
+    /// resolvable font resource at all.
+    UnsupportedFontType,
+    /// The font has no code-to-character table that can be inverted exactly from data in the
+    /// file: no `ToUnicode` and no `/Encoding` the engine can interpret exactly (a symbolic
+    /// embedded font with a built-in encoding, an unknown base encoding, an `/Encoding` dictionary
+    /// the parser cannot read), or none of its codes carries a positive explicit width.
+    NoReversibleEncoding,
+    /// A code has no width where the font demands authoritative metrics, so glyph geometry (and
+    /// therefore a safe fit check) is unavailable.
+    MissingMetrics,
+    /// The island mixes fonts, sizes, scales or spacing, so one replacement string cannot
+    /// reproduce it without changing its look.
+    MixedTextState,
+    /// At least one glyph has no Unicode value; replacing the island text would silently drop it.
+    UnmappedGlyphs,
+    /// The island's source spans live in more than one content stream.
+    SpansAcrossStreams,
+    /// The island contains a word gap made by moving the text position (`Td`, `Tm`, ...) rather
+    /// than by `TJ` adjustments, or a positioning/state operator between two of its show
+    /// operators, so an edit touching that seam could not be rebuilt faithfully.
+    PositionedTextRun,
+}
+
+/// A word gap the walker synthesised as a space in [`PdfTextIsland::text`]: PDF text from TeX and
+/// similar producers has no space glyphs, only `TJ` adjustments or position moves.
+#[derive(Clone, Copy, Debug, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct PdfTextGap {
+    /// Index (in `char`s) of the synthesised space inside `text`. Every other character of
+    /// `text` is a real glyph.
+    pub char_index: usize,
+    /// Device-space width of the gap in points: the pen distance between the neighbouring glyphs
+    /// beyond what `Tc` already adds.
+    pub width_pt: f64,
+}
+
+/// One element of an island's run, in reading order: a real glyph (with its source bytes) or a
+/// synthesised gap. Crate-private; the composer rebuilds a run from it.
+#[derive(Clone, Debug)]
+#[allow(dead_code)] // read by compose (feature `edit`) only
+pub(crate) struct RunItem {
+    /// `Some` for a real glyph.
+    pub glyph: Option<GlyphSourceAddress>,
+    /// The glyph's Unicode text, or `" "` for a gap.
+    pub text: String,
+    /// Baseline position (device points, along the island's unit axis) of the item's start/end.
+    pub start: f64,
+    pub end: f64,
+    /// For a gap: the `TJ` adjustments that made it, or `None` when the gap came from a position
+    /// move. Always `None` for a glyph.
+    pub gap_numbers: Option<Vec<GapNumber>>,
+    /// For a gap: the pen distance across it beyond what `Tc` already adds (device points) - the
+    /// number [`PdfTextGap::width_pt`] reports. `0.0` for a glyph.
+    pub beyond_tc: f64,
+}
+
+/// One numeric `TJ` item that contributes to a word gap.
+#[derive(Clone, Copy, Debug, PartialEq)]
+#[allow(dead_code)]
+pub(crate) struct GapNumber {
+    pub operator_index: u32,
+    /// Index of the number inside its `TJ` array.
+    pub item_index: u32,
+    pub value: f64,
+}
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PdfTextIsland {
@@ -210,8 +308,45 @@ pub struct PdfTextIsland {
     pub baseline: [f64; 4],
     pub appearance: PdfTextAppearance,
     pub locator: PdfSourceLocator,
+    /// True when a replacement can be written through the island's own font (same appearance).
+    /// This is the same decision `compose_candidate` makes; the two cannot disagree. It does not
+    /// promise that every text is encodable: a replacement needing a glyph the font lacks fails
+    /// with [`PdfEditError::MissingGlyphs`].
     pub editable: bool,
+    /// `Some(UnsupportedEncoding)` whenever `editable` is false.
     pub rejection: Option<PdfEditError>,
+    /// Typed reason when `editable` is false (additive; `null` when editable).
+    pub edit_blocker: Option<PdfEditBlocker>,
+    /// True when the island's source glyphs can be removed and the text redrawn in a catalog font
+    /// (a changed appearance), whatever the source font - and the composer will accept that edit.
+    /// False for a rejected island and for an island whose source glyphs live in more than one
+    /// content stream (`edit_blocker` is then `spans_across_streams`): the composer removes the
+    /// old glyphs from one stream only, so it refuses that edit.
+    pub substitution_editable: bool,
+    /// Geometry and spacing the composer needs to measure a replacement exactly. Not on the wire.
+    #[serde(skip)]
+    #[allow(dead_code)] // read by compose (feature `edit`) only
+    pub(crate) layout: Option<IslandLayout>,
+    /// Synthesised word gaps inside `text` (additive; empty when the run has real spaces only).
+    pub gaps: Vec<PdfTextGap>,
+    #[serde(skip)]
+    #[allow(dead_code)] // read by compose (feature `edit`) only
+    pub(crate) run: Vec<RunItem>,
+}
+
+/// Text-space to device-space measurement context for one island, captured by the walker.
+#[derive(Clone, Copy, Debug, PartialEq)]
+#[allow(dead_code)] // read by compose (feature `edit`) only
+pub(crate) struct IslandLayout {
+    /// Device-space vector of one text-space unit along the baseline: the `(a, b)` row of
+    /// `text matrix x CTM` at the island's first glyph.
+    pub axis: (f64, f64),
+    /// Font size in text-space units (`Tf` operand).
+    pub font_size: f64,
+    pub char_spacing: f64,
+    pub word_spacing: f64,
+    /// `Tz / 100`.
+    pub horizontal_scale: f64,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

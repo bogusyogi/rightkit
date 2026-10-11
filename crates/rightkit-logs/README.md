@@ -33,7 +33,7 @@ Do not use it as a general tracing framework. The `tracing` feature only writes 
 |---|---|---|---|
 | `http` | yes | `ureq` 3.4 (`rustls`) | The HTTPS transport for the consented outbox uploader. Without it the crate has no network dependency, and callers supply their own `Transport`. |
 | `testing` | no | none | `testing::MockServer`, a loopback mock ingest server for app end-to-end tests. |
-| `tracing` | no | `tracing` 0.1, `tracing-subscriber` 0.3 (`json`, `env-filter`) | Daily-rolling JSONL file logs: `install_tracing`, `tracing_layer`, `TracingFileConfig`, `TracingGuard`, `tracing_log_sources` and `collect_tracing_diagnostics`. |
+| `tracing` | no | `tracing` 0.1, `tracing-subscriber` 0.3 (`json`, `env-filter`) | Daily-rolling JSONL file logs: `install_tracing`, `tracing_layer`, `tracing_layer_checked`, `TracingFileConfig`, `TracingGuard`, `tracing_log_sources` and `collect_tracing_diagnostics`. |
 
 Consumers that bring their own transport use `default-features = false`. `default-features = false` builds the event store, collection and consent code with no network dependency.
 
@@ -44,7 +44,8 @@ With `features = ["tracing"]`, the writer creates `<dir>/<file_prefix>.YYYY-MM-D
 - `install_tracing(config)` installs a global subscriber and returns a `TracingGuard`. Keep the guard alive. Dropping it writes every accepted line, then joins the writer thread.
 - `tracing_layer::<S>(config)` returns a boxed layer and guard for apps that compose their own subscriber, such as one that also writes stderr. It never fails the caller; setup problems go to stderr.
 - Opening a day's file prunes the directory to the newest `max_files` daily files, today's included, oldest first. Only names of the exact form `<prefix>.YYYY-MM-DD.jsonl` are touched.
-- Lines pass through a bounded queue. When the queue is full, the line is dropped and counted (`TracingGuard::dropped_events`); the caller never blocks.
+- Lines pass through a bounded queue of `TracingFileConfig::queue_lines` lines (default 128_000, the `tracing-appender` limit; `0` behaves as `1`). When the queue is full, the line is dropped and counted; the caller never blocks. Read the running total with `TracingGuard::dropped_events()`. Check it at shutdown or in diagnostics to see whether bursts lost lines. Dropping the guard waits at most `shutdown_send_timeout` (default 100 ms) to queue its stop request and `shutdown_wait` (default 1 s) for the writer to flush; on timeout it detaches the writer and counts the unwritten lines, so a stalled disk cannot hang shutdown.
+- `tracing_layer_checked::<S>(config)` is the fallible form of `tracing_layer`. It returns `io::Result` for an invalid prefix or filter, an unusable directory or file open, or a worker that cannot start, instead of writing to stderr.
 - With `json: true` and `flatten_event: true`, event fields are top-level keys. `env_filter: None` reads `RUST_LOG`, then falls back to `info`.
 - `tracing_log_sources(config, "app")` lists the newest `max_files` daily files as sources named `app-0`, `app-1`, and so on, oldest first. `collect_tracing_diagnostics` runs those sources through the normal bounded, redacted collection policy.
 
@@ -72,7 +73,7 @@ let event = EventRecord::new(now_ms, Level::Info, "app_started")
 store.append(&event)?;
 ```
 
-`append` returns an error. `append_best_effort` never fails the caller. The test checks that `EventRecord` serialises with the fields flattened.
+`append` returns an error. `append_best_effort` never fails the caller and never prints: it counts the failure, and `JsonlStore::status()` returns the counts and the last message. A failed rotation still appends to the current file up to twice the rotation size, then refuses appends (both counted). The test checks that `EventRecord` serialises with the fields flattened.
 
 ## Defaults
 
@@ -125,3 +126,16 @@ Tests: `tests/contract.rs` (event shape, collection and redaction) and `tests/ou
 ## Version and changes
 
 Published version: see [INDEX.md](../../INDEX.md). Release notes are in [CHANGELOG.md](CHANGELOG.md).
+
+## Runtime budget
+
+Generated from `runtime-budget.json`; edit that file, then run `node packages/release/runtime-budgets.mjs sync <crate-dir>`.
+
+- Resident memory ceiling: 60.0 MiB.
+- CPU ceiling (idle, steady state): 1%.
+- Wake-ups ceiling: 1 per second.
+- Disk operations ceiling: 1 operations per second.
+- Required scale: 200,000 lines or more.
+- Required hosts: macOS and Windows.
+- Status exposure: `TracingGuard::status()` in `src/tracing_file.rs`; exposes resident memory, idle CPU, wake-ups, disk operations.
+- Measured: not yet measured.

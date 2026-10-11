@@ -13,6 +13,52 @@
 //! canonical payload is compact JSON in this exact field order:
 //! `v, id, app, tier, features, device_id, iat, exp`. base64url is URL-safe, **no
 //! padding** (Node's `Buffer.toString("base64url")`).
+//!
+//! ## Lifecycle, clock and refresh (0.2.0)
+//! - [`Lifecycle`] / [`evaluate_lifecycle`] classify an authenticated entitlement
+//!   (trial, expired trial, active, grace, lifetime, ...) against a trusted clock.
+//! - [`AntiRollbackClock`] persists a high-water mark of observed time and refuses to
+//!   extend validity on a rolled-back clock; [`TrustedClock`] is the hook that
+//!   authorization layers consult instead of the raw wall clock.
+//! - [`refresh_and_reanchor`] refreshes a license from the server and re-anchors the
+//!   clock on the server-signed issue time, returning a typed [`RefreshOutcome`].
+//! - [`verify_lease_envelope`] verifies a device-lease envelope signature;
+//!   [`verify_lease_envelope_fields`] does the same for already-parsed fields.
+//!
+//! ## Caller responsibilities
+//! Verification here is deliberately narrow. The caller still owns:
+//! - **The nested lease entitlement.** The envelope signature covers seven metadata
+//!   fields only, not the `entitlement` token inside the envelope. It is returned as
+//!   [`LeaseEnvelope::unverified_entitlement`] and must go through [`verify_token`] or
+//!   [`evaluate_lifecycle`] before it is trusted.
+//! - **Lease expiry, device binding and generation ordering.** A lease whose signature
+//!   verifies may be expired, issued for another device, or older than a lease already
+//!   held; checking `expiresAt`/`graceSeconds`, `deviceIdHash` and `generation` (and
+//!   rejecting a lower generation than the one stored) is the caller's job.
+
+mod clock;
+mod lease;
+mod lifecycle;
+mod refresh;
+
+pub use clock::reconcile_clock;
+pub use clock::{
+    system_now_unix, AntiRollbackClock, ClockDecision, ClockDecodeError, ClockError, ClockReading,
+    ClockRefusal, ClockState, ClockStore, MemoryClockStore, ProcessAnchor, Reanchored, SystemClock,
+    TrustedClock, CLOCK_ROLLBACK_TOLERANCE_SECS, CLOCK_WRITE_ATTEMPTS, CLOCK_WRITE_INTERVAL_SECS,
+};
+pub use lease::{
+    canonical_lease_envelope, verify_lease_envelope, verify_lease_envelope_fields, LeaseEnvelope,
+    LeaseError,
+};
+pub use lifecycle::{
+    evaluate_lifecycle, Lifecycle, LifecycleContext, LifecyclePolicy, LifecycleReport,
+    StoredCredential,
+};
+pub use refresh::{
+    refresh_and_reanchor, RefreshOutcome, RefreshParams, RefreshRejection, RefreshRequest,
+    RefreshResponse, RefreshTransport, TokenDropReason, TokenKeptReason, TransportError,
+};
 
 use base64::Engine;
 use ed25519_dalek::{Signature, Verifier, VerifyingKey};
@@ -148,7 +194,14 @@ impl Entitlement {
             && self.entitlement_stage == Some(EntitlementStage::Final)
     }
 
-    fn has_valid_lifecycle(&self) -> bool {
+    /// True when the signed lifecycle claims are complete and internally consistent.
+    ///
+    /// Legacy v2 tokens (no lifecycle claims at all) are valid. Partial claims, or claims
+    /// whose `license_issued_at` / `iat` / `exp` / `confirmation_due_at` ordering is
+    /// impossible for the declared kind and stage, are not. [`verify_token`] already
+    /// rejects such tokens with [`VerifyError::InvalidLifecycle`]; this accessor lets
+    /// callers that hold an [`authenticate_token`] result apply the same rule.
+    pub fn has_valid_lifecycle(&self) -> bool {
         match (
             self.license_kind,
             self.entitlement_stage,
@@ -244,7 +297,7 @@ fn valid_feature(feature: &str) -> bool {
     !feature.trim().is_empty()
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum VerifyError {
     /// Not a `payload.sig` token.
     Malformed,
@@ -294,18 +347,21 @@ impl std::fmt::Display for VerifyError {
 }
 impl std::error::Error for VerifyError {}
 
-/// Verify a signed entitlement token offline.
+/// Authenticate a signed entitlement token: token shape, base64url decode, Ed25519
+/// signature over the payload bytes (against `pubkey`), payload parse, `app ==
+/// expected_app` and `device_id == device_id`.
 ///
-/// Checks, in order: token shape, base64url decode, Ed25519 signature over the
-/// payload bytes (against `pubkey`), `app == expected_app`, `device_id == device_id`,
-/// and `now_unix < exp`. Returns the verified [`Entitlement`] on success. The caller
-/// then gates features on it (`is_pro()` / `has_feature()` / `tier_at_least()`).
-pub fn verify_token(
+/// This performs **no time check and no lifecycle-shape check**. An expired,
+/// not-yet-valid or lifecycle-inconsistent token still returns `Ok`. It exists so that
+/// lifecycle classification can read the *authenticated* claims of an expired token
+/// (to tell an expired trial from an expired term) without trusting an unverified
+/// decode. It must never be used on its own to grant access; use [`verify_token`] or
+/// [`evaluate_lifecycle`] for that.
+pub fn authenticate_token(
     token: &str,
     pubkey: &[u8; 32],
     expected_app: &str,
     device_id: &str,
-    now_unix: i64,
 ) -> Result<Entitlement, VerifyError> {
     let dot = token.find('.').ok_or(VerifyError::Malformed)?;
     let payload_b64 = &token[..dot];
@@ -339,6 +395,27 @@ pub fn verify_token(
     if ent.device_id != device_id {
         return Err(VerifyError::DeviceMismatch);
     }
+    Ok(ent)
+}
+
+/// Verify a signed entitlement token offline.
+///
+/// Checks, in order: token shape, base64url decode, Ed25519 signature over the
+/// payload bytes (against `pubkey`), `app == expected_app`, `device_id == device_id`,
+/// `iat` not implausibly in the future, `now_unix < exp`, and lifecycle consistency.
+/// Returns the verified [`Entitlement`] on success. The caller then gates features on
+/// it (`is_pro()` / `has_feature()` / `tier_at_least()`).
+///
+/// `now_unix` should come from a [`TrustedClock`] (an [`AntiRollbackClock`]) rather
+/// than the raw wall clock wherever the device clock is not trusted.
+pub fn verify_token(
+    token: &str,
+    pubkey: &[u8; 32],
+    expected_app: &str,
+    device_id: &str,
+    now_unix: i64,
+) -> Result<Entitlement, VerifyError> {
+    let ent = authenticate_token(token, pubkey, expected_app, device_id)?;
     // Tolerate ordinary clock drift but reject a token whose signed issue time is
     // far in the future. This blocks the simplest pre-issuance clock rollback.
     if now_unix.saturating_add(300) < ent.iat {

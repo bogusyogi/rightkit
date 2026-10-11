@@ -1,5 +1,5 @@
 use crate::error::{Error, Result};
-use crate::namespace::Namespace;
+use crate::namespace::{check_target, Namespace};
 use crate::secret::Secret;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, OnceLock};
@@ -63,6 +63,7 @@ impl Backend for MemoryBackend {
         "memory"
     }
     fn get(&self, ns: &Namespace, account: &str, _: Interaction) -> Result<Option<Secret>> {
+        check_target(ns, account)?;
         Ok(self
             .map
             .lock()
@@ -71,6 +72,7 @@ impl Backend for MemoryBackend {
             .cloned())
     }
     fn exists(&self, ns: &Namespace, account: &str, _: Interaction) -> Result<bool> {
+        check_target(ns, account)?;
         Ok(self
             .map
             .lock()
@@ -78,6 +80,7 @@ impl Backend for MemoryBackend {
             .contains_key(&Self::key(ns, account)))
     }
     fn set(&self, ns: &Namespace, account: &str, secret: &Secret, _: Interaction) -> Result<()> {
+        check_target(ns, account)?;
         self.map
             .lock()
             .unwrap()
@@ -91,6 +94,7 @@ impl Backend for MemoryBackend {
         secret: &Secret,
         _: Interaction,
     ) -> Result<bool> {
+        check_target(ns, account)?;
         let mut m = self.map.lock().unwrap();
         let k = Self::key(ns, account);
         if m.contains_key(&k) {
@@ -100,6 +104,7 @@ impl Backend for MemoryBackend {
         Ok(true)
     }
     fn delete(&self, ns: &Namespace, account: &str, _: Interaction) -> Result<bool> {
+        check_target(ns, account)?;
         Ok(self
             .map
             .lock()
@@ -116,19 +121,30 @@ impl Backend for UnavailableBackend {
     fn name(&self) -> &'static str {
         "unavailable"
     }
-    fn get(&self, _: &Namespace, _: &str, _: Interaction) -> Result<Option<Secret>> {
+    fn get(&self, ns: &Namespace, account: &str, _: Interaction) -> Result<Option<Secret>> {
+        check_target(ns, account)?;
         Err(Error::Unavailable(self.0.into()))
     }
-    fn exists(&self, _: &Namespace, _: &str, _: Interaction) -> Result<bool> {
+    fn exists(&self, ns: &Namespace, account: &str, _: Interaction) -> Result<bool> {
+        check_target(ns, account)?;
         Err(Error::Unavailable(self.0.into()))
     }
-    fn set(&self, _: &Namespace, _: &str, _: &Secret, _: Interaction) -> Result<()> {
+    fn set(&self, ns: &Namespace, account: &str, _: &Secret, _: Interaction) -> Result<()> {
+        check_target(ns, account)?;
         Err(Error::Unavailable(self.0.into()))
     }
-    fn add_if_absent(&self, _: &Namespace, _: &str, _: &Secret, _: Interaction) -> Result<bool> {
+    fn add_if_absent(
+        &self,
+        ns: &Namespace,
+        account: &str,
+        _: &Secret,
+        _: Interaction,
+    ) -> Result<bool> {
+        check_target(ns, account)?;
         Err(Error::Unavailable(self.0.into()))
     }
-    fn delete(&self, _: &Namespace, _: &str, _: Interaction) -> Result<bool> {
+    fn delete(&self, ns: &Namespace, account: &str, _: Interaction) -> Result<bool> {
+        check_target(ns, account)?;
         Err(Error::Unavailable(self.0.into()))
     }
 }

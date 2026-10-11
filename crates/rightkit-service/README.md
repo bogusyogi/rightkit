@@ -54,3 +54,16 @@ Tests are end-to-end: real host processes, real clients over the real socket. Th
 ## Compatibility
 
 Compatibility with HeardRight's speech service (see `rightkit-speech-client`): `service.json`/`takeover.json` tolerate peers that publish only `role` (rank via `ServiceConfig::known_roles`; an unresolvable rank is never displaced and never obliges a handoff), `engine_version` mirrors `version`, `ServiceConfig::endpoint` accepts a legacy endpoint name, `open_stream` gives raw line streams over the same user-only transport, and `pid_alive` is hardened (no process-group signals, Windows exit-code check).
+
+## Runtime budget
+
+Generated from `runtime-budget.json`; edit that file, then run `node packages/release/runtime-budgets.mjs sync <crate-dir>`.
+
+- Resident memory ceiling: 22.0 MiB.
+- CPU ceiling (idle, steady state): 1%.
+- Wake-ups ceiling: undeclared.
+- Disk operations ceiling: 1 operations per second.
+- Required scale: 64 connections or more.
+- Required hosts: macOS and Windows.
+- Status exposure: `Hosted::status()` in `src/server.rs`; exposes resident memory, idle CPU, wake-ups, disk operations.
+- Measured: not yet measured.

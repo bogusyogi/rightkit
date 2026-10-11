@@ -2,7 +2,10 @@
 //! in the last 2.24 s, so a word is not split across two decodes. Windows are
 //! disjoint (decode `[start, cut)`, next window starts at `cut`), so no text
 //! overlap rule is needed and none is applied.
-use super::{Segment, WindowDecoder};
+//!
+//! Sample offsets are integers: window starts are sample indices, so segment
+//! and word sample positions across windows add without float arithmetic.
+use super::{DecodeOptions, Segment, WindowDecoder, WindowOutput, WindowRequest, WordSpan};
 use crate::error::{Error, Result};
 
 pub const WHISPER_WINDOW_SAMPLES: usize = 480_000;
@@ -59,14 +62,16 @@ fn quiet_cut(samples: &[f32], lo: usize, hi: usize) -> Option<usize> {
 
 /// Decode `audio` window by window. `forced` fixes the language; otherwise it
 /// is detected on the first window and locked for the rest. Returns segments
-/// timed from the start of `audio` and the language used.
+/// and words timed from the start of `audio` (seconds and samples) and the
+/// language used.
 pub(crate) fn transcribe_windowed(
     decoder: &mut dyn WindowDecoder,
     audio: &[f32],
     forced: Option<String>,
-) -> Result<(Vec<Segment>, String)> {
+    opts: DecodeOptions,
+) -> Result<WindowOutput> {
     let mut lang = forced;
-    let mut out = Vec::new();
+    let mut out = WindowOutput::default();
     let mut start = 0usize;
     loop {
         let remaining = audio.len() - start;
@@ -79,13 +84,29 @@ pub(crate) fn transcribe_windowed(
         };
         let window = &audio[start..end];
         if !window.is_empty() {
-            let (segs, used) = decoder.decode_window(window, lang.as_deref())?;
-            lang = Some(used);
-            let offset = start as f32 / SAMPLE_RATE as f32;
-            out.extend(segs.into_iter().map(|s| Segment {
+            let req = WindowRequest {
+                lang: lang.as_deref(),
+                timed: opts.timed,
+                token_timestamps: opts.token_timestamps,
+                max_len: opts.max_len,
+                split_on_word: opts.split_on_word,
+            };
+            let got = decoder.decode_window(window, &req)?;
+            lang = Some(got.language.clone());
+            let offset_s = start as f32 / SAMPLE_RATE as f32;
+            let offset_n = start as u64;
+            out.segments.extend(got.segments.into_iter().map(|s| Segment {
                 text: s.text,
-                start: s.start + offset,
-                end: s.end + offset,
+                start: s.start + offset_s,
+                end: s.end + offset_s,
+                start_sample: s.start_sample + offset_n,
+                end_sample: s.end_sample + offset_n,
+            }));
+            out.words.extend(got.words.into_iter().map(|w| WordSpan {
+                text: w.text,
+                start_sample: w.start_sample + offset_n,
+                end_sample: w.end_sample + offset_n,
+                probability: w.probability,
             }));
         }
         if end >= audio.len() {
@@ -93,22 +114,45 @@ pub(crate) fn transcribe_windowed(
         }
         start = end;
     }
-    Ok((out, lang.unwrap_or_else(|| "en".into())))
+    out.language = lang.unwrap_or_else(|| "en".into());
+    Ok(out)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::whisper::LanguageDetection;
+
+    /// Records window lengths; reports one segment and one word per window.
     struct Mock(Vec<usize>);
     impl WindowDecoder for Mock {
-        fn decode_window(&mut self, s: &[f32], lang: Option<&str>) -> Result<(Vec<Segment>, String)> {
+        fn decode_window(&mut self, s: &[f32], req: &WindowRequest<'_>) -> Result<WindowOutput> {
             self.0.push(s.len());
-            Ok((
-                vec![Segment { text: format!("w{}", self.0.len()), start: 0.0, end: s.len() as f32 / 16_000.0 }],
-                lang.unwrap_or("fr").to_string(),
-            ))
+            let lang = req.lang.unwrap_or("fr").to_string();
+            Ok(WindowOutput {
+                segments: vec![Segment {
+                    text: format!("w{}", self.0.len()),
+                    start: 0.0,
+                    end: s.len() as f32 / 16_000.0,
+                    start_sample: 0,
+                    end_sample: s.len() as u64,
+                }],
+                words: vec![WordSpan {
+                    text: format!("x{}", self.0.len()),
+                    start_sample: 160,
+                    end_sample: 320,
+                    probability: 0.5,
+                }],
+                language: lang,
+            })
+        }
+        fn detect_window(&mut self, _s: &[f32]) -> Result<LanguageDetection> {
+            Err(Error::Config("mock does not detect".into()))
         }
     }
+
+    const DEFAULT: DecodeOptions =
+        DecodeOptions { timed: true, token_timestamps: false, max_len: 0, split_on_word: false };
 
     #[test]
     fn long_audio_is_cut_in_the_quiet_gap_and_language_locks() {
@@ -118,12 +162,27 @@ mod tests {
             *s = 0.0;
         }
         let mut m = Mock(vec![]);
-        let (segs, lang) = transcribe_windowed(&mut m, &audio, None).unwrap();
-        assert_eq!(lang, "fr");
+        let out = transcribe_windowed(&mut m, &audio, None, DEFAULT).unwrap();
+        assert_eq!(out.language, "fr");
         assert_eq!(m.0.iter().sum::<usize>(), audio.len(), "windows must tile the audio exactly");
         assert!(m.0.iter().all(|n| *n <= WHISPER_WINDOW_SAMPLES));
         let first_cut = m.0[0] as f32 / 16_000.0;
         assert!((28.0..29.0).contains(&first_cut), "cut {first_cut} not in the silent gap");
-        assert!(segs.windows(2).all(|w| w[1].start >= w[0].end - 1e-3), "segment offsets must be monotonic");
+        assert!(out.segments.windows(2).all(|w| w[1].start >= w[0].end - 1e-3), "segment offsets must be monotonic");
+    }
+
+    #[test]
+    fn window_offsets_are_exact_sample_sums() {
+        // Two windows: the second segment's sample offset must equal the first window's length exactly.
+        let audio = vec![0.1f32; WHISPER_WINDOW_SAMPLES + 40_000];
+        let mut m = Mock(vec![]);
+        let out = transcribe_windowed(&mut m, &audio, Some("en".into()), DEFAULT).unwrap();
+        assert_eq!(m.0.len(), 2);
+        let first_len = m.0[0] as u64;
+        assert_eq!(out.segments[1].start_sample, first_len, "second window starts at the first window's end");
+        assert_eq!(out.segments[1].end_sample, first_len + m.0[1] as u64);
+        assert_eq!(out.words[1].start_sample, first_len + 160);
+        assert_eq!(out.words[1].end_sample, first_len + 320);
+        assert_eq!(out.language, "en");
     }
 }

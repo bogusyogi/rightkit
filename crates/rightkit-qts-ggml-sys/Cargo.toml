@@ -28,3 +28,7 @@ regenerate-bindings = ["dep:bindgen"]
 [build-dependencies]
 bindgen = { version = "0.72", optional = true }
 cmake = "0.1"
+
+[package.metadata.rightkit]
+continuous = false
+continuous_reason = "no thread-spawn, task-spawn, sleep, timer, listener or watcher in non-test src: raw FFI bindings plus statically linked ggml that start nothing by themselves, ggml_graph_compute uses a disposable thread pool created and joined inside each compute call unless the caller builds its own via ggml_threadpool_new, and any resident model belongs to the consumer (rightkit-qts) (reviewed 2026-10-11)"

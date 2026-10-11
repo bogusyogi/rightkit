@@ -8,6 +8,7 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use crate::download::{self, DownloadRequest};
+use crate::http::{AsHttpClient, ModelHttp};
 use crate::lock;
 use crate::suite::archive;
 use crate::suite::catalog::{ModelSpec, RemoteFile, SpecSource};
@@ -46,6 +47,10 @@ pub struct ModelStatus {
     pub size_hint_bytes: u64,
     pub can_download: bool,
     pub requires_auth: bool,
+    /// Base or add-on (see [`crate::suite::catalog::ModelTier`]).
+    pub tier: crate::suite::catalog::ModelTier,
+    /// The bearer is the app's signed Pro entitlement rather than a grant.
+    pub requires_entitlement: bool,
     /// True while a live lock file exists (this or another process).
     pub in_progress: bool,
 }
@@ -115,8 +120,77 @@ pub fn status_in(entry_dir: PathBuf, spec: &ModelSpec, mode: VerifyMode) -> Mode
         size_hint_bytes: spec.size_hint_bytes,
         can_download: spec.can_download(),
         requires_auth: spec.requires_auth(),
+        tier: spec.tier,
+        requires_entitlement: spec.requires_entitlement(),
         in_progress,
     }
+}
+
+impl ModelStatus {
+    /// Text for the UI: an add-on that is not installed reads "Optional, not installed"
+    /// instead of an error-like "Not installed".
+    pub fn status_label(&self) -> &'static str {
+        use crate::suite::catalog::ModelTier;
+        match (self.state, self.tier) {
+            (EntryState::Ready, _) => "Ready",
+            (EntryState::InProgress, _) => "Installing",
+            (EntryState::Partial, _) => "Incomplete",
+            (EntryState::Missing, ModelTier::Base) => "Not installed",
+            (EntryState::Missing, ModelTier::AddOn) => "Optional, not installed",
+        }
+    }
+}
+
+/// Readiness of a set of models and what finishing it would download.
+#[derive(Debug, Clone)]
+pub struct SetStatus {
+    pub models: Vec<ModelStatus>,
+    /// Every base model in the set is `Ready`. Add-ons never count: a missing optional model
+    /// does not make setup incomplete. An empty or add-on-only set is vacuously ready.
+    pub ready: bool,
+    /// Approximate bytes still to download for the base models in the set that are not ready.
+    pub base_download_bytes: u64,
+    /// Approximate size of every model in the set, installed or not, add-ons included.
+    pub total_size_hint_bytes: u64,
+}
+
+/// Readiness rollup of `specs` at `mode` depth. Pass the set explicitly: `base_catalog()` for
+/// onboarding, `all_models()` for a settings page.
+pub fn set_status_at(models_root: &Path, specs: &[ModelSpec], mode: VerifyMode) -> SetStatus {
+    let models: Vec<ModelStatus> = specs
+        .iter()
+        .map(|spec| status_at(models_root, spec, mode))
+        .collect();
+    let base = |m: &&ModelStatus| m.tier == crate::suite::catalog::ModelTier::Base;
+    SetStatus {
+        ready: models
+            .iter()
+            .filter(base)
+            .all(|m| m.state == EntryState::Ready),
+        base_download_bytes: models
+            .iter()
+            .filter(base)
+            .filter(|m| m.state != EntryState::Ready)
+            .map(|m| m.size_hint_bytes)
+            .sum(),
+        total_size_hint_bytes: specs.iter().map(|s| s.size_hint_bytes).sum(),
+        models,
+    }
+}
+
+/// [`set_status_at`] for the base set: the default "is setup complete, and how much is left".
+pub fn base_status_at(models_root: &Path, mode: VerifyMode) -> SetStatus {
+    set_status_at(models_root, &crate::suite::catalog::base_catalog(), mode)
+}
+
+/// Approximate size of `specs`, for onboarding copy.
+pub fn size_hint_bytes(specs: &[ModelSpec]) -> u64 {
+    specs.iter().map(|s| s.size_hint_bytes).sum()
+}
+
+/// [`size_hint_bytes`] of the base set: the default onboarding estimate.
+pub fn base_size_hint_bytes() -> u64 {
+    size_hint_bytes(&crate::suite::catalog::base_catalog())
 }
 
 /// Resolve a ready shared-store copy of `spec` — the engine's fast lookup
@@ -158,8 +232,12 @@ pub struct EnsureOptions<'a> {
 ///
 /// Archive-sourced models repair whole-archive (the worker serves one blob);
 /// `Files`-sourced models repair only the affected files.
+///
+/// `agent` is the HTTP transport: pass [`crate::http::http_client`] (or a client
+/// built with [`crate::http::http_client_with_policy`]). A legacy `&ureq::Agent`
+/// still compiles; it only contributes its redirect limit.
 pub fn ensure_ready(
-    agent: &ureq::Agent,
+    agent: &impl AsHttpClient,
     models_root: &Path,
     spec: &ModelSpec,
     opts: &EnsureOptions<'_>,
@@ -171,13 +249,14 @@ pub fn ensure_ready(
 /// As [`ensure_ready`]; `cancelled` is polled between body chunks. A cancelled
 /// download keeps its `.part` file so the next call resumes it.
 pub fn ensure_ready_cancellable(
-    agent: &ureq::Agent,
+    agent: &impl AsHttpClient,
     models_root: &Path,
     spec: &ModelSpec,
     opts: &EnsureOptions<'_>,
     cancelled: &dyn Fn() -> bool,
     mut progress: impl FnMut(Progress),
 ) -> Result<ModelStatus, String> {
+    let client = agent.vetted_client();
     // Keep the registry guard from initial readiness check through ref
     // registration so GC cannot delete a ready entry between those steps.
     let refs_dir = paths::model_refs_dir_at(models_root);
@@ -237,7 +316,7 @@ pub fn ensure_ready_cancellable(
                 ));
             }
             download_archive(
-                agent,
+                &client,
                 models_root,
                 spec,
                 url,
@@ -249,7 +328,7 @@ pub fn ensure_ready_cancellable(
         }
         SpecSource::Files(remote) => {
             download_files(
-                agent,
+                &client,
                 models_root,
                 spec,
                 remote,
@@ -290,7 +369,7 @@ pub fn ensure_ready_cancellable(
 }
 
 fn download_archive(
-    agent: &ureq::Agent,
+    client: &ModelHttp,
     models_root: &Path,
     spec: &ModelSpec,
     url: &str,
@@ -304,7 +383,7 @@ fn download_archive(
     let part = download::part_path_for(&dest);
     let file = spec.id.to_string();
     download::download_resumable(
-        agent,
+        client,
         DownloadRequest {
             url,
             part_path: &part,
@@ -329,7 +408,7 @@ fn download_archive(
 }
 
 fn download_files(
-    agent: &ureq::Agent,
+    client: &ModelHttp,
     models_root: &Path,
     spec: &ModelSpec,
     remote: &[RemoteFile],
@@ -355,7 +434,7 @@ fn download_files(
                 let part = download::part_path_for(&dest);
                 let name = file.path.to_string();
                 download::download_resumable(
-                    agent,
+                    client,
                     DownloadRequest {
                         url,
                         part_path: &part,
@@ -1238,7 +1317,7 @@ fn copy_dir_recursive(src: &Path, dest: &Path) -> Result<(), String> {
 /// that must survive even unreferenced (e.g. the running app's current spec
 /// mid-onboarding).
 pub fn prune_unref_entries(models_root: &Path, keep: &[&str]) -> Result<Vec<String>, String> {
-    prune_unref_entries_with(models_root, keep, &crate::suite::catalog::catalog())
+    prune_unref_entries_with(models_root, keep, &crate::suite::catalog::all_models())
 }
 
 /// As [`prune_unref_entries`], protecting the replacement ids of every spec in
@@ -1357,9 +1436,13 @@ fn dir_size(dir: &Path) -> u64 {
     }
 }
 
-/// Build the shared http agent used by all store downloads (connect and
-/// body-idle timeouts, no global cap: a multi-hundred-MB model must not be
-/// killed mid-transfer by a wall-clock limit).
+/// Shared ureq agent from before downloads were vetted; see
+/// [`crate::download::http_agent`].
+#[deprecated(
+    since = "0.2.9",
+    note = "use `rightkit_models::http::http_client`; the agent's transport is no longer used"
+)]
+#[allow(deprecated)]
 pub fn http_agent() -> ureq::Agent {
     crate::download::http_agent()
 }

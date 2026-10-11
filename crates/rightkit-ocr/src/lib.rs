@@ -24,14 +24,14 @@ pub use native::vision;
 pub use native::win_native;
 pub use native::{canary_png, native_backend};
 pub use router::{
-    BackendPreference, Isolation, ModelLeaseHook, Ocr, OcrOptions, OcrOutcome, OcrResult,
-    OnnxConfig,
+    BackendPreference, Isolation, ModelLeaseHook, NativeHealthHook, Ocr, OcrOptions, OcrOutcome,
+    OcrResult, OnnxConfig,
 };
 pub use types::{
-    decode_encoded, is_backend_unavailable, OcrBackend, OcrLine, OcrRect, MACOS_VISION_UNAVAILABLE,
-    MAX_PIXELS, OCR_UNSUPPORTED_PLATFORM, WINDOWS_OCR_UNAVAILABLE,
+    decode_encoded, is_backend_unavailable, OcrBackend, OcrErrorKind, OcrLine, OcrRect,
+    MACOS_VISION_UNAVAILABLE, MAX_PIXELS, OCR_UNSUPPORTED_PLATFORM, WINDOWS_OCR_UNAVAILABLE,
 };
-pub use worker::WorkerCommand;
+pub use worker::{RunRecord, WorkerCommand, WorkerEvent, WorkerEvents, WorkerFailure, WorkerRun};
 
 #[cfg(feature = "onnx")]
 use image::{imageops, RgbImage};
@@ -44,7 +44,9 @@ use rightkit_ort::ProviderDiagnostic;
 #[cfg(feature = "onnx")]
 use sha2::{Digest, Sha256};
 use std::fmt;
-use std::path::{Path, PathBuf};
+#[cfg(feature = "onnx")]
+use std::path::Path;
+use std::path::PathBuf;
 #[cfg(all(test, feature = "onnx"))]
 use support::ctc_greedy_decode;
 #[cfg(feature = "onnx")]
@@ -248,6 +250,27 @@ impl fmt::Display for OcrError {
                     "OCR native backend unavailable and no ONNX fallback configured: {message}"
                 )
             }
+        }
+    }
+}
+
+impl OcrError {
+    /// The typed kind to key on. Each variant maps to one kind; `BackendUnavailable` is refined
+    /// by its backend prefix when it has one, so a Vision verdict reports
+    /// [`OcrErrorKind::MacosVisionUnavailable`]. `NoFallbackConfigured` stays its own kind even
+    /// when its message carries the native cause. Worker-level kinds such as `WorkerTimeout`
+    /// reach callers through [`WorkerFailure::kind`] and surface here as `Runtime`.
+    pub fn kind(&self) -> OcrErrorKind {
+        match self {
+            Self::UnresolvedProvenance { .. } | Self::InvalidProvenance => OcrErrorKind::Provenance,
+            Self::UnsafeArtifactPath { .. }
+            | Self::MissingArtifact { .. }
+            | Self::DigestMismatch { .. } => OcrErrorKind::Artifact,
+            Self::Runtime(_) => OcrErrorKind::Runtime,
+            Self::BackendUnavailable(message) => {
+                OcrErrorKind::from_message(message).unwrap_or(OcrErrorKind::BackendUnavailable)
+            }
+            Self::NoFallbackConfigured(_) => OcrErrorKind::NoFallbackConfigured,
         }
     }
 }

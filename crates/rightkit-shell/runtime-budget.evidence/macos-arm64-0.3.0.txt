@@ -1,0 +1,35 @@
+# crate: rightkit-shell 0.3.0
+# command: rightkit cargo bench -p rightkit-shell  --bench budget
+# host: macos arm64, Mac18,5 / Apple M6, 12 cpus, 24 GB, 27.0.1
+# date: 2026-10-11T07:29:47Z
+# machine load (1/5/15 min) before the build: 4.47 5.54 6.01 ; after the run: 15.79 8.23 6.53 (other builds were running; the queue admits one build at a time)
+# commit: a87daeeba8e9f50700446800b943c1d3dd748e28 (HEAD; the tree under test has uncommitted changes)
+rightkit: request c61723ee-2a0c-4ac4-8f34-1d5d0dbc21ee
+[rightkit] target warm-candidate at start (4 entries, generation 2)
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+   Compiling rightkit-framed-sidecar v0.2.0 (/Volumes/D/rightkit-publish/v10/claude/rightkit/crates/rightkit-framed-sidecar)
+   Compiling rightkit-fs v0.3.4 (/Volumes/D/rightkit-publish/v10/claude/rightkit/crates/rightkit-fs)
+   Compiling rightkit-process v0.3.4 (/Volumes/D/rightkit-publish/v10/claude/rightkit/crates/rightkit-process)
+   Compiling rightkit-shell v0.3.0 (/Volumes/D/rightkit-publish/v10/claude/rightkit/crates/rightkit-shell)
+   Compiling rightkit-service v0.1.5 (/Volumes/D/rightkit-publish/v10/claude/rightkit/crates/rightkit-service)
+    Finished `bench` profile [optimized] target(s) in 1m 18s
+     Running benches/budget.rs (/Volumes/D/.rightkit-managed/rightkit-build-control/ws/520b705fd794/g/002/target/aarch64-apple-darwin/release/deps/budget-1507dcb33f2d7ee0)
+warm-up: event loop running, watchdog installed, resident 59.2 MiB (before app build 9.1 MiB)
+RESULT watchdog_stalls=0 stalls
+RESULT watchdog_last_beat_age_ms=1 ms
+RESULT warm_resident_bytes=62046208 bytes
+RESULT idle_resident_bytes=26050560 bytes
+RESULT resident_memory_bytes=62046208 bytes
+RESULT footprint_bytes=10257224 bytes
+RESULT idle_window_seconds=30.1 seconds
+RESULT idle_cpu_percent=0.053 percent
+RESULT wakeups_per_second=9.405 per_second
+RESULT disk_ops_per_second=unavailable the host exposes no process disk-operation counter
+RESULT disk_read_bytes_per_second=2178.003 bytes_per_second
+RESULT disk_write_bytes_per_second=0.000 bytes_per_second
+RESULT scale=1 default hang watchdog on an idle Wry event loop with no windows
+RESULT scope=synthetic
+RESULT budget crate=rightkit-shell version=0.3.0 resident_bytes=62046208 idle_cpu_percent=0.053 wakeups_per_s=9.405 disk_ops_per_s=unavailable scale_unit=watchdogs scale_count=1
+[rightkit] target warm (target-nonempty-with-fresh-artifacts); not-fresh 0/71

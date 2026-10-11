@@ -72,6 +72,14 @@ pub enum HttpError {
         class: Option<AddressClass>,
         reason: String,
     },
+    /// [`crate::ClientConfig::https_only`] is set and the URL (or a redirect target when
+    /// `redirect` is true) is not `https`. `scheme` is lowercase, `host` has no
+    /// credentials. Nothing was sent to that URL. Never retried.
+    HttpsRequired {
+        host: String,
+        scheme: String,
+        redirect: bool,
+    },
 }
 
 impl From<AddressDenial> for HttpError {
@@ -106,7 +114,8 @@ pub enum ErrorClass {
     /// The outbound address policy refused the destination.
     AddressDenied,
     /// The request could not be built, or the response body was malformed or oversized
-    /// (`InvalidRequest`, `Json`, `Stream`, `BodyTooLarge`).
+    /// (`InvalidRequest`, `Json`, `Stream`, `BodyTooLarge`), or `https_only` refused a URL
+    /// (`HttpsRequired`).
     Invalid,
 }
 
@@ -174,6 +183,7 @@ impl HttpError {
             HttpError::Transport { .. } => ErrorClass::Transport,
             HttpError::Cancelled => ErrorClass::Cancelled,
             HttpError::AddressDenied { .. } => ErrorClass::AddressDenied,
+            HttpError::HttpsRequired { .. } => ErrorClass::Invalid,
             HttpError::InvalidRequest(_)
             | HttpError::Json(_)
             | HttpError::Stream(_)
@@ -199,6 +209,21 @@ impl fmt::Display for HttpError {
             HttpError::Cancelled => write!(f, "cancelled"),
             HttpError::AddressDenied { host, reason, .. } => {
                 write!(f, "address denied for host '{host}': {reason}")
+            }
+            HttpError::HttpsRequired {
+                host,
+                scheme,
+                redirect,
+            } => {
+                let what = if *redirect {
+                    "redirect to"
+                } else {
+                    "request to"
+                };
+                write!(
+                    f,
+                    "https required: {what} '{scheme}' URL for host '{host}' refused"
+                )
             }
         }
     }

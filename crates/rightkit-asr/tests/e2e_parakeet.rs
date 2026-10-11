@@ -114,7 +114,7 @@ fn canonical_detok_fixture_file_contract() {
 #[test]
 fn padded_window_schedule_cuts_real_audio_at_the_quietest_span() {
     let audio = wav("long_38s.wav");
-    let opts = LongFormOptions { window_samples: 240_000, terminal_silence: false, seam: longform::SeamPolicy::DedupOverlap };
+    let opts = LongFormOptions { window_samples: 240_000, terminal_silence: false, seam: longform::SeamPolicy::DedupOverlap, word_assembly_floor_ms: Some(80), pad_policy: longform::PadPolicy::FinalSegmentOnly };
     let mut seen: Vec<(usize, usize)> = Vec::new();
     let mut cursor_pos = 0usize;
     let progress_events = std::cell::Cell::new(0usize);
@@ -161,7 +161,7 @@ fn exact_seam_keeps_a_word_repeated_across_windows_that_dedup_erases() {
     use rightkit_asr::parakeet_core::{TimedToken, TranscriptionResult};
     let audio = wav("long_38s.wav");
     let run = |seam| {
-        let opts = LongFormOptions { window_samples: 240_000, terminal_silence: false, seam };
+        let opts = LongFormOptions { window_samples: 240_000, terminal_silence: false, seam, word_assembly_floor_ms: Some(80), pad_policy: longform::PadPolicy::FinalSegmentOnly };
         longform::transcribe_padded_window(&audio, &opts, None, &|_| {}, |_| {
             Ok(TranscriptionResult {
                 text: "that".into(),
@@ -181,7 +181,7 @@ fn exact_seam_keeps_a_word_repeated_across_windows_that_dedup_erases() {
 #[test]
 fn long_form_cancellation_stops_between_windows() {
     let audio = wav("long_38s.wav");
-    let opts = LongFormOptions { window_samples: 240_000, terminal_silence: false, seam: longform::SeamPolicy::DedupOverlap };
+    let opts = LongFormOptions { window_samples: 240_000, terminal_silence: false, seam: longform::SeamPolicy::DedupOverlap, word_assembly_floor_ms: Some(80), pad_policy: longform::PadPolicy::FinalSegmentOnly };
     let cancel = std::sync::atomic::AtomicBool::new(false);
     let mut decoded = 0usize;
     let err = longform::transcribe_padded_window(

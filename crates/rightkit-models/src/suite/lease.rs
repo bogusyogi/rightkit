@@ -26,6 +26,10 @@ pub const PP_OCR_MODEL_FAMILY: &str = "pp-ocrv6";
 pub struct Holder {
     pub app: String,
     pub pid: u32,
+    /// When the holder took the lease, in Unix milliseconds; `0` for a holder file written by an
+    /// older release.
+    #[serde(default)]
+    pub since_unix_ms: u64,
 }
 
 /// Held while this process has the model family loaded. Dropping releases it.
@@ -151,6 +155,16 @@ pub fn acquire_at_root(
     ModelLease::acquire_at(&lease_path_at(root, family), app, waiting, give_up)
 }
 
+/// Bounded wait for family lease beneath an explicit suite root; see [`LeaseOptions`].
+pub fn acquire_bounded_at_root(
+    root: &Path,
+    family: &str,
+    app: &str,
+    options: &LeaseOptions<'_>,
+) -> Result<ModelLease, AcquireError> {
+    ModelLease::acquire_bounded_at(&lease_path_at(root, family), app, options)
+}
+
 /// Attempt to guard model GC. Unknown runtime lock files block conservatively;
 /// returned guard remains held through the caller's deletion.
 pub fn try_acquire_for_gc(root: &Path, app: &str) -> Result<Option<ModelLease>, String> {
@@ -205,6 +219,105 @@ pub fn try_acquire_for_gc_at_roots(
     try_acquire_families_at_roots(roots, &families, app)
 }
 
+/// Who held a model lease when a bounded wait ran out.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Held {
+    /// App that holds the lease; `"unknown"` when the holder file is missing.
+    pub app: String,
+    /// Holder process id; `0` when unknown.
+    pub pid: u32,
+    /// When the holder took the lease, when known.
+    pub since: Option<std::time::SystemTime>,
+}
+
+impl std::fmt::Display for Held {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "in use by {}", self.app)?;
+        if self.pid != 0 {
+            write!(f, " (pid {})", self.pid)?;
+        }
+        Ok(())
+    }
+}
+
+impl From<Option<Holder>> for Held {
+    fn from(holder: Option<Holder>) -> Self {
+        match holder {
+            Some(h) => Held {
+                since: (h.since_unix_ms != 0)
+                    .then(|| std::time::UNIX_EPOCH + Duration::from_millis(h.since_unix_ms)),
+                app: h.app,
+                pid: h.pid,
+            },
+            None => Held {
+                app: "unknown".to_string(),
+                pid: 0,
+                since: None,
+            },
+        }
+    }
+}
+
+/// Why a bounded acquire did not return a lease.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AcquireError {
+    /// The wait ran out while another app still held the lease.
+    Held(Held),
+    /// `cancel` returned true.
+    Cancelled,
+    Io(String),
+}
+
+impl std::fmt::Display for AcquireError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            AcquireError::Held(held) => held.fmt(f),
+            AcquireError::Cancelled => f.write_str("cancelled"),
+            AcquireError::Io(message) => f.write_str(message),
+        }
+    }
+}
+
+impl std::error::Error for AcquireError {}
+
+/// Bounds for [`ModelLease::acquire_bounded`]. `ModelLease::acquire` keeps waiting without a
+/// limit, so one app that holds the speech model and never lets go blocks every other app's
+/// job forever. A caller should bound the wait and show [`Held`] ("in use by `<app>`") instead
+/// of waiting in silence.
+///
+/// A holder that crashed is never an obstacle: the lease is an OS advisory lock, released when
+/// its process dies, and the stale holder file is replaced by the next holder. Only a live
+/// process that keeps the lease makes the wait run out.
+pub struct LeaseOptions<'a> {
+    /// Longest to wait. `None`: no time limit (cancel still applies).
+    pub wait: Option<Duration>,
+    /// Absolute limit; the earlier of `wait` and `deadline` applies.
+    pub deadline: Option<std::time::Instant>,
+    /// Returns true to stop waiting.
+    pub cancel: &'a dyn Fn() -> bool,
+    /// Called each poll with the current holder, so the UI can say who has the model.
+    pub waiting: &'a dyn Fn(Option<Holder>),
+}
+
+impl<'a> LeaseOptions<'a> {
+    /// Wait at most `wait`, no cancel hook, no progress callback.
+    pub fn within(wait: Duration) -> LeaseOptions<'static> {
+        LeaseOptions {
+            wait: Some(wait),
+            deadline: None,
+            cancel: &|| false,
+            waiting: &|_| {},
+        }
+    }
+
+    fn limit(&self, started: std::time::Instant) -> Option<std::time::Instant> {
+        [self.wait.map(|w| started + w), self.deadline]
+            .into_iter()
+            .flatten()
+            .min()
+    }
+}
+
 /// Holder details live beside the lock file: on Windows the OS lock blocks
 /// other handles from reading the locked file itself.
 fn info_path(lock: &Path) -> PathBuf {
@@ -232,6 +345,10 @@ impl ModelLease {
         let body = serde_json::to_vec(&Holder {
             app: app.to_string(),
             pid: std::process::id(),
+            since_unix_ms: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_millis() as u64)
+                .unwrap_or(0),
         })
         .map_err(|e| e.to_string())?;
         let info = info_path(path);
@@ -268,6 +385,67 @@ impl ModelLease {
             }
             waiting(current_holder(family));
             std::thread::sleep(POLL);
+        }
+    }
+
+    /// As [`ModelLease::acquire`], bounded by `options`.
+    pub fn acquire_bounded(
+        family: &str,
+        app: &str,
+        options: &LeaseOptions<'_>,
+    ) -> Result<Self, AcquireError> {
+        let started = std::time::Instant::now();
+        let limit = options.limit(started);
+        let mut request: Option<YieldRequest> = None;
+        loop {
+            if let Some(lease) = try_acquire_compat(family, app).map_err(AcquireError::Io)? {
+                return Ok(lease);
+            }
+            if (options.cancel)() {
+                return Err(AcquireError::Cancelled);
+            }
+            if limit.is_some_and(|l| std::time::Instant::now() >= l) {
+                return Err(AcquireError::Held(current_holder(family).into()));
+            }
+            if request.is_none() {
+                let current = lease_path(family);
+                let legacy = lease_path_at(&crate::suite::paths::legacy_suite_root(), family);
+                request = Some(YieldRequest::post(&[current, legacy], app));
+            }
+            (options.waiting)(current_holder(family));
+            let nap = limit
+                .map(|l| l.saturating_duration_since(std::time::Instant::now()))
+                .map_or(POLL, |left| left.min(POLL));
+            std::thread::sleep(nap);
+        }
+    }
+
+    fn acquire_bounded_at(
+        path: &Path,
+        app: &str,
+        options: &LeaseOptions<'_>,
+    ) -> Result<Self, AcquireError> {
+        let started = std::time::Instant::now();
+        let limit = options.limit(started);
+        let mut request: Option<YieldRequest> = None;
+        loop {
+            if let Some(lease) = Self::try_acquire_at(path, app).map_err(AcquireError::Io)? {
+                return Ok(lease);
+            }
+            if (options.cancel)() {
+                return Err(AcquireError::Cancelled);
+            }
+            if limit.is_some_and(|l| std::time::Instant::now() >= l) {
+                return Err(AcquireError::Held(holder_at(path).into()));
+            }
+            if request.is_none() {
+                request = Some(YieldRequest::post(&[path.to_path_buf()], app));
+            }
+            (options.waiting)(holder_at(path));
+            let nap = limit
+                .map(|l| l.saturating_duration_since(std::time::Instant::now()))
+                .map_or(POLL, |left| left.min(POLL));
+            std::thread::sleep(nap);
         }
     }
 

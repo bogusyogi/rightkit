@@ -199,7 +199,7 @@ fn opts(rev: &str) -> InstallOptions {
 fn install_resume_extract_upgrade_rollback_uninstall() {
     let fx = fixture();
     let tmp = tempfile::tempdir().unwrap();
-    let store = Store::new(tmp.path(), "test-app");
+    let store = local(Store::new(tmp.path(), "test-app"));
 
     // v1: server truncates the first body; the downloader resumes by Range.
     let mut events = Vec::new();
@@ -285,7 +285,7 @@ fn install_resume_extract_upgrade_rollback_uninstall() {
 fn pause_keeps_partial_and_next_install_resumes() {
     let fx = fixture();
     let tmp = tempfile::tempdir().unwrap();
-    let store = Store::new(tmp.path(), "test-app");
+    let store = local(Store::new(tmp.path(), "test-app"));
     let o = opts("2");
     let pause = o.pause.clone();
     let err = store
@@ -324,7 +324,7 @@ fn pause_keeps_partial_and_next_install_resumes() {
 fn cancel_discards_staging() {
     let fx = fixture();
     let tmp = tempfile::tempdir().unwrap();
-    let store = Store::new(tmp.path(), "test-app");
+    let store = local(Store::new(tmp.path(), "test-app"));
     let o = opts("2");
     let cancel = o.cancel.clone();
     let err = store
@@ -353,7 +353,7 @@ fn cancel_discards_staging() {
 fn bad_hash_and_low_disk_never_activate() {
     let mut fx = fixture();
     let tmp = tempfile::tempdir().unwrap();
-    let store = Store::new(tmp.path(), "test-app");
+    let store = local(Store::new(tmp.path(), "test-app"));
 
     // Disk preflight fails before any network use.
     let before = fx.server.log.lock().unwrap().len();
@@ -431,7 +431,7 @@ fn hostile_ids_and_keys_cannot_leave_the_store_root() {
     let victim = tmp.path().join("other");
     std::fs::create_dir_all(&victim).unwrap();
     std::fs::write(victim.join("precious.txt"), b"keep").unwrap();
-    let store = Store::new(&root, "test-app");
+    let store = local(Store::new(&root, "test-app"));
 
     for bad in [
         "../other", "..", ".", "", "a/b", "a\\b", "/abs", "C:", "x.lock", ".hidden", "trail.",
@@ -509,7 +509,7 @@ fn uninstall_never_follows_symlinks() {
     std::fs::create_dir_all(victim.join("revisions/1@q4")).unwrap();
     std::fs::write(victim.join("precious.txt"), b"keep").unwrap();
     std::fs::write(victim.join("revisions/1@q4/f"), b"keep").unwrap();
-    let store = Store::new(&root, "test-app");
+    let store = local(Store::new(&root, "test-app"));
 
     // <root>/demo -> victim: uninstall removes the link only.
     std::os::unix::fs::symlink(&victim, root.join("demo")).unwrap();
@@ -546,7 +546,7 @@ fn repair_swap_survives_a_kill_at_every_durable_step() {
     ] {
         let fx = fixture();
         let tmp = tempfile::tempdir().unwrap();
-        let store = Store::new(tmp.path(), "test-app");
+        let store = local(Store::new(tmp.path(), "test-app"));
         let out = store.install(&fx.spec, &opts("2"), |_| {}).unwrap();
         let model = out.dir.join("model.bin");
         assert_eq!(std::fs::read(&model).unwrap(), fx.v2);
@@ -599,4 +599,17 @@ fn repair_swap_survives_a_kill_at_every_durable_step() {
         assert_eq!(std::fs::read(dir.join("model.bin")).unwrap(), fx.v1);
         assert!(store.verify("demo", "2@q4", VerifyMode::Full));
     }
+}
+
+/// Test stores may reach the local mock server on 127.0.0.1 and nothing else.
+fn local(store: Store) -> Store {
+    store
+        .with_http_options(rightkit_models::http::ModelHttpOptions {
+            proxy: rightkit_models::http::ProxyMode::None,
+            ..Default::default()
+        })
+        .with_address_policy(
+            rightkit_http::AddressPolicy::public_web()
+                .allow_if(vec!["127.0.0.1".to_string()], |ip| ip.is_loopback()),
+        )
 }

@@ -10,7 +10,8 @@
       "licenseSpdx": "LGPL-2.1-or-later",
       "variants": [
         "decode",
-        "export-ass"
+        "export-ass",
+        "export-ass-zimg"
       ],
       "evidence": {
         "kind": "openpgp-signature",
@@ -30,7 +31,8 @@
       "licenseNote": "FreeType is dual-licensed FTL OR GPL-2.0-or-later; the FTL option is taken, so the GPL option is never relied on.",
       "noticeFile": "docs/FTL.TXT",
       "variants": [
-        "export-ass"
+        "export-ass",
+        "export-ass-zimg"
       ],
       "evidence": {
         "kind": "openpgp-signature+announcement-sha256",
@@ -48,7 +50,8 @@
       "licenseSpdx": "LGPL-2.1-or-later",
       "noticeFile": "COPYING",
       "variants": [
-        "export-ass"
+        "export-ass",
+        "export-ass-zimg"
       ],
       "evidence": {
         "kind": "no-upstream-checksum; git-tag-comparison",
@@ -67,7 +70,8 @@
       "licenseNote": "COPYING's licence body is identical (whitespace/case-normalised) to SPDX MIT-Modern-Variant. src/ms-use/COPYING (Microsoft, MIT) covers USE data files that feed a generated shaping table.",
       "noticeFile": "COPYING",
       "variants": [
-        "export-ass"
+        "export-ass",
+        "export-ass-zimg"
       ],
       "evidence": {
         "kind": "no-upstream-checksum; git-tag-comparison",
@@ -85,7 +89,8 @@
       "licenseSpdx": "ISC",
       "noticeFile": "COPYING",
       "variants": [
-        "export-ass"
+        "export-ass",
+        "export-ass-zimg"
       ],
       "evidence": {
         "kind": "openpgp-signature",
@@ -94,6 +99,26 @@
         "keyFingerprint": "5EE63F2A71BF132CFE3567E1DFFE615F2824C720",
         "keyFingerprintStatement": "https://github.com/libass/libass/blob/master/MAINTAINERS (Oneric, signing subkey DDAFC19E46B2AD2D6B26F84397A08E0CFFD70951)",
         "result": "GOOD signature made 2024-07-02T21:08:04Z by subkey DDAFC19E46B2AD2D6B26F84397A08E0CFFD70951, subkey binding GOOD under primary 5EE63F2A71BF132CFE3567E1DFFE615F2824C720 (RSA, SHA-256)"
+      }
+    },
+    "zimg": {
+      "version": "3.0.5",
+      "url": "https://github.com/sekrit-twc/zimg/archive/refs/tags/release-3.0.5.tar.gz",
+      "file": "zimg-3.0.5.tar.gz",
+      "dirName": "zimg-release-3.0.5",
+      "sha256": "a9a0226bf85e0d83c41a8ebe4e3e690e1348682f6a2a7838f1b8cbff1b799bcf",
+      "licenseSpdx": "WTFPL",
+      "licenseNote": "COPYING is the WTFPL version 2 text (Sam Hocevar, December 2004); GitHub's licence detection reports spdx_id WTFPL. No source file under src/ carries a separate licence header. WTFPL is permissive (no copyleft, no notice requirement); the notice is shipped anyway. It is not an OSI-approved licence and its text contains a profanity, which is a presentation matter only. 3.0.6 (2025-08-15) fixes only AVX-512 numeric bugs (x86; no security advisory is published for the repository), so 3.0.5, the version CutRight shipped, is pinned.",
+      "noticeFile": "COPYING",
+      "variants": [
+        "export-ass-zimg"
+      ],
+      "evidence": {
+        "kind": "no-upstream-checksum; git-tag-comparison",
+        "statement": "zimg publishes no release asset, checksum or signature: GitHub release 'release-3.0.5' has no assets and the annotated tag (c6871daee0ab7efecca5211561717f5c0939e100, tagger sekrit-twc, 2023-06-30) is unsigned. The pinned archive is GitHub's generated tag archive; GitHub does not promise archive bytes stay stable, so the build refuses a mismatch and the tag comparison below is the durable evidence.",
+        "gitTag": "release-3.0.5 -> e5b0de6bebbcbc66732ed5afaafef6b2c7dfef87",
+        "result": "The archive holds 274 files. All 267 regular files that exist in the tag are byte-identical (git blob SHA-1 against the tag tree); the other 7 are symlinks (doc/example/misc/*, git mode 120000) and the only tag entry absent from the archive is the test-only googletest submodule. There are no archive-only files. The archive has no generated configure script.",
+        "sha256Basis": "observed digest of the GitHub tag archive (identical from github.com/archive and codeload.github.com on 2026-10-11); not an upstream-published digest"
       }
     }
   }

@@ -153,29 +153,130 @@
       "verification": { "method": "cargo-checksum", "evidence": "CodeRight engine/Cargo.lock (bundled libgit2 1.9.7, static, linking exception applies)" }
     },
     {
-      "id": "whisper-cpp-8ef5277-any",
+      "id": "whisper-cpp-1.9.3-macos-arm64",
       "library": "whisper-cpp",
-      "version": "git-8ef5277ad13ea3b9a99c41f6272acefc8109ad9f",
-      "os": "any",
-      "arch": "any",
-      "status": "planned",
-      "linkage": "static-crate",
-      "sourceUrl": "https://github.com/ggml-org/whisper.cpp",
-      "licenseSpdx": "MIT",
-      "verification": { "method": "none", "evidence": "CutRight runtime/source/whisper.cpp checkout is at this commit; rightkit-asr must declare its own pin before approval" }
-    },
-    {
-      "id": "ggml-0.20.0-macos-arm64",
-      "library": "ggml",
-      "version": "0.20.0",
+      "version": "1.9.3",
       "os": "macos",
       "arch": "aarch64",
-      "status": "planned",
+      "status": "approved",
       "linkage": "dynamic-library",
-      "artifactFileName": "libggml.0.dylib",
-      "sourceUrl": "https://github.com/ggml-org/ggml",
+      "artifactFileName": "libwhisper.1.9.3.dylib",
+      "sha256": "138678a0d91528b4de52b16cdb962ba2ba5d97a77e6af3607a69c3621e092911",
+      "contentSha256": "1f8ab52951e6fa472b93904bfb36ee3fb6fe8a8cc4ff3ad6804c697356b760b1",
+      "sourceUrl": "https://github.com/ggml-org/whisper.cpp",
       "licenseSpdx": "MIT",
-      "verification": { "method": "none", "evidence": "only observed inside a llama.cpp b10448 build; whisper.cpp vendors its own ggml, so the suite ggml pin follows the whisper.cpp pin" }
+      "noticeFiles": [
+        "third-party/whisper.cpp-MIT.txt"
+      ],
+      "verification": {
+        "method": "file-sha256",
+        "evidence": "whisper.cpp 1.9.3 Metal build retained at /Volumes/D/rightkit-publish/artifacts/whisper-cpp-1.9.3/macos-arm64/libwhisper.1.9.3.dylib (428768 bytes; also /Volumes/D/.cache/whisper-cpp-1.9.3-metal-rk); contentSha256 is signature-independent; the unversioned install-name symlinks (libwhisper.1.dylib, libggml.0.dylib, ...) point at this file"
+      }
+    },
+    {
+      "id": "ggml-0.20.2-macos-arm64",
+      "library": "ggml",
+      "version": "0.20.2",
+      "os": "macos",
+      "arch": "aarch64",
+      "status": "approved",
+      "linkage": "dynamic-library",
+      "artifactFileName": "libggml.0.20.2.dylib",
+      "sha256": "b11aafbee469c0832ba44b889aeffc64127e0eab8a37022871dc1f0234b70f80",
+      "contentSha256": "9cccd22107be0f657ba6751f6d2dd73f3687eac51b794f9416e2f46620bbeae0",
+      "sourceUrl": "https://github.com/ggml-org/whisper.cpp",
+      "licenseSpdx": "MIT",
+      "noticeFiles": [
+        "third-party/whisper.cpp-MIT.txt"
+      ],
+      "verification": {
+        "method": "file-sha256",
+        "evidence": "whisper.cpp 1.9.3 Metal build retained at /Volumes/D/rightkit-publish/artifacts/whisper-cpp-1.9.3/macos-arm64/libggml.0.20.2.dylib (59728 bytes; also /Volumes/D/.cache/whisper-cpp-1.9.3-metal-rk); contentSha256 is signature-independent; the unversioned install-name symlinks (libwhisper.1.dylib, libggml.0.dylib, ...) point at this file"
+      }
+    },
+    {
+      "id": "ggml-base-0.20.2-macos-arm64",
+      "library": "ggml",
+      "version": "0.20.2",
+      "os": "macos",
+      "arch": "aarch64",
+      "status": "approved",
+      "linkage": "dynamic-library",
+      "artifactFileName": "libggml-base.0.20.2.dylib",
+      "sha256": "0db4093b753f1b2b3b7312403cd6808b665dd5a01e70439130197c9233b0462f",
+      "contentSha256": "63729f7c1cc8b412c83afdbf08d15e2ab55f351d697795d34734d269e89a4210",
+      "sourceUrl": "https://github.com/ggml-org/whisper.cpp",
+      "licenseSpdx": "MIT",
+      "noticeFiles": [
+        "third-party/whisper.cpp-MIT.txt"
+      ],
+      "verification": {
+        "method": "file-sha256",
+        "evidence": "whisper.cpp 1.9.3 Metal build retained at /Volumes/D/rightkit-publish/artifacts/whisper-cpp-1.9.3/macos-arm64/libggml-base.0.20.2.dylib (728240 bytes; also /Volumes/D/.cache/whisper-cpp-1.9.3-metal-rk); contentSha256 is signature-independent; the unversioned install-name symlinks (libwhisper.1.dylib, libggml.0.dylib, ...) point at this file"
+      }
+    },
+    {
+      "id": "ggml-cpu-0.20.2-macos-arm64",
+      "library": "ggml",
+      "version": "0.20.2",
+      "os": "macos",
+      "arch": "aarch64",
+      "status": "approved",
+      "linkage": "dynamic-library",
+      "artifactFileName": "libggml-cpu.0.20.2.dylib",
+      "sha256": "8431c2b337c2f004e803603762f1e944df00273d39562787fadc3aee8dddf50b",
+      "contentSha256": "6a9752e849df03b1bda5afece3e4895c26f919e9a64552c7190ce22857db14cf",
+      "sourceUrl": "https://github.com/ggml-org/whisper.cpp",
+      "licenseSpdx": "MIT",
+      "noticeFiles": [
+        "third-party/whisper.cpp-MIT.txt"
+      ],
+      "verification": {
+        "method": "file-sha256",
+        "evidence": "whisper.cpp 1.9.3 Metal build retained at /Volumes/D/rightkit-publish/artifacts/whisper-cpp-1.9.3/macos-arm64/libggml-cpu.0.20.2.dylib (858304 bytes; also /Volumes/D/.cache/whisper-cpp-1.9.3-metal-rk); contentSha256 is signature-independent; the unversioned install-name symlinks (libwhisper.1.dylib, libggml.0.dylib, ...) point at this file"
+      }
+    },
+    {
+      "id": "ggml-metal-0.20.2-macos-arm64",
+      "library": "ggml",
+      "version": "0.20.2",
+      "os": "macos",
+      "arch": "aarch64",
+      "status": "approved",
+      "linkage": "dynamic-library",
+      "artifactFileName": "libggml-metal.0.20.2.dylib",
+      "sha256": "0bbe90949684ae29ce7360aba2aded89b217dbdba8375bdcd53b4ac68d7530dd",
+      "contentSha256": "6a1ebf388b2d42ce38c0bb4a95d74a29fe73adf65bc1804978b7804d054ed0c3",
+      "sourceUrl": "https://github.com/ggml-org/whisper.cpp",
+      "licenseSpdx": "MIT",
+      "noticeFiles": [
+        "third-party/whisper.cpp-MIT.txt"
+      ],
+      "verification": {
+        "method": "file-sha256",
+        "evidence": "whisper.cpp 1.9.3 Metal build retained at /Volumes/D/rightkit-publish/artifacts/whisper-cpp-1.9.3/macos-arm64/libggml-metal.0.20.2.dylib (895520 bytes; also /Volumes/D/.cache/whisper-cpp-1.9.3-metal-rk); contentSha256 is signature-independent; the unversioned install-name symlinks (libwhisper.1.dylib, libggml.0.dylib, ...) point at this file"
+      }
+    },
+    {
+      "id": "ggml-blas-0.20.2-macos-arm64",
+      "library": "ggml",
+      "version": "0.20.2",
+      "os": "macos",
+      "arch": "aarch64",
+      "status": "approved",
+      "linkage": "dynamic-library",
+      "artifactFileName": "libggml-blas.0.20.2.dylib",
+      "sha256": "4c5389ff578dfb7f09b080dc282084bff955eecde2233bcb2efc23408b508621",
+      "contentSha256": "5fbaf5446ba68a7e74012b3aad15a5e6789d7939103284698d971bbd8f9f3e50",
+      "sourceUrl": "https://github.com/ggml-org/whisper.cpp",
+      "licenseSpdx": "MIT",
+      "noticeFiles": [
+        "third-party/whisper.cpp-MIT.txt"
+      ],
+      "verification": {
+        "method": "file-sha256",
+        "evidence": "whisper.cpp 1.9.3 Metal build retained at /Volumes/D/rightkit-publish/artifacts/whisper-cpp-1.9.3/macos-arm64/libggml-blas.0.20.2.dylib (58528 bytes; also /Volumes/D/.cache/whisper-cpp-1.9.3-metal-rk); contentSha256 is signature-independent; the unversioned install-name symlinks (libwhisper.1.dylib, libggml.0.dylib, ...) point at this file"
+      }
     }
   ]
 }

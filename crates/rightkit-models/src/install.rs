@@ -18,11 +18,10 @@
 
 use crate::archive;
 use crate::disk;
-use crate::download::{
-    download_resumable_with_identity, http_agent_with_redirects, DownloadRequest,
-};
+use crate::download::{download_resumable_with_identity, DownloadRequest};
 use crate::error::{Error, ErrorCode, Result};
 use crate::hash::sha256_file;
+use crate::http::ModelHttp;
 use crate::ids::ModelId;
 use crate::platform::Platform;
 use crate::spec::{safe_rel_path, Extract, FileSpec, ModelSpec, RevisionSpec};
@@ -460,7 +459,7 @@ impl Store {
                 }
             }
         }
-        let agent = http_agent_with_redirects(opts.max_download_redirects);
+        let client = self.download_client(opts.max_download_redirects);
         let overall_total: u64 = files.iter().filter_map(|f| f.bytes).sum();
         let mut overall_base = 0u64;
         let mut records: Vec<FileRecord> = Vec::new();
@@ -474,7 +473,7 @@ impl Store {
                 total_files: files.len(),
             });
             let fetched = self.fetch_file(
-                &agent,
+                &client,
                 f,
                 &staging,
                 opts,
@@ -945,7 +944,7 @@ impl Store {
     #[allow(clippy::too_many_arguments)]
     fn fetch_file(
         &self,
-        agent: &ureq::Agent,
+        client: &ModelHttp,
         f: &FileSpec,
         staging: &Path,
         opts: &InstallOptions,
@@ -974,7 +973,7 @@ impl Store {
                 .zip(f.sha256.as_ref())
                 .map(|(identity, sha)| format!("{identity}:{}:{sha}", f.path));
             let res = download_resumable_with_identity(
-                agent,
+                client,
                 DownloadRequest {
                     url: &url,
                     part_path: part,

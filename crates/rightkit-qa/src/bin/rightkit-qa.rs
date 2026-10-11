@@ -38,6 +38,9 @@ impl Args {
             "--engine",
             "--ui-binary",
             "--backend",
+            "--dir",
+            "--max-gb",
+            "--young-hours",
         ];
         let mut out = vec![];
         let mut skip = false;
@@ -193,6 +196,50 @@ fn sweep(a: &Args) -> Result<i32> {
     Ok(0)
 }
 
+/// `rightkit-qa homes [--apply] [--dir <.../rightkit-qa>] [--max-gb N] [--young-hours N]`:
+/// report (default) or remove (`--apply`) app homes the retention rule no longer protects.
+fn homes(a: &Args) -> Result<i32> {
+    use rightkit_qa::storage::{sweep_homes, HomePolicy, HOME_ROOT_ENV};
+    let dir = match a.value("--dir") {
+        Some(d) => std::path::PathBuf::from(d),
+        None => std::env::var_os(HOME_ROOT_ENV)
+            .map(std::path::PathBuf::from)
+            .unwrap_or_else(|| {
+                std::path::PathBuf::from(if cfg!(target_os = "macos") {
+                    "/private/tmp"
+                } else {
+                    ""
+                })
+            })
+            .join("rightkit-qa"),
+    };
+    let mut policy = HomePolicy::default();
+    if let Some(gb) = a.value("--max-gb").and_then(|v| v.parse::<f64>().ok()) {
+        policy.max_bytes = (gb * 1e9) as u64;
+    }
+    if let Some(h) = a.value("--young-hours").and_then(|v| v.parse::<u64>().ok()) {
+        policy.young = std::time::Duration::from_secs(h * 3600);
+    }
+    let apply = a.has("--apply");
+    let r = sweep_homes(&dir, policy, !apply);
+    for (path, bytes, why) in &r.removed {
+        println!(
+            "{} {} ({bytes} bytes): {why}",
+            if apply { "removed" } else { "would remove" },
+            path.display()
+        );
+    }
+    println!(
+        "{} {} home(s), {} bytes of {} bytes found; {} retained",
+        if apply { "removed" } else { "would remove" },
+        r.removed.len(),
+        r.removed_bytes,
+        r.total_bytes,
+        r.retained.len()
+    );
+    Ok(0)
+}
+
 fn verify(a: &Args) -> Result<i32> {
     let Some(path) = a.positionals().first().cloned() else {
         return err("usage: rightkit-qa verify <evidence.json>");
@@ -225,9 +272,10 @@ fn run() -> Result<i32> {
         }
         Some("guard") => guard(&a),
         Some("sweep") => sweep(&a),
+        Some("homes") => homes(&a),
         Some("verify") => verify(&a),
         _ => {
-            eprintln!("usage: rightkit-qa <doctor|list|run|guard|sweep|verify> [--config rightkit-qa.toml] ...");
+            eprintln!("usage: rightkit-qa <doctor|list|run|guard|sweep|homes|verify> [--config rightkit-qa.toml] ...");
             Ok(2)
         }
     }

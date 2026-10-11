@@ -5,6 +5,7 @@
 
 use std::collections::BTreeSet;
 use std::sync::Arc;
+use std::time::Duration;
 
 use rightkit_db::rusqlite::{self, Connection};
 use serde_json::{Map, Value};
@@ -357,6 +358,36 @@ pub trait StoreHook: Send + Sync {
     }
 }
 
+/// How [`crate::JobControl::progress`] events are written. The default is today's behaviour:
+/// every event is its own fully durable write. State transitions, results, runner lifecycle
+/// events (`started`, `complete`, `paused`, `failed`, `cancelled`) and `Recovery::Never` markers
+/// are always fully durable, whatever this says.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct ProgressPolicy {
+    /// Write progress events with `synchronous=NORMAL` (WAL only; ignored on a rollback
+    /// journal or when the store was opened with `DurabilityProfile::Normal`). A power loss may
+    /// lose the last progress events, never a transition: the next fully durable commit syncs
+    /// the log they sit in.
+    pub relaxed_durability: bool,
+    /// Keep only the latest progress fraction per job within this interval (see
+    /// [`crate::JobStore::progress_fenced`]). `None` writes every event.
+    pub coalesce: Option<Duration>,
+}
+
+impl ProgressPolicy {
+    pub fn new() -> Self {
+        Self::default()
+    }
+    pub fn relaxed_durability(mut self, yes: bool) -> Self {
+        self.relaxed_durability = yes;
+        self
+    }
+    pub fn coalesce(mut self, interval: Duration) -> Self {
+        self.coalesce = Some(interval);
+        self
+    }
+}
+
 /// How a [`crate::JobStore`] maps onto its database. `StoreConfig::default()`
 /// is exactly the 0.1 store.
 #[derive(Clone)]
@@ -369,6 +400,7 @@ pub struct StoreConfig {
     pub(crate) app_schema: Vec<String>,
     pub(crate) user_version: Option<i64>,
     pub(crate) include_retryable: bool,
+    pub(crate) progress: ProgressPolicy,
 }
 
 impl Default for StoreConfig {
@@ -382,6 +414,7 @@ impl Default for StoreConfig {
             app_schema: vec![],
             user_version: Some(1),
             include_retryable: true,
+            progress: ProgressPolicy::default(),
         }
     }
 }
@@ -397,6 +430,7 @@ impl std::fmt::Debug for StoreConfig {
             .field("app_schema", &self.app_schema.len())
             .field("user_version", &self.user_version)
             .field("include_retryable", &self.include_retryable)
+            .field("progress", &self.progress)
             .finish()
     }
 }
@@ -449,6 +483,14 @@ impl StoreConfig {
         self.include_retryable = yes;
         self
     }
+    /// Durability and coalescing of progress events (default: every event fully durable).
+    pub fn progress_policy(mut self, p: ProgressPolicy) -> Self {
+        self.progress = p;
+        self
+    }
+    pub fn progress(&self) -> &ProgressPolicy {
+        &self.progress
+    }
     pub fn includes_retryable(&self) -> bool {
         self.include_retryable
     }
@@ -495,7 +537,7 @@ impl StoreConfig {
         }
         check_ident(&self.artifacts.table)?;
         check_ident(&self.artifacts.id_column)?;
-        if ["jobs", "job_events", "rk_job_submissions"].contains(&self.artifacts.table.as_str()) {
+        if ["jobs", "job_events", "rk_job_submissions", "rk_job_meta"].contains(&self.artifacts.table.as_str()) {
             return Err(JobError::new("config", "artifact table name is reserved"));
         }
         if self.artifacts.wire_id.is_empty() {

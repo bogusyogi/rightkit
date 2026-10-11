@@ -2,11 +2,12 @@
 //!
 //! Donors: ViewRight `binary_stream.rs` (id resolution, HEAD/GET/OPTIONS, single-range parsing,
 //! heavy reads off the calling thread) and `stream_http.rs` (range parser, fallible response
-//! builders that never panic). The shell registers the scheme with
-//! `ShellBuilder::stream_protocol("myapp-stream")`; URLs are `myapp-stream://localhost/<id>`
+//! builders that never panic). The shell registers one or more schemes with
+//! `ShellBuilder::stream_protocol("myapp-stream", policy)`; URLs are `myapp-stream://localhost/<id>`
 //! (`http://myapp-stream.localhost/<id>` on Windows). The only credential is the id minted by
-//! [`crate::broker::PathBroker::grant_stream`].
+//! [`crate::broker::PathBroker::grant_stream`]. Revoking the file revokes its ids for good.
 
+use std::collections::BTreeMap;
 use std::fs::File;
 use std::io::{Read, Seek, SeekFrom};
 use std::path::Path;
@@ -19,10 +20,15 @@ use crate::broker::PathBroker;
 /// Policy for what a stream scheme will serve.
 #[derive(Debug, Clone)]
 pub struct StreamPolicy {
-    /// Largest file served (bytes).
+    /// Largest file served (bytes) when no per-kind cap applies.
     pub max_bytes: u64,
     /// Lowercase extensions served; `None` serves any type the mime table knows.
     pub extensions: Option<Vec<String>>,
+    /// Per-kind size caps (bytes). A key is an extension (`"mov"`, a leading dot is optional), a full
+    /// MIME type (`"application/pdf"`) or a MIME family (`"video"` or `"video/*"`). Lookup order is
+    /// extension, then full MIME, then family; a file matching no key uses `max_bytes`. Empty by
+    /// default, so behaviour is unchanged until a cap is added with [`StreamPolicy::with_kind_cap`].
+    pub max_bytes_by_kind: BTreeMap<String, u64>,
 }
 
 impl Default for StreamPolicy {
@@ -30,8 +36,53 @@ impl Default for StreamPolicy {
         Self {
             max_bytes: 150 * 1024 * 1024,
             extensions: None,
+            max_bytes_by_kind: BTreeMap::new(),
         }
     }
+}
+
+impl StreamPolicy {
+    /// Add or replace a per-kind cap. `kind` follows the key rules of
+    /// [`StreamPolicy::max_bytes_by_kind`].
+    pub fn with_kind_cap(mut self, kind: &str, max_bytes: u64) -> Self {
+        self.max_bytes_by_kind
+            .insert(normalize_kind(kind), max_bytes);
+        self
+    }
+
+    /// The size cap that applies to `path`: the most specific per-kind entry, else `max_bytes`.
+    pub fn max_bytes_for(&self, path: &Path) -> u64 {
+        if self.max_bytes_by_kind.is_empty() {
+            return self.max_bytes;
+        }
+        let ext = path
+            .extension()
+            .and_then(|e| e.to_str())
+            .map(|e| e.to_ascii_lowercase());
+        if let Some(cap) = ext.as_deref().and_then(|e| self.max_bytes_by_kind.get(e)) {
+            return *cap;
+        }
+        let Some(mime) = mime_for(path) else {
+            return self.max_bytes;
+        };
+        let mime = mime.split(';').next().unwrap_or(mime).trim();
+        if let Some(cap) = self.max_bytes_by_kind.get(mime) {
+            return *cap;
+        }
+        let family = mime.split('/').next().unwrap_or(mime);
+        self.max_bytes_by_kind
+            .get(family)
+            .copied()
+            .unwrap_or(self.max_bytes)
+    }
+}
+
+fn normalize_kind(kind: &str) -> String {
+    kind.trim()
+        .trim_start_matches('.')
+        .trim_end_matches("/*")
+        .trim_end_matches('/')
+        .to_ascii_lowercase()
 }
 
 /// Content type by extension (media and document formats the suite streams).
@@ -48,6 +99,7 @@ pub fn mime_for(path: &Path) -> Option<&'static str> {
         "avif" => "image/avif",
         "svg" => "image/svg+xml",
         "bmp" => "image/bmp",
+        "ico" => "image/x-icon",
         "tif" | "tiff" => "image/tiff",
         "mp3" => "audio/mpeg",
         "wav" => "audio/wav",
@@ -66,17 +118,21 @@ pub fn mime_for(path: &Path) -> Option<&'static str> {
     })
 }
 
-fn internal_error() -> Response<Vec<u8>> {
+/// Last-resort response when a builder call fails (a malformed header value). Built from
+/// `Response::new`, which cannot fail, so a release build never panics here.
+pub(crate) fn internal_error() -> Response<Vec<u8>> {
     let mut r = Response::new(Vec::new());
     *r.status_mut() = StatusCode::INTERNAL_SERVER_ERROR;
     r
 }
 
-fn finish(b: Builder, body: Vec<u8>) -> Response<Vec<u8>> {
+/// Finish a builder, falling back to [`internal_error`] instead of panicking.
+pub(crate) fn finish(b: Builder, body: Vec<u8>) -> Response<Vec<u8>> {
     b.body(body).unwrap_or_else(|_| internal_error())
 }
 
-fn cors(status: StatusCode) -> Builder {
+/// CORS headers every stream and site response carries, errors included.
+pub(crate) fn cors(status: StatusCode) -> Builder {
     Response::builder()
         .status(status)
         .header(header::ACCESS_CONTROL_ALLOW_ORIGIN, "*")
@@ -88,7 +144,8 @@ fn cors(status: StatusCode) -> Builder {
         )
 }
 
-fn ranged(status: StatusCode, mime: &str, len: u64) -> Builder {
+/// Body response headers: mime, length, range support, no caching, CORS.
+pub(crate) fn ranged(status: StatusCode, mime: &str, len: u64) -> Builder {
     Response::builder()
         .status(status)
         .header(header::CONTENT_TYPE, mime)
@@ -102,8 +159,21 @@ fn ranged(status: StatusCode, mime: &str, len: u64) -> Builder {
         )
 }
 
-fn empty(status: StatusCode) -> Response<Vec<u8>> {
+/// A bodiless response with CORS headers.
+pub(crate) fn empty(status: StatusCode) -> Response<Vec<u8>> {
     finish(cors(status), Vec::new())
+}
+
+/// The method gate shared by every custom scheme: OPTIONS answers 204, anything but GET/HEAD is
+/// refused. `None` means keep handling the request.
+pub(crate) fn method_gate_status(method: &Method) -> Option<StatusCode> {
+    if method == Method::OPTIONS {
+        return Some(StatusCode::NO_CONTENT);
+    }
+    if method != Method::GET && method != Method::HEAD {
+        return Some(StatusCode::METHOD_NOT_ALLOWED);
+    }
+    None
 }
 
 /// Parse one `bytes=a-b` / `bytes=a-` / `bytes=-n` range against a known length into an inclusive
@@ -133,7 +203,8 @@ pub fn parse_range(value: &str, len: u64) -> Option<(u64, u64)> {
     (start <= end).then_some((start, end))
 }
 
-fn read_range(path: &Path, start: u64, end: u64) -> std::io::Result<Vec<u8>> {
+/// Read the inclusive `[start, end]` slice of `path`.
+pub(crate) fn read_range(path: &Path, start: u64, end: u64) -> std::io::Result<Vec<u8>> {
     let mut f = File::open(path)?;
     f.seek(SeekFrom::Start(start))?;
     let mut buf = vec![0; (end - start + 1) as usize];
@@ -147,12 +218,8 @@ pub fn serve<F>(broker: &PathBroker, policy: &StreamPolicy, request: &Request<Ve
 where
     F: FnOnce(Response<Vec<u8>>) + Send + 'static,
 {
-    let method = request.method();
-    if method == Method::OPTIONS {
-        return respond(empty(StatusCode::NO_CONTENT));
-    }
-    if method != Method::GET && method != Method::HEAD {
-        return respond(empty(StatusCode::METHOD_NOT_ALLOWED));
+    if let Some(status) = method_gate_status(request.method()) {
+        return respond(empty(status));
     }
     let id = request.uri().path().trim_start_matches('/').trim();
     if id.is_empty() {
@@ -174,11 +241,11 @@ where
     let Ok(meta) = std::fs::metadata(&path) else {
         return respond(empty(StatusCode::NOT_FOUND));
     };
-    if !meta.is_file() || meta.len() > policy.max_bytes {
+    if !meta.is_file() || meta.len() > policy.max_bytes_for(&path) {
         return respond(empty(StatusCode::PAYLOAD_TOO_LARGE));
     }
     let total = meta.len();
-    let head = method == Method::HEAD;
+    let head = method_is_head(request);
 
     if let Some(range) = request.headers().get(header::RANGE) {
         let parsed = range.to_str().ok().and_then(|r| parse_range(r, total));
@@ -213,4 +280,8 @@ where
             Err(_) => empty(StatusCode::NOT_FOUND),
         })
     });
+}
+
+fn method_is_head<B>(request: &Request<B>) -> bool {
+    request.method() == Method::HEAD
 }

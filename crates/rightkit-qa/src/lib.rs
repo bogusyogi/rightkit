@@ -1,8 +1,11 @@
 //! rightkit-qa: the Rust QA harness for Right Suite apps (macOS and Windows).
 //!
-//! Replaces `@rightkit/qa` (embedded-WebDriver launch, run lock, evidence, guard,
-//! frames/paint/panes) and the Node e2e harness pattern (`tests/e2e/lib.mjs`,
-//! `ui.mjs`, `scripts/e2e.mjs`). Everything is Rust; no Node or Python runtime.
+//! This crate and the Node packages `@rightkit/qa` / `@rightkit/qa-chrome` are two runners
+//! that coexist; neither replaces the other. This one drives native Rust, Tauri and engine
+//! targets (the real macOS app, the Windows WebView2 app through its in-app control server,
+//! the engine) with no Node or Python runtime. The Node packages own browser-page QA
+//! (Chrome for Testing plus a CDP page driver, evidence, pane/frame/paint checks). See the
+//! ownership table in this crate's README.
 //!
 //! Targets:
 //! * engine: [`engine::EngineTarget`] drives the app engine over CLI words and the

@@ -218,7 +218,7 @@ fn from_dir(dir: &Path) -> impl Fn(&FileSpec) -> Option<PathBuf> + '_ {
 fn adopt_verifies_hard_links_and_records_without_download() {
     let fx = fx();
     let tmp = tempfile::tempdir().unwrap();
-    let store = Store::new(tmp.path().join("models"), "test-app");
+    let store = local(Store::new(tmp.path().join("models"), "test-app"));
     let legacy = legacy_install(&tmp.path().join("flat/demo"), &fx.v1, &fx.lib);
 
     let mut events = Vec::new();
@@ -271,7 +271,7 @@ fn adopt_verifies_hard_links_and_records_without_download() {
 fn adopt_fails_closed_and_never_records_a_partial_adoption() {
     let fx = fx();
     let tmp = tempfile::tempdir().unwrap();
-    let store = Store::new(tmp.path().join("models"), "test-app");
+    let store = local(Store::new(tmp.path().join("models"), "test-app"));
     // A good, active revision 1 that every failed adoption must leave alone.
     store.install(&fx.spec, &opts("1"), |_| {}).unwrap();
     let before = store.state("demo").unwrap();
@@ -360,7 +360,7 @@ fn adopt_survives_a_kill_at_every_durable_step() {
     // Fresh key: the swap's only durable steps are the rename and the ledger.
     for point in [CrashPoint::AfterSwap, CrashPoint::AfterState] {
         let tmp = tempfile::tempdir().unwrap();
-        let store = Store::new(tmp.path().join("models"), "test-app");
+        let store = local(Store::new(tmp.path().join("models"), "test-app"));
         let d = legacy_install(&tmp.path().join("flat"), &fx.v1, &fx.lib);
         let mut o = opts("1");
         o.crash_after = Some(point);
@@ -391,7 +391,7 @@ fn adopt_survives_a_kill_at_every_durable_step() {
         CrashPoint::AfterState,
     ] {
         let tmp = tempfile::tempdir().unwrap();
-        let store = Store::new(tmp.path().join("models"), "test-app");
+        let store = local(Store::new(tmp.path().join("models"), "test-app"));
         store.install(&fx.spec, &opts("1"), |_| {}).unwrap();
         let dir = store.revision_dir("demo", "1@q4").unwrap();
         // Corrupt the installed copy (same size) so adopt replaces it.
@@ -422,7 +422,7 @@ fn adopt_survives_a_kill_at_every_durable_step() {
 
     // A half-built adoption tree left by a killed process is discarded.
     let tmp = tempfile::tempdir().unwrap();
-    let store = Store::new(tmp.path().join("models"), "test-app");
+    let store = local(Store::new(tmp.path().join("models"), "test-app"));
     let junk = store.model_dir("demo").unwrap().join(".adopt/1@q4");
     fs::create_dir_all(&junk).unwrap();
     fs::write(junk.join("model.bin"), b"half").unwrap();
@@ -439,9 +439,11 @@ fn legacy_alias_follows_install_switch_and_remove() {
     let fx = fx();
     let tmp = tempfile::tempdir().unwrap();
     let flat = tmp.path().join("flat");
-    let store = Store::new(tmp.path().join("models"), "test-app")
-        .with_legacy_alias_root(&flat)
-        .unwrap();
+    let store = local(
+        Store::new(tmp.path().join("models"), "test-app")
+            .with_legacy_alias_root(&flat)
+            .unwrap(),
+    );
     assert!(
         Store::new(tmp.path().join("models"), "x")
             .with_legacy_alias_root(tmp.path().join("models"))
@@ -532,7 +534,7 @@ fn legacy_alias_follows_install_switch_and_remove() {
     assert_eq!(fs::read(alias.join("model.bin")).unwrap(), fx.v1);
 
     // A store without the alias opt-in never creates one.
-    let plain = Store::new(tmp.path().join("models2"), "test-app");
+    let plain = local(Store::new(tmp.path().join("models2"), "test-app"));
     plain.install(&fx.spec, &opts("1"), |_| {}).unwrap();
     assert_eq!(
         plain.sync_legacy_alias("demo").unwrap().status,
@@ -544,7 +546,7 @@ fn legacy_alias_follows_install_switch_and_remove() {
 fn resolve_or_legacy_falls_back_to_the_flat_dir() {
     let fx = fx();
     let tmp = tempfile::tempdir().unwrap();
-    let store = Store::new(tmp.path().join("models"), "test-app");
+    let store = local(Store::new(tmp.path().join("models"), "test-app"));
     let legacy = legacy_install(&tmp.path().join("flat/demo"), &fx.v1, &fx.lib);
     assert_eq!(
         store.resolve_or_legacy("demo", &legacy),
@@ -563,7 +565,7 @@ fn resolve_or_legacy_falls_back_to_the_flat_dir() {
 fn preflight_credits_staged_and_installed_files_with_matching_pins() {
     let fx = fx();
     let tmp = tempfile::tempdir().unwrap();
-    let store = Store::new(tmp.path().join("models"), "test-app");
+    let store = local(Store::new(tmp.path().join("models"), "test-app"));
     let total = fx.spec.revisions[1].required_disk_bytes(&Platform::current());
 
     // A matching model.bin already staged (e.g. linked in by the app).
@@ -592,7 +594,7 @@ fn preflight_credits_staged_and_installed_files_with_matching_pins() {
 
     // A staged file with the right size but wrong bytes earns no credit.
     let tmp2 = tempfile::tempdir().unwrap();
-    let store2 = Store::new(tmp2.path().join("models"), "test-app");
+    let store2 = local(Store::new(tmp2.path().join("models"), "test-app"));
     let staged = store2.model_dir("demo").unwrap().join(".staging/2@q4");
     fs::create_dir_all(&staged).unwrap();
     let mut bad = fx.v2.clone();
@@ -656,9 +658,11 @@ fn shared_runtime_files_live_outside_the_revision_and_are_reused() {
     let fx = fx();
     let tmp = tempfile::tempdir().unwrap();
     let shared = tmp.path().join("runtimes/ort");
-    let store = Store::new(tmp.path().join("models"), "test-app")
-        .with_shared_root("onnxruntime", &shared)
-        .unwrap();
+    let store = local(
+        Store::new(tmp.path().join("models"), "test-app")
+            .with_shared_root("onnxruntime", &shared)
+            .unwrap(),
+    );
     let lib_at = shared.join("1.22/libonnxruntime.dylib");
 
     let a = ort_spec(&fx, "tts-a", "1.22/libonnxruntime.dylib");
@@ -699,7 +703,7 @@ fn shared_runtime_files_live_outside_the_revision_and_are_reused() {
     assert!(store.state("tts-c").unwrap().active.is_none());
 
     // A store that does not declare the kind fails closed.
-    let bare = Store::new(tmp.path().join("models"), "test-app");
+    let bare = local(Store::new(tmp.path().join("models"), "test-app"));
     assert!(!bare.verify("tts-b", "1@q4", VerifyMode::Presence));
     let e = bare
         .install(&ort_spec(&fx, "tts-d", "x.dylib"), &opts("1"), |_| {})
@@ -712,9 +716,11 @@ fn adopt_places_a_shared_runtime_from_an_existing_install() {
     let fx = fx();
     let tmp = tempfile::tempdir().unwrap();
     let shared = tmp.path().join("runtimes/ort");
-    let store = Store::new(tmp.path().join("models"), "test-app")
-        .with_shared_root("onnxruntime", &shared)
-        .unwrap();
+    let store = local(
+        Store::new(tmp.path().join("models"), "test-app")
+            .with_shared_root("onnxruntime", &shared)
+            .unwrap(),
+    );
     let legacy = tmp.path().join("flat");
     fs::create_dir_all(legacy.join("runtime")).unwrap();
     fs::write(legacy.join("model.bin"), &fx.v1).unwrap();
@@ -739,9 +745,11 @@ fn path_traversal_is_rejected_for_revision_and_shared_files() {
     let fx = fx();
     let tmp = tempfile::tempdir().unwrap();
     let shared = tmp.path().join("shared");
-    let store = Store::new(tmp.path().join("models"), "test-app")
-        .with_shared_root("onnxruntime", &shared)
-        .unwrap();
+    let store = local(
+        Store::new(tmp.path().join("models"), "test-app")
+            .with_shared_root("onnxruntime", &shared)
+            .unwrap(),
+    );
     for bad_kind in ["../x", "a/b", "", ".hidden", "C:"] {
         assert!(
             Store::new(tmp.path(), "t")
@@ -793,9 +801,11 @@ fn shared_placement_never_writes_through_a_symlink() {
     let victim = tmp.path().join("victim.bin");
     fs::write(&victim, b"keep").unwrap();
     std::os::unix::fs::symlink(&victim, shared.join("lib.dylib")).unwrap();
-    let store = Store::new(tmp.path().join("models"), "test-app")
-        .with_shared_root("onnxruntime", &shared)
-        .unwrap();
+    let store = local(
+        Store::new(tmp.path().join("models"), "test-app")
+            .with_shared_root("onnxruntime", &shared)
+            .unwrap(),
+    );
     assert!(store
         .install(&ort_spec(&fx, "tts", "lib.dylib"), &opts("1"), |_| {})
         .is_err());
@@ -826,7 +836,7 @@ fn pause_midway(store: &Store, spec: &ModelSpec, rev: &str) -> (Error, Vec<Event
 fn pause_keeps_staging_and_resumes_by_range() {
     let fx = fx();
     let tmp = tempfile::tempdir().unwrap();
-    let store = Store::new(tmp.path().join("models"), "test-app");
+    let store = local(Store::new(tmp.path().join("models"), "test-app"));
     let (err, events) = pause_midway(&store, &fx.spec, "2");
     assert_eq!(err.code, ErrorCode::Paused, "{err}");
     let paused = store.paused("demo").unwrap();
@@ -868,7 +878,7 @@ fn pause_keeps_staging_and_resumes_by_range() {
 fn pause_without_server_ranges_restarts_cleanly() {
     let fx = fx_with(false);
     let tmp = tempfile::tempdir().unwrap();
-    let store = Store::new(tmp.path().join("models"), "test-app");
+    let store = local(Store::new(tmp.path().join("models"), "test-app"));
     let (err, _) = pause_midway(&store, &fx.spec, "2");
     assert_eq!(err.code, ErrorCode::Paused);
     store.install(&fx.spec, &opts("2"), |_| {}).unwrap();
@@ -887,7 +897,7 @@ fn pause_without_server_ranges_restarts_cleanly() {
 fn a_paused_install_can_be_cancelled_and_cancel_wins_over_pause() {
     let fx = fx();
     let tmp = tempfile::tempdir().unwrap();
-    let store = Store::new(tmp.path().join("models"), "test-app");
+    let store = local(Store::new(tmp.path().join("models"), "test-app"));
     let (err, _) = pause_midway(&store, &fx.spec, "2");
     assert_eq!(err.code, ErrorCode::Paused);
     store.discard_staging("demo", "2@q4").unwrap();
@@ -1082,4 +1092,17 @@ fn models_without_a_local_backend_are_rental_only_or_api() {
     );
     assert_eq!(serde_json::to_value(FitKind::Api).unwrap(), "api");
     assert_eq!(serde_json::to_value(ErrorCode::Paused).unwrap(), "paused");
+}
+
+/// Test stores may reach the local mock server on 127.0.0.1 and nothing else.
+fn local(store: Store) -> Store {
+    store
+        .with_http_options(rightkit_models::http::ModelHttpOptions {
+            proxy: rightkit_models::http::ProxyMode::None,
+            ..Default::default()
+        })
+        .with_address_policy(
+            rightkit_http::AddressPolicy::public_web()
+                .allow_if(vec!["127.0.0.1".to_string()], |ip| ip.is_loopback()),
+        )
 }

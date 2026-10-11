@@ -24,7 +24,13 @@ Do not use it for one-shot calls that need no persistence. Do not use it to stor
 
 ## Cargo features
 
-`service` (default on): `DispatcherHandler`, which serves a `Dispatcher` over `rightkit-service` (`Cargo.toml:14-18`, `src/lib.rs:10`). Engines that only speak stdio or CLI build with `default-features = false`.
+Default features are `service` and `supervisor`. `default-features = false` builds the store, runner, locks, recovery classes, pruning and progress policy only.
+
+- `contract`: the stdio/CLI command contract (`Dispatcher`, `serve`, `run_cli`, `JobCommands`); pulls `rightkit-framed-sidecar`.
+- `supervisor` (implies `contract`): `EngineSupervisor`, `EngineClient` and the `rightkit-process` re-exports; pulls `rightkit-process`.
+- `service` (implies `contract`): `DispatcherHandler` over `rightkit-service`.
+
+Per-job `Recovery::Never` (destructive jobs are failed as `interrupted` after a crash, never re-run), `JobStore::prune`, `ProgressPolicy`, `CancelToken` and single-flight submit (`SubmitOptions::single_flight`) are documented on their types and in the changelog.
 
 ## Usage
 
@@ -103,3 +109,16 @@ The crate depends on `rightkit-process` and `rightkit-service`, which have their
 ## Version and changes
 
 Published version: see [INDEX.md](../../INDEX.md). Version history: [CHANGELOG.md](CHANGELOG.md).
+
+## Runtime budget
+
+Generated from `runtime-budget.json`; edit that file, then run `node packages/release/runtime-budgets.mjs sync <crate-dir>`.
+
+- Resident memory ceiling: 14.0 MiB.
+- CPU ceiling (idle, steady state): 1%.
+- Wake-ups ceiling: 1 per second.
+- Disk operations ceiling: 2 operations per second.
+- Required scale: 10,000 calls or more.
+- Required hosts: macOS and Windows.
+- Status exposure: `EngineSupervisor::status()` in `src/supervisor.rs`; exposes resident memory, idle CPU, wake-ups, disk operations.
+- Measured: not yet measured.

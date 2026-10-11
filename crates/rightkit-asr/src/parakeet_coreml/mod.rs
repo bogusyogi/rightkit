@@ -33,6 +33,7 @@ mod decode;
 
 use crate::error::{Error, Result};
 use crate::longform::{self, LongFormOptions, LongFormProgress, SeamPolicy};
+use crate::decoder::TimedPiece;
 use crate::parakeet_core::detok::{assemble_timed_pieces, DetokPolicy};
 use crate::parakeet_core::policy::PruningMode;
 use crate::parakeet_core::tdt_beam::default_emit_reward;
@@ -145,6 +146,12 @@ pub struct CoreMlParakeetOptions {
     pub compile_cache_dir: Option<PathBuf>,
     /// Window seam policy for `transcribe_long` (see [`SeamPolicy`]).
     pub seam: SeamPolicy,
+    /// Reject anything but the expected compiled layout at load. With `true`,
+    /// each of the four stages must already exist as `<Stage>.mlmodelc`; the
+    /// `.mlpackage` fallback (compiled on load into `compile_cache_dir`) is
+    /// refused, and so is a missing stage. Default `false` keeps the 0.1.0
+    /// fallback behaviour.
+    pub strict: bool,
 }
 
 impl Default for CoreMlParakeetOptions {
@@ -160,6 +167,7 @@ impl Default for CoreMlParakeetOptions {
             detok: DetokPolicy::canonical_rust(),
             compile_cache_dir: None,
             seam: SeamPolicy::DedupOverlap,
+            strict: false,
         }
     }
 }
@@ -218,6 +226,12 @@ impl CoreMlParakeet {
         let cache = options.compile_cache_dir.as_deref();
         let stage = |stem: &str, units| -> Result<Stage> {
             let compiled = dir.join(format!("{stem}.mlmodelc"));
+            if options.strict && !compiled.is_dir() {
+                return Err(Error::Model(format!(
+                    "strict CoreML layout: {stem}.mlmodelc is required in {} (the .mlpackage fallback is refused)",
+                    dir.display()
+                )));
+            }
             let path = if compiled.exists() { compiled } else { dir.join(format!("{stem}.mlpackage")) };
             Stage::load_any(&path, units, cache).map_err(Error::Model)
         };
@@ -355,6 +369,18 @@ impl CoreMlParakeet {
         audio: &[f32],
         detok: DetokPolicy,
     ) -> Result<(TranscriptionResult, DecodeStats)> {
+        let (result, _pieces, stats) = self.transcribe_window_with_pieces(audio, detok)?;
+        Ok((result, stats))
+    }
+
+    /// [`transcribe_window_with`](Self::transcribe_window_with) plus the window's
+    /// sample-exact [`TimedPiece`]s (window-relative), computed from the decoder's
+    /// frame indices before detokenisation. The `TimedToken` result is unchanged.
+    pub fn transcribe_window_with_pieces(
+        &self,
+        audio: &[f32],
+        detok: DetokPolicy,
+    ) -> Result<(TranscriptionResult, Vec<TimedPiece>, DecodeStats)> {
         if audio.len() > self.win_samples {
             return Err(Error::Audio(format!(
                 "audio is {:.1}s but this primitive decodes at most one {:.1}s window; \
@@ -364,7 +390,33 @@ impl CoreMlParakeet {
             )));
         }
         let (hits, stats) = self.decode_window(audio, 0.0)?;
-        Ok((self.assemble_with(&hits, detok), stats))
+        let pieces = self.pieces_for_hits(&hits, detok);
+        Ok((self.assemble_with(&hits, detok), pieces, stats))
+    }
+
+    /// Sample-exact pieces for window-relative hits. Frames are recovered from the
+    /// `frame * FRAME_SECONDS` starts by rounding; durations are the model's
+    /// predictions, as in `assemble_with`.
+    fn pieces_for_hits(&self, hits: &[Hit], detok: DetokPolicy) -> Vec<TimedPiece> {
+        const HOP: usize = 160;
+        const SR: usize = 16_000;
+        let per_frame = (crate::decoder_tdt::ENCODER_STRIDE * HOP) as f32;
+        let entries: Vec<(usize, usize, usize)> = hits
+            .iter()
+            .map(|&(id, start, dur)| {
+                let frame = (start * SR as f32 / per_frame).round().max(0.0) as usize;
+                (id, frame, dur)
+            })
+            .collect();
+        crate::decoder_tdt::lattice_pieces(
+            &entries,
+            crate::decoder_tdt::DurationMode::Predicted,
+            &|id| Some(self.pieces.get(id).cloned().unwrap_or_default()),
+            crate::decoder_tdt::MissingText::Empty,
+            detok,
+            HOP,
+            SR,
+        )
     }
 
     /// Detokenize `(token_id, start_sec, duration_frames)` hits with the
@@ -409,20 +461,41 @@ impl CoreMlParakeet {
         cancel: Option<&AtomicBool>,
         progress: &dyn Fn(&LongFormProgress),
     ) -> Result<LongFormTranscript> {
+        self.transcribe_long_with_pieces(audio, detok, cancel, progress).map(|(long, _)| long)
+    }
+
+    /// [`transcribe_long_with`](Self::transcribe_long_with) plus sample-exact
+    /// [`TimedPiece`]s over the whole recording. Window offsets are accumulated in
+    /// samples. Pieces are committed as decoded, with no seam de-duplication.
+    pub fn transcribe_long_with_pieces(
+        &self,
+        audio: &[f32],
+        detok: DetokPolicy,
+        cancel: Option<&AtomicBool>,
+        progress: &dyn Fn(&LongFormProgress),
+    ) -> Result<(LongFormTranscript, Vec<TimedPiece>)> {
         let opts = LongFormOptions {
             window_samples: self.win_samples,
             terminal_silence: cfg!(target_os = "windows"),
             seam: self.options.seam,
+            word_assembly_floor_ms: Some(crate::longform::DEFAULT_WORD_ASSEMBLY_FLOOR_MS),
+            pad_policy: crate::longform::PadPolicy::FinalSegmentOnly,
         };
         let mut stats = DecodeStats::default();
         let mut windows = 0usize;
-        let result = longform::transcribe_padded_window(audio, &opts, cancel, progress, |segment| {
-            let (r, s) = self.transcribe_window_with(segment, detok)?;
-            stats.add(&s);
-            windows += 1;
-            Ok(r)
-        })?;
-        Ok(LongFormTranscript { result, stats, windows })
+        let (result, pieces) = longform::transcribe_padded_window_with_pieces(
+            audio,
+            &opts,
+            cancel,
+            progress,
+            |segment| {
+                let (r, p, s) = self.transcribe_window_with_pieces(segment, detok)?;
+                stats.add(&s);
+                windows += 1;
+                Ok((r, p))
+            },
+        )?;
+        Ok((LongFormTranscript { result, stats, windows }, pieces))
     }
 
     /// Convenience: [`transcribe_long`](Self::transcribe_long) without
