@@ -324,14 +324,7 @@ pub(crate) fn proxy_from_system(
                 proxy
             }))
         }
-        SystemProxyChoice::PerScheme { .. } => Err(HttpError::InvalidRequest(
-            concat!(
-                "the system proxy settings use a different proxy for http and https, which ",
-                "ProxyMode::System cannot follow; configure one proxy for both, or use ",
-                "ProxyMode::Explicit or ProxyMode::Environment"
-            )
-            .into(),
-        )),
+        SystemProxyChoice::PerScheme { .. } => Err(HttpError::SystemProxyPerScheme),
     }
 }
 
@@ -851,6 +844,9 @@ pub struct Client {
     proxy_diagnostic: Option<ProxyDiagnostic>,
     /// Set when the proxy settings were invalid; every request then fails closed.
     config_error: Option<String>,
+    /// The invalid setting is a per-scheme system proxy: requests fail with the typed
+    /// [`HttpError::SystemProxyPerScheme`] instead of a generic message.
+    system_proxy_per_scheme: bool,
 }
 
 pub(crate) struct Raw {
@@ -877,6 +873,7 @@ impl Client {
                 let mut direct = config;
                 direct.proxy = ProxyMode::None;
                 let mut client = Self::build(direct, None);
+                client.system_proxy_per_scheme = matches!(e, HttpError::SystemProxyPerScheme);
                 client.config_error = Some(e.to_string());
                 client
             }
@@ -926,6 +923,7 @@ impl Client {
             proxy,
             proxy_diagnostic: diagnostic,
             config_error: None,
+            system_proxy_per_scheme: false,
         }
     }
 
@@ -1340,6 +1338,9 @@ impl Client {
         total: Option<Duration>,
         redirect_hop: bool,
     ) -> Result<Raw, HttpError> {
+        if self.system_proxy_per_scheme {
+            return Err(HttpError::SystemProxyPerScheme);
+        }
         if let Some(reason) = &self.config_error {
             return Err(HttpError::InvalidRequest(reason.clone()));
         }
@@ -1392,6 +1393,9 @@ impl Client {
     /// checked; otherwise the name is resolved and every address vetted (a pre-check: the
     /// request itself resolves again and connects to its own vetted addresses).
     pub(crate) fn preflight_url(&self, url: &str) -> Result<(), HttpError> {
+        if self.system_proxy_per_scheme {
+            return Err(HttpError::SystemProxyPerScheme);
+        }
         if let Some(reason) = &self.config_error {
             return Err(HttpError::InvalidRequest(reason.clone()));
         }
@@ -1586,6 +1590,7 @@ pub(crate) fn scrub_error(err: HttpError, values: &[String]) -> HttpError {
         HttpError::Json(m) => HttpError::Json(r(m)),
         HttpError::Stream(m) => HttpError::Stream(r(m)),
         HttpError::Cancelled => HttpError::Cancelled,
+        HttpError::SystemProxyPerScheme => HttpError::SystemProxyPerScheme,
         HttpError::HttpsRequired {
             host,
             scheme,
@@ -1907,9 +1912,15 @@ mod tests {
             .err()
             .unwrap_or_else(|| panic!("{proxy} must be refused"));
             assert!(
-                matches!(&error, HttpError::InvalidRequest(m) if m.contains("different proxy")),
+                matches!(error, HttpError::SystemProxyPerScheme),
                 "{proxy}: {error}"
             );
+            assert_eq!(
+                error.to_string(),
+                "Windows proxy settings route HTTP and HTTPS differently; this version supports \
+                 one proxy for both"
+            );
+            assert!(matches!(error.class(), crate::error::ErrorClass::Invalid));
         }
     }
 
