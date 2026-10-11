@@ -2,30 +2,25 @@
   "schema": 1,
   "kind": "npm",
   "name": "@rightkit/shell",
-  "version": "0.1.0",
-  "commit": "3107b2401ea4852a3316fa039b523424bcacc9f0",
-  "artifactSha256": "a41d9de5ffd24aa6002ab032275305ff231792173da4610c935e48989db41a02",
+  "version": "0.1.1",
+  "commit": "3b7217a899653bbd1ce8622cab9303f03a4f0159",
+  "artifactSha256": "a30b231287ca26bd64b36446370b48a62dad80bb05bfe25ff1cf75bec1a45654",
+  "hostPolicy": "darwin-only",
+  "hostPolicyReason": "Adrian 2026-10-07: apps validate on macOS first, Windows later",
   "runs": [
     {
       "host": {
-        "os": "darwin"
+        "os": "darwin",
+        "arch": "arm64"
       },
-      "commit": "3107b2401ea4852a3316fa039b523424bcacc9f0",
-      "command": "pnpm run typecheck (packages/shell)",
-      "operator": "claude-opus-5.5 (GenRight lead) for adrdsouza",
-      "timestamp": "2026-10-06T22:28:44.067Z",
-      "passed": 1,
-      "failed": 0
-    },
-    {
-      "host": {
-        "os": "win32"
-      },
-      "commit": "3107b2401ea4852a3316fa039b523424bcacc9f0",
-      "command": "pnpm run typecheck (packages/shell, D:\\rk-gate\\3107b240 export)",
-      "operator": "claude-opus-5.5 (GenRight lead) for adrdsouza",
-      "timestamp": "2026-10-06T22:29:06.320Z",
-      "passed": 1,
+      "commit": "3b7217a899653bbd1ce8622cab9303f03a4f0159",
+      "command": "pnpm --dir packages/$D test",
+      "features": [
+        "default"
+      ],
+      "operator": "claude-opus-5.5 (RightKit lead) for adrdsouza",
+      "timestamp": "2026-10-11T08:13:36Z",
+      "passed": 19,
       "failed": 0
     }
   ]

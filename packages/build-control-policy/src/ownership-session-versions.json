@@ -31,7 +31,7 @@
     "@rightkit/qa-chrome": "0.1.5",
     "@rightkit/release": "0.2.153",
     "@rightkit/settings-ui": "0.4.3",
-    "@rightkit/shell": "0.1.0",
+    "@rightkit/shell": "0.1.1",
     "@rightkit/tauri": "0.2.0",
     "@rightkit/theme": "0.2.3",
     "@rightkit/updates": "0.2.5"
@@ -309,6 +309,9 @@
     ],
     "@rightkit/tauri": [
       "0.1.1"
+    ],
+    "@rightkit/shell": [
+      "0.1.0"
     ]
   },
   "cargo": {
@@ -455,7 +458,7 @@
       "@rightkit/qa-chrome": "0.1.5",
       "@rightkit/release": "0.2.151",
       "@rightkit/settings-ui": "0.4.3",
-      "@rightkit/shell": "0.1.0",
+      "@rightkit/shell": "0.1.1",
       "@rightkit/tauri": "0.2.0",
       "@rightkit/theme": "0.2.3",
       "@rightkit/updates": "0.2.5"
