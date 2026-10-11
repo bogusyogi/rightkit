@@ -25,6 +25,10 @@ export function useSettings(backend: SettingsBackend, options: UseSettingsOption
   const chain = useRef<Promise<unknown>>(Promise.resolve());
   const pending = useRef(0);
   const alive = useRef(true);
+  // A load that finished while a write was pending is not applied (it would overwrite the optimistic value with
+  // the state from before the write); it is repeated once the writes have drained.
+  const reloadSkipped = useRef(false);
+  const reloadRef = useRef<() => Promise<unknown>>(() => Promise.resolve());
 
   useEffect(() => {
     alive.current = true;
@@ -36,12 +40,18 @@ export function useSettings(backend: SettingsBackend, options: UseSettingsOption
       backend.load().then(
         (snap) => {
           if (!alive.current) return;
+          if (pending.current > 0) {
+            reloadSkipped.current = true;
+            setLoaded(true);
+            return;
+          }
           revision.current = snap.revision;
           setValues(snap.values);
           setLoaded(true);
         },
         (e) => alive.current && (setError(message(e)), setLoaded(true)),
       );
+    reloadRef.current = reload;
     void reload();
     void backend.subscribe?.(() => {
       if (pending.current === 0) void reload();
@@ -98,7 +108,13 @@ export function useSettings(backend: SettingsBackend, options: UseSettingsOption
           }
         } finally {
           pending.current -= 1;
-          if (alive.current && pending.current === 0) setSaving(false);
+          if (alive.current && pending.current === 0) {
+            setSaving(false);
+            if (reloadSkipped.current) {
+              reloadSkipped.current = false;
+              void reloadRef.current();
+            }
+          }
         }
       });
       chain.current = run;

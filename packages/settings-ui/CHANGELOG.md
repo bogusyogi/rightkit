@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.1
+
+- Fix `useSettings`: a `load()` that finished while a write was pending (the mount-time load, or a reload) overwrote the optimistic value with the state from before the write. Such a load is now not applied; it is repeated once the writes have drained, so values stored elsewhere still arrive, including after a failed write.
+
 ## 0.4.0
 
 Search that rows, groups and items take part in themselves, an all-sections results mode, a backend-free controlled panel, a lean `/core` entry, and keyboard options. Requested by Pulse (gap ledger #104). Every addition is optional: the default DOM, classes, attributes and search results are identical to 0.3.4, pinned by `src/default-output.test.tsx` (snapshots written before the change) next to the existing `default-markup` and `output` snapshots.
