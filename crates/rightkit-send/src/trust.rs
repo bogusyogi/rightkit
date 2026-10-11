@@ -164,8 +164,10 @@ pub(crate) struct TrustStore {
     default_state: TrustState,
     devices: Vec<TrustEntry>,
     saved_ms: u64,
-    /// The file on disk could not be read: it is left alone until an explicit
-    /// change succeeds, so a read error never overwrites the owner's records.
+    /// The file on disk could not be read. Nothing is written while this is set:
+    /// the records in memory are not the owner's records, so writing them would
+    /// replace the file with a partial list. An explicit change reads the file
+    /// again first ([`TrustStore::lift_hold`]) and fails if it still cannot.
     hold: bool,
 }
 
@@ -179,7 +181,9 @@ impl TrustStore {
     ///   so that is no grant to skip the card).
     /// * An unparsable file is set aside as `.bad` and an empty store is written
     ///   at once, so a restart cannot migrate again and bring back old entries.
-    /// * Any other read error: an empty in-memory store, the file untouched.
+    /// * Any other read error: an empty in-memory store, the file untouched and
+    ///   nothing written until the file has been read (see `hold`). While that
+    ///   lasts every device is treated as Ask: a stored Deny is not known.
     pub fn load(trust_path: &Path) -> TrustStore {
         let path = trust_path.to_path_buf();
         let directory: PathBuf = path
@@ -196,23 +200,7 @@ impl TrustStore {
         };
         match std::fs::read(&path) {
             Ok(bytes) => match serde_json::from_slice::<Stored>(&bytes) {
-                Ok(stored) => {
-                    store.default_state = match stored.default_state {
-                        TrustState::Deny => TrustState::Deny,
-                        _ => TrustState::Ask,
-                    };
-                    let mut seen = HashSet::new();
-                    store.devices = stored
-                        .devices
-                        .into_iter()
-                        .map(|mut d| {
-                            d.fingerprint = normalize(&d.fingerprint);
-                            d
-                        })
-                        .filter(|d| valid_fingerprint(&d.fingerprint))
-                        .filter(|d| seen.insert(d.fingerprint.clone()))
-                        .collect();
-                }
+                Ok(stored) => store.adopt(stored),
                 Err(_) => {
                     let _ = std::fs::rename(&path, &bad);
                     let _ = store.save();
@@ -241,8 +229,80 @@ impl TrustStore {
         store
     }
 
-    /// Write everything out. An explicit change that gets here lifts the hold.
+    /// Take the records of a parsed file (a stored default of Allow becomes Ask).
+    fn adopt(&mut self, stored: Stored) {
+        self.default_state = match stored.default_state {
+            TrustState::Deny => TrustState::Deny,
+            _ => TrustState::Ask,
+        };
+        let mut seen = HashSet::new();
+        self.devices = stored
+            .devices
+            .into_iter()
+            .map(|mut d| {
+                d.fingerprint = normalize(&d.fingerprint);
+                d
+            })
+            .filter(|d| valid_fingerprint(&d.fingerprint))
+            .filter(|d| seen.insert(d.fingerprint.clone()))
+            .collect();
+    }
+
+    /// Called before every explicit change. With the hold on, reads the file again:
+    ///
+    /// * readable: its records become the store, and devices only sighted while
+    ///   the hold was on are added to them (an undecided one takes the stored
+    ///   default), so the change is made to the owner's full list;
+    /// * gone: there is nothing to lose, the hold ends;
+    /// * unparsable: set aside as `.bad`, as [`TrustStore::load`] does;
+    /// * still unreadable: an error, and nothing is changed or written.
+    fn lift_hold(&mut self) -> Result<(), Error> {
+        if !self.hold {
+            return Ok(());
+        }
+        match std::fs::read(&self.path) {
+            Ok(bytes) => match serde_json::from_slice::<Stored>(&bytes) {
+                Ok(stored) => {
+                    let sighted = std::mem::take(&mut self.devices);
+                    self.adopt(stored);
+                    for mut entry in sighted {
+                        if self
+                            .devices
+                            .iter()
+                            .any(|d| d.fingerprint == entry.fingerprint)
+                        {
+                            continue;
+                        }
+                        if !entry.decided {
+                            entry.state = self.default_state;
+                        }
+                        self.devices.push(entry);
+                    }
+                }
+                Err(_) => {
+                    let _ = std::fs::rename(&self.path, self.path.with_extension("json.bad"));
+                }
+            },
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => {
+                return Err(Error::TrustStore {
+                    detail: format!(
+                        "the stored list could not be read, so nothing was changed: {e}"
+                    ),
+                });
+            }
+        }
+        self.hold = false;
+        Ok(())
+    }
+
+    /// Write everything out. Refused while the hold is on.
     fn save(&mut self) -> std::io::Result<()> {
+        if self.hold {
+            return Err(std::io::Error::other(
+                "the stored list could not be read; it is not overwritten",
+            ));
+        }
         let stored = Stored {
             version: 1,
             default_state: self.default_state,
@@ -251,7 +311,6 @@ impl TrustStore {
         let bytes = serde_json::to_vec_pretty(&stored).map_err(std::io::Error::other)?;
         write_atomic(&self.path, &bytes)?;
         self.saved_ms = now_ms();
-        self.hold = false;
         Ok(())
     }
 
@@ -418,6 +477,7 @@ impl TrustStore {
         if !valid_fingerprint(&fingerprint) {
             return Err(Error::InvalidFingerprint);
         }
+        self.lift_hold()?;
         let index = match self
             .devices
             .iter()
@@ -436,6 +496,7 @@ impl TrustStore {
     }
 
     pub fn set_label(&mut self, fingerprint: &str, label: &str) -> Result<(), Error> {
+        self.lift_hold()?;
         let fingerprint = normalize(fingerprint);
         let entry = self
             .devices
@@ -447,6 +508,7 @@ impl TrustStore {
     }
 
     pub fn forget(&mut self, fingerprint: &str) -> Result<(), Error> {
+        self.lift_hold()?;
         let fingerprint = normalize(fingerprint);
         let before = self.devices.len();
         self.devices.retain(|d| d.fingerprint != fingerprint);
@@ -461,6 +523,7 @@ impl TrustStore {
         if state == TrustState::Allow {
             return Err(Error::AllowNotDefault);
         }
+        self.lift_hold()?;
         self.default_state = state;
         self.explicit_save()
     }
@@ -484,6 +547,55 @@ mod tests {
         ));
         let path = dir.join("nearby_devices.json");
         (TrustStore::load(&path), dir)
+    }
+
+    /// A list that cannot be read is never overwritten: an explicit change fails while it
+    /// stays unreadable, and once it can be read the change is made to the full list.
+    #[test]
+    fn a_change_after_an_unreadable_list_never_writes_a_partial_one() {
+        let (mut first, dir) = store();
+        let path = dir.join("nearby_devices.json");
+        let denied = "d".repeat(64);
+        let sighted = "5".repeat(64);
+        let allowed = "a".repeat(64);
+        first.set_default(TrustState::Deny).unwrap();
+        first.set_state(&denied, TrustState::Deny).unwrap();
+        let on_disk = std::fs::read(&path).unwrap();
+
+        // Unreadable: a directory stands where the file was.
+        let aside = dir.join("aside.json");
+        std::fs::rename(&path, &aside).unwrap();
+        std::fs::create_dir(&path).unwrap();
+        let mut held = TrustStore::load(&path);
+        held.observe(&sighted, "Tablet", None, None, None);
+        let error = held.set_state(&allowed, TrustState::Allow).unwrap_err();
+        assert!(matches!(error, Error::TrustStore { .. }), "{error}");
+        assert!(held.set_default(TrustState::Ask).is_err());
+        assert!(held.forget(&denied).is_err());
+        assert!(
+            path.is_dir(),
+            "nothing was written over the unreadable list"
+        );
+        assert_eq!(
+            held.state_of(&allowed),
+            TrustState::Ask,
+            "the refused change was not kept"
+        );
+
+        // Readable again: the same change now lands on the owner's full list.
+        std::fs::remove_dir(&path).unwrap();
+        std::fs::rename(&aside, &path).unwrap();
+        assert_eq!(std::fs::read(&path).unwrap(), on_disk);
+        held.set_state(&allowed, TrustState::Allow).unwrap();
+
+        let reloaded = TrustStore::load(&path);
+        assert_eq!(reloaded.default_state(), TrustState::Deny);
+        assert_eq!(reloaded.state_of(&denied), TrustState::Deny);
+        assert_eq!(reloaded.state_of(&allowed), TrustState::Allow);
+        assert_eq!(reloaded.list().len(), 3);
+        // The device only sighted while the list was unreadable took the stored default.
+        assert_eq!(reloaded.state_of(&sighted), TrustState::Deny);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
