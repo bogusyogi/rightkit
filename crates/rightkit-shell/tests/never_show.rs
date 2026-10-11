@@ -8,7 +8,6 @@ use std::ffi::OsString;
 use rightkit_shell::lifecycle::{
     env_means_never_show, reopen_wants_reveal, RevealMode, RevealSource, ShowPolicy,
 };
-use rightkit_shell::window_state::RestoreOptions;
 use rightkit_shell::windows::{apply_reveal, RevealStyle, RevealTarget};
 
 const ALL_SOURCES: [RevealSource; 9] = [
