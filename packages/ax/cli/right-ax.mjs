@@ -18,6 +18,7 @@ import { aggregateReport, gateExitCode, renderMarkdown, toSarif } from "../ax/re
 import { runStaticChecks } from "../ax/static.mjs";
 import { loadManifest } from "../manifest.mjs";
 import { PACKAGE_VERSION } from "../lib/version.mjs";
+import { buildMarketplace, validateMarketplace } from "../plugin/marketplace.mjs";
 import { scaffoldPlugin } from "../plugin/scaffold.mjs";
 import { validateRepoLayout } from "../plugin/validate.mjs";
 
@@ -123,27 +124,60 @@ async function main() {
         process.exitCode = 1;
         return;
       }
-      const result = scaffoldPlugin(repoPath, {
-        name: flag("name"),
-        version: flag("version"),
-        description: flag("description"),
-        license: flag("license"),
-        homepage: flag("homepage"),
-        mcpCommand: flag("mcp-command"),
-        skillName: flag("skill-name"),
-        referencedFiles: [],
-      });
+      const list = (name) => (flag(name) ?? "").split(",").map((item) => item.trim()).filter(Boolean);
+      let result;
+      try {
+        result = scaffoldPlugin(repoPath, {
+          name: flag("name"),
+          version: flag("version"),
+          description: flag("description"),
+          license: flag("license"),
+          homepage: flag("homepage"),
+          mcpCommand: flag("mcp-command"),
+          skillName: flag("skill-name"),
+          cli: flag("cli"),
+          skillDescription: flag("skill-description"),
+          commands: list("commands"),
+          hookArgs: flag("hook-args"),
+          hookEvents: flag("hook-events") ? list("hook-events") : undefined,
+          referencedFiles: [],
+        });
+      } catch (error) {
+        console.error(`right-ax plugin init: ${error?.message ?? error}`);
+        process.exitCode = 2;
+        return;
+      }
       console.log(`right-ax plugin init: wrote ${result.written.length} file(s)`);
       for (const file of result.written) console.log(`  - ${file}`);
       return;
     }
     if (second === "validate") {
-      const { valid, findings } = validateRepoLayout(repoPath);
-      printJson({ valid, findings });
+      const { valid, layout, findings } = validateRepoLayout(repoPath);
+      printJson({ valid, layout, findings });
       process.exitCode = valid ? 0 : 1;
       return;
     }
     console.error("right-ax plugin: expected init or validate");
+    process.exitCode = 2;
+    return;
+  }
+
+  if (first === "marketplace") {
+    const sourcesPath = path.resolve(flag("sources", "marketplace/plugins.json"));
+    const outDir = path.resolve(flag("out", "."));
+    if (second === "build") {
+      const result = buildMarketplace({ sourcesPath, outDir, check: rest.includes("--check") });
+      printJson(result);
+      process.exitCode = result.ok ? 0 : 1;
+      return;
+    }
+    if (second === "validate") {
+      const result = validateMarketplace({ sourcesPath, outDir, workspace: flag("workspace"), fetch: rest.includes("--fetch"), skipDrift: rest.includes("--no-drift") });
+      printJson(result);
+      process.exitCode = result.valid ? 0 : 1;
+      return;
+    }
+    console.error("right-ax marketplace: expected build or validate");
     process.exitCode = 2;
     return;
   }
@@ -249,8 +283,15 @@ function printHelp() {
 
 Commands:
   plugin init <repo-path> [--name] [--version] [--description] [--license] [--homepage] [--mcp-command] [--skill-name]
-                                              Scaffold plugin.json / skills/<name>/SKILL.md / mcp.json
-  plugin validate <repo-path>                Validate agent-plugins.org layout + path-safety rules
+              [--cli <program> --skill-description <text> [--commands a,b] [--hook-args "<subcommand>" [--hook-events E1,E2]]]
+                                              Scaffold plugin.json / skills/<name>/SKILL.md (/ mcp.json).
+                                              --cli scaffolds a CLI-skill plugin (no MCP) with the
+                                              Claude and Codex manifests; --hook-args adds hooks/.
+  plugin validate <repo-path>                Validate layout, path safety, hooks, and the skill description gate
+  marketplace build [--sources marketplace/plugins.json] [--out .] [--check]
+                                              Generate the suite marketplace manifest(s) from the source list
+  marketplace validate [--sources ...] [--out .] (--workspace <dir> | --fetch) [--no-drift]
+                                              Source list valid, manifests in sync, every plugin resolves and validates
   ax static <repo-path> [--artifact-root <dir>]
                                               Phase B contract checklist; artifact required for MCP surfaces
   ax conformance <repo-path> --artifact-root <dir>

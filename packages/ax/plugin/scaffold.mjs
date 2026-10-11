@@ -3,9 +3,22 @@
 // have a working handler for (§5.1 invariant / static rule 12): mcp.json is
 // only written when the caller supplies a real serve command, and SKILL.md
 // only lists files that exist in the repo at scaffold time.
+//
+// Two shapes:
+//   * legacy (no `cli`): plugin.json + skills/<name>/SKILL.md, plus mcp.json
+//     when a serve command is supplied.
+//   * CLI-skill (`cli` set, the suite default): the plugin's core is ONE skill
+//     teaching an agent the tool's command line. No mcp.json unless
+//     `mcpCommand` is also given. Writes plugin.json plus the two host
+//     manifests evidenced in pulse (.claude-plugin/plugin.json,
+//     .codex-plugin/plugin.json). `hookArgs` adds hooks/hooks.json and its
+//     shim, for tools that push into a chat. The skill description must pass
+//     the description gate (plugin/skill-gate.mjs) or scaffolding throws.
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { buildHooksFiles, HOOKS_FILE } from "./hooks.mjs";
+import { checkSkillDescription } from "./skill-gate.mjs";
 
 function sanitizeName(rawName) {
   const lowered = String(rawName ?? "plugin").toLowerCase().replace(/^@[^/]+\//, "").replace(/[^a-z0-9.-]+/g, "-");
@@ -71,7 +84,110 @@ export function buildMcpManifest(mcpCommand, options = {}) {
   };
 }
 
+function cliBinary(cli) {
+  const bin = String(cli ?? "").trim().split(/\s+/)[0];
+  if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(bin)) throw new Error(`--cli needs a bare program name (for example "scraperight"), got ${JSON.stringify(cli)}`);
+  return bin;
+}
+
+export function buildCliSkillMarkdown(cli, skillName, description, commands = []) {
+  const bin = cliBinary(cli);
+  const lines = [
+    "---",
+    `name: ${skillName}`,
+    `description: ${description}`,
+    "---",
+    "",
+    `# ${skillName}`,
+    "",
+    `Drive \`${bin}\` from the shell with the Bash tool. Read results from stdout and treat a non-zero exit as failure.`,
+    "",
+    "## Before you run it",
+    "",
+    `1. Check it is installed: \`command -v ${bin}\` (Windows: \`where ${bin}\`). If it is missing, tell the user the app is not installed; do not try to install it.`,
+    `2. Learn the interface from the binary, not from memory: \`${bin} --help\`, then \`${bin} <command> --help\` for the command you need.`,
+    "",
+  ];
+  const names = commands.map((name) => String(name).trim()).filter(Boolean);
+  if (names.length) {
+    lines.push("## Commands", "");
+    for (const name of names) lines.push(`- \`${bin} ${name}\`: run \`${bin} ${name} --help\` for its flags.`);
+    lines.push("");
+  }
+  lines.push(
+    "## Rules",
+    "",
+    "- Prefer a machine-readable flag (such as `--json`) when the command's `--help` lists one.",
+    "- Pass user content as arguments or on stdin; never build a shell string from untrusted text.",
+    "- Report the command you ran and its exit status when something fails.",
+    "",
+  );
+  return lines.join("\n");
+}
+
+function claudeManifest(pluginManifest) {
+  const out = { name: pluginManifest.name };
+  for (const key of ["version", "description"]) if (pluginManifest[key]) out[key] = pluginManifest[key];
+  if (pluginManifest.author) out.author = pluginManifest.author;
+  if (pluginManifest.homepage) out.homepage = pluginManifest.homepage;
+  if (pluginManifest.repository?.url) out.repository = pluginManifest.repository.url;
+  if (pluginManifest.license) out.license = pluginManifest.license;
+  if (pluginManifest.keywords) out.keywords = pluginManifest.keywords;
+  return out;
+}
+
+function codexManifest(pluginManifest) {
+  const out = { name: pluginManifest.name };
+  for (const key of ["version", "description"]) if (pluginManifest[key]) out[key] = pluginManifest[key];
+  out.skills = "./skills/";
+  return out;
+}
+
+function writeJson(path, value, written) {
+  mkdirSync(join(path, ".."), { recursive: true });
+  writeFileSync(path, `${JSON.stringify(value, null, 2)}\n`, "utf8");
+  written.push(path);
+}
+
+function scaffoldCliPlugin(repoPath, options) {
+  const written = [];
+  if (!options.skillDescription) throw new Error("CLI-skill scaffolding needs a skill description (--skill-description): what the tool does, then \"use when the user asks to ...\" with real requests");
+  const baseName = options.name ?? options.cli;
+  const pluginManifest = buildPluginManifest(repoPath, { ...options, name: baseName, description: options.description ?? options.skillDescription });
+  const skillName = options.skillName ?? pluginManifest.name;
+  if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(skillName)) throw new Error(`skill name must be lowercase kebab-case, got ${JSON.stringify(skillName)}`);
+  const gate = checkSkillDescription(buildCliSkillMarkdown(options.cli, skillName, options.skillDescription, options.commands), { skillDirName: skillName });
+  const rejected = gate.filter((item) => item.severity === "error");
+  if (rejected.length) throw new Error(`skill description rejected by the description gate: ${rejected.map((item) => item.claim).join("; ")}`);
+
+  // Built before anything is written so a bad hook argument leaves the tree untouched.
+  const hooks = options.hookArgs ? buildHooksFiles(options.cli, { hookArgs: options.hookArgs, events: options.hookEvents }) : null;
+
+  writeJson(join(repoPath, "plugin.json"), pluginManifest, written);
+  writeJson(join(repoPath, ".claude-plugin", "plugin.json"), claudeManifest(pluginManifest), written);
+  writeJson(join(repoPath, ".codex-plugin", "plugin.json"), codexManifest(pluginManifest), written);
+
+  const skillDir = join(repoPath, "skills", skillName);
+  mkdirSync(skillDir, { recursive: true });
+  const skillPath = join(skillDir, "SKILL.md");
+  writeFileSync(skillPath, buildCliSkillMarkdown(options.cli, skillName, options.skillDescription, options.commands), "utf8");
+  written.push(skillPath);
+
+  if (hooks) {
+    writeJson(join(repoPath, ...HOOKS_FILE.split("/")), hooks.manifest, written);
+    const shimPath = join(repoPath, "hooks", hooks.shimName);
+    writeFileSync(shimPath, hooks.script, "utf8");
+    written.push(shimPath);
+  }
+
+  const mcpManifest = buildMcpManifest(options.mcpCommand, options);
+  if (mcpManifest) writeJson(join(repoPath, "mcp.json"), mcpManifest, written);
+  return { pluginManifest, mcpManifest, hooksManifest: hooks?.manifest ?? null, written };
+}
+
 export function scaffoldPlugin(repoPath, options = {}) {
+  if (options.cli) return scaffoldCliPlugin(repoPath, options);
+  if (options.hookArgs) throw new Error("hooks need --cli: a hook runs the tool's own command");
   const written = [];
   const pluginManifest = buildPluginManifest(repoPath, options);
   const pluginJsonPath = join(repoPath, "plugin.json");
