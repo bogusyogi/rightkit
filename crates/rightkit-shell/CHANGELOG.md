@@ -10,6 +10,19 @@ version is `0.x`, a minor bump may carry breaking changes.
   each asserts its key starts with its test prefix, and the DevTools key is removed however the test ends. The HTTP
   cache directory test uses a temporary root instead of creating a folder under the user's cache root. Shared helper:
   `tests/common/mod.rs`. No product change.
+- **Clipboard: `take_item_from_with(&Board, ..)` reads a private pasteboard without touching the user's clipboard.**
+  New `clipboard::take_item_from_with(board, broker, temp_dir, policy, options)`; `take_item_with` is now its
+  `Board::General` wrapper and behaves as before. For `Board::Named` on macOS the whole read stays on that pasteboard:
+  the two AppleScript fallbacks (`public.file-url` without a path, PNG coerced from TIFF or an image type) read the
+  general clipboard, so they are skipped for a named board (decided by the pure `fallback_allowed`,
+  `needs_file_fallback`, `needs_png_fallback`, and each osascript helper now takes the board and does nothing for a
+  named one). `platform_snapshot` takes the board; it no longer reads `Board::General` unconditionally. Windows and other
+  platforms: `Board::Named` returns the reader's "named boards are macOS-only" error; `Board::General` is unchanged.
+  Also: a `Board::Named` whose name is empty or in the `Apple CFPasteboard ...` family (the system boards, including
+  the general pasteboard, which `pasteboardWithName` would otherwise return) is now refused by `read`, `write` and
+  `formats` on macOS, and Windows `formats(Named)` now returns the same error as `read` instead of listing the user's
+  clipboard formats. Tests: pure fallback-decision tests on every platform, and macOS tests on uniquely named
+  pasteboards (`rightkit-shell-test-<pid>-<n>`) that are released afterwards.
 - **Windows: a policy that substitutes the browser runtime is refused, and the port-file tripwire looks where the browser
   really writes (ledger 180, findings 7 and 8).** `guard_process_start` now refuses the WebView2 `BrowserExecutableFolder`
   policy when a value applies to this program (`DevToolsError::BrowserRuntimeRedirected { source, folder }`, code

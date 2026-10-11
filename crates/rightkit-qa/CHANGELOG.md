@@ -2,6 +2,14 @@
 
 ## Unreleased (after 0.2.16)
 
+- Windows: a run no longer fails to start with "Access is denied" while another starter releases the retention lock.
+  The lock is a directory; on Windows a directory that is being removed keeps its name until the last handle on it
+  closes, and creating that name meanwhile is refused with access denied, not "already exists". `try_lock` passed that
+  error on, so `create` failed for one of several parallel starters (seen in `parallel_starters_in_one_process_all_proceed`
+  on the windows-2025 runner). The refusal now counts as "held": a starter skips its own prune pass and starts, and a
+  caller that waits for the lock keeps waiting until its deadline. New Windows test makes that state on purpose.
+  Present since the starters stopped waiting for the lock (c9774ac5); not caused by the per-product cap, the dispose
+  change or the launch guard.
 - BREAKING, safety: an engine launch that names no isolated data directory is refused before the process starts (`UserDataViolation { rule: Rule::NoIsolatedDataDir }`, naming the target). Before, `check_engine_dirs` judged only a directory it was given and environment values that were absolute paths, so `data_dir: None` with no variable naming the folder passed, and the engine then resolved its real per-user folder by its own default (on Windows from the Known Folder API, which ignores `HOME`, `USERPROFILE` and `APPDATA`). A GenRight scenario opened the real folder that way twice against an installed build. Applies to `EngineTarget::cli`, `run`, `start_sidecar` and the scenario `cli` / `sidecar_start` steps. A launch names a directory when `CliOptions::data_dir` reaches the engine through `EngineTarget::data_dir_env`, `data_dir_env` is set in the launch environment, or the new `EngineTarget::data_dir_arg` flag carries one in the arguments, and the guard accepts it; a `data_dir` on a target that declares neither is refused too, because the engine would never receive it. Nothing here was compiled or run (CI only).
   - Migration: pass an isolated directory with a target that declares `data_dir_env` (config `[engine] data_dir_env`, now effectively required for engine steps), or use the probe below. Scenario suites whose config has no `data_dir_env` now fail their engine steps until they add it. `EngineTarget` gained public fields (`data_dir_arg`, `forbidden_args`, `allow_no_data_dir_for_refusal_probe`), so struct literals need updating; `EngineTarget::new(binary)` with `with_data_dir_env`, `with_data_dir_arg`, `forbid_args` builds one.
   - `EngineTarget::forbid_args(&[..])` / config `[engine] forbidden_args`: a launch whose arguments carry a listed flag (`flag` or `flag=value`) is refused with `Rule::ForbiddenArgument`. Empty by default; no product flag is named in this crate.
