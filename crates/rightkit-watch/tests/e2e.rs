@@ -350,11 +350,23 @@ mod async_subscribe {
         settle();
 
         fs::write(root.join("still.txt"), "alive").unwrap();
-        let ev = tokio::time::timeout(WAIT, rx_b.recv())
-            .await
-            .expect("B lost its watch")
-            .unwrap();
-        assert!(ev.paths.iter().any(|p| p.ends_with("still.txt")));
+        // A backend may deliver unrelated batches first (directory metadata, coalesced
+        // history), so wait for the observable event rather than assuming the first batch.
+        let mut seen = Vec::new();
+        let deadline = tokio::time::Instant::now() + WAIT;
+        while !seen.iter().any(|p: &PathBuf| p.ends_with("still.txt"))
+            && tokio::time::Instant::now() < deadline
+        {
+            if let Ok(Some(ev)) =
+                tokio::time::timeout(Duration::from_millis(500), rx_b.recv()).await
+            {
+                seen.extend(ev.paths);
+            }
+        }
+        assert!(
+            seen.iter().any(|p| p.ends_with("still.txt")),
+            "B never saw the event after A left: {seen:?}"
+        );
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

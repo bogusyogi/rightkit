@@ -3,6 +3,43 @@
 All notable changes to `rightkit-asr`. Versions follow Cargo semver; while the
 version is `0.x`, a minor bump may carry breaking changes.
 
+## Unreleased
+
+Additive on 0.2.0: existing defaults, signatures and behaviour for default options are unchanged.
+Closes the behaviour ScrapeRight lost when it moved from spawning `whisper-cli` to this crate.
+Not compiled or run when written.
+
+### Whisper
+
+- Cancel: `WhisperOptions::cancel: Option<CancelToken>` (`Whisper::set_cancel`). Polled in whisper.cpp's abort
+  callback (an in-flight window stops promptly) and between windows. A stopped run returns the new
+  `Error::Interrupted(Box<WhisperInterrupted>)` with `reason: InterruptReason::Cancelled`;
+  `Error::is_cancelled()` is true for it and for `Error::Cancelled`. The CoreML backend stops at window boundaries.
+- Partial results: `WhisperInterrupted { reason, partial: WhisperTranscript, windows_completed, windows_estimated }`.
+  Cancel and deadline both return the windows that finished instead of discarding them
+  (before, a deadline abort was `Error::Model("whisper_full aborted after deadline ...")`).
+- Progress: `WhisperOptions::progress: Option<ProgressCallback>` (`Whisper::set_progress`) reports `WhisperProgress`
+  after each window and from whisper.cpp's own progress callback inside a window. `fraction` never decreases;
+  the callback is never invoked after the call returns.
+- Decode quality: `WhisperOptions::quality: DecodeQuality { beam_size, best_of, carry_context }`.
+  Default stays beam 1, best-of 1, no context (greedy, as before). `DecodeQuality::whisper_cli()` is
+  beam 5, best-of 5, context carried, with the whisper.cpp source lines it was read from in its docs.
+  Values above 8 are rejected (whisper.cpp's decoder limit). The first window never carries context.
+- Deadlines: `WhisperOptions::total_deadline` bounds the whole recording (default `None`) and also caps each
+  window. `recording_deadline(audio)` is the old route's policy, 120 s plus 4x the audio, and `audio_duration(samples)`
+  sizes it. `window_deadline` is now read from the options on every run, not only at load.
+- Language detection: honors `cancel` and the new `detect_deadline`. whisper.cpp offers no abort hook for
+  `whisper_pcm_to_mel` / `whisper_lang_auto_detect`, so both are checked before, between and after the native
+  calls (worst case one mel plus one encoder pass).
+- Text: `WhisperSegment::raw_text` and `WhisperTranscript::raw_text` keep whisper.cpp's untrimmed text. `text` joins
+  segments without inserted spaces for `UNSPACED_LANGUAGES` (`ja`, `zh`, `yue`, `th`, `lo`, `km`); other
+  languages are joined with one space as before. `join_segment_text` and `is_unspaced_language` are public.
+- Audio loading: `load_audio` (and `WavSpec`) and the new `load_wav_mono_16k` are public.
+
+Source-level notes: `Error` gains the `Interrupted` variant, and `WhisperOptions`, `WhisperSegment` and
+`WhisperTranscript` gain fields, so exhaustive `match`es on `Error` and struct literals without
+`..Default::default()` need an update.
+
 ## 0.2.0
 
 Dependency: `rightkit-vad` is `0.1.0` (was `0.0.3`). 0.0.3 no longer resolves on main, so

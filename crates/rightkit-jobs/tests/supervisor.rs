@@ -3,7 +3,8 @@
 
 use rightkit_jobs::{
     CallOptions, EngineSupervisor, ErrorOrigin, EventFrame, InitialFailure, Lifecycle,
-    ProtocolError, SupervisorConfig, Terminal, CONTRACT_VERSION, CONTRACT_VERSION_MISMATCH,
+    ProtocolError, ShutdownOutcome, SupervisorConfig, Terminal, CONTRACT_VERSION,
+    CONTRACT_VERSION_MISMATCH,
 };
 use rightkit_process::{OwnedCommand, RestartMode, RestartPolicy};
 use serde_json::json;
@@ -538,4 +539,120 @@ fn errors_say_where_they_arose_and_bare_engine_errors_keep_a_message() {
         "host_fallback"
     );
     s.shutdown();
+}
+
+/// `ps` state of `pid`: `None` when no such process exists, else its STAT column. A zombie
+/// shows `Z`; `kill -0` cannot tell a zombie from a live process, `ps` (and the report's
+/// exit status) can.
+#[cfg(unix)]
+fn ps_state(pid: u32) -> Option<String> {
+    let out = std::process::Command::new("ps")
+        .args(["-o", "stat=", "-p", &pid.to_string()])
+        .output()
+        .unwrap();
+    let text = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    (!text.is_empty()).then_some(text)
+}
+
+#[cfg(unix)]
+fn assert_gone(pid: u32) {
+    assert_eq!(
+        ps_state(pid),
+        None,
+        "pid {pid} is still present (zombie or live)"
+    );
+}
+
+#[test]
+fn shutdown_returns_only_after_the_engine_is_reaped_graceful() {
+    for _ in 0..5 {
+        let (_d, cfg) = rig("ok");
+        let s = EngineSupervisor::new(cfg);
+        s.start().unwrap();
+        let report = s.shutdown_detailed();
+        assert_eq!(s.lifecycle(), Lifecycle::Down);
+        assert_eq!(report.outcome, ShutdownOutcome::Exited);
+        assert!(report.is_reaped() && report.is_clean(), "{report:?}");
+        assert!(report.exit_status().is_some(), "{report:?}");
+        assert_eq!(s.unreaped_children(), 0);
+        assert!(report.elapsed < Duration::from_secs(3), "{report:?}");
+        #[cfg(unix)]
+        assert_gone(report.pid.expect("pid"));
+    }
+}
+
+#[test]
+fn shutdown_reaps_an_engine_that_ignores_the_shutdown_request() {
+    // `wedge:0` stops reading after hello, so the shutdown request is never answered and
+    // the grace period expires before the child is stopped.
+    let (_d, cfg) = rig("wedge:0");
+    let s = EngineSupervisor::new(cfg);
+    s.start().unwrap();
+    let report = s.shutdown_detailed();
+    assert_eq!(s.lifecycle(), Lifecycle::Down);
+    assert!(
+        matches!(
+            report.outcome,
+            ShutdownOutcome::Exited | ShutdownOutcome::Killed
+        ),
+        "{report:?}"
+    );
+    assert!(report.is_reaped(), "{report:?}");
+    assert!(report.exit_status().is_some(), "{report:?}");
+    assert!(report.elapsed >= Duration::from_millis(150), "{report:?}");
+    assert_eq!(s.unreaped_children(), 0);
+    #[cfg(unix)]
+    assert_gone(report.pid.expect("pid"));
+}
+
+#[test]
+fn shutdown_after_the_engine_already_exited_leaves_no_zombie() {
+    let (_d, cfg) = rig("crash:30,ok");
+    let s = EngineSupervisor::new(
+        cfg.with_restart(
+            RestartPolicy::new(
+                RestartMode::OnDemand,
+                2,
+                Duration::from_secs(10),
+                Duration::from_millis(1),
+                Duration::from_millis(1),
+            )
+            .unwrap(),
+        ),
+    );
+    s.start().unwrap();
+    wait_until(&s, Lifecycle::Down);
+    let until = Instant::now() + Duration::from_secs(3);
+    while s.unreaped_children() != 0 && Instant::now() < until {
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    assert_eq!(
+        s.unreaped_children(),
+        0,
+        "the monitor reaps a crashed engine"
+    );
+    let report = s.shutdown_detailed();
+    assert_eq!(report.outcome, ShutdownOutcome::NoEngine, "{report:?}");
+    assert!(report.is_reaped(), "{report:?}");
+    assert_eq!(s.status().terminal, Some(Terminal::Stopped));
+    // A second call (and Drop) neither blocks nor reports a different state.
+    let again = s.shutdown_detailed();
+    assert_eq!(again.outcome, ShutdownOutcome::AlreadyShuttingDown);
+    assert!(again.is_reaped(), "{again:?}");
+}
+
+#[test]
+fn shutdown_while_the_engine_is_exiting_by_itself_waits_for_the_reap() {
+    // The engine exits on its own just as shutdown starts, so the monitor thread may
+    // already own the child: shutdown must still not return ahead of the reap.
+    for _ in 0..5 {
+        let (_d, cfg) = rig("ok");
+        let s = EngineSupervisor::new(cfg);
+        s.start().unwrap();
+        let _ = s.call("shutdown", json!({}));
+        let report = s.shutdown_detailed();
+        assert!(report.is_reaped(), "{report:?}");
+        assert_eq!(s.unreaped_children(), 0);
+        assert_eq!(s.lifecycle(), Lifecycle::Down);
+    }
 }

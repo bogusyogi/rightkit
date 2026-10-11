@@ -42,15 +42,15 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use rightkit_process::{
-    Generation, HealthOutcome, HealthPolicy, HealthProbe, HealthTracker, OwnedCommand, RestartMode,
-    RestartOutcome, RestartPermit, RestartPolicy, RestartTracker, StderrTail,
+    Generation, HealthOutcome, HealthPolicy, HealthProbe, HealthTracker, OwnedChild, OwnedCommand,
+    RestartMode, RestartOutcome, RestartPermit, RestartPolicy, RestartTracker, StderrTail,
 };
 use serde::Serialize;
 use serde_json::{json, Value};
 
 use crate::client::{
-    merge_event_callbacks, ClientOptions, ContractRequirement, EngineClient, OnEventFrame,
-    ProtocolErrorSink, DEFAULT_HELLO_TIMEOUT,
+    merge_event_callbacks, ChildExit, ClientOptions, ContractRequirement, EngineClient,
+    OnEventFrame, ProtocolErrorSink, DEFAULT_HELLO_TIMEOUT,
 };
 use crate::contract::DEFAULT_FRAME_LIMIT;
 use crate::error::{JobError, JobResult, CONTRACT_VERSION_MISMATCH};
@@ -70,6 +70,60 @@ pub enum Lifecycle {
     Ready,
     Recovering,
     Down,
+}
+
+/// How [`EngineSupervisor::shutdown_detailed`] ended. Ordered by severity.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ShutdownOutcome {
+    /// No engine process was running or booting.
+    NoEngine,
+    /// Another caller was already shutting down; this one returned after the reap.
+    AlreadyShuttingDown,
+    /// The engine left within the grace period (graceful exit, or it had already exited)
+    /// and was waited.
+    Exited,
+    /// The engine outlived the grace period; its process tree was killed and waited.
+    Killed,
+    /// The bound passed with a process still unwaited. The supervisor is `Down` with
+    /// terminal `Failed`, not `Stopped`.
+    Unconfirmed,
+}
+
+/// What [`EngineSupervisor::shutdown_detailed`] saw. When it returns, `reaped` is true
+/// unless `outcome` is [`ShutdownOutcome::Unconfirmed`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ShutdownReport {
+    pub outcome: ShutdownOutcome,
+    /// Process id of the engine that was stopped, when one was.
+    pub pid: Option<u32>,
+    /// Its exit status, once waited and observed.
+    pub exit_status: Option<std::process::ExitStatus>,
+    /// True when no engine process of this supervisor remained unwaited at return.
+    pub reaped: bool,
+    /// Unwaited engine processes at return (zombies included).
+    pub unreaped: usize,
+    pub elapsed: Duration,
+}
+
+impl ShutdownReport {
+    /// Exited and waited: no live process, no zombie. (`kill -0 <pid>` cannot tell this;
+    /// a zombie answers it.)
+    pub fn is_reaped(&self) -> bool {
+        self.reaped && self.unreaped == 0
+    }
+    /// Reaped, and the engine left by itself within the grace period.
+    pub fn is_clean(&self) -> bool {
+        self.is_reaped()
+            && matches!(
+                self.outcome,
+                ShutdownOutcome::Exited | ShutdownOutcome::NoEngine
+            )
+    }
+    /// The engine's exit status, when observed.
+    pub fn exit_status(&self) -> Option<std::process::ExitStatus> {
+        self.exit_status
+    }
 }
 
 /// Why a `Down` supervisor will not restart by itself. Read it through
@@ -339,6 +393,8 @@ struct State {
     generation: u64,
     token: Option<Generation>,
     client: Option<Arc<EngineClient>>,
+    /// A generation whose child is attached but not yet `Ready`; lets `shutdown` reach it.
+    booting: Option<Arc<EngineClient>>,
     tracker: RestartTracker,
     attempt: u64,
     shutting_down: bool,
@@ -361,9 +417,51 @@ struct Shared {
     lifecycle_subs: Mutex<Vec<Sender<LifecycleEvent>>>,
     event_subs: Mutex<Vec<Sender<Value>>>,
     wedge: Mutex<Option<(u64, ExitReason)>>,
+    /// Engine processes spawned and not yet waited, on any path.
+    live: Mutex<usize>,
+    live_cv: Condvar,
+    /// The child of a boot between spawn and hello, so `shutdown` can kill it.
+    boot_slot: Mutex<Option<(OwnedChild, LiveChild)>>,
+}
+
+/// One engine process that has been spawned and not yet waited; dropped when it is reaped.
+struct LiveChild(Arc<Shared>);
+
+impl LiveChild {
+    fn new(sh: &Arc<Shared>) -> Self {
+        *sh.live.lock().unwrap_or_else(|e| e.into_inner()) += 1;
+        Self(Arc::clone(sh))
+    }
+}
+
+impl Drop for LiveChild {
+    fn drop(&mut self) {
+        let mut n = self.0.live.lock().unwrap_or_else(|e| e.into_inner());
+        *n = n.saturating_sub(1);
+        drop(n);
+        self.0.live_cv.notify_all();
+    }
 }
 
 impl Shared {
+    /// Wait until no spawned engine process is left unwaited, or `deadline`; true when none.
+    fn wait_live_zero(&self, deadline: Instant) -> bool {
+        let mut n = self.live.lock().unwrap_or_else(|e| e.into_inner());
+        loop {
+            if *n == 0 {
+                return true;
+            }
+            let left = deadline.saturating_duration_since(Instant::now());
+            if left.is_zero() {
+                return false;
+            }
+            n = self
+                .live_cv
+                .wait_timeout(n, left)
+                .unwrap_or_else(|e| e.into_inner())
+                .0;
+        }
+    }
     fn lock(&self) -> MutexGuard<'_, State> {
         self.st.lock().unwrap_or_else(|e| e.into_inner())
     }
@@ -427,6 +525,7 @@ impl EngineSupervisor {
                 generation: 0,
                 token: None,
                 client: None,
+                booting: None,
                 tracker,
                 attempt: 0,
                 shutting_down: false,
@@ -443,6 +542,9 @@ impl EngineSupervisor {
             lifecycle_subs: Mutex::default(),
             event_subs: Mutex::default(),
             wedge: Mutex::new(None),
+            live: Mutex::new(0),
+            live_cv: Condvar::new(),
+            boot_slot: Mutex::new(None),
         };
         Self { sh: Arc::new(sh) }
     }
@@ -618,26 +720,152 @@ impl EngineSupervisor {
     }
 
     /// Stop the engine for good: ask it to shut down, then kill the tree after
-    /// the grace period. Bounded (about twice the grace). Never restarts.
+    /// the grace period. Never restarts. Returns only after every engine process this
+    /// supervisor spawned has been waited (no zombie behind `Down`), within the bound
+    /// documented on [`Self::shutdown_detailed`]. Use that method to see how it ended.
     pub fn shutdown(&self) {
-        let client = {
+        let _ = self.shutdown_detailed();
+    }
+
+    /// As [`Self::shutdown`], reporting how the engine process ended.
+    ///
+    /// Bound: about `2 * shutdown_grace` for a running engine, `3 * grace + 500 ms` when a
+    /// monitor was already reaping it, plus `hello_timeout` when a boot was caught between
+    /// spawn and hello (that child is killed at once, so in practice it ends sooner). If
+    /// the bound passes with a process still unwaited, the report says
+    /// [`ShutdownOutcome::Unconfirmed`] and the terminal state is `Failed`, not `Stopped`.
+    /// A tree that had to be killed reports [`ShutdownOutcome::Killed`].
+    ///
+    /// `kill -0 <pid>` is not a valid way to see that the engine is gone: the engine is a
+    /// child of this process, and an exited child that was not waited is a zombie that
+    /// still answers it. Use [`ShutdownReport::is_reaped`], [`ShutdownReport::exit_status`]
+    /// or [`Self::unreaped_children`].
+    pub fn shutdown_detailed(&self) -> ShutdownReport {
+        let started = Instant::now();
+        let grace = self.sh.cfg.shutdown_grace;
+        let (clients, first) = {
             let mut g = self.sh.lock();
             if g.shutting_down {
-                return;
+                (Vec::new(), false)
+            } else {
+                g.shutting_down = true;
+                g.tracker.shutdown();
+                let clients: Vec<_> = g
+                    .client
+                    .take()
+                    .into_iter()
+                    .chain(g.booting.take())
+                    .collect();
+                (clients, true)
             }
-            g.shutting_down = true;
-            g.tracker.shutdown();
-            g.client.take()
         };
-        if let Some(c) = client {
-            c.shutdown(self.sh.cfg.shutdown_grace);
+        let bound = grace * 4 + Duration::from_secs(1) + self.sh.cfg.hello_timeout;
+        let deadline = started + bound;
+        if !first {
+            // Another caller is stopping it; do not return ahead of the reap.
+            let reaped = self.sh.wait_live_zero(deadline);
+            return self.report(
+                ShutdownOutcome::AlreadyShuttingDown,
+                ChildExit::default(),
+                reaped,
+                started,
+            );
+        }
+        let mut exit = ChildExit::default();
+        let mut worst = ShutdownOutcome::NoEngine;
+        for c in &clients {
+            let e = c.shutdown_detailed(grace);
+            if e.pid.is_some() {
+                let outcome = if e.reaped && !e.killed {
+                    ShutdownOutcome::Exited
+                } else if e.reaped {
+                    ShutdownOutcome::Killed
+                } else {
+                    ShutdownOutcome::Unconfirmed
+                };
+                if outcome > worst {
+                    worst = outcome;
+                }
+                if exit.pid.is_none() {
+                    exit = e;
+                }
+            }
+        }
+        // A boot between spawn and hello: kill its child so the hello read ends.
+        let slot = self
+            .sh
+            .boot_slot
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .take();
+        if let Some((mut child, live)) = slot {
+            let pid = child.id();
+            let status = match child.terminate_tree_bounded(grace) {
+                Ok(rightkit_process::ReapOutcome::Exited(s)) => Some(s),
+                _ => None,
+            };
+            drop(child);
+            drop(live);
+            if worst < ShutdownOutcome::Killed {
+                worst = ShutdownOutcome::Killed;
+            }
+            if exit.pid.is_none() {
+                exit = ChildExit {
+                    pid: Some(pid),
+                    reaped: true,
+                    killed: true,
+                    status,
+                };
+            }
+        }
+        // Anything still held elsewhere (a monitor mid-reap, a boot about to notice).
+        let reaped = self.sh.wait_live_zero(deadline);
+        if !reaped {
+            worst = ShutdownOutcome::Unconfirmed;
         }
         let mut g = self.sh.lock();
         g.lifecycle = Lifecycle::Down;
-        g.terminal = Some(Terminal::Stopped);
-        self.sh.emit(&g, "engine shut down", None);
+        if reaped {
+            g.terminal = Some(Terminal::Stopped);
+            let msg = if worst == ShutdownOutcome::Killed {
+                "engine shut down (killed after the grace period)"
+            } else {
+                "engine shut down"
+            };
+            self.sh.emit(&g, msg, None);
+        } else {
+            let text = "engine shutdown: process not confirmed reaped within the bound".to_string();
+            g.terminal = Some(Terminal::Failed {
+                reason: text.clone(),
+            });
+            self.sh.emit(&g, text, None);
+        }
         drop(g);
         self.sh.cv.notify_all();
+        self.report(worst, exit, reaped, started)
+    }
+
+    /// Engine processes this supervisor spawned that have not yet been waited. Zero means
+    /// none is running and none is a zombie.
+    pub fn unreaped_children(&self) -> usize {
+        *self.sh.live.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    fn report(
+        &self,
+        outcome: ShutdownOutcome,
+        exit: ChildExit,
+        reaped: bool,
+        started: Instant,
+    ) -> ShutdownReport {
+        ShutdownReport {
+            outcome,
+            pid: exit.pid,
+            exit_status: exit.status,
+            reaped,
+            unreaped: self.unreaped_children(),
+            elapsed: started.elapsed(),
+        }
     }
 
     fn ready_client(&self) -> JobResult<(Arc<EngineClient>, u64)> {
@@ -922,10 +1150,13 @@ fn boot(sh: &Arc<Shared>, initial: bool) -> JobResult<()> {
             )
         }
     };
+    let live = LiveChild::new(sh);
     let (Some(stdin), Some(stdout), Some(stderr)) =
         (child.take_stdin(), child.take_stdout(), child.take_stderr())
     else {
         let _ = child.terminate_tree_bounded(sh.cfg.shutdown_grace);
+        drop(child);
+        drop(live);
         return fail(
             ExitReason::SpawnFailed("missing stdio".into()),
             "spawn_failed",
@@ -933,6 +1164,22 @@ fn boot(sh: &Arc<Shared>, initial: bool) -> JobResult<()> {
             String::new(),
         );
     };
+    // Visible to `shutdown` from here until the client owns the child. Checked under the
+    // lock `shutdown` sets its flag with, so one of the two sees the other.
+    {
+        let g = sh.lock();
+        if g.shutting_down {
+            drop(g);
+            let _ = child.terminate_tree_bounded(sh.cfg.shutdown_grace);
+            drop(child);
+            drop(live);
+            return Err(JobError::supervisor(
+                "down",
+                "engine was shut down while starting",
+            ));
+        }
+        *sh.boot_slot.lock().unwrap_or_else(|e| e.into_inner()) = Some((child, live));
+    }
     let redact = sh.cfg.redact.clone();
     let sink = sh.cfg.on_stderr.clone();
     let mut tail = StderrTail::capture(
@@ -958,7 +1205,16 @@ fn boot(sh: &Arc<Shared>, initial: bool) -> JobResult<()> {
     let client = match EngineClient::connect_opts(BufReader::new(stdout), stdin, opts) {
         Ok(c) => Arc::new(c),
         Err(e) => {
-            let _ = child.terminate_tree_bounded(sh.cfg.shutdown_grace);
+            let slot = sh
+                .boot_slot
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .take();
+            if let Some((mut child, live)) = slot {
+                let _ = child.terminate_tree_bounded(sh.cfg.shutdown_grace);
+                drop(child);
+                drop(live);
+            }
             let text = tail.finish_within(Duration::from_millis(500));
             return fail(
                 ExitReason::HelloFailed(e.code.clone()),
@@ -968,7 +1224,32 @@ fn boot(sh: &Arc<Shared>, initial: bool) -> JobResult<()> {
             );
         }
     };
-    client.attach_child(child);
+    // Hand the child to the client, unless `shutdown` already took and killed it.
+    {
+        let mut g = sh.lock();
+        let slot = sh
+            .boot_slot
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .take();
+        let Some((child, live)) = slot else {
+            drop(g);
+            return Err(JobError::supervisor(
+                "down",
+                "engine was shut down while starting",
+            ));
+        };
+        client.attach_child_with(child, Box::new(live));
+        g.booting = Some(Arc::clone(&client));
+        if g.shutting_down {
+            drop(g);
+            client.kill(sh.cfg.shutdown_grace);
+            return Err(JobError::supervisor(
+                "down",
+                "engine was shut down while starting",
+            ));
+        }
+    }
     spawn_event_forwarder(sh, &client);
 
     // Handshake: replay the latest snapshots, in registration order.
@@ -996,6 +1277,7 @@ fn boot(sh: &Arc<Shared>, initial: bool) -> JobResult<()> {
         ));
     }
     g.hello = Some(client.hello().clone());
+    g.booting = None;
     g.client = Some(Arc::clone(&client));
     g.lifecycle = Lifecycle::Ready;
     g.terminal = None;

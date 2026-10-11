@@ -100,11 +100,15 @@ pub use transducer::{BeamOptions, StrictLayout, Transducer, TransducerOptions};
 pub use timestamps::{process_timestamps, TimestampMode};
 pub use transcriber::*;
 pub use whisper::{
-    is_whisper_language, samples_to_ms, validate_language, DecodeMode, Language, LanguageDetection,
-    Whisper, WhisperCpp, WhisperModel, WhisperOptions, WhisperSegment, WhisperTranscript, WhisperWord,
-    WHISPER_LANGUAGES, WHISPER_SAMPLE_RATE,
+    audio_duration, is_unspaced_language, is_whisper_language, join_segment_text, load_wav_mono_16k,
+    recording_deadline, samples_to_ms, validate_language, CancelToken, DecodeMode, DecodeQuality,
+    InterruptReason, Language, LanguageDetection, ProgressCallback, Whisper, WhisperCpp,
+    WhisperInterrupted, WhisperModel, WhisperOptions, WhisperProgress, WhisperSegment,
+    WhisperTranscript, WhisperWord, RECORDING_DEADLINE_AUDIO_FACTOR, RECORDING_DEADLINE_BASE,
+    UNSPACED_LANGUAGES, WHISPER_LANGUAGES, WHISPER_SAMPLE_RATE,
 };
-pub use audio::AudioSource;
+pub use audio::{load_audio, AudioSource};
+pub use hound::WavSpec;
 #[cfg(target_os = "macos")]
 pub use whisper::ComputeUnits;
 #[cfg(all(target_os = "macos", feature = "whisper-tokenizers"))]

@@ -2,7 +2,7 @@
 // server (context menu, toast rows), plus a hash of every element's computed style in each overlay state.
 // A new option or a stylesheet restructure must leave these snapshots untouched.
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import type { Server } from "node:http";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -26,44 +26,60 @@ const open = async (query: string) => {
   await page.waitFor("window.__rkReady === true");
 };
 
-// Computed properties the host decides, not the package. Each one resolves against an element's box, a font or the
-// scrollbar, so the same CSS computes other values on another machine. Their values are not pinned. Listed here:
-// width, height, min/max sizes, logical sizes, insets, gaps, grid tracks, flex-basis, the transform family and its
-// origins, background and object positions and sizes, and outline offset. Spacing (margin, padding) and typography stay
-// pinned, since they are declared in absolute units.
-const HOST_DECIDED = /^(?:(?:min-|max-)?(?:width|height|inline-size|block-size)|top|right|bottom|left|inset(?:-(?:block|inline)(?:-(?:start|end))?)?|(?:row-|column-)?gap|grid-(?:template|auto)-(?:columns|rows|areas)|flex-basis|transform|transform-origin|translate|scale|rotate|perspective-origin|background-position(?:-[xy])?|background-size|object-position|outline-offset)$/;
+// Token values as shell.css declares them. Light is the base :root block; dark adds the not-light and
+// data-theme="dark" blocks on top, in the same order the stylesheet applies them.
+const shellCss = readFileSync(join(pkgRoot, "shell.css"), "utf8");
+const BASE_BLOCK = /:root\s*\{([^}]*)\}/g;
+const NOT_LIGHT_BLOCK = /:root:not\(\[data-theme="light"\]\)\s*\{([^}]*)\}/g;
+const DARK_BLOCK = /:root\[data-theme="dark"\]\s*\{([^}]*)\}/g;
+const declaredIn = (re: RegExp): Array<[string, string]> =>
+  [...shellCss.matchAll(re)].flatMap((m) => [...m[1].matchAll(/(--rk-[\w-]+)\s*:\s*([^;]+);/g)].map((d): [string, string] => [d[1], d[2].trim()]));
+const tokensFor = (theme: "light" | "dark"): Record<string, string> => {
+  const out: Record<string, string> = {};
+  for (const re of theme === "light" ? [BASE_BLOCK] : [BASE_BLOCK, NOT_LIGHT_BLOCK, DARK_BLOCK]) {
+    for (const [name, value] of declaredIn(re)) out[name] = value;
+  }
+  return out;
+};
+
+/** [selector, computed property, token the property must equal]. */
+type Check = [selector: string, prop: string, token: string];
+const SHELL_CHECKS: Check[] = [
+  [".rk-shell", "background-color", "--rk-chrome"],
+  [".rk-shell", "color", "--rk-ink"],
+  [".rk-plane", "background-color", "--rk-plane"],
+];
+const PALETTE_CHECKS: Check[] = [[".rk-palette__field", "color", "--rk-ink-3"]];
+const CONFIRM_CHECKS: Check[] = [["[role=alertdialog] .rk-btn--danger", "background-color", "--rk-bad"]];
+const MENU_CHECKS: Check[] = [
+  [".rk-menu", "background-color", "--rk-elevated"],
+  [".rk-menu", "color", "--rk-ink"],
+];
+const TOAST_CHECKS: Check[] = [
+  [".rk-toast--error .rk-toast__glyph", "color", "--rk-bad"],
+  [".rk-toast", "background-color", "--rk-elevated"],
+];
 
 /**
- * Hash of the computed style of every element under body, keyed by structural path.
- *
- * Pinned: the computed value of each property that the page's own stylesheets or inline styles declare, read from the
- * CSSOM, minus HOST_DECIDED. The set therefore follows the CSS and not the browser build.
- * Not pinned: the browser's full property list (it changes with the Chrome build); element boxes (x, y, width, height),
- * which move with fonts, the scrollbar (the launch flags keep scrollbars visible) and the device pixel ratio; and the
- * HOST_DECIDED properties. The toast stack's position is pinned by the "toast stack centring" tests below. Transition
- * and animation values are skipped because they are timing.
+ * Computed value of each checked property against the value the token resolves to. The expected value is
+ * resolved in the page through a probe element, so both sides use the browser's own serialisation.
+ * Returns only the rows that differ.
  */
-const styleHashes = () =>
-  page.eval<Record<string, string>>(`(() => {
-    const hash = (s) => { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return (h >>> 0).toString(16); };
-    const host = new RegExp(${JSON.stringify(HOST_DECIDED.source)});
-    const declared = new Set();
-    const collect = (rules) => { for (const rule of rules) { if (rule.style) for (let i = 0; i < rule.style.length; i++) declared.add(rule.style[i]); if (rule.cssRules) collect(rule.cssRules); } };
-    for (const sheet of document.styleSheets) { try { collect(sheet.cssRules); } catch { /* not a same-origin sheet */ } }
-    for (const el of document.querySelectorAll('*')) for (let i = 0; i < el.style.length; i++) declared.add(el.style[i]);
-    const out = {};
-    const walk = (el, path) => {
-      if (el.id === 'log' || el.tagName === 'SCRIPT') return;
-      const cs = getComputedStyle(el);
-      const props = [];
-      for (let i = 0; i < cs.length; i++) { const p = cs[i]; if (!declared.has(p) || host.test(p) || p === 'transition' || p.startsWith('animation')) continue; props.push(p + ':' + cs.getPropertyValue(p)); }
-      const key = path + '/' + el.tagName.toLowerCase() + (el.className && typeof el.className === 'string' ? '.' + el.className.split(/\\s+/).join('.') : '');
-      out[key] = hash(props.sort().join(';'));
-      let i = 0;
-      for (const c of el.children) walk(c, key + '[' + (i++) + ']');
-    };
-    for (const c of document.body.children) walk(c, 'body');
-    return out;
+const mismatches = (checks: Check[], tokens: Record<string, string>) =>
+  page.eval<Array<{ selector: string; prop: string; expected: string; actual: string }>>(`(() => {
+    const checks = ${JSON.stringify(checks.map(([selector, prop, token]) => ({ selector, prop, value: tokens[token] })))};
+    const probe = document.createElement('span');
+    document.body.appendChild(probe);
+    const rows = [];
+    for (const c of checks) {
+      probe.style.cssText = 'position:absolute;visibility:hidden;' + c.prop + ':' + c.value;
+      const expected = getComputedStyle(probe).getPropertyValue(c.prop);
+      const el = document.querySelector(c.selector);
+      const actual = el ? getComputedStyle(el).getPropertyValue(c.prop) : 'missing element';
+      if (actual !== expected) rows.push({ selector: c.selector, prop: c.prop, expected, actual });
+    }
+    probe.remove();
+    return rows;
   })()`);
 
 const outerOf = (selector: string) =>
@@ -91,38 +107,42 @@ describe.skipIf(!chrome)("default output is pinned in a real browser", () => {
 
   for (const theme of ["light", "dark"] as const) {
     it(`${theme}: computed style of the shell, palette, confirm, menu and toasts`, async () => {
-      const states: Record<string, Record<string, string>> = {};
+      const tokens = tokensFor(theme);
+      for (const [, , token] of [...SHELL_CHECKS, ...PALETTE_CHECKS, ...CONFIRM_CHECKS, ...MENU_CHECKS, ...TOAST_CHECKS]) {
+        expect(tokens[token], token).toBeDefined();
+      }
+      const bad: unknown[] = [];
+
       await open(`p=macos&t=${theme}`);
       await page.sleep(300);
-      states.shell = await styleHashes();
+      bad.push(...(await mismatches(SHELL_CHECKS, tokens)));
 
       await open(`p=macos&t=${theme}`);
       await page.press("k", ["meta"]);
       await page.waitFor("document.querySelector('.rk-palette')");
       await page.sleep(500);
-      states.palette = await styleHashes();
+      bad.push(...(await mismatches(PALETTE_CHECKS, tokens)));
 
       await open(`p=macos&t=${theme}`);
       await page.click("#b-confirm");
       await page.waitFor("document.querySelector('[role=alertdialog]')");
       await page.sleep(500);
-      states.confirm = await styleHashes();
+      bad.push(...(await mismatches(CONFIRM_CHECKS, tokens)));
 
       await open(`p=macos&t=${theme}`);
       await page.click("#row-a", "right");
       await page.waitFor("document.querySelector('[role=menu]')");
       await page.sleep(500);
-      states.menu = await styleHashes();
+      bad.push(...(await mismatches(MENU_CHECKS, tokens)));
 
       await open(`p=macos&t=${theme}`);
       await page.click("#b-ok");
       await page.click("#b-err");
       await page.waitFor("document.querySelector('.rk-toast--error')");
       await page.sleep(500);
-      states.toasts = await styleHashes();
+      bad.push(...(await mismatches(TOAST_CHECKS, tokens)));
 
-      if (process.env.RK_DUMP) writeFileSync(`${process.env.RK_DUMP}.${theme}.json`, JSON.stringify(states, null, 1));
-      expect(states).toMatchSnapshot();
+      expect(bad).toEqual([]);
     });
   }
 

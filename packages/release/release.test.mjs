@@ -1373,7 +1373,7 @@ test("doctor passes a clean selected target", () => {
   assert.match(result.stdout, new RegExp(`right-release ${expected.replace(/\./g, "\\.")}`));
 });
 
-test("doctor handles a real src-tauri target according to host Cargo ownership", () => {
+test("doctor handles a real src-tauri target according to host Cargo ownership", (t) => {
   const config = fixture({ platform: hostPlatform, macSigning: hostPlatform === "mac" });
   mkdirSync(path.join(path.dirname(config), "src-tauri", "target"));
   const result = runDoctor(config);
@@ -1384,6 +1384,14 @@ test("doctor handles a real src-tauri target according to host Cargo ownership",
     assert.match(output, /target-bridge[\s\S]*broker-managed host, left untouched/i);
   } else {
     assert.notEqual(result.status, 0);
+    // Without a managed broker, a host with enrollment still pending reports ownership as a WARN
+    // backlog diagnostic, so the protected-trust FAIL is not reachable here.
+    if (/ownership approval enrollment is pending/.test(output) && !/\[FAIL\] ownership:/.test(output)) {
+      const reason = "ownership enrollment pending and no managed Cargo broker on this host; protected ownership FAIL is not reachable";
+      if (process.env.RIGHTKIT_REQUIRE_ASSETS === "1") assert.fail(reason);
+      t.skip(reason);
+      return;
+    }
     assert.match(output, /\[FAIL\] ownership: ownership evidence failed: protected ownership trust location was not verified/);
     assert.match(output, /target-bridge[\s\S]*real directory[\s\S]*cache migrate/i);
   }
