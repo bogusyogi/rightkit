@@ -2,6 +2,17 @@
 
 ## 0.1.4
 
+- **Windows: a mutation also takes the lock 0.1.0 to 0.1.3 take (comparative review, 2026-10-12).** Those versions hold
+  `Local\rightkit-secrets-<hash of service and account>` across the check and the write; this version held only the new
+  `Global\rightkit-secrets-t-<hash>`. With an older and a newer build of one app running at once, both could find a database
+  key absent, each create one, and the later write would replace the key the other had already returned. Every mutation now
+  takes the new lock and then the old one, in that fixed order; failing to take either is an error. An older process takes
+  one lock only, so no cycle can form. Tests: `the_legacy_lock_has_the_name_older_versions_take`,
+  `a_mutation_waits_for_a_holder_of_the_legacy_lock`. Limit: the old lock is per logon session, so an older process in
+  another session of the same user is still not excluded (it never was).
+- Not listed before, both breaking: the `settings-probe` feature implements `rightkit_settings::SecretProbe` of
+  rightkit-settings **0.2** (0.1.3 implemented the 0.1 trait, so a consumer still on settings 0.1 no longer gets the
+  implementation); and the CLI's `set` refuses when a credential exists unless `--replace` is given (0.1.3 replaced).
 - Tests: the Windows tests that write to the real Credential Manager (`tests/store.rs` round trip, `windows_target.rs`,
   `windows_lock.rs`, `windows_keyring_compat.rs`) run only on CI (`GITHUB_ACTIONS=true`) or with `RIGHTKIT_TEST_REAL_USER_STORES=1`, and otherwise print why and pass.
   Each asserts that the name it writes starts with its own test prefix, and the round trip now removes its credential
@@ -117,8 +128,8 @@
     SID and the normalised target, created with a DACL that grants only that SID. Failure to create
     it (including access denied because another user holds the name) is an error, never an unlocked
     write. Needs the `windows-sys` features `Win32_Security` and `Win32_Security_Authorization`
-    (already pulled in by this crate; consumers enable nothing). The lock name changed, so a process
-    running an older 0.1.x does not exclude a 0.1.4 process during a mixed-version window.
+    (already pulled in by this crate; consumers enable nothing). (Superseded by the first
+    entry of this version: the old lock is taken as well, so older and newer processes exclude each other.)
   - **Plaintext migration (finding 4).** Superseded: this entry added deletion of the legacy file
     guarded by an identity and content check. The reduction entry above removed the deletion;
     `migrate_plaintext_file` now never changes the file. The reading side stands: the file is opened

@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **Breaking, not listed before:** `PdfTextIsland` gained private fields, so code outside the crate can no longer build one with a struct literal (0.2.0 had only public fields). Take islands from the page graph.
 - Fixes a 0.2.1 regression (unpublished): Add Text and a changed-font replacement returned `malformed_content` on a page whose `/Contents` is cut between an operator's operands and the operator (`irs-1040.pdf`, `irs-p17.pdf`, `irs-w9.pdf`; ISO 32000-1 7.8.2 allows the cut, 0.2.0 composed them); the isolation wrapper now counts such a stream as it stands, while a stream ending in an open string, an open array or an unreadable byte is still refused.
 
 ## 0.2.1 - 2026-10-11

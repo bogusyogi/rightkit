@@ -113,7 +113,22 @@ fn query_user_sid() -> Result<String> {
 /// is created with a DACL granting only this SID, so another user cannot open or hold it).
 fn lock_name(normalized_target: &str) -> Result<Vec<u16>> {
     let sid = user_sid()?;
-    let input = format!("rightkit-secrets/target/v2\0{sid}\0{normalized_target}");
+    let suffix = hash_suffix(&format!(
+        "rightkit-secrets/target/v2\0{sid}\0{normalized_target}"
+    ))?;
+    Ok(wide(&format!("Global\\rightkit-secrets-t-{suffix}")))
+}
+
+/// The mutex name 0.1.0 to 0.1.3 took for one service and account:
+/// `Local\rightkit-secrets-<hash of service, NUL, account>`. A process built on one of those
+/// versions takes only this name, so this version takes it as well (see [`lock_both`]).
+fn legacy_lock_name(service: &str, account: &str) -> Result<Vec<u16>> {
+    let suffix = hash_suffix(&format!("{service}\0{account}"))?;
+    Ok(wide(&format!("Local\\rightkit-secrets-{suffix}")))
+}
+
+/// The first 16 bytes of the SHA-256 of `input`, as lowercase hex.
+fn hash_suffix(input: &str) -> Result<String> {
     let mut digest = [0u8; 32];
     let status = unsafe {
         BCryptHash(
@@ -132,8 +147,7 @@ fn lock_name(normalized_target: &str) -> Result<Vec<u16>> {
             code: status as i64,
         });
     }
-    let suffix: String = digest[..16].iter().map(|b| format!("{b:02x}")).collect();
-    Ok(wide(&format!("Global\\rightkit-secrets-t-{suffix}")))
+    Ok(digest[..16].iter().map(|b| format!("{b:02x}")).collect())
 }
 
 /// Held while one thread mutates one target. Named mutexes are owned by a thread, so the guard
@@ -171,25 +185,60 @@ impl TargetLock {
                 // Includes access denied: the name is held by another user, so fail closed.
                 return Err(code("lock create", create_error));
             }
-            // `guard` closes the handle on every path below.
-            let mut guard = Self {
-                handle,
-                acquired: false,
-            };
-            match WaitForSingleObject(handle, wait_ms) {
-                WAIT_OBJECT_0 | WAIT_ABANDONED => {
-                    guard.acquired = true;
-                    Ok(guard)
-                }
-                WAIT_TIMEOUT => Err(Error::Timeout {
-                    op: "lock",
-                    secs: u64::from(wait_ms / 1000),
-                }),
-                WAIT_FAILED => Err(code("lock wait", GetLastError())),
-                other => Err(code("lock wait", other)),
-            }
+            Self::wait(handle, wait_ms)
         }
     }
+
+    /// The mutex of 0.1.0 to 0.1.3 for this service and account, created as those versions
+    /// create it (default security, `Local\`), so both name and object are the ones they use.
+    fn acquire_legacy(service: &str, account: &str, wait_ms: u32) -> Result<Self> {
+        let name = legacy_lock_name(service, account)?;
+        unsafe {
+            let handle = CreateMutexW(std::ptr::null(), 0, name.as_ptr());
+            if handle.is_null() {
+                return Err(code("legacy lock create", GetLastError()));
+            }
+            Self::wait(handle, wait_ms)
+        }
+    }
+
+    /// Waits for an open mutex handle, which it owns from here on.
+    unsafe fn wait(handle: HANDLE, wait_ms: u32) -> Result<Self> {
+        // `guard` closes the handle on every path below.
+        let mut guard = Self {
+            handle,
+            acquired: false,
+        };
+        match WaitForSingleObject(handle, wait_ms) {
+            WAIT_OBJECT_0 | WAIT_ABANDONED => {
+                guard.acquired = true;
+                Ok(guard)
+            }
+            WAIT_TIMEOUT => Err(Error::Timeout {
+                op: "lock",
+                secs: u64::from(wait_ms / 1000),
+            }),
+            WAIT_FAILED => Err(code("lock wait", GetLastError())),
+            other => Err(code("lock wait", other)),
+        }
+    }
+}
+
+/// Both locks of one mutation, always taken in this order: the target lock of this version,
+/// then the lock 0.1.0 to 0.1.3 take for the same service and account. An older process takes
+/// only the second, so while old and new builds of an app run side by side they still exclude
+/// each other (two of them creating one database key would otherwise each get a different key).
+/// The order is fixed and an older process holds one lock at most, so no cycle can form.
+/// Failing to take either is an error, never an unlocked write.
+fn lock_both(
+    normalized_target: &str,
+    service: &str,
+    account: &str,
+    wait_ms: u32,
+) -> Result<(TargetLock, TargetLock)> {
+    let target = TargetLock::acquire(normalized_target, wait_ms)?;
+    let legacy = TargetLock::acquire_legacy(service, account, wait_ms)?;
+    Ok((target, legacy))
 }
 
 impl Drop for TargetLock {
@@ -207,10 +256,15 @@ impl Drop for TargetLock {
 struct Win32;
 
 impl CredentialOps for Win32 {
-    type Guard = TargetLock;
+    type Guard = (TargetLock, TargetLock);
 
-    fn lock(&self, normalized_target: &str) -> Result<TargetLock> {
-        TargetLock::acquire(normalized_target, LOCK_WAIT_MS)
+    fn lock(
+        &self,
+        normalized_target: &str,
+        ns: &Namespace,
+        account: &str,
+    ) -> Result<(TargetLock, TargetLock)> {
+        lock_both(normalized_target, ns.service(), account, LOCK_WAIT_MS)
     }
 
     fn read(&self, ns: &Namespace, account: &str, want_blob: bool) -> Result<Option<Secret>> {
@@ -406,6 +460,52 @@ mod tests {
             name,
             String::from_utf16(&lock_name("svc/acct").unwrap()).unwrap()
         );
+    }
+
+    /// Comparative review, 2026-10-12: the name must be the one 0.1.3 computes, or an older
+    /// process is not excluded. The expected value is SHA-256 of `service NUL account`, first
+    /// 16 bytes, computed outside this crate.
+    #[test]
+    fn the_legacy_lock_has_the_name_older_versions_take() {
+        let name =
+            String::from_utf16(&legacy_lock_name("dev.rightkit.secrets.legacy", "db").unwrap())
+                .unwrap();
+        assert_eq!(
+            name,
+            "Local\\rightkit-secrets-4a09df4ea76be3781179b6dbb18cb6b1"
+        );
+    }
+
+    /// A process on 0.1.3 holds only the legacy mutex. While it does, a mutation here waits.
+    #[test]
+    fn a_mutation_waits_for_a_holder_of_the_legacy_lock() {
+        let service = unique("legacy");
+        let target = normalize_target_name(&format!("{service}/acct"));
+        // Taken exactly as 0.1.3 takes it: by name, default security, nothing else held.
+        let name = legacy_lock_name(&service, "acct").unwrap();
+        let old = unsafe {
+            let handle = CreateMutexW(std::ptr::null(), 0, name.as_ptr());
+            assert!(!handle.is_null());
+            TargetLock::wait(handle, 1_000).unwrap()
+        };
+        let (tx, rx) = mpsc::channel();
+        let (thread_target, thread_service) = (target.clone(), service.clone());
+        let contender = std::thread::spawn(move || {
+            tx.send(lock_both(&thread_target, &thread_service, "acct", 200).map(|_| ()))
+                .unwrap();
+        });
+        let outcome = rx.recv().unwrap();
+        contender.join().unwrap();
+        assert!(
+            matches!(outcome, Err(Error::Timeout { op: "lock", .. })),
+            "{outcome:?}"
+        );
+        drop(old);
+        // Free again once released, and the refused attempt left the target lock free too.
+        std::thread::spawn(move || lock_both(&target, &service, "acct", 1_000).map(|_| ()))
+            .join()
+            .unwrap()
+            .unwrap();
     }
 
     /// Audit finding: `set` and `delete` took no lock, so they ran beside `add_if_absent`.

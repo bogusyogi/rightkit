@@ -53,7 +53,7 @@
 //! | release, last holder | holders = 1 | entry removed and every descriptor closed under the mutex, so no acquire in this process can open the file before the lock is gone | n/a | `lock_alias.rs::assert_alias_cannot_downgrade_or_release` (via `a_hard_link_...`) |
 //! | `fork` while held (another thread spawns a child) | any | record locks are not inherited, so the child holds nothing | the child cannot keep the lock alive | `lock_spawn.rs::released_exclusive_lock_is_free_while_other_threads_spawn_children` |
 //! | a panic while the mutex is held | any | poison is ignored; the guarded map is never left half-updated by a panic (every step is a single map operation) | n/a | cannot be tested without a panic injected between two map operations; there is no step between them to inject at |
-//! | lock file missing | none | created `0600`; on macOS refused ([`FsError::UnsafeAcl`]) under a parent whose ACL would give it an inheritable `allow` entry, and a new file that still got an `allow` entry is removed and refused; deny-only ACLs pass | an empty `0600` lock file remains: it is never deleted | `tests/acl_macos.rs::a_lock_file_is_refused_under_an_inheriting_parent` |
+//! | lock file missing | none | created `0600`; on macOS refused ([`FsError::UnsafeAcl`]) under a parent whose ACL would give it an inheritable `allow` entry, and a new file that still got an `allow` entry is refused and left in place (it may be another process's lock); deny-only ACLs pass | an empty `0600` lock file remains: it is never deleted | `tests/acl_macos.rs::a_lock_file_is_refused_under_an_inheriting_parent` |
 //! | lock file is a symlink | n/a | [`FsError::Symlink`], nothing created | n/a | `lock_reparse.rs` |
 //! | lock file named like a generated temp name | n/a | [`FsError::BadName`] | n/a | `lock_alias.rs::a_lock_file_named_like_a_generated_temp_file_is_refused` |
 //!
@@ -265,7 +265,9 @@ fn open_lock_file(path: &Path) -> Result<File> {
     }
     // A lock file this call creates is `0600` from creation. On macOS a parent whose ACL would
     // hand the new file an inheritable entry is refused first, and a new file that got an ACL
-    // anyway is removed and refused (see `crate::acl`). An existing lock file is opened as it is.
+    // anyway is refused and left in place (see `crate::acl`): between the look and the open
+    // another process can have created and locked this name, so the name is never unlinked
+    // here. An existing lock file is opened as it is.
     #[cfg(unix)]
     let creating = matches!(
         std::fs::symlink_metadata(path),
@@ -303,12 +305,10 @@ fn open_lock_file(path: &Path) -> Result<File> {
     })?;
     #[cfg(unix)]
     if creating {
-        // A lock file that carries an `allow` entry anyway is still empty: remove it and refuse.
-        if let Err(error) = crate::acl::refuse_acl(&file, path) {
-            drop(file);
-            let _ = std::fs::remove_file(path);
-            return Err(error);
-        }
+        // A lock file that carries an `allow` entry anyway is refused. It is NOT removed: this
+        // open is not exclusive, so the file may be one another process created and holds, and
+        // unlinking it would let a third process lock a new file at the same name.
+        crate::acl::refuse_acl(&file, path)?;
     }
     #[cfg(windows)]
     {

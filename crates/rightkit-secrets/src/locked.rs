@@ -25,8 +25,9 @@ pub(crate) trait CredentialOps {
     /// Held for the duration of one mutation; released on drop.
     type Guard;
     /// Block until this process holds the lock for the normalised native target name, excluding
-    /// other threads and other processes.
-    fn lock(&self, normalized_target: &str) -> Result<Self::Guard>;
+    /// other threads and other processes. `ns` and `account` are the pair the target was built
+    /// from: a store whose earlier versions named their lock by that pair takes that lock too.
+    fn lock(&self, normalized_target: &str, ns: &Namespace, account: &str) -> Result<Self::Guard>;
     /// Read without locking. `want_blob == false` is a presence check.
     fn read(&self, ns: &Namespace, account: &str, want_blob: bool) -> Result<Option<Secret>>;
     /// Create or replace without locking.
@@ -39,7 +40,7 @@ fn lock_target<O: CredentialOps>(ops: &O, ns: &Namespace, account: &str) -> Resu
     // The validated, normalised name (the same one the store's exclusion identity is built
     // from): a prefix with a NUL would otherwise lock (and write) a truncated target.
     let target = ns.windows_lock_target(account)?;
-    ops.lock(&target)
+    ops.lock(&target, ns, account)
 }
 
 pub(crate) fn set<O: CredentialOps>(
@@ -156,7 +157,7 @@ mod tests {
     impl CredentialOps for Fake {
         type Guard = Guard;
 
-        fn lock(&self, normalized_target: &str) -> Result<Guard> {
+        fn lock(&self, normalized_target: &str, _ns: &Namespace, _account: &str) -> Result<Guard> {
             let mut held = self.locks.held.lock().unwrap();
             while held.contains(normalized_target) {
                 held = self.locks.freed.wait(held).unwrap();
