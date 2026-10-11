@@ -7,16 +7,25 @@ No machine publishes locally, and no chat needs a registry token in its shell.
 
 ## Where the credentials are
 
-| Registry | GitHub secret on `Orthic-Labs/rightkit` | Set | Source |
-|---|---|---|---|
-| npm (`@rightkit/*`) | `NPM_TOKEN` | 11 Oct 2026, 11:32 UTC | Copied by pipe from the Mac's npm login |
-| crates.io | `CARGO_REGISTRY_TOKEN` | 11 Oct 2026, 14:45 UTC | Token `rightkit-github-actions`, created by Adrian on crates.io with scopes `publish-new` and `publish-update`, no crate restriction |
+| Registry | GitHub secret on `Orthic-Labs/rightkit` | Scope | Set | Source |
+|---|---|---|---|---|
+| npm (`@rightkit/*`) | `NPM_TOKEN` | `release` environment (main only) | 11 Oct 2026, 14:53 UTC | Copied by pipe from the Mac's npm login |
+| crates.io | `CARGO_REGISTRY_TOKEN` | repository | 11 Oct 2026, 14:45 UTC | Token `rightkit-github-actions`, created by Adrian on crates.io with scopes `publish-new` and `publish-update`, no crate restriction |
 
 Check that they exist (names and dates only; GitHub never returns a value):
 
 ```bash
 gh secret list --repo Orthic-Labs/rightkit
 ```
+
+```bash
+gh secret list --env release --repo Orthic-Labs/rightkit
+```
+
+The crates.io token is repository-scoped, so any workflow in the repository can read it, not
+only the publish job. Only Adrian's account can push to the repository, which bounds the risk.
+Moving it into the `release` environment needs a new token from crates.io (the value cannot be
+copied out of GitHub); do that at the next rotation, with `--env release` added to the command.
 
 ## Rules for every chat
 
