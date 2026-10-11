@@ -54,7 +54,7 @@ For an app whose markup and look are fixed (ViewRight): keep your JSX and classe
 | `useFocusTrap(ref, active = true, opts)` | `autoFocus` (true), `trap` (true), `restore` (true), `restoreTiming` (`"microtask"` \| `"sync"` \| ms), `restoreWhen` (`"inactive"` \| `"always"`), `captureOpener` (`"render"` \| `"effect"`), `fromOutside` (`"both"` \| `"backward"` \| `"none"`), `skipHidden` (true), `emptyList` (`"prevent"` \| `"pass"`), `focusFallback` (`"container"` \| `"none"`) | nothing |
 | `useModalDismiss(onClose, opts)` | `escape` (false), `exitMs` (80), `preventDefault` (true), `stopPropagation` (true) | `{ closing, close }` |
 | `useDismiss(onDismiss, opts)` | `enabled` (true), `escape` (true), `escapeTarget` (`"window"` capture, or a ref: bubble on that element), `preventDefault` (true), `stopPropagation` (true), `imeGuard` (true), `outside` (`"mousedown"` \| `"click"` \| `"click-target"` \| `false`; default `"mousedown"`), `container`, `backdrop`, `ignore`, `outsideContextMenu` (false), `onWindowBlur` (false), `onResize` (false), `onScroll` (false) | nothing; calls `onDismiss(reason, event)`, reason is `escape` \| `outside` \| `blur` \| `resize` \| `scroll` |
-| `useExitTransition(opts)` | `exitMs` (80), `closeAfter` (`"immediately"` \| `"settled"`), `onActionWhileClosing` (`"drop"` \| `"run"`), `onSyncThrow` (`"close"` \| `"propagate"`), `initialOpen` (true), `onExitStart`, `onClosed` | `{ phase: "open" \| "closing" \| "closed", closing, isOpen, pending, open(), close(action?) }` |
+| `useExitTransition(opts)` | `exitMs` (80), `closeAfter` (`"immediately"` \| `"settled"`), `onActionWhileClosing` (`"drop"` \| `"run"`), `onSyncThrow` (`"close"` \| `"propagate"`), `dismissWhilePending` (`"ignore"` \| `"exit"`), `initialOpen` (true), `onExitStart`, `onClosed` | `{ phase: "open" \| "closing" \| "closed", closing, isOpen, pending, open(), close(action?) }` |
 | `useListNavigation(opts)` | `count`, `initialIndex` (0), `wrap` (true), `homeEnd` (true), `keepIndexOnItemsChange` (false), `resetKey`, `hoverSelects` (`"always"` \| `"after-pointer-move"`), `typeahead` (off), `isDisabled`, `onActivate`, `activateKeys` (`["Enter"]`), `idPrefix`, `listId`, `optionId`, `role` (`"listbox"` \| `"menu"`), `focusOwner` (`"input"` \| `"list"`), `scrollIntoView` (false), `scrollOn` (`"active"` \| `"active-or-length"`), `imeGuard` (true), `emptyIndex` (`"clamp"` \| `"preserve"`) | `{ activeIndex, rawIndex, activeId, setActiveIndex, getInputProps(), getListProps(), getOptionProps(i) }` |
 | `fitToViewport({ x, y, size \| estimatedSize, viewport, margin = 8 })` | pure; `size` (measured) wins over `estimatedSize` | `{ left, top, width, height, maxWidth, maxHeight }` |
 | `rankCommands(items, query, limit = 50)` | pure; also `rankItems`, `matchScore` | ranked copy; empty query keeps input order |
@@ -75,6 +75,7 @@ Notes that matter when you configure them:
 
   `"clamp"` (default) stores -1 for every key.
 - **`onSyncThrow`.** With `"close"` (default) an action that throws synchronously becomes a rejected promise from `close()` and the close still happens. With `"propagate"` the throw reaches the caller of `close()` synchronously, the transition does not start and state is unchanged (the menu stays open), like a wrapper that calls its action before wrapping it in a promise; the action then runs before `onExitStart` even for `"immediately"`. Asynchronous rejections close in both modes. Guard the call site (`try { void exit.close(fn) } catch { ... }`) when you choose `"propagate"`, since React reports an uncaught handler error otherwise.
+- **`dismissWhilePending`.** With `closeAfter: "settled"`, a plain `close()` while an action is pending is dropped (`"ignore"`, default). With `"exit"` the exit starts at once (`phase: "closing"`, `pending: false`), the action keeps running, and its settling starts no second exit and no second `onClosed`. A rejection afterwards, even after the exit finished, reaches only the promise returned by the `close(action)` that started it; state is untouched and nothing reopens. Catch that promise at the call site. A `close(action)` made while pending still follows `onActionWhileClosing`.
 - **`fitToViewport`** is the same clamp as `floatingPanelStyle` and equals it for `{ width, height: estimatedHeight }`. Measuring (`getBoundingClientRect` in a layout effect, then calling it again with `size`) stays in your component.
 
 ### Menu (replaces a local scrim + Escape listener + exit timer)
@@ -84,8 +85,8 @@ ViewRight's `DocumentContextMenu`: a full-screen scrim closes on mousedown and o
 ```tsx
 const panel = useRef<HTMLDivElement>(null);
 const scrim = useRef<HTMLDivElement>(null);
-const exit = useExitTransition({ exitMs: 80, closeAfter: "settled", onActionWhileClosing: "run", onSyncThrow: "propagate", onClosed: onClose });
-// document menu: exitMs 0 (it unmounts at once); sidebar menus: onSyncThrow "propagate" keeps the menu open when the action throws
+const exit = useExitTransition({ exitMs: 80, closeAfter: "settled", onActionWhileClosing: "run", onSyncThrow: "propagate", dismissWhilePending: "exit", onClosed: onClose });
+// document menu: exitMs 0 (it unmounts at once); sidebar menus: onSyncThrow "propagate" keeps the menu open when the action throws, and dismissWhilePending "exit" lets Escape or a backdrop press start the 80 ms exit during a slow action
 useDismiss(() => void exit.close(), {
   enabled: exit.isOpen, container: panel, backdrop: scrim,
   outside: "mousedown",            // sidebar menus: "click-target"

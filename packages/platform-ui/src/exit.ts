@@ -28,6 +28,14 @@ export interface ExitTransitionOptions {
    * Asynchronous rejections behave the same in both modes: the close happens and the promise rejects.
    */
   onSyncThrow?: "close" | "propagate";
+  /**
+   * With `closeAfter: "settled"`, a plain `close()` (no action) while an action is pending. `"ignore"` (default):
+   * dropped, the transition stays open until the action settles. `"exit"`: the exit starts at once, the pending
+   * action keeps running, and its settling starts no second exit and calls `onClosed` no second time. If it rejects
+   * afterwards, the rejection goes only to the promise returned by the `close(action)` that started it; state is
+   * not touched. A `close(action)` made while pending still follows `onActionWhileClosing`.
+   */
+  dismissWhilePending?: "ignore" | "exit";
   /** Start in `open` (default) or `closed`. Read once, when the hook mounts. */
   initialOpen?: boolean;
   /** Called once when the exit starts (phase becomes `closing`, or `closed` when `exitMs` <= 0). */
@@ -125,6 +133,10 @@ export function createExitTransition(options: () => ExitTransitionOptions): Core
     close(action) {
       const propagate = options().onSyncThrow === "propagate";
       const done = (r: Outcome): Promise<void> => (r.ok ? Promise.resolve(r.value).then(noop) : Promise.reject(r.error));
+      if (state.pending && !action && state.phase === "open" && options().dismissWhilePending === "exit") {
+        startExit(generation);
+        return Promise.resolve();
+      }
       if (state.phase !== "open" || state.pending) {
         if (!action || state.phase === "closed" || options().onActionWhileClosing !== "run") return Promise.resolve();
         const r = call(action);
@@ -148,7 +160,8 @@ export function createExitTransition(options: () => ExitTransitionOptions): Core
         }
         // A newer open() or an unmount orphaned this close: it must not touch the new instance.
         return done(r).finally(() => {
-          if (gen === generation) {
+          // Skipped when a dismiss already started the exit (phase is no longer open).
+          if (gen === generation && state.phase === "open") {
             set({ phase: "open", pending: false });
             startExit(gen);
           }

@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.5
+
+Added (default equals 0.2.4):
+- `useExitTransition` `dismissWhilePending: "ignore" | "exit"` for `closeAfter: "settled"`. With `"exit"` a plain `close()` while an action is pending starts the exit at once; the action keeps running and its settling starts no second exit and no second `onClosed`. A later rejection goes only to the promise returned by the original `close(action)`.
+
 ## Unreleased
 
 Docs only: the README states that platform-ui has no stylesheet and no motion handling, and points to `@rightkit/app-shell`'s `data-rk-motion="full"` opt-out.

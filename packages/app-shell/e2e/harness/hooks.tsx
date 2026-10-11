@@ -68,6 +68,7 @@ function MenuLayer({ x, y, onGone }: { x: number; y: number; onGone: () => void 
     onExitStart: () => log("menu:exit-start"),
     onActionWhileClosing: (q.get("whileClosing") as "drop" | "run" | null) ?? undefined,
     onSyncThrow: (q.get("syncThrow") as "close" | "propagate" | null) ?? undefined,
+    dismissWhilePending: (q.get("dwp") as "ignore" | "exit" | null) ?? undefined,
   });
   (window as unknown as { __exit: typeof exit }).__exit = exit;
   const outside = (q.get("dismiss") ?? "mousedown") as OutsidePress;
@@ -89,7 +90,7 @@ function MenuLayer({ x, y, onGone }: { x: number; y: number; onGone: () => void 
   const run = (label: string) => () => {
     log(`menu:run ${label}`);
     if (flag("throws")) throw new Error("sync boom");
-    if (q.get("after") === "settled") return new Promise<void>((r) => { (window as unknown as { __release: () => void }).__release = r; });
+    if (q.get("after") === "settled") return new Promise<void>((res, rej) => { const w = window as unknown as { __release: () => void; __reject: () => void }; w.__release = res; w.__reject = () => rej(new Error("late")); });
     return undefined;
   };
   return (

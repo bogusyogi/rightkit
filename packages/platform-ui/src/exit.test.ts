@@ -244,4 +244,115 @@ describe("createExitTransition", () => {
       expect(() => core.close(boom)).toThrow("sync");
     });
   });
+
+  describe("dismissWhilePending", () => {
+    const pendingAction = () => {
+      let resolve!: () => void;
+      let reject!: (e: Error) => void;
+      const promise = new Promise<void>((res, rej) => ((resolve = res), (reject = rej)));
+      return { promise, resolve, reject };
+    };
+
+    it("ignore (default): a plain dismiss while an action is pending is dropped", async () => {
+      const { core, onExitStart } = make({ closeAfter: "settled" });
+      const a = pendingAction();
+      const first = core.close(() => a.promise);
+      await core.close();
+      expect(core.getState()).toEqual({ phase: "open", pending: true });
+      expect(onExitStart).not.toHaveBeenCalled();
+      a.resolve();
+      await first;
+      expect(core.getState().phase).toBe("closing");
+    });
+
+    it("exit: the exit starts at once, the action keeps running", async () => {
+      const { core, onExitStart, onClosed } = make({ closeAfter: "settled", dismissWhilePending: "exit" });
+      const a = pendingAction();
+      const ran = vi.fn();
+      const first = core.close(() => (ran(), a.promise));
+      await core.close();
+      expect(core.getState()).toEqual({ phase: "closing", pending: false });
+      expect(onExitStart).toHaveBeenCalledTimes(1);
+      vi.advanceTimersByTime(80);
+      expect(core.getState().phase).toBe("closed");
+      expect(onClosed).toHaveBeenCalledTimes(1);
+      expect(ran).toHaveBeenCalledTimes(1);
+      a.resolve();
+      await first;
+    });
+
+    it("exit: the action resolving mid-exit causes no second exit and no second onClosed", async () => {
+      const { core, onExitStart, onClosed } = make({ closeAfter: "settled", dismissWhilePending: "exit" });
+      const a = pendingAction();
+      const first = core.close(() => a.promise);
+      void core.close();
+      vi.advanceTimersByTime(40);
+      a.resolve();
+      await first;
+      expect(core.getState().phase).toBe("closing");
+      vi.advanceTimersByTime(40);
+      expect(onExitStart).toHaveBeenCalledTimes(1);
+      expect(onClosed).toHaveBeenCalledTimes(1);
+    });
+
+    it("exit: the action resolving after the exit completed changes nothing", async () => {
+      const { core, onExitStart, onClosed } = make({ closeAfter: "settled", dismissWhilePending: "exit" });
+      const a = pendingAction();
+      const first = core.close(() => a.promise);
+      void core.close();
+      vi.advanceTimersByTime(80);
+      a.resolve();
+      await first;
+      expect(core.getState()).toEqual({ phase: "closed", pending: false });
+      expect(onExitStart).toHaveBeenCalledTimes(1);
+      expect(onClosed).toHaveBeenCalledTimes(1);
+    });
+
+    it("exit: a rejection after the exit completed rejects the original close() promise, reopens nothing and notifies no one", async () => {
+      const { core, onClosed } = make({ closeAfter: "settled", dismissWhilePending: "exit" });
+      const a = pendingAction();
+      const first = core.close(() => a.promise);
+      const seen: string[] = [];
+      void core.close();
+      vi.advanceTimersByTime(80);
+      core.subscribe(() => seen.push(core.getState().phase));
+      a.reject(new Error("late"));
+      await expect(first).rejects.toThrow("late");
+      expect(core.getState()).toEqual({ phase: "closed", pending: false });
+      expect(seen).toEqual([]);
+      expect(onClosed).toHaveBeenCalledTimes(1);
+    });
+
+    it("exit: a rejection mid-exit rejects the original promise without a second exit", async () => {
+      const { core, onExitStart } = make({ closeAfter: "settled", dismissWhilePending: "exit" });
+      const a = pendingAction();
+      const first = core.close(() => a.promise);
+      void core.close();
+      a.reject(new Error("mid"));
+      await expect(first).rejects.toThrow("mid");
+      expect(core.getState().phase).toBe("closing");
+      expect(onExitStart).toHaveBeenCalledTimes(1);
+    });
+
+    it("exit: an action passed during the pending state still follows onActionWhileClosing, and a new open() orphans the old settle", async () => {
+      const { core } = make({ closeAfter: "settled", dismissWhilePending: "exit" });
+      const a = pendingAction();
+      const first = core.close(() => a.promise);
+      const fn = vi.fn();
+      await core.close(fn);
+      expect(fn).not.toHaveBeenCalled();
+      expect(core.getState().pending).toBe(true);
+      core.open();
+      a.resolve();
+      await first;
+      expect(core.getState()).toEqual({ phase: "open", pending: false });
+    });
+
+    it("exit has no effect for closeAfter immediately", async () => {
+      const { core, onExitStart } = make({ dismissWhilePending: "exit" });
+      void core.close();
+      await core.close();
+      expect(onExitStart).toHaveBeenCalledTimes(1);
+    });
+  });
 });

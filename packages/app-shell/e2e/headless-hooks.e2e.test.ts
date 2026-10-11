@@ -136,6 +136,41 @@ describe.skipIf(!chrome)("platform-ui headless hooks in real headless Chrome", (
       expect((await logLines()).filter((l) => l === "menu:run Copy")).toHaveLength(2);
     });
 
+    it("dismissWhilePending: ignore (default) keeps the menu open until the action settles; exit starts the exit at once and the late settle does nothing more", async () => {
+      await openMenu("after=settled");
+      await page.click("[role=menu] button:nth-child(2)");
+      await page.press("Escape");
+      await page.sleep(300);
+      expect(await exists("[role=menu]")).toBe(true);
+      expect(await attr("[role=menu]", "data-pending")).toBe("true");
+      await page.eval("window.__release()");
+      await page.waitFor("!document.querySelector('[role=menu]')");
+
+      await openMenu("after=settled&dwp=exit");
+      await page.click("[role=menu] button:nth-child(2)");
+      await page.press("Escape");
+      await page.waitFor("!document.querySelector('[role=menu]')");
+      await page.eval("window.__release()");
+      await page.sleep(300);
+      const lines = await logLines();
+      expect(lines.filter((l) => l === "menu:exit-start")).toHaveLength(1);
+      expect(lines.filter((l) => l === "menu:gone")).toHaveLength(1);
+      expect(lines.filter((l) => l === "menu:run Copy")).toHaveLength(1);
+    });
+
+    it("dismissWhilePending exit: a rejection after the menu is gone reaches only the original promise (no second close, no new menu)", async () => {
+      await openMenu("after=settled&dwp=exit");
+      await page.click("[role=menu] button:nth-child(2)");
+      await page.press("Escape");
+      await page.waitFor("!document.querySelector('[role=menu]')");
+      await page.eval("window.__reject()");
+      await page.sleep(300);
+      const lines = await logLines();
+      expect(lines).toContain("menu:rejected");
+      expect(lines.filter((l) => l === "menu:gone")).toHaveLength(1);
+      expect(await exists("[role=menu]")).toBe(false);
+    });
+
     it("onSyncThrow: close (default) closes the menu on a throwing action; propagate rethrows to the caller and leaves it open", async () => {
       for (const after of ["immediately", "settled"]) {
         await openMenu(`after=${after}&throws=1`);
