@@ -24,6 +24,8 @@ The signature and digests come from `signing::sign_request`, `signing::verify_re
 
 Feature `testing` (implies `client`; pulls in `rcgen` and `tempfile`) adds `rightkit_daemon::testing`: `TestCertificate::generate()` (a fresh self-signed certificate per call, never a committed key) and `TestDaemon::start()` / `start_with(|cfg| ..)`, which run a daemon with `serve_blocking` on `127.0.0.1:0` and expose `addr`, `root_pem`, `enrolment_code`, `daemon`, `client()` and `stop_handle()`. Dropping the `TestDaemon` stops and joins the server. Enable both features in a consumer's dev-dependencies only.
 
+`testing` also adds two negative-case requests to `DeviceSession`, absent without it: `send_unsigned(method, path_and_query, headers, body)` (the device id, no timestamp, nonce or signature) and `send_with_nonce(nonce, method, path_and_query, headers, body)` (signed correctly over a nonce you choose). The daemon refuses the first with `401 unauthenticated` and the second, when the nonce was already used by that device, with `401 unauthenticated` too; both come back as `Error::Refused` with `ErrorCode::Unauthenticated`, and the `AUTH_REJECTED` event's `reason` (`malformed_timestamp`, `replayed_nonce`) tells them apart.
+
 ## Drift guards
 
 `tests/conformance.rs` pins the route table, fixtures, error codes and lifecycle events to the schema. The schema example, the valid fixture and `routes.rs` must list the same routes and statuses. Error codes the daemon cannot return are listed under `x-reservedErrors`, and lifecycle events it cannot emit under `x-reservedEvents`.
