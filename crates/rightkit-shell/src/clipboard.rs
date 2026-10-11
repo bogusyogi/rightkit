@@ -279,7 +279,10 @@ pub fn dib_to_bmp(dib: &[u8]) -> Option<Vec<u8>> {
         (40, 6) => 16,
         _ => 0,
     };
-    let palette_colors = if bit_count <= 8 {
+    // A bit count of 0 (BI_JPEG, BI_PNG) has no colour table.
+    let palette_colors = if bit_count == 0 {
+        0
+    } else if bit_count <= 8 {
         if clr_used != 0 {
             clr_used
         } else {
@@ -633,7 +636,7 @@ mod imp {
     //! treat the paths below as written against the API documentation, not field-tested.
     use super::*;
     use crate::winapi::windows::core::PCWSTR;
-    use crate::winapi::windows::Win32::Foundation::{HANDLE, HGLOBAL, HWND};
+    use crate::winapi::windows::Win32::Foundation::{GlobalFree, HANDLE, HGLOBAL, HWND};
     use crate::winapi::windows::Win32::System::DataExchange::*;
     use crate::winapi::windows::Win32::System::Memory::{
         GlobalAlloc, GlobalLock, GlobalSize, GlobalUnlock, GMEM_MOVEABLE,
@@ -713,14 +716,20 @@ mod imp {
                 GlobalAlloc(GMEM_MOVEABLE, bytes.len().max(1)).map_err(|e| e.to_string())?;
             let p = GlobalLock(h) as *mut u8;
             if p.is_null() {
+                let _ = GlobalFree(Some(h));
                 return Err("GlobalLock failed".into());
             }
             std::ptr::copy_nonoverlapping(bytes.as_ptr(), p, bytes.len());
             let _ = GlobalUnlock(h);
-            // Ownership of `h` passes to the clipboard on success.
-            SetClipboardData(fmt, Some(HANDLE(h.0)))
-                .map(|_| ())
-                .map_err(|e| e.to_string())
+            // Ownership of `h` passes to the clipboard on success only: on failure it is still
+            // ours and must be freed.
+            match SetClipboardData(fmt, Some(HANDLE(h.0))) {
+                Ok(_) => Ok(()),
+                Err(e) => {
+                    let _ = GlobalFree(Some(h));
+                    Err(e.to_string())
+                }
+            }
         }
     }
     fn get(fmt: u32) -> Option<Vec<u8>> {
@@ -770,10 +779,11 @@ mod imp {
         if matches!(b, Board::Named(_)) {
             return Err("named boards are macOS-only".into());
         }
-        // Declared before `_open`, so it is dropped (destroyed) after the clipboard is closed. When
-        // no window can be created the write is attempted with a NULL owner, as before.
-        let owner = Owner::create();
-        let _open = Open::new(owner.as_ref().map(|o| o.0))?;
+        // Declared before `_open`, so it is dropped (destroyed) after the clipboard is closed. A
+        // write needs an owner window: with a NULL owner `EmptyClipboard` leaves the clipboard
+        // ownerless and every `SetClipboardData` after it fails.
+        let owner = Owner::create().ok_or("could not create the clipboard owner window")?;
+        let _open = Open::new(Some(owner.0))?;
         unsafe { EmptyClipboard() }.map_err(|e| e.to_string())?;
         if let Some(t) = &c.text {
             set(CF_UNICODETEXT, &utf16_bytes(t))?;
