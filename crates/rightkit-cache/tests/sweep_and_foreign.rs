@@ -10,7 +10,7 @@ use std::time::{Duration, SystemTime};
 /// A pid that belonged to a process which has now exited, so it is dead.
 fn dead_pid() -> u32 {
     let mut child = Command::new(std::env::current_exe().unwrap())
-        .arg("--no-such-test-filter-for-dead-pid")
+        .arg("no_such_test_filter_for_dead_pid")
         .spawn()
         .unwrap();
     let pid = child.id();

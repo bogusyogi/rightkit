@@ -134,6 +134,8 @@ pub struct ShellState {
     pub hide_to_background: bool,
     pub on_visibility: Option<VisibilityCallback>,
     pub(crate) activation: lifecycle::ActivationTracker,
+    /// The host's window-visibility policy, obeyed by [`lifecycle::reveal_mode`].
+    pub show_policy: lifecycle::ShowPolicy,
     /// The opt-in quit drain (see [`quit`]).
     pub quit: Arc<quit::QuitGate>,
     pub windows: Arc<window_state::WindowStateStore>,
@@ -189,6 +191,10 @@ pub struct ShellBuilder {
     close_to_tray: bool,
     hide_to_background: bool,
     on_visibility: Option<VisibilityCallback>,
+    never_show: bool,
+    never_show_env: Vec<String>,
+    reveal_on_reopen: bool,
+    lifecycle_only: bool,
     qa_instance_exempt: bool,
     on_second_instance_reveal: Option<RevealDecider>,
     quit_drain: Option<std::time::Duration>,
@@ -209,8 +215,9 @@ pub struct ShellBuilder {
     autostart: autostart::AutostartOptions,
     recovery: Option<RecoverySpec>,
     idle_after: Option<std::time::Duration>,
+    idle_options: Option<idle::IdleOptions>,
     cache_dir: Option<PathBuf>,
-    repair_cache: bool,
+    repair_cache: Option<bool>,
     on_presence: Option<PresenceCallback>,
     #[cfg(feature = "engine")]
     engine: Option<engine::EngineSpec>,
@@ -237,6 +244,10 @@ impl Shell {
             close_to_tray: false,
             hide_to_background: false,
             on_visibility: None,
+            never_show: false,
+            never_show_env: Vec::new(),
+            reveal_on_reopen: true,
+            lifecycle_only: false,
             qa_instance_exempt: false,
             on_second_instance_reveal: None,
             quit_drain: None,
@@ -257,8 +268,9 @@ impl Shell {
             autostart: autostart::AutostartOptions::default(),
             recovery: None,
             idle_after: None,
+            idle_options: None,
             cache_dir: None,
-            repair_cache: true,
+            repair_cache: None,
             on_presence: None,
             #[cfg(feature = "engine")]
             engine: None,
@@ -335,6 +347,40 @@ impl ShellBuilder {
         f: impl Fn(&AppHandle<Wry>, lifecycle::Visibility) + Send + Sync + 'static,
     ) -> Self {
         self.on_visibility = Some(Arc::new(f));
+        self
+    }
+    /// Host-declared "never show": the shell shows, unminimises and focuses no window under any
+    /// event (reopen, opened URL, second launch, show-on-ready, tray, the window command,
+    /// `windows::open`/`reveal`, window-state restore), and on macOS the activation policy is set
+    /// to Prohibited at plugin setup, before any window exists. Absolute: it beats `show_on_ready`,
+    /// `second_instance_reveal` and every other visibility option. Default off. See also
+    /// [`ShellBuilder::never_show_env`]. The host's own direct window calls are outside the shell.
+    pub fn never_show(mut self, on: bool) -> Self {
+        self.never_show = on;
+        self
+    }
+    /// Register an environment variable that means never-show for this process when it is set to
+    /// anything but empty, `0`, `false`, `no` or `off` (read at each reveal, so a harness can set it
+    /// before launch). Call it once per name (ScrapeRight: `RIGHTKIT_QA_NATIVE_REAL`).
+    ///
+    /// # Panics
+    /// Panics on an empty name or one containing `=` or NUL: a programmer error at startup.
+    pub fn never_show_env(mut self, name: &str) -> Self {
+        assert!(
+            !name.is_empty() && !name.contains(['=', '\0']),
+            "rightkit-shell: never_show_env needs a plain environment variable name"
+        );
+        if !self.never_show_env.iter().any(|n| n == name) {
+            self.never_show_env.push(name.to_owned());
+        }
+        self
+    }
+    /// Whether a macOS Dock reopen with no visible window, and an OS-delivered URL or file
+    /// (`RunEvent::Opened`), reveal the main window (default on). Off: both still deliver their
+    /// links and nothing is shown, unminimised or focused. Also off when `Module::RevealOnReopen`
+    /// is not installed.
+    pub fn reveal_on_reopen(mut self, on: bool) -> Self {
+        self.reveal_on_reopen = on;
         self
     }
     /// A launch with `RIGHTKIT_QA_HIDDEN=1` neither claims the primary nor forwards to the running
@@ -463,6 +509,16 @@ impl ShellBuilder {
         self.idle_after = Some(suspend_after);
         self
     }
+    /// [`ShellBuilder::webview_idle`] with the full option set: the per-host timeout
+    /// (`IdleOptions::suspend_after`, default [`idle::DEFAULT_SUSPEND_AFTER`]), starting the timer
+    /// when the main window is minimised, hiding the WebView2 controller when the timer fires
+    /// instead of at once, and whether idle events are emitted where nothing is suspended. A later
+    /// `webview_idle(d)` replaces only the timeout.
+    pub fn webview_idle_options(mut self, options: idle::IdleOptions) -> Self {
+        self.idle_after = Some(options.suspend_after);
+        self.idle_options = Some(options);
+        self
+    }
     /// Receive suspend and resume failures of the main webview (see [`idle::IdleFailure`]). Without
     /// this, platform failures are silent.
     pub fn webview_idle_on_error(
@@ -477,9 +533,10 @@ impl ShellBuilder {
         self.cache_dir = Some(dir);
         self
     }
-    /// Repair a dangling symlink / stray file at the cache directory on startup (default on).
+    /// Repair a dangling symlink / stray file at the cache directory on startup (default on; default
+    /// off under `lifecycle_only`, where this call turns it on).
     pub fn repair_cache(mut self, on: bool) -> Self {
-        self.repair_cache = on;
+        self.repair_cache = Some(on);
         self
     }
     /// Rust-side hook for automatic presence changes (meeting started, fullscreen app, ...).
@@ -590,7 +647,14 @@ pub(crate) fn install(cfg: ShellBuilder) -> TauriPlugin<Wry> {
     let hardening_for_views = hardening.clone();
     let harden_webviews = modules.contains(Module::JsHardening);
     let show_on_ready_explicit = cfg.show_on_ready;
-    let show_on_ready_module = modules.contains(Module::ShowOnReady);
+    // `lifecycle_only` turns ShowOnReady off; only the host's explicit `show_on_ready(true)` brings
+    // it back. Every other module set is decided by `modules` alone.
+    let show_on_ready_module = lifecycle::show_on_ready_installed(
+        modules.contains(Module::ShowOnReady),
+        cfg.lifecycle_only,
+        show_on_ready_explicit,
+    );
+    let ready_policy = show_policy_of(&cfg);
     let restore_windows = modules.contains(Module::WindowState);
     let main_label = cfg.main_label.clone();
     let (streams, site) = if modules.contains(Module::Stream) {
@@ -617,6 +681,7 @@ pub(crate) fn install(cfg: ShellBuilder) -> TauriPlugin<Wry> {
             }
             let app = webview.app_handle().clone();
             let label = webview.label().to_owned();
+            lifecycle::enforce_never_show(&app, &ready_policy);
             if restore_windows {
                 if let Some(state) = app.try_state::<ShellState>() {
                     let _ = state.windows.restore(&app, &label);
@@ -631,7 +696,13 @@ pub(crate) fn install(cfg: ShellBuilder) -> TauriPlugin<Wry> {
                 )
             {
                 if let Some(w) = app.get_webview_window(&label) {
-                    let _ = crate::windows::show_background_aware(&w);
+                    // Through the guard: a never-show host gets nothing here.
+                    let _ = crate::windows::show_window(
+                        &app,
+                        &w,
+                        lifecycle::RevealSource::ShowOnReady,
+                        windows::RevealStyle::ShowOnly,
+                    );
                 }
             }
         })
@@ -689,12 +760,24 @@ fn unavailable_error(why: &str) -> Box<dyn std::error::Error> {
     format!("rightkit-shell: single-instance could not be decided, refusing to start as a second primary: {why}").into()
 }
 
+/// The window-visibility policy a configuration declares.
+fn show_policy_of(cfg: &ShellBuilder) -> lifecycle::ShowPolicy {
+    lifecycle::ShowPolicy {
+        never_show: cfg.never_show,
+        never_show_env: cfg.never_show_env.clone(),
+        reveal_on_reopen: cfg.reveal_on_reopen && cfg.modules.contains(Module::RevealOnReopen),
+    }
+}
+
 fn setup(
     app: &AppHandle<Wry>,
     cfg: ShellBuilder,
     nav: Arc<NavPolicy>,
     opener: Arc<dyn ExternalOpener>,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    // 0. Never-show: Prohibited before arbitration, menus, tray or any window exists.
+    let show_policy = show_policy_of(&cfg);
+    lifecycle::enforce_never_show(app, &show_policy);
     // 1. Single-instance arbitration, before anything heavy.
     let mut single = String::from("disabled");
     let mode = lifecycle::instance_mode(
@@ -759,7 +842,8 @@ fn setup(
         .engine
         .clone()
         .map(|s| Arc::new(engine::EngineHost::new(s)));
-    let cache_repair = if cfg.repair_cache {
+    // A lifecycle-only host owns its cache: repair is off unless it asked for it.
+    let cache_repair = if lifecycle::repair_cache_enabled(cfg.repair_cache, cfg.lifecycle_only) {
         let dir = cfg
             .cache_dir
             .clone()
@@ -828,6 +912,7 @@ fn setup(
         hide_to_background: cfg.hide_to_background,
         on_visibility: cfg.on_visibility.clone(),
         activation: Default::default(),
+        show_policy,
         quit: Arc::new(quit::QuitGate::new(cfg.quit_drain)),
         windows: Arc::new(window_state::WindowStateStore::new(state_dir)),
         deep: Default::default(),
@@ -847,9 +932,15 @@ fn setup(
         broker: Arc::new(PathBroker::new()),
         notifications: notify::NotificationState::new(),
         presence,
-        idle: cfg
-            .idle_after
-            .map(|d| idle::IdleHost::new(d).with_on_error(cfg.idle_on_error.clone())),
+        idle: cfg.idle_after.map(|d| {
+            let options = idle::IdleOptions {
+                suspend_after: d,
+                ..cfg.idle_options.unwrap_or_default()
+            };
+            idle::IdleHost::new(d)
+                .with_options(options)
+                .with_on_error(cfg.idle_on_error.clone())
+        }),
         recovery,
         cache_repair: Mutex::new(cache_repair),
         stream_scheme: stream_schemes.first().cloned(),

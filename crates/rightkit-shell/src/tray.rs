@@ -159,7 +159,9 @@ pub fn install(
         .on_menu_event(|app, event| {
             let id = event.id.as_ref();
             match id {
-                ID_SHOW => crate::windows::reveal(app, None),
+                ID_SHOW => {
+                    crate::windows::reveal_with(app, None, crate::lifecycle::RevealSource::Tray)
+                }
                 ID_QUIT => crate::lifecycle::request_quit(app, "tray"),
                 other
                     if app.state::<ShellState>().tray.as_ref().is_some_and(|t| {

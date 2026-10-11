@@ -1,7 +1,7 @@
 use crate::backend::{read_values_only, Edit, FileBackend, SettingsBackend, Stored};
 use crate::options::{
-    DefaultsProvider, FileFormat, FlatMigration, KeyValidator, NullMeans, ReadOptions,
-    StoreOptions, Validator,
+    DefaultsProvider, FileFormat, FlatMigration, KeyValidator, NullMeans, OptionalFill,
+    ReadOptions, StoreOptions, Validator,
 };
 use serde::{de::DeserializeOwned, Serialize};
 use serde_json::{Map, Value};
@@ -650,12 +650,21 @@ pub fn read_with_options<T: Serialize + DeserializeOwned + Default>(
     };
     let found = read_values_only(path.as_ref(), options.format, options.sidecars)?;
     let absent = found.is_none();
-    let (value, _repaired) = resolve::<T>(
-        found.unwrap_or_default(),
-        base,
-        absent,
-        options.fill_optional,
-    )?;
+    let file = found.unwrap_or_default();
+    let value = match options.fill {
+        OptionalFill::WhenRepaired => {
+            // Resolve without filling first; only a read that repaired another field re-resolves
+            // with the omitted optional keys filled from the defaults.
+            let (plain, repaired) = resolve::<T>(file.clone(), base.clone(), absent, false)?;
+            if repaired {
+                resolve::<T>(file, base, absent, true)?.0
+            } else {
+                plain
+            }
+        }
+        OptionalFill::Always => resolve::<T>(file, base, absent, true)?.0,
+        OptionalFill::Never => resolve::<T>(file, base, absent, false)?.0,
+    };
     Ok(value)
 }
 

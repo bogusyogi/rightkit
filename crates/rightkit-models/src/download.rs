@@ -24,6 +24,24 @@ const CANCELLED: &str = "download cancelled";
 const MAX_ATTEMPTS: usize = 3;
 const BASE_BACKOFF_MS: u64 = 250;
 
+/// The HTTP-level failure that ended a download attempt, for typed callers
+/// (`ModelStore::try_ensure_entitled`). Cleared when an attempt's response is accepted, so it
+/// only describes the failure that ended a call that did not succeed.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum LastFailure {
+    /// A non-2xx response; `retry_after` is the parsed `Retry-After` header, when present.
+    Status {
+        status: u16,
+        retry_after: Option<Duration>,
+    },
+    /// No response: connect, TLS, timeout, address policy or body-read failure. The message is
+    /// the one the string-returning API reports.
+    Transport(String),
+}
+
+/// Where [`download_resumable_recorded`] stores its last [`LastFailure`].
+pub(crate) type FailureSlot = std::cell::RefCell<Option<LastFailure>>;
+
 pub struct DownloadRequest<'a> {
     pub url: &'a str,
     /// Scratch `.part` file the body streams into (same dir as `dest_path`).
@@ -203,10 +221,21 @@ pub(crate) fn download_resumable_with_identity(
     identity: Option<&str>,
     progress: impl FnMut(u64, u64),
 ) -> Result<DownloadResult, Error> {
+    download_resumable_recorded(client, request, identity, progress, &FailureSlot::default())
+}
+
+/// As [`download_resumable_with_identity`], also leaving the last HTTP-level failure in `slot`.
+pub(crate) fn download_resumable_recorded(
+    client: &ModelHttp,
+    request: DownloadRequest<'_>,
+    identity: Option<&str>,
+    progress: impl FnMut(u64, u64),
+    slot: &FailureSlot,
+) -> Result<DownloadResult, Error> {
     let resume_url = identity
         .filter(|_| request.expected_sha256.is_some())
         .unwrap_or(request.url);
-    download_inner(client, request, resume_url, progress).map_err(|message| {
+    download_inner(client, request, resume_url, progress, slot).map_err(|message| {
         let code = if message == CANCELLED {
             ErrorCode::Cancelled
         } else if message.contains("integrity check") {
@@ -223,6 +252,7 @@ fn download_inner(
     request: DownloadRequest<'_>,
     resume_url: &str,
     mut progress: impl FnMut(u64, u64),
+    slot: &FailureSlot,
 ) -> Result<DownloadResult, String> {
     if let Some(parent) = request.part_path.parent() {
         fs::create_dir_all(parent).map_err(|error| format!("create download dir: {error}"))?;
@@ -281,6 +311,13 @@ fn download_inner(
         let response = match http.client().stream_any(&req) {
             Ok(response) if response.status >= 300 => {
                 let status = response.status;
+                let retry_after = response
+                    .header("retry-after")
+                    .and_then(crate::suite::grant::parse_retry_after_header);
+                *slot.borrow_mut() = Some(LastFailure::Status {
+                    status,
+                    retry_after,
+                });
                 drop(response);
                 match status {
                     401 | 403 => {
@@ -310,9 +347,23 @@ fn download_inner(
                     }
                 }
             }
-            Ok(response) => response,
+            Ok(response) => {
+                *slot.borrow_mut() = None;
+                response
+            }
             Err(error) => {
                 let message = format!("download request failed: {error}");
+                *slot.borrow_mut() = Some(match &error {
+                    rightkit_http::HttpError::Status {
+                        status,
+                        retry_after,
+                        ..
+                    } => LastFailure::Status {
+                        status: *status,
+                        retry_after: *retry_after,
+                    },
+                    _ => LastFailure::Transport(message.clone()),
+                });
                 if !is_transient_http_error(&error) {
                     return Err(message);
                 }

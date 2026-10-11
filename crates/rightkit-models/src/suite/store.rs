@@ -254,7 +254,29 @@ pub fn ensure_ready_cancellable(
     spec: &ModelSpec,
     opts: &EnsureOptions<'_>,
     cancelled: &dyn Fn() -> bool,
+    progress: impl FnMut(Progress),
+) -> Result<ModelStatus, String> {
+    ensure_ready_recorded(
+        agent,
+        models_root,
+        spec,
+        opts,
+        cancelled,
+        progress,
+        &download::FailureSlot::default(),
+    )
+}
+
+/// As [`ensure_ready_cancellable`], also leaving the last HTTP-level failure of a download in
+/// `slot` (typed entitlement errors read it).
+pub(crate) fn ensure_ready_recorded(
+    agent: &impl AsHttpClient,
+    models_root: &Path,
+    spec: &ModelSpec,
+    opts: &EnsureOptions<'_>,
+    cancelled: &dyn Fn() -> bool,
     mut progress: impl FnMut(Progress),
+    slot: &download::FailureSlot,
 ) -> Result<ModelStatus, String> {
     let client = agent.vetted_client();
     // Keep the registry guard from initial readiness check through ref
@@ -324,6 +346,7 @@ pub fn ensure_ready_cancellable(
                 opts.authorization,
                 cancelled,
                 &mut progress,
+                slot,
             )?;
         }
         SpecSource::Files(remote) => {
@@ -336,6 +359,7 @@ pub fn ensure_ready_cancellable(
                 opts,
                 cancelled,
                 &mut progress,
+                slot,
             )?;
         }
     }
@@ -377,12 +401,13 @@ fn download_archive(
     authorization: Option<&str>,
     cancelled: &dyn Fn() -> bool,
     progress: &mut dyn FnMut(Progress),
+    slot: &download::FailureSlot,
 ) -> Result<(), String> {
     let incoming = models_root.join(".incoming");
     let dest = incoming.join(format!("{}.tar.gz", spec.id));
     let part = download::part_path_for(&dest);
     let file = spec.id.to_string();
-    download::download_resumable(
+    download::download_resumable_recorded(
         client,
         DownloadRequest {
             url,
@@ -392,6 +417,7 @@ fn download_archive(
             authorization,
             cancelled,
         },
+        None,
         |received, total| {
             progress(Progress::Download {
                 file: file.clone(),
@@ -399,6 +425,7 @@ fn download_archive(
                 total,
             })
         },
+        slot,
     )
     .map_err(|error| error.message)?;
     progress(Progress::Install);
@@ -416,6 +443,7 @@ fn download_files(
     opts: &EnsureOptions<'_>,
     cancelled: &dyn Fn() -> bool,
     progress: &mut dyn FnMut(Progress),
+    slot: &download::FailureSlot,
 ) -> Result<(), String> {
     let entry_dir = paths::model_dir_at(models_root, spec.id);
     fs::create_dir_all(&entry_dir).map_err(|e| format!("create {}: {e}", entry_dir.display()))?;
@@ -433,7 +461,7 @@ fn download_files(
             Some(url) => {
                 let part = download::part_path_for(&dest);
                 let name = file.path.to_string();
-                download::download_resumable(
+                download::download_resumable_recorded(
                     client,
                     DownloadRequest {
                         url,
@@ -443,6 +471,7 @@ fn download_files(
                         authorization: opts.authorization,
                         cancelled,
                     },
+                    None,
                     |received, total| {
                         progress(Progress::Download {
                             file: name.clone(),
@@ -450,6 +479,7 @@ fn download_files(
                             total,
                         })
                     },
+                    slot,
                 )
                 .map_err(|error| error.message)?;
             }

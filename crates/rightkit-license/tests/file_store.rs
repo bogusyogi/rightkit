@@ -145,10 +145,13 @@ fn compare_and_save_waits_for_a_writer_in_another_process_and_then_sees_its_writ
 
         let (started_tx, started_rx) = mpsc::channel();
         let (done_tx, done_rx) = mpsc::channel();
-        scope.spawn(|| {
+        // Shared borrows for the thread; the senders move in so they live as long as it does.
+        let store = &process_a;
+        let stale_ref = &stale;
+        scope.spawn(move || {
             started_tx.send(()).unwrap();
-            let committed = process_a
-                .compare_and_save(Some(&stale), &state(1_000, "a", 0))
+            let committed = store
+                .compare_and_save(Some(stale_ref), &state(1_000, "a", 0))
                 .unwrap();
             done_tx.send(committed).unwrap();
         });

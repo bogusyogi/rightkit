@@ -500,11 +500,9 @@ fn protocol_error_sink_sees_malformed_lines_and_calls_still_answer() {
     let (_d, cfg) = rig("ok");
     let seen = Arc::new(Mutex::new(Vec::new()));
     let sink = seen.clone();
-    let s = EngineSupervisor::new(
-        cfg.with_protocol_error_sink(move |e: &ProtocolError| {
-            sink.lock().unwrap().push(e.line.clone())
-        }),
-    );
+    let s = EngineSupervisor::new(cfg.with_protocol_error_sink(move |e: &ProtocolError| {
+        sink.lock().unwrap().push(e.line.clone())
+    }));
     s.start().unwrap();
     assert_eq!(s.call("junk", json!({})).unwrap()["after"], true);
     assert_eq!(*seen.lock().unwrap(), vec!["not json {".to_string()]);
@@ -516,7 +514,10 @@ fn errors_say_where_they_arose_and_bare_engine_errors_keep_a_message() {
     let (_d, unused) = rig("ok");
     let never_started = EngineSupervisor::new(unused);
     let down = never_started.call("ping", json!({})).unwrap_err();
-    assert_eq!((down.code.as_str(), down.origin), ("down", ErrorOrigin::Supervisor));
+    assert_eq!(
+        (down.code.as_str(), down.origin),
+        ("down", ErrorOrigin::Supervisor)
+    );
 
     let (_d, cfg) = rig("ok");
     let s = EngineSupervisor::new(cfg);

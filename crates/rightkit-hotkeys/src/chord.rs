@@ -113,9 +113,9 @@ impl PttAlias {
         let alias = match norm.as_str() {
             "ctrl" | "control" | "lctrl" | "lcontrol" | "leftctrl" | "leftcontrol" => {
                 // lctrl is only a Control spelling where Control is side-agnostic.
-                if platform == Platform::Windows {
-                    None
-                } else if norm.starts_with('l') && platform == Platform::Other {
+                if platform == Platform::Windows
+                    || (norm.starts_with('l') && platform == Platform::Other)
+                {
                     None
                 } else {
                     Some(PttAlias::Ctrl)

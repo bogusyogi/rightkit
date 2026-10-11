@@ -3,14 +3,96 @@
 //! recorded in `refs/` to the trusted catalog. Generalised from CutRight's
 //! `ModelStore`, which was Parakeet-only.
 
+use std::fmt;
 use std::path::{Path, PathBuf};
 
+use crate::download::{FailureSlot, LastFailure};
 use crate::http::ModelHttp;
 use crate::suite::catalog::{parakeet_spec, ModelSpec};
+use crate::suite::grant::GrantError;
 use crate::suite::install::{ensure_with_grant, ensure_with_grant_via, GrantConfig};
 use crate::suite::manifest::VerifyMode;
-use crate::suite::store::{status_at, status_in, EntryState, ModelStatus, Progress};
+use crate::suite::store::{
+    ensure_ready_recorded, status_at, status_in, EnsureOptions, EntryState, ModelStatus, Progress,
+};
 use crate::suite::{paths, refs};
+
+/// Why [`ModelStore::try_ensure_entitled`] failed. Each variant says which party failed, so an
+/// app can show "not entitled", back off on a rate limit, or retry a transport failure.
+/// `Display` gives the same text the string-returning [`ModelStore::ensure_entitled`] reports.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum EntitlementError {
+    /// Refused before any network call: the model does not use an entitlement, or the token is
+    /// empty, not ASCII, contains whitespace or control characters, or starts with `Bearer `.
+    InvalidRequest(String),
+    /// The server answered HTTP 401 or 403 to this token: the app is not entitled to the model,
+    /// or the token is not accepted.
+    NotEntitled { status: u16, message: String },
+    /// The server answered another non-success HTTP status, after the download's own retries for
+    /// transient statuses (for example 404 when the route is not served, or 5xx).
+    Refused { status: u16, message: String },
+    /// HTTP 429: the same typed value the grant API returns. [`GrantError::retry_after`] gives
+    /// the server's `Retry-After` delay when it sent one.
+    RateLimited(GrantError),
+    /// No HTTP response: connect, TLS, timeout, body read failure, or the outbound address policy
+    /// refused the destination.
+    Transport(String),
+    /// A failure after the server answered or without a request: local verify, disk, hash
+    /// mismatch, extraction or install.
+    Install(String),
+}
+
+impl fmt::Display for EntitlementError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            EntitlementError::InvalidRequest(message)
+            | EntitlementError::Transport(message)
+            | EntitlementError::Install(message)
+            | EntitlementError::NotEntitled { message, .. }
+            | EntitlementError::Refused { message, .. } => f.write_str(message),
+            EntitlementError::RateLimited(error) => fmt::Display::fmt(error, f),
+        }
+    }
+}
+
+impl std::error::Error for EntitlementError {}
+
+/// Check that `token` is a bare token: the crate adds the `Bearer ` scheme itself.
+fn check_raw_token(token: &str) -> Result<(), EntitlementError> {
+    let invalid = |why: &str| EntitlementError::InvalidRequest(format!("entitlement token {why}"));
+    if token.is_empty() {
+        return Err(invalid("is empty"));
+    }
+    if token.len() >= 7 && token.as_bytes()[..7].eq_ignore_ascii_case(b"Bearer ") {
+        return Err(invalid(
+            "must be the raw token, not the Authorization value: remove the \"Bearer \" prefix",
+        ));
+    }
+    if !token.is_ascii() || token.chars().any(|c| c.is_whitespace() || c.is_control()) {
+        return Err(invalid(
+            "must be ASCII without whitespace or control characters",
+        ));
+    }
+    Ok(())
+}
+
+fn classify_entitlement_failure(message: String, last: Option<LastFailure>) -> EntitlementError {
+    match last {
+        Some(LastFailure::Status {
+            status,
+            retry_after,
+        }) => match status {
+            401 | 403 => EntitlementError::NotEntitled { status, message },
+            429 => EntitlementError::RateLimited(GrantError::RateLimited {
+                retry_after,
+                message,
+            }),
+            _ => EntitlementError::Refused { status, message },
+        },
+        Some(LastFailure::Transport(_)) => EntitlementError::Transport(message),
+        None => EntitlementError::Install(message),
+    }
+}
 
 /// A model that passed the trusted-identity check and is ready to load.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -167,8 +249,11 @@ impl ModelStore {
         self.resolve(&parakeet_spec(), &sibling_parakeet_dirs())
     }
 
-    /// Download an entitlement-gated add-on (verified, resumable) with `bearer`, the app's
-    /// signed Pro entitlement. Grants are never requested for such a model.
+    /// Download an entitlement-gated add-on (verified, resumable). `bearer` is the full
+    /// `Authorization` header value, for example `Bearer <token>`, and is sent unchanged. A bare
+    /// token without the scheme is not corrected here, so a raw token produces a 401 from the
+    /// server. Use [`ModelStore::try_ensure_entitled`] for a raw token and typed errors.
+    /// Grants are never requested for such a model.
     pub fn ensure_entitled(
         &self,
         spec: &ModelSpec,
@@ -192,6 +277,44 @@ impl ModelStore {
             cancelled,
             progress,
         )
+    }
+
+    /// As [`ModelStore::ensure_entitled`], with a raw entitlement `token` (no `Bearer ` prefix;
+    /// the crate sends `Authorization: Bearer <token>`) and typed errors. A value that starts with
+    /// `Bearer ` (any case), is empty, or has whitespace or non-ASCII characters is refused with
+    /// [`EntitlementError::InvalidRequest`] before any network call. A ready model returns
+    /// without a request, and the token is still checked first.
+    pub fn try_ensure_entitled(
+        &self,
+        spec: &ModelSpec,
+        token: &str,
+        cancelled: &dyn Fn() -> bool,
+        progress: impl FnMut(Progress),
+    ) -> Result<ModelStatus, EntitlementError> {
+        if !spec.requires_entitlement() {
+            return Err(EntitlementError::InvalidRequest(format!(
+                "{} does not use an entitlement bearer",
+                spec.label
+            )));
+        }
+        check_raw_token(token)?;
+        let header = format!("Bearer {token}");
+        let client = self.http.clone().unwrap_or_default();
+        let slot = FailureSlot::default();
+        let result = ensure_ready_recorded(
+            &client,
+            &self.models_root,
+            spec,
+            &EnsureOptions {
+                seed_dir: None,
+                authorization: Some(&header),
+                app_id: &self.app_id,
+            },
+            cancelled,
+            progress,
+            &slot,
+        );
+        result.map_err(|message| classify_entitlement_failure(message, slot.into_inner()))
     }
 
     /// Download (verified, resumable, grant-refreshing) and register `spec` if

@@ -1452,16 +1452,17 @@ fn revisioned_store_shares_refs_gc_and_pin_enforcement_with_suite_layout() {
         installed_sha256: None,
         shared: None,
     };
-    let spec = |pinned| RevSpec {
-        id: "rev-model".into(),
-        label: String::new(),
-        revisions: vec![RevisionSpec {
-            revision: "1".into(),
-            quant: None,
-            files: vec![file(pinned)],
-            requirements: Default::default(),
-            measured: vec![],
-        }],
+    let spec = |pinned| {
+        RevSpec::new(
+            "rev-model",
+            vec![RevisionSpec {
+                revision: "1".into(),
+                quant: None,
+                files: vec![file(pinned)],
+                requirements: Default::default(),
+                measured: vec![],
+            }],
+        )
     };
     let st = Store::new(&lay.models, "cutright")
         .with_http_options(rightkit_models::http::ModelHttpOptions {

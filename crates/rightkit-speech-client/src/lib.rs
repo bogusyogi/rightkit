@@ -76,6 +76,11 @@ pub enum ClientError {
     /// [`Launch::Never`] found no live service host. Nothing was launched and no takeover
     /// was requested.
     NoLiveHost,
+    /// The caller's [`SubmitGate`] refused the request after the host was connected. Nothing
+    /// was submitted.
+    Refused {
+        reason: String,
+    },
 }
 
 impl fmt::Display for ClientError {
@@ -93,6 +98,7 @@ impl fmt::Display for ClientError {
             Self::Unsupported(m) => write!(f, "speech service cannot serve this request: {m}"),
             Self::HostGone => write!(f, "speech service host went away; resubmit"),
             Self::NoLiveHost => write!(f, "no speech service is live and launching is disabled"),
+            Self::Refused { reason } => write!(f, "speech request refused: {reason}"),
         }
     }
 }
@@ -409,6 +415,21 @@ pub enum Progress {
 
 pub type ProgressFn = Box<dyn FnMut(&Progress) + Send>;
 
+/// What a [`SubmitGate`] sees about the connected host.
+#[derive(Debug, Clone, Copy)]
+pub struct HostView<'a> {
+    pub role: HostRole,
+    pub engine_version: &'a str,
+    pub protocol_minor: u32,
+    /// `None` for a host that predates engine selection (protocol minor 0), which is never asked.
+    pub capabilities: Option<&'a Capabilities>,
+}
+
+/// A caller's check on the connected host. [`SpeechClient::transcribe`] runs it after the host is
+/// connected and its capabilities are known, and before the request is submitted. `Err(reason)`
+/// refuses the request: the call returns [`ClientError::Refused`] and nothing is sent.
+pub type SubmitGate = Box<dyn Fn(&HostView<'_>) -> Result<(), String> + Send>;
+
 /// Options for [`transcribe_via_service_with`] and [`SpeechClient::transcribe`].
 pub struct TranscribeOptions {
     /// `None` = send no selector: the host's default (Parakeet on a v1.0 host).
@@ -427,6 +448,10 @@ pub struct TranscribeOptions {
     /// Require raw words with no filler removal (editing apps). Refused with
     /// [`ClientError::Unsupported`] unless the host advertises verbatim.
     pub verbatim: bool,
+    /// Checked before submit; see [`SubmitGate`] and [`TranscribeOptions::submit_gate`].
+    pub(crate) submit_gate: Option<SubmitGate>,
+    /// See [`TranscribeOptions::running_host_only`].
+    pub(crate) running_host_only: bool,
 }
 
 impl TranscribeOptions {
@@ -439,7 +464,28 @@ impl TranscribeOptions {
             on_progress: None,
             request_id: None,
             verbatim: false,
+            submit_gate: None,
+            running_host_only: false,
         }
+    }
+    /// Run `gate` on the connected host before the request is submitted. It sees the host's role,
+    /// engine version, protocol minor and (from minor 1) its capabilities. A refusal returns
+    /// [`ClientError::Refused`] with the gate's reason. Applies on every attempt, so a
+    /// hand-off or a new host is checked again before any resubmit.
+    pub fn submit_gate(
+        mut self,
+        gate: impl Fn(&HostView<'_>) -> Result<(), String> + Send + 'static,
+    ) -> Self {
+        self.submit_gate = Some(Box::new(gate));
+        self
+    }
+    /// Use the running host only: never re-discover, relaunch, or resend after a hand-off or a
+    /// host-gone event. Such an event returns its error ([`ClientError::HandoffRetry`] or
+    /// [`ClientError::HostGone`]) at once. Pair with [`Launch::Never`] for a strictly
+    /// no-launch call. Default: off, so the call retries as before.
+    pub fn running_host_only(mut self) -> Self {
+        self.running_host_only = true;
+        self
     }
     pub fn request_id(mut self, id: impl Into<String>) -> Self {
         self.request_id = Some(id.into());
@@ -787,6 +833,20 @@ impl SpeechClient {
             }
             wire.verbatim = true;
         }
+        if let Some(gate) = opts.submit_gate.as_ref() {
+            let capabilities = if self.supports_engine_selection() {
+                Some(self.cached_capabilities()?)
+            } else {
+                None
+            };
+            let view = HostView {
+                role: self.role(),
+                engine_version: self.engine_version(),
+                protocol_minor: self.protocol_minor(),
+                capabilities: capabilities.as_ref(),
+            };
+            gate(&view).map_err(|reason| ClientError::Refused { reason })?;
+        }
         let request_id = opts.request_id.clone().unwrap_or_else(next_request_id);
         let frame = ServiceEnvelope::file_request_with(
             &request_id,
@@ -999,6 +1059,12 @@ pub fn transcribe_via_service_policy(
         });
         let host_pid = read_live_record(suite_root).map(|r| r.pid).unwrap_or(0);
         match connect(suite_root).and_then(|mut c| c.transcribe(path, opts)) {
+            Err(ClientError::HandoffRetry) if opts.running_host_only => {
+                return Err(ClientError::HandoffRetry);
+            }
+            Err(ClientError::HostGone) if opts.running_host_only => {
+                return Err(ClientError::HostGone);
+            }
             Err(ClientError::HandoffRetry) => {
                 last = ClientError::HandoffRetry;
                 opts.report(Progress::HandoffRetry {

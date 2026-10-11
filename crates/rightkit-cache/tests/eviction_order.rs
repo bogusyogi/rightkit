@@ -31,7 +31,8 @@ fn puts_and_gets_evict_exactly_the_expected_keys_in_lru_order() {
     assert!(cache.get(&key("e")).is_some()); // c f g e
     assert!(cache.get(&key("f")).is_some()); // c g e f
     cache.put(&key("h"), &[7; 10]).unwrap(); // evicts c
-    assert_eq!(kept(&cache, &names), ["g", "e", "f", "h"]);
+                                             // `kept` reports in `names` order, so the survivors read alphabetically.
+    assert_eq!(kept(&cache, &names), ["e", "f", "g", "h"]);
     let stats = cache.stats();
     assert_eq!((stats.entries, stats.bytes, stats.evictions), (4, 40, 4));
 }

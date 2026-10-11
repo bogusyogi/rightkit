@@ -119,7 +119,7 @@ function run(unit, command, args, { cwd = ROOT, env = {}, timeoutMinutes = 25, d
     log.write(`\n$ ${command} ${args.join(" ")}\n`);
     console.log(`::group::${label}`);
     let timedOut = false; let settled = false; let skipped = 0;
-    const countSkips = (chunk) => { skipped += (String(chunk).match(/^(SKIP |# skipped [1-9]|.*\u2193 .*\[skipped\])/gm) ?? []).length; };
+    const countSkips = (chunk) => { skipped += (String(chunk).match(/^\s*(SKIP |# skipped [1-9]|.*\u2193 .*\[skipped\])/gm) ?? []).length; };
     const finish = (code, note) => {
       if (settled) return; settled = true;
       clearTimeout(timer);
@@ -184,8 +184,8 @@ async function rustGate(selection, config) {
     const featureSets = entry.featureSets ?? [[]];
     const timeoutMinutes = entry.timeoutMinutes ?? 25;
     for (const features of featureSets) {
-      await run(`rust:${name}`, "cargo", ["test", "-p", name, ...features, "--no-fail-fast"], { timeoutMinutes });
-      if (entry.alsoSerial) await run(`rust:${name}`, "cargo", ["test", "-p", name, ...features, "--no-fail-fast", "--", "--test-threads=1"], { timeoutMinutes });
+      await run(`rust:${name}`, "cargo", ["test", "-p", name, ...features, "--no-fail-fast", "--", "--show-output"], { timeoutMinutes });
+      if (entry.alsoSerial) await run(`rust:${name}`, "cargo", ["test", "-p", name, ...features, "--no-fail-fast", "--", "--test-threads=1", "--show-output"], { timeoutMinutes });
     }
     await run(`rust:${name}`, "cargo", ["clippy", "-p", name, "--no-deps", "--all-targets", ...featureSets[0], "--", "-D", "warnings"], { timeoutMinutes });
   }

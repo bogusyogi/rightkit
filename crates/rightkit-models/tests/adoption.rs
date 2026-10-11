@@ -129,19 +129,16 @@ fn member(path: &str, url: String, archive: &[u8], member: &str, payload: &[u8])
 }
 
 fn model(id: &str, revs: Vec<(&str, Vec<FileSpec>)>) -> ModelSpec {
-    ModelSpec {
-        id: id.into(),
-        label: String::new(),
-        revisions: revs
-            .into_iter()
-            .map(|(r, files)| RevisionSpec {
-                revision: r.into(),
-                quant: Some("q4".into()),
-                files,
-                ..Default::default()
-            })
-            .collect(),
-    }
+    let revisions = revs
+        .into_iter()
+        .map(|(r, files)| RevisionSpec {
+            revision: r.into(),
+            quant: Some("q4".into()),
+            files,
+            ..Default::default()
+        })
+        .collect();
+    ModelSpec::new(id, revisions)
 }
 
 fn opts(rev: &str) -> InstallOptions {

@@ -158,8 +158,27 @@ mod mac {
             return true;
         }
         let reason = format!("{} not granted to the test host", missing.join(" and "));
+        precondition_missing(&reason, &format!("{status:?}"))
+    }
+
+    /// Whether this host has a GUI session the gate can drive: a window-server frontmost
+    /// app, and TextEdit installed. Headless or hosted runners without a logged-in GUI
+    /// session fail this and skip instead of failing on the app launch.
+    fn gui_ready(a: &Auto) -> bool {
+        if a.frontmost().is_none() {
+            return precondition_missing("no GUI session (no frontmost app to drive)", "");
+        }
+        if !std::path::Path::new("/System/Applications/TextEdit.app").exists() {
+            return precondition_missing("TextEdit.app is not installed", "");
+        }
+        true
+    }
+
+    /// Reports an unmet precondition: panics under `RIGHTKIT_REQUIRE_ASSETS=1`, otherwise
+    /// prints `SKIP e2e_mac: <reason>` and returns false so the caller returns.
+    fn precondition_missing(reason: &str, detail: &str) -> bool {
         if std::env::var("RIGHTKIT_REQUIRE_ASSETS").as_deref() == Ok("1") {
-            panic!("e2e_mac: {reason} (RIGHTKIT_REQUIRE_ASSETS=1): {status:?}");
+            panic!("e2e_mac: {reason} (RIGHTKIT_REQUIRE_ASSETS=1): {detail}");
         }
         println!("SKIP e2e_mac: {reason}");
         false
@@ -176,7 +195,7 @@ mod mac {
             "com.apple.TextEdit",
             "com.apple.calculator",
         ])));
-        if !assets_ready(&a.status()) {
+        if !assets_ready(&a.status()) || !gui_ready(&a) {
             return;
         }
 
