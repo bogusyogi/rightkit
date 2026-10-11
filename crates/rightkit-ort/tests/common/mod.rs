@@ -147,6 +147,45 @@ fn find_real_runtime_dir() -> Option<PathBuf> {
         .find(|dir| dir.join("onnxruntime.dll").is_file() && dir.join("DirectML.dll").is_file())
 }
 
+/// The catalog record of the Windows x64 runtime, the single source of its digest: the approved
+/// record, or the pinned one while it awaits promotion.
+#[cfg(windows)]
+pub fn windows_runtime_record() -> rightkit_media::native::NativeRecord {
+    use rightkit_media::native::{NativeCatalog, NativeLibrary, NativeStatus};
+    let catalog = NativeCatalog::embedded().unwrap();
+    let mut records = catalog
+        .records(NativeLibrary::Onnxruntime)
+        .filter(|record| record.os == "windows" && record.arch == "x86_64")
+        .filter(|record| matches!(record.status, NativeStatus::Approved | NativeStatus::Pinned));
+    let record = records
+        .next()
+        .expect("the catalog has no approved or pinned Windows x64 onnxruntime record");
+    assert!(
+        records.next().is_none(),
+        "the catalog has more than one Windows x64 onnxruntime record"
+    );
+    record.clone()
+}
+
+/// `onnxruntime.dll` on its own, with no `DirectML.dll` required beside it: from
+/// `RIGHTKIT_ORT_TEST_DLL_DIR` first, else the HeardRight staging folder.
+#[cfg(windows)]
+pub fn runtime_file_or_skip() -> Option<PathBuf> {
+    let found = std::env::var_os("RIGHTKIT_ORT_TEST_DLL_DIR")
+        .map(PathBuf::from)
+        .into_iter()
+        .chain(workspace_asset(WINDOWS_RUNTIME_DIR))
+        .map(|dir| dir.join("onnxruntime.dll"))
+        .find(|file| file.is_file());
+    if found.is_none() {
+        skip_missing(
+            "onnxruntime.dll (ONNX Runtime 1.24.4)",
+            &format!("RIGHTKIT_ORT_TEST_DLL_DIR or {WINDOWS_RUNTIME_DIR} found by walking up from crates/rightkit-ort"),
+        );
+    }
+    found
+}
+
 /// The approved runtime directory. Tests call [`runtime_dir_or_skip`] first.
 #[cfg(windows)]
 pub fn real_runtime_dir() -> PathBuf {
