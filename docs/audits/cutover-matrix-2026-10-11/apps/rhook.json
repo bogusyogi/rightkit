@@ -1,0 +1,2176 @@
+{
+  "app": "Rhook",
+  "root": "/Volumes/D/claude/tools/rhook",
+  "head": "22d78df2e5c9849ff97d566284acabdfc169de2d",
+  "reviewed_at": "2026-10-11T08:08:53+05:30",
+  "targets": [
+    "rust-cli-hook",
+    "bounded-run-adapter",
+    "compact-command-wrapper"
+  ],
+  "scope_note": "Fresh source-only review of Rhook Rust hook executor, bounded-run adapter, compact wrapper, and active optional release guard. Read production Rust, Cargo manifest, and registry/config; excluded tests, fixtures, target output, docs, caches, builds, installs, network, and product changes. No execution qualification implied.",
+  "cells": [
+    {
+      "component_id": "cargo:agent-room-core",
+      "status": "NA",
+      "rationale": "Rhook active scope is hook admission, hook policy, compact output, and bounded authority; no agent-room-core production feature routes through this owner.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/tools/rhook/src/main.rs",
+          "line": 17,
+          "detail": "Production Rust CLI dispatches Rhook hook, compact, supervision, and bounded-run modes."
+        },
+        {
+          "path": "/Volumes/D/claude/tools/rhook/Cargo.toml",
+          "line": 7,
+          "detail": "Direct dependency census contains no RightKit crate."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-agent-tools",
+      "status": "NA",
+      "rationale": "Rhook active scope is hook admission, hook policy, compact output, and bounded authority; no rightkit-agent-tools production feature routes through this owner.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/tools/rhook/src/main.rs",
+          "line": 17,
+          "detail": "Production Rust CLI dispatches Rhook hook, compact, supervision, and bounded-run modes."
+        },
+        {
+          "path": "/Volumes/D/claude/tools/rhook/Cargo.toml",
+          "line": 7,
+          "detail": "Direct dependency census contains no RightKit crate."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-align",
+      "status": "NA",
+      "rationale": "Rhook active scope is hook admission, hook policy, compact output, and bounded authority; no rightkit-align production feature routes through this owner.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/tools/rhook/src/main.rs",
+          "line": 17,
+          "detail": "Production Rust CLI dispatches Rhook hook, compact, supervision, and bounded-run modes."
+        },
+        {
+          "path": "/Volumes/D/claude/tools/rhook/Cargo.toml",
+          "line": 7,
+          "detail": "Direct dependency census contains no RightKit crate."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-asr",
+      "status": "NA",
+      "rationale": "Rhook active scope is hook admission, hook policy, compact output, and bounded authority; no rightkit-asr production feature routes through this owner.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/tools/rhook/src/main.rs",
+          "line": 17,
+          "detail": "Production Rust CLI dispatches Rhook hook, compact, supervision, and bounded-run modes."
+        },
+        {
+          "path": "/Volumes/D/claude/tools/rhook/Cargo.toml",
+          "line": 7,
+          "detail": "Direct dependency census contains no RightKit crate."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-audio",
+      "status": "NA",
+      "rationale": "Rhook active scope is hook admission, hook policy, compact output, and bounded authority; no rightkit-audio production feature routes through this owner.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/tools/rhook/src/main.rs",
+          "line": 17,
+          "detail": "Production Rust CLI dispatches Rhook hook, compact, supervision, and bounded-run modes."
+        },
+        {
+          "path": "/Volumes/D/claude/tools/rhook/Cargo.toml",
+          "line": 7,
+          "detail": "Direct dependency census contains no RightKit crate."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-automation",
+      "status": "NA",
+      "rationale": "Rhook active scope is hook admission, hook policy, compact output, and bounded authority; no rightkit-automation production feature routes through this owner.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/tools/rhook/src/main.rs",
+          "line": 17,
+          "detail": "Production Rust CLI dispatches Rhook hook, compact, supervision, and bounded-run modes."
+        },
+        {
+          "path": "/Volumes/D/claude/tools/rhook/Cargo.toml",
+          "line": 7,
+          "detail": "Direct dependency census contains no RightKit crate."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-browser",
+      "status": "NA",
+      "rationale": "Rhook active scope is hook admission, hook policy, compact output, and bounded authority; no rightkit-browser production feature routes through this owner.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/tools/rhook/src/main.rs",
+          "line": 17,
+          "detail": "Production Rust CLI dispatches Rhook hook, compact, supervision, and bounded-run modes."
+        },
+        {
+          "path": "/Volumes/D/claude/tools/rhook/Cargo.toml",
+          "line": 7,
+          "detail": "Direct dependency census contains no RightKit crate."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-cache",
+      "status": "NA",
+      "rationale": "Rhook active scope is hook admission, hook policy, compact output, and bounded authority; no rightkit-cache production feature routes through this owner.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/tools/rhook/src/main.rs",
+          "line": 17,
+          "detail": "Production Rust CLI dispatches Rhook hook, compact, supervision, and bounded-run modes."
+        },
+        {
+          "path": "/Volumes/D/claude/tools/rhook/Cargo.toml",
+          "line": 7,
+          "detail": "Direct dependency census contains no RightKit crate."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-channel-memory",
+      "status": "NA",
+      "rationale": "Rhook active scope is hook admission, hook policy, compact output, and bounded authority; no rightkit-channel-memory production feature routes through this owner.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/tools/rhook/src/main.rs",
+          "line": 17,
+          "detail": "Production Rust CLI dispatches Rhook hook, compact, supervision, and bounded-run modes."
+        },
+        {
+          "path": "/Volumes/D/claude/tools/rhook/Cargo.toml",
+          "line": 7,
+          "detail": "Direct dependency census contains no RightKit crate."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-compose",
+      "status": "NA",
+      "rationale": "Rhook active scope is hook admission, hook policy, compact output, and bounded authority; no rightkit-compose production feature routes through this owner.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/tools/rhook/src/main.rs",
+          "line": 17,
+          "detail": "Production Rust CLI dispatches Rhook hook, compact, supervision, and bounded-run modes."
+        },
+        {
+          "path": "/Volumes/D/claude/tools/rhook/Cargo.toml",
+          "line": 7,
+          "detail": "Direct dependency census contains no RightKit crate."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-contracts",
+      "status": "NA",
+      "rationale": "Rhook active scope is hook admission, hook policy, compact output, and bounded authority; no rightkit-contracts production feature routes through this owner.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/tools/rhook/src/main.rs",
+          "line": 17,
+          "detail": "Production Rust CLI dispatches Rhook hook, compact, supervision, and bounded-run modes."
+        },
+        {
+          "path": "/Volumes/D/claude/tools/rhook/Cargo.toml",
+          "line": 7,
+          "detail": "Direct dependency census contains no RightKit crate."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-control",
+      "status": "NA",
+      "rationale": "Rhook active scope is hook admission, hook policy, compact output, and bounded authority; no rightkit-control production feature routes through this owner.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/tools/rhook/src/main.rs",
+          "line": 17,
+          "detail": "Production Rust CLI dispatches Rhook hook, compact, supervision, and bounded-run modes."
+        },
+        {
+          "path": "/Volumes/D/claude/tools/rhook/Cargo.toml",
+          "line": 7,
+          "detail": "Direct dependency census contains no RightKit crate."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-crash",
+      "status": "NA",
+      "rationale": "Rhook active scope is hook admission, hook policy, compact output, and bounded authority; no rightkit-crash production feature routes through this owner.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/tools/rhook/src/main.rs",
+          "line": 17,
+          "detail": "Production Rust CLI dispatches Rhook hook, compact, supervision, and bounded-run modes."
+        },
+        {
+          "path": "/Volumes/D/claude/tools/rhook/Cargo.toml",
+          "line": 7,
+          "detail": "Direct dependency census contains no RightKit crate."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-daemon",
+      "status": "NA",
+      "rationale": "Rhook active scope is hook admission, hook policy, compact output, and bounded authority; no rightkit-daemon production feature routes through this owner.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/tools/rhook/src/main.rs",
+          "line": 17,
+          "detail": "Production Rust CLI dispatches Rhook hook, compact, supervision, and bounded-run modes."
+        },
+        {
+          "path": "/Volumes/D/claude/tools/rhook/Cargo.toml",
+          "line": 7,
+          "detail": "Direct dependency census contains no RightKit crate."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-db",
+      "status": "N",
+      "rationale": "Live AuthorityStore opens and owns Rhook SQLite state directly; this overlaps rightkit-db writer bootstrap, with no shared route.",
+      "shared_evidence": [],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/tools/rhook/src/main.rs",
+          "line": 173,
+          "symbol": "Production bounded modes open AuthorityStore at authority.sqlite3.",
+          "detail": "authority"
+        },
+        {
+          "path": "/Volumes/D/claude/tools/rhook/src/bounded/store.rs",
+          "line": 93,
+          "symbol": "Creates Rhook SQLite authority store and schema.",
+          "detail": "AuthorityStore::open"
+        }
+      ],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/tools/rhook/src/main.rs",
+          "line": 17,
+          "detail": "Production Rust CLI dispatches Rhook hook, compact, supervision, and bounded-run modes."
+        },
+        {
+          "path": "/Volumes/D/claude/tools/rhook/Cargo.toml",
+          "line": 7,
+          "detail": "Direct dependency census contains no RightKit crate."
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-db/src/lib.rs",
+          "line": 237,
+          "symbol": "Shared owner opens configured writer connection.",
+          "detail": "Database::open_writer"
+        }
+      ],
+      "delivery_flags": [],
+      "remaining_work": "Move AuthorityStore connection bootstrap to rightkit-db while preserving schema, transactions, and fail-closed authority checks.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-embed",
+      "status": "NA",
+      "rationale": "Rhook active scope is hook admission, hook policy, compact output, and bounded authority; no rightkit-embed production feature routes through this owner.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/tools/rhook/src/main.rs",
+          "line": 17,
+          "detail": "Production Rust CLI dispatches Rhook hook, compact, supervision, and bounded-run modes."
+        },
+        {
+          "path": "/Volumes/D/claude/tools/rhook/Cargo.toml",
+          "line": 7,
+          "detail": "Direct dependency census contains no RightKit crate."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-framed-sidecar",
+      "status": "NA",
+      "rationale": "Rhook active scope is hook admission, hook policy, compact output, and bounded authority; no rightkit-framed-sidecar production feature routes through this owner.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/tools/rhook/src/main.rs",
+          "line": 17,
+          "detail": "Production Rust CLI dispatches Rhook hook, compact, supervision, and bounded-run modes."
+        },
+        {
+          "path": "/Volumes/D/claude/tools/rhook/Cargo.toml",
+          "line": 7,
+          "detail": "Direct dependency census contains no RightKit crate."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-fs",
+      "status": "N",
+      "rationale": "Live bounded-run persistence uses Rhook-local atomic temporary-file rename for state and active-marker writes; this overlaps rightkit-fs atomic write API, with no shared route.",
+      "shared_evidence": [],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/tools/rhook/src/main.rs",
+          "line": 193,
+          "symbol": "Writes temp file then renames it for bounded run state.",
+          "detail": "write_atomic"
+        },
+        {
+          "path": "/Volumes/D/claude/tools/rhook/src/main.rs",
+          "line": 530,
+          "symbol": "Live bounded-run entrypoint persists active marker through write_atomic.",
+          "detail": "bounded_freeze"
+        }
+      ],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/tools/rhook/src/main.rs",
+          "line": 17,
+          "detail": "Production Rust CLI dispatches Rhook hook, compact, supervision, and bounded-run modes."
+        },
+        {
+          "path": "/Volumes/D/claude/tools/rhook/Cargo.toml",
+          "line": 7,
+          "detail": "Direct dependency census contains no RightKit crate."
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-fs/src/atomic.rs",
+          "line": 146,
+          "symbol": "Shared owner provides owner-only atomic replacement.",
+          "detail": "atomic_write_private"
+        }
+      ],
+      "delivery_flags": [],
+      "remaining_work": "Replace local state-file atomic writes with rightkit-fs while retaining Rhook state paths and hook policy.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-fsindex",
+      "status": "NA",
+      "rationale": "Rhook active scope is hook admission, hook policy, compact output, and bounded authority; no rightkit-fsindex production feature routes through this owner.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/tools/rhook/src/main.rs",
+          "line": 17,
+          "detail": "Production Rust CLI dispatches Rhook hook, compact, supervision, and bounded-run modes."
+        },
+        {
+          "path": "/Volumes/D/claude/tools/rhook/Cargo.toml",
+          "line": 7,
+          "detail": "Direct dependency census contains no RightKit crate."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-hotkeys",
+      "status": "NA",
+      "rationale": "Rhook active scope is hook admission, hook policy, compact output, and bounded authority; no rightkit-hotkeys production feature routes through this owner.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/tools/rhook/src/main.rs",
+          "line": 17,
+          "detail": "Production Rust CLI dispatches Rhook hook, compact, supervision, and bounded-run modes."
+        },
+        {
+          "path": "/Volumes/D/claude/tools/rhook/Cargo.toml",
+          "line": 7,
+          "detail": "Direct dependency census contains no RightKit crate."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-http",
+      "status": "NA",
+      "rationale": "Rhook active scope is hook admission, hook policy, compact output, and bounded authority; no rightkit-http production feature routes through this owner.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/tools/rhook/src/main.rs",
+          "line": 17,
+          "detail": "Production Rust CLI dispatches Rhook hook, compact, supervision, and bounded-run modes."
+        },
+        {
+          "path": "/Volumes/D/claude/tools/rhook/Cargo.toml",
+          "line": 7,
+          "detail": "Direct dependency census contains no RightKit crate."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-jobs",
+      "status": "NA",
+      "rationale": "Rhook active scope is hook admission, hook policy, compact output, and bounded authority; no rightkit-jobs production feature routes through this owner.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/tools/rhook/src/main.rs",
+          "line": 17,
+          "detail": "Production Rust CLI dispatches Rhook hook, compact, supervision, and bounded-run modes."
+        },
+        {
+          "path": "/Volumes/D/claude/tools/rhook/Cargo.toml",
+          "line": 7,
+          "detail": "Direct dependency census contains no RightKit crate."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-license",
+      "status": "NA",
+      "rationale": "Rhook active scope is hook admission, hook policy, compact output, and bounded authority; no rightkit-license production feature routes through this owner.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/tools/rhook/src/main.rs",
+          "line": 17,
+          "detail": "Production Rust CLI dispatches Rhook hook, compact, supervision, and bounded-run modes."
+        },
+        {
+          "path": "/Volumes/D/claude/tools/rhook/Cargo.toml",
+          "line": 7,
+          "detail": "Direct dependency census contains no RightKit crate."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-llm",
+      "status": "NA",
+      "rationale": "Rhook active scope is hook admission, hook policy, compact output, and bounded authority; no rightkit-llm production feature routes through this owner.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/tools/rhook/src/main.rs",
+          "line": 17,
+          "detail": "Production Rust CLI dispatches Rhook hook, compact, supervision, and bounded-run modes."
+        },
+        {
+          "path": "/Volumes/D/claude/tools/rhook/Cargo.toml",
+          "line": 7,
+          "detail": "Direct dependency census contains no RightKit crate."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-logs",
+      "status": "NA",
+      "rationale": "Rhook active scope is hook admission, hook policy, compact output, and bounded authority; no rightkit-logs production feature routes through this owner.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/tools/rhook/src/main.rs",
+          "line": 17,
+          "detail": "Production Rust CLI dispatches Rhook hook, compact, supervision, and bounded-run modes."
+        },
+        {
+          "path": "/Volumes/D/claude/tools/rhook/Cargo.toml",
+          "line": 7,
+          "detail": "Direct dependency census contains no RightKit crate."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-mcp",
+      "status": "NA",
+      "rationale": "Rhook active scope is hook admission, hook policy, compact output, and bounded authority; no rightkit-mcp production feature routes through this owner.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/tools/rhook/src/main.rs",
+          "line": 17,
+          "detail": "Production Rust CLI dispatches Rhook hook, compact, supervision, and bounded-run modes."
+        },
+        {
+          "path": "/Volumes/D/claude/tools/rhook/Cargo.toml",
+          "line": 7,
+          "detail": "Direct dependency census contains no RightKit crate."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-media",
+      "status": "NA",
+      "rationale": "Rhook active scope is hook admission, hook policy, compact output, and bounded authority; no rightkit-media production feature routes through this owner.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/tools/rhook/src/main.rs",
+          "line": 17,
+          "detail": "Production Rust CLI dispatches Rhook hook, compact, supervision, and bounded-run modes."
+        },
+        {
+          "path": "/Volumes/D/claude/tools/rhook/Cargo.toml",
+          "line": 7,
+          "detail": "Direct dependency census contains no RightKit crate."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-models",
+      "status": "NA",
+      "rationale": "Rhook active scope is hook admission, hook policy, compact output, and bounded authority; no rightkit-models production feature routes through this owner.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/tools/rhook/src/main.rs",
+          "line": 17,
+          "detail": "Production Rust CLI dispatches Rhook hook, compact, supervision, and bounded-run modes."
+        },
+        {
+          "path": "/Volumes/D/claude/tools/rhook/Cargo.toml",
+          "line": 7,
+          "detail": "Direct dependency census contains no RightKit crate."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-oauth",
+      "status": "NA",
+      "rationale": "Rhook active scope is hook admission, hook policy, compact output, and bounded authority; no rightkit-oauth production feature routes through this owner.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/tools/rhook/src/main.rs",
+          "line": 17,
+          "detail": "Production Rust CLI dispatches Rhook hook, compact, supervision, and bounded-run modes."
+        },
+        {
+          "path": "/Volumes/D/claude/tools/rhook/Cargo.toml",
+          "line": 7,
+          "detail": "Direct dependency census contains no RightKit crate."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-ocr",
+      "status": "NA",
+      "rationale": "Rhook active scope is hook admission, hook policy, compact output, and bounded authority; no rightkit-ocr production feature routes through this owner.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/tools/rhook/src/main.rs",
+          "line": 17,
+          "detail": "Production Rust CLI dispatches Rhook hook, compact, supervision, and bounded-run modes."
+        },
+        {
+          "path": "/Volumes/D/claude/tools/rhook/Cargo.toml",
+          "line": 7,
+          "detail": "Direct dependency census contains no RightKit crate."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-ort",
+      "status": "NA",
+      "rationale": "Rhook active scope is hook admission, hook policy, compact output, and bounded authority; no rightkit-ort production feature routes through this owner.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/tools/rhook/src/main.rs",
+          "line": 17,
+          "detail": "Production Rust CLI dispatches Rhook hook, compact, supervision, and bounded-run modes."
+        },
+        {
+          "path": "/Volumes/D/claude/tools/rhook/Cargo.toml",
+          "line": 7,
+          "detail": "Direct dependency census contains no RightKit crate."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-overlay",
+      "status": "NA",
+      "rationale": "Rhook active scope is hook admission, hook policy, compact output, and bounded authority; no rightkit-overlay production feature routes through this owner.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/tools/rhook/src/main.rs",
+          "line": 17,
+          "detail": "Production Rust CLI dispatches Rhook hook, compact, supervision, and bounded-run modes."
+        },
+        {
+          "path": "/Volumes/D/claude/tools/rhook/Cargo.toml",
+          "line": 7,
+          "detail": "Direct dependency census contains no RightKit crate."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-ownership",
+      "status": "NA",
+      "rationale": "Rhook active scope is hook admission, hook policy, compact output, and bounded authority; no rightkit-ownership production feature routes through this owner.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/tools/rhook/src/main.rs",
+          "line": 17,
+          "detail": "Production Rust CLI dispatches Rhook hook, compact, supervision, and bounded-run modes."
+        },
+        {
+          "path": "/Volumes/D/claude/tools/rhook/Cargo.toml",
+          "line": 7,
+          "detail": "Direct dependency census contains no RightKit crate."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-pdf",
+      "status": "NA",
+      "rationale": "Rhook active scope is hook admission, hook policy, compact output, and bounded authority; no rightkit-pdf production feature routes through this owner.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/tools/rhook/src/main.rs",
+          "line": 17,
+          "detail": "Production Rust CLI dispatches Rhook hook, compact, supervision, and bounded-run modes."
+        },
+        {
+          "path": "/Volumes/D/claude/tools/rhook/Cargo.toml",
+          "line": 7,
+          "detail": "Direct dependency census contains no RightKit crate."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-playback",
+      "status": "NA",
+      "rationale": "Rhook active scope is hook admission, hook policy, compact output, and bounded authority; no rightkit-playback production feature routes through this owner.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/tools/rhook/src/main.rs",
+          "line": 17,
+          "detail": "Production Rust CLI dispatches Rhook hook, compact, supervision, and bounded-run modes."
+        },
+        {
+          "path": "/Volumes/D/claude/tools/rhook/Cargo.toml",
+          "line": 7,
+          "detail": "Direct dependency census contains no RightKit crate."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-process",
+      "status": "N",
+      "rationale": "Live compact and opportunity-recording paths spawn, wait for, and time-limit child processes locally; this overlaps rightkit-process owned child lifecycle, with no shared route.",
+      "shared_evidence": [],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/tools/rhook/src/compact.rs",
+          "line": 469,
+          "symbol": "Production compact command directly spawns child argv and waits for output.",
+          "detail": "compact::run"
+        },
+        {
+          "path": "/Volumes/D/claude/tools/rhook/src/lib.rs",
+          "line": 1457,
+          "symbol": "Production hook starts cortex child and kills it after three-second deadline.",
+          "detail": "record_transform_opportunity"
+        }
+      ],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/tools/rhook/src/main.rs",
+          "line": 17,
+          "detail": "Production Rust CLI dispatches Rhook hook, compact, supervision, and bounded-run modes."
+        },
+        {
+          "path": "/Volumes/D/claude/tools/rhook/Cargo.toml",
+          "line": 7,
+          "detail": "Direct dependency census contains no RightKit crate."
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-process/src/owned.rs",
+          "line": 225,
+          "symbol": "Shared owner creates owned child lifecycle.",
+          "detail": "OwnedCommand::spawn"
+        },
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-process/src/owned.rs",
+          "line": 469,
+          "symbol": "Shared owner terminates owned process tree.",
+          "detail": "OwnedChild::terminate_tree"
+        }
+      ],
+      "delivery_flags": [],
+      "remaining_work": "Route compact and cortex child lifecycle through rightkit-process, preserving direct-argv and bounded-output policy.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-qa",
+      "status": "NA",
+      "rationale": "Rhook active scope is hook admission, hook policy, compact output, and bounded authority; no rightkit-qa production feature routes through this owner.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/tools/rhook/src/main.rs",
+          "line": 17,
+          "detail": "Production Rust CLI dispatches Rhook hook, compact, supervision, and bounded-run modes."
+        },
+        {
+          "path": "/Volumes/D/claude/tools/rhook/Cargo.toml",
+          "line": 7,
+          "detail": "Direct dependency census contains no RightKit crate."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-qts",
+      "status": "NA",
+      "rationale": "Rhook active scope is hook admission, hook policy, compact output, and bounded authority; no rightkit-qts production feature routes through this owner.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/tools/rhook/src/main.rs",
+          "line": 17,
+          "detail": "Production Rust CLI dispatches Rhook hook, compact, supervision, and bounded-run modes."
+        },
+        {
+          "path": "/Volumes/D/claude/tools/rhook/Cargo.toml",
+          "line": 7,
+          "detail": "Direct dependency census contains no RightKit crate."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-qts-ggml",
+      "status": "NA",
+      "rationale": "Rhook active scope is hook admission, hook policy, compact output, and bounded authority; no rightkit-qts-ggml production feature routes through this owner.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/tools/rhook/src/main.rs",
+          "line": 17,
+          "detail": "Production Rust CLI dispatches Rhook hook, compact, supervision, and bounded-run modes."
+        },
+        {
+          "path": "/Volumes/D/claude/tools/rhook/Cargo.toml",
+          "line": 7,
+          "detail": "Direct dependency census contains no RightKit crate."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-qts-ggml-sys",
+      "status": "NA",
+      "rationale": "Rhook active scope is hook admission, hook policy, compact output, and bounded authority; no rightkit-qts-ggml-sys production feature routes through this owner.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/tools/rhook/src/main.rs",
+          "line": 17,
+          "detail": "Production Rust CLI dispatches Rhook hook, compact, supervision, and bounded-run modes."
+        },
+        {
+          "path": "/Volumes/D/claude/tools/rhook/Cargo.toml",
+          "line": 7,
+          "detail": "Direct dependency census contains no RightKit crate."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-record",
+      "status": "NA",
+      "rationale": "Rhook active scope is hook admission, hook policy, compact output, and bounded authority; no rightkit-record production feature routes through this owner.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/tools/rhook/src/main.rs",
+          "line": 17,
+          "detail": "Production Rust CLI dispatches Rhook hook, compact, supervision, and bounded-run modes."
+        },
+        {
+          "path": "/Volumes/D/claude/tools/rhook/Cargo.toml",
+          "line": 7,
+          "detail": "Direct dependency census contains no RightKit crate."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-review",
+      "status": "NA",
+      "rationale": "Rhook active scope is hook admission, hook policy, compact output, and bounded authority; no rightkit-review production feature routes through this owner.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/tools/rhook/src/main.rs",
+          "line": 17,
+          "detail": "Production Rust CLI dispatches Rhook hook, compact, supervision, and bounded-run modes."
+        },
+        {
+          "path": "/Volumes/D/claude/tools/rhook/Cargo.toml",
+          "line": 7,
+          "detail": "Direct dependency census contains no RightKit crate."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-sandbox",
+      "status": "N",
+      "rationale": "Live bounded authority reserves work, mutation, process, verification, and output budgets before calls; this overlaps rightkit-sandbox reserve-before-spawn resource authority, with no shared route.",
+      "shared_evidence": [],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/tools/rhook/src/bounded/budget.rs",
+          "line": 49,
+          "symbol": "Enforces Rhook-local work, mutation, process, verification, and output limits.",
+          "detail": "Budget::reserve"
+        },
+        {
+          "path": "/Volumes/D/claude/tools/rhook/src/main.rs",
+          "line": 561,
+          "symbol": "Live pre-tool hook reserves capability budget before allow decision.",
+          "detail": "bounded_pre"
+        }
+      ],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/tools/rhook/src/main.rs",
+          "line": 17,
+          "detail": "Production Rust CLI dispatches Rhook hook, compact, supervision, and bounded-run modes."
+        },
+        {
+          "path": "/Volumes/D/claude/tools/rhook/Cargo.toml",
+          "line": 7,
+          "detail": "Direct dependency census contains no RightKit crate."
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-sandbox/src/resources.rs",
+          "line": 119,
+          "symbol": "Shared owner reserves resource slot before execution.",
+          "detail": "ResourceAuthority::reserve"
+        }
+      ],
+      "delivery_flags": [],
+      "remaining_work": "Map Rhook process/resource reservations to rightkit-sandbox while retaining signed capsule and hook-specific budgets.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-scenario",
+      "status": "NA",
+      "rationale": "Rhook active scope is hook admission, hook policy, compact output, and bounded authority; no rightkit-scenario production feature routes through this owner.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/tools/rhook/src/main.rs",
+          "line": 17,
+          "detail": "Production Rust CLI dispatches Rhook hook, compact, supervision, and bounded-run modes."
+        },
+        {
+          "path": "/Volumes/D/claude/tools/rhook/Cargo.toml",
+          "line": 7,
+          "detail": "Direct dependency census contains no RightKit crate."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-search",
+      "status": "NA",
+      "rationale": "Rhook active scope is hook admission, hook policy, compact output, and bounded authority; no rightkit-search production feature routes through this owner.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/tools/rhook/src/main.rs",
+          "line": 17,
+          "detail": "Production Rust CLI dispatches Rhook hook, compact, supervision, and bounded-run modes."
+        },
+        {
+          "path": "/Volumes/D/claude/tools/rhook/Cargo.toml",
+          "line": 7,
+          "detail": "Direct dependency census contains no RightKit crate."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-secrets",
+      "status": "NA",
+      "rationale": "Rhook active scope is hook admission, hook policy, compact output, and bounded authority; no rightkit-secrets production feature routes through this owner.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/tools/rhook/src/main.rs",
+          "line": 17,
+          "detail": "Production Rust CLI dispatches Rhook hook, compact, supervision, and bounded-run modes."
+        },
+        {
+          "path": "/Volumes/D/claude/tools/rhook/Cargo.toml",
+          "line": 7,
+          "detail": "Direct dependency census contains no RightKit crate."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-send",
+      "status": "NA",
+      "rationale": "Rhook active scope is hook admission, hook policy, compact output, and bounded authority; no rightkit-send production feature routes through this owner.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/tools/rhook/src/main.rs",
+          "line": 17,
+          "detail": "Production Rust CLI dispatches Rhook hook, compact, supervision, and bounded-run modes."
+        },
+        {
+          "path": "/Volumes/D/claude/tools/rhook/Cargo.toml",
+          "line": 7,
+          "detail": "Direct dependency census contains no RightKit crate."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-service",
+      "status": "NA",
+      "rationale": "Rhook active scope is hook admission, hook policy, compact output, and bounded authority; no rightkit-service production feature routes through this owner.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/tools/rhook/src/main.rs",
+          "line": 17,
+          "detail": "Production Rust CLI dispatches Rhook hook, compact, supervision, and bounded-run modes."
+        },
+        {
+          "path": "/Volumes/D/claude/tools/rhook/Cargo.toml",
+          "line": 7,
+          "detail": "Direct dependency census contains no RightKit crate."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-settings",
+      "status": "NA",
+      "rationale": "Rhook active scope is hook admission, hook policy, compact output, and bounded authority; no rightkit-settings production feature routes through this owner.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/tools/rhook/src/main.rs",
+          "line": 17,
+          "detail": "Production Rust CLI dispatches Rhook hook, compact, supervision, and bounded-run modes."
+        },
+        {
+          "path": "/Volumes/D/claude/tools/rhook/Cargo.toml",
+          "line": 7,
+          "detail": "Direct dependency census contains no RightKit crate."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-shell",
+      "status": "NA",
+      "rationale": "Rhook active scope is hook admission, hook policy, compact output, and bounded authority; no rightkit-shell production feature routes through this owner.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/tools/rhook/src/main.rs",
+          "line": 17,
+          "detail": "Production Rust CLI dispatches Rhook hook, compact, supervision, and bounded-run modes."
+        },
+        {
+          "path": "/Volumes/D/claude/tools/rhook/Cargo.toml",
+          "line": 7,
+          "detail": "Direct dependency census contains no RightKit crate."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-speech-client",
+      "status": "NA",
+      "rationale": "Rhook active scope is hook admission, hook policy, compact output, and bounded authority; no rightkit-speech-client production feature routes through this owner.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/tools/rhook/src/main.rs",
+          "line": 17,
+          "detail": "Production Rust CLI dispatches Rhook hook, compact, supervision, and bounded-run modes."
+        },
+        {
+          "path": "/Volumes/D/claude/tools/rhook/Cargo.toml",
+          "line": 7,
+          "detail": "Direct dependency census contains no RightKit crate."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-sync",
+      "status": "NA",
+      "rationale": "Rhook active scope is hook admission, hook policy, compact output, and bounded authority; no rightkit-sync production feature routes through this owner.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/tools/rhook/src/main.rs",
+          "line": 17,
+          "detail": "Production Rust CLI dispatches Rhook hook, compact, supervision, and bounded-run modes."
+        },
+        {
+          "path": "/Volumes/D/claude/tools/rhook/Cargo.toml",
+          "line": 7,
+          "detail": "Direct dependency census contains no RightKit crate."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-tauri",
+      "status": "NA",
+      "rationale": "Rhook active scope is hook admission, hook policy, compact output, and bounded authority; no rightkit-tauri production feature routes through this owner.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/tools/rhook/src/main.rs",
+          "line": 17,
+          "detail": "Production Rust CLI dispatches Rhook hook, compact, supervision, and bounded-run modes."
+        },
+        {
+          "path": "/Volumes/D/claude/tools/rhook/Cargo.toml",
+          "line": 7,
+          "detail": "Direct dependency census contains no RightKit crate."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-transcript",
+      "status": "NA",
+      "rationale": "Rhook active scope is hook admission, hook policy, compact output, and bounded authority; no rightkit-transcript production feature routes through this owner.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/tools/rhook/src/main.rs",
+          "line": 17,
+          "detail": "Production Rust CLI dispatches Rhook hook, compact, supervision, and bounded-run modes."
+        },
+        {
+          "path": "/Volumes/D/claude/tools/rhook/Cargo.toml",
+          "line": 7,
+          "detail": "Direct dependency census contains no RightKit crate."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-tts",
+      "status": "NA",
+      "rationale": "Rhook active scope is hook admission, hook policy, compact output, and bounded authority; no rightkit-tts production feature routes through this owner.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/tools/rhook/src/main.rs",
+          "line": 17,
+          "detail": "Production Rust CLI dispatches Rhook hook, compact, supervision, and bounded-run modes."
+        },
+        {
+          "path": "/Volumes/D/claude/tools/rhook/Cargo.toml",
+          "line": 7,
+          "detail": "Direct dependency census contains no RightKit crate."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-vad",
+      "status": "NA",
+      "rationale": "Rhook active scope is hook admission, hook policy, compact output, and bounded authority; no rightkit-vad production feature routes through this owner.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/tools/rhook/src/main.rs",
+          "line": 17,
+          "detail": "Production Rust CLI dispatches Rhook hook, compact, supervision, and bounded-run modes."
+        },
+        {
+          "path": "/Volumes/D/claude/tools/rhook/Cargo.toml",
+          "line": 7,
+          "detail": "Direct dependency census contains no RightKit crate."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-watch",
+      "status": "NA",
+      "rationale": "Rhook active scope is hook admission, hook policy, compact output, and bounded authority; no rightkit-watch production feature routes through this owner.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/tools/rhook/src/main.rs",
+          "line": 17,
+          "detail": "Production Rust CLI dispatches Rhook hook, compact, supervision, and bounded-run modes."
+        },
+        {
+          "path": "/Volumes/D/claude/tools/rhook/Cargo.toml",
+          "line": 7,
+          "detail": "Direct dependency census contains no RightKit crate."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/agent-room-mcp",
+      "status": "NA",
+      "rationale": "Rhook has no Node package/runtime caller for @rightkit/agent-room-mcp; its Rust hook policy is not a duplicate of this JavaScript owner.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/tools/rhook/Cargo.toml",
+          "line": 1,
+          "detail": "Rhook declares one Rust package and no Node or Swift target/configuration."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/app-shell",
+      "status": "NA",
+      "rationale": "Rhook has no Node package/runtime caller for @rightkit/app-shell; its Rust hook policy is not a duplicate of this JavaScript owner.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/tools/rhook/Cargo.toml",
+          "line": 1,
+          "detail": "Rhook declares one Rust package and no Node or Swift target/configuration."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/ax",
+      "status": "NA",
+      "rationale": "Rhook has no Node package/runtime caller for @rightkit/ax; its Rust hook policy is not a duplicate of this JavaScript owner.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/tools/rhook/Cargo.toml",
+          "line": 1,
+          "detail": "Rhook declares one Rust package and no Node or Swift target/configuration."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/build-control-policy",
+      "status": "NA",
+      "rationale": "Rhook has no Node package/runtime caller for @rightkit/build-control-policy; its Rust hook policy is not a duplicate of this JavaScript owner.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/tools/rhook/Cargo.toml",
+          "line": 1,
+          "detail": "Rhook declares one Rust package and no Node or Swift target/configuration."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/doc-render",
+      "status": "NA",
+      "rationale": "Rhook has no Node package/runtime caller for @rightkit/doc-render; its Rust hook policy is not a duplicate of this JavaScript owner.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/tools/rhook/Cargo.toml",
+          "line": 1,
+          "detail": "Rhook declares one Rust package and no Node or Swift target/configuration."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/git",
+      "status": "NA",
+      "rationale": "Rhook has no Node package/runtime caller for @rightkit/git; its Rust hook policy is not a duplicate of this JavaScript owner.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/tools/rhook/Cargo.toml",
+          "line": 1,
+          "detail": "Rhook declares one Rust package and no Node or Swift target/configuration."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/hooks",
+      "status": "NA",
+      "rationale": "Rhook has no Node package/runtime caller for @rightkit/hooks; its Rust hook policy is not a duplicate of this JavaScript owner.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/tools/rhook/Cargo.toml",
+          "line": 1,
+          "detail": "Rhook declares one Rust package and no Node or Swift target/configuration."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/i18n",
+      "status": "NA",
+      "rationale": "Rhook has no Node package/runtime caller for @rightkit/i18n; its Rust hook policy is not a duplicate of this JavaScript owner.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/tools/rhook/Cargo.toml",
+          "line": 1,
+          "detail": "Rhook declares one Rust package and no Node or Swift target/configuration."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/legal",
+      "status": "NA",
+      "rationale": "Rhook has no Node package/runtime caller for @rightkit/legal; its Rust hook policy is not a duplicate of this JavaScript owner.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/tools/rhook/Cargo.toml",
+          "line": 1,
+          "detail": "Rhook declares one Rust package and no Node or Swift target/configuration."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/legal-ui",
+      "status": "NA",
+      "rationale": "Rhook has no Node package/runtime caller for @rightkit/legal-ui; its Rust hook policy is not a duplicate of this JavaScript owner.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/tools/rhook/Cargo.toml",
+          "line": 1,
+          "detail": "Rhook declares one Rust package and no Node or Swift target/configuration."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/license",
+      "status": "NA",
+      "rationale": "Rhook has no Node package/runtime caller for @rightkit/license; its Rust hook policy is not a duplicate of this JavaScript owner.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/tools/rhook/Cargo.toml",
+          "line": 1,
+          "detail": "Rhook declares one Rust package and no Node or Swift target/configuration."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/logs",
+      "status": "NA",
+      "rationale": "Rhook has no Node package/runtime caller for @rightkit/logs; its Rust hook policy is not a duplicate of this JavaScript owner.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/tools/rhook/Cargo.toml",
+          "line": 1,
+          "detail": "Rhook declares one Rust package and no Node or Swift target/configuration."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/media-ui",
+      "status": "NA",
+      "rationale": "Rhook has no Node package/runtime caller for @rightkit/media-ui; its Rust hook policy is not a duplicate of this JavaScript owner.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/tools/rhook/Cargo.toml",
+          "line": 1,
+          "detail": "Rhook declares one Rust package and no Node or Swift target/configuration."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/onboarding",
+      "status": "NA",
+      "rationale": "Rhook has no Node package/runtime caller for @rightkit/onboarding; its Rust hook policy is not a duplicate of this JavaScript owner.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/tools/rhook/Cargo.toml",
+          "line": 1,
+          "detail": "Rhook declares one Rust package and no Node or Swift target/configuration."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/pdf-ui",
+      "status": "NA",
+      "rationale": "Rhook has no Node package/runtime caller for @rightkit/pdf-ui; its Rust hook policy is not a duplicate of this JavaScript owner.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/tools/rhook/Cargo.toml",
+          "line": 1,
+          "detail": "Rhook declares one Rust package and no Node or Swift target/configuration."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/platform-ui",
+      "status": "NA",
+      "rationale": "Rhook has no Node package/runtime caller for @rightkit/platform-ui; its Rust hook policy is not a duplicate of this JavaScript owner.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/tools/rhook/Cargo.toml",
+          "line": 1,
+          "detail": "Rhook declares one Rust package and no Node or Swift target/configuration."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/qa",
+      "status": "NA",
+      "rationale": "Rhook has no Node package/runtime caller for @rightkit/qa; its Rust hook policy is not a duplicate of this JavaScript owner.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/tools/rhook/Cargo.toml",
+          "line": 1,
+          "detail": "Rhook declares one Rust package and no Node or Swift target/configuration."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/qa-chrome",
+      "status": "NA",
+      "rationale": "Rhook has no Node package/runtime caller for @rightkit/qa-chrome; its Rust hook policy is not a duplicate of this JavaScript owner.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/tools/rhook/Cargo.toml",
+          "line": 1,
+          "detail": "Rhook declares one Rust package and no Node or Swift target/configuration."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/release",
+      "status": "Y",
+      "rationale": "Heavy-command hook path resolves and invokes @rightkit/release heavy-command.mjs for matching build commands; Rhook keeps only hook-specific detection and rewrite policy.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/tools/rhook/src/compact.rs",
+          "line": 205,
+          "symbol": "Resolves deployed @rightkit/release heavy-command.mjs candidate.",
+          "detail": "heavy_guard_path"
+        },
+        {
+          "path": "/Volumes/D/claude/tools/rhook/src/compact.rs",
+          "line": 228,
+          "symbol": "Live hook rewrites matching command to invoke shared heavy-command guard.",
+          "detail": "heavy_hook_rewrite"
+        }
+      ],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/tools/rhook/src/main.rs",
+          "line": 19,
+          "detail": "Production CLI dispatches compact mode, which owns heavy hook rewrite."
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/packages/release/heavy-command.mjs",
+          "line": 318,
+          "symbol": "Shared owner acquires heavy-work slot and runs guarded command.",
+          "detail": "runHeavyCommand"
+        }
+      ],
+      "delivery_flags": [
+        "Resolver first probes ancestor/rightkit source before node_modules package; published-install portability was not executed."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/settings-ui",
+      "status": "NA",
+      "rationale": "Rhook has no Node package/runtime caller for @rightkit/settings-ui; its Rust hook policy is not a duplicate of this JavaScript owner.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/tools/rhook/Cargo.toml",
+          "line": 1,
+          "detail": "Rhook declares one Rust package and no Node or Swift target/configuration."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/shell",
+      "status": "NA",
+      "rationale": "Rhook has no Node package/runtime caller for @rightkit/shell; its Rust hook policy is not a duplicate of this JavaScript owner.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/tools/rhook/Cargo.toml",
+          "line": 1,
+          "detail": "Rhook declares one Rust package and no Node or Swift target/configuration."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/tauri",
+      "status": "NA",
+      "rationale": "Rhook has no Node package/runtime caller for @rightkit/tauri; its Rust hook policy is not a duplicate of this JavaScript owner.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/tools/rhook/Cargo.toml",
+          "line": 1,
+          "detail": "Rhook declares one Rust package and no Node or Swift target/configuration."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/theme",
+      "status": "NA",
+      "rationale": "Rhook has no Node package/runtime caller for @rightkit/theme; its Rust hook policy is not a duplicate of this JavaScript owner.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/tools/rhook/Cargo.toml",
+          "line": 1,
+          "detail": "Rhook declares one Rust package and no Node or Swift target/configuration."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/update",
+      "status": "NA",
+      "rationale": "Rhook has no Node package/runtime caller for @rightkit/update; its Rust hook policy is not a duplicate of this JavaScript owner.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/tools/rhook/Cargo.toml",
+          "line": 1,
+          "detail": "Rhook declares one Rust package and no Node or Swift target/configuration."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/updates",
+      "status": "NA",
+      "rationale": "Rhook has no Node package/runtime caller for @rightkit/updates; its Rust hook policy is not a duplicate of this JavaScript owner.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/tools/rhook/Cargo.toml",
+          "line": 1,
+          "detail": "Rhook declares one Rust package and no Node or Swift target/configuration."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitLicense",
+      "status": "NA",
+      "rationale": "Rhook has no Apple-native target or Swift package caller for RightKitLicense; Rust hook execution is runtime-incompatible.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/tools/rhook/Cargo.toml",
+          "line": 1,
+          "detail": "Rhook declares one Rust package and no Node or Swift target/configuration."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitDiagnostics",
+      "status": "NA",
+      "rationale": "Rhook has no Apple-native target or Swift package caller for RightKitDiagnostics; Rust hook execution is runtime-incompatible.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/tools/rhook/Cargo.toml",
+          "line": 1,
+          "detail": "Rhook declares one Rust package and no Node or Swift target/configuration."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitArtifacts",
+      "status": "NA",
+      "rationale": "Rhook has no Apple-native target or Swift package caller for RightKitArtifacts; Rust hook execution is runtime-incompatible.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/tools/rhook/Cargo.toml",
+          "line": 1,
+          "detail": "Rhook declares one Rust package and no Node or Swift target/configuration."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitPurchases",
+      "status": "NA",
+      "rationale": "Rhook has no Apple-native target or Swift package caller for RightKitPurchases; Rust hook execution is runtime-incompatible.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/tools/rhook/Cargo.toml",
+          "line": 1,
+          "detail": "Rhook declares one Rust package and no Node or Swift target/configuration."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitCloudSync",
+      "status": "NA",
+      "rationale": "Rhook has no Apple-native target or Swift package caller for RightKitCloudSync; Rust hook execution is runtime-incompatible.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/tools/rhook/Cargo.toml",
+          "line": 1,
+          "detail": "Rhook declares one Rust package and no Node or Swift target/configuration."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitStore",
+      "status": "NA",
+      "rationale": "Rhook has no Apple-native target or Swift package caller for RightKitStore; Rust hook execution is runtime-incompatible.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/tools/rhook/Cargo.toml",
+          "line": 1,
+          "detail": "Rhook declares one Rust package and no Node or Swift target/configuration."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitImportQueue",
+      "status": "NA",
+      "rationale": "Rhook has no Apple-native target or Swift package caller for RightKitImportQueue; Rust hook execution is runtime-incompatible.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/tools/rhook/Cargo.toml",
+          "line": 1,
+          "detail": "Rhook declares one Rust package and no Node or Swift target/configuration."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitLiveActivity",
+      "status": "NA",
+      "rationale": "Rhook has no Apple-native target or Swift package caller for RightKitLiveActivity; Rust hook execution is runtime-incompatible.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/tools/rhook/Cargo.toml",
+          "line": 1,
+          "detail": "Rhook declares one Rust package and no Node or Swift target/configuration."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitWatchBridge",
+      "status": "NA",
+      "rationale": "Rhook has no Apple-native target or Swift package caller for RightKitWatchBridge; Rust hook execution is runtime-incompatible.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/tools/rhook/Cargo.toml",
+          "line": 1,
+          "detail": "Rhook declares one Rust package and no Node or Swift target/configuration."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitSpeech",
+      "status": "NA",
+      "rationale": "Rhook has no Apple-native target or Swift package caller for RightKitSpeech; Rust hook execution is runtime-incompatible.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/tools/rhook/Cargo.toml",
+          "line": 1,
+          "detail": "Rhook declares one Rust package and no Node or Swift target/configuration."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitIntents",
+      "status": "NA",
+      "rationale": "Rhook has no Apple-native target or Swift package caller for RightKitIntents; Rust hook execution is runtime-incompatible.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/tools/rhook/Cargo.toml",
+          "line": 1,
+          "detail": "Rhook declares one Rust package and no Node or Swift target/configuration."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitAppleCredentials",
+      "status": "NA",
+      "rationale": "Rhook has no Apple-native target or Swift package caller for RightKitAppleCredentials; Rust hook execution is runtime-incompatible.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/tools/rhook/Cargo.toml",
+          "line": 1,
+          "detail": "Rhook declares one Rust package and no Node or Swift target/configuration."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitOverlay",
+      "status": "NA",
+      "rationale": "Rhook has no Apple-native target or Swift package caller for RightKitOverlay; Rust hook execution is runtime-incompatible.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/tools/rhook/Cargo.toml",
+          "line": 1,
+          "detail": "Rhook declares one Rust package and no Node or Swift target/configuration."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitWatch",
+      "status": "NA",
+      "rationale": "Rhook has no Apple-native target or Swift package caller for RightKitWatch; Rust hook execution is runtime-incompatible.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/tools/rhook/Cargo.toml",
+          "line": 1,
+          "detail": "Rhook declares one Rust package and no Node or Swift target/configuration."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitUI",
+      "status": "NA",
+      "rationale": "Rhook has no Apple-native target or Swift package caller for RightKitUI; Rust hook execution is runtime-incompatible.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/tools/rhook/Cargo.toml",
+          "line": 1,
+          "detail": "Rhook declares one Rust package and no Node or Swift target/configuration."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    }
+  ],
+  "searches": [
+    {
+      "pattern": "rightkit|@rightkit|RightKit",
+      "scope": "Rhook Cargo manifest and production Rust source",
+      "result": "No RightKit Cargo dependency. One live optional @rightkit/release heavy-command resolver in compact.rs; no other shared route."
+    },
+    {
+      "pattern": "Command::new|spawn|wait|kill",
+      "scope": "Rhook production Rust source",
+      "result": "Live compact wrapper and transform-opportunity recorder own child lifecycle; bounded ProcessBroker exists but bounded-exec explicitly denies direct adapter execution."
+    },
+    {
+      "pattern": "package.json|Package.swift|@rightkit",
+      "scope": "Rhook root and production config",
+      "result": "No Node package manifest or Swift package target; JavaScript and Swift catalog owners are runtime-inapplicable except optional shared release guard."
+    },
+    {
+      "pattern": "bounded-freeze|bounded-pre|bounded-exec",
+      "scope": "Rhook main Rust CLI and production config",
+      "result": "CLI owns active bounded-run modes; no tracked production launch/config caller exists under Rhook beyond Rust CLI dispatch."
+    }
+  ],
+  "self_review": "Challenged all Y/N rows. @rightkit/release remains Y because heavy_hook_rewrite invokes its guard; its optional local-source resolver is a delivery flag, not M. rightkit-process N rests on live compact and cortex callers, not dormant bounded ProcessBroker. rightkit-fs, rightkit-db, and rightkit-sandbox have exact active local overlap. @rightkit/hooks stays NA: Rhook policy is Rust host-specific and no Node lifecycle runtime exists. All remaining rows are runtime- or feature-inapplicable after source census."
+}

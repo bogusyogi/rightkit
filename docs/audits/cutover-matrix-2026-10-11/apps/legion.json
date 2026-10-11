@@ -1,0 +1,1965 @@
+{
+  "app": "Legion",
+  "root": "/Volumes/D/claude/legion",
+  "head": "3e280ef7ec92f89ee97e492d70295b92032790a3",
+  "reviewed_at": "2026-10-11T00:00:00+05:30",
+  "targets": [
+    "native Rust CLI",
+    "MCP stdio server",
+    "hook binary",
+    "release xtask",
+    "Node/CI tooling",
+    "macOS Cocoa installer"
+  ],
+  "scope_note": "Source-only audit of live Legion sources/configuration, including CI-compiled Cocoa installer; excluded generated dist, caches, tests, fixtures, prior audits, builds, installs & network.",
+  "cells": [
+    {
+      "component_id": "cargo:agent-room-core",
+      "status": "NA",
+      "rationale": "agent-room-core is not an active Legion product capability: Legion ships native agent orchestration, audit, MCP & release tooling, while this owner covers a private RightKit service; source census found no target using that feature.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/legion/engine/bins/legion/src/commands/script.rs",
+          "line": 160,
+          "detail": "Production `legion script` dispatches Legion workflow commands from native Rust; audit census included active CLI, MCP, hook, xtask, package scripts & CI config."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-agent-tools",
+      "status": "NA",
+      "rationale": "rightkit-agent-tools is not an active Legion product capability: Legion ships native agent orchestration, audit, MCP & release tooling, while this owner covers One typed tool interface for agents over rightkit-automation, rightkit-control, rightkit-browser and each app's engine commands (via rightkit-service), plus the `right-ctl <app> <command>` CLI.; source census found no target using that feature.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/legion/engine/bins/legion/src/commands/script.rs",
+          "line": 160,
+          "detail": "Production `legion script` dispatches Legion workflow commands from native Rust; audit census included active CLI, MCP, hook, xtask, package scripts & CI config."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-align",
+      "status": "NA",
+      "rationale": "rightkit-align is not an active Legion product capability: Legion ships native agent orchestration, audit, MCP & release tooling, while this owner covers Product-neutral script-to-ASR word alignment: pronunciation normalisation, edit-distance alignment with lexical and timing confidence, ambiguity and mismatch rejection, and control-name coverage; source census found no target using that feature.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/legion/engine/bins/legion/src/commands/script.rs",
+          "line": 160,
+          "detail": "Production `legion script` dispatches Legion workflow commands from native Rust; audit census included active CLI, MCP, hook, xtask, package scripts & CI config."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-asr",
+      "status": "NA",
+      "rationale": "rightkit-asr is not an active Legion product capability: Legion ships native agent orchestration, audit, MCP & release tooling, while this owner covers Parakeet ONNX + Whisper (CoreML / whisper.cpp) speech decoding runtime for Right Suite applications; source census found no target using that feature.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/legion/engine/bins/legion/src/commands/script.rs",
+          "line": 160,
+          "detail": "Production `legion script` dispatches Legion workflow commands from native Rust; audit census included active CLI, MCP, hook, xtask, package scripts & CI config."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-audio",
+      "status": "NA",
+      "rationale": "rightkit-audio is not an active Legion product capability: Legion ships native agent orchestration, audit, MCP & release tooling, while this owner covers Shared audio for Right Suite apps: typed FFmpeg filter graphs, loudness gates, room tone, ducking, WAV I/O, and cpal capture with resample/downmix/recovery.; source census found no target using that feature.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/legion/engine/bins/legion/src/commands/script.rs",
+          "line": 160,
+          "detail": "Production `legion script` dispatches Legion workflow commands from native Rust; audit census included active CLI, MCP, hook, xtask, package scripts & CI config."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-automation",
+      "status": "NA",
+      "rationale": "rightkit-automation is not an active Legion product capability: Legion ships native agent orchestration, audit, MCP & release tooling, while this owner covers Brand-neutral desktop automation: observe and act on any app (macOS AX, Windows UIA) through a four-tier input ladder with safety, focus guard, and evidence receipts.; source census found no target using that feature.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/legion/engine/bins/legion/src/commands/script.rs",
+          "line": 160,
+          "detail": "Production `legion script` dispatches Legion workflow commands from native Rust; audit census included active CLI, MCP, hook, xtask, package scripts & CI config."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-browser",
+      "status": "N",
+      "rationale": "N: `legion script` actively launches a direct headless-Chrome driver for visual checks; `rightkit-browser` exposes the same CDP page navigation/interaction runtime. No RightKit browser route is called.",
+      "shared_evidence": [],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/legion/engine/bins/legion/src/commands/script.rs",
+          "line": 1136,
+          "symbol": "run_r07",
+          "detail": "live script handler resolves browser then constructs `r07::RealChromeDriver` at line 1154."
+        }
+      ],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/legion/engine/bins/legion/src/commands/script.rs",
+          "line": 160,
+          "detail": "Production `legion script` dispatches Legion workflow commands from native Rust; audit census included active CLI, MCP, hook, xtask, package scripts & CI config."
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-browser/src/page.rs",
+          "line": 352,
+          "detail": "`BrowserPage::goto` is callable CDP page navigation within shared BrowserSession runtime."
+        }
+      ],
+      "delivery_flags": [],
+      "remaining_work": "Route visual script browser sessions through rightkit-browser; retain Legion detector policy.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-cache",
+      "status": "NA",
+      "rationale": "rightkit-cache is not an active Legion product capability: Legion ships native agent orchestration, audit, MCP & release tooling, while this owner covers Disk cache primitive with a hard size cap, LRU eviction that survives restarts, atomic writes and group invalidation, plus stable-prefix prompt-cache keys.; source census found no target using that feature.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/legion/engine/bins/legion/src/commands/script.rs",
+          "line": 160,
+          "detail": "Production `legion script` dispatches Legion workflow commands from native Rust; audit census included active CLI, MCP, hook, xtask, package scripts & CI config."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-channel-memory",
+      "status": "NA",
+      "rationale": "rightkit-channel-memory is not an active Legion product capability: Legion ships native agent orchestration, audit, MCP & release tooling, while this owner covers Channel memory for the content pipeline: the channel-memory.v1 schema with serde types, validation, version gate, proof citation rules, and scope checks for PostRight P3 and GenRight G7.; source census found no target using that feature.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/legion/engine/bins/legion/src/commands/script.rs",
+          "line": 160,
+          "detail": "Production `legion script` dispatches Legion workflow commands from native Rust; audit census included active CLI, MCP, hook, xtask, package scripts & CI config."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-compose",
+      "status": "NA",
+      "rationale": "rightkit-compose is not an active Legion product capability: Legion ships native agent orchestration, audit, MCP & release tooling, while this owner covers Product-neutral evaluated composition model: layered video, stills, cursor sprites, backgrounds, clipping, shadows, motion blur, overlays and keyframed tracks, with one pure per-frame evaluation shared by preview and export; source census found no target using that feature.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/legion/engine/bins/legion/src/commands/script.rs",
+          "line": 160,
+          "detail": "Production `legion script` dispatches Legion workflow commands from native Rust; audit census included active CLI, MCP, hook, xtask, package scripts & CI config."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-contracts",
+      "status": "NA",
+      "rationale": "rightkit-contracts is not an active Legion product capability: Legion ships native agent orchestration, audit, MCP & release tooling, while this owner covers Versioned content-pipeline contracts for the Right Suite: content brief, delivery envelope, record session and event, demo plan and daemon API. JSON Schema validation, serde types, and major-version negotiation.; source census found no target using that feature.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/legion/engine/bins/legion/src/commands/script.rs",
+          "line": 160,
+          "detail": "Production `legion script` dispatches Legion workflow commands from native Rust; audit census included active CLI, MCP, hook, xtask, package scripts & CI config."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-control",
+      "status": "NA",
+      "rationale": "rightkit-control is not an active Legion product capability: Legion ships native agent orchestration, audit, MCP & release tooling, while this owner covers Background native input, accessibility reads, and a WebDriver bridge for driving real desktop apps without stealing focus.; source census found no target using that feature.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/legion/engine/bins/legion/src/commands/script.rs",
+          "line": 160,
+          "detail": "Production `legion script` dispatches Legion workflow commands from native Rust; audit census included active CLI, MCP, hook, xtask, package scripts & CI config."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-crash",
+      "status": "NA",
+      "rationale": "rightkit-crash is not an active Legion product capability: Legion ships native agent orchestration, audit, MCP & release tooling, while this owner covers Privacy-first panic capture, redacted crash reports, native dumps and support bundles for Right Suite apps.; source census found no target using that feature.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/legion/engine/bins/legion/src/commands/script.rs",
+          "line": 160,
+          "detail": "Production `legion script` dispatches Legion workflow commands from native Rust; audit census included active CLI, MCP, hook, xtask, package scripts & CI config."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-daemon",
+      "status": "NA",
+      "rationale": "rightkit-daemon is not an active Legion product capability: Legion ships native agent orchestration, audit, MCP & release tooling, while this owner covers Daemon host capability for the Right Suite: HTTPS listener, device enrolment and signed requests, OAuth callback and signed webhook route classes, bounded blake3-keyed resumable uploads, compare-and-swap mutations, durable state and lifecycle events.; source census found no target using that feature.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/legion/engine/bins/legion/src/commands/script.rs",
+          "line": 160,
+          "detail": "Production `legion script` dispatches Legion workflow commands from native Rust; audit census included active CLI, MCP, hook, xtask, package scripts & CI config."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-db",
+      "status": "N",
+      "rationale": "N: Legion’s durable decision store opens & initializes SQLite directly; rightkit-db provides configured SQLite bootstrap/recovery. No shared DB bootstrap is used.",
+      "shared_evidence": [],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/legion/engine/crates/legion-decisions/src/store.rs",
+          "line": 46,
+          "symbol": "DecisionStore::open",
+          "detail": "live decision-store constructor opens SQLite then initializes schema."
+        }
+      ],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/legion/engine/bins/legion/src/commands/script.rs",
+          "line": 160,
+          "detail": "Production `legion script` dispatches Legion workflow commands from native Rust; audit census included active CLI, MCP, hook, xtask, package scripts & CI config."
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-db/src/lib.rs",
+          "line": 175,
+          "detail": "`DbOptions::new` starts shared SQLite bootstrap with journal, durability, owner-only & recovery controls."
+        }
+      ],
+      "delivery_flags": [],
+      "remaining_work": "Adopt rightkit-db bootstrap beneath Legion’s decision schema & migrations.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-embed",
+      "status": "NA",
+      "rationale": "rightkit-embed is not an active Legion product capability: Legion ships native agent orchestration, audit, MCP & release tooling, while this owner covers Product-neutral local text embeddings and persistent cosine vector store.; source census found no target using that feature.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/legion/engine/bins/legion/src/commands/script.rs",
+          "line": 160,
+          "detail": "Production `legion script` dispatches Legion workflow commands from native Rust; audit census included active CLI, MCP, hook, xtask, package scripts & CI config."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-framed-sidecar",
+      "status": "NA",
+      "rationale": "rightkit-framed-sidecar is not an active Legion product capability: Legion ships native agent orchestration, audit, MCP & release tooling, while this owner covers Bounded JSON-lines transport primitives for Right Suite sidecars.; source census found no target using that feature.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/legion/engine/bins/legion/src/commands/script.rs",
+          "line": 160,
+          "detail": "Production `legion script` dispatches Legion workflow commands from native Rust; audit census included active CLI, MCP, hook, xtask, package scripts & CI config."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-fs",
+      "status": "NA",
+      "rationale": "rightkit-fs is not an active Legion product capability: Legion ships native agent orchestration, audit, MCP & release tooling, while this owner covers Safe state directories, atomic writes, cross-process locks, owner-only files, and stable file identity for Right Suite apps.; source census found no target using that feature.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/legion/engine/bins/legion/src/commands/script.rs",
+          "line": 160,
+          "detail": "Production `legion script` dispatches Legion workflow commands from native Rust; audit census included active CLI, MCP, hook, xtask, package scripts & CI config."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-fsindex",
+      "status": "NA",
+      "rationale": "rightkit-fsindex is not an active Legion product capability: Legion ships native agent orchestration, audit, MCP & release tooling, while this owner covers Live whole-disk file index: fuzzy name search plus clone- and hard-link-aware folder size rollups on memory-mapped columns; source census found no target using that feature.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/legion/engine/bins/legion/src/commands/script.rs",
+          "line": 160,
+          "detail": "Production `legion script` dispatches Legion workflow commands from native Rust; audit census included active CLI, MCP, hook, xtask, package scripts & CI config."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-hotkeys",
+      "status": "NA",
+      "rationale": "rightkit-hotkeys is not an active Legion product capability: Legion ships native agent orchestration, audit, MCP & release tooling, while this owner covers Global shortcuts and low-level input hooks for Right Suite apps: chord parsing, conflict detection, CGEventTap/WH_KEYBOARD_LL primitives, push-to-talk state.; source census found no target using that feature.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/legion/engine/bins/legion/src/commands/script.rs",
+          "line": 160,
+          "detail": "Production `legion script` dispatches Legion workflow commands from native Rust; audit census included active CLI, MCP, hook, xtask, package scripts & CI config."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-http",
+      "status": "N",
+      "rationale": "N: active Google OAuth workflow creates direct reqwest client requests; rightkit-http exposes `Request` + `Client::send` for same blocking HTTPS request boundary. No shared client route is called.",
+      "shared_evidence": [],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/legion/engine/crates/legion-runtime/src/wf_port/w2_030/google_auth.rs",
+          "line": 668,
+          "symbol": "ReqwestTokenClient",
+          "detail": "live OAuth CLI wires blocking reqwest token POST transport."
+        }
+      ],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/legion/engine/bins/legion/src/commands/script.rs",
+          "line": 160,
+          "detail": "Production `legion script` dispatches Legion workflow commands from native Rust; audit census included active CLI, MCP, hook, xtask, package scripts & CI config."
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-http/src/client.rs",
+          "line": 772,
+          "detail": "`Client::send` executes shared bounded request; `Request::post` starts at line 411."
+        }
+      ],
+      "delivery_flags": [],
+      "remaining_work": "Replace direct OAuth/SEO HTTP transport with rightkit-http while preserving Google-specific request policy.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-jobs",
+      "status": "NA",
+      "rationale": "rightkit-jobs is not an active Legion product capability: Legion ships native agent orchestration, audit, MCP & release tooling, while this owner covers Persistent job store, runner, and stdio/CLI command contract for Right Suite engines.; source census found no target using that feature.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/legion/engine/bins/legion/src/commands/script.rs",
+          "line": 160,
+          "detail": "Production `legion script` dispatches Legion workflow commands from native Rust; audit census included active CLI, MCP, hook, xtask, package scripts & CI config."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-license",
+      "status": "NA",
+      "rationale": "rightkit-license is not an active Legion product capability: Legion ships native agent orchestration, audit, MCP & release tooling, while this owner covers Right Suite license enforcement primitive — offline verification of server-signed Ed25519 entitlement tokens. The Rust (security) half of @rightkit/license.; source census found no target using that feature.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/legion/engine/bins/legion/src/commands/script.rs",
+          "line": 160,
+          "detail": "Production `legion script` dispatches Legion workflow commands from native Rust; audit census included active CLI, MCP, hook, xtask, package scripts & CI config."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-llm",
+      "status": "NA",
+      "rationale": "rightkit-llm is not an active Legion product capability: Legion ships native agent orchestration, audit, MCP & release tooling, while this owner covers Brand-neutral BYOK LLM clients: Anthropic Messages and OpenAI-compatible chat, streaming, tool use, route failover with circuit breaker, pricing, and prompt-cache discipline, plus an opt-in provider for installed command-line assistants.; source census found no target using that feature.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/legion/engine/bins/legion/src/commands/script.rs",
+          "line": 160,
+          "detail": "Production `legion script` dispatches Legion workflow commands from native Rust; audit census included active CLI, MCP, hook, xtask, package scripts & CI config."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-logs",
+      "status": "NA",
+      "rationale": "rightkit-logs is not an active Legion product capability: Legion ships native agent orchestration, audit, MCP & release tooling, while this owner covers Privacy-safe local JSONL logging and diagnostics for Right Suite desktop apps.; source census found no target using that feature.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/legion/engine/bins/legion/src/commands/script.rs",
+          "line": 160,
+          "detail": "Production `legion script` dispatches Legion workflow commands from native Rust; audit census included active CLI, MCP, hook, xtask, package scripts & CI config."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-mcp",
+      "status": "N",
+      "rationale": "N: Legion ships its own stdio JSON-RPC MCP server implementing initialize/tools/list/tools/call; rightkit-mcp provides ServerHost + stdio server transport for same server boundary. No RightKit MCP host is used.",
+      "shared_evidence": [],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/legion/engine/bins/legion-mcp/src/server.rs",
+          "line": 125,
+          "symbol": "Server::handle",
+          "detail": "production server dispatches MCP initialize, tools/list & tools/call."
+        }
+      ],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/legion/engine/bins/legion/src/commands/script.rs",
+          "line": 160,
+          "detail": "Production `legion script` dispatches Legion workflow commands from native Rust; audit census included active CLI, MCP, hook, xtask, package scripts & CI config."
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-mcp/src/lib.rs",
+          "line": 38,
+          "detail": "shared exports `ServerHost`, `ServerTransport`, `ToolProvider` & admission interfaces."
+        }
+      ],
+      "delivery_flags": [],
+      "remaining_work": "Host Legion tools through rightkit-mcp stdio server adapter; preserve release-binding gate.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-media",
+      "status": "NA",
+      "rationale": "rightkit-media is not an active Legion product capability: Legion ships native agent orchestration, audit, MCP & release tooling, while this owner covers Verified FFmpeg artifact and lifecycle primitives for Right Suite media pipelines.; source census found no target using that feature.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/legion/engine/bins/legion/src/commands/script.rs",
+          "line": 160,
+          "detail": "Production `legion script` dispatches Legion workflow commands from native Rust; audit census included active CLI, MCP, hook, xtask, package scripts & CI config."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-models",
+      "status": "NA",
+      "rationale": "rightkit-models is not an active Legion product capability: Legion ships native agent orchestration, audit, MCP & release tooling, while this owner covers Shared local-model manifest and installer for Right Suite apps: revisions and quantizations, resumable verified downloads, archive extraction, atomic activation, rollback, and hardware fit.; source census found no target using that feature.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/legion/engine/bins/legion/src/commands/script.rs",
+          "line": 160,
+          "detail": "Production `legion script` dispatches Legion workflow commands from native Rust; audit census included active CLI, MCP, hook, xtask, package scripts & CI config."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-oauth",
+      "status": "N",
+      "rationale": "N: live `seo/google-auth` owns loopback browser OAuth, code exchange & refresh; rightkit-oauth’s OAuthClient provides those same Google loopback/refresh APIs. No shared OAuth client is called.",
+      "shared_evidence": [],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/legion/engine/crates/legion-runtime/src/wf_port/w2_030/google_auth.rs",
+          "line": 804,
+          "symbol": "run_oauth_flow",
+          "detail": "active CLI opens browser, binds loopback listener & exchanges Google auth code."
+        }
+      ],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/legion/engine/bins/legion/src/commands/script.rs",
+          "line": 160,
+          "detail": "Production `legion script` dispatches Legion workflow commands from native Rust; audit census included active CLI, MCP, hook, xtask, package scripts & CI config."
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-oauth/src/lib.rs",
+          "line": 353,
+          "detail": "`OAuthClient::begin_loopback`, `finish_loopback`, `exchange_code` & `refresh` are callable shared APIs."
+        }
+      ],
+      "delivery_flags": [],
+      "remaining_work": "Move Google OAuth transport/state mechanics to rightkit-oauth; retain Legion SEO scopes & commands.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-ocr",
+      "status": "NA",
+      "rationale": "rightkit-ocr is not an active Legion product capability: Legion ships native agent orchestration, audit, MCP & release tooling, while this owner covers Product-neutral OCR: Apple Vision / Windows.Media.Ocr native backends with per-line geometry, isolated worker, and verified two-stage ONNX fallback; source census found no target using that feature.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/legion/engine/bins/legion/src/commands/script.rs",
+          "line": 160,
+          "detail": "Production `legion script` dispatches Legion workflow commands from native Rust; audit census included active CLI, MCP, hook, xtask, package scripts & CI config."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-ort",
+      "status": "NA",
+      "rationale": "rightkit-ort is not an active Legion product capability: Legion ships native agent orchestration, audit, MCP & release tooling, while this owner covers Product-neutral ONNX Runtime dynamic-library resolution, environment, execution-provider and session setup (single suite ort pin); source census found no target using that feature.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/legion/engine/bins/legion/src/commands/script.rs",
+          "line": 160,
+          "detail": "Production `legion script` dispatches Legion workflow commands from native Rust; audit census included active CLI, MCP, hook, xtask, package scripts & CI config."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-overlay",
+      "status": "NA",
+      "rationale": "rightkit-overlay is not an active Legion product capability: Legion ships native agent orchestration, audit, MCP & release tooling, while this owner covers Shared overlay state, hit testing, and placement policy for Right Suite apps; source census found no target using that feature.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/legion/engine/bins/legion/src/commands/script.rs",
+          "line": 160,
+          "detail": "Production `legion script` dispatches Legion workflow commands from native Rust; audit census included active CLI, MCP, hook, xtask, package scripts & CI config."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-ownership",
+      "status": "NA",
+      "rationale": "rightkit-ownership is not an active Legion product capability: Legion ships native agent orchestration, audit, MCP & release tooling, while this owner covers RightKit ownership scanner, verdict and admission: the single Rust implementation the RustRight broker links.; source census found no target using that feature.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/legion/engine/bins/legion/src/commands/script.rs",
+          "line": 160,
+          "detail": "Production `legion script` dispatches Legion workflow commands from native Rust; audit census included active CLI, MCP, hook, xtask, package scripts & CI config."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-pdf",
+      "status": "NA",
+      "rationale": "rightkit-pdf is not an active Legion product capability: Legion ships native agent orchestration, audit, MCP & release tooling, while this owner covers Product-neutral PDF engine: inspect, compose (source-text replace / add text / OCR correction), font subsetting, staged atomic save, plus optional page merge/select and text extraction; source census found no target using that feature.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/legion/engine/bins/legion/src/commands/script.rs",
+          "line": 160,
+          "detail": "Production `legion script` dispatches Legion workflow commands from native Rust; audit census included active CLI, MCP, hook, xtask, package scripts & CI config."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-playback",
+      "status": "NA",
+      "rationale": "rightkit-playback is not an active Legion product capability: Legion ships native agent orchestration, audit, MCP & release tooling, while this owner covers Source-preserving FFmpeg compatibility playback preparation for Right Suite media apps.; source census found no target using that feature.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/legion/engine/bins/legion/src/commands/script.rs",
+          "line": 160,
+          "detail": "Production `legion script` dispatches Legion workflow commands from native Rust; audit census included active CLI, MCP, hook, xtask, package scripts & CI config."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-process",
+      "status": "N",
+      "rationale": "N: Legion’s effect executor owns child spawn, process group, cancellation & descendant cleanup; rightkit-process owns safe child lifecycle/restart primitives. No shared process lifecycle route is used.",
+      "shared_evidence": [],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/legion/engine/crates/legion-effects/src/unix.rs",
+          "line": 47,
+          "symbol": "run_process",
+          "detail": "live governed-effects executor spawns child, isolates process group & handles cancellation."
+        }
+      ],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/legion/engine/bins/legion/src/commands/script.rs",
+          "line": 160,
+          "detail": "Production `legion script` dispatches Legion workflow commands from native Rust; audit census included active CLI, MCP, hook, xtask, package scripts & CI config."
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-process/src/lib.rs",
+          "line": 19,
+          "detail": "shared exports `OwnedCommand`, `OwnedChild`, `TerminationOptions` & restart/health lifecycle APIs."
+        }
+      ],
+      "delivery_flags": [],
+      "remaining_work": "Adopt rightkit-process child containment beneath Legion effect policy & receipts.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-qa",
+      "status": "N",
+      "rationale": "N: `legion script qa` runs visual browser QA using local Chrome lifecycle; rightkit-qa exposes BrowserTarget launch/page/goto for same browser-QA execution boundary. No shared QA runner is called.",
+      "shared_evidence": [],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/legion/engine/bins/legion/src/commands/script.rs",
+          "line": 2352,
+          "symbol": "run_r54",
+          "detail": "active CLI dispatches r54 browser QA runner."
+        }
+      ],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/legion/engine/bins/legion/src/commands/script.rs",
+          "line": 160,
+          "detail": "Production `legion script` dispatches Legion workflow commands from native Rust; audit census included active CLI, MCP, hook, xtask, package scripts & CI config."
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-qa/src/browser.rs",
+          "line": 115,
+          "detail": "`BrowserTarget::launch` creates shared QA browser target; `goto` starts at line 188."
+        }
+      ],
+      "delivery_flags": [],
+      "remaining_work": "Port Legion browser-QA runner onto rightkit-qa; keep Legion’s product-specific assertions.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-qts",
+      "status": "NA",
+      "rationale": "rightkit-qts is not an active Legion product capability: Legion ships native agent orchestration, audit, MCP & release tooling, while this owner covers Qwen3 TTS inference (GGUF + GGML), vendored from yet-another-ai/qts v0.2.0 for RightKit; source census found no target using that feature.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/legion/engine/bins/legion/src/commands/script.rs",
+          "line": 160,
+          "detail": "Production `legion script` dispatches Legion workflow commands from native Rust; audit census included active CLI, MCP, hook, xtask, package scripts & CI config."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-qts-ggml",
+      "status": "NA",
+      "rationale": "rightkit-qts-ggml is not an active Legion product capability: Legion ships native agent orchestration, audit, MCP & release tooling, while this owner covers DEPRECATED: use rightkit-qts-ggml-sys directly. Thin safe wrappers over rightkit-qts-ggml-sys for rightkit-qts, vendored from yet-another-ai/qts v0.2.0; source census found no target using that feature.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/legion/engine/bins/legion/src/commands/script.rs",
+          "line": 160,
+          "detail": "Production `legion script` dispatches Legion workflow commands from native Rust; audit census included active CLI, MCP, hook, xtask, package scripts & CI config."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-qts-ggml-sys",
+      "status": "NA",
+      "rationale": "rightkit-qts-ggml-sys is not an active Legion product capability: Legion ships native agent orchestration, audit, MCP & release tooling, while this owner covers Low-level FFI bindings to ggml (CPU, Metal, Vulkan, BLAS) for rightkit-qts, vendored from yet-another-ai/qts v0.2.0; source census found no target using that feature.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/legion/engine/bins/legion/src/commands/script.rs",
+          "line": 160,
+          "detail": "Production `legion script` dispatches Legion workflow commands from native Rust; audit census included active CLI, MCP, hook, xtask, package scripts & CI config."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-record",
+      "status": "NA",
+      "rationale": "rightkit-record is not an active Legion product capability: Legion ships native agent orchestration, audit, MCP & release tooling, while this owner covers Platform-neutral core of the RightKit recorder (RK3): record lifecycle, quarantine and recovery, session bundle writer, per-field redaction, bundle verification and frame reader. OS capture lives in per-platform helpers behind the Backend trait.; source census found no target using that feature.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/legion/engine/bins/legion/src/commands/script.rs",
+          "line": 160,
+          "detail": "Production `legion script` dispatches Legion workflow commands from native Rust; audit census included active CLI, MCP, hook, xtask, package scripts & CI config."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-review",
+      "status": "NA",
+      "rationale": "rightkit-review is not an active Legion product capability: Legion ships native agent orchestration, audit, MCP & release tooling, while this owner covers Shared review capability for the content pipeline: deterministic checks over a media or text description, declared holds, a capped repair loop, an advisory judge interface, and versioned verdict records.; source census found no target using that feature.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/legion/engine/bins/legion/src/commands/script.rs",
+          "line": 160,
+          "detail": "Production `legion script` dispatches Legion workflow commands from native Rust; audit census included active CLI, MCP, hook, xtask, package scripts & CI config."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-sandbox",
+      "status": "N",
+      "rationale": "N: Legion implements macOS sandbox-exec profiles for governed audit commands; rightkit-sandbox exposes reusable SandboxPolicy/Sandbox spawn boundary. No shared sandbox is called.",
+      "shared_evidence": [],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/legion/engine/crates/legion-effects/src/sandbox.rs",
+          "line": 68,
+          "symbol": "authenticate",
+          "detail": "live macOS path writes sandbox profile & wraps command in `/usr/bin/sandbox-exec`."
+        }
+      ],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/legion/engine/bins/legion/src/commands/script.rs",
+          "line": 160,
+          "detail": "Production `legion script` dispatches Legion workflow commands from native Rust; audit census included active CLI, MCP, hook, xtask, package scripts & CI config."
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-sandbox/src/lib.rs",
+          "line": 39,
+          "detail": "shared exports `SandboxCommand`, `SandboxPolicy`, `Sandbox` & `SandboxOutput`."
+        }
+      ],
+      "delivery_flags": [],
+      "remaining_work": "Use rightkit-sandbox for process isolation; preserve Legion audit network/write policy.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-scenario",
+      "status": "NA",
+      "rationale": "rightkit-scenario is not an active Legion product capability: Legion ships native agent orchestration, audit, MCP & release tooling, while this owner covers Shared scenario interpreter and durable state machine for the RightKit scenario runtime (RK8): perform separated from observe_until, idempotency keys, append-only fsync journal, leases with fencing tokens, cooperative cancellation, retake replay, and a remote worker transport trait boundary; source census found no target using that feature.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/legion/engine/bins/legion/src/commands/script.rs",
+          "line": 160,
+          "detail": "Production `legion script` dispatches Legion workflow commands from native Rust; audit census included active CLI, MCP, hook, xtask, package scripts & CI config."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-search",
+      "status": "NA",
+      "rationale": "rightkit-search is not an active Legion product capability: Legion ships native agent orchestration, audit, MCP & release tooling, while this owner covers Product-neutral search query language: lexer, AST, operator values, SQL/FTS5 predicate compiler, snippets, and an in-memory filename index.; source census found no target using that feature.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/legion/engine/bins/legion/src/commands/script.rs",
+          "line": 160,
+          "detail": "Production `legion script` dispatches Legion workflow commands from native Rust; audit census included active CLI, MCP, hook, xtask, package scripts & CI config."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-secrets",
+      "status": "N",
+      "rationale": "N: Legion’s active Google OAuth command persists tokens as local JSON; rightkit-secrets exposes OS credential read/write APIs for same credential persistence need. No shared secret store is used.",
+      "shared_evidence": [],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/legion/engine/crates/legion-runtime/src/wf_port/w2_030/google_auth.rs",
+          "line": 1050,
+          "symbol": "run_with_io",
+          "detail": "successful CLI OAuth exchange saves token through `save_oauth_token_file`."
+        }
+      ],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/legion/engine/bins/legion/src/commands/script.rs",
+          "line": 160,
+          "detail": "Production `legion script` dispatches Legion workflow commands from native Rust; audit census included active CLI, MCP, hook, xtask, package scripts & CI config."
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-secrets/src/apple_helper.rs",
+          "line": 141,
+          "detail": "`AppleHelper::write` persists a `Secret`; paired `read` starts at line 127."
+        }
+      ],
+      "delivery_flags": [],
+      "remaining_work": "Store OAuth refresh tokens via rightkit-secrets; preserve SEO account selection.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-send",
+      "status": "NA",
+      "rationale": "rightkit-send is not an active Legion product capability: Legion ships native agent orchestration, audit, MCP & release tooling, while this owner covers Nearby file and text sharing over the open LocalSend v2 protocol, with Pulse extensions: TLS identity pinning, per-device trust, and macOS Bonjour discovery. Product-neutral; the host supplies identity, paths and policy.; source census found no target using that feature.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/legion/engine/bins/legion/src/commands/script.rs",
+          "line": 160,
+          "detail": "Production `legion script` dispatches Legion workflow commands from native Rust; audit census included active CLI, MCP, hook, xtask, package scripts & CI config."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-service",
+      "status": "NA",
+      "rationale": "rightkit-service is not an active Legion product capability: Legion ships native agent orchestration, audit, MCP & release tooling, while this owner covers One discovery/auth convention for Right Suite local services: service.json, ranking and takeover, current-user-only Unix socket / named pipe, per-app request allowlist.; source census found no target using that feature.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/legion/engine/bins/legion/src/commands/script.rs",
+          "line": 160,
+          "detail": "Production `legion script` dispatches Legion workflow commands from native Rust; audit census included active CLI, MCP, hook, xtask, package scripts & CI config."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-settings",
+      "status": "NA",
+      "rationale": "rightkit-settings is not an active Legion product capability: Legion ships native agent orchestration, audit, MCP & release tooling, while this owner covers Versioned per-app settings persistence: migrations, typed defaults, atomic writes, corruption recovery, change events.; source census found no target using that feature.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/legion/engine/bins/legion/src/commands/script.rs",
+          "line": 160,
+          "detail": "Production `legion script` dispatches Legion workflow commands from native Rust; audit census included active CLI, MCP, hook, xtask, package scripts & CI config."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-shell",
+      "status": "NA",
+      "rationale": "rightkit-shell is not an active Legion product capability: Legion ships native agent orchestration, audit, MCP & release tooling, while this owner covers Shared Tauri desktop shell for Right Suite apps: webview hardening, window state, native menu, tray, single instance, deep links, autostart, rich clipboard, watchdog and engine wiring.; source census found no target using that feature.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/legion/engine/bins/legion/src/commands/script.rs",
+          "line": 160,
+          "detail": "Production `legion script` dispatches Legion workflow commands from native Rust; audit census included active CLI, MCP, hook, xtask, package scripts & CI config."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-speech-client",
+      "status": "NA",
+      "rationale": "rightkit-speech-client is not an active Legion product capability: Legion ships native agent orchestration, audit, MCP & release tooling, while this owner covers Client and contract for the Orthic Labs shared speech service (one resident engine per machine), built on rightkit-service. Wire-compatible with HeardRight's v1 host.; source census found no target using that feature.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/legion/engine/bins/legion/src/commands/script.rs",
+          "line": 160,
+          "detail": "Production `legion script` dispatches Legion workflow commands from native Rust; audit census included active CLI, MCP, hook, xtask, package scripts & CI config."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-sync",
+      "status": "NA",
+      "rationale": "rightkit-sync is not an active Legion product capability: Legion ships native agent orchestration, audit, MCP & release tooling, while this owner covers Brand-neutral desktop/mobile cloud sync engine: change tokens, tombstones, last-writer-wins conflicts, resumable batches, offline queue, retry/backoff.; source census found no target using that feature.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/legion/engine/bins/legion/src/commands/script.rs",
+          "line": 160,
+          "detail": "Production `legion script` dispatches Legion workflow commands from native Rust; audit census included active CLI, MCP, hook, xtask, package scripts & CI config."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-tauri",
+      "status": "NA",
+      "rationale": "rightkit-tauri is not an active Legion product capability: Legion ships native agent orchestration, audit, MCP & release tooling, while this owner covers Native host services for Right Suite Tauri license and device adapters.; source census found no target using that feature.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/legion/engine/bins/legion/src/commands/script.rs",
+          "line": 160,
+          "detail": "Production `legion script` dispatches Legion workflow commands from native Rust; audit census included active CLI, MCP, hook, xtask, package scripts & CI config."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-transcript",
+      "status": "NA",
+      "rationale": "rightkit-transcript is not an active Legion product capability: Legion ships native agent orchestration, audit, MCP & release tooling, while this owner covers Product-neutral word-timed transcript contract, cue segmentation, and SRT/VTT/JSON import and export for Right Suite applications; source census found no target using that feature.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/legion/engine/bins/legion/src/commands/script.rs",
+          "line": 160,
+          "detail": "Production `legion script` dispatches Legion workflow commands from native Rust; audit census included active CLI, MCP, hook, xtask, package scripts & CI config."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-tts",
+      "status": "NA",
+      "rationale": "rightkit-tts is not an active Legion product capability: Legion ships native agent orchestration, audit, MCP & release tooling, while this owner covers Shared local text-to-speech for Right Suite apps: OS voices (say / SAPI) and a Qwen3-TTS QTS worker client; source census found no target using that feature.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/legion/engine/bins/legion/src/commands/script.rs",
+          "line": 160,
+          "detail": "Production `legion script` dispatches Legion workflow commands from native Rust; audit census included active CLI, MCP, hook, xtask, package scripts & CI config."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-vad",
+      "status": "NA",
+      "rationale": "rightkit-vad is not an active Legion product capability: Legion ships native agent orchestration, audit, MCP & release tooling, while this owner covers Product-neutral voice activity detection: Silero scorer, hysteresis/padding/chunking policy, streaming frame carry; source census found no target using that feature.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/legion/engine/bins/legion/src/commands/script.rs",
+          "line": 160,
+          "detail": "Production `legion script` dispatches Legion workflow commands from native Rust; audit census included active CLI, MCP, hook, xtask, package scripts & CI config."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-watch",
+      "status": "NA",
+      "rationale": "rightkit-watch is not an active Legion product capability: Legion ships native agent orchestration, audit, MCP & release tooling, while this owner covers Filesystem watching for Right Suite apps: ref-counted async subscribers, debounced file-set and directory watchers, and rename-storm coalescing.; source census found no target using that feature.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/legion/engine/bins/legion/src/commands/script.rs",
+          "line": 160,
+          "detail": "Production `legion script` dispatches Legion workflow commands from native Rust; audit census included active CLI, MCP, hook, xtask, package scripts & CI config."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/agent-room-mcp",
+      "status": "NA",
+      "rationale": "@rightkit/agent-room-mcp is not an active Legion product capability: Legion ships native agent orchestration, audit, MCP & release tooling, while this owner covers a private RightKit service; source census found no target using that feature.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/legion/engine/bins/legion/src/commands/script.rs",
+          "line": 160,
+          "detail": "Production `legion script` dispatches Legion workflow commands from native Rust; audit census included active CLI, MCP, hook, xtask, package scripts & CI config."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/app-shell",
+      "status": "NA",
+      "rationale": "@rightkit/app-shell is not an active Legion product capability: Legion ships native agent orchestration, audit, MCP & release tooling, while this owner covers Brand-neutral React frame for Right Suite desktop apps: optional fused sidebar+titlebar layout with slots, command palette, shortcut registry/help, toasts, modals, context menus, ui kit, theme hooks.; source census found no target using that feature.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/legion/engine/bins/legion/src/commands/script.rs",
+          "line": 160,
+          "detail": "Production `legion script` dispatches Legion workflow commands from native Rust; audit census included active CLI, MCP, hook, xtask, package scripts & CI config."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/ax",
+      "status": "N",
+      "rationale": "N: native release assembly calls Legion’s Rust port of RightKit AX portable-core assembly/validation, duplicating owner’s portable-core API instead of invoking package.",
+      "shared_evidence": [],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/legion/engine/xtask/src/assemble_native_release.rs",
+          "line": 734,
+          "symbol": "assemble_portable_core",
+          "detail": "production native release assembly invokes Legion local portable-core implementation, then validates it."
+        }
+      ],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/legion/engine/bins/legion/src/commands/script.rs",
+          "line": 160,
+          "detail": "Production `legion script` dispatches Legion workflow commands from native Rust; audit census included active CLI, MCP, hook, xtask, package scripts & CI config."
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/packages/ax/plugin/portable-core.mjs",
+          "line": 83,
+          "detail": "owner exports `validateResourceClosure`; same module defines portable-core schema & assembly functions."
+        }
+      ],
+      "delivery_flags": [
+        "@rightkit/ax 0.2.4 is declared only as devDependency; native assembly calls local Rust port."
+      ],
+      "remaining_work": "Call @rightkit/ax portable-core from release assembly or isolate a versioned bridge; remove Rust port after parity proof.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/build-control-policy",
+      "status": "NA",
+      "rationale": "@rightkit/build-control-policy is not an active Legion product capability: Legion ships native agent orchestration, audit, MCP & release tooling, while this owner covers a private RightKit service; source census found no target using that feature.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/legion/engine/bins/legion/src/commands/script.rs",
+          "line": 160,
+          "detail": "Production `legion script` dispatches Legion workflow commands from native Rust; audit census included active CLI, MCP, hook, xtask, package scripts & CI config."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/doc-render",
+      "status": "NA",
+      "rationale": "@rightkit/doc-render is not an active Legion product capability: Legion ships native agent orchestration, audit, MCP & release tooling, while this owner covers Brand-neutral, read-only document renderer (Markdown, sanitized HTML, safe email frame) for Right Suite readers.; source census found no target using that feature.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/legion/engine/bins/legion/src/commands/script.rs",
+          "line": 160,
+          "detail": "Production `legion script` dispatches Legion workflow commands from native Rust; audit census included active CLI, MCP, hook, xtask, package scripts & CI config."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/git",
+      "status": "NA",
+      "rationale": "@rightkit/git is not an active Legion product capability: Legion ships native agent orchestration, audit, MCP & release tooling, while this owner covers Public-repo-only GitHub Actions workflow layer: templates, visibility gate, sync/drift/adopt/uninstall for right-git.; source census found no target using that feature.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/legion/engine/bins/legion/src/commands/script.rs",
+          "line": 160,
+          "detail": "Production `legion script` dispatches Legion workflow commands from native Rust; audit census included active CLI, MCP, hook, xtask, package scripts & CI config."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/hooks",
+      "status": "NA",
+      "rationale": "@rightkit/hooks is not an active Legion product capability: Legion ships native agent orchestration, audit, MCP & release tooling, while this owner covers Neutral lifecycle runtime shared by independently installable agent systems.; source census found no target using that feature.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/legion/engine/bins/legion/src/commands/script.rs",
+          "line": 160,
+          "detail": "Production `legion script` dispatches Legion workflow commands from native Rust; audit census included active CLI, MCP, hook, xtask, package scripts & CI config."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/i18n",
+      "status": "NA",
+      "rationale": "@rightkit/i18n is not an active Legion product capability: Legion ships native agent orchestration, audit, MCP & release tooling, while this owner covers Shared locale catalog and React provider for Right Suite apps.; source census found no target using that feature.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/legion/engine/bins/legion/src/commands/script.rs",
+          "line": 160,
+          "detail": "Production `legion script` dispatches Legion workflow commands from native Rust; audit census included active CLI, MCP, hook, xtask, package scripts & CI config."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/legal",
+      "status": "NA",
+      "rationale": "@rightkit/legal is not an active Legion product capability: Legion ships native agent orchestration, audit, MCP & release tooling, while this owner covers Legal manifest, assent receipt, and release-contract primitives for proprietary Right Suite desktop apps.; source census found no target using that feature.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/legion/engine/bins/legion/src/commands/script.rs",
+          "line": 160,
+          "detail": "Production `legion script` dispatches Legion workflow commands from native Rust; audit census included active CLI, MCP, hook, xtask, package scripts & CI config."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/legal-ui",
+      "status": "NA",
+      "rationale": "@rightkit/legal-ui is not an active Legion product capability: Legion ships native agent orchestration, audit, MCP & release tooling, while this owner covers The one first-run / re-acceptance legal gate screen for Right Suite desktop apps.; source census found no target using that feature.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/legion/engine/bins/legion/src/commands/script.rs",
+          "line": 160,
+          "detail": "Production `legion script` dispatches Legion workflow commands from native Rust; audit census included active CLI, MCP, hook, xtask, package scripts & CI config."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/license",
+      "status": "NA",
+      "rationale": "@rightkit/license is not an active Legion product capability: Legion ships native agent orchestration, audit, MCP & release tooling, while this owner covers The one license client for every Right Suite app (online token-exchange against the unified RightApps backend, with per-kind offline grace).; source census found no target using that feature.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/legion/engine/bins/legion/src/commands/script.rs",
+          "line": 160,
+          "detail": "Production `legion script` dispatches Legion workflow commands from native Rust; audit census included active CLI, MCP, hook, xtask, package scripts & CI config."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/logs",
+      "status": "NA",
+      "rationale": "@rightkit/logs is not an active Legion product capability: Legion ships native agent orchestration, audit, MCP & release tooling, while this owner covers Local-only structured logging and diagnostics client for Right Suite apps.; source census found no target using that feature.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/legion/engine/bins/legion/src/commands/script.rs",
+          "line": 160,
+          "detail": "Production `legion script` dispatches Legion workflow commands from native Rust; audit census included active CLI, MCP, hook, xtask, package scripts & CI config."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/media-ui",
+      "status": "NA",
+      "rationale": "@rightkit/media-ui is not an active Legion product capability: Legion ships native agent orchestration, audit, MCP & release tooling, while this owner covers Brand-neutral media player and image viewer/editor for Right Suite apps.; source census found no target using that feature.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/legion/engine/bins/legion/src/commands/script.rs",
+          "line": 160,
+          "detail": "Production `legion script` dispatches Legion workflow commands from native Rust; audit census included active CLI, MCP, hook, xtask, package scripts & CI config."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/onboarding",
+      "status": "NA",
+      "rationale": "@rightkit/onboarding is not an active Legion product capability: Legion ships native agent orchestration, audit, MCP & release tooling, while this owner covers First-run onboarding framework: ordered steps, progress, skip/resume, legal gate first, permissions, model download and licence/trial steps.; source census found no target using that feature.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/legion/engine/bins/legion/src/commands/script.rs",
+          "line": 160,
+          "detail": "Production `legion script` dispatches Legion workflow commands from native Rust; audit census included active CLI, MCP, hook, xtask, package scripts & CI config."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/pdf-ui",
+      "status": "NA",
+      "rationale": "@rightkit/pdf-ui is not an active Legion product capability: Legion ships native agent orchestration, audit, MCP & release tooling, while this owner covers Brand-neutral read-only PDF viewer (pdf.js) for Right Suite apps.; source census found no target using that feature.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/legion/engine/bins/legion/src/commands/script.rs",
+          "line": 160,
+          "detail": "Production `legion script` dispatches Legion workflow commands from native Rust; audit census included active CLI, MCP, hook, xtask, package scripts & CI config."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/platform-ui",
+      "status": "NA",
+      "rationale": "@rightkit/platform-ui is not an active Legion product capability: Legion ships native agent orchestration, audit, MCP & release tooling, while this owner covers Brand-neutral platform, shortcut, and window-control primitives for Right Suite apps.; source census found no target using that feature.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/legion/engine/bins/legion/src/commands/script.rs",
+          "line": 160,
+          "detail": "Production `legion script` dispatches Legion workflow commands from native Rust; audit census included active CLI, MCP, hook, xtask, package scripts & CI config."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/qa",
+      "status": "NA",
+      "rationale": "@rightkit/qa is not an active Legion product capability: Legion ships native agent orchestration, audit, MCP & release tooling, while this owner covers Shared QA evidence, ownership, browser helpers, and release-backdoor guards for Right Suite apps.; source census found no target using that feature.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/legion/engine/bins/legion/src/commands/script.rs",
+          "line": 160,
+          "detail": "Production `legion script` dispatches Legion workflow commands from native Rust; audit census included active CLI, MCP, hook, xtask, package scripts & CI config."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/qa-chrome",
+      "status": "NA",
+      "rationale": "@rightkit/qa-chrome is not an active Legion product capability: Legion ships native agent orchestration, audit, MCP & release tooling, while this owner covers Zero-dependency Chrome for Testing resolver, launcher and graceful close for Right Suite QA harnesses.; source census found no target using that feature.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/legion/engine/bins/legion/src/commands/script.rs",
+          "line": 160,
+          "detail": "Production `legion script` dispatches Legion workflow commands from native Rust; audit census included active CLI, MCP, hook, xtask, package scripts & CI config."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/release",
+      "status": "Y",
+      "rationale": "Y: Legion release assembly bridges to published @rightkit/release modules for portable archives, SBOM/provenance materialization & release finalization; Legion-local code supplies product-specific candidate policy only.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/legion/engine/xtask/src/rightkit_release_bridge.rs",
+          "line": 74,
+          "symbol": "create_portable_archive",
+          "detail": "live bridge starts Node import of `@rightkit/release/direct-bootstrap.mjs`; other bridge calls import supply-chain and finalization modules."
+        }
+      ],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/legion/engine/bins/legion/src/commands/script.rs",
+          "line": 160,
+          "detail": "Production `legion script` dispatches Legion workflow commands from native Rust; audit census included active CLI, MCP, hook, xtask, package scripts & CI config."
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/packages/release/direct-bootstrap.mjs",
+          "line": 92,
+          "detail": "`createPortableArchive` is shared portable archive API; supply-chain evidence APIs begin at supply-chain-evidence.mjs:60."
+        }
+      ],
+      "delivery_flags": [
+        "Pinned devDependency: @rightkit/release 0.2.151."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/settings-ui",
+      "status": "NA",
+      "rationale": "@rightkit/settings-ui is not an active Legion product capability: Legion ships native agent orchestration, audit, MCP & release tooling, while this owner covers Settings panel frame and standard sections (appearance, updates, license, legal, diagnostics, models, API keys, about) persisted through rightkit-settings.; source census found no target using that feature.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/legion/engine/bins/legion/src/commands/script.rs",
+          "line": 160,
+          "detail": "Production `legion script` dispatches Legion workflow commands from native Rust; audit census included active CLI, MCP, hook, xtask, package scripts & CI config."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/shell",
+      "status": "NA",
+      "rationale": "@rightkit/shell is not an active Legion product capability: Legion ships native agent orchestration, audit, MCP & release tooling, while this owner covers Typed renderer bridge for the rightkit-shell Tauri crate: window controls, menu/tray events, deep links, autostart, rich clipboard, engine calls.; source census found no target using that feature.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/legion/engine/bins/legion/src/commands/script.rs",
+          "line": 160,
+          "detail": "Production `legion script` dispatches Legion workflow commands from native Rust; audit census included active CLI, MCP, hook, xtask, package scripts & CI config."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/tauri",
+      "status": "NA",
+      "rationale": "@rightkit/tauri is not an active Legion product capability: Legion ships native agent orchestration, audit, MCP & release tooling, while this owner covers Typed host adapters for shared Right Suite Tauri commands.; source census found no target using that feature.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/legion/engine/bins/legion/src/commands/script.rs",
+          "line": 160,
+          "detail": "Production `legion script` dispatches Legion workflow commands from native Rust; audit census included active CLI, MCP, hook, xtask, package scripts & CI config."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/theme",
+      "status": "NA",
+      "rationale": "@rightkit/theme is not an active Legion product capability: Legion ships native agent orchestration, audit, MCP & release tooling, while this owner covers Brand file to CSS tokens generator for Right Suite apps: light/dark/system, derived dark accent, WCAG contrast and hard-coded-colour checks, runtime brand application.; source census found no target using that feature.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/legion/engine/bins/legion/src/commands/script.rs",
+          "line": 160,
+          "detail": "Production `legion script` dispatches Legion workflow commands from native Rust; audit census included active CLI, MCP, hook, xtask, package scripts & CI config."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/update",
+      "status": "NA",
+      "rationale": "@rightkit/update is not an active Legion product capability: Legion ships native agent orchestration, audit, MCP & release tooling, while this owner covers Per-repo dependency updater: check, apply, gate and land for cargo, pnpm, swiftpm and external-tool pins, plus a scheduled run (launchd, Task Scheduler).; source census found no target using that feature.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/legion/engine/bins/legion/src/commands/script.rs",
+          "line": 160,
+          "detail": "Production `legion script` dispatches Legion workflow commands from native Rust; audit census included active CLI, MCP, hook, xtask, package scripts & CI config."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/updates",
+      "status": "NA",
+      "rationale": "@rightkit/updates is not an active Legion product capability: Legion ships native agent orchestration, audit, MCP & release tooling, while this owner covers Shared runtime update policy helper for Right Suite Tauri apps.; source census found no target using that feature.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/legion/engine/bins/legion/src/commands/script.rs",
+          "line": 160,
+          "detail": "Production `legion script` dispatches Legion workflow commands from native Rust; audit census included active CLI, MCP, hook, xtask, package scripts & CI config."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitLicense",
+      "status": "NA",
+      "rationale": "Legion's Cocoa installer is an active Swift target, but it installs bundled CLI payloads without license token validation, activation, or removal queues; RightKitLicense has no applicable caller.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/legion/scripts/ci/right-git-ci.sh",
+          "line": 97,
+          "detail": "macOS CI compiles `LegionInstaller.swift` into release-equivalent installer app; installer source only reads bundled payload/version & executes installed CLI checks."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitDiagnostics",
+      "status": "NA",
+      "rationale": "Legion installer writes transient stderr & embeds bounded child stdout/stderr only in an immediate alert/error; this is not RightKitDiagnostics' persistent, redacted JSONL diagnostic store with drain semantics.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/legion/scripts/release/macos/LegionInstaller.swift",
+          "line": 126,
+          "detail": "Installer reads temporary stdout/stderr for current command failure then deletes both files; `log` writes transient stderr at line 134."
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/swift/RightKitSwift/Sources/RightKitDiagnostics/JSONLDiagnosticStore.swift",
+          "line": 70,
+          "detail": "Owner provides bounded, persistent JSONL log with redaction, locking & optional drained batches, outside installer diagnostic contract."
+        }
+      ],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitArtifacts",
+      "status": "N",
+      "rationale": "N: Cocoa installer locally stages bundled directory, replaces a version directory, switches `current`, then validates installed CLI. RightKitArtifacts covers verified tar.gz stage/activate/recover but has no production route; its archive & fixed-top-level contract requires Legion payload packaging/layout change.",
+      "shared_evidence": [],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/legion/scripts/release/macos/LegionInstaller.swift",
+          "line": 37,
+          "symbol": "install",
+          "detail": "Stages bundled `payload`, replaces `versions/<version>`, atomically switches `current` symlink & runs repair/status/doctor validation."
+        }
+      ],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/legion/scripts/ci/right-git-ci.sh",
+          "line": 97,
+          "detail": "macOS CI compiles this installer & copies assembled release directory to its bundled `payload` at line 98."
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/swift/RightKitSwift/Sources/RightKitArtifacts/ArtifactInstaller.swift",
+          "line": 146,
+          "symbol": "ArtifactInstaller.install",
+          "detail": "Owner verifies a SHA-256-pinned .tar.gz with one top-level directory, stages, activates, validates & recovers interrupted installs."
+        }
+      ],
+      "delivery_flags": [],
+      "remaining_work": "Package assembled payload as digest-pinned `.tar.gz` with one stable top-level directory; map Legion version/current semantics & post-activation repair/status/doctor validation before routing installer through ArtifactInstaller.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitPurchases",
+      "status": "NA",
+      "rationale": "Cocoa installer has no StoreKit purchase, entitlement ledger, or license-access flow; RightKitPurchases is inapplicable.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/legion/scripts/release/macos/LegionInstaller.swift",
+          "line": 37,
+          "detail": "Only payload file installation, symlink creation & CLI checks occur in active Swift target."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitCloudSync",
+      "status": "NA",
+      "rationale": "Cocoa installer has no CloudKit records, sync transport, retry, or merge state; RightKitCloudSync is inapplicable.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/legion/scripts/release/macos/LegionInstaller.swift",
+          "line": 37,
+          "detail": "Active Swift installer only deploys local bundled payload & invokes local installed commands."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitStore",
+      "status": "NA",
+      "rationale": "Cocoa installer does not use app-group locking, owner leases, command queues, or revisioned shared state; RightKitStore is inapplicable.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/legion/scripts/release/macos/LegionInstaller.swift",
+          "line": 43,
+          "detail": "Installer uses ordinary Application Support version directory & symlink, not shared app-group state."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitImportQueue",
+      "status": "NA",
+      "rationale": "Cocoa installer has no share extension, share-item extraction, or deferred import queue; RightKitImportQueue is inapplicable.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/legion/scripts/ci/right-git-ci.sh",
+          "line": 97,
+          "detail": "Only compiled Swift target is standalone macOS installer app; no extension target is built."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitLiveActivity",
+      "status": "NA",
+      "rationale": "Standalone Cocoa installer has no ActivityKit/Live Activity lifecycle; RightKitLiveActivity is inapplicable.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/legion/scripts/ci/right-git-ci.sh",
+          "line": 97,
+          "detail": "CI compiles one Cocoa installer executable; no ActivityKit target exists."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitWatchBridge",
+      "status": "NA",
+      "rationale": "Standalone Cocoa installer has no WatchConnectivity session or transfer ledger; RightKitWatchBridge is inapplicable.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/legion/scripts/ci/right-git-ci.sh",
+          "line": 97,
+          "detail": "CI compiles only standalone macOS installer executable; no watch companion target exists."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitSpeech",
+      "status": "NA",
+      "rationale": "Cocoa installer performs file operations & child-process checks, without audio capture, Apple Speech, Whisper, or CoreML inference; RightKitSpeech is inapplicable.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/legion/scripts/release/macos/LegionInstaller.swift",
+          "line": 79,
+          "detail": "Installer's only runtime operation after file deployment is process execution for repair/status/doctor."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitIntents",
+      "status": "NA",
+      "rationale": "Cocoa installer declares no App Intents, Shortcuts, Siri, or recording bridge; RightKitIntents is inapplicable.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/legion/scripts/ci/right-git-ci.sh",
+          "line": 97,
+          "detail": "CI compiles only Cocoa installer; source contains no intent extension or framework use."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitAppleCredentials",
+      "status": "NA",
+      "rationale": "Cocoa installer reads bundled resources & runs installed commands but stores no generic-password or Keychain credential; RightKitAppleCredentials is inapplicable.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/legion/scripts/release/macos/LegionInstaller.swift",
+          "line": 38,
+          "detail": "Installer accesses its bundle payload/version only, with no credential store call."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitOverlay",
+      "status": "NA",
+      "rationale": "Installer's modal NSAlert is a completion/error dialog, not RightKitOverlay's nonactivating, click-through pill/notch panel; RightKitOverlay is inapplicable.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/legion/scripts/release/macos/LegionInstaller.swift",
+          "line": 138,
+          "detail": "Installer creates a one-shot modal `NSAlert` for success/failure only."
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/swift/RightKitSwift/Sources/RightKitOverlay/Overlay.swift",
+          "line": 177,
+          "detail": "Owner's macOS host is a nonactivating NSPanel for pill/notch overlays, which does not overlap a modal installer alert."
+        }
+      ],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitWatch",
+      "status": "NA",
+      "rationale": "Cocoa installer has no FSEvents file watcher or watch lifecycle; RightKitWatch is inapplicable.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/legion/scripts/release/macos/LegionInstaller.swift",
+          "line": 25,
+          "detail": "Installer runs once to install & exit; it contains no long-lived file observation loop."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitUI",
+      "status": "NA",
+      "rationale": "Installer uses direct AppKit NSAlert; RightKitUI provides SwiftUI adaptive glass surface rendering, not an alert controller or installer UI flow.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/legion/scripts/release/macos/LegionInstaller.swift",
+          "line": 138,
+          "detail": "Active Swift target presents an AppKit `NSAlert`, with no SwiftUI view surface."
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/swift/RightKitSwift/Sources/RightKitUI/AdaptiveGlassSurface.swift",
+          "line": 34,
+          "detail": "Owner extends SwiftUI View with adaptive glass rendering; it cannot replace installer alert behavior."
+        }
+      ],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    }
+  ],
+  "searches": [
+    {
+      "pattern": "rightkit|@rightkit across package scripts, workflow, xtask & production Rust",
+      "scope": "Legion root excluding docs/tests/dist/target/fixtures",
+      "result": "production RightKit route found for @rightkit/release; AX portable-core is locally ported; remaining declared packages have no invocation evidence."
+    },
+    {
+      "pattern": "browser|OAuth|reqwest|MCP|sandbox|process|SQLite|QA",
+      "scope": "engine/bins, engine/crates, engine/xtask production source",
+      "result": "resolved explicit active overlaps only where caller & owner API align; excluded product policy/adapters."
+    },
+    {
+      "pattern": "LegionInstaller.swift|swiftc|Package.swift|xcodeproj|xcworkspace",
+      "scope": "Legion production scripts/CI & root manifests, excluding docs/tests/dist/target/fixtures",
+      "result": "right-git-ci compiles standalone Cocoa LegionInstaller.swift, copies bundled payload & ships headless installer; no Swift package, Xcode project, extension, watch, or iOS target found."
+    },
+    {
+      "pattern": "StoreKit|CloudKit|ActivityKit|WatchConnectivity|AppIntents|Speech|CoreML|SwiftUI|FSEvent|SecItem",
+      "scope": "LegionInstaller.swift & production script/CI Swift-target references",
+      "result": "no owner-specific framework/API use found; installer imports Cocoa/Darwin, performs bundle/file/symlink/process work & presents NSAlert."
+    }
+  ],
+  "self_review": "Rechecked every Swift owner against CI-compiled Cocoa installer, not an assumed absence of Swift. Classified RightKitArtifacts N: same Swift runtime & its verified stage/activate/recover API overlaps local deployment, though archive packaging & version/current layout must change; it is not M because no shared route exists. Classified Diagnostics, Overlay & UI NA after comparing transient stderr/modal NSAlert to their persistent JSONL, panel & SwiftUI-surface contracts. Remaining Swift rows are NA from source census of installer-only target. Existing Rust/npm results retained after scope check."
+}

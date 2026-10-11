@@ -1,0 +1,3010 @@
+{
+  "app": "HeardRight",
+  "root": "/Volumes/D/claude/heardright",
+  "head": "b96da5f26b740698fbb58919f905607419fec3b0",
+  "reviewed_at": "2026-10-11T08:00:00+05:30",
+  "targets": [
+    "desktop-macos",
+    "desktop-windows",
+    "ios",
+    "ipados",
+    "watchos",
+    "widgets",
+    "app-intents",
+    "qa-release-scripts"
+  ],
+  "scope_note": "Fresh source-only audit of current tauri-app-next plus ios-native production targets, extensions, scripts, and manifests. Generated/build/cache/vendor/history excluded; no execution qualification implied.",
+  "cells": [
+    {
+      "component_id": "cargo:agent-room-core",
+      "status": "NA",
+      "rationale": "HeardRight command surface is product dictation/settings; no agent-room server, protocol, or room-store feature.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/heardright/tauri-app-next/src-tauri/src/app_lib.rs",
+          "line": 19,
+          "symbol": "commands",
+          "detail": "production Tauri command registry covers HeardRight product actions; source census found no agent-room server/protocol/store caller."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "Source census found no compatible production caller."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-agent-tools",
+      "status": "NA",
+      "rationale": "HeardRight exposes product commands through Tauri; no typed agent-tool host or tool admission surface.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/heardright/tauri-app-next/src-tauri/src/app_lib.rs",
+          "line": 19,
+          "symbol": "commands",
+          "detail": "production Tauri command registry has dictation/settings commands; no rightkit-agent-tools tool host or caller."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "Source census found no compatible production caller."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-align",
+      "status": "N",
+      "rationale": "HeardRight command alignment remains local on CoreMlParakeet; no rightkit_align production import/call.",
+      "shared_evidence": [],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/heardright/tauri-app-next/heardright-inference/src/coreml_asr/command_alignment.rs",
+          "line": 100,
+          "symbol": "CoreMlParakeet::align_control_suffix",
+          "detail": "production TDT command alignment entry point"
+        }
+      ],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/heardright/tauri-app-next/src-tauri/Cargo.toml",
+          "line": 25,
+          "detail": "Tauri desktop target"
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-align/src/lib.rs",
+          "line": 267,
+          "symbol": "align",
+          "detail": "RightKit product-neutral word alignment API"
+        }
+      ],
+      "delivery_flags": [
+        "No shared production route found; local implementation remains active."
+      ],
+      "remaining_work": "Migrate terminal-command alignment caller to rightkit_align::align after mapping timed words; preserve HeardRight control suffix policy.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-asr",
+      "status": "M",
+      "rationale": "rightkit-asr is live through heardright-parakeet-core re-exports for desktop beam/scoring/detokenization, while HeardRight retains its own CoreMlParakeet decode/display engine.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/heardright/tauri-app-next/heardright-parakeet-core/src/lib.rs",
+          "line": 22,
+          "symbol": "pub use rightkit_asr::parakeet_core::{backend, beam, scoring}",
+          "detail": "production inference crate re-exports RightKit beam/backend/scoring used by heardright-inference"
+        },
+        {
+          "path": "/Volumes/D/claude/heardright/tauri-app-next/heardright-inference/src/asr/runtime.rs",
+          "line": 50,
+          "symbol": "heardright_parakeet_core::DetokPolicy::canonical_rust",
+          "detail": "desktop runtime calls re-exported RightKit policy in ASR path"
+        }
+      ],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/heardright/tauri-app-next/heardright-inference/src/coreml_asr/engine.rs",
+          "line": 546,
+          "symbol": "CoreMlParakeet::transcribe_pieces_timed_with_policy",
+          "detail": "local CoreML engine decodes then assembles display pieces"
+        },
+        {
+          "path": "/Volumes/D/claude/heardright/tauri-app-next/heardright-inference/src/coreml_asr/command_alignment.rs",
+          "line": 100,
+          "symbol": "CoreMlParakeet::align_control_suffix",
+          "detail": "local command-alignment engine remains active"
+        }
+      ],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/heardright/tauri-app-next/src-tauri/Cargo.toml",
+          "line": 25,
+          "detail": "Tauri desktop target"
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-asr/src/parakeet_core/mod.rs",
+          "line": 22,
+          "symbol": "RecurrentTdtBackend / beam exports",
+          "detail": "RightKit owner API used by app re-export"
+        },
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-asr/src/lib.rs",
+          "line": 115,
+          "symbol": "CoreMlParakeet export",
+          "detail": "RightKit also owns production CoreML ASR API for future full cutover"
+        }
+      ],
+      "delivery_flags": [
+        "App currently uses published package through parakeet_core only; full engine cutover remains pending."
+      ],
+      "remaining_work": "Move CoreMlParakeet decode/display/command-alignment callers onto rightkit_asr::CoreMlParakeet APIs; retain HeardRight command policy & UI display policy at app boundary.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-audio",
+      "status": "Y",
+      "rationale": "Desktop onboarding microphone path routes capture/filter policy through shared rightkit_audio; product recording policy remains local.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/heardright/tauri-app-next/src-tauri/src/onboarding_mic.rs",
+          "line": 52,
+          "symbol": "rightkit_audio::",
+          "detail": "production microphone setup uses shared audio primitives"
+        }
+      ],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/heardright/tauri-app-next/src-tauri/Cargo.toml",
+          "line": 25,
+          "detail": "Tauri desktop target"
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-audio/src/lib.rs",
+          "line": 30,
+          "symbol": "GraphFragment / DialogueChain",
+          "detail": "shared audio capture/filter exports"
+        }
+      ],
+      "delivery_flags": [
+        "Pinned app dependency; source audit does not qualify built/runtime artifact."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-automation",
+      "status": "NA",
+      "rationale": "HeardRight has focused text-input delivery probes, not suite-wide observe/act automation with safety tiers.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/heardright/tauri-app-next/src-tauri/src/app_lib.rs",
+          "line": 70,
+          "symbol": "macos_input",
+          "detail": "production macOS input module is focused text delivery; source census found no rightkit_automation observe/act runtime."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "Source census found no compatible production caller."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-browser",
+      "status": "NA",
+      "rationale": "HeardRight runs inside Tauri webviews and has no production CDP browser-session/profile runtime.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/heardright/tauri-app-next/src-tauri/src/app_lib.rs",
+          "line": 138,
+          "symbol": "run",
+          "detail": "production desktop run entrypoint owns Tauri webview; source census found no rightkit_browser session or CDP caller."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "Source census found no compatible production caller."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-cache",
+      "status": "NA",
+      "rationale": "HeardRight model lifecycle is owned by heardright_model_store; no generic bounded rightkit_cache API is active.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/heardright/tauri-app-next/src-tauri/src/app_lib.rs",
+          "line": 43,
+          "symbol": "model_fetch",
+          "detail": "production model_fetch export is HeardRight model-store flow; source census found no rightkit_cache import/caller."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "Source census found no compatible production caller."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-channel-memory",
+      "status": "NA",
+      "rationale": "HeardRight stores dictation history, not content-pipeline channel-memory.v1 records or citations.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/heardright/tauri-app-next/src-tauri/src/app_lib.rs",
+          "line": 35,
+          "symbol": "history",
+          "detail": "production history module owns dictation records; source census found no channel-memory schema/caller."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "Source census found no compatible production caller."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-compose",
+      "status": "NA",
+      "rationale": "HeardRight engine transcribes audio; no production layered media composition or keyframe pipeline exists.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/heardright/tauri-app-next/src-tauri/src/app_lib.rs",
+          "line": 32,
+          "symbol": "engine",
+          "detail": "production engine module owns transcription; source census found no rightkit_compose media composition caller."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "Source census found no compatible production caller."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-contracts",
+      "status": "NA",
+      "rationale": "HeardRight uses app IPC/history contracts; no Right Suite content-pipeline contract surface is active.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/heardright/tauri-app-next/src-tauri/src/app_lib.rs",
+          "line": 32,
+          "symbol": "engine",
+          "detail": "production engine module is HeardRight transcription runtime; source census found no rightkit_contracts content-pipeline caller."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "Source census found no compatible production caller."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-control",
+      "status": "N",
+      "rationale": "Desktop AX/UIA focus, identity, & text-input probing is implemented locally without rightkit_control.",
+      "shared_evidence": [],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/heardright/tauri-app-next/src-tauri/src/delivery/backend.rs",
+          "line": 358,
+          "symbol": "crate::macos_input::focused_text_input",
+          "detail": "live delivery gate reads local macOS AX editable target"
+        },
+        {
+          "path": "/Volumes/D/claude/heardright/tauri-app-next/src-tauri/src/delivery/targets.rs",
+          "line": 802,
+          "symbol": "windows_focused_text_input",
+          "detail": "live Windows UIA target probe"
+        }
+      ],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/heardright/tauri-app-next/src-tauri/Cargo.toml",
+          "line": 25,
+          "detail": "Tauri desktop target"
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-control/src/embedded/mod.rs",
+          "line": 203,
+          "symbol": "Control",
+          "detail": "RightKit native input/accessibility owner"
+        }
+      ],
+      "delivery_flags": [
+        "No shared production route found; local implementation remains active."
+      ],
+      "remaining_work": "Replace local macos_input/windows_uia target probes with rightkit_control adapters; preserve paste safety gates & target policy.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-crash",
+      "status": "Y",
+      "rationale": "Crash dump path calls shared rightkit_crash native capture while HeardRight retains only app-specific dump reason/pruning.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/heardright/tauri-app-next/heardright-telemetry/src/crash_dump.rs",
+          "line": 55,
+          "symbol": "rightkit_crash::capture_native",
+          "detail": "production panic/hang dump capture calls shared native primitive"
+        }
+      ],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/heardright/tauri-app-next/src-tauri/Cargo.toml",
+          "line": 25,
+          "detail": "Tauri desktop target"
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-crash/src/lib.rs",
+          "line": 31,
+          "symbol": "capture_native",
+          "detail": "shared native dump API"
+        }
+      ],
+      "delivery_flags": [
+        "Pinned app dependency; source audit does not qualify built/runtime artifact."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-daemon",
+      "status": "NA",
+      "rationale": "HeardRight syncs through app CloudKit helpers; no daemon listener, enrolment, webhook, or OAuth callback host exists.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/heardright/tauri-app-next/src-tauri/src/app_lib.rs",
+          "line": 10,
+          "symbol": "cloud_sync",
+          "detail": "production CloudKit sync module owns remote operations; source census found no rightkit_daemon listener/enrolment caller."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "Source census found no compatible production caller."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-db",
+      "status": "N",
+      "rationale": "Desktop history uses local FileHistoryStore/SQLCipherHistoryStore rather than rightkit_db connection/bootstrap APIs.",
+      "shared_evidence": [],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/heardright/tauri-app-next/src-tauri/src/runtime/engine.rs",
+          "line": 264,
+          "symbol": "SQLCipherHistoryStore::open_default",
+          "detail": "production encrypted history store open path"
+        },
+        {
+          "path": "/Volumes/D/claude/heardright/tauri-app-next/src-tauri/src/history/sqlcipher_store.rs",
+          "line": 122,
+          "symbol": "impl HistoryStore for SQLCipherHistoryStore",
+          "detail": "local SQLCipher connection/query/migration implementation"
+        }
+      ],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/heardright/tauri-app-next/src-tauri/Cargo.toml",
+          "line": 25,
+          "detail": "Tauri desktop target"
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-db/src/lib.rs",
+          "line": 393,
+          "symbol": "open_existing_writer",
+          "detail": "RightKit SQLite/SQLCipher connection owner"
+        },
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-db/src/migrate.rs",
+          "line": 407,
+          "symbol": "migrate",
+          "detail": "RightKit migration owner"
+        }
+      ],
+      "delivery_flags": [
+        "No active caller or compatible runtime in source census."
+      ],
+      "remaining_work": "Replace local SQLCipher bootstrap/migration/recovery with rightkit_db; preserve HeardRight history schema, encryption key source, & recovery policy.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-embed",
+      "status": "NA",
+      "rationale": "HeardRight model inference and transcript history have no local text-embedding or vector-store feature.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/heardright/tauri-app-next/src-tauri/src/app_lib.rs",
+          "line": 49,
+          "symbol": "whisper_model",
+          "detail": "production model module owns ASR assets; source census found no rightkit_embed vector-store caller."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "Source census found no compatible production caller."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-framed-sidecar",
+      "status": "NA",
+      "rationale": "HeardRight helper processes use app-owned IPC/service records; no framed JSON-lines sidecar transport is active.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/heardright/tauri-app-next/src-tauri/src/app_lib.rs",
+          "line": 33,
+          "symbol": "engine_supervisor",
+          "detail": "production engine supervisor owns app workers; source census found no framed-sidecar or sandbox authority caller."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "Source census found no compatible production caller."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-fs",
+      "status": "N",
+      "rationale": "Desktop settings/history/model paths implement local atomic files, locks, & directories.",
+      "shared_evidence": [],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/heardright/tauri-app-next/src-tauri/src/settings.rs",
+          "line": 71,
+          "symbol": "save_blob_atomic_to_path_with_replace",
+          "detail": "production settings atomic write"
+        },
+        {
+          "path": "/Volumes/D/claude/heardright/tauri-app-next/src-tauri/src/history/file_store.rs",
+          "line": 80,
+          "symbol": "impl HistoryStore for FileHistoryStore",
+          "detail": "local history file persistence/locking path"
+        }
+      ],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/heardright/tauri-app-next/src-tauri/Cargo.toml",
+          "line": 25,
+          "detail": "Tauri desktop target"
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-fs/src/atomic.rs",
+          "line": 141,
+          "symbol": "atomic_write",
+          "detail": "RightKit atomic file owner"
+        },
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-fs/src/lock.rs",
+          "line": 595,
+          "symbol": "with_lock",
+          "detail": "RightKit cross-process lock owner"
+        }
+      ],
+      "delivery_flags": [
+        "No active caller or compatible runtime in source census."
+      ],
+      "remaining_work": "Route settings/history state files through rightkit_fs atomic/lock primitives; preserve app paths, formats, & retention policy.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-fsindex",
+      "status": "NA",
+      "rationale": "HeardRight history/model paths have targeted files, not whole-disk indexing or clone-aware size rollups.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/heardright/tauri-app-next/src-tauri/src/app_lib.rs",
+          "line": 35,
+          "symbol": "history",
+          "detail": "production history module owns targeted records; source census found no rightkit_fsindex index caller."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "Source census found no compatible production caller."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-hotkeys",
+      "status": "N",
+      "rationale": "Global shortcut registration & conflict handling remain local in Tauri desktop host.",
+      "shared_evidence": [],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/heardright/tauri-app-next/src-tauri/src/hotkey_setup.rs",
+          "line": 41,
+          "symbol": "hotkey::register_shortcuts",
+          "detail": "startup registers active desktop shortcuts"
+        },
+        {
+          "path": "/Volumes/D/claude/heardright/tauri-app-next/src-tauri/src/hotkey.rs",
+          "line": 96,
+          "symbol": "register_shortcuts",
+          "detail": "local CGEvent/Windows registration implementation"
+        }
+      ],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/heardright/tauri-app-next/src-tauri/Cargo.toml",
+          "line": 25,
+          "detail": "Tauri desktop target"
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-hotkeys/src/lib.rs",
+          "line": 23,
+          "symbol": "parse_chord",
+          "detail": "RightKit global shortcut owner"
+        },
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-hotkeys/src/ptt.rs",
+          "line": 282,
+          "symbol": "should_arm_ptt",
+          "detail": "RightKit push-to-talk policy API"
+        }
+      ],
+      "delivery_flags": [
+        "No shared production route found; local implementation remains active."
+      ],
+      "remaining_work": "Route shortcut parsing, registration, conflict checks, & PTT hooks through rightkit_hotkeys; keep product shortcut defaults.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-http",
+      "status": "N",
+      "rationale": "Lease and Windows-link calls use local ureq agent/post helper; no rightkit_http client route.",
+      "shared_evidence": [],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/heardright/tauri-app-next/src-tauri/src/license/lease.rs",
+          "line": 163,
+          "symbol": "lease_post",
+          "detail": "production device-lease endpoint adapter sends local ureq requests"
+        }
+      ],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/heardright/tauri-app-next/src-tauri/Cargo.toml",
+          "line": 25,
+          "detail": "Tauri desktop target"
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-http/src/client.rs",
+          "line": 674,
+          "symbol": "Client",
+          "detail": "RightKit blocking HTTP client owner"
+        }
+      ],
+      "delivery_flags": [
+        "No shared production route found; local implementation remains active."
+      ],
+      "remaining_work": "Replace local lease_post/ureq transport with rightkit_http::Client; keep HeardRight endpoint paths, response policy, & error wording.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-jobs",
+      "status": "NA",
+      "rationale": "HeardRight starts speech/runtime workers directly; no persistent Right Suite job store or CLI job contract is active.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/heardright/tauri-app-next/src-tauri/src/app_lib.rs",
+          "line": 32,
+          "symbol": "engine",
+          "detail": "production engine module owns worker lifecycle; source census found no rightkit_jobs store/runner caller."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "Source census found no compatible production caller."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-license",
+      "status": "M",
+      "rationale": "rightkit_license::verify_token is live for entitlement tokens, while local verify_lease_envelope_signature duplicates RightKit lease-envelope signature verification; endpoint/device-lease policy stays app-owned.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/heardright/tauri-app-next/src-tauri/src/license/lease.rs",
+          "line": 457,
+          "symbol": "rightkit_license::verify_token",
+          "detail": "production refresh path verifies signed entitlement token"
+        },
+        {
+          "path": "/Volumes/D/claude/heardright/tauri-app-next/src-tauri/src/license/keychain.rs",
+          "line": 211,
+          "symbol": "rightkit_license::verify_token",
+          "detail": "production secure-license restore verifies cached token"
+        }
+      ],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/heardright/tauri-app-next/src-tauri/src/license/lease.rs",
+          "line": 260,
+          "symbol": "verify_lease_envelope_signature",
+          "detail": "active local Ed25519 verifier for device-lease envelope"
+        }
+      ],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/heardright/tauri-app-next/src-tauri/Cargo.toml",
+          "line": 25,
+          "detail": "Tauri desktop target"
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-license/src/lib.rs",
+          "line": 396,
+          "symbol": "verify_token",
+          "detail": "shared entitlement-token verifier"
+        },
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-license/src/lease.rs",
+          "line": 164,
+          "symbol": "verify_lease_envelope",
+          "detail": "shared device-lease envelope verifier matching local duplicate"
+        }
+      ],
+      "delivery_flags": [
+        "Pinned Cargo dependency; source audit does not qualify built/runtime artifact."
+      ],
+      "remaining_work": "Delete local verify_lease_envelope_signature and call rightkit_license::verify_lease_envelope; retain HeardRight lease endpoint adapters, device policy, & lifecycle decisions.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-llm",
+      "status": "NA",
+      "rationale": "HeardRight performs on-device ASR and has no BYOK chat, streaming tool-use, or LLM failover feature.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/heardright/tauri-app-next/src-tauri/src/app_lib.rs",
+          "line": 32,
+          "symbol": "engine",
+          "detail": "production engine module owns transcription; source census found no rightkit_llm client/caller."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "Source census found no compatible production caller."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-logs",
+      "status": "Y",
+      "rationale": "Active production caller reaches shared rightkit-logs API; no competing app-owned implementation found in component scope.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/heardright/tauri-app-next/src-tauri/src/commands/diagnostics.rs",
+          "line": 379,
+          "symbol": "rightkit_logs::collect_diagnostics",
+          "detail": "production diagnostics bundle collects app/engine logs through shared RightKit logger"
+        }
+      ],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/heardright/tauri-app-next/src-tauri/Cargo.toml",
+          "line": 25,
+          "detail": "Tauri desktop target"
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-logs/src/lib.rs",
+          "line": 29,
+          "symbol": "JsonlStore",
+          "detail": "shared JSONL diagnostics owner"
+        }
+      ],
+      "delivery_flags": [
+        "Pinned app dependency; source audit does not qualify built/runtime artifact."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-mcp",
+      "status": "NA",
+      "rationale": "HeardRight has no MCP client/server, tool pool, trust gate, or tool-admission feature.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/heardright/tauri-app-next/src-tauri/src/app_lib.rs",
+          "line": 19,
+          "symbol": "commands",
+          "detail": "production Tauri command registry has app commands; source census found no rightkit_mcp client/server caller."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "Source census found no compatible production caller."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-media",
+      "status": "NA",
+      "rationale": "HeardRight captures microphone audio and transcribes it; no verified FFmpeg artifact lifecycle is active.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/heardright/tauri-app-next/src-tauri/src/app_lib.rs",
+          "line": 44,
+          "symbol": "media_control",
+          "detail": "production media_control module handles player pause/resume policy; source census found no rightkit_media artifact caller."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "Source census found no compatible production caller."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-models",
+      "status": "M",
+      "rationale": "rightkit_models::hash::sha256_file is live, while HeardRight model_fetch owns active manifest, download, checksum, & rename flow overlapping RightKit model installation.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/heardright/tauri-app-next/heardright-model-store/src/model_fetch.rs",
+          "line": 177,
+          "symbol": "pub use rightkit_models::hash::sha256_file",
+          "detail": "production model store calls shared hash helper"
+        }
+      ],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/heardright/tauri-app-next/heardright-model-store/src/model_fetch.rs",
+          "line": 68,
+          "symbol": "ensure_model",
+          "detail": "engine startup ensures local model directory"
+        },
+        {
+          "path": "/Volumes/D/claude/heardright/tauri-app-next/heardright-model-store/src/model_fetch.rs",
+          "line": 150,
+          "symbol": "download_and_verify",
+          "detail": "active resumeless download, digest check, & atomic rename"
+        }
+      ],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/heardright/tauri-app-next/src-tauri/Cargo.toml",
+          "line": 25,
+          "detail": "Tauri desktop target"
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-models/src/suite/store.rs",
+          "line": 166,
+          "symbol": "ensure_ready",
+          "detail": "RightKit verified model readiness/activation owner"
+        },
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-models/src/download.rs",
+          "line": 190,
+          "symbol": "download_resumable",
+          "detail": "RightKit download lifecycle owner"
+        }
+      ],
+      "delivery_flags": [
+        "Pinned app dependency; source audit does not qualify built/runtime artifact."
+      ],
+      "remaining_work": "Replace model_fetch ensure/download/manifest flow with rightkit_models Store::ensure_ready/download_resumable; preserve HeardRight model IDs, backend selection, & CoreML validation.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-oauth",
+      "status": "NA",
+      "rationale": "HeardRight license/device flows use app lease adapters; no OAuth PKCE/device-flow client or daemon persistence is active.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/heardright/tauri-app-next/src-tauri/src/app_lib.rs",
+          "line": 39,
+          "symbol": "license",
+          "detail": "production license module owns entitlement lifecycle; source census found no rightkit_oauth client/caller."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "Source census found no compatible production caller."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-ocr",
+      "status": "NA",
+      "rationale": "HeardRight ASR does not expose OCR or document geometry/fallback processing.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/heardright/tauri-app-next/src-tauri/src/app_lib.rs",
+          "line": 32,
+          "symbol": "engine",
+          "detail": "production engine module owns speech transcription; source census found no rightkit_ocr backend/caller."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "Source census found no compatible production caller."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-ort",
+      "status": "N",
+      "rationale": "Desktop VAD and ASR probes invoke local ort sessions directly; no rightkit_ort runtime route.",
+      "shared_evidence": [],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/heardright/tauri-app-next/heardright-inference/src/vad.rs",
+          "line": 437,
+          "symbol": "Session::run",
+          "detail": "live Silero VAD inference runs local ONNX Runtime session"
+        },
+        {
+          "path": "/Volumes/D/claude/heardright/tauri-app-next/heardright-inference/src/vad.rs",
+          "line": 506,
+          "symbol": "initialize_ort_for_probe",
+          "detail": "production runtime probe initializes local ORT"
+        }
+      ],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/heardright/tauri-app-next/src-tauri/Cargo.toml",
+          "line": 25,
+          "detail": "Tauri desktop target"
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-ort/src/lib.rs",
+          "line": 484,
+          "symbol": "configure_runtime",
+          "detail": "RightKit runtime resolution/configuration owner"
+        },
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-ort/src/session.rs",
+          "line": 168,
+          "symbol": "Session::build_from_memory",
+          "detail": "RightKit ORT session owner"
+        }
+      ],
+      "delivery_flags": [
+        "No shared production route found; local implementation remains active."
+      ],
+      "remaining_work": "Replace local ORT discovery/init/session setup with rightkit_ort; preserve VAD model path & explicit CoreML probe policy.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-overlay",
+      "status": "N",
+      "rationale": "Tauri desktop pill uses local hitbox, hover, window placement, & transparent overlay lifecycle.",
+      "shared_evidence": [],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/heardright/tauri-app-next/src-tauri/src/pill/state.rs",
+          "line": 587,
+          "symbol": "set_pill_hitbox",
+          "detail": "production overlay geometry state"
+        },
+        {
+          "path": "/Volumes/D/claude/heardright/tauri-app-next/src-tauri/src/pill/state.rs",
+          "line": 1170,
+          "symbol": "position_webview_pill",
+          "detail": "production cross-platform overlay placement"
+        }
+      ],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/heardright/tauri-app-next/src-tauri/Cargo.toml",
+          "line": 25,
+          "detail": "Tauri desktop target"
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-overlay/src/lib.rs",
+          "line": 349,
+          "symbol": "OverlayModel",
+          "detail": "RightKit overlay state/hit-testing owner"
+        }
+      ],
+      "delivery_flags": [
+        "No active caller or compatible runtime in source census."
+      ],
+      "remaining_work": "Replace local pill hitbox/hover/placement primitives with rightkit_overlay; preserve HeardRight pill visuals, auxiliary windows, & platform no-activate rules.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-ownership",
+      "status": "NA",
+      "rationale": "HeardRight is an end-user dictation app, not RustRight broker ownership/admission infrastructure.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/heardright/tauri-app-next/src-tauri/src/app_lib.rs",
+          "line": 39,
+          "symbol": "license",
+          "detail": "production license module owns product entitlement; source census found no rightkit_ownership broker caller."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "Source census found no compatible production caller."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-pdf",
+      "status": "NA",
+      "rationale": "HeardRight history exports text; no PDF inspect/compose/font/OCR engine is active.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/heardright/tauri-app-next/src-tauri/src/app_lib.rs",
+          "line": 35,
+          "symbol": "history",
+          "detail": "production history module owns transcript records; source census found no rightkit_pdf engine caller."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "Source census found no compatible production caller."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-playback",
+      "status": "NA",
+      "rationale": "HeardRight only pauses/resumes external players around dictation; no source-preserving media playback preparation exists.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/heardright/tauri-app-next/src-tauri/src/app_lib.rs",
+          "line": 44,
+          "symbol": "media_control",
+          "detail": "production media_control module owns pause/resume policy; source census found no rightkit_playback caller."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "Source census found no compatible production caller."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-process",
+      "status": "Y",
+      "rationale": "Active production caller reaches shared rightkit-process API; no competing app-owned implementation found in component scope.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/heardright/tauri-app-next/heardright-app-runtime/src/engine_supervisor/lifecycle.rs",
+          "line": 47,
+          "symbol": "SidecarJob::new",
+          "detail": "production Windows engine supervisor constructs shared process containment job"
+        }
+      ],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/heardright/tauri-app-next/src-tauri/Cargo.toml",
+          "line": 25,
+          "detail": "Tauri desktop target"
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-process/src/lib.rs",
+          "line": 24,
+          "symbol": "ProcessHandle",
+          "detail": "shared child lifecycle owner"
+        }
+      ],
+      "delivery_flags": [
+        "Pinned app dependency; source audit does not qualify built/runtime artifact."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-qa",
+      "status": "NA",
+      "rationale": "HeardRight QA runs app-specific Node CDP journeys; no Rust rightkit_qa harness caller is active.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/heardright/tauri-app-next/src-tauri/src/app_lib.rs",
+          "line": 105,
+          "symbol": "app_run",
+          "detail": "production desktop run module is app runtime; Rust QA harness is not imported by production target."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "Source census found no compatible production caller."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-qts",
+      "status": "NA",
+      "rationale": "HeardRight active engines are Parakeet/Whisper ASR; no Qwen3 TTS runtime is active.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/heardright/tauri-app-next/src-tauri/src/app_lib.rs",
+          "line": 49,
+          "symbol": "whisper_model",
+          "detail": "production Whisper model export is ASR-only; source census found no rightkit_qts TTS caller."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "Source census found no compatible production caller."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-qts-ggml",
+      "status": "NA",
+      "rationale": "HeardRight active engines are Parakeet/Whisper ASR; deprecated QTS GGML wrappers have no caller.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/heardright/tauri-app-next/src-tauri/src/app_lib.rs",
+          "line": 49,
+          "symbol": "whisper_model",
+          "detail": "production Whisper model export is ASR-only; source census found no rightkit_qts_ggml caller."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "Source census found no compatible production caller."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-qts-ggml-sys",
+      "status": "NA",
+      "rationale": "HeardRight active engines are Parakeet/Whisper ASR; QTS GGML FFI has no caller.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/heardright/tauri-app-next/src-tauri/src/app_lib.rs",
+          "line": 49,
+          "symbol": "whisper_model",
+          "detail": "production Whisper model export is ASR-only; source census found no rightkit_qts_ggml_sys caller."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "Source census found no compatible production caller."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-record",
+      "status": "NA",
+      "rationale": "HeardRight records microphone PCM for transcription, not RK3 media/session bundles with cursor assets and redaction contracts.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/heardright/tauri-app-next/src-tauri/src/app_lib.rs",
+          "line": 109,
+          "symbol": "dictation_lifecycle",
+          "detail": "production dictation lifecycle owns microphone take state; source census found no rightkit_record Recorder/bundle caller."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "Source census found no compatible production caller."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-review",
+      "status": "NA",
+      "rationale": "HeardRight validates/transcribes dictation, not content-pipeline review holds, repair loops, or evidence checks.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/heardright/tauri-app-next/src-tauri/src/app_lib.rs",
+          "line": 109,
+          "symbol": "dictation_lifecycle",
+          "detail": "production dictation lifecycle owns speech take completion; source census found no rightkit_review caller."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "Source census found no compatible production caller."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-sandbox",
+      "status": "NA",
+      "rationale": "HeardRight launches bounded app helpers but has no Right Suite PTY/resource-authority runtime.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/heardright/tauri-app-next/src-tauri/src/app_lib.rs",
+          "line": 33,
+          "symbol": "engine_supervisor",
+          "detail": "production engine supervisor owns app workers; source census found no framed-sidecar or sandbox authority caller."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "Source census found no compatible production caller."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-scenario",
+      "status": "NA",
+      "rationale": "HeardRight uses dictation state transitions, not RightKit scenario interpreter/idempotency state machines.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/heardright/tauri-app-next/src-tauri/src/app_lib.rs",
+          "line": 109,
+          "symbol": "dictation_lifecycle",
+          "detail": "production dictation lifecycle owns recording transitions; source census found no rightkit_scenario caller."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "Source census found no compatible production caller."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-search",
+      "status": "NA",
+      "rationale": "HeardRight history UI has product filtering, not generic rightkit_search query AST/FTS/index APIs.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/heardright/tauri-app-next/src-tauri/src/app_lib.rs",
+          "line": 35,
+          "symbol": "history",
+          "detail": "production history module owns transcript records; source census found no rightkit_search API caller."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "Source census found no compatible production caller."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-secrets",
+      "status": "N",
+      "rationale": "Desktop license, DB-key, & device stores use local keyring implementations.",
+      "shared_evidence": [],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/heardright/tauri-app-next/src-tauri/src/license/keychain.rs",
+          "line": 174,
+          "symbol": "secure_license_get_inner",
+          "detail": "production OS keyring read"
+        },
+        {
+          "path": "/Volumes/D/claude/heardright/tauri-app-next/src-tauri/src/credential_store.rs",
+          "line": 149,
+          "symbol": "get_generic_password",
+          "detail": "production SQLCipher keychain read"
+        }
+      ],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/heardright/tauri-app-next/src-tauri/Cargo.toml",
+          "line": 25,
+          "detail": "Tauri desktop target"
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-secrets/src/store.rs",
+          "line": 123,
+          "symbol": "Store",
+          "detail": "RightKit OS credential store owner"
+        }
+      ],
+      "delivery_flags": [
+        "No shared production route found; local implementation remains active."
+      ],
+      "remaining_work": "Route license/device/DB-key persistence through rightkit_secrets::Store; preserve app service/account names & migration policy.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-send",
+      "status": "NA",
+      "rationale": "HeardRight delivers text into focused apps and syncs CloudKit; no LocalSend nearby file/text sharing feature exists.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/heardright/tauri-app-next/src-tauri/src/app_lib.rs",
+          "line": 24,
+          "symbol": "credential_store",
+          "detail": "production credential store supports app accounts; source census found no rightkit_send transport/trust caller."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "Source census found no compatible production caller."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-service",
+      "status": "Y",
+      "rationale": "Speech service file persistence calls shared rightkit_service::write_atomic in production; HeardRight owns service record policy.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/heardright/tauri-app-next/heardright-runtime/src/speech_service/files.rs",
+          "line": 19,
+          "symbol": "rightkit_service::write_atomic",
+          "detail": "production speech service writes service JSON through shared atomic helper"
+        }
+      ],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/heardright/tauri-app-next/src-tauri/Cargo.toml",
+          "line": 25,
+          "detail": "Tauri desktop target"
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-service/src/lib.rs",
+          "line": 63,
+          "symbol": "write_atomic",
+          "detail": "shared service crate exports atomic service-file writer"
+        }
+      ],
+      "delivery_flags": [
+        "Pinned app dependency; source audit does not qualify built/runtime artifact."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-settings",
+      "status": "N",
+      "rationale": "Tauri settings snapshot/patch path persists local SettingsBlob with custom atomic replacement.",
+      "shared_evidence": [],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/heardright/tauri-app-next/src-tauri/src/commands/settings.rs",
+          "line": 27,
+          "symbol": "apply_settings_patch",
+          "detail": "renderer production settings mutation entry point"
+        },
+        {
+          "path": "/Volumes/D/claude/heardright/tauri-app-next/src-tauri/src/settings.rs",
+          "line": 66,
+          "symbol": "save_to_disk",
+          "detail": "local SettingsBlob persistence"
+        }
+      ],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/heardright/tauri-app-next/src-tauri/Cargo.toml",
+          "line": 25,
+          "detail": "Tauri desktop target"
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-settings/src/store.rs",
+          "line": 133,
+          "symbol": "Store",
+          "detail": "RightKit versioned settings store owner"
+        }
+      ],
+      "delivery_flags": [
+        "No shared production route found; local implementation remains active."
+      ],
+      "remaining_work": "Map SettingsBlob schema & migrations to rightkit_settings::Store; preserve HeardRight defaults, keys, & renderer contract.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-shell",
+      "status": "N",
+      "rationale": "Desktop startup, tray/menu, single-instance, & window creation remain local Tauri shell code; no rightkit_shell production route.",
+      "shared_evidence": [],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/heardright/tauri-app-next/src-tauri/src/app_run.rs",
+          "line": 841,
+          "symbol": "tauri_plugin_single_instance::init",
+          "detail": "production desktop builder installs local single-instance handler"
+        },
+        {
+          "path": "/Volumes/D/claude/heardright/tauri-app-next/src-tauri/src/tray.rs",
+          "line": 98,
+          "symbol": "build_tray_menu",
+          "detail": "production desktop builds tray menu and lifecycle locally"
+        }
+      ],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/heardright/tauri-app-next/src-tauri/src/app_run.rs",
+          "line": 875,
+          "symbol": "setup",
+          "detail": "production macOS/Windows Tauri builder owns shell startup and window lifecycle"
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-shell/src/lib.rs",
+          "line": 195,
+          "symbol": "ShellBuilder::builder",
+          "detail": "RightKit shell builder API matching desktop startup integration"
+        },
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-shell/src/instance.rs",
+          "line": 69,
+          "symbol": "arbitrate",
+          "detail": "RightKit single-instance arbitration API matching local handler"
+        }
+      ],
+      "delivery_flags": [
+        "Pinned app dependency; source audit does not qualify built/runtime artifact."
+      ],
+      "remaining_work": "Replace local Tauri startup/tray/single-instance/window shell with rightkit_shell::ShellBuilder/modules; preserve HeardRight tray actions, menu policy, window labels, & platform lifecycle.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-speech-client",
+      "status": "Y",
+      "rationale": "Active production caller reaches shared rightkit-speech-client API; no competing app-owned implementation found in component scope.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/heardright/tauri-app-next/heardright-runtime/src/speech_service/conn.rs",
+          "line": 195,
+          "symbol": "frame.request",
+          "detail": "production service host matches shared speech-client request envelope"
+        },
+        {
+          "path": "/Volumes/D/claude/heardright/tauri-app-next/heardright-runtime/src/speech_service/conn.rs",
+          "line": 217,
+          "symbol": "enqueue",
+          "detail": "production service host enqueues shared file-transcription request"
+        }
+      ],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/heardright/tauri-app-next/src-tauri/Cargo.toml",
+          "line": 25,
+          "detail": "Tauri desktop target"
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-speech-client/src/lib.rs",
+          "line": 466,
+          "symbol": "SpeechClient",
+          "detail": "shared speech service client/contract owner"
+        }
+      ],
+      "delivery_flags": [
+        "Pinned app dependency; source audit does not qualify built/runtime artifact."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-sync",
+      "status": "N",
+      "rationale": "Desktop CloudKit sync uses local cloud_sync helper protocol, tombstone ledger, & pull/push policy.",
+      "shared_evidence": [],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/heardright/tauri-app-next/src-tauri/src/cloud_sync.rs",
+          "line": 870,
+          "symbol": "cloud_sync_pull",
+          "detail": "production CloudKit pull command"
+        },
+        {
+          "path": "/Volumes/D/claude/heardright/tauri-app-next/src-tauri/src/cloud_sync.rs",
+          "line": 1205,
+          "symbol": "cloud_sync_push",
+          "detail": "production CloudKit push command"
+        }
+      ],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/heardright/tauri-app-next/src-tauri/Cargo.toml",
+          "line": 25,
+          "detail": "Tauri desktop target"
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-sync/src/engine.rs",
+          "line": 164,
+          "symbol": "SyncEngine",
+          "detail": "RightKit change-token/conflict engine owner"
+        },
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-sync/src/traits.rs",
+          "line": 62,
+          "symbol": "ConflictPolicy",
+          "detail": "RightKit conflict policy owner"
+        }
+      ],
+      "delivery_flags": [
+        "No active caller or compatible runtime in source census."
+      ],
+      "remaining_work": "Replace local cloud sync ledger/pull/push engine with rightkit_sync adapter; preserve CloudKit helper transport, HeardRight scope, & transcript mapping.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-tauri",
+      "status": "Y",
+      "rationale": "Active production caller reaches shared rightkit-tauri API; no competing app-owned implementation found in component scope.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/heardright/tauri-app-next/src-tauri/src/native_license_adapter.rs",
+          "line": 10,
+          "symbol": "DeviceService::get_or_create",
+          "detail": "production license host adapter calls shared device service"
+        }
+      ],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/heardright/tauri-app-next/src-tauri/Cargo.toml",
+          "line": 25,
+          "detail": "Tauri desktop target"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "Pinned app dependency; source audit does not qualify built/runtime artifact."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-transcript",
+      "status": "N",
+      "rationale": "Desktop history export implements local transcript format selection & formatting.",
+      "shared_evidence": [],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/heardright/tauri-app-next/src-tauri/src/dictation_commands.rs",
+          "line": 598,
+          "symbol": "history_export::format_history",
+          "detail": "production export path formats selected transcript history"
+        },
+        {
+          "path": "/Volumes/D/claude/heardright/tauri-app-next/src-tauri/src/history_export.rs",
+          "line": 24,
+          "symbol": "format_history",
+          "detail": "local SRT/VTT/JSON/plain-text formatting owner"
+        }
+      ],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/heardright/tauri-app-next/src-tauri/Cargo.toml",
+          "line": 25,
+          "detail": "Tauri desktop target"
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-transcript/src/export.rs",
+          "line": 42,
+          "symbol": "to_srt",
+          "detail": "RightKit transcript export API"
+        },
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-transcript/src/parse.rs",
+          "line": 105,
+          "symbol": "parse_srt",
+          "detail": "RightKit transcript parse API"
+        }
+      ],
+      "delivery_flags": [
+        "No shared production route found; local implementation remains active."
+      ],
+      "remaining_work": "Replace local history_export formatters with rightkit_transcript export/parse APIs; preserve HeardRight history metadata & UI format choices.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-tts",
+      "status": "NA",
+      "rationale": "HeardRight active engines are speech-to-text; no OS voice or Qwen3 TTS production caller is active.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/heardright/tauri-app-next/src-tauri/src/app_lib.rs",
+          "line": 49,
+          "symbol": "whisper_model",
+          "detail": "production Whisper model export is ASR-only; source census found no rightkit_tts caller."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "Source census found no compatible production caller."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-vad",
+      "status": "N",
+      "rationale": "Desktop SpeechVad owns live Silero scoring, frame carry, hysteresis, & ORT execution.",
+      "shared_evidence": [],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/heardright/tauri-app-next/heardright-inference/src/vad.rs",
+          "line": 435,
+          "symbol": "VadBackend::Ort",
+          "detail": "live frame scoring invokes local ORT backend"
+        }
+      ],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/heardright/tauri-app-next/src-tauri/Cargo.toml",
+          "line": 25,
+          "detail": "Tauri desktop target"
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-vad/src/spans.rs",
+          "line": 61,
+          "symbol": "detect",
+          "detail": "RightKit VAD detection owner"
+        }
+      ],
+      "delivery_flags": [
+        "No shared production route found; local implementation remains active."
+      ],
+      "remaining_work": "Map SpeechVad thresholds/frame carry/backend adapter to rightkit_vad::detect; preserve HeardRight calibration & telemetry.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-watch",
+      "status": "NA",
+      "rationale": "HeardRight watches model/service state through targeted app logic; no filesystem watcher subscription/coalescing feature is active.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/heardright/tauri-app-next/src-tauri/src/app_lib.rs",
+          "line": 43,
+          "symbol": "model_fetch",
+          "detail": "production model_fetch export owns targeted model paths; source census found no rightkit_watch watcher caller."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "Source census found no compatible production caller."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/agent-room-mcp",
+      "status": "NA",
+      "rationale": "HeardRight renderer mounts product pages and app-specific controls; no production @rightkit/agent-room-mcp capability is used.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/heardright/tauri-app-next/src/App.tsx",
+          "line": 20,
+          "symbol": "HomePage",
+          "detail": "production renderer imports HeardRight product pages; source census found no npm:@rightkit/agent-room-mcp import or caller."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "Source census found no compatible production caller."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/app-shell",
+      "status": "Y",
+      "rationale": "Active production caller reaches shared @rightkit/app-shell API; no competing app-owned implementation found in component scope.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/heardright/tauri-app-next/src/App.tsx",
+          "line": 347,
+          "symbol": "AppShell",
+          "detail": "production renderer mounts shared app shell"
+        }
+      ],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/heardright/tauri-app-next/src-tauri/Cargo.toml",
+          "line": 25,
+          "detail": "Tauri desktop target"
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/packages/app-shell/src/react/layout.tsx",
+          "line": 518,
+          "symbol": "AppShell",
+          "detail": "shared React shell owner"
+        }
+      ],
+      "delivery_flags": [
+        "Pinned app dependency; source audit does not qualify built/runtime artifact."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/ax",
+      "status": "NA",
+      "rationale": "HeardRight renderer mounts product pages and app-specific controls; no production @rightkit/ax capability is used.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/heardright/tauri-app-next/src/App.tsx",
+          "line": 20,
+          "symbol": "HomePage",
+          "detail": "production renderer imports HeardRight product pages; source census found no npm:@rightkit/ax import or caller."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "Source census found no compatible production caller."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/build-control-policy",
+      "status": "NA",
+      "rationale": "HeardRight renderer mounts product pages and app-specific controls; no production @rightkit/build-control-policy capability is used.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/heardright/tauri-app-next/src/App.tsx",
+          "line": 20,
+          "symbol": "HomePage",
+          "detail": "production renderer imports HeardRight product pages; source census found no npm:@rightkit/build-control-policy import or caller."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "Source census found no compatible production caller."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/doc-render",
+      "status": "NA",
+      "rationale": "HeardRight renderer mounts product pages and app-specific controls; no production @rightkit/doc-render capability is used.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/heardright/tauri-app-next/src/App.tsx",
+          "line": 20,
+          "symbol": "HomePage",
+          "detail": "production renderer imports HeardRight product pages; source census found no npm:@rightkit/doc-render import or caller."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "Source census found no compatible production caller."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/git",
+      "status": "NA",
+      "rationale": "HeardRight renderer mounts product pages and app-specific controls; no production @rightkit/git capability is used.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/heardright/tauri-app-next/src/App.tsx",
+          "line": 20,
+          "symbol": "HomePage",
+          "detail": "production renderer imports HeardRight product pages; source census found no npm:@rightkit/git import or caller."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "Source census found no compatible production caller."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/hooks",
+      "status": "NA",
+      "rationale": "HeardRight renderer mounts product pages and app-specific controls; no production @rightkit/hooks capability is used.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/heardright/tauri-app-next/src/App.tsx",
+          "line": 20,
+          "symbol": "HomePage",
+          "detail": "production renderer imports HeardRight product pages; source census found no npm:@rightkit/hooks import or caller."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "Source census found no compatible production caller."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/i18n",
+      "status": "NA",
+      "rationale": "HeardRight renderer mounts product pages and app-specific controls; no production @rightkit/i18n capability is used.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/heardright/tauri-app-next/src/App.tsx",
+          "line": 20,
+          "symbol": "HomePage",
+          "detail": "production renderer imports HeardRight product pages; source census found no npm:@rightkit/i18n import or caller."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "Source census found no compatible production caller."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/legal",
+      "status": "Y",
+      "rationale": "Active production caller reaches shared @rightkit/legal API; no competing app-owned implementation found in component scope.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/heardright/tauri-app-next/scripts/sync-legal-acceptance-contract.mjs",
+          "line": 4,
+          "symbol": "assertLegalManifest",
+          "detail": "legal contract -> shared manifest"
+        }
+      ],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/heardright/tauri-app-next/src-tauri/Cargo.toml",
+          "line": 25,
+          "detail": "Tauri desktop target"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "Pinned app dependency; source audit does not qualify built/runtime artifact."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/legal-ui",
+      "status": "Y",
+      "rationale": "Active production caller reaches shared @rightkit/legal-ui API; no competing app-owned implementation found in component scope.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/heardright/tauri-app-next/src/pages/LegalAcceptance.tsx",
+          "line": 105,
+          "symbol": "LegalGate",
+          "detail": "production legal acceptance page renders shared gate"
+        }
+      ],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/heardright/tauri-app-next/src-tauri/Cargo.toml",
+          "line": 25,
+          "detail": "Tauri desktop target"
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/packages/legal-ui/src/index.ts",
+          "line": 1,
+          "symbol": "LegalGate export",
+          "detail": "shared legal gate owner"
+        }
+      ],
+      "delivery_flags": [
+        "Pinned app dependency; source audit does not qualify built/runtime artifact."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/license",
+      "status": "Y",
+      "rationale": "Desktop renderer creates one live @rightkit/license client for activation, refresh, lifecycle, & persisted license state.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/heardright/tauri-app-next/src/lib/license/core.ts",
+          "line": 265,
+          "symbol": "licenseClient = createLicenseClient",
+          "detail": "production client configured for heardright backend, storage, deviceId, & fetch"
+        }
+      ],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/heardright/tauri-app-next/src-tauri/Cargo.toml",
+          "line": 25,
+          "detail": "Tauri desktop target"
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/packages/license/src/index.ts",
+          "line": 176,
+          "symbol": "createLicenseClient",
+          "detail": "shared license client factory used by app"
+        }
+      ],
+      "delivery_flags": [
+        "Pinned npm dependency; source audit does not qualify built/runtime artifact."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/logs",
+      "status": "Y",
+      "rationale": "Active production caller reaches shared @rightkit/logs API; no competing app-owned implementation found in component scope.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/heardright/tauri-app-next/src/lib/logs.ts",
+          "line": 4,
+          "symbol": "createLogsClient",
+          "detail": "production renderer creates shared logs client"
+        }
+      ],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/heardright/tauri-app-next/src-tauri/Cargo.toml",
+          "line": 25,
+          "detail": "Tauri desktop target"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "Pinned app dependency; source audit does not qualify built/runtime artifact."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/media-ui",
+      "status": "NA",
+      "rationale": "HeardRight renderer mounts product pages and app-specific controls; no production @rightkit/media-ui capability is used.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/heardright/tauri-app-next/src/App.tsx",
+          "line": 20,
+          "symbol": "HomePage",
+          "detail": "production renderer imports HeardRight product pages; source census found no npm:@rightkit/media-ui import or caller."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "Source census found no compatible production caller."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/onboarding",
+      "status": "Y",
+      "rationale": "Active production caller reaches shared @rightkit/onboarding API; no competing app-owned implementation found in component scope.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/heardright/tauri-app-next/src/pages/onboarding/OnboardingImpl.tsx",
+          "line": 311,
+          "symbol": "RightKitOnboarding",
+          "detail": "production onboarding page renders shared framework"
+        }
+      ],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/heardright/tauri-app-next/src-tauri/Cargo.toml",
+          "line": 25,
+          "detail": "Tauri desktop target"
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/packages/onboarding/src/index.ts",
+          "line": 1,
+          "symbol": "Onboarding export",
+          "detail": "shared onboarding framework owner"
+        }
+      ],
+      "delivery_flags": [
+        "Pinned app dependency; source audit does not qualify built/runtime artifact."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/pdf-ui",
+      "status": "NA",
+      "rationale": "HeardRight renderer mounts product pages and app-specific controls; no production @rightkit/pdf-ui capability is used.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/heardright/tauri-app-next/src/App.tsx",
+          "line": 20,
+          "symbol": "HomePage",
+          "detail": "production renderer imports HeardRight product pages; source census found no npm:@rightkit/pdf-ui import or caller."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "Source census found no compatible production caller."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/platform-ui",
+      "status": "M",
+      "rationale": "AppShell reaches RightKit platform UI for caption controls, while renderer keeps local platform detection & chord formatting in active components.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/heardright/tauri-app-next/src/App.tsx",
+          "line": 347,
+          "symbol": "AppShell",
+          "detail": "production renderer mounts AppShell; bridge path reaches app-shell CaptionControls and RightKit platform-ui controls"
+        }
+      ],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/heardright/tauri-app-next/src/hooks/usePlatform.ts",
+          "line": 20,
+          "symbol": "getPlatform",
+          "detail": "production renderer independently detects macOS/iOS/Windows/Linux"
+        },
+        {
+          "path": "/Volumes/D/claude/heardright/tauri-app-next/src/components/Kbd.tsx",
+          "line": 53,
+          "symbol": "formatChord",
+          "detail": "production renderer independently formats platform-specific shortcut labels"
+        }
+      ],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/heardright/tauri-app-next/src/App.tsx",
+          "line": 355,
+          "symbol": "bridge.window",
+          "detail": "production desktop AppShell passes native window controls through shared platform UI path"
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/packages/platform-ui/src/index.ts",
+          "line": 90,
+          "symbol": "getPlatform",
+          "detail": "RightKit platform detection API matching local getPlatform"
+        },
+        {
+          "path": "/Volumes/D/claude/rightkit/packages/platform-ui/src/index.ts",
+          "line": 100,
+          "symbol": "formatChord",
+          "detail": "RightKit shortcut display API matching local formatChord"
+        },
+        {
+          "path": "/Volumes/D/claude/rightkit/packages/platform-ui/src/index.ts",
+          "line": 144,
+          "symbol": "createWindowControls",
+          "detail": "RightKit window-control adapter used by app-shell CaptionControls"
+        }
+      ],
+      "delivery_flags": [
+        "Pinned app dependency; source audit does not qualify built/runtime artifact."
+      ],
+      "remaining_work": "Remove local getPlatform/formatChord implementations & route shortcut display, platform capabilities, & window control adapters through @rightkit/platform-ui; preserve HeardRight chord policy & visual tokens.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/qa",
+      "status": "N",
+      "rationale": "HeardRight QA scripts run local CDP journeys, focus assertions, recovery checks, & artifact cleanup; no @rightkit/qa production script route.",
+      "shared_evidence": [],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/heardright/tauri-app-next/qa/hub/driver.mjs",
+          "line": 25,
+          "symbol": "openBrowser",
+          "detail": "production QA driver owns browser launch, CDP transport, health checks, & cleanup"
+        },
+        {
+          "path": "/Volumes/D/claude/heardright/tauri-app-next/qa/hub/journeys.mjs",
+          "line": 22,
+          "symbol": "journeys",
+          "detail": "production QA journey registry owns navigation, modal focus, error recovery, & screenshot assertions"
+        }
+      ],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/heardright/tauri-app-next/qa/hub/driver.mjs",
+          "line": 27,
+          "symbol": "launchChromeForTesting",
+          "detail": "QA release target runs app-specific browser journeys from local driver"
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/packages/qa/src/cdp.ts",
+          "line": 22,
+          "symbol": "CdpClient",
+          "detail": "RightKit shared CDP transport matching local driver"
+        },
+        {
+          "path": "/Volumes/D/claude/rightkit/packages/qa/src/guard.ts",
+          "line": 8,
+          "symbol": "validateNativeQaContract",
+          "detail": "RightKit QA contract guard matching app QA gate surface"
+        }
+      ],
+      "delivery_flags": [
+        "Pinned app dependency; source audit does not qualify built/runtime artifact."
+      ],
+      "remaining_work": "Replace local CDP driver, journey plumbing, ownership/cleanup, & native QA guards with @rightkit/qa APIs; preserve HeardRight journey selectors, product fixtures, & expected error policy.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/qa-chrome",
+      "status": "Y",
+      "rationale": "Active production caller reaches shared @rightkit/qa-chrome API; no competing app-owned implementation found in component scope.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/heardright/tauri-app-next/qa/hub/driver.mjs",
+          "line": 27,
+          "symbol": "launchChromeForTesting",
+          "detail": "production QA hub launches shared Chrome runtime"
+        }
+      ],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/heardright/tauri-app-next/src-tauri/Cargo.toml",
+          "line": 25,
+          "detail": "Tauri desktop target"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "Pinned app dependency; source audit does not qualify built/runtime artifact."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/release",
+      "status": "Y",
+      "rationale": "Active production caller reaches shared @rightkit/release API; no competing app-owned implementation found in component scope.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/heardright/tauri-app-next/scripts/mac-dmg.mjs",
+          "line": 55,
+          "symbol": "notarytoolAuthArgs",
+          "detail": "production release script obtains shared notarization auth"
+        }
+      ],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/heardright/tauri-app-next/src-tauri/Cargo.toml",
+          "line": 25,
+          "detail": "Tauri desktop target"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "Pinned app dependency; source audit does not qualify built/runtime artifact."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/settings-ui",
+      "status": "Y",
+      "rationale": "Active production caller reaches shared @rightkit/settings-ui API; no competing app-owned implementation found in component scope.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/heardright/tauri-app-next/src/components/settings/CompactSettingsGroup.tsx",
+          "line": 44,
+          "symbol": "SettingsGroup",
+          "detail": "production settings panels render shared group primitive"
+        }
+      ],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/heardright/tauri-app-next/src-tauri/Cargo.toml",
+          "line": 25,
+          "detail": "Tauri desktop target"
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/packages/settings-ui/src/index.ts",
+          "line": 4,
+          "symbol": "SettingsGroup export",
+          "detail": "shared settings UI owner"
+        }
+      ],
+      "delivery_flags": [
+        "Pinned app dependency; source audit does not qualify built/runtime artifact."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/shell",
+      "status": "N",
+      "rationale": "Renderer windows use local tauriBridge invoke/listen transport; no @rightkit/shell production route.",
+      "shared_evidence": [],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/heardright/tauri-app-next/src/lib/tauriBridge.ts",
+          "line": 59,
+          "symbol": "invoke",
+          "detail": "production renderer IPC bridge"
+        },
+        {
+          "path": "/Volumes/D/claude/heardright/tauri-app-next/src/lib/tauriBridge.ts",
+          "line": 72,
+          "symbol": "listen",
+          "detail": "production renderer event bridge"
+        }
+      ],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/heardright/tauri-app-next/src-tauri/Cargo.toml",
+          "line": 25,
+          "detail": "Tauri desktop target"
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/packages/shell/src/index.ts",
+          "line": 228,
+          "symbol": "createShell",
+          "detail": "RightKit typed renderer shell owner"
+        }
+      ],
+      "delivery_flags": [
+        "No active caller or compatible runtime in source census."
+      ],
+      "remaining_work": "Replace local tauriBridge transport/window commands with @rightkit/shell createShell; preserve HeardRight command/event names & QA transport.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/tauri",
+      "status": "Y",
+      "rationale": "Native license/device adapter uses shared @rightkit/tauri DeviceService/SecureStore APIs in production Rust bridge.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/heardright/tauri-app-next/src/lib/license/core.ts",
+          "line": 80,
+          "symbol": "createHeardRightTauriClient",
+          "detail": "production renderer creates shared HeardRight Tauri client"
+        },
+        {
+          "path": "/Volumes/D/claude/heardright/tauri-app-next/src-tauri/src/native_license_adapter.rs",
+          "line": 10,
+          "symbol": "DeviceService::get_or_create",
+          "detail": "native adapter calls shared host service"
+        }
+      ],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/heardright/tauri-app-next/src-tauri/Cargo.toml",
+          "line": 25,
+          "detail": "Tauri desktop target"
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/packages/tauri/src/index.ts",
+          "line": 76,
+          "symbol": "createRightKitTauriClient",
+          "detail": "shared typed host adapter API"
+        }
+      ],
+      "delivery_flags": [
+        "Pinned app dependency; source audit does not qualify built/runtime artifact."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/theme",
+      "status": "Y",
+      "rationale": "Active production caller reaches shared @rightkit/theme API; no competing app-owned implementation found in component scope.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/heardright/tauri-app-next/src/lib/theme.ts",
+          "line": 52,
+          "symbol": "applyBrand",
+          "detail": "production theme application calls shared brand token generator"
+        }
+      ],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/heardright/tauri-app-next/src-tauri/Cargo.toml",
+          "line": 25,
+          "detail": "Tauri desktop target"
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/packages/theme/src/runtime.ts",
+          "line": 22,
+          "symbol": "applyBrand",
+          "detail": "shared theme runtime owner"
+        }
+      ],
+      "delivery_flags": [
+        "Pinned app dependency; source audit does not qualify built/runtime artifact."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/update",
+      "status": "NA",
+      "rationale": "HeardRight renderer mounts product pages and app-specific controls; no production @rightkit/update capability is used.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/heardright/tauri-app-next/src/App.tsx",
+          "line": 20,
+          "symbol": "HomePage",
+          "detail": "production renderer imports HeardRight product pages; source census found no npm:@rightkit/update import or caller."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "Source census found no compatible production caller."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/updates",
+      "status": "Y",
+      "rationale": "Active production caller reaches shared @rightkit/updates API; no competing app-owned implementation found in component scope.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/heardright/tauri-app-next/src/lib/autoUpdates.ts",
+          "line": 85,
+          "symbol": "fetchReleaseStatus",
+          "detail": "production update check calls shared release status helper"
+        }
+      ],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/heardright/tauri-app-next/src-tauri/Cargo.toml",
+          "line": 25,
+          "detail": "Tauri desktop target"
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/packages/updates/src/index.ts",
+          "line": 137,
+          "symbol": "createAutoUpdateClient",
+          "detail": "shared update policy owner"
+        }
+      ],
+      "delivery_flags": [
+        "Pinned app dependency; source audit does not qualify built/runtime artifact."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitLicense",
+      "status": "Y",
+      "rationale": "Active production caller reaches shared RightKitLicense API; no competing app-owned implementation found in component scope.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/heardright/ios-native/HeardRight/LicenseController.swift",
+          "line": 164,
+          "symbol": "LicenseActivationClient.license",
+          "detail": "production activation response is converted through shared license client"
+        }
+      ],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/heardright/ios-native/project.yml",
+          "line": 1,
+          "detail": "iOS/iPadOS plus Watch/widgets/extensions targets"
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/swift/RightKitSwift/Sources/RightKitLicense/LicenseClient.swift",
+          "line": 460,
+          "symbol": "LicenseActivationClient",
+          "detail": "shared activation client owner"
+        }
+      ],
+      "delivery_flags": [
+        "SwiftPM remote pin 0.4.0; source audit does not qualify built/runtime artifact."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitDiagnostics",
+      "status": "Y",
+      "rationale": "DiagnosticsReport uses RightKitDiagnostics PrivacyRedactor in active native diagnostics report generation.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/heardright/ios-native/Shared/DiagnosticsReport.swift",
+          "line": 158,
+          "symbol": "PrivacyRedactor().redact",
+          "detail": "production diagnostics report redacts identifiers through shared module"
+        }
+      ],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/heardright/ios-native/project.yml",
+          "line": 1,
+          "detail": "iOS/iPadOS plus Watch/widgets/extensions targets"
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/swift/RightKitSwift/Sources/RightKitDiagnostics/JSONLDiagnosticStore.swift",
+          "line": 77,
+          "symbol": "JSONLDiagnosticStore",
+          "detail": "shared diagnostics store API"
+        },
+        {
+          "path": "/Volumes/D/claude/rightkit/swift/RightKitSwift/Sources/RightKitDiagnostics/PrivacyRedactor.swift",
+          "line": 9,
+          "symbol": "PrivacyRedactor",
+          "detail": "shared redaction API"
+        }
+      ],
+      "delivery_flags": [
+        "No active caller or compatible runtime in source census."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitArtifacts",
+      "status": "N",
+      "rationale": "Native model download/install lifecycle calls local ModelArtifactInstaller for archive validation, activation, rollback, & cleanup.",
+      "shared_evidence": [],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/heardright/ios-native/HeardRight/ModelInstallation.swift",
+          "line": 22,
+          "symbol": "ModelArtifactInstaller.finalizePreviousInstall",
+          "detail": "production validated model activation finalization"
+        },
+        {
+          "path": "/Volumes/D/claude/heardright/ios-native/HeardRight/ModelArtifactInstaller.swift",
+          "line": 349,
+          "symbol": "ModelArtifactInstaller",
+          "detail": "local archive/install/recovery implementation"
+        }
+      ],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/heardright/ios-native/project.yml",
+          "line": 1,
+          "detail": "iOS/iPadOS plus Watch/widgets/extensions targets"
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/swift/RightKitSwift/Sources/RightKitArtifacts/ArtifactInstaller.swift",
+          "line": 122,
+          "symbol": "ArtifactInstaller",
+          "detail": "shared verify/stage/activate/rollback owner"
+        }
+      ],
+      "delivery_flags": [
+        "No active caller or compatible runtime in source census."
+      ],
+      "remaining_work": "Replace ModelArtifactInstaller calls with RightKitArtifacts.ArtifactInstaller; preserve CoreML stage validation, model policy, & app-group publication.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitPurchases",
+      "status": "Y",
+      "rationale": "Active production caller reaches shared RightKitPurchases API; no competing app-owned implementation found in component scope.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/heardright/ios-native/HeardRight/StoreKitProController.swift",
+          "line": 117,
+          "symbol": "PurchaseController",
+          "detail": "production StoreKit controller instantiates shared purchase controller"
+        }
+      ],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/heardright/ios-native/project.yml",
+          "line": 1,
+          "detail": "iOS/iPadOS plus Watch/widgets/extensions targets"
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/swift/RightKitSwift/Sources/RightKitPurchases/PurchaseController.swift",
+          "line": 18,
+          "symbol": "PurchaseController",
+          "detail": "shared StoreKit purchase controller owner"
+        }
+      ],
+      "delivery_flags": [
+        "SwiftPM remote pin 0.4.0; source audit does not qualify built/runtime artifact."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitCloudSync",
+      "status": "Y",
+      "rationale": "Active production caller reaches shared RightKitCloudSync API; no competing app-owned implementation found in component scope.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/heardright/ios-native/HeardRight/TranscriptCloudSync.swift",
+          "line": 32,
+          "symbol": "CloudSyncAdapter",
+          "detail": "production transcript adapter conforms to shared CloudSyncAdapter"
+        }
+      ],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/heardright/ios-native/project.yml",
+          "line": 1,
+          "detail": "iOS/iPadOS plus Watch/widgets/extensions targets"
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/swift/RightKitSwift/Sources/RightKitCloudSync/CloudSyncEngine.swift",
+          "line": 48,
+          "symbol": "CloudSyncEngine",
+          "detail": "shared CloudKit sync engine owner"
+        }
+      ],
+      "delivery_flags": [
+        "SwiftPM remote pin 0.4.0; source audit does not qualify built/runtime artifact."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitStore",
+      "status": "Y",
+      "rationale": "Active production caller reaches shared RightKitStore API; no competing app-owned implementation found in component scope.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/heardright/ios-native/Shared/SharedDictationCommand.swift",
+          "line": 45,
+          "symbol": "AppGroupCommandQueue<SharedDictationCommand>",
+          "detail": "production cross-process command queue uses shared store primitive"
+        },
+        {
+          "path": "/Volumes/D/claude/heardright/ios-native/Shared/SharedDictationSnapshot.swift",
+          "line": 231,
+          "symbol": "RevisionedStateStore<SharedDictationSnapshot>",
+          "detail": "production app-group snapshot persistence uses shared revisioned store"
+        }
+      ],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/heardright/ios-native/project.yml",
+          "line": 1,
+          "detail": "iOS/iPadOS plus Watch/widgets/extensions targets"
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/swift/RightKitSwift/Sources/RightKitStore/AppGroupCommandQueue.swift",
+          "line": 18,
+          "symbol": "AppGroupCommandQueue",
+          "detail": "shared app-group queue owner"
+        },
+        {
+          "path": "/Volumes/D/claude/rightkit/swift/RightKitSwift/Sources/RightKitStore/RevisionedStateStore.swift",
+          "line": 14,
+          "symbol": "RevisionedStateStore",
+          "detail": "shared revisioned store owner"
+        }
+      ],
+      "delivery_flags": [
+        "SwiftPM remote pin 0.4.0; source audit does not qualify built/runtime artifact."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitImportQueue",
+      "status": "Y",
+      "rationale": "Share extension & app consume RightKitImportQueue durable queue APIs.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/heardright/ios-native/HeardRightShare/ShareViewController.swift",
+          "line": 41,
+          "symbol": "SharedImportQueue.enqueue",
+          "detail": "active share extension enqueues extracted payload"
+        },
+        {
+          "path": "/Volumes/D/claude/heardright/ios-native/HeardRight/PendingImportProcessor.swift",
+          "line": 13,
+          "symbol": "SharedImportQueue",
+          "detail": "active app reader drains queued imports"
+        }
+      ],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/heardright/ios-native/project.yml",
+          "line": 1,
+          "detail": "iOS/iPadOS plus Watch/widgets/extensions targets"
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/swift/RightKitSwift/Sources/RightKitImportQueue/SharedImportQueue.swift",
+          "line": 6,
+          "symbol": "SharedImportQueue",
+          "detail": "shared durable extension/app queue owner"
+        }
+      ],
+      "delivery_flags": [
+        "No active caller or compatible runtime in source census."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitLiveActivity",
+      "status": "Y",
+      "rationale": "Active production caller reaches shared RightKitLiveActivity API; no competing app-owned implementation found in component scope.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/heardright/ios-native/HeardRight/RecordingLiveActivityController.swift",
+          "line": 14,
+          "symbol": "LiveActivityHost<HeardRightRecordingActivityAttributes>",
+          "detail": "production recording controller owns shared live activity host"
+        },
+        {
+          "path": "/Volumes/D/claude/heardright/ios-native/HeardRight/RecordingLiveActivityController.swift",
+          "line": 49,
+          "symbol": "ActivityLifecycle",
+          "detail": "production phase transitions use shared lifecycle state machine"
+        }
+      ],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/heardright/ios-native/project.yml",
+          "line": 1,
+          "detail": "iOS/iPadOS plus Watch/widgets/extensions targets"
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/swift/RightKitSwift/Sources/RightKitLiveActivity/LiveActivityHost.swift",
+          "line": 34,
+          "symbol": "LiveActivityHost",
+          "detail": "shared ActivityKit host owner"
+        },
+        {
+          "path": "/Volumes/D/claude/rightkit/swift/RightKitSwift/Sources/RightKitLiveActivity/ActivityLifecycle.swift",
+          "line": 27,
+          "symbol": "ActivityLifecycle",
+          "detail": "shared lifecycle owner"
+        }
+      ],
+      "delivery_flags": [
+        "SwiftPM remote pin 0.4.0; source audit does not qualify built/runtime artifact."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitWatchBridge",
+      "status": "Y",
+      "rationale": "Active production caller reaches shared RightKitWatchBridge API; no competing app-owned implementation found in component scope.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/heardright/ios-native/HeardRight/WatchRecordingInbox.swift",
+          "line": 154,
+          "symbol": "DualPathSender",
+          "detail": "production phone inbox sends watch payload through shared bridge transport"
+        },
+        {
+          "path": "/Volumes/D/claude/heardright/ios-native/HeardRightWatch/WatchRecordingTransfer.swift",
+          "line": 35,
+          "symbol": "TransferLedger<WatchRecording>",
+          "detail": "production watch transfer queue uses shared ledger"
+        }
+      ],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/heardright/ios-native/project.yml",
+          "line": 1,
+          "detail": "iOS/iPadOS plus Watch/widgets/extensions targets"
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/swift/RightKitSwift/Sources/RightKitWatchBridge/WatchBridgeSupport.swift",
+          "line": 24,
+          "symbol": "DualPathSender",
+          "detail": "shared watch transport owner"
+        },
+        {
+          "path": "/Volumes/D/claude/rightkit/swift/RightKitSwift/Sources/RightKitWatchBridge/TransferLedger.swift",
+          "line": 31,
+          "symbol": "TransferLedger",
+          "detail": "shared transfer ledger owner"
+        }
+      ],
+      "delivery_flags": [
+        "SwiftPM remote pin 0.4.0; source audit does not qualify built/runtime artifact."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitSpeech",
+      "status": "Y",
+      "rationale": "Active production caller reaches shared RightKitSpeech API; RustSpeechProviders supplies HeardRight conditioning/token policy adapter, while shared module owns model execution, segmentation and scheduling; no competing speech engine found.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/heardright/ios-native/HeardRight/RustSpeechProviders.swift",
+          "line": 63,
+          "symbol": "ParakeetEngine",
+          "detail": "production native ASR provider constructs shared speech runtime"
+        }
+      ],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/heardright/ios-native/project.yml",
+          "line": 1,
+          "detail": "iOS/iPadOS plus Watch/widgets/extensions targets"
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/swift/RightKitSwift/Sources/RightKitSpeech/SpeechEngines.swift",
+          "line": 67,
+          "symbol": "ParakeetEngine",
+          "detail": "shared native speech engine owner"
+        }
+      ],
+      "delivery_flags": [
+        "SwiftPM remote pin 0.4.0; source audit does not qualify built target."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitIntents",
+      "status": "Y",
+      "rationale": "Active production caller reaches shared RightKitIntents API; no competing app-owned implementation found in component scope.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/heardright/ios-native/Shared/HeardRightAppIntents.swift",
+          "line": 27,
+          "symbol": "RightKitRecordingBridge.driver",
+          "detail": "production App Intent bridge registers HeardRight recording driver"
+        }
+      ],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/heardright/ios-native/project.yml",
+          "line": 1,
+          "detail": "iOS/iPadOS plus Watch/widgets/extensions targets"
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/swift/RightKitSwift/Sources/RightKitIntents/RecordingBridge.swift",
+          "line": 112,
+          "symbol": "RightKitRecordingBridge",
+          "detail": "shared App Intent recording bridge owner"
+        }
+      ],
+      "delivery_flags": [
+        "SwiftPM remote pin 0.4.0; source audit does not qualify built/runtime artifact."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitAppleCredentials",
+      "status": "Y",
+      "rationale": "AppleSyncedCredentialStore uses RightKitAppleCredentials for synchronizable/device credential operations; local AccountSessionStore is separate account-session policy.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/heardright/ios-native/Shared/AppleSyncedCredentialStore.swift",
+          "line": 285,
+          "symbol": "rightKitStore.read",
+          "detail": "production credential adapter reads synced/device scopes through shared AppleCredentialStore"
+        },
+        {
+          "path": "/Volumes/D/claude/heardright/ios-native/Shared/AppleSyncedCredentialStore.swift",
+          "line": 291,
+          "symbol": "rightKitStore.write",
+          "detail": "production credential adapter writes synced/device scopes through shared AppleCredentialStore"
+        }
+      ],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/heardright/ios-native/Shared/AppleSyncedCredentialStore.swift",
+          "line": 278,
+          "symbol": "SecItemCopyMatching",
+          "detail": "production adapter census covers direct Keychain discovery plus shared store reads/writes; local AccountSessionStore policy remains app-owned"
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/swift/RightKitSwift/Sources/RightKitAppleCredentials/RightKitAppleCredentials.swift",
+          "line": 77,
+          "symbol": "AppleCredentialStore",
+          "detail": "shared Apple credential store owner"
+        }
+      ],
+      "delivery_flags": [
+        "No active caller or compatible runtime in source census."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitOverlay",
+      "status": "NA",
+      "rationale": "HeardRight native overlay is an iOS SwiftUI recording pill; RightKitOverlay is a macOS AppKit panel with no matching target.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/heardright/ios-native/HeardRight/RecordingPillView.swift",
+          "line": 2,
+          "symbol": "import RightKitUI",
+          "detail": "iOS SwiftUI pill uses RightKitUI; no macOS AppKit RightKitOverlayPanel target"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "Source census found no compatible production caller."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitWatch",
+      "status": "NA",
+      "rationale": "HeardRight Watch target records/transfers audio; RightKitWatch is a macOS FSEvents watcher with no watchOS feature match.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/heardright/ios-native/HeardRightWatch/WatchRecordingController.swift",
+          "line": 66,
+          "symbol": "WatchRecordingController",
+          "detail": "watchOS records/transfers audio; no RightKitWatch FSEvents watcher use"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "Source census found no compatible production caller."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitUI",
+      "status": "Y",
+      "rationale": "Active production caller reaches shared RightKitUI API; no competing app-owned implementation found in component scope.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/heardright/ios-native/HeardRight/RecordingPillView.swift",
+          "line": 205,
+          "symbol": "rightKitAdaptiveGlass",
+          "detail": "production recording pill applies shared adaptive glass modifier"
+        }
+      ],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/heardright/ios-native/project.yml",
+          "line": 1,
+          "detail": "iOS/iPadOS plus Watch/widgets/extensions targets"
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/swift/RightKitSwift/Sources/RightKitUI/AdaptiveGlassSurface.swift",
+          "line": 37,
+          "symbol": "rightKitAdaptiveGlass",
+          "detail": "shared adaptive UI surface owner"
+        }
+      ],
+      "delivery_flags": [
+        "SwiftPM remote pin 0.4.0; source audit does not qualify built/runtime artifact."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    }
+  ],
+  "searches": [
+    {
+      "pattern": "rightkit_* imports & production calls",
+      "scope": "/Volumes/D/claude/heardright/tauri-app-next/**/*.rs plus manifests",
+      "result": "Replaced manifest-only anchors with crash/model/service/tauri production symbols; N/M rows cite live callers."
+    },
+    {
+      "pattern": "RightKit Swift imports, OSLog/Logger, SecItem/Keychain, model install, share queue, WatchConnectivity/FSEvents",
+      "scope": "/Volumes/D/claude/heardright/ios-native/**/*.swift",
+      "result": "Diagnostics, import queue, Apple credentials, live activity, watch bridge, speech, store, purchases, cloud sync, intents, UI are active shared routes; local artifact installer is N; RightKitWatch/Overlay remain incompatible NA."
+    },
+    {
+      "pattern": "legacy local implementations for DB/fs/overlay/sync/settings/http/ORT/secrets/VAD/transcript/control/hotkeys",
+      "scope": "/Volumes/D/claude/heardright/tauri-app-next/src-tauri plus heardright_* source",
+      "result": "Confirmed production local callers for N rows; owner APIs read from matching RightKit source."
+    },
+    {
+      "pattern": "tests, Cargo.toml, pnpm-lock.yaml, prior audits",
+      "scope": "all evidence candidates",
+      "result": "Removed test-only/npm-tauri test and manifest-only anchors from Y/M/N evidence; prior audit files excluded."
+    }
+  ],
+  "self_review": "Adversarial repair challenged every Y/M/NA: ASR distinguishes shared parakeet_core from local CoreMlParakeet engine/display; license M is limited to duplicate lease-envelope verifier while device endpoint policy stays app-owned; npm license stays Y because core uses shared client and device lease adapter is product policy; Swift diagnostics, model installation, import queue, OSLog, Keychain/SecItem, Watch target, extensions, widgets, and App Intents were rechecked; local platform UI, QA, shell, DB/fs/overlay/sync/model overlaps were promoted to M/N; owner evidence names matching APIs and live callers."
+}

@@ -1,0 +1,1951 @@
+{
+  "app": "RightSites",
+  "root": "/Volumes/D/claude/rightsites",
+  "head": "6612d4de5b09",
+  "reviewed_at": "2026-10-11T03:04:10.241Z",
+  "targets": [
+    "Node.js Hono API",
+    "React browser admin",
+    "Qwik SSR storefronts & marketing sites",
+    "Cloudflare Workers",
+    "iOS SellRightAdmin application",
+    "iOS SellRightWidgets Live Activity extension"
+  ],
+  "scope_note": "Current operative source, project wiring, CI/config, QA/release tooling only; maintained iOS app + widget extension included. Generated output, caches, tests, prior audits, builds, installs, network, commits, & execution qualification excluded.",
+  "cells": [
+    {
+      "component_id": "cargo:agent-room-core",
+      "status": "NA",
+      "rationale": "NA: no agent-room server or protocol target exists in RightSites. No Cargo/Tauri bridge exists for this Rust component; maintained iOS Swift target is assessed only against Swift products.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightsites/ios/project.yml",
+          "line": 16,
+          "detail": "Maintained native target is Swift-only; source census found no Cargo.toml or Tauri manifest/bridge."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-agent-tools",
+      "status": "NA",
+      "rationale": "NA: no RightKit agent-tools CLI or engine-command host exists. No Cargo/Tauri bridge exists for this Rust component; maintained iOS Swift target is assessed only against Swift products.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightsites/ios/project.yml",
+          "line": 16,
+          "detail": "Maintained native target is Swift-only; source census found no Cargo.toml or Tauri manifest/bridge."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-align",
+      "status": "NA",
+      "rationale": "NA: no ASR/script word-alignment caller exists. No Cargo/Tauri bridge exists for this Rust component; maintained iOS Swift target is assessed only against Swift products.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightsites/ios/project.yml",
+          "line": 16,
+          "detail": "Maintained native target is Swift-only; source census found no Cargo.toml or Tauri manifest/bridge."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-asr",
+      "status": "NA",
+      "rationale": "NA: no server or browser ASR decoder exists; Workers only gate model bytes. No Cargo/Tauri bridge exists for this Rust component; maintained iOS Swift target is assessed only against Swift products.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightsites/ios/project.yml",
+          "line": 16,
+          "detail": "Maintained native target is Swift-only; source census found no Cargo.toml or Tauri manifest/bridge."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-audio",
+      "status": "NA",
+      "rationale": "NA: no audio capture, FFmpeg graph, or audio pipeline target exists. No Cargo/Tauri bridge exists for this Rust component; maintained iOS Swift target is assessed only against Swift products.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightsites/ios/project.yml",
+          "line": 16,
+          "detail": "Maintained native target is Swift-only; source census found no Cargo.toml or Tauri manifest/bridge."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-automation",
+      "status": "NA",
+      "rationale": "NA: no native desktop automation target exists. No Cargo/Tauri bridge exists for this Rust component; maintained iOS Swift target is assessed only against Swift products.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightsites/ios/project.yml",
+          "line": 16,
+          "detail": "Maintained native target is Swift-only; source census found no Cargo.toml or Tauri manifest/bridge."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-browser",
+      "status": "NA",
+      "rationale": "NA: no Rust CDP browser runtime or Rust bridge exists. No Cargo/Tauri bridge exists for this Rust component; maintained iOS Swift target is assessed only against Swift products.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightsites/ios/project.yml",
+          "line": 16,
+          "detail": "Maintained native target is Swift-only; source census found no Cargo.toml or Tauri manifest/bridge."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-cache",
+      "status": "NA",
+      "rationale": "NA: no Rust cache integration or bridge exists. No Cargo/Tauri bridge exists for this Rust component; maintained iOS Swift target is assessed only against Swift products.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightsites/ios/project.yml",
+          "line": 16,
+          "detail": "Maintained native target is Swift-only; source census found no Cargo.toml or Tauri manifest/bridge."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-channel-memory",
+      "status": "NA",
+      "rationale": "NA: no content-pipeline channel-memory target exists. No Cargo/Tauri bridge exists for this Rust component; maintained iOS Swift target is assessed only against Swift products.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightsites/ios/project.yml",
+          "line": 16,
+          "detail": "Maintained native target is Swift-only; source census found no Cargo.toml or Tauri manifest/bridge."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-compose",
+      "status": "NA",
+      "rationale": "NA: no composition/render pipeline target exists. No Cargo/Tauri bridge exists for this Rust component; maintained iOS Swift target is assessed only against Swift products.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightsites/ios/project.yml",
+          "line": 16,
+          "detail": "Maintained native target is Swift-only; source census found no Cargo.toml or Tauri manifest/bridge."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-contracts",
+      "status": "NA",
+      "rationale": "NA: no RightKit content-pipeline contract consumer exists. No Cargo/Tauri bridge exists for this Rust component; maintained iOS Swift target is assessed only against Swift products.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightsites/ios/project.yml",
+          "line": 16,
+          "detail": "Maintained native target is Swift-only; source census found no Cargo.toml or Tauri manifest/bridge."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-control",
+      "status": "NA",
+      "rationale": "NA: no native control or WebDriver host exists. No Cargo/Tauri bridge exists for this Rust component; maintained iOS Swift target is assessed only against Swift products.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightsites/ios/project.yml",
+          "line": 16,
+          "detail": "Maintained native target is Swift-only; source census found no Cargo.toml or Tauri manifest/bridge."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-crash",
+      "status": "NA",
+      "rationale": "NA: no desktop crash-report/support-bundle target exists. No Cargo/Tauri bridge exists for this Rust component; maintained iOS Swift target is assessed only against Swift products.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightsites/ios/project.yml",
+          "line": 16,
+          "detail": "Maintained native target is Swift-only; source census found no Cargo.toml or Tauri manifest/bridge."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-daemon",
+      "status": "NA",
+      "rationale": "NA: no local device daemon target exists. No Cargo/Tauri bridge exists for this Rust component; maintained iOS Swift target is assessed only against Swift products.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightsites/ios/project.yml",
+          "line": 16,
+          "detail": "Maintained native target is Swift-only; source census found no Cargo.toml or Tauri manifest/bridge."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-db",
+      "status": "NA",
+      "rationale": "NA: API uses PostgreSQL, not a Rust SQLite/SQLCipher client. No Cargo/Tauri bridge exists for this Rust component; maintained iOS Swift target is assessed only against Swift products.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightsites/ios/project.yml",
+          "line": 16,
+          "detail": "Maintained native target is Swift-only; source census found no Cargo.toml or Tauri manifest/bridge."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-embed",
+      "status": "NA",
+      "rationale": "NA: no local embeddings/vector-store target exists. No Cargo/Tauri bridge exists for this Rust component; maintained iOS Swift target is assessed only against Swift products.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightsites/ios/project.yml",
+          "line": 16,
+          "detail": "Maintained native target is Swift-only; source census found no Cargo.toml or Tauri manifest/bridge."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-framed-sidecar",
+      "status": "NA",
+      "rationale": "NA: no framed Rust sidecar caller exists. No Cargo/Tauri bridge exists for this Rust component; maintained iOS Swift target is assessed only against Swift products.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightsites/ios/project.yml",
+          "line": 16,
+          "detail": "Maintained native target is Swift-only; source census found no Cargo.toml or Tauri manifest/bridge."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-fs",
+      "status": "NA",
+      "rationale": "NA: no desktop state-directory/file-identity target exists. No Cargo/Tauri bridge exists for this Rust component; maintained iOS Swift target is assessed only against Swift products.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightsites/ios/project.yml",
+          "line": 16,
+          "detail": "Maintained native target is Swift-only; source census found no Cargo.toml or Tauri manifest/bridge."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-fsindex",
+      "status": "NA",
+      "rationale": "NA: no whole-disk index target exists. No Cargo/Tauri bridge exists for this Rust component; maintained iOS Swift target is assessed only against Swift products.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightsites/ios/project.yml",
+          "line": 16,
+          "detail": "Maintained native target is Swift-only; source census found no Cargo.toml or Tauri manifest/bridge."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-hotkeys",
+      "status": "NA",
+      "rationale": "NA: no native global-hotkey target exists. No Cargo/Tauri bridge exists for this Rust component; maintained iOS Swift target is assessed only against Swift products.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightsites/ios/project.yml",
+          "line": 16,
+          "detail": "Maintained native target is Swift-only; source census found no Cargo.toml or Tauri manifest/bridge."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-http",
+      "status": "NA",
+      "rationale": "NA: Node/Worker networking has no Rust host bridge. No Cargo/Tauri bridge exists for this Rust component; maintained iOS Swift target is assessed only against Swift products.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightsites/ios/project.yml",
+          "line": 16,
+          "detail": "Maintained native target is Swift-only; source census found no Cargo.toml or Tauri manifest/bridge."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-jobs",
+      "status": "NA",
+      "rationale": "NA: API scheduler is Node code; no Rust jobs bridge exists. No Cargo/Tauri bridge exists for this Rust component; maintained iOS Swift target is assessed only against Swift products.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightsites/ios/project.yml",
+          "line": 16,
+          "detail": "Maintained native target is Swift-only; source census found no Cargo.toml or Tauri manifest/bridge."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-license",
+      "status": "NA",
+      "rationale": "NA: Worker token verification is a Cloudflare WebCrypto server role, not a Rust desktop verifier. No Cargo/Tauri bridge exists for this Rust component; maintained iOS Swift target is assessed only against Swift products.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightsites/ios/project.yml",
+          "line": 16,
+          "detail": "Maintained native target is Swift-only; source census found no Cargo.toml or Tauri manifest/bridge."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-llm",
+      "status": "NA",
+      "rationale": "NA: no production LLM client target exists. No Cargo/Tauri bridge exists for this Rust component; maintained iOS Swift target is assessed only against Swift products.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightsites/ios/project.yml",
+          "line": 16,
+          "detail": "Maintained native target is Swift-only; source census found no Cargo.toml or Tauri manifest/bridge."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-logs",
+      "status": "NA",
+      "rationale": "NA: Pino is Node server logging; this Rust desktop logger has no bridge. No Cargo/Tauri bridge exists for this Rust component; maintained iOS Swift target is assessed only against Swift products.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightsites/ios/project.yml",
+          "line": 16,
+          "detail": "Maintained native target is Swift-only; source census found no Cargo.toml or Tauri manifest/bridge."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-mcp",
+      "status": "NA",
+      "rationale": "NA: no MCP client/server target exists. No Cargo/Tauri bridge exists for this Rust component; maintained iOS Swift target is assessed only against Swift products.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightsites/ios/project.yml",
+          "line": 16,
+          "detail": "Maintained native target is Swift-only; source census found no Cargo.toml or Tauri manifest/bridge."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-media",
+      "status": "NA",
+      "rationale": "NA: no FFmpeg artifact lifecycle target exists. No Cargo/Tauri bridge exists for this Rust component; maintained iOS Swift target is assessed only against Swift products.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightsites/ios/project.yml",
+          "line": 16,
+          "detail": "Maintained native target is Swift-only; source census found no Cargo.toml or Tauri manifest/bridge."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-models",
+      "status": "NA",
+      "rationale": "NA: Workers authorize model delivery; no desktop model installer is hosted here. No Cargo/Tauri bridge exists for this Rust component; maintained iOS Swift target is assessed only against Swift products.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightsites/ios/project.yml",
+          "line": 16,
+          "detail": "Maintained native target is Swift-only; source census found no Cargo.toml or Tauri manifest/bridge."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-oauth",
+      "status": "NA",
+      "rationale": "NA: web/API auth is not a desktop loopback/device-flow OAuth host. No Cargo/Tauri bridge exists for this Rust component; maintained iOS Swift target is assessed only against Swift products.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightsites/ios/project.yml",
+          "line": 16,
+          "detail": "Maintained native target is Swift-only; source census found no Cargo.toml or Tauri manifest/bridge."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-ocr",
+      "status": "NA",
+      "rationale": "NA: no OCR runtime target exists. No Cargo/Tauri bridge exists for this Rust component; maintained iOS Swift target is assessed only against Swift products.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightsites/ios/project.yml",
+          "line": 16,
+          "detail": "Maintained native target is Swift-only; source census found no Cargo.toml or Tauri manifest/bridge."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-ort",
+      "status": "NA",
+      "rationale": "NA: no ONNX Runtime host exists. No Cargo/Tauri bridge exists for this Rust component; maintained iOS Swift target is assessed only against Swift products.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightsites/ios/project.yml",
+          "line": 16,
+          "detail": "Maintained native target is Swift-only; source census found no Cargo.toml or Tauri manifest/bridge."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-overlay",
+      "status": "NA",
+      "rationale": "NA: no native overlay target exists. No Cargo/Tauri bridge exists for this Rust component; maintained iOS Swift target is assessed only against Swift products.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightsites/ios/project.yml",
+          "line": 16,
+          "detail": "Maintained native target is Swift-only; source census found no Cargo.toml or Tauri manifest/bridge."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-ownership",
+      "status": "NA",
+      "rationale": "NA: no Rust ownership broker target exists. No Cargo/Tauri bridge exists for this Rust component; maintained iOS Swift target is assessed only against Swift products.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightsites/ios/project.yml",
+          "line": 16,
+          "detail": "Maintained native target is Swift-only; source census found no Cargo.toml or Tauri manifest/bridge."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-pdf",
+      "status": "NA",
+      "rationale": "NA: no PDF engine caller exists. No Cargo/Tauri bridge exists for this Rust component; maintained iOS Swift target is assessed only against Swift products.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightsites/ios/project.yml",
+          "line": 16,
+          "detail": "Maintained native target is Swift-only; source census found no Cargo.toml or Tauri manifest/bridge."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-playback",
+      "status": "NA",
+      "rationale": "NA: no media playback-preparation target exists. No Cargo/Tauri bridge exists for this Rust component; maintained iOS Swift target is assessed only against Swift products.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightsites/ios/project.yml",
+          "line": 16,
+          "detail": "Maintained native target is Swift-only; source census found no Cargo.toml or Tauri manifest/bridge."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-process",
+      "status": "NA",
+      "rationale": "NA: no Rust child-process lifecycle bridge exists. No Cargo/Tauri bridge exists for this Rust component; maintained iOS Swift target is assessed only against Swift products.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightsites/ios/project.yml",
+          "line": 16,
+          "detail": "Maintained native target is Swift-only; source census found no Cargo.toml or Tauri manifest/bridge."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-qa",
+      "status": "NA",
+      "rationale": "NA: no Rust native QA harness target exists. No Cargo/Tauri bridge exists for this Rust component; maintained iOS Swift target is assessed only against Swift products.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightsites/ios/project.yml",
+          "line": 16,
+          "detail": "Maintained native target is Swift-only; source census found no Cargo.toml or Tauri manifest/bridge."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-qts",
+      "status": "NA",
+      "rationale": "NA: no Qwen TTS target exists. No Cargo/Tauri bridge exists for this Rust component; maintained iOS Swift target is assessed only against Swift products.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightsites/ios/project.yml",
+          "line": 16,
+          "detail": "Maintained native target is Swift-only; source census found no Cargo.toml or Tauri manifest/bridge."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-qts-ggml",
+      "status": "NA",
+      "rationale": "NA: no Qwen TTS target exists. No Cargo/Tauri bridge exists for this Rust component; maintained iOS Swift target is assessed only against Swift products.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightsites/ios/project.yml",
+          "line": 16,
+          "detail": "Maintained native target is Swift-only; source census found no Cargo.toml or Tauri manifest/bridge."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-qts-ggml-sys",
+      "status": "NA",
+      "rationale": "NA: no Qwen TTS FFI target exists. No Cargo/Tauri bridge exists for this Rust component; maintained iOS Swift target is assessed only against Swift products.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightsites/ios/project.yml",
+          "line": 16,
+          "detail": "Maintained native target is Swift-only; source census found no Cargo.toml or Tauri manifest/bridge."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-record",
+      "status": "NA",
+      "rationale": "NA: no recorder/session-bundle target exists. No Cargo/Tauri bridge exists for this Rust component; maintained iOS Swift target is assessed only against Swift products.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightsites/ios/project.yml",
+          "line": 16,
+          "detail": "Maintained native target is Swift-only; source census found no Cargo.toml or Tauri manifest/bridge."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-review",
+      "status": "NA",
+      "rationale": "NA: no content review runtime target exists. No Cargo/Tauri bridge exists for this Rust component; maintained iOS Swift target is assessed only against Swift products.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightsites/ios/project.yml",
+          "line": 16,
+          "detail": "Maintained native target is Swift-only; source census found no Cargo.toml or Tauri manifest/bridge."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-sandbox",
+      "status": "NA",
+      "rationale": "NA: no OS sandbox/PTY target exists. No Cargo/Tauri bridge exists for this Rust component; maintained iOS Swift target is assessed only against Swift products.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightsites/ios/project.yml",
+          "line": 16,
+          "detail": "Maintained native target is Swift-only; source census found no Cargo.toml or Tauri manifest/bridge."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-scenario",
+      "status": "NA",
+      "rationale": "NA: no scenario-runtime target exists. No Cargo/Tauri bridge exists for this Rust component; maintained iOS Swift target is assessed only against Swift products.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightsites/ios/project.yml",
+          "line": 16,
+          "detail": "Maintained native target is Swift-only; source census found no Cargo.toml or Tauri manifest/bridge."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-search",
+      "status": "NA",
+      "rationale": "NA: commerce search remains app SQL/API behavior; no Rust query bridge exists. No Cargo/Tauri bridge exists for this Rust component; maintained iOS Swift target is assessed only against Swift products.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightsites/ios/project.yml",
+          "line": 16,
+          "detail": "Maintained native target is Swift-only; source census found no Cargo.toml or Tauri manifest/bridge."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-secrets",
+      "status": "NA",
+      "rationale": "NA: no OS credential-store integration exists. No Cargo/Tauri bridge exists for this Rust component; maintained iOS Swift target is assessed only against Swift products.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightsites/ios/project.yml",
+          "line": 16,
+          "detail": "Maintained native target is Swift-only; source census found no Cargo.toml or Tauri manifest/bridge."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-send",
+      "status": "NA",
+      "rationale": "NA: no LocalSend/Pulse sharing target exists. No Cargo/Tauri bridge exists for this Rust component; maintained iOS Swift target is assessed only against Swift products.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightsites/ios/project.yml",
+          "line": 16,
+          "detail": "Maintained native target is Swift-only; source census found no Cargo.toml or Tauri manifest/bridge."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-service",
+      "status": "NA",
+      "rationale": "NA: no RightSuite local service endpoint exists. No Cargo/Tauri bridge exists for this Rust component; maintained iOS Swift target is assessed only against Swift products.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightsites/ios/project.yml",
+          "line": 16,
+          "detail": "Maintained native target is Swift-only; source census found no Cargo.toml or Tauri manifest/bridge."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-settings",
+      "status": "NA",
+      "rationale": "NA: commerce configuration & admin theme state are app-owned, not Rust desktop settings. No Cargo/Tauri bridge exists for this Rust component; maintained iOS Swift target is assessed only against Swift products.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightsites/ios/project.yml",
+          "line": 16,
+          "detail": "Maintained native target is Swift-only; source census found no Cargo.toml or Tauri manifest/bridge."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-shell",
+      "status": "NA",
+      "rationale": "NA: no Tauri desktop shell target exists. No Cargo/Tauri bridge exists for this Rust component; maintained iOS Swift target is assessed only against Swift products.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightsites/ios/project.yml",
+          "line": 16,
+          "detail": "Maintained native target is Swift-only; source census found no Cargo.toml or Tauri manifest/bridge."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-speech-client",
+      "status": "NA",
+      "rationale": "NA: no shared speech-service client target exists. No Cargo/Tauri bridge exists for this Rust component; maintained iOS Swift target is assessed only against Swift products.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightsites/ios/project.yml",
+          "line": 16,
+          "detail": "Maintained native target is Swift-only; source census found no Cargo.toml or Tauri manifest/bridge."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-sync",
+      "status": "NA",
+      "rationale": "NA: no desktop/mobile sync engine target exists. No Cargo/Tauri bridge exists for this Rust component; maintained iOS Swift target is assessed only against Swift products.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightsites/ios/project.yml",
+          "line": 16,
+          "detail": "Maintained native target is Swift-only; source census found no Cargo.toml or Tauri manifest/bridge."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-tauri",
+      "status": "NA",
+      "rationale": "NA: no Tauri command host exists. No Cargo/Tauri bridge exists for this Rust component; maintained iOS Swift target is assessed only against Swift products.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightsites/ios/project.yml",
+          "line": 16,
+          "detail": "Maintained native target is Swift-only; source census found no Cargo.toml or Tauri manifest/bridge."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-transcript",
+      "status": "NA",
+      "rationale": "NA: no timed-transcript import/export target exists. No Cargo/Tauri bridge exists for this Rust component; maintained iOS Swift target is assessed only against Swift products.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightsites/ios/project.yml",
+          "line": 16,
+          "detail": "Maintained native target is Swift-only; source census found no Cargo.toml or Tauri manifest/bridge."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-tts",
+      "status": "NA",
+      "rationale": "NA: no local TTS target exists. No Cargo/Tauri bridge exists for this Rust component; maintained iOS Swift target is assessed only against Swift products.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightsites/ios/project.yml",
+          "line": 16,
+          "detail": "Maintained native target is Swift-only; source census found no Cargo.toml or Tauri manifest/bridge."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-vad",
+      "status": "NA",
+      "rationale": "NA: no voice-activity target exists. No Cargo/Tauri bridge exists for this Rust component; maintained iOS Swift target is assessed only against Swift products.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightsites/ios/project.yml",
+          "line": 16,
+          "detail": "Maintained native target is Swift-only; source census found no Cargo.toml or Tauri manifest/bridge."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-watch",
+      "status": "NA",
+      "rationale": "NA: no Rust filesystem-watch integration or bridge exists. No Cargo/Tauri bridge exists for this Rust component; maintained iOS Swift target is assessed only against Swift products.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightsites/ios/project.yml",
+          "line": 16,
+          "detail": "Maintained native target is Swift-only; source census found no Cargo.toml or Tauri manifest/bridge."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/agent-room-mcp",
+      "status": "NA",
+      "rationale": "NA: no agent-room MCP endpoint exists. No Rust/Tauri bridge exists for this component; iOS target is evaluated only through Swift products.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightsites/packages/api/src/index.ts",
+          "line": 1,
+          "detail": "Current server entrypoint is Node/TypeScript (@hono/node-server); companion clients are React/Qwik & Workers."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/app-shell",
+      "status": "NA",
+      "rationale": "NA: NA: admin shell is merchant-specific React navigation; its active store/auth routes are not a RightKit desktop-shell integration. No Rust/Tauri bridge exists for this component; iOS target is evaluated only through Swift products.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightsites/packages/admin/src/main.tsx",
+          "line": 19,
+          "detail": "React admin mounts its own routed Layout; no @rightkit/app-shell import."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/ax",
+      "status": "NA",
+      "rationale": "NA: no app MCP/CLI conformance target exists. No Rust/Tauri bridge exists for this component; iOS target is evaluated only through Swift products.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightsites/packages/api/src/index.ts",
+          "line": 1,
+          "detail": "Current server entrypoint is Node/TypeScript (@hono/node-server); companion clients are React/Qwik & Workers."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/build-control-policy",
+      "status": "NA",
+      "rationale": "NA: private build-control owner is not an app feature. No Rust/Tauri bridge exists for this component; iOS target is evaluated only through Swift products.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightsites/packages/api/src/index.ts",
+          "line": 1,
+          "detail": "Current server entrypoint is Node/TypeScript (@hono/node-server); companion clients are React/Qwik & Workers."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/doc-render",
+      "status": "NA",
+      "rationale": "NA: current markdown rendering is Qwik/marked; no React document-reader integration exists. No Rust/Tauri bridge exists for this component; iOS target is evaluated only through Swift products.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightsites/packages/storefront/package.json",
+          "line": 1,
+          "detail": "Storefront is Qwik SSR; no React document-reader package is invoked."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/git",
+      "status": "NA",
+      "rationale": "NA: no RightKit Git workflow caller exists. No Rust/Tauri bridge exists for this component; iOS target is evaluated only through Swift products.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightsites/packages/api/src/index.ts",
+          "line": 1,
+          "detail": "Current server entrypoint is Node/TypeScript (@hono/node-server); companion clients are React/Qwik & Workers."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/hooks",
+      "status": "NA",
+      "rationale": "NA: no shared agent lifecycle runtime is hosted here. No Rust/Tauri bridge exists for this component; iOS target is evaluated only through Swift products.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightsites/packages/api/src/index.ts",
+          "line": 1,
+          "detail": "Current server entrypoint is Node/TypeScript (@hono/node-server); companion clients are React/Qwik & Workers."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/i18n",
+      "status": "NA",
+      "rationale": "NA: no locale catalog/provider feature exists. No Rust/Tauri bridge exists for this component; iOS target is evaluated only through Swift products.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightsites/packages/admin/src/main.tsx",
+          "line": 96,
+          "detail": "Admin source routes one English application; no locale provider/catalog call."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/legal",
+      "status": "Y",
+      "rationale": "Y: checkout resolves configured manifests through @rightkit/legal’s validator, then invokes that result before persisting a legal receipt. Store-specific legal policy & receipt assembly remain RightSites-owned.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightsites/packages/api/src/legal/manifests.ts",
+          "line": 19,
+          "symbol": "assertLegalManifest import + legalManifestForApp",
+          "detail": "API validates each configured legal manifest with @rightkit/legal."
+        },
+        {
+          "path": "/Volumes/D/claude/rightsites/packages/api/src/routes/checkout.ts",
+          "line": 364,
+          "symbol": "checkout legal receipt path",
+          "detail": "licensed checkout calls legalManifestForApp & legalReceiptForOrder before order creation."
+        }
+      ],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightsites/packages/api/src/index.ts",
+          "line": 1,
+          "detail": "Current server entrypoint is Node/TypeScript (@hono/node-server); companion clients are React/Qwik & Workers."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/legal-ui",
+      "status": "NA",
+      "rationale": "NA: checkout is Qwik commerce UI; this desktop React first-run legal gate has no compatible caller. No Rust/Tauri bridge exists for this component; iOS target is evaluated only through Swift products.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightsites/packages/storefront-apps/package.json",
+          "line": 1,
+          "detail": "Checkout storefront is Qwik; no React desktop legal UI route exists."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/license",
+      "status": "NA",
+      "rationale": "NA: RightSites is license issuer/gate server; no desktop license client calls this package. No Rust/Tauri bridge exists for this component; iOS target is evaluated only through Swift products.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightsites/workers/license-gate/src/index.ts",
+          "line": 155,
+          "detail": "License gate is a Cloudflare Worker fetch handler, not a native host."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/logs",
+      "status": "NA",
+      "rationale": "NA: shared client requires a Tauri invoke adapter; Pino remains Node server logging. No Rust/Tauri bridge exists for this component; iOS target is evaluated only through Swift products.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightsites/packages/api/src/lib/logger.ts",
+          "line": 20,
+          "detail": "API logging uses Pino in Node; @rightkit/logs requires a Tauri invoke adapter."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/media-ui",
+      "status": "NA",
+      "rationale": "NA: no media player or image-editor surface exists. No Rust/Tauri bridge exists for this component; iOS target is evaluated only through Swift products.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightsites/packages/api/src/index.ts",
+          "line": 1,
+          "detail": "Current server entrypoint is Node/TypeScript (@hono/node-server); companion clients are React/Qwik & Workers."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/onboarding",
+      "status": "NA",
+      "rationale": "NA: no desktop onboarding flow exists. No Rust/Tauri bridge exists for this component; iOS target is evaluated only through Swift products.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightsites/packages/api/src/index.ts",
+          "line": 1,
+          "detail": "Current server entrypoint is Node/TypeScript (@hono/node-server); companion clients are React/Qwik & Workers."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/pdf-ui",
+      "status": "NA",
+      "rationale": "NA: no browser PDF-reader surface exists. No Rust/Tauri bridge exists for this component; iOS target is evaluated only through Swift products.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightsites/packages/api/src/index.ts",
+          "line": 1,
+          "detail": "Current server entrypoint is Node/TypeScript (@hono/node-server); companion clients are React/Qwik & Workers."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/platform-ui",
+      "status": "NA",
+      "rationale": "NA: no native window-control platform exists. No Rust/Tauri bridge exists for this component; iOS target is evaluated only through Swift products.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightsites/packages/api/src/index.ts",
+          "line": 1,
+          "detail": "Current server entrypoint is Node/TypeScript (@hono/node-server); companion clients are React/Qwik & Workers."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/qa",
+      "status": "N",
+      "rationale": "N: active post-deploy site probes shell out to a hard-coded external CDP runner; no @rightkit/qa browser session is invoked. This is QA tooling, not production UI.",
+      "shared_evidence": [],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightsites/scripts/qa-site-probes.mjs",
+          "line": 14,
+          "symbol": "QA external runner path",
+          "detail": "probe entrypoint invokes qa-functional.mjs for five sites at desktop & mobile viewports."
+        }
+      ],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightsites/scripts/qa-site-probes.mjs",
+          "line": 5,
+          "detail": "Executable Node QA script is a current QA entrypoint."
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/packages/qa/src/page.ts",
+          "line": 43,
+          "detail": "QaBrowserSession owns bounded CDP pages for Node QA callers."
+        }
+      ],
+      "delivery_flags": [
+        "QA runner path is Windows-local (D:/Claude), not a published RightKit dependency."
+      ],
+      "remaining_work": "Replace external-runner invocation with a @rightkit/qa Node harness only after preserving existing probe assertions.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/qa-chrome",
+      "status": "N",
+      "rationale": "N: current site probes depend on an externally installed Chrome runner, while @rightkit/qa-chrome’s managed resolver/launcher is not called.",
+      "shared_evidence": [],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightsites/scripts/qa-site-probes.mjs",
+          "line": 8,
+          "symbol": "probe runner declaration",
+          "detail": "script declares installed Chrome via an external CDP runner."
+        }
+      ],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightsites/scripts/qa-site-probes.mjs",
+          "line": 57,
+          "detail": "Node script executes browser QA per configured URL & viewport."
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/packages/qa-chrome/src/install.ts",
+          "line": 32,
+          "detail": "managedChromeForTestingRoot resolves suite-wide Chrome-for-Testing location."
+        }
+      ],
+      "delivery_flags": [
+        "Current QA runner is an absolute Windows path."
+      ],
+      "remaining_work": "Adopt @rightkit/qa-chrome only with an explicit browser-download & host policy; then wire probes to its resolved executable.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/release",
+      "status": "NA",
+      "rationale": "NA: current RightSites release config declares r2-rightsites; source-owned API release routes register R2-backed manifests/artifacts. No @rightkit/release caller, GitHub Release, OCI/GHCR config, Windows, or macOS desktop packaging target is operative here.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightsites/right-release.config.mjs",
+          "line": 1,
+          "detail": "Current release configuration selects r2-rightsites provider."
+        },
+        {
+          "path": "/Volumes/D/claude/rightsites/packages/api/src/rightsites-plugin/release-routes.ts",
+          "line": 119,
+          "detail": "API serves suite update manifests by target platform; this source route is not RightKit desktop release tooling."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/settings-ui",
+      "status": "NA",
+      "rationale": "NA: admin settings are commerce/store configuration, not desktop app settings. No Rust/Tauri bridge exists for this component; iOS target is evaluated only through Swift products.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightsites/packages/admin/src/pages/Settings.tsx",
+          "line": 1,
+          "detail": "Admin settings are merchant/store configuration UI."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/shell",
+      "status": "NA",
+      "rationale": "NA: no Tauri renderer bridge exists. No Rust/Tauri bridge exists for this component; iOS target is evaluated only through Swift products.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightsites/packages/api/src/index.ts",
+          "line": 1,
+          "detail": "Current server entrypoint is Node/TypeScript (@hono/node-server); companion clients are React/Qwik & Workers."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/tauri",
+      "status": "NA",
+      "rationale": "NA: no Tauri host exists. No Rust/Tauri bridge exists for this component; iOS target is evaluated only through Swift products.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightsites/packages/api/src/index.ts",
+          "line": 1,
+          "detail": "Current server entrypoint is Node/TypeScript (@hono/node-server); companion clients are React/Qwik & Workers."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/theme",
+      "status": "N",
+      "rationale": "N: React admin actively persists a light/dark/system choice, applies data-theme, & follows OS changes through its own theme hook; no @rightkit/theme/app-shell theme store is invoked.",
+      "shared_evidence": [],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightsites/packages/admin/src/theme.tsx",
+          "line": 23,
+          "symbol": "applyTheme",
+          "detail": "sets data-theme & dark class on document root."
+        },
+        {
+          "path": "/Volumes/D/claude/rightsites/packages/admin/src/theme.tsx",
+          "line": 35,
+          "symbol": "useTheme",
+          "detail": "persists theme/mode in localStorage & subscribes to matchMedia changes."
+        }
+      ],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightsites/packages/admin/src/main.tsx",
+          "line": 66,
+          "detail": "Protected React admin mounts Layout, which renders ThemeMenu."
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/packages/app-shell/src/theme.ts",
+          "line": 82,
+          "detail": "createThemeStore persists choice, applies data-theme, & owns system-theme listener."
+        }
+      ],
+      "delivery_flags": [],
+      "remaining_work": "Map admin theme IDs & CSS tokens to RightKit theme primitives without changing store-specific palette policy.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/update",
+      "status": "N",
+      "rationale": "N: workspace supplies direct pnpm dependency-audit/check/update scripts; no manifest-driven right-update check/apply/gate/land invocation is present.",
+      "shared_evidence": [],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightsites/package.json",
+          "line": 16,
+          "symbol": "deps:check/deps:update scripts",
+          "detail": "root scripts directly run pnpm outdated & pnpm up across workspace packages."
+        }
+      ],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightsites/package.json",
+          "line": 16,
+          "detail": "dependency maintenance scripts are active repository tooling."
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/packages/update/src/index.ts",
+          "line": 6,
+          "detail": "exports runCheck/runCli plus apply, gate, land & schedule mechanisms."
+        }
+      ],
+      "delivery_flags": [],
+      "remaining_work": "Create an explicit RightKit update manifest & map existing dependency gates before replacing direct pnpm scripts.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/updates",
+      "status": "NA",
+      "rationale": "NA: no Tauri runtime updater client exists. No Rust/Tauri bridge exists for this component; iOS target is evaluated only through Swift products.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightsites/packages/api/src/index.ts",
+          "line": 1,
+          "detail": "Current server entrypoint is Node/TypeScript (@hono/node-server); companion clients are React/Qwik & Workers."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitLicense",
+      "status": "NA",
+      "rationale": "NA: maintained iOS app + widget extension contain no import, linked product, or active RightKitLicense feature route; project links RightKitDiagnostics only.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightsites/ios/project.yml",
+          "line": 16,
+          "detail": "XcodeGen source declares maintained iOS SellRightAdmin application, SellRightWidgets extension, & remote RightKitSwift package."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitDiagnostics",
+      "status": "Y",
+      "rationale": "Y: SellRightAdmin target resolves RightKitDiagnostics, then every local Diagnostics.record caller reaches RightKit JSONLDiagnosticStore & PrivacyRedactor. Local enum only supplies app path, event names & fields.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightsites/ios/project.yml",
+          "line": 27,
+          "symbol": "SellRightAdmin dependencies",
+          "detail": "Maintained iOS application links RightKitDiagnostics."
+        },
+        {
+          "path": "/Volumes/D/claude/rightsites/ios/SellRightAdmin/Core/Diagnostics.swift",
+          "line": 6,
+          "symbol": "Diagnostics.record",
+          "detail": "App wrapper constructs JSONLDiagnosticStore + PrivacyRedactor, then sends DiagnosticEvent through shared store."
+        },
+        {
+          "path": "/Volumes/D/claude/rightsites/ios/SellRightAdmin/App/AppSession.swift",
+          "line": 74,
+          "symbol": "AppSession.login",
+          "detail": "Production login caller records through Diagnostics wrapper into shared diagnostic path."
+        }
+      ],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightsites/ios/project.yml",
+          "line": 16,
+          "detail": "XcodeGen source declares maintained iOS SellRightAdmin application, SellRightWidgets extension, & remote RightKitSwift package."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "RightKitSwift source pin: https://github.com/bogusyogi/rightkit-swift from 0.1.0; source review cannot qualify resolved revision or device runtime."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitArtifacts",
+      "status": "NA",
+      "rationale": "NA: maintained iOS app + widget extension contain no import, linked product, or active RightKitArtifacts feature route; project links RightKitDiagnostics only.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightsites/ios/project.yml",
+          "line": 16,
+          "detail": "XcodeGen source declares maintained iOS SellRightAdmin application, SellRightWidgets extension, & remote RightKitSwift package."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitPurchases",
+      "status": "NA",
+      "rationale": "NA: maintained iOS app + widget extension contain no import, linked product, or active RightKitPurchases feature route; project links RightKitDiagnostics only.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightsites/ios/project.yml",
+          "line": 16,
+          "detail": "XcodeGen source declares maintained iOS SellRightAdmin application, SellRightWidgets extension, & remote RightKitSwift package."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitCloudSync",
+      "status": "NA",
+      "rationale": "NA: maintained iOS app + widget extension contain no import, linked product, or active RightKitCloudSync feature route; project links RightKitDiagnostics only.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightsites/ios/project.yml",
+          "line": 16,
+          "detail": "XcodeGen source declares maintained iOS SellRightAdmin application, SellRightWidgets extension, & remote RightKitSwift package."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitStore",
+      "status": "NA",
+      "rationale": "NA: maintained iOS app + widget extension contain no import, linked product, or active RightKitStore feature route; project links RightKitDiagnostics only.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightsites/ios/project.yml",
+          "line": 16,
+          "detail": "XcodeGen source declares maintained iOS SellRightAdmin application, SellRightWidgets extension, & remote RightKitSwift package."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitImportQueue",
+      "status": "NA",
+      "rationale": "NA: maintained iOS app + widget extension contain no import, linked product, or active RightKitImportQueue feature route; project links RightKitDiagnostics only.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightsites/ios/project.yml",
+          "line": 16,
+          "detail": "XcodeGen source declares maintained iOS SellRightAdmin application, SellRightWidgets extension, & remote RightKitSwift package."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitLiveActivity",
+      "status": "N",
+      "rationale": "N: maintained app & widget extension implement active order ActivityKit contract, push-to-start token observation, update/end behavior & presentation locally; RightKitLiveActivity lifecycle host is not linked or called.",
+      "shared_evidence": [],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightsites/ios/SellRightAdmin/Core/OrderActivityController.swift",
+          "line": 15,
+          "symbol": "OrderActivityController.update",
+          "detail": "Local app controller finds, updates & ends active order ActivityKit activities."
+        },
+        {
+          "path": "/Volumes/D/claude/rightsites/ios/SellRightAdmin/Core/PushManager.swift",
+          "line": 111,
+          "symbol": "observePushToStartToken",
+          "detail": "Local manager streams ActivityKit push-to-start tokens for server registration."
+        },
+        {
+          "path": "/Volumes/D/claude/rightsites/ios/SellRightWidgets/OrderLiveActivity.swift",
+          "line": 11,
+          "symbol": "OrderLiveActivity",
+          "detail": "Maintained widget extension presents Lock Screen & Dynamic Island activity UI."
+        },
+        {
+          "path": "/Volumes/D/claude/rightsites/ios/SellRightAdmin/Features/Orders/OrderDetailView.swift",
+          "line": 191,
+          "symbol": "cancelOrder/FulfillSheet.submit",
+          "detail": "Live order actions invoke local controller update after API state transition."
+        }
+      ],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightsites/ios/project.yml",
+          "line": 16,
+          "detail": "XcodeGen source declares maintained iOS SellRightAdmin application, SellRightWidgets extension, & remote RightKitSwift package."
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/swift/RightKitSwift/Sources/RightKitLiveActivity/LiveActivityHost.swift",
+          "line": 25,
+          "detail": "Shared host owns fenced ActivityKit start/adopt/update/end lifecycle for an app-defined activity type."
+        },
+        {
+          "path": "/Volumes/D/claude/rightkit/swift/RightKitSwift/Sources/RightKitLiveActivity/ActivityLifecycle.swift",
+          "line": 27,
+          "detail": "Shared lifecycle guard supplies transition/terminal/session safety."
+        }
+      ],
+      "delivery_flags": [
+        "RightKitSwift project dependency lists RightKitDiagnostics only; extension target has no RightKitSwift product dependency."
+      ],
+      "remaining_work": "Add RightKitLiveActivity to app target, retain order schema + widget presentation, map local phases/push token policy to shared lifecycle host, then remove overlapping controller guards.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitWatchBridge",
+      "status": "NA",
+      "rationale": "NA: maintained iOS app + widget extension contain no import, linked product, or active RightKitWatchBridge feature route; project links RightKitDiagnostics only.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightsites/ios/project.yml",
+          "line": 16,
+          "detail": "XcodeGen source declares maintained iOS SellRightAdmin application, SellRightWidgets extension, & remote RightKitSwift package."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitSpeech",
+      "status": "NA",
+      "rationale": "NA: maintained iOS app + widget extension contain no import, linked product, or active RightKitSpeech feature route; project links RightKitDiagnostics only.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightsites/ios/project.yml",
+          "line": 16,
+          "detail": "XcodeGen source declares maintained iOS SellRightAdmin application, SellRightWidgets extension, & remote RightKitSwift package."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitIntents",
+      "status": "NA",
+      "rationale": "NA: maintained iOS app + widget extension contain no import, linked product, or active RightKitIntents feature route; project links RightKitDiagnostics only.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightsites/ios/project.yml",
+          "line": 16,
+          "detail": "XcodeGen source declares maintained iOS SellRightAdmin application, SellRightWidgets extension, & remote RightKitSwift package."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitAppleCredentials",
+      "status": "N",
+      "rationale": "N: SellRightAdmin actively stores, reads & deletes admin bearer token through local Security Keychain wrapper; RightKitAppleCredentials offers same per-app credential storage but is neither linked nor called.",
+      "shared_evidence": [],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightsites/ios/SellRightAdmin/Core/Keychain.swift",
+          "line": 6,
+          "symbol": "Keychain",
+          "detail": "Local wrapper performs SecItemDelete/Add/CopyMatching for app admin-token service."
+        },
+        {
+          "path": "/Volumes/D/claude/rightsites/ios/SellRightAdmin/App/AppSession.swift",
+          "line": 41,
+          "symbol": "bootstrap/login/logout",
+          "detail": "Live session reads local credential at launch, writes after login & deletes on logout."
+        }
+      ],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightsites/ios/project.yml",
+          "line": 16,
+          "detail": "XcodeGen source declares maintained iOS SellRightAdmin application, SellRightWidgets extension, & remote RightKitSwift package."
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/swift/RightKitSwift/Sources/RightKitAppleCredentials/RightKitAppleCredentials.swift",
+          "line": 77,
+          "detail": "AppleCredentialStore provides scoped per-app Keychain read/write/delete API."
+        }
+      ],
+      "delivery_flags": [
+        "RightKitSwift package currently exposes only RightKitDiagnostics product in project.yml."
+      ],
+      "remaining_work": "Add RightKitAppleCredentials product, map service/account/device-only scope, then remove local Keychain wrapper after auth-session tests.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitOverlay",
+      "status": "NA",
+      "rationale": "NA: maintained iOS app + widget extension contain no import, linked product, or active RightKitOverlay feature route; project links RightKitDiagnostics only.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightsites/ios/project.yml",
+          "line": 16,
+          "detail": "XcodeGen source declares maintained iOS SellRightAdmin application, SellRightWidgets extension, & remote RightKitSwift package."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitWatch",
+      "status": "NA",
+      "rationale": "NA: maintained iOS app + widget extension contain no import, linked product, or active RightKitWatch feature route; project links RightKitDiagnostics only.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightsites/ios/project.yml",
+          "line": 16,
+          "detail": "XcodeGen source declares maintained iOS SellRightAdmin application, SellRightWidgets extension, & remote RightKitSwift package."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitUI",
+      "status": "NA",
+      "rationale": "NA: maintained iOS app + widget extension contain no import, linked product, or active RightKitUI feature route; project links RightKitDiagnostics only.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightsites/ios/project.yml",
+          "line": 16,
+          "detail": "XcodeGen source declares maintained iOS SellRightAdmin application, SellRightWidgets extension, & remote RightKitSwift package."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    }
+  ],
+  "searches": [
+    {
+      "pattern": "RightKitSwift|RightKitDiagnostics|RightKitAppleCredentials|RightKitLiveActivity",
+      "scope": "rightsites/ios project.yml & operative Swift",
+      "result": "RightKitDiagnostics only linked/imported; local Keychain & ActivityKit paths remain active; no credentials/live-activity shared import."
+    },
+    {
+      "pattern": "SecItem(Add|CopyMatching|Delete)|Activity<|ActivityConfiguration",
+      "scope": "rightsites/ios operative Swift",
+      "result": "Keychain wrapper has live AppSession callers; app controller/PushManager/widget have live order ActivityKit callers."
+    },
+    {
+      "pattern": "Cargo.toml|tauri.conf|rightkit-* Rust bridge",
+      "scope": "rightsites operative manifests/config excluding generated/cache",
+      "result": "No Cargo or Tauri manifest/bridge; Cargo products remain runtime-incompatible."
+    },
+    {
+      "pattern": "@rightkit/|RightKit",
+      "scope": "rightsites operative manifests/source excluding generated/cache",
+      "result": "@rightkit/legal is only Node dependency; RightKitDiagnostics is only linked Swift product."
+    },
+    {
+      "pattern": "r2-rightsites|ghcr.io|OCI|github-releases",
+      "scope": "rightsites release config & source excluding generated/cache",
+      "result": "right-release.config.mjs selects r2-rightsites; no operative OCI/GHCR or GitHub Release configuration found."
+    }
+  ],
+  "self_review": "Challenged prior blanket Swift NA: project.yml wires maintained iOS app + widget extension. Reclassified Diagnostics Y from package-to-live-caller chain; AppleCredentials & LiveActivity N from active local overlap plus owner APIs. Retained four Node/tooling N rows after checking separate scope. Release remains NA: current R2 server release surface is neither a RightKit desktop Windows/macOS release consumer nor OCI/GHCR config."
+}

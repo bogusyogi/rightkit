@@ -1,0 +1,1960 @@
+{
+  "app": "LightCraft",
+  "root": "/Volumes/D/claude/workflows/lightcraft",
+  "head": "fd6a998949072a5343e982cb99bdbe5815433cc5",
+  "reviewed_at": "2026-10-11T08:27:21+05:30",
+  "targets": [
+    "desktop-egui",
+    "cli-mcp",
+    "web-wasm"
+  ],
+  "scope_note": "Current production source & config only: native egui desktop, Rust CLI/MCP, Rust/WASM web, CI/release tooling. Rendering/raw/photo algorithms stay app-owned; no execution qualification implied.",
+  "cells": [
+    {
+      "component_id": "cargo:agent-room-core",
+      "status": "NA",
+      "rationale": "No active LightCraft caller for this owner scope: agent-room-core. Source census found no RightKit route or exact local implementation.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/lightcraft/Cargo.toml",
+          "line": 1,
+          "detail": "Rust workspace census: native egui app, Rust CLI/MCP, Rust/WASM web target; no RightKit dependency route."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-agent-tools",
+      "status": "NA",
+      "rationale": "No active LightCraft caller for this owner scope: One typed tool interface for agents over rightkit-automation, rightkit-control, rightkit-browser and each app's engine commands (via rightkit-service), plus the `right-ctl <app> <command>` CLI.. Source census found no RightKit route or exact local implementation.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/lightcraft/Cargo.toml",
+          "line": 1,
+          "detail": "Rust workspace census: native egui app, Rust CLI/MCP, Rust/WASM web target; no RightKit dependency route."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-align",
+      "status": "NA",
+      "rationale": "No active LightCraft caller for this owner scope: Product-neutral script-to-ASR word alignment: pronunciation normalisation, edit-distance alignment with lexical and timing confidence, ambiguity and mismatch rejection, and control-name coverage. Source census found no RightKit route or exact local implementation.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/lightcraft/Cargo.toml",
+          "line": 1,
+          "detail": "Rust workspace census: native egui app, Rust CLI/MCP, Rust/WASM web target; no RightKit dependency route."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-asr",
+      "status": "NA",
+      "rationale": "No active LightCraft caller for this owner scope: Parakeet ONNX + Whisper (CoreML / whisper.cpp) speech decoding runtime for Right Suite applications. Source census found no RightKit route or exact local implementation.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/lightcraft/Cargo.toml",
+          "line": 1,
+          "detail": "Rust workspace census: native egui app, Rust CLI/MCP, Rust/WASM web target; no RightKit dependency route."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-audio",
+      "status": "NA",
+      "rationale": "No active LightCraft caller for this owner scope: Shared audio for Right Suite apps: typed FFmpeg filter graphs, loudness gates, room tone, ducking, WAV I/O, and cpal capture with resample/downmix/recovery.. Source census found no RightKit route or exact local implementation.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/lightcraft/Cargo.toml",
+          "line": 1,
+          "detail": "Rust workspace census: native egui app, Rust CLI/MCP, Rust/WASM web target; no RightKit dependency route."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-automation",
+      "status": "NA",
+      "rationale": "No active LightCraft caller for this owner scope: Brand-neutral desktop automation: observe and act on any app (macOS AX, Windows UIA) through a four-tier input ladder with safety, focus guard, and evidence receipts.. Source census found no RightKit route or exact local implementation.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/lightcraft/Cargo.toml",
+          "line": 1,
+          "detail": "Rust workspace census: native egui app, Rust CLI/MCP, Rust/WASM web target; no RightKit dependency route."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-browser",
+      "status": "NA",
+      "rationale": "No active LightCraft caller for this owner scope: Shared Chrome DevTools Protocol browser runtime for Right Suite: multi-page sessions, named profiles, real CDP input, observations with stale-ref checks.. Source census found no RightKit route or exact local implementation.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/lightcraft/Cargo.toml",
+          "line": 1,
+          "detail": "Rust workspace census: native egui app, Rust CLI/MCP, Rust/WASM web target; no RightKit dependency route."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-cache",
+      "status": "N",
+      "rationale": "Native & web thumbnail/source caches use LightCraft DiskCache/Lru; no RightKit cache route.",
+      "shared_evidence": [],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/lightcraft/crates/preview/src/disk.rs",
+          "line": 20,
+          "symbol": "DiskCache",
+          "detail": "active thumbnail cache uses bounded disk LRU, temp+rename, eviction"
+        }
+      ],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/lightcraft/Cargo.toml",
+          "line": 1,
+          "detail": "Rust workspace census: native egui app, Rust CLI/MCP, Rust/WASM web target; no RightKit dependency route."
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-cache/src/lib.rs",
+          "line": 18,
+          "symbol": "DiskCache",
+          "detail": "shared size-capped atomic disk cache"
+        }
+      ],
+      "delivery_flags": [],
+      "remaining_work": "Adapt rightkit-cache for native cache metadata only; retain LightCraft image encoding, keys & web OPFS policy.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-channel-memory",
+      "status": "NA",
+      "rationale": "No active LightCraft caller for this owner scope: Channel memory for the content pipeline: the channel-memory.v1 schema with serde types, validation, version gate, proof citation rules, and scope checks for PostRight P3 and GenRight G7.. Source census found no RightKit route or exact local implementation.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/lightcraft/Cargo.toml",
+          "line": 1,
+          "detail": "Rust workspace census: native egui app, Rust CLI/MCP, Rust/WASM web target; no RightKit dependency route."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-compose",
+      "status": "NA",
+      "rationale": "No active LightCraft caller for this owner scope: Product-neutral evaluated composition model: layered video, stills, cursor sprites, backgrounds, clipping, shadows, motion blur, overlays and keyframed tracks, with one pure per-frame evaluation shared by preview and export. Source census found no RightKit route or exact local implementation.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/lightcraft/Cargo.toml",
+          "line": 1,
+          "detail": "Rust workspace census: native egui app, Rust CLI/MCP, Rust/WASM web target; no RightKit dependency route."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-contracts",
+      "status": "NA",
+      "rationale": "No active LightCraft caller for this owner scope: Versioned content-pipeline contracts for the Right Suite: content brief, delivery envelope, record session and event, demo plan and daemon API. JSON Schema validation, serde types, and major-version negotiation.. Source census found no RightKit route or exact local implementation.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/lightcraft/Cargo.toml",
+          "line": 1,
+          "detail": "Rust workspace census: native egui app, Rust CLI/MCP, Rust/WASM web target; no RightKit dependency route."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-control",
+      "status": "NA",
+      "rationale": "No active LightCraft caller for this owner scope: Background native input, accessibility reads, and a WebDriver bridge for driving real desktop apps without stealing focus.. Source census found no RightKit route or exact local implementation.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/lightcraft/Cargo.toml",
+          "line": 1,
+          "detail": "Rust workspace census: native egui app, Rust CLI/MCP, Rust/WASM web target; no RightKit dependency route."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-crash",
+      "status": "N",
+      "rationale": "Native command guard & panic hook are local; no RightKit crash capture route.",
+      "shared_evidence": [],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/lightcraft/crates/engine/src/guard.rs",
+          "line": 21,
+          "symbol": "catch / install_hook",
+          "detail": "converts command panic to error & appends plaintext panic log"
+        }
+      ],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/lightcraft/Cargo.toml",
+          "line": 1,
+          "detail": "Rust workspace census: native egui app, Rust CLI/MCP, Rust/WASM web target; no RightKit dependency route."
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-crash/src/lib.rs",
+          "line": 30,
+          "symbol": "install_panic_hook",
+          "detail": "shared redacted crash report & pending-report API"
+        }
+      ],
+      "delivery_flags": [],
+      "remaining_work": "Wire shared crash capture around existing command guard; retain LightCraft recovery semantics.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-daemon",
+      "status": "NA",
+      "rationale": "No active LightCraft caller for this owner scope: Daemon host capability for the Right Suite: HTTPS listener, device enrolment and signed requests, OAuth callback and signed webhook route classes, bounded blake3-keyed resumable uploads, compare-and-swap mutations, durable state and lifecycle events.. Source census found no RightKit route or exact local implementation.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/lightcraft/Cargo.toml",
+          "line": 1,
+          "detail": "Rust workspace census: native egui app, Rust CLI/MCP, Rust/WASM web target; no RightKit dependency route."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-db",
+      "status": "NA",
+      "rationale": "No active LightCraft caller for this owner scope: Correct-by-default SQLite and SQLCipher connection bootstrap for Right Suite apps.. Source census found no RightKit route or exact local implementation.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/lightcraft/Cargo.toml",
+          "line": 1,
+          "detail": "Rust workspace census: native egui app, Rust CLI/MCP, Rust/WASM web target; no RightKit dependency route."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-embed",
+      "status": "NA",
+      "rationale": "No active LightCraft caller for this owner scope: Product-neutral local text embeddings and persistent cosine vector store.. Source census found no RightKit route or exact local implementation.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/lightcraft/Cargo.toml",
+          "line": 1,
+          "detail": "Rust workspace census: native egui app, Rust CLI/MCP, Rust/WASM web target; no RightKit dependency route."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-framed-sidecar",
+      "status": "N",
+      "rationale": "LightCraft MCP owns newline JSON-RPC framing without RightKit bounded-frame transport.",
+      "shared_evidence": [],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/lightcraft/crates/mcp/src/server.rs",
+          "line": 36,
+          "symbol": "Server",
+          "detail": "reads & writes its MCP JSON-RPC stream"
+        }
+      ],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/lightcraft/Cargo.toml",
+          "line": 1,
+          "detail": "Rust workspace census: native egui app, Rust CLI/MCP, Rust/WASM web target; no RightKit dependency route."
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-framed-sidecar/src/lib.rs",
+          "line": 8,
+          "symbol": "read_json_line / write_json_line",
+          "detail": "bounded, resynchronising JSON-lines transport"
+        }
+      ],
+      "delivery_flags": [],
+      "remaining_work": "Adopt bounded framing below LightCraft MCP schema; retain all tool/resource semantics.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-fs",
+      "status": "N",
+      "rationale": "LightCraft implements atomic durable writes & library locks locally; no RightKit fs route.",
+      "shared_evidence": [],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/lightcraft/crates/catalog/src/safe_file.rs",
+          "line": 153,
+          "symbol": "write_atomic",
+          "detail": "temp+sync+rename protects exports, sidecars & settings"
+        }
+      ],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/lightcraft/Cargo.toml",
+          "line": 1,
+          "detail": "Rust workspace census: native egui app, Rust CLI/MCP, Rust/WASM web target; no RightKit dependency route."
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-fs/src/lib.rs",
+          "line": 45,
+          "symbol": "atomic_write / FileLock",
+          "detail": "shared atomic write & cross-process lock API"
+        }
+      ],
+      "delivery_flags": [],
+      "remaining_work": "Map native catalog/sidecar persistence to rightkit-fs; retain photo-specific durability classes & web store.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-fsindex",
+      "status": "NA",
+      "rationale": "No active LightCraft caller for this owner scope: Live whole-disk file index: fuzzy name search plus clone- and hard-link-aware folder size rollups on memory-mapped columns. Source census found no RightKit route or exact local implementation.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/lightcraft/Cargo.toml",
+          "line": 1,
+          "detail": "Rust workspace census: native egui app, Rust CLI/MCP, Rust/WASM web target; no RightKit dependency route."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-hotkeys",
+      "status": "NA",
+      "rationale": "No active LightCraft caller for this owner scope: Global shortcuts and low-level input hooks for Right Suite apps: chord parsing, conflict detection, CGEventTap/WH_KEYBOARD_LL primitives, push-to-talk state.. Source census found no RightKit route or exact local implementation.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/lightcraft/Cargo.toml",
+          "line": 1,
+          "detail": "Rust workspace census: native egui app, Rust CLI/MCP, Rust/WASM web target; no RightKit dependency route."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-http",
+      "status": "NA",
+      "rationale": "No production HTTP client, HTTP download, or stream caller exists. The only curl use is xtask corpus acquisition, outside production runtime; no RightKit route or local HTTP-owner equivalent exists.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/lightcraft/Cargo.toml",
+          "line": 1,
+          "detail": "Rust workspace census: native egui app, Rust CLI/MCP, Rust/WASM web target; no RightKit dependency route."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/lightcraft/xtask/src/main.rs",
+          "line": 346,
+          "detail": "curl is limited to an opt-in corpus-download developer task, not an app/runtime HTTP caller."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-jobs",
+      "status": "NA",
+      "rationale": "No active LightCraft caller for this owner scope: Persistent job store, runner, and stdio/CLI command contract for Right Suite engines.. Source census found no RightKit route or exact local implementation.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/lightcraft/Cargo.toml",
+          "line": 1,
+          "detail": "Rust workspace census: native egui app, Rust CLI/MCP, Rust/WASM web target; no RightKit dependency route."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-license",
+      "status": "NA",
+      "rationale": "No active LightCraft caller for this owner scope: Right Suite license enforcement primitive \u2014 offline verification of server-signed Ed25519 entitlement tokens. The Rust (security) half of @rightkit/license.. Source census found no RightKit route or exact local implementation.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/lightcraft/Cargo.toml",
+          "line": 1,
+          "detail": "Rust workspace census: native egui app, Rust CLI/MCP, Rust/WASM web target; no RightKit dependency route."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-llm",
+      "status": "NA",
+      "rationale": "LightCraft has no LLM provider, chat, streaming, tool-call, or assistant-client subsystem; camera/raw model metadata is unrelated. No RightKit route or local LLM-owner equivalent exists.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/lightcraft/Cargo.toml",
+          "line": 1,
+          "detail": "Rust workspace census: native egui app, Rust CLI/MCP, Rust/WASM web target; no RightKit dependency route."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-logs",
+      "status": "NA",
+      "rationale": "LightCraft emits facade log calls, but source census found no durable JSONL writer, diagnostics collector, or support-bundle flow. No RightKit route or local equivalent of this owner exists.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/lightcraft/Cargo.toml",
+          "line": 1,
+          "detail": "Rust workspace census: native egui app, Rust CLI/MCP, Rust/WASM web target; no RightKit dependency route."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/lightcraft/apps/lightcraft/Cargo.toml",
+          "line": 19,
+          "detail": "Desktop app depends on the generic log facade only; no durable diagnostics implementation is declared."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-mcp",
+      "status": "N",
+      "rationale": "CLI exposes a hand-written LightCraft MCP server over stdio; no shared MCP host route.",
+      "shared_evidence": [],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/lightcraft/crates/mcp/src/server.rs",
+          "line": 36,
+          "symbol": "Server",
+          "detail": "serves LightCraft tools/resources over JSON-RPC stdio"
+        }
+      ],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/lightcraft/Cargo.toml",
+          "line": 1,
+          "detail": "Rust workspace census: native egui app, Rust CLI/MCP, Rust/WASM web target; no RightKit dependency route."
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-mcp/src/lib.rs",
+          "line": 38,
+          "symbol": "ServerHost / ToolProvider",
+          "detail": "shared MCP server-host API"
+        }
+      ],
+      "delivery_flags": [],
+      "remaining_work": "Adapt LightCraft tool catalog to rightkit-mcp server host; retain photo command schema & resources.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-media",
+      "status": "NA",
+      "rationale": "LightCraft is a still-photo/raw workflow with no FFmpeg artifact, decoder lifecycle, or media-pipeline caller. No RightKit route or local equivalent exists.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/lightcraft/Cargo.toml",
+          "line": 1,
+          "detail": "Rust workspace census: native egui app, Rust CLI/MCP, Rust/WASM web target; no RightKit dependency route."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-models",
+      "status": "NA",
+      "rationale": "LightCraft has no installable AI/local model catalog, download, activation, rollback, or hardware-fit flow. Camera model metadata & raw decoder variants are unrelated; no RightKit route or local equivalent exists.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/lightcraft/Cargo.toml",
+          "line": 1,
+          "detail": "Rust workspace census: native egui app, Rust CLI/MCP, Rust/WASM web target; no RightKit dependency route."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-oauth",
+      "status": "NA",
+      "rationale": "No active LightCraft caller for this owner scope: Shared OAuth 2.0 sign-in for Right Suite apps: loopback PKCE, RFC 8628 device flow, provider presets, encrypted daemon persistence, and stored, refreshing credentials.. Source census found no RightKit route or exact local implementation.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/lightcraft/Cargo.toml",
+          "line": 1,
+          "detail": "Rust workspace census: native egui app, Rust CLI/MCP, Rust/WASM web target; no RightKit dependency route."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-ocr",
+      "status": "NA",
+      "rationale": "No active LightCraft caller for this owner scope: Product-neutral OCR: Apple Vision / Windows.Media.Ocr native backends with per-line geometry, isolated worker, and verified two-stage ONNX fallback. Source census found no RightKit route or exact local implementation.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/lightcraft/Cargo.toml",
+          "line": 1,
+          "detail": "Rust workspace census: native egui app, Rust CLI/MCP, Rust/WASM web target; no RightKit dependency route."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-ort",
+      "status": "NA",
+      "rationale": "No active LightCraft caller for this owner scope: Product-neutral ONNX Runtime dynamic-library resolution, environment, execution-provider and session setup (single suite ort pin). Source census found no RightKit route or exact local implementation.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/lightcraft/Cargo.toml",
+          "line": 1,
+          "detail": "Rust workspace census: native egui app, Rust CLI/MCP, Rust/WASM web target; no RightKit dependency route."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-overlay",
+      "status": "NA",
+      "rationale": "No active LightCraft caller for this owner scope: Shared overlay state, hit testing, and placement policy for Right Suite apps. Source census found no RightKit route or exact local implementation.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/lightcraft/Cargo.toml",
+          "line": 1,
+          "detail": "Rust workspace census: native egui app, Rust CLI/MCP, Rust/WASM web target; no RightKit dependency route."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-ownership",
+      "status": "NA",
+      "rationale": "No active LightCraft caller for this owner scope: RightKit ownership scanner, verdict and admission: the single Rust implementation the RustRight broker links.. Source census found no RightKit route or exact local implementation.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/lightcraft/Cargo.toml",
+          "line": 1,
+          "detail": "Rust workspace census: native egui app, Rust CLI/MCP, Rust/WASM web target; no RightKit dependency route."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-pdf",
+      "status": "NA",
+      "rationale": "No active LightCraft caller for this owner scope: Product-neutral PDF engine: inspect, compose (source-text replace / add text / OCR correction), font subsetting, staged atomic save, plus optional page merge/select and text extraction. Source census found no RightKit route or exact local implementation.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/lightcraft/Cargo.toml",
+          "line": 1,
+          "detail": "Rust workspace census: native egui app, Rust CLI/MCP, Rust/WASM web target; no RightKit dependency route."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-playback",
+      "status": "NA",
+      "rationale": "LightCraft renders still photos/raw previews; it has no playback or FFmpeg compatibility-preparation caller. No RightKit route or local equivalent exists.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/lightcraft/Cargo.toml",
+          "line": 1,
+          "detail": "Rust workspace census: native egui app, Rust CLI/MCP, Rust/WASM web target; no RightKit dependency route."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-process",
+      "status": "NA",
+      "rationale": "Desktop source only launches platform open/reveal commands & reads system memory; it has no owned child, restart, health, or process-tree lifecycle. No RightKit route or local equivalent exists.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/lightcraft/Cargo.toml",
+          "line": 1,
+          "detail": "Rust workspace census: native egui app, Rust CLI/MCP, Rust/WASM web target; no RightKit dependency route."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/lightcraft/apps/lightcraft/src/main.rs",
+          "line": 245,
+          "detail": "Production process calls only delegate opening/revealing files to platform tools; they do not own or supervise children."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-qa",
+      "status": "N",
+      "rationale": "Custom CI plus deterministic headless egui driver remain local; no RightKit QA harness route.",
+      "shared_evidence": [],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/lightcraft/crates/ui-egui/src/headless.rs",
+          "line": 105,
+          "symbol": "Headless",
+          "detail": "production CLI/tests drive app logic into CPU-rendered frames"
+        }
+      ],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/lightcraft/Cargo.toml",
+          "line": 1,
+          "detail": "Rust workspace census: native egui app, Rust CLI/MCP, Rust/WASM web target; no RightKit dependency route."
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-qa/src/harness.rs",
+          "line": 99,
+          "symbol": "Harness::new",
+          "detail": "shared scenario, control & evidence harness"
+        }
+      ],
+      "delivery_flags": [],
+      "remaining_work": "Use rightkit-qa around control/CLI qualification; retain headless renderer & image assertions.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-qts",
+      "status": "NA",
+      "rationale": "No active LightCraft caller for this owner scope: Qwen3 TTS inference (GGUF + GGML), vendored from yet-another-ai/qts v0.2.0 for RightKit. Source census found no RightKit route or exact local implementation.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/lightcraft/Cargo.toml",
+          "line": 1,
+          "detail": "Rust workspace census: native egui app, Rust CLI/MCP, Rust/WASM web target; no RightKit dependency route."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-qts-ggml",
+      "status": "NA",
+      "rationale": "No active LightCraft caller for this owner scope: DEPRECATED: use rightkit-qts-ggml-sys directly. Thin safe wrappers over rightkit-qts-ggml-sys for rightkit-qts, vendored from yet-another-ai/qts v0.2.0. Source census found no RightKit route or exact local implementation.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/lightcraft/Cargo.toml",
+          "line": 1,
+          "detail": "Rust workspace census: native egui app, Rust CLI/MCP, Rust/WASM web target; no RightKit dependency route."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-qts-ggml-sys",
+      "status": "NA",
+      "rationale": "No active LightCraft caller for this owner scope: Low-level FFI bindings to ggml (CPU, Metal, Vulkan, BLAS) for rightkit-qts, vendored from yet-another-ai/qts v0.2.0. Source census found no RightKit route or exact local implementation.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/lightcraft/Cargo.toml",
+          "line": 1,
+          "detail": "Rust workspace census: native egui app, Rust CLI/MCP, Rust/WASM web target; no RightKit dependency route."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-record",
+      "status": "NA",
+      "rationale": "No active LightCraft caller for this owner scope: Platform-neutral core of the RightKit recorder (RK3): record lifecycle, quarantine and recovery, session bundle writer, per-field redaction, bundle verification and frame reader. OS capture lives in per-platform helpers behind the Backend trait.. Source census found no RightKit route or exact local implementation.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/lightcraft/Cargo.toml",
+          "line": 1,
+          "detail": "Rust workspace census: native egui app, Rust CLI/MCP, Rust/WASM web target; no RightKit dependency route."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-review",
+      "status": "NA",
+      "rationale": "No active LightCraft caller for this owner scope: Shared review capability for the content pipeline: deterministic checks over a media or text description, declared holds, a capped repair loop, an advisory judge interface, and versioned verdict records.. Source census found no RightKit route or exact local implementation.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/lightcraft/Cargo.toml",
+          "line": 1,
+          "detail": "Rust workspace census: native egui app, Rust CLI/MCP, Rust/WASM web target; no RightKit dependency route."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-sandbox",
+      "status": "NA",
+      "rationale": "No active LightCraft caller for this owner scope: Shared OS sandbox, PTY lease, process-tree, and reserve-before-spawn resource authority for Right Suite apps.. Source census found no RightKit route or exact local implementation.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/lightcraft/Cargo.toml",
+          "line": 1,
+          "detail": "Rust workspace census: native egui app, Rust CLI/MCP, Rust/WASM web target; no RightKit dependency route."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-scenario",
+      "status": "NA",
+      "rationale": "No active LightCraft caller for this owner scope: Shared scenario interpreter and durable state machine for the RightKit scenario runtime (RK8): perform separated from observe_until, idempotency keys, append-only fsync journal, leases with fencing tokens, cooperative cancellation, retake replay, and a remote worker transport trait boundary. Source census found no RightKit route or exact local implementation.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/lightcraft/Cargo.toml",
+          "line": 1,
+          "detail": "Rust workspace census: native egui app, Rust CLI/MCP, Rust/WASM web target; no RightKit dependency route."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-search",
+      "status": "N",
+      "rationale": "Catalog owns live free-text/filter query evaluation; no RightKit query route.",
+      "shared_evidence": [],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/lightcraft/crates/catalog/src/query.rs",
+          "line": 19,
+          "symbol": "Filter::matches / Catalog::query",
+          "detail": "searches photo metadata & applies catalog filters"
+        }
+      ],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/lightcraft/Cargo.toml",
+          "line": 1,
+          "detail": "Rust workspace census: native egui app, Rust CLI/MCP, Rust/WASM web target; no RightKit dependency route."
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-search/src/lib.rs",
+          "line": 20,
+          "symbol": "Query / Schema",
+          "detail": "shared query parse & compile APIs"
+        }
+      ],
+      "delivery_flags": [],
+      "remaining_work": "Introduce rightkit-search only for reusable text/operator parsing; retain photo filter rules & catalog ranking.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-secrets",
+      "status": "NA",
+      "rationale": "No active LightCraft caller for this owner scope: Per-app OS credential storage for Right Suite apps: Keychain / Credential Manager, passive presence checks, non-interactive mode, test guards, DB-key provisioning, and migration.. Source census found no RightKit route or exact local implementation.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/lightcraft/Cargo.toml",
+          "line": 1,
+          "detail": "Rust workspace census: native egui app, Rust CLI/MCP, Rust/WASM web target; no RightKit dependency route."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-send",
+      "status": "NA",
+      "rationale": "No active LightCraft caller for this owner scope: Nearby file and text sharing over the open LocalSend v2 protocol, with Pulse extensions: TLS identity pinning, per-device trust, and macOS Bonjour discovery. Product-neutral; the host supplies identity, paths and policy.. Source census found no RightKit route or exact local implementation.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/lightcraft/Cargo.toml",
+          "line": 1,
+          "detail": "Rust workspace census: native egui app, Rust CLI/MCP, Rust/WASM web target; no RightKit dependency route."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-service",
+      "status": "NA",
+      "rationale": "No active LightCraft caller for this owner scope: One discovery/auth convention for Right Suite local services: service.json, ranking and takeover, current-user-only Unix socket / named pipe, per-app request allowlist.. Source census found no RightKit route or exact local implementation.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/lightcraft/Cargo.toml",
+          "line": 1,
+          "detail": "Rust workspace census: native egui app, Rust CLI/MCP, Rust/WASM web target; no RightKit dependency route."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-settings",
+      "status": "N",
+      "rationale": "Library preference files have local corruption preservation, load & save flow; no RightKit settings route.",
+      "shared_evidence": [],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/lightcraft/crates/engine/src/library.rs",
+          "line": 201,
+          "symbol": "SettingsLoad",
+          "detail": "loads prefs/view/presets, quarantines corrupt files & blocks unsafe overwrite"
+        }
+      ],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/lightcraft/Cargo.toml",
+          "line": 1,
+          "detail": "Rust workspace census: native egui app, Rust CLI/MCP, Rust/WASM web target; no RightKit dependency route."
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-settings/src/lib.rs",
+          "line": 16,
+          "symbol": "Store / Schema",
+          "detail": "versioned settings, migrations & change API"
+        }
+      ],
+      "delivery_flags": [],
+      "remaining_work": "Adapt rightkit-settings behind library preference files; retain library-scoped schemas & corruption UX.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-shell",
+      "status": "NA",
+      "rationale": "No active LightCraft caller for this owner scope: Shared Tauri desktop shell for Right Suite apps: webview hardening, window state, native menu, tray, single instance, deep links, autostart, rich clipboard, watchdog and engine wiring.. Source census found no RightKit route or exact local implementation.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/lightcraft/Cargo.toml",
+          "line": 1,
+          "detail": "Rust workspace census: native egui app, Rust CLI/MCP, Rust/WASM web target; no RightKit dependency route."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-speech-client",
+      "status": "NA",
+      "rationale": "No active LightCraft caller for this owner scope: Client and contract for the Orthic Labs shared speech service (one resident engine per machine), built on rightkit-service. Wire-compatible with HeardRight's v1 host.. Source census found no RightKit route or exact local implementation.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/lightcraft/Cargo.toml",
+          "line": 1,
+          "detail": "Rust workspace census: native egui app, Rust CLI/MCP, Rust/WASM web target; no RightKit dependency route."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-sync",
+      "status": "NA",
+      "rationale": "No active LightCraft caller for this owner scope: Brand-neutral desktop/mobile cloud sync engine: change tokens, tombstones, last-writer-wins conflicts, resumable batches, offline queue, retry/backoff.. Source census found no RightKit route or exact local implementation.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/lightcraft/Cargo.toml",
+          "line": 1,
+          "detail": "Rust workspace census: native egui app, Rust CLI/MCP, Rust/WASM web target; no RightKit dependency route."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-tauri",
+      "status": "NA",
+      "rationale": "No active LightCraft caller for this owner scope: Native host services for Right Suite Tauri license and device adapters.. Source census found no RightKit route or exact local implementation.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/lightcraft/Cargo.toml",
+          "line": 1,
+          "detail": "Rust workspace census: native egui app, Rust CLI/MCP, Rust/WASM web target; no RightKit dependency route."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-transcript",
+      "status": "NA",
+      "rationale": "No active LightCraft caller for this owner scope: Product-neutral word-timed transcript contract, cue segmentation, and SRT/VTT/JSON import and export for Right Suite applications. Source census found no RightKit route or exact local implementation.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/lightcraft/Cargo.toml",
+          "line": 1,
+          "detail": "Rust workspace census: native egui app, Rust CLI/MCP, Rust/WASM web target; no RightKit dependency route."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-tts",
+      "status": "NA",
+      "rationale": "No active LightCraft caller for this owner scope: Shared local text-to-speech for Right Suite apps: OS voices (say / SAPI) and a Qwen3-TTS QTS worker client. Source census found no RightKit route or exact local implementation.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/lightcraft/Cargo.toml",
+          "line": 1,
+          "detail": "Rust workspace census: native egui app, Rust CLI/MCP, Rust/WASM web target; no RightKit dependency route."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-vad",
+      "status": "NA",
+      "rationale": "No active LightCraft caller for this owner scope: Product-neutral voice activity detection: Silero scorer, hysteresis/padding/chunking policy, streaming frame carry. Source census found no RightKit route or exact local implementation.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/lightcraft/Cargo.toml",
+          "line": 1,
+          "detail": "Rust workspace census: native egui app, Rust CLI/MCP, Rust/WASM web target; no RightKit dependency route."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-watch",
+      "status": "NA",
+      "rationale": "No active LightCraft caller for this owner scope: Filesystem watching for Right Suite apps: ref-counted async subscribers, debounced file-set and directory watchers, and rename-storm coalescing.. Source census found no RightKit route or exact local implementation.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/lightcraft/Cargo.toml",
+          "line": 1,
+          "detail": "Rust workspace census: native egui app, Rust CLI/MCP, Rust/WASM web target; no RightKit dependency route."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/agent-room-mcp",
+      "status": "NA",
+      "rationale": "`npm:@rightkit/agent-room-mcp` is an npm/React owner; LightCraft web is Rust/WASM with no npm host or compatible caller.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/lightcraft/apps/lightcraft-web/Cargo.toml",
+          "line": 12,
+          "detail": "Web target is a Rust cdylib/WASM crate; its only JavaScript file is worker glue, not an npm consumer."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/app-shell",
+      "status": "NA",
+      "rationale": "`npm:@rightkit/app-shell` is an npm/React owner; LightCraft web is Rust/WASM with no npm host or compatible caller.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/lightcraft/apps/lightcraft-web/Cargo.toml",
+          "line": 12,
+          "detail": "Web target is a Rust cdylib/WASM crate; its only JavaScript file is worker glue, not an npm consumer."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/ax",
+      "status": "NA",
+      "rationale": "`npm:@rightkit/ax` is an npm/React owner; LightCraft web is Rust/WASM with no npm host or compatible caller.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/lightcraft/apps/lightcraft-web/Cargo.toml",
+          "line": 12,
+          "detail": "Web target is a Rust cdylib/WASM crate; its only JavaScript file is worker glue, not an npm consumer."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/build-control-policy",
+      "status": "NA",
+      "rationale": "`npm:@rightkit/build-control-policy` is an npm/React owner; LightCraft web is Rust/WASM with no npm host or compatible caller.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/lightcraft/apps/lightcraft-web/Cargo.toml",
+          "line": 12,
+          "detail": "Web target is a Rust cdylib/WASM crate; its only JavaScript file is worker glue, not an npm consumer."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/doc-render",
+      "status": "NA",
+      "rationale": "`npm:@rightkit/doc-render` is an npm/React owner; LightCraft web is Rust/WASM with no npm host or compatible caller.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/lightcraft/apps/lightcraft-web/Cargo.toml",
+          "line": 12,
+          "detail": "Web target is a Rust cdylib/WASM crate; its only JavaScript file is worker glue, not an npm consumer."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/git",
+      "status": "NA",
+      "rationale": "`npm:@rightkit/git` is an npm/React owner; LightCraft web is Rust/WASM with no npm host or compatible caller.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/lightcraft/apps/lightcraft-web/Cargo.toml",
+          "line": 12,
+          "detail": "Web target is a Rust cdylib/WASM crate; its only JavaScript file is worker glue, not an npm consumer."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/hooks",
+      "status": "NA",
+      "rationale": "`npm:@rightkit/hooks` is an npm/React owner; LightCraft web is Rust/WASM with no npm host or compatible caller.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/lightcraft/apps/lightcraft-web/Cargo.toml",
+          "line": 12,
+          "detail": "Web target is a Rust cdylib/WASM crate; its only JavaScript file is worker glue, not an npm consumer."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/i18n",
+      "status": "NA",
+      "rationale": "`npm:@rightkit/i18n` is an npm/React owner; LightCraft web is Rust/WASM with no npm host or compatible caller.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/lightcraft/apps/lightcraft-web/Cargo.toml",
+          "line": 12,
+          "detail": "Web target is a Rust cdylib/WASM crate; its only JavaScript file is worker glue, not an npm consumer."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/legal",
+      "status": "NA",
+      "rationale": "`npm:@rightkit/legal` is an npm/React owner; LightCraft web is Rust/WASM with no npm host or compatible caller.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/lightcraft/apps/lightcraft-web/Cargo.toml",
+          "line": 12,
+          "detail": "Web target is a Rust cdylib/WASM crate; its only JavaScript file is worker glue, not an npm consumer."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/legal-ui",
+      "status": "NA",
+      "rationale": "`npm:@rightkit/legal-ui` is an npm/React owner; LightCraft web is Rust/WASM with no npm host or compatible caller.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/lightcraft/apps/lightcraft-web/Cargo.toml",
+          "line": 12,
+          "detail": "Web target is a Rust cdylib/WASM crate; its only JavaScript file is worker glue, not an npm consumer."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/license",
+      "status": "NA",
+      "rationale": "`npm:@rightkit/license` is an npm/React owner; LightCraft web is Rust/WASM with no npm host or compatible caller.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/lightcraft/apps/lightcraft-web/Cargo.toml",
+          "line": 12,
+          "detail": "Web target is a Rust cdylib/WASM crate; its only JavaScript file is worker glue, not an npm consumer."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/logs",
+      "status": "NA",
+      "rationale": "`npm:@rightkit/logs` is an npm/React owner; LightCraft web is Rust/WASM with no npm host or compatible caller.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/lightcraft/apps/lightcraft-web/Cargo.toml",
+          "line": 12,
+          "detail": "Web target is a Rust cdylib/WASM crate; its only JavaScript file is worker glue, not an npm consumer."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/media-ui",
+      "status": "NA",
+      "rationale": "LightCraft's photo viewer/editor is native Rust/egui plus raw pipeline. `npm:@rightkit/media-ui` needs an npm/React host, absent from desktop, CLI/MCP & Rust/WASM targets; no supported bridge or caller exists.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/lightcraft/apps/lightcraft-web/Cargo.toml",
+          "line": 12,
+          "detail": "Web target is a Rust cdylib/WASM crate; its only JavaScript file is worker glue, not an npm consumer."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/onboarding",
+      "status": "NA",
+      "rationale": "`npm:@rightkit/onboarding` is an npm/React owner; LightCraft web is Rust/WASM with no npm host or compatible caller.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/lightcraft/apps/lightcraft-web/Cargo.toml",
+          "line": 12,
+          "detail": "Web target is a Rust cdylib/WASM crate; its only JavaScript file is worker glue, not an npm consumer."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/pdf-ui",
+      "status": "NA",
+      "rationale": "`npm:@rightkit/pdf-ui` is an npm/React owner; LightCraft web is Rust/WASM with no npm host or compatible caller.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/lightcraft/apps/lightcraft-web/Cargo.toml",
+          "line": 12,
+          "detail": "Web target is a Rust cdylib/WASM crate; its only JavaScript file is worker glue, not an npm consumer."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/platform-ui",
+      "status": "NA",
+      "rationale": "`npm:@rightkit/platform-ui` is an npm/React owner; LightCraft web is Rust/WASM with no npm host or compatible caller.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/lightcraft/apps/lightcraft-web/Cargo.toml",
+          "line": 12,
+          "detail": "Web target is a Rust cdylib/WASM crate; its only JavaScript file is worker glue, not an npm consumer."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/qa",
+      "status": "NA",
+      "rationale": "`npm:@rightkit/qa` is an npm/React owner; LightCraft web is Rust/WASM with no npm host or compatible caller.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/lightcraft/apps/lightcraft-web/Cargo.toml",
+          "line": 12,
+          "detail": "Web target is a Rust cdylib/WASM crate; its only JavaScript file is worker glue, not an npm consumer."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/qa-chrome",
+      "status": "NA",
+      "rationale": "`npm:@rightkit/qa-chrome` is an npm/React owner; LightCraft web is Rust/WASM with no npm host or compatible caller.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/lightcraft/apps/lightcraft-web/Cargo.toml",
+          "line": 12,
+          "detail": "Web target is a Rust cdylib/WASM crate; its only JavaScript file is worker glue, not an npm consumer."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/release",
+      "status": "NA",
+      "rationale": "`npm:@rightkit/release` is an npm/React owner; LightCraft web is Rust/WASM with no npm host or compatible caller.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/lightcraft/apps/lightcraft-web/Cargo.toml",
+          "line": 12,
+          "detail": "Web target is a Rust cdylib/WASM crate; its only JavaScript file is worker glue, not an npm consumer."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/settings-ui",
+      "status": "NA",
+      "rationale": "`npm:@rightkit/settings-ui` is an npm/React owner; LightCraft web is Rust/WASM with no npm host or compatible caller.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/lightcraft/apps/lightcraft-web/Cargo.toml",
+          "line": 12,
+          "detail": "Web target is a Rust cdylib/WASM crate; its only JavaScript file is worker glue, not an npm consumer."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/shell",
+      "status": "NA",
+      "rationale": "`npm:@rightkit/shell` is an npm/React owner; LightCraft web is Rust/WASM with no npm host or compatible caller.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/lightcraft/apps/lightcraft-web/Cargo.toml",
+          "line": 12,
+          "detail": "Web target is a Rust cdylib/WASM crate; its only JavaScript file is worker glue, not an npm consumer."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/tauri",
+      "status": "NA",
+      "rationale": "`npm:@rightkit/tauri` is an npm/React owner; LightCraft web is Rust/WASM with no npm host or compatible caller.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/lightcraft/apps/lightcraft-web/Cargo.toml",
+          "line": 12,
+          "detail": "Web target is a Rust cdylib/WASM crate; its only JavaScript file is worker glue, not an npm consumer."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/theme",
+      "status": "NA",
+      "rationale": "LightCraft applies Rust/egui tokens & Visuals; `npm:@rightkit/theme` supplies npm/CSS runtime tokens. No target has an npm/React host, supported bridge, or caller.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/lightcraft/apps/lightcraft-web/Cargo.toml",
+          "line": 12,
+          "detail": "Web target is a Rust cdylib/WASM crate; its only JavaScript file is worker glue, not an npm consumer."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/update",
+      "status": "NA",
+      "rationale": "`npm:@rightkit/update` is an npm/React owner; LightCraft web is Rust/WASM with no npm host or compatible caller.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/lightcraft/apps/lightcraft-web/Cargo.toml",
+          "line": 12,
+          "detail": "Web target is a Rust cdylib/WASM crate; its only JavaScript file is worker glue, not an npm consumer."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/updates",
+      "status": "NA",
+      "rationale": "`npm:@rightkit/updates` is an npm/React owner; LightCraft web is Rust/WASM with no npm host or compatible caller.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/lightcraft/apps/lightcraft-web/Cargo.toml",
+          "line": 12,
+          "detail": "Web target is a Rust cdylib/WASM crate; its only JavaScript file is worker glue, not an npm consumer."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitLicense",
+      "status": "NA",
+      "rationale": "`swift:RightKitLicense` is Swift-only; LightCraft source has no Swift, iOS, watchOS, or Apple-extension target.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/lightcraft/Cargo.toml",
+          "line": 1,
+          "detail": "Source census contains no Swift target, Package.swift, or Apple extension; only Rust native/WASM targets."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitDiagnostics",
+      "status": "NA",
+      "rationale": "`swift:RightKitDiagnostics` is Swift-only; LightCraft source has no Swift, iOS, watchOS, or Apple-extension target.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/lightcraft/Cargo.toml",
+          "line": 1,
+          "detail": "Source census contains no Swift target, Package.swift, or Apple extension; only Rust native/WASM targets."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitArtifacts",
+      "status": "NA",
+      "rationale": "`swift:RightKitArtifacts` is Swift-only; LightCraft source has no Swift, iOS, watchOS, or Apple-extension target.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/lightcraft/Cargo.toml",
+          "line": 1,
+          "detail": "Source census contains no Swift target, Package.swift, or Apple extension; only Rust native/WASM targets."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitPurchases",
+      "status": "NA",
+      "rationale": "`swift:RightKitPurchases` is Swift-only; LightCraft source has no Swift, iOS, watchOS, or Apple-extension target.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/lightcraft/Cargo.toml",
+          "line": 1,
+          "detail": "Source census contains no Swift target, Package.swift, or Apple extension; only Rust native/WASM targets."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitCloudSync",
+      "status": "NA",
+      "rationale": "`swift:RightKitCloudSync` is Swift-only; LightCraft source has no Swift, iOS, watchOS, or Apple-extension target.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/lightcraft/Cargo.toml",
+          "line": 1,
+          "detail": "Source census contains no Swift target, Package.swift, or Apple extension; only Rust native/WASM targets."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitStore",
+      "status": "NA",
+      "rationale": "`swift:RightKitStore` is Swift-only; LightCraft source has no Swift, iOS, watchOS, or Apple-extension target.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/lightcraft/Cargo.toml",
+          "line": 1,
+          "detail": "Source census contains no Swift target, Package.swift, or Apple extension; only Rust native/WASM targets."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitImportQueue",
+      "status": "NA",
+      "rationale": "`swift:RightKitImportQueue` is Swift-only; LightCraft source has no Swift, iOS, watchOS, or Apple-extension target.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/lightcraft/Cargo.toml",
+          "line": 1,
+          "detail": "Source census contains no Swift target, Package.swift, or Apple extension; only Rust native/WASM targets."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitLiveActivity",
+      "status": "NA",
+      "rationale": "`swift:RightKitLiveActivity` is Swift-only; LightCraft source has no Swift, iOS, watchOS, or Apple-extension target.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/lightcraft/Cargo.toml",
+          "line": 1,
+          "detail": "Source census contains no Swift target, Package.swift, or Apple extension; only Rust native/WASM targets."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitWatchBridge",
+      "status": "NA",
+      "rationale": "`swift:RightKitWatchBridge` is Swift-only; LightCraft source has no Swift, iOS, watchOS, or Apple-extension target.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/lightcraft/Cargo.toml",
+          "line": 1,
+          "detail": "Source census contains no Swift target, Package.swift, or Apple extension; only Rust native/WASM targets."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitSpeech",
+      "status": "NA",
+      "rationale": "`swift:RightKitSpeech` is Swift-only; LightCraft source has no Swift, iOS, watchOS, or Apple-extension target.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/lightcraft/Cargo.toml",
+          "line": 1,
+          "detail": "Source census contains no Swift target, Package.swift, or Apple extension; only Rust native/WASM targets."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitIntents",
+      "status": "NA",
+      "rationale": "`swift:RightKitIntents` is Swift-only; LightCraft source has no Swift, iOS, watchOS, or Apple-extension target.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/lightcraft/Cargo.toml",
+          "line": 1,
+          "detail": "Source census contains no Swift target, Package.swift, or Apple extension; only Rust native/WASM targets."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitAppleCredentials",
+      "status": "NA",
+      "rationale": "`swift:RightKitAppleCredentials` is Swift-only; LightCraft source has no Swift, iOS, watchOS, or Apple-extension target.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/lightcraft/Cargo.toml",
+          "line": 1,
+          "detail": "Source census contains no Swift target, Package.swift, or Apple extension; only Rust native/WASM targets."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitOverlay",
+      "status": "NA",
+      "rationale": "`swift:RightKitOverlay` is Swift-only; LightCraft source has no Swift, iOS, watchOS, or Apple-extension target.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/lightcraft/Cargo.toml",
+          "line": 1,
+          "detail": "Source census contains no Swift target, Package.swift, or Apple extension; only Rust native/WASM targets."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitWatch",
+      "status": "NA",
+      "rationale": "`swift:RightKitWatch` is Swift-only; LightCraft source has no Swift, iOS, watchOS, or Apple-extension target.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/lightcraft/Cargo.toml",
+          "line": 1,
+          "detail": "Source census contains no Swift target, Package.swift, or Apple extension; only Rust native/WASM targets."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitUI",
+      "status": "NA",
+      "rationale": "`swift:RightKitUI` is Swift-only; LightCraft source has no Swift, iOS, watchOS, or Apple-extension target.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/lightcraft/Cargo.toml",
+          "line": 1,
+          "detail": "Source census contains no Swift target, Package.swift, or Apple extension; only Rust native/WASM targets."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    }
+  ],
+  "searches": [
+    {
+      "pattern": "rightkit-|@rightkit/",
+      "scope": "Cargo manifests, app/crate/tooling/config source",
+      "result": "no active RightKit dependency or import"
+    },
+    {
+      "pattern": "*.swift / Package.swift",
+      "scope": "entire production source census",
+      "result": "no Swift source or Apple package target"
+    },
+    {
+      "pattern": "*.ts/*.tsx/package.json",
+      "scope": "entire production source census",
+      "result": "no npm application host; only apps/lightcraft-web/worker.js glue"
+    },
+    {
+      "pattern": "watcher|notify::|rusqlite|sqlite",
+      "scope": "apps, crates, xtask, packaging, CI",
+      "result": "no active filesystem watch or SQLite route"
+    },
+    {
+      "pattern": "ffmpeg|onnx|OAuth|license|sync|speech|ocr|pdf",
+      "scope": "apps, crates, xtask, packaging, CI",
+      "result": "no matching runtime subsystem"
+    },
+    {
+      "pattern": "reqwest|ureq|hyper|http::|openai|anthropic|llm|onnx|ort::|gguf|ggml|ModelSpec|InstallOptions",
+      "scope": "production apps, crates, xtask (excluding tests, target, plan)",
+      "result": "no production HTTP, LLM, ONNX, or local-model installation subsystem; xtask curl only acquires optional raw corpus samples"
+    },
+    {
+      "pattern": "JsonlStore|AsyncWriter|Outbox|collect_diagnostics|set_logger|env_logger|simplelog|fern",
+      "scope": "production apps, crates, xtask (excluding tests, target, plan)",
+      "result": "no durable JSONL logging, diagnostics collection, or logger installation; generic log facade calls alone do not overlap rightkit-logs"
+    },
+    {
+      "pattern": "Command::new|OwnedCommand|restart|HealthProbe|ProcessHandle",
+      "scope": "production apps, crates, xtask (excluding tests, target, plan)",
+      "result": "desktop opens/reveals external paths & engine queries system memory; no owned child lifecycle, restart, health, or process-tree controller"
+    },
+    {
+      "pattern": "egui|Visuals::dark|npm:@rightkit/media-ui|npm:@rightkit/theme",
+      "scope": "desktop UI, Rust/WASM manifest, production manifests",
+      "result": "native image UI/theme are Rust/egui; no npm/React host or supported bridge for media-ui/theme"
+    },
+    {
+      "pattern": "DiskCache|Lru",
+      "scope": "crates/preview, apps/lightcraft-web",
+      "result": "local thumbnail/source caches found"
+    },
+    {
+      "pattern": "catch_unwind|set_hook",
+      "scope": "crates/engine",
+      "result": "local panic guard/hook found"
+    },
+    {
+      "pattern": "write_atomic|LibraryLock",
+      "scope": "crates/catalog, crates/engine",
+      "result": "local durable writes & library locking found"
+    },
+    {
+      "pattern": "MCP|JSON-RPC",
+      "scope": "crates/mcp, apps/lightcraft-cli",
+      "result": "local MCP server/framing found"
+    },
+    {
+      "pattern": "Filter::matches|SettingsLoad|Headless",
+      "scope": "catalog, engine, ui-egui",
+      "result": "local catalog search, settings, deterministic headless driver found"
+    }
+  ],
+  "self_review": "Adversarial review checked every N against owner API & active caller: cache, crash, framed transport, fs, MCP, QA, search & settings remain exact gaps. Rejected false gaps for HTTP, LLM, model install, durable logs, managed processes, FFmpeg media/playback, control, jobs, overlay & photo algorithms because source lacks owner-scope behavior. Image UI & theme are egui/Rust with no npm/React bridge. Per-component source census supports each NA; Swift rows lack a Swift target. No Y/M routes are present."
+}

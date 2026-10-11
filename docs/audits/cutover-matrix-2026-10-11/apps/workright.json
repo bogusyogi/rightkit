@@ -1,0 +1,2174 @@
+{
+  "app": "WorkRight",
+  "root": "/Volumes/D/claude/workright",
+  "head": "f4a27f8099456893aa74e7ec87a13f68c676506f",
+  "reviewed_at": "2026-10-11T08:25:00+05:30",
+  "targets": [
+    "desktop-windows",
+    "desktop-macos",
+    "tauri-agent-ui",
+    "rust-core-service",
+    "rust-session-helper",
+    "rust-backend",
+    "react-dashboard",
+    "qa-release-scripts"
+  ],
+  "scope_note": "Fresh source-only audit of current WorkRight Rust agent/backend, Tauri agent UI, React dashboard, manifests, scripts, and docs. No Swift/iOS/watchOS targets. Generated bundles, dist, node_modules, pnpm store, target, vendor, and prior audits excluded; no builds or runtime qualification implied.",
+  "cells": [
+    {
+      "component_id": "cargo:agent-room-core",
+      "status": "NA",
+      "rationale": "Private RightKit capability cargo:agent-room-core. WorkRight Rust targets implement aggregate capture, signed-event storage, & Axum ingest; no active caller implements this feature.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workright/Cargo.toml",
+          "line": 1,
+          "detail": "Active Rust workspace manifest covers protocol, crypto, local store, capture, core service, helper, and Axum backend."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "No active production caller or compatible local implementation found in current source census."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-agent-tools",
+      "status": "NA",
+      "rationale": "One typed tool interface for agents over rightkit-automation, rightkit-control, rightkit-browser and each app's engine commands (via rightkit-service), plus the `right-ctl <app> <command>` CLI. WorkRight Rust targets implement aggregate capture, signed-event storage, & Axum ingest; no active caller implements this feature.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workright/Cargo.toml",
+          "line": 1,
+          "detail": "Active Rust workspace manifest covers protocol, crypto, local store, capture, core service, helper, and Axum backend."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "No active production caller or compatible local implementation found in current source census."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-align",
+      "status": "NA",
+      "rationale": "Product-neutral script-to-ASR word alignment: pronunciation normalisation, edit-distance alignment with lexical and timing confidence, ambiguity and mismatch rejection, and control-name coverage. WorkRight Rust targets implement aggregate capture, signed-event storage, & Axum ingest; no active caller implements this feature.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workright/Cargo.toml",
+          "line": 1,
+          "detail": "Active Rust workspace manifest covers protocol, crypto, local store, capture, core service, helper, and Axum backend."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "No active production caller or compatible local implementation found in current source census."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-asr",
+      "status": "NA",
+      "rationale": "Parakeet ONNX + Whisper (CoreML / whisper.cpp) speech decoding runtime for Right Suite applications. WorkRight Rust targets implement aggregate capture, signed-event storage, & Axum ingest; no active caller implements this feature.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workright/Cargo.toml",
+          "line": 1,
+          "detail": "Active Rust workspace manifest covers protocol, crypto, local store, capture, core service, helper, and Axum backend."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "No active production caller or compatible local implementation found in current source census."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-audio",
+      "status": "NA",
+      "rationale": "Shared audio for Right Suite apps: typed FFmpeg filter graphs, loudness gates, room tone, ducking, WAV I/O, and cpal capture with resample/downmix/recovery. WorkRight Rust targets implement aggregate capture, signed-event storage, & Axum ingest; no active caller implements this feature.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workright/Cargo.toml",
+          "line": 1,
+          "detail": "Active Rust workspace manifest covers protocol, crypto, local store, capture, core service, helper, and Axum backend."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "No active production caller or compatible local implementation found in current source census."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-automation",
+      "status": "NA",
+      "rationale": "Brand-neutral desktop automation: observe and act on any app (macOS AX, Windows UIA) through a four-tier input ladder with safety, focus guard, and evidence receipts. WorkRight Rust targets implement aggregate capture, signed-event storage, & Axum ingest; no active caller implements this feature.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workright/Cargo.toml",
+          "line": 1,
+          "detail": "Active Rust workspace manifest covers protocol, crypto, local store, capture, core service, helper, and Axum backend."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "No active production caller or compatible local implementation found in current source census."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-browser",
+      "status": "NA",
+      "rationale": "Shared Chrome DevTools Protocol browser runtime for Right Suite: multi-page sessions, named profiles, real CDP input, observations with stale-ref checks. WorkRight Rust targets implement aggregate capture, signed-event storage, & Axum ingest; no active caller implements this feature.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workright/Cargo.toml",
+          "line": 1,
+          "detail": "Active Rust workspace manifest covers protocol, crypto, local store, capture, core service, helper, and Axum backend."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "No active production caller or compatible local implementation found in current source census."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-cache",
+      "status": "NA",
+      "rationale": "Disk cache primitive with a hard size cap, LRU eviction that survives restarts, atomic writes and group invalidation, plus stable-prefix prompt-cache keys. WorkRight Rust targets implement aggregate capture, signed-event storage, & Axum ingest; no active caller implements this feature.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workright/Cargo.toml",
+          "line": 1,
+          "detail": "Active Rust workspace manifest covers protocol, crypto, local store, capture, core service, helper, and Axum backend."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "No active production caller or compatible local implementation found in current source census."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-channel-memory",
+      "status": "NA",
+      "rationale": "Channel memory for the content pipeline: the channel-memory.v1 schema with serde types, validation, version gate, proof citation rules, and scope checks for PostRight P3 and GenRight G7. WorkRight Rust targets implement aggregate capture, signed-event storage, & Axum ingest; no active caller implements this feature.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workright/Cargo.toml",
+          "line": 1,
+          "detail": "Active Rust workspace manifest covers protocol, crypto, local store, capture, core service, helper, and Axum backend."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "No active production caller or compatible local implementation found in current source census."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-compose",
+      "status": "NA",
+      "rationale": "Product-neutral evaluated composition model: layered video, stills, cursor sprites, backgrounds, clipping, shadows, motion blur, overlays and keyframed tracks, with one pure per-frame evaluation shared by preview and export. WorkRight Rust targets implement aggregate capture, signed-event storage, & Axum ingest; no active caller implements this feature.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workright/Cargo.toml",
+          "line": 1,
+          "detail": "Active Rust workspace manifest covers protocol, crypto, local store, capture, core service, helper, and Axum backend."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "No active production caller or compatible local implementation found in current source census."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-contracts",
+      "status": "NA",
+      "rationale": "Versioned content-pipeline contracts for the Right Suite: content brief, delivery envelope, record session and event, demo plan and daemon API. JSON Schema validation, serde types, and major-version negotiation. WorkRight Rust targets implement aggregate capture, signed-event storage, & Axum ingest; no active caller implements this feature.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workright/Cargo.toml",
+          "line": 1,
+          "detail": "Active Rust workspace manifest covers protocol, crypto, local store, capture, core service, helper, and Axum backend."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "No active production caller or compatible local implementation found in current source census."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-control",
+      "status": "NA",
+      "rationale": "Background native input, accessibility reads, and a WebDriver bridge for driving real desktop apps without stealing focus. WorkRight Rust targets implement aggregate capture, signed-event storage, & Axum ingest; no active caller implements this feature.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workright/Cargo.toml",
+          "line": 1,
+          "detail": "Active Rust workspace manifest covers protocol, crypto, local store, capture, core service, helper, and Axum backend."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "No active production caller or compatible local implementation found in current source census."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-crash",
+      "status": "NA",
+      "rationale": "Privacy-first panic capture, redacted crash reports, native dumps and support bundles for Right Suite apps. WorkRight Rust targets implement aggregate capture, signed-event storage, & Axum ingest; no active caller implements this feature.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workright/Cargo.toml",
+          "line": 1,
+          "detail": "Active Rust workspace manifest covers protocol, crypto, local store, capture, core service, helper, and Axum backend."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "No active production caller or compatible local implementation found in current source census."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-daemon",
+      "status": "NA",
+      "rationale": "WorkRight's public Axum service implements its own workforce-ingest routes; rightkit-daemon's Rust daemon-api accepts a different local durable-state protocol for enrolment, uploads, publish-job updates, OAuth callbacks, and webhooks. No compatible shared route or bridge exists.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workright/Cargo.toml",
+          "line": 1,
+          "detail": "Active Rust workspace includes a public Axum backend; its /v1/device route shape & workforce-ingest state differ from daemon-api's local state protocol."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "No compatible daemon-api caller or bridge is present."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-db",
+      "status": "N",
+      "rationale": "WorkRight local-store and backend DbPool directly open rusqlite databases, transactions, migrations, and tenant tables; rightkit-db owns shared SQLite/SQLCipher bootstrap.",
+      "shared_evidence": [],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/workright/crates/local-store/src/lib.rs",
+          "line": 168,
+          "symbol": "LocalStore::open",
+          "detail": "opens rusqlite path and applies WAL pragmas"
+        },
+        {
+          "path": "/Volumes/D/claude/workright/backend/server/src/db.rs",
+          "line": 397,
+          "symbol": "DbPool::open",
+          "detail": "opens backend rusqlite database and runs local schema migration"
+        }
+      ],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workright/Cargo.toml",
+          "line": 1,
+          "detail": "Active Rust workspace manifest covers protocol, crypto, local store, capture, core service, helper, and Axum backend."
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-db/src/lib.rs",
+          "line": 237,
+          "detail": "DbOptions::open_writer provides keyed SQLite/SQLCipher connection bootstrap"
+        }
+      ],
+      "delivery_flags": [
+        "No RightKit import or published dependency is present; local route is active."
+      ],
+      "remaining_work": "Adopt rightkit-db for local-store and backend connections with SQLCipher/key policy; preserve WorkRight schemas, tenant boundary, and migration semantics; remove direct rusqlite bootstrap.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-embed",
+      "status": "NA",
+      "rationale": "Product-neutral local text embeddings and persistent cosine vector store. WorkRight Rust targets implement aggregate capture, signed-event storage, & Axum ingest; no active caller implements this feature.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workright/Cargo.toml",
+          "line": 1,
+          "detail": "Active Rust workspace manifest covers protocol, crypto, local store, capture, core service, helper, and Axum backend."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "No active production caller or compatible local implementation found in current source census."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-framed-sidecar",
+      "status": "NA",
+      "rationale": "Bounded JSON-lines transport primitives for Right Suite sidecars. WorkRight Rust targets implement aggregate capture, signed-event storage, & Axum ingest; no active caller implements this feature.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workright/Cargo.toml",
+          "line": 1,
+          "detail": "Active Rust workspace manifest covers protocol, crypto, local store, capture, core service, helper, and Axum backend."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "No active production caller or compatible local implementation found in current source census."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-fs",
+      "status": "NA",
+      "rationale": "WorkRight's Rust local store delegates durable database bytes to SQLite, while its installer uses Python & shell to place privileged OS plists. Neither is a Rust caller of rightkit-fs atomic/state APIs, and no language bridge exists.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workright/Cargo.toml",
+          "line": 1,
+          "detail": "Rust local-store opens SQLite; installer-side plist writes run through embedded Python, not a Rust filesystem API consumer."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "No Rust rightkit-fs caller or cross-language bridge is present."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-fsindex",
+      "status": "NA",
+      "rationale": "Live whole-disk file index: fuzzy name search plus clone- and hard-link-aware folder size rollups on memory-mapped columns. WorkRight Rust targets implement aggregate capture, signed-event storage, & Axum ingest; no active caller implements this feature.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workright/Cargo.toml",
+          "line": 1,
+          "detail": "Active Rust workspace manifest covers protocol, crypto, local store, capture, core service, helper, and Axum backend."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "No active production caller or compatible local implementation found in current source census."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-hotkeys",
+      "status": "NA",
+      "rationale": "Global shortcuts and low-level input hooks for Right Suite apps: chord parsing, conflict detection, CGEventTap/WH_KEYBOARD_LL primitives, push-to-talk state. WorkRight Rust targets implement aggregate capture, signed-event storage, & Axum ingest; no active caller implements this feature.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workright/Cargo.toml",
+          "line": 1,
+          "detail": "Active Rust workspace manifest covers protocol, crypto, local store, capture, core service, helper, and Axum backend."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "No active production caller or compatible local implementation found in current source census."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-http",
+      "status": "NA",
+      "rationale": "Brand-neutral blocking HTTP client with retry, streaming, downloads, multipart, & secret-redaction policy. WorkRight dashboard uses browser fetch in apps/dashboard/src/api.ts; scoped Rust source has no rightkit-http Client, retry, SSE, resumable-download, or multipart caller.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workright/Cargo.toml",
+          "line": 1,
+          "detail": "Active Rust workspace manifest covers protocol, crypto, local store, capture, core service, helper, and Axum backend."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "No active production caller or compatible local implementation found in current source census."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-jobs",
+      "status": "NA",
+      "rationale": "WorkRight exposes only a fixed jobs heartbeat. Its worker_job insert helper has no production caller, while heartbeat handling performs no job write or execution; no persistent runner, lease, retry, or resume mechanism overlaps rightkit-jobs.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workright/Cargo.toml",
+          "line": 1,
+          "detail": "Active jobs route returns a constant heartbeat; scoped production search finds no caller of DbTx::insert_worker_job."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "worker_job schema/helper is dormant; no runner is active."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-license",
+      "status": "NA",
+      "rationale": "Right Suite license enforcement primitive — offline verification of server-signed Ed25519 entitlement tokens. The Rust (security) half of @rightkit/license. WorkRight Rust targets implement aggregate capture, signed-event storage, & Axum ingest; no active caller implements this feature.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workright/Cargo.toml",
+          "line": 1,
+          "detail": "Active Rust workspace manifest covers protocol, crypto, local store, capture, core service, helper, and Axum backend."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "No active production caller or compatible local implementation found in current source census."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-llm",
+      "status": "NA",
+      "rationale": "Brand-neutral BYOK LLM clients: Anthropic Messages and OpenAI-compatible chat, streaming, tool use, route failover with circuit breaker, pricing, and prompt-cache discipline, plus an opt-in provider for installed command-line assistants. WorkRight Rust targets implement aggregate capture, signed-event storage, & Axum ingest; no active caller implements this feature.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workright/Cargo.toml",
+          "line": 1,
+          "detail": "Active Rust workspace manifest covers protocol, crypto, local store, capture, core service, helper, and Axum backend."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "No active production caller or compatible local implementation found in current source census."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-logs",
+      "status": "N",
+      "rationale": "Core service, session helper, and backend initialize tracing subscribers for production diagnostics; this is local logging infrastructure overlapping rightkit-logs.",
+      "shared_evidence": [],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/workright/crates/core-service/src/main.rs",
+          "line": 196,
+          "symbol": "init_tracing",
+          "detail": "installs tracing-subscriber formatter for core diagnostics"
+        },
+        {
+          "path": "/Volumes/D/claude/workright/backend/server/src/main.rs",
+          "line": 85,
+          "symbol": "init_tracing",
+          "detail": "installs backend tracing output"
+        }
+      ],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workright/Cargo.toml",
+          "line": 1,
+          "detail": "Active Rust workspace manifest covers protocol, crypto, local store, capture, core service, helper, and Axum backend."
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-logs/src/tracing_file.rs",
+          "line": 154,
+          "detail": "install_tracing writes privacy-safe daily JSONL diagnostics"
+        }
+      ],
+      "delivery_flags": [
+        "No RightKit import or published dependency is present; local route is active."
+      ],
+      "remaining_work": "Route agent and backend diagnostics through rightkit-logs with WorkRight redaction and consent policy; preserve security/event audit records separately; remove direct tracing subscriber setup.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-mcp",
+      "status": "NA",
+      "rationale": "Shared MCP client (stdio + streamable HTTP, trust gate, pool, OAuth hook) and server host (stdio + loopback HTTP, per-tool admission) for Right Suite apps. WorkRight Rust targets implement aggregate capture, signed-event storage, & Axum ingest; no active caller implements this feature.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workright/Cargo.toml",
+          "line": 1,
+          "detail": "Active Rust workspace manifest covers protocol, crypto, local store, capture, core service, helper, and Axum backend."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "No active production caller or compatible local implementation found in current source census."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-media",
+      "status": "NA",
+      "rationale": "Verified FFmpeg artifact and lifecycle primitives for Right Suite media pipelines. WorkRight Rust targets implement aggregate capture, signed-event storage, & Axum ingest; no active caller implements this feature.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workright/Cargo.toml",
+          "line": 1,
+          "detail": "Active Rust workspace manifest covers protocol, crypto, local store, capture, core service, helper, and Axum backend."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "No active production caller or compatible local implementation found in current source census."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-models",
+      "status": "NA",
+      "rationale": "Shared local-model manifest and installer for Right Suite apps: revisions and quantizations, resumable verified downloads, archive extraction, atomic activation, rollback, and hardware fit. WorkRight Rust targets implement aggregate capture, signed-event storage, & Axum ingest; no active caller implements this feature.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workright/Cargo.toml",
+          "line": 1,
+          "detail": "Active Rust workspace manifest covers protocol, crypto, local store, capture, core service, helper, and Axum backend."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "No active production caller or compatible local implementation found in current source census."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-oauth",
+      "status": "NA",
+      "rationale": "Shared OAuth 2.0 sign-in for Right Suite apps: loopback PKCE, RFC 8628 device flow, provider presets, encrypted daemon persistence, and stored, refreshing credentials. WorkRight Rust targets implement aggregate capture, signed-event storage, & Axum ingest; no active caller implements this feature.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workright/Cargo.toml",
+          "line": 1,
+          "detail": "Active Rust workspace manifest covers protocol, crypto, local store, capture, core service, helper, and Axum backend."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "No active production caller or compatible local implementation found in current source census."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-ocr",
+      "status": "NA",
+      "rationale": "Product-neutral OCR: Apple Vision / Windows.Media.Ocr native backends with per-line geometry, isolated worker, and verified two-stage ONNX fallback. WorkRight Rust targets implement aggregate capture, signed-event storage, & Axum ingest; no active caller implements this feature.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workright/Cargo.toml",
+          "line": 1,
+          "detail": "Active Rust workspace manifest covers protocol, crypto, local store, capture, core service, helper, and Axum backend."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "No active production caller or compatible local implementation found in current source census."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-ort",
+      "status": "NA",
+      "rationale": "Product-neutral ONNX Runtime dynamic-library resolution, environment, execution-provider and session setup (single suite ort pin). WorkRight Rust targets implement aggregate capture, signed-event storage, & Axum ingest; no active caller implements this feature.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workright/Cargo.toml",
+          "line": 1,
+          "detail": "Active Rust workspace manifest covers protocol, crypto, local store, capture, core service, helper, and Axum backend."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "No active production caller or compatible local implementation found in current source census."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-overlay",
+      "status": "NA",
+      "rationale": "Shared overlay state, hit testing, and placement policy for Right Suite apps. WorkRight Rust targets implement aggregate capture, signed-event storage, & Axum ingest; no active caller implements this feature.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workright/Cargo.toml",
+          "line": 1,
+          "detail": "Active Rust workspace manifest covers protocol, crypto, local store, capture, core service, helper, and Axum backend."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "No active production caller or compatible local implementation found in current source census."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-ownership",
+      "status": "NA",
+      "rationale": "RightKit ownership scanner, verdict and admission: the single Rust implementation the RustRight broker links. WorkRight Rust targets implement aggregate capture, signed-event storage, & Axum ingest; no active caller implements this feature.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workright/Cargo.toml",
+          "line": 1,
+          "detail": "Active Rust workspace manifest covers protocol, crypto, local store, capture, core service, helper, and Axum backend."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "No active production caller or compatible local implementation found in current source census."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-pdf",
+      "status": "NA",
+      "rationale": "Product-neutral PDF engine: inspect, compose (source-text replace / add text / OCR correction), font subsetting, staged atomic save, plus optional page merge/select and text extraction. WorkRight Rust targets implement aggregate capture, signed-event storage, & Axum ingest; no active caller implements this feature.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workright/Cargo.toml",
+          "line": 1,
+          "detail": "Active Rust workspace manifest covers protocol, crypto, local store, capture, core service, helper, and Axum backend."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "No active production caller or compatible local implementation found in current source census."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-playback",
+      "status": "NA",
+      "rationale": "Source-preserving FFmpeg compatibility playback preparation for Right Suite media apps. WorkRight Rust targets implement aggregate capture, signed-event storage, & Axum ingest; no active caller implements this feature.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workright/Cargo.toml",
+          "line": 1,
+          "detail": "Active Rust workspace manifest covers protocol, crypto, local store, capture, core service, helper, and Axum backend."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "No active production caller or compatible local implementation found in current source census."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-process",
+      "status": "NA",
+      "rationale": "Ownership-safe child lifecycle, restart, and health primitives for Right Suite apps. WorkRight Rust targets implement aggregate capture, signed-event storage, & Axum ingest; no active caller implements this feature.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workright/Cargo.toml",
+          "line": 1,
+          "detail": "Active Rust workspace manifest covers protocol, crypto, local store, capture, core service, helper, and Axum backend."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "No active production caller or compatible local implementation found in current source census."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-qa",
+      "status": "NA",
+      "rationale": "Rust QA harness for Right Suite apps: engine black-box scenarios, hidden native UI driving through rightkit-control, Rust-test scenario wrapper, dynamic paid-provider mocks, loudness/WAV/PNG/frame validators, run lock, orphan sweep, hashed evidence. WorkRight Rust targets implement aggregate capture, signed-event storage, & Axum ingest; no active caller implements this feature.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workright/Cargo.toml",
+          "line": 1,
+          "detail": "Active Rust workspace manifest covers protocol, crypto, local store, capture, core service, helper, and Axum backend."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "No active production caller or compatible local implementation found in current source census."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-qts",
+      "status": "NA",
+      "rationale": "Qwen3 TTS inference (GGUF + GGML), vendored from yet-another-ai/qts v0.2.0 for RightKit. WorkRight Rust targets implement aggregate capture, signed-event storage, & Axum ingest; no active caller implements this feature.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workright/Cargo.toml",
+          "line": 1,
+          "detail": "Active Rust workspace manifest covers protocol, crypto, local store, capture, core service, helper, and Axum backend."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "No active production caller or compatible local implementation found in current source census."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-qts-ggml",
+      "status": "NA",
+      "rationale": "DEPRECATED: use rightkit-qts-ggml-sys directly. Thin safe wrappers over rightkit-qts-ggml-sys for rightkit-qts, vendored from yet-another-ai/qts v0.2.0. WorkRight Rust targets implement aggregate capture, signed-event storage, & Axum ingest; no active caller implements this feature.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workright/Cargo.toml",
+          "line": 1,
+          "detail": "Active Rust workspace manifest covers protocol, crypto, local store, capture, core service, helper, and Axum backend."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "No active production caller or compatible local implementation found in current source census."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-qts-ggml-sys",
+      "status": "NA",
+      "rationale": "Low-level FFI bindings to ggml (CPU, Metal, Vulkan, BLAS) for rightkit-qts, vendored from yet-another-ai/qts v0.2.0. WorkRight Rust targets implement aggregate capture, signed-event storage, & Axum ingest; no active caller implements this feature.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workright/Cargo.toml",
+          "line": 1,
+          "detail": "Active Rust workspace manifest covers protocol, crypto, local store, capture, core service, helper, and Axum backend."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "No active production caller or compatible local implementation found in current source census."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-record",
+      "status": "NA",
+      "rationale": "Recorder lifecycle, per-frame capture, session bundles, quarantine/recovery, & bundle verification. WorkRight CaptureBackend reports aggregate input counters and poll returns no observations; it has no frame-producing recorder Backend, bundle writer, quarantine, or verifier.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workright/Cargo.toml",
+          "line": 1,
+          "detail": "Active Rust workspace manifest covers protocol, crypto, local store, capture, core service, helper, and Axum backend."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "No active production caller or compatible local implementation found in current source census."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-review",
+      "status": "NA",
+      "rationale": "Shared review capability for the content pipeline: deterministic checks over a media or text description, declared holds, a capped repair loop, an advisory judge interface, and versioned verdict records. WorkRight Rust targets implement aggregate capture, signed-event storage, & Axum ingest; no active caller implements this feature.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workright/Cargo.toml",
+          "line": 1,
+          "detail": "Active Rust workspace manifest covers protocol, crypto, local store, capture, core service, helper, and Axum backend."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "No active production caller or compatible local implementation found in current source census."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-sandbox",
+      "status": "NA",
+      "rationale": "Shared OS sandbox, PTY lease, process-tree, and reserve-before-spawn resource authority for Right Suite apps. WorkRight Rust targets implement aggregate capture, signed-event storage, & Axum ingest; no active caller implements this feature.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workright/Cargo.toml",
+          "line": 1,
+          "detail": "Active Rust workspace manifest covers protocol, crypto, local store, capture, core service, helper, and Axum backend."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "No active production caller or compatible local implementation found in current source census."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-scenario",
+      "status": "NA",
+      "rationale": "Shared scenario interpreter and durable state machine for the RightKit scenario runtime (RK8): perform separated from observe_until, idempotency keys, append-only fsync journal, leases with fencing tokens, cooperative cancellation, retake replay, and a remote worker transport trait boundary. WorkRight Rust targets implement aggregate capture, signed-event storage, & Axum ingest; no active caller implements this feature.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workright/Cargo.toml",
+          "line": 1,
+          "detail": "Active Rust workspace manifest covers protocol, crypto, local store, capture, core service, helper, and Axum backend."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "No active production caller or compatible local implementation found in current source census."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-search",
+      "status": "NA",
+      "rationale": "Product-neutral search query language: lexer, AST, operator values, SQL/FTS5 predicate compiler, snippets, and an in-memory filename index. WorkRight Rust targets implement aggregate capture, signed-event storage, & Axum ingest; no active caller implements this feature.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workright/Cargo.toml",
+          "line": 1,
+          "detail": "Active Rust workspace manifest covers protocol, crypto, local store, capture, core service, helper, and Axum backend."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "No active production caller or compatible local implementation found in current source census."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-secrets",
+      "status": "NA",
+      "rationale": "Per-app OS Keychain/Credential Manager storage, DB-key provisioning, & migration. WorkRight LocalStore::open accepts a caller-supplied key and core-service reads WORKRIGHT_KEY_HEX; scoped source has no credential-store, passive-presence, or migration caller.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workright/Cargo.toml",
+          "line": 1,
+          "detail": "Active Rust workspace manifest covers protocol, crypto, local store, capture, core service, helper, and Axum backend."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "No active production caller or compatible local implementation found in current source census."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-send",
+      "status": "NA",
+      "rationale": "Nearby file and text sharing over the open LocalSend v2 protocol, with Pulse extensions: TLS identity pinning, per-device trust, and macOS Bonjour discovery. Product-neutral; the host supplies identity, paths and policy. WorkRight Rust targets implement aggregate capture, signed-event storage, & Axum ingest; no active caller implements this feature.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workright/Cargo.toml",
+          "line": 1,
+          "detail": "Active Rust workspace manifest covers protocol, crypto, local store, capture, core service, helper, and Axum backend."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "No active production caller or compatible local implementation found in current source census."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-service",
+      "status": "NA",
+      "rationale": "WorkRight generates OS service manifests and install scripts, but no active endpoint discovery or authenticated local transport caller implements rightkit-service's local service connection contract; registration policy is a different mechanism.; current production source is limited to workforce capture, signed events, storage, Axum routes, and dashboard integration.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workright/Cargo.toml",
+          "line": 1,
+          "detail": "Active Rust workspace manifest covers protocol, crypto, local store, capture, core service, helper, and Axum backend."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "No active production caller or compatible local implementation found in current source census."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-settings",
+      "status": "NA",
+      "rationale": "Versioned per-app settings documents with defaults, migrations, atomic recovery, & change events. WorkRight local-store persists workforce policy/service records in SQLite; it has no settings document schema, defaults provider, migration, or settings-change subscriber.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workright/Cargo.toml",
+          "line": 1,
+          "detail": "Active Rust workspace manifest covers protocol, crypto, local store, capture, core service, helper, and Axum backend."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "No active production caller or compatible local implementation found in current source census."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-shell",
+      "status": "NA",
+      "rationale": "WorkRight contains React UI plus Tauri JSON configuration, but no src-tauri Cargo manifest or Rust startup/plugin caller. rightkit-shell is a Rust Tauri plugin API, so no active compatible host mechanism exists.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workright/Cargo.toml",
+          "line": 1,
+          "detail": "Agent UI's src-tauri directory contains tauri.conf.json & capability JSON only; its package manifest has no Rust shell/plugin dependency."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "Tauri configuration alone does not invoke a Rust plugin."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-speech-client",
+      "status": "NA",
+      "rationale": "Client and contract for the Orthic Labs shared speech service (one resident engine per machine), built on rightkit-service. Wire-compatible with HeardRight's v1 host. WorkRight Rust targets implement aggregate capture, signed-event storage, & Axum ingest; no active caller implements this feature.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workright/Cargo.toml",
+          "line": 1,
+          "detail": "Active Rust workspace manifest covers protocol, crypto, local store, capture, core service, helper, and Axum backend."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "No active production caller or compatible local implementation found in current source census."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-sync",
+      "status": "NA",
+      "rationale": "Brand-neutral desktop/mobile cloud sync engine: change tokens, tombstones, last-writer-wins conflicts, resumable batches, offline queue, retry/backoff. WorkRight Rust targets implement aggregate capture, signed-event storage, & Axum ingest; no active caller implements this feature.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workright/Cargo.toml",
+          "line": 1,
+          "detail": "Active Rust workspace manifest covers protocol, crypto, local store, capture, core service, helper, and Axum backend."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "No active production caller or compatible local implementation found in current source census."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-tauri",
+      "status": "NA",
+      "rationale": "Native host services for Right Suite Tauri license and device adapters. WorkRight Rust targets implement aggregate capture, signed-event storage, & Axum ingest; no active caller implements this feature.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workright/Cargo.toml",
+          "line": 1,
+          "detail": "Active Rust workspace manifest covers protocol, crypto, local store, capture, core service, helper, and Axum backend."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "No active production caller or compatible local implementation found in current source census."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-transcript",
+      "status": "NA",
+      "rationale": "Product-neutral word-timed transcript contract, cue segmentation, and SRT/VTT/JSON import and export for Right Suite applications. WorkRight Rust targets implement aggregate capture, signed-event storage, & Axum ingest; no active caller implements this feature.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workright/Cargo.toml",
+          "line": 1,
+          "detail": "Active Rust workspace manifest covers protocol, crypto, local store, capture, core service, helper, and Axum backend."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "No active production caller or compatible local implementation found in current source census."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-tts",
+      "status": "NA",
+      "rationale": "Shared local text-to-speech for Right Suite apps: OS voices (say / SAPI) and a Qwen3-TTS QTS worker client. WorkRight Rust targets implement aggregate capture, signed-event storage, & Axum ingest; no active caller implements this feature.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workright/Cargo.toml",
+          "line": 1,
+          "detail": "Active Rust workspace manifest covers protocol, crypto, local store, capture, core service, helper, and Axum backend."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "No active production caller or compatible local implementation found in current source census."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-vad",
+      "status": "NA",
+      "rationale": "Product-neutral voice activity detection: Silero scorer, hysteresis/padding/chunking policy, streaming frame carry. WorkRight Rust targets implement aggregate capture, signed-event storage, & Axum ingest; no active caller implements this feature.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workright/Cargo.toml",
+          "line": 1,
+          "detail": "Active Rust workspace manifest covers protocol, crypto, local store, capture, core service, helper, and Axum backend."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "No active production caller or compatible local implementation found in current source census."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-watch",
+      "status": "NA",
+      "rationale": "Filesystem watching for Right Suite apps: ref-counted async subscribers, debounced file-set and directory watchers, and rename-storm coalescing. WorkRight Rust targets implement aggregate capture, signed-event storage, & Axum ingest; no active caller implements this feature.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workright/Cargo.toml",
+          "line": 1,
+          "detail": "Active Rust workspace manifest covers protocol, crypto, local store, capture, core service, helper, and Axum backend."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "No active production caller or compatible local implementation found in current source census."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/agent-room-mcp",
+      "status": "NA",
+      "rationale": "Private RightKit capability npm:@rightkit/agent-room-mcp. WorkRight React targets render workforce routes & agent status polling; no active caller implements this feature.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workright/apps/agent-ui/package.json",
+          "line": 12,
+          "detail": "Active Tauri/React agent manifest; only @tauri-apps/api, React, and React DOM dependencies."
+        },
+        {
+          "path": "/Volumes/D/claude/workright/apps/dashboard/package.json",
+          "line": 13,
+          "detail": "Active React dashboard manifest; no @rightkit dependency or shared package caller."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "No active production caller or compatible local implementation found in current source census."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/app-shell",
+      "status": "N",
+      "rationale": "Dashboard and agent UI each implement local React frame/header/navigation/status shells; rightkit app-shell provides shared React frame and command primitives.",
+      "shared_evidence": [],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/workright/apps/dashboard/src/App.tsx",
+          "line": 32,
+          "symbol": "App",
+          "detail": "owns dashboard header, nav, route frame, and org input"
+        },
+        {
+          "path": "/Volumes/D/claude/workright/apps/agent-ui/src/App.tsx",
+          "line": 13,
+          "symbol": "App",
+          "detail": "owns Tauri agent status frame and disclosure"
+        }
+      ],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workright/apps/agent-ui/package.json",
+          "line": 12,
+          "detail": "Active Tauri/React agent manifest; only @tauri-apps/api, React, and React DOM dependencies."
+        },
+        {
+          "path": "/Volumes/D/claude/workright/apps/dashboard/package.json",
+          "line": 13,
+          "detail": "Active React dashboard manifest; no @rightkit dependency or shared package caller."
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/packages/app-shell/src/react/layout.tsx",
+          "line": 518,
+          "detail": "AppShell composes shared React frame, navigation, titlebar, command palette, shortcuts, and shell provider"
+        }
+      ],
+      "delivery_flags": [
+        "No RightKit import or published dependency is present; local route is active."
+      ],
+      "remaining_work": "Adopt @rightkit/app-shell where shared frame primitives fit; preserve WorkRight dashboard routes and employee disclosure content; remove duplicate frame/navigation code after visual and route parity.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/ax",
+      "status": "NA",
+      "rationale": "Suite-wide agent-experience (AX) + agent-plugins.org conformance layer: plugin scaffolding/validation and AXA-1 static/conformance/behavioral gates over one product's MCP/CLI surface. WorkRight React targets render workforce routes & agent status polling; no active caller implements this feature.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workright/apps/agent-ui/package.json",
+          "line": 12,
+          "detail": "Active Tauri/React agent manifest; only @tauri-apps/api, React, and React DOM dependencies."
+        },
+        {
+          "path": "/Volumes/D/claude/workright/apps/dashboard/package.json",
+          "line": 13,
+          "detail": "Active React dashboard manifest; no @rightkit dependency or shared package caller."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "No active production caller or compatible local implementation found in current source census."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/build-control-policy",
+      "status": "NA",
+      "rationale": "Private RightKit capability npm:@rightkit/build-control-policy. WorkRight React targets render workforce routes & agent status polling; no active caller implements this feature.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workright/apps/agent-ui/package.json",
+          "line": 12,
+          "detail": "Active Tauri/React agent manifest; only @tauri-apps/api, React, and React DOM dependencies."
+        },
+        {
+          "path": "/Volumes/D/claude/workright/apps/dashboard/package.json",
+          "line": 13,
+          "detail": "Active React dashboard manifest; no @rightkit dependency or shared package caller."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "No active production caller or compatible local implementation found in current source census."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/doc-render",
+      "status": "NA",
+      "rationale": "Brand-neutral, read-only document renderer (Markdown, sanitized HTML, safe email frame) for Right Suite readers. WorkRight React targets render workforce routes & agent status polling; no active caller implements this feature.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workright/apps/agent-ui/package.json",
+          "line": 12,
+          "detail": "Active Tauri/React agent manifest; only @tauri-apps/api, React, and React DOM dependencies."
+        },
+        {
+          "path": "/Volumes/D/claude/workright/apps/dashboard/package.json",
+          "line": 13,
+          "detail": "Active React dashboard manifest; no @rightkit dependency or shared package caller."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "No active production caller or compatible local implementation found in current source census."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/git",
+      "status": "NA",
+      "rationale": "Public-repo-only GitHub Actions workflow layer: templates, visibility gate, sync/drift/adopt/uninstall for right-git. WorkRight React targets render workforce routes & agent status polling; no active caller implements this feature.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workright/apps/agent-ui/package.json",
+          "line": 12,
+          "detail": "Active Tauri/React agent manifest; only @tauri-apps/api, React, and React DOM dependencies."
+        },
+        {
+          "path": "/Volumes/D/claude/workright/apps/dashboard/package.json",
+          "line": 13,
+          "detail": "Active React dashboard manifest; no @rightkit dependency or shared package caller."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "No active production caller or compatible local implementation found in current source census."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/hooks",
+      "status": "NA",
+      "rationale": "Neutral lifecycle runtime shared by independently installable agent systems. WorkRight React targets render workforce routes & agent status polling; no active caller implements this feature.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workright/apps/agent-ui/package.json",
+          "line": 12,
+          "detail": "Active Tauri/React agent manifest; only @tauri-apps/api, React, and React DOM dependencies."
+        },
+        {
+          "path": "/Volumes/D/claude/workright/apps/dashboard/package.json",
+          "line": 13,
+          "detail": "Active React dashboard manifest; no @rightkit dependency or shared package caller."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "No active production caller or compatible local implementation found in current source census."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/i18n",
+      "status": "NA",
+      "rationale": "Shared locale catalog and React provider for Right Suite apps. WorkRight React targets render workforce routes & agent status polling; no active caller implements this feature.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workright/apps/agent-ui/package.json",
+          "line": 12,
+          "detail": "Active Tauri/React agent manifest; only @tauri-apps/api, React, and React DOM dependencies."
+        },
+        {
+          "path": "/Volumes/D/claude/workright/apps/dashboard/package.json",
+          "line": 13,
+          "detail": "Active React dashboard manifest; no @rightkit dependency or shared package caller."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "No active production caller or compatible local implementation found in current source census."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/legal",
+      "status": "NA",
+      "rationale": "Consent receipts are Rust local-store/backend records. @rightkit/legal exposes a JavaScript createAcceptanceReceipt API, but WorkRight has no JavaScript receipt caller or Rust bridge, so its active consent path is not an owner-compatible duplicate.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workright/apps/agent-ui/package.json",
+          "line": 12,
+          "detail": "Agent UI has only React/Tauri JavaScript dependencies; scoped source search finds no JavaScript consent or receipt construction caller."
+        },
+        {
+          "path": "/Volumes/D/claude/workright/apps/dashboard/package.json",
+          "line": 13,
+          "detail": "Active React dashboard manifest; no @rightkit dependency or shared package caller."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "Rust consent storage has no JavaScript owner bridge."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/legal-ui",
+      "status": "NA",
+      "rationale": "The one first-run / re-acceptance legal gate screen for Right Suite desktop apps. WorkRight React targets render workforce routes & agent status polling; no active caller implements this feature.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workright/apps/agent-ui/package.json",
+          "line": 12,
+          "detail": "Active Tauri/React agent manifest; only @tauri-apps/api, React, and React DOM dependencies."
+        },
+        {
+          "path": "/Volumes/D/claude/workright/apps/dashboard/package.json",
+          "line": 13,
+          "detail": "Active React dashboard manifest; no @rightkit dependency or shared package caller."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "No active production caller or compatible local implementation found in current source census."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/license",
+      "status": "NA",
+      "rationale": "The one license client for every Right Suite app (online token-exchange against the unified RightApps backend, with per-kind offline grace). WorkRight React targets render workforce routes & agent status polling; no active caller implements this feature.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workright/apps/agent-ui/package.json",
+          "line": 12,
+          "detail": "Active Tauri/React agent manifest; only @tauri-apps/api, React, and React DOM dependencies."
+        },
+        {
+          "path": "/Volumes/D/claude/workright/apps/dashboard/package.json",
+          "line": 13,
+          "detail": "Active React dashboard manifest; no @rightkit dependency or shared package caller."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "No active production caller or compatible local implementation found in current source census."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/logs",
+      "status": "NA",
+      "rationale": "Local structured logging & diagnostics client for React hosts. WorkRight frontend renders routes and status polling only; its Rust tracing setup is covered by cargo:rightkit-logs, with no JavaScript diagnostics client.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workright/apps/agent-ui/package.json",
+          "line": 12,
+          "detail": "Active Tauri/React agent manifest; only @tauri-apps/api, React, and React DOM dependencies."
+        },
+        {
+          "path": "/Volumes/D/claude/workright/apps/dashboard/package.json",
+          "line": 13,
+          "detail": "Active React dashboard manifest; no @rightkit dependency or shared package caller."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "No active production caller or compatible local implementation found in current source census."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/media-ui",
+      "status": "NA",
+      "rationale": "Brand-neutral media player and image viewer/editor for Right Suite apps. WorkRight React targets render workforce routes & agent status polling; no active caller implements this feature.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workright/apps/agent-ui/package.json",
+          "line": 12,
+          "detail": "Active Tauri/React agent manifest; only @tauri-apps/api, React, and React DOM dependencies."
+        },
+        {
+          "path": "/Volumes/D/claude/workright/apps/dashboard/package.json",
+          "line": 13,
+          "detail": "Active React dashboard manifest; no @rightkit dependency or shared package caller."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "No active production caller or compatible local implementation found in current source census."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/onboarding",
+      "status": "NA",
+      "rationale": "First-run onboarding framework: ordered steps, progress, skip/resume, legal gate first, permissions, model download and licence/trial steps. WorkRight React targets render workforce routes & agent status polling; no active caller implements this feature.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workright/apps/agent-ui/package.json",
+          "line": 12,
+          "detail": "Active Tauri/React agent manifest; only @tauri-apps/api, React, and React DOM dependencies."
+        },
+        {
+          "path": "/Volumes/D/claude/workright/apps/dashboard/package.json",
+          "line": 13,
+          "detail": "Active React dashboard manifest; no @rightkit dependency or shared package caller."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "No active production caller or compatible local implementation found in current source census."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/pdf-ui",
+      "status": "NA",
+      "rationale": "Brand-neutral read-only PDF viewer (pdf.js) for Right Suite apps. WorkRight React targets render workforce routes & agent status polling; no active caller implements this feature.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workright/apps/agent-ui/package.json",
+          "line": 12,
+          "detail": "Active Tauri/React agent manifest; only @tauri-apps/api, React, and React DOM dependencies."
+        },
+        {
+          "path": "/Volumes/D/claude/workright/apps/dashboard/package.json",
+          "line": 13,
+          "detail": "Active React dashboard manifest; no @rightkit dependency or shared package caller."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "No active production caller or compatible local implementation found in current source census."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/platform-ui",
+      "status": "NA",
+      "rationale": "Platform, shortcut, & window-control primitives for React hosts. WorkRight dashboard uses React Router Links and agent UI uses a health fetch; scoped frontend source has no shortcut, platform, or window-control caller.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workright/apps/agent-ui/package.json",
+          "line": 12,
+          "detail": "Active Tauri/React agent manifest; only @tauri-apps/api, React, and React DOM dependencies."
+        },
+        {
+          "path": "/Volumes/D/claude/workright/apps/dashboard/package.json",
+          "line": 13,
+          "detail": "Active React dashboard manifest; no @rightkit dependency or shared package caller."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "No active production caller or compatible local implementation found in current source census."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/qa",
+      "status": "NA",
+      "rationale": "WorkRight runs ordinary Rust/TypeScript tests & a release preflight, but creates no hash-bound QA evidence bundle or artifact receipt. Generic tests do not duplicate @rightkit/qa's createEvidenceBundle/writeEvidenceBundle mechanism.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workright/apps/agent-ui/package.json",
+          "line": 12,
+          "detail": "Agent UI manifest has no @rightkit/qa dependency; scoped QA-source search finds no evidence-bundle creation or write caller."
+        },
+        {
+          "path": "/Volumes/D/claude/workright/apps/dashboard/package.json",
+          "line": 13,
+          "detail": "Active React dashboard manifest; no @rightkit dependency or shared package caller."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "Tests & preflight do not emit @rightkit/qa evidence receipts."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/qa-chrome",
+      "status": "NA",
+      "rationale": "Zero-dependency Chrome for Testing resolver, launcher and graceful close for Right Suite QA harnesses. WorkRight React targets render workforce routes & agent status polling; no active caller implements this feature.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workright/apps/agent-ui/package.json",
+          "line": 12,
+          "detail": "Active Tauri/React agent manifest; only @tauri-apps/api, React, and React DOM dependencies."
+        },
+        {
+          "path": "/Volumes/D/claude/workright/apps/dashboard/package.json",
+          "line": 13,
+          "detail": "Active React dashboard manifest; no @rightkit dependency or shared package caller."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "No active production caller or compatible local implementation found in current source census."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/release",
+      "status": "NA",
+      "rationale": "WorkRight's only release command is a local preflight doctor. It has no right-release build, seal, upload, distribution-provider, or release-manifest caller, so it does not implement @rightkit/release's release workflow.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workright/apps/agent-ui/package.json",
+          "line": 12,
+          "detail": "Root package exposes only scripts/release-doctor.mjs; scoped scripts/config search finds no build/upload or right-release invocation."
+        },
+        {
+          "path": "/Volumes/D/claude/workright/apps/dashboard/package.json",
+          "line": 13,
+          "detail": "Active React dashboard manifest; no @rightkit dependency or shared package caller."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "Local preflight is not a release build/seal/upload implementation."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/settings-ui",
+      "status": "NA",
+      "rationale": "Settings frame with appearance, update, license, legal, diagnostics, model, API-key, & about sections persisted through rightkit-settings. WorkRight dashboard exposes workforce policy read views; it has no settings panel or settings persistence route.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workright/apps/agent-ui/package.json",
+          "line": 12,
+          "detail": "Active Tauri/React agent manifest; only @tauri-apps/api, React, and React DOM dependencies."
+        },
+        {
+          "path": "/Volumes/D/claude/workright/apps/dashboard/package.json",
+          "line": 13,
+          "detail": "Active React dashboard manifest; no @rightkit dependency or shared package caller."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "No active production caller or compatible local implementation found in current source census."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/shell",
+      "status": "NA",
+      "rationale": "Typed renderer bridge for rightkit-shell window controls, menu/tray events, deep links, autostart, clipboard, & engine commands. WorkRight agent UI only polls /v1/health/core, while src-tauri has no Rust host/plugin caller; no bridge contract exists.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workright/apps/agent-ui/package.json",
+          "line": 12,
+          "detail": "Active Tauri/React agent manifest; only @tauri-apps/api, React, and React DOM dependencies."
+        },
+        {
+          "path": "/Volumes/D/claude/workright/apps/dashboard/package.json",
+          "line": 13,
+          "detail": "Active React dashboard manifest; no @rightkit dependency or shared package caller."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "No active production caller or compatible local implementation found in current source census."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/tauri",
+      "status": "NA",
+      "rationale": "Typed host adapters for shared Right Suite Tauri commands. WorkRight React targets render workforce routes & agent status polling; no active caller implements this feature.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workright/apps/agent-ui/package.json",
+          "line": 12,
+          "detail": "Active Tauri/React agent manifest; only @tauri-apps/api, React, and React DOM dependencies."
+        },
+        {
+          "path": "/Volumes/D/claude/workright/apps/dashboard/package.json",
+          "line": 13,
+          "detail": "Active React dashboard manifest; no @rightkit dependency or shared package caller."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "No active production caller or compatible local implementation found in current source census."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/theme",
+      "status": "NA",
+      "rationale": "Brand-to-CSS token generation with light/dark/system selection & runtime brand application. WorkRight React uses literal Tailwind color classes in App components; no theme choice, token generation, or runtime brand caller exists.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workright/apps/agent-ui/package.json",
+          "line": 12,
+          "detail": "Active Tauri/React agent manifest; only @tauri-apps/api, React, and React DOM dependencies."
+        },
+        {
+          "path": "/Volumes/D/claude/workright/apps/dashboard/package.json",
+          "line": 13,
+          "detail": "Active React dashboard manifest; no @rightkit dependency or shared package caller."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "No active production caller or compatible local implementation found in current source census."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/update",
+      "status": "NA",
+      "rationale": "Per-repo dependency updater: check, apply, gate and land for cargo, pnpm, swiftpm and external-tool pins, plus a scheduled run (launchd, Task Scheduler). WorkRight React targets render workforce routes & agent status polling; no active caller implements this feature.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workright/apps/agent-ui/package.json",
+          "line": 12,
+          "detail": "Active Tauri/React agent manifest; only @tauri-apps/api, React, and React DOM dependencies."
+        },
+        {
+          "path": "/Volumes/D/claude/workright/apps/dashboard/package.json",
+          "line": 13,
+          "detail": "Active React dashboard manifest; no @rightkit dependency or shared package caller."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "No active production caller or compatible local implementation found in current source census."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/updates",
+      "status": "NA",
+      "rationale": "WorkRight declares Tauri updater configuration & validates its public key, but has no check/download/install caller. @rightkit/updates requires a createAutoUpdateClient adapter around an active runtime updater, which source does not provide.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workright/apps/agent-ui/package.json",
+          "line": 12,
+          "detail": "Tauri config enables updater, but app source contains no Tauri updater API import, check, download, or install caller."
+        },
+        {
+          "path": "/Volumes/D/claude/workright/apps/dashboard/package.json",
+          "line": 13,
+          "detail": "Active React dashboard manifest; no @rightkit dependency or shared package caller."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "Updater configuration is inactive without a runtime update-client caller."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitLicense",
+      "status": "NA",
+      "rationale": "No Swift source, Xcode project, iOS, watchOS, or extension target exists in WorkRight; this Swift capability has no compatible runtime.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workright/Cargo.toml",
+          "line": 1,
+          "detail": "WorkRight production workspace is Rust; source census found no Swift/Xcode/watchOS target."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "No active production caller or compatible local implementation found in current source census."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitDiagnostics",
+      "status": "NA",
+      "rationale": "No Swift source, Xcode project, iOS, watchOS, or extension target exists in WorkRight; this Swift capability has no compatible runtime.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workright/Cargo.toml",
+          "line": 1,
+          "detail": "WorkRight production workspace is Rust; source census found no Swift/Xcode/watchOS target."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "No active production caller or compatible local implementation found in current source census."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitArtifacts",
+      "status": "NA",
+      "rationale": "No Swift source, Xcode project, iOS, watchOS, or extension target exists in WorkRight; this Swift capability has no compatible runtime.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workright/Cargo.toml",
+          "line": 1,
+          "detail": "WorkRight production workspace is Rust; source census found no Swift/Xcode/watchOS target."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "No active production caller or compatible local implementation found in current source census."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitPurchases",
+      "status": "NA",
+      "rationale": "No Swift source, Xcode project, iOS, watchOS, or extension target exists in WorkRight; this Swift capability has no compatible runtime.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workright/Cargo.toml",
+          "line": 1,
+          "detail": "WorkRight production workspace is Rust; source census found no Swift/Xcode/watchOS target."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "No active production caller or compatible local implementation found in current source census."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitCloudSync",
+      "status": "NA",
+      "rationale": "No Swift source, Xcode project, iOS, watchOS, or extension target exists in WorkRight; this Swift capability has no compatible runtime.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workright/Cargo.toml",
+          "line": 1,
+          "detail": "WorkRight production workspace is Rust; source census found no Swift/Xcode/watchOS target."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "No active production caller or compatible local implementation found in current source census."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitStore",
+      "status": "NA",
+      "rationale": "No Swift source, Xcode project, iOS, watchOS, or extension target exists in WorkRight; this Swift capability has no compatible runtime.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workright/Cargo.toml",
+          "line": 1,
+          "detail": "WorkRight production workspace is Rust; source census found no Swift/Xcode/watchOS target."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "No active production caller or compatible local implementation found in current source census."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitImportQueue",
+      "status": "NA",
+      "rationale": "No Swift source, Xcode project, iOS, watchOS, or extension target exists in WorkRight; this Swift capability has no compatible runtime.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workright/Cargo.toml",
+          "line": 1,
+          "detail": "WorkRight production workspace is Rust; source census found no Swift/Xcode/watchOS target."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "No active production caller or compatible local implementation found in current source census."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitLiveActivity",
+      "status": "NA",
+      "rationale": "No Swift source, Xcode project, iOS, watchOS, or extension target exists in WorkRight; this Swift capability has no compatible runtime.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workright/Cargo.toml",
+          "line": 1,
+          "detail": "WorkRight production workspace is Rust; source census found no Swift/Xcode/watchOS target."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "No active production caller or compatible local implementation found in current source census."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitWatchBridge",
+      "status": "NA",
+      "rationale": "No Swift source, Xcode project, iOS, watchOS, or extension target exists in WorkRight; this Swift capability has no compatible runtime.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workright/Cargo.toml",
+          "line": 1,
+          "detail": "WorkRight production workspace is Rust; source census found no Swift/Xcode/watchOS target."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "No active production caller or compatible local implementation found in current source census."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitSpeech",
+      "status": "NA",
+      "rationale": "No Swift source, Xcode project, iOS, watchOS, or extension target exists in WorkRight; this Swift capability has no compatible runtime.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workright/Cargo.toml",
+          "line": 1,
+          "detail": "WorkRight production workspace is Rust; source census found no Swift/Xcode/watchOS target."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "No active production caller or compatible local implementation found in current source census."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitIntents",
+      "status": "NA",
+      "rationale": "No Swift source, Xcode project, iOS, watchOS, or extension target exists in WorkRight; this Swift capability has no compatible runtime.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workright/Cargo.toml",
+          "line": 1,
+          "detail": "WorkRight production workspace is Rust; source census found no Swift/Xcode/watchOS target."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "No active production caller or compatible local implementation found in current source census."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitAppleCredentials",
+      "status": "NA",
+      "rationale": "No Swift source, Xcode project, iOS, watchOS, or extension target exists in WorkRight; this Swift capability has no compatible runtime.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workright/Cargo.toml",
+          "line": 1,
+          "detail": "WorkRight production workspace is Rust; source census found no Swift/Xcode/watchOS target."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "No active production caller or compatible local implementation found in current source census."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitOverlay",
+      "status": "NA",
+      "rationale": "No Swift source, Xcode project, iOS, watchOS, or extension target exists in WorkRight; this Swift capability has no compatible runtime.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workright/Cargo.toml",
+          "line": 1,
+          "detail": "WorkRight production workspace is Rust; source census found no Swift/Xcode/watchOS target."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "No active production caller or compatible local implementation found in current source census."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitWatch",
+      "status": "NA",
+      "rationale": "No Swift source, Xcode project, iOS, watchOS, or extension target exists in WorkRight; this Swift capability has no compatible runtime.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workright/Cargo.toml",
+          "line": 1,
+          "detail": "WorkRight production workspace is Rust; source census found no Swift/Xcode/watchOS target."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "No active production caller or compatible local implementation found in current source census."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitUI",
+      "status": "NA",
+      "rationale": "No Swift source, Xcode project, iOS, watchOS, or extension target exists in WorkRight; this Swift capability has no compatible runtime.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workright/Cargo.toml",
+          "line": 1,
+          "detail": "WorkRight production workspace is Rust; source census found no Swift/Xcode/watchOS target."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "No active production caller or compatible local implementation found in current source census."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    }
+  ],
+  "searches": [
+    {
+      "pattern": "RightKit|rightkit|@rightkit",
+      "scope": "WorkRight production source/manifests excluding generated, vendor, node_modules, dist, pnpm store, target",
+      "result": "No RightKit Cargo/npm/Swift import or published dependency; architecture/docs mention planned adoption only."
+    },
+    {
+      "pattern": "rusqlite|LocalStore|DbPool|worker_job|consent_receipt",
+      "scope": "crates/local-store, backend/server, migrations",
+      "result": "Local SQLite stores are active and map to rightkit-db N; worker_job has no production caller, while consent receipts remain Rust-only without an @rightkit/legal bridge."
+    },
+    {
+      "pattern": "axum|TcpListener|device_router|record_consent|verify_batch",
+      "scope": "backend/server/src",
+      "result": "Public Axum workforce-ingest routes are active, but their route/state contract differs from rightkit-daemon's local daemon-api; rightkit-daemon is NA."
+    },
+    {
+      "pattern": "tauri|trayIcon|updater|init_tracing|launchctl|sc.exe",
+      "scope": "apps/agent-ui, core-service, scripts",
+      "result": "Local tracing maps to rightkit-logs N. Tauri config lacks a Rust plugin caller and updater config lacks a runtime check/install caller; shell and updates are NA."
+    },
+    {
+      "pattern": "CaptureBackend|aggregate_inputs|poll|BundleReader|Keychain|Credential|createAutoUpdateClient|createCommandRegistry",
+      "scope": "capture-core, capture-windows, capture-macos, local-store, core-service, apps",
+      "result": "Capture emits aggregate workforce counters and no observations; source has no session-bundle recorder, OS credential-store, runtime updater, or shared React platform/shell/settings client."
+    },
+    {
+      "pattern": "\\.swift$|\\.xcodeproj$|Package.swift",
+      "scope": "WorkRight production tree excluding ignored/generated/vendor/cache paths",
+      "result": "No Swift or Apple native source target found; all 15 Swift rows NA."
+    }
+  ],
+  "self_review": "Adversarial recheck reduced 11 N rows to three. All remaining generic NA rationales now name each owner feature plus the active WorkRight runtime that lacks its caller. Focused checks keep record NA: aggregate workforce counters are not per-frame session bundles; keep secrets/settings NA: caller-supplied SQLite key and policy cache are not OS credential storage or settings documents; keep HTTP NA: browser fetch has no Rust client bridge; keep platform-ui/settings-ui/theme/shell/logs NA: React uses routes/status polling/literal classes, with no compatible shared client. Retained only DB bootstrap, tracing, and React app-shell N rows, each with an active compatible local caller plus exact owner API."
+}

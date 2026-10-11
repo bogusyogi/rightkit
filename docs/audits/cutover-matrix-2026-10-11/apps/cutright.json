@@ -1,0 +1,2427 @@
+{
+  "app": "CutRight",
+  "root": "/Volumes/D/claude/cutright",
+  "head": "bf712c7b55db221995e8b2958000a9f933cdeb54",
+  "reviewed_at": "2026-10-11T08:01:04+05:30",
+  "targets": [
+    "desktop-macos",
+    "desktop-windows",
+    "macos-headless-swift-sidecars-and-runtime-verifier"
+  ],
+  "scope_note": "Fresh source-only inventory of current CutRight production crates, apps/cutright/src, apps/cutright/src-tauri, scripts, manifests, active QA/release callers, macOS Swift helper sources, and runtime verifier. Generated/cache/build output, vendored dependencies, rk-snapshot source, fixtures, docs and prior audits were excluded. Targets are macOS/Windows Tauri desktop plus macOS headless Swift sidecars/runtime verifier; no iOS, watchOS, or SwiftUI app target exists. Status reflects routing, not build/runtime qualification. Census: 193 Rust production files, 61 TS/TSX renderer files, and 14 Swift helper sources; searches excluded tests, examples, node_modules, target and rk-snapshot unless a QA/release row required them.",
+  "cells": [
+    {
+      "component_id": "cargo:agent-room-core",
+      "status": "NA",
+      "rationale": "No active CutRight caller for cargo:agent-room-core: agent-room-core is absent from current Rust/Tauri desktop capability scope.",
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/cutright/apps/cutright/src-tauri/Cargo.toml",
+          "line": 14,
+          "symbol": "dependencies",
+          "detail": "Scoped production census: 193 Rust files under apps/cutright/src-tauri/src and workspace crates, tests/examples/cache/rk-snapshot excluded; the Tauri dependency block contains no component dependency/import/caller."
+        }
+      ],
+      "shared_evidence": [],
+      "local_evidence": [],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-agent-tools",
+      "status": "NA",
+      "rationale": "No active CutRight caller for cargo:rightkit-agent-tools: One typed tool interface for agents over rightkit-automation, rightkit-control, rightkit-browser and each app's engine commands (via rightkit-service), plus the `right-ctl <app> <command>` CLI is absent from current Rust/Tauri desktop capability scope.",
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/cutright/apps/cutright/src-tauri/Cargo.toml",
+          "line": 14,
+          "symbol": "dependencies",
+          "detail": "Scoped production census: 193 Rust files under apps/cutright/src-tauri/src and workspace crates, tests/examples/cache/rk-snapshot excluded; the Tauri dependency block contains no component dependency/import/caller."
+        }
+      ],
+      "shared_evidence": [],
+      "local_evidence": [],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-align",
+      "status": "NA",
+      "rationale": "No active CutRight caller for cargo:rightkit-align: Product-neutral script-to-ASR word alignment: pronunciation normalisation, edit-distance alignment with lexical and timing confidence, ambiguity and mismatch rejection, and control-name coverage is absent from current Rust/Tauri desktop capability scope.",
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/cutright/apps/cutright/src-tauri/Cargo.toml",
+          "line": 14,
+          "symbol": "dependencies",
+          "detail": "Scoped production census: 193 Rust files under apps/cutright/src-tauri/src and workspace crates, tests/examples/cache/rk-snapshot excluded; the Tauri dependency block contains no component dependency/import/caller."
+        }
+      ],
+      "shared_evidence": [],
+      "local_evidence": [],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-asr",
+      "status": "Y",
+      "rationale": "CoreMlParakeet decode uses shared ASR decoder; this is an operative production route for rightkit-asr.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/cutright/crates/cutright-speech/src/coreml_tdt.rs",
+          "line": 64,
+          "symbol": "CoreMlParakeet::load",
+          "detail": "Production macOS speech path loads shared CoreMlParakeet decoder."
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-asr/src/parakeet_coreml/mod.rs",
+          "line": 200,
+          "symbol": "CoreMlParakeet",
+          "detail": "Owner CoreMlParakeet::load decoder API is called by CutRight."
+        }
+      ],
+      "delivery_flags": [
+        "Workspace/app Cargo manifests currently carry local rk-snapshot patch entries; publish-version cutover is still required before release."
+      ],
+      "remaining_work": "Keep current shared route; replace local path patch with published pinned RightKit version and verify standalone install.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-audio",
+      "status": "Y",
+      "rationale": "AudioTools and LevelMeasurement are re-exported/called by CutRight audio adapter; this is an operative production route for rightkit-audio.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/cutright/crates/cutright-audio/src/tools.rs",
+          "line": 123,
+          "symbol": "AudioTools::decode_mono_f32",
+          "detail": "Production audio adapter invokes shared AudioTools through with_tools."
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-audio/src/measure.rs",
+          "line": 23,
+          "symbol": "AudioTools",
+          "detail": "Owner AudioTools API is constructed by CutRight audio adapter."
+        }
+      ],
+      "delivery_flags": [
+        "Workspace/app Cargo manifests currently carry local rk-snapshot patch entries; publish-version cutover is still required before release."
+      ],
+      "remaining_work": "Keep current shared route; replace local path patch with published pinned RightKit version and verify standalone install.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-automation",
+      "status": "NA",
+      "rationale": "No active CutRight caller for cargo:rightkit-automation: Brand-neutral desktop automation: observe and act on any app (macOS AX, Windows UIA) through a four-tier input ladder with safety, focus guard, and evidence receipts is absent from current Rust/Tauri desktop capability scope.",
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/cutright/apps/cutright/src-tauri/Cargo.toml",
+          "line": 14,
+          "symbol": "dependencies",
+          "detail": "Scoped production census: 193 Rust files under apps/cutright/src-tauri/src and workspace crates, tests/examples/cache/rk-snapshot excluded; the Tauri dependency block contains no component dependency/import/caller."
+        }
+      ],
+      "shared_evidence": [],
+      "local_evidence": [],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-browser",
+      "status": "NA",
+      "rationale": "No active CutRight caller for cargo:rightkit-browser: Shared Chrome DevTools Protocol browser runtime for Right Suite: multi-page sessions, named profiles, real CDP input, observations with stale-ref checks is absent from current Rust/Tauri desktop capability scope.",
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/cutright/apps/cutright/src-tauri/Cargo.toml",
+          "line": 14,
+          "symbol": "dependencies",
+          "detail": "Scoped production census: 193 Rust files under apps/cutright/src-tauri/src and workspace crates, tests/examples/cache/rk-snapshot excluded; the Tauri dependency block contains no component dependency/import/caller."
+        }
+      ],
+      "shared_evidence": [],
+      "local_evidence": [],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-cache",
+      "status": "Y",
+      "rationale": "thumbnail command constructs rightkit_cache DiskCache; this is an operative production route for rightkit-cache.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/cutright/crates/cutright-engine/src/thumb_cmd.rs",
+          "line": 137,
+          "symbol": "DiskCache::open",
+          "detail": "Production thumbnail path opens shared DiskCache."
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-cache/src/disk.rs",
+          "line": 147,
+          "symbol": "DiskCache",
+          "detail": "Owner DiskCache::open/open_read_only API is called by CutRight."
+        }
+      ],
+      "delivery_flags": [
+        "Workspace/app Cargo manifests currently carry local rk-snapshot patch entries; publish-version cutover is still required before release."
+      ],
+      "remaining_work": "Keep current shared route; replace local path patch with published pinned RightKit version and verify standalone install.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-channel-memory",
+      "status": "NA",
+      "rationale": "No active CutRight caller for cargo:rightkit-channel-memory: Channel memory for the content pipeline: the channel-memory.v1 schema with serde types, validation, version gate, proof citation rules, and scope checks for PostRight P3 and GenRight G7 is absent from current Rust/Tauri desktop capability scope.",
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/cutright/apps/cutright/src-tauri/Cargo.toml",
+          "line": 14,
+          "symbol": "dependencies",
+          "detail": "Scoped production census: 193 Rust files under apps/cutright/src-tauri/src and workspace crates, tests/examples/cache/rk-snapshot excluded; the Tauri dependency block contains no component dependency/import/caller."
+        }
+      ],
+      "shared_evidence": [],
+      "local_evidence": [],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-compose",
+      "status": "N",
+      "rationale": "Live Tauri playback calls CutRight compose_frame to select timed video/title layers & evaluate opacity/transforms locally. RightKit compose exposes pure time→FrameDescription evaluation for overlapping base video/still/caption/transform semantics; app decoder, GPU effects, timeline authoring & revision identity remain product-owned.",
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/cutright/apps/cutright/src-tauri/src/playback.rs",
+          "line": 667,
+          "symbol": "cutright_compose::compose_frame",
+          "detail": "Active playback evaluates frame from local snapshot; snapshot is built at line970."
+        },
+        {
+          "path": "/Volumes/D/claude/cutright/crates/cutright-compose/src/mapper.rs",
+          "line": 240,
+          "symbol": "compose_frame",
+          "detail": "Locates timed clip, builds layers, evaluates title fades & clip opacity/transform."
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-compose/src/eval.rs",
+          "line": 133,
+          "symbol": "evaluate",
+          "detail": "Pure Composition/time evaluation produces FrameDescription; native rendering/codec I/O are outside owner."
+        }
+      ],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/cutright/apps/cutright/src-tauri/Cargo.toml",
+          "line": 26,
+          "symbol": "dependencies",
+          "detail": "CutRight Tauri target directly depends on local cutright-compose, cutright-project and cutright-timeline crates."
+        },
+        {
+          "path": "/Volumes/D/claude/cutright/crates/cutright-compose/src/lib.rs",
+          "line": 17,
+          "symbol": "transport::TextureProvider",
+          "detail": "Local compose crate owns decoder/transport seam and native compositor executor; it does not call rightkit-compose evaluate."
+        },
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-compose/src/lib.rs",
+          "line": 29,
+          "symbol": "evaluate",
+          "detail": "RightKit API is pure Composition -> FrameDescription evaluation, a different layer from CutRight decoder/compositor."
+        }
+      ],
+      "shared_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "Adapt compatible timeline video/still/title timing & transform data into RightKit Composition, consume FrameDescription in native compositor adapter, then retire overlapping local base-layer evaluation. Preserve CutRight-only effects, decoder/GPU work, project revision identity & explicitly unsupported semantics; verify preview/export parity.",
+      "confidence": "medium"
+    },
+    {
+      "component_id": "cargo:rightkit-contracts",
+      "status": "NA",
+      "rationale": "RightKit contracts cover six cross-product documents; CutRight project/timeline JSON is product-owned and no current document maps to those contracts.",
+      "local_evidence": [],
+      "owner_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-contracts/src/lib.rs",
+          "line": 35,
+          "symbol": "Contract",
+          "detail": "Owner exports ContentBrief, DeliveryEnvelope, RecordSession, RecordEvent, DemoPlan and DaemonApi contracts."
+        },
+        {
+          "path": "/Volumes/D/claude/cutright/crates/cutright-project/src/lib.rs",
+          "line": 1,
+          "symbol": "cutright-project",
+          "detail": "CutRight crate owns project directory, project.json and timeline.json product data."
+        },
+        {
+          "path": "/Volumes/D/claude/cutright/apps/cutright/src-tauri/Cargo.toml",
+          "line": 26,
+          "symbol": "dependencies",
+          "detail": "Production Tauri target uses local cutright-project; no rightkit-contracts document caller exists."
+        }
+      ],
+      "shared_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-control",
+      "status": "Y",
+      "rationale": "embedded control plugin is built when RIGHTKIT_CONTROL_SERVICE is enabled; this is an operative production route for rightkit-control.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/cutright/apps/cutright/src-tauri/src/lib.rs",
+          "line": 218,
+          "symbol": "Control::new/build_if_enabled",
+          "detail": "Production Tauri shell enables shared control plugin when QA flag is set."
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-control/src/embedded/mod.rs",
+          "line": 203,
+          "symbol": "Control",
+          "detail": "Owner embedded Control::new/build_if_enabled API is called by Tauri shell."
+        }
+      ],
+      "delivery_flags": [
+        "Workspace/app Cargo manifests currently carry local rk-snapshot patch entries; publish-version cutover is still required before release."
+      ],
+      "remaining_work": "Keep current shared route; replace local path patch with published pinned RightKit version and verify standalone install.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-crash",
+      "status": "NA",
+      "rationale": "CutRight’s 193-file Rust/Tauri census has no panic-hook, redacted report, native dump, or support-bundle caller. Current Tauri setup launches engine/playback only, so crash capture is not an active host feature.",
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/cutright/apps/cutright/src-tauri/src/lib.rs",
+          "line": 214,
+          "symbol": "run",
+          "detail": "Production Tauri builder installs dialog, OS, control, engine and playback paths; no panic hook or crash-report lifecycle is registered."
+        },
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-crash/src/lib.rs",
+          "line": 30,
+          "symbol": "install_panic_hook",
+          "detail": "Owner requires an explicit panic-hook/report integration absent from CutRight."
+        }
+      ],
+      "shared_evidence": [],
+      "local_evidence": [],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-daemon",
+      "status": "NA",
+      "rationale": "No active CutRight caller for cargo:rightkit-daemon: Daemon host capability for the Right Suite: HTTPS listener, device enrolment and signed requests, OAuth callback and signed webhook route classes, bounded blake3-keyed resumable uploads, compare-and-swap mutations, durable state and lifecycle events is absent from current Rust/Tauri desktop capability scope.",
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/cutright/apps/cutright/src-tauri/Cargo.toml",
+          "line": 14,
+          "symbol": "dependencies",
+          "detail": "Scoped production census: 193 Rust files under apps/cutright/src-tauri/src and workspace crates, tests/examples/cache/rk-snapshot excluded; the Tauri dependency block contains no component dependency/import/caller."
+        }
+      ],
+      "shared_evidence": [],
+      "local_evidence": [],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-db",
+      "status": "NA",
+      "rationale": "No active CutRight caller for cargo:rightkit-db: Correct-by-default SQLite and SQLCipher connection bootstrap for Right Suite apps is absent from current Rust/Tauri desktop capability scope.",
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/cutright/apps/cutright/src-tauri/Cargo.toml",
+          "line": 14,
+          "symbol": "dependencies",
+          "detail": "Scoped production census: 193 Rust files under apps/cutright/src-tauri/src and workspace crates, tests/examples/cache/rk-snapshot excluded; the Tauri dependency block contains no component dependency/import/caller."
+        }
+      ],
+      "shared_evidence": [],
+      "local_evidence": [],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-embed",
+      "status": "NA",
+      "rationale": "No active CutRight caller for cargo:rightkit-embed: Product-neutral local text embeddings and persistent cosine vector store is absent from current Rust/Tauri desktop capability scope.",
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/cutright/apps/cutright/src-tauri/Cargo.toml",
+          "line": 14,
+          "symbol": "dependencies",
+          "detail": "Scoped production census: 193 Rust files under apps/cutright/src-tauri/src and workspace crates, tests/examples/cache/rk-snapshot excluded; the Tauri dependency block contains no component dependency/import/caller."
+        }
+      ],
+      "shared_evidence": [],
+      "local_evidence": [],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-framed-sidecar",
+      "status": "Y",
+      "rationale": "engine serve uses rightkit_jobs frame contract with shared framed wire; this is an operative production route for rightkit-framed-sidecar.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/cutright/crates/cutright-engine/src/serve.rs",
+          "line": 136,
+          "symbol": "rightkit_jobs::serve",
+          "detail": "Production engine invokes shared framed jobs serve path, which owns framed-sidecar transport."
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-framed-sidecar/src/wire.rs",
+          "line": 108,
+          "symbol": "Frame::request",
+          "detail": "Owner Frame::request constructs shared framed wire envelopes used by jobs transport."
+        }
+      ],
+      "delivery_flags": [
+        "Workspace/app Cargo manifests currently carry local rk-snapshot patch entries; publish-version cutover is still required before release."
+      ],
+      "remaining_work": "Keep current shared route; replace local path patch with published pinned RightKit version and verify standalone install.",
+      "confidence": "medium"
+    },
+    {
+      "component_id": "cargo:rightkit-fs",
+      "status": "Y",
+      "rationale": "project atomic writes call rightkit_fs atomic; this is an operative production route for rightkit-fs.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/cutright/crates/cutright-project/src/fsutil.rs",
+          "line": 12,
+          "symbol": "rightkit_fs::atomic_write",
+          "detail": "Production project writes call shared atomic_write."
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-fs/src/atomic.rs",
+          "line": 141,
+          "symbol": "atomic_write",
+          "detail": "Owner atomic_write API is called by CutRight fs adapter."
+        }
+      ],
+      "delivery_flags": [
+        "Workspace/app Cargo manifests currently carry local rk-snapshot patch entries; publish-version cutover is still required before release."
+      ],
+      "remaining_work": "Keep current shared route; replace local path patch with published pinned RightKit version and verify standalone install.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-fsindex",
+      "status": "NA",
+      "rationale": "No active CutRight caller for cargo:rightkit-fsindex: Live whole-disk file index: fuzzy name search plus clone- and hard-link-aware folder size rollups on memory-mapped columns is absent from current Rust/Tauri desktop capability scope.",
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/cutright/apps/cutright/src-tauri/Cargo.toml",
+          "line": 14,
+          "symbol": "dependencies",
+          "detail": "Scoped production census: 193 Rust files under apps/cutright/src-tauri/src and workspace crates, tests/examples/cache/rk-snapshot excluded; the Tauri dependency block contains no component dependency/import/caller."
+        }
+      ],
+      "shared_evidence": [],
+      "local_evidence": [],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-hotkeys",
+      "status": "NA",
+      "rationale": "CutRight has webview keydown handlers and static shortcut help, but no global CGEventTap or WH_KEYBOARD_LL/push-to-talk feature owned by rightkit-hotkeys.",
+      "local_evidence": [],
+      "owner_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/cutright/apps/cutright/src/editor/Timeline.tsx",
+          "line": 314,
+          "symbol": "onKeyDown",
+          "detail": "Editor handles keyboard events inside React webview; this is not native global input."
+        },
+        {
+          "path": "/Volumes/D/claude/cutright/apps/cutright/src/views/SettingsView.tsx",
+          "line": 53,
+          "symbol": "SHORTCUTS",
+          "detail": "Settings list only presents shortcut labels; it does not register global chords."
+        },
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-hotkeys/src/lib.rs",
+          "line": 1,
+          "symbol": "global input API",
+          "detail": "Owner targets native global shortcuts, low-level hooks and push-to-talk, absent from CutRight runtime."
+        }
+      ],
+      "shared_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-http",
+      "status": "Y",
+      "rationale": "shorts provider calls rightkit_llm whose network provider sends through rightkit_http; this is an operative production route for rightkit-http.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/cutright/crates/cutright-shorts/src/llm.rs",
+          "line": 331,
+          "symbol": "Provider::complete",
+          "detail": "Production shorts provider completes ChatRequest through shared LLM HTTP transport."
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-http/src/client.rs",
+          "line": 772,
+          "symbol": "Client::send",
+          "detail": "Owner Client::send transport API is used by rightkit-llm AnthropicProvider."
+        }
+      ],
+      "delivery_flags": [
+        "Workspace/app Cargo manifests currently carry local rk-snapshot patch entries; publish-version cutover is still required before release."
+      ],
+      "remaining_work": "Keep current shared route; replace local path patch with published pinned RightKit version and verify standalone install.",
+      "confidence": "medium"
+    },
+    {
+      "component_id": "cargo:rightkit-jobs",
+      "status": "Y",
+      "rationale": "EngineSupervisor is imported from rightkit_jobs and owns engine calls; this is an operative production route for rightkit-jobs.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/cutright/apps/cutright/src-tauri/src/lib.rs",
+          "line": 229,
+          "symbol": "EngineSupervisor::start_with_events",
+          "detail": "Production Tauri setup starts shared jobs supervisor."
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-jobs/src/supervisor.rs",
+          "line": 389,
+          "symbol": "EngineSupervisor",
+          "detail": "Owner EngineSupervisor start/call lifecycle API is invoked by Tauri shell."
+        }
+      ],
+      "delivery_flags": [
+        "Workspace/app Cargo manifests currently carry local rk-snapshot patch entries; publish-version cutover is still required before release."
+      ],
+      "remaining_work": "Keep current shared route; replace local path patch with published pinned RightKit version and verify standalone install.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-license",
+      "status": "NA",
+      "rationale": "CutRight ships legal-document acceptance through onboarding, not native signed-entitlement verification or paid-command guards. No rightkit-license dependency/caller exists in current Tauri host.",
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/cutright/apps/cutright/src/views/OnboardingGate.tsx",
+          "line": 55,
+          "symbol": "Onboarding",
+          "detail": "Live first-run path records document acceptance; it does not load or verify a licence entitlement."
+        },
+        {
+          "path": "/Volumes/D/claude/cutright/apps/cutright/src-tauri/Cargo.toml",
+          "line": 14,
+          "symbol": "dependencies",
+          "detail": "Native dependencies omit rightkit-license; 193-file Rust/Tauri census found no entitlement or paid-command guard."
+        },
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-license/src/lib.rs",
+          "line": 243,
+          "symbol": "Entitlement::satisfies",
+          "detail": "Owner scope is verified native entitlement enforcement, absent from CutRight."
+        }
+      ],
+      "shared_evidence": [],
+      "local_evidence": [],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-llm",
+      "status": "Y",
+      "rationale": "production shorts proposal path imports rightkit_llm provider types; this is an operative production route for rightkit-llm.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/cutright/crates/cutright-shorts/src/llm.rs",
+          "line": 331,
+          "symbol": "Provider::complete",
+          "detail": "Production shorts provider invokes shared AnthropicProvider completion."
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-llm/src/anthropic.rs",
+          "line": 21,
+          "symbol": "AnthropicProvider",
+          "detail": "Owner AnthropicProvider::new/complete API is called by CutRight shorts provider."
+        }
+      ],
+      "delivery_flags": [
+        "Workspace/app Cargo manifests currently carry local rk-snapshot patch entries; publish-version cutover is still required before release."
+      ],
+      "remaining_work": "Keep current shared route; replace local path patch with published pinned RightKit version and verify standalone install.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-logs",
+      "status": "N",
+      "rationale": "CutRight actively emits native engine diagnostics through stderr sinks; it does not invoke RightKit structured JSONL logging.",
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/cutright/apps/cutright/src-tauri/src/engine_supervisor.rs",
+          "line": 302,
+          "symbol": "with_stderr_sink",
+          "detail": "EngineSupervisor sends stderr lines to eprintln with cutright prefixes."
+        },
+        {
+          "path": "/Volumes/D/claude/cutright/apps/cutright/src-tauri/src/engine_supervisor.rs",
+          "line": 304,
+          "symbol": "with_protocol_error_sink",
+          "detail": "Malformed frames are reported through a second eprintln sink."
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-logs/src/lib.rs",
+          "line": 21,
+          "symbol": "JsonlStore",
+          "detail": "Owner exposes JsonlStore, EventRecord, RedactionPolicy, AsyncWriter & diagnostics collection APIs."
+        }
+      ],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/cutright/apps/cutright/src-tauri/Cargo.toml",
+          "line": 14,
+          "symbol": "dependencies",
+          "detail": "Native Tauri target owns supervisor diagnostics; rightkit-logs is not currently a dependency/caller."
+        }
+      ],
+      "shared_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "Add rightkit-logs JsonlStore/RedactionPolicy sink for stderr & protocol events, then route diagnostics collection through owner APIs and prove privacy fields before removing eprintln sinks.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-mcp",
+      "status": "NA",
+      "rationale": "No active CutRight caller for cargo:rightkit-mcp: Shared MCP client (stdio + streamable HTTP, trust gate, pool, OAuth hook) and server host (stdio + loopback HTTP, per-tool admission) for Right Suite apps is absent from current Rust/Tauri desktop capability scope.",
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/cutright/apps/cutright/src-tauri/Cargo.toml",
+          "line": 14,
+          "symbol": "dependencies",
+          "detail": "Scoped production census: 193 Rust files under apps/cutright/src-tauri/src and workspace crates, tests/examples/cache/rk-snapshot excluded; the Tauri dependency block contains no component dependency/import/caller."
+        }
+      ],
+      "shared_evidence": [],
+      "local_evidence": [],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-media",
+      "status": "Y",
+      "rationale": "typed probe and FFmpeg boundary calls rightkit_media; this is an operative production route for rightkit-media.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/cutright/crates/cutright-project/src/probe.rs",
+          "line": 206,
+          "symbol": "run_capture_with",
+          "detail": "Production probe boundary invokes shared media runner."
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-media/src/runner.rs",
+          "line": 658,
+          "symbol": "run_checked",
+          "detail": "Owner run_checked runner API is called by CutRight media/audio paths."
+        }
+      ],
+      "delivery_flags": [
+        "Workspace/app Cargo manifests currently carry local rk-snapshot patch entries; publish-version cutover is still required before release."
+      ],
+      "remaining_work": "Keep current shared route; replace local path patch with published pinned RightKit version and verify standalone install.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-models",
+      "status": "Y",
+      "rationale": "model store re-exports rightkit_models suite catalog and ensure APIs; this is an operative production route for rightkit-models.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/cutright/crates/cutright-engine/src/models_cmd.rs",
+          "line": 134,
+          "symbol": "ensure_ready",
+          "detail": "Production model command invokes shared ensure_ready."
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-models/src/suite/store.rs",
+          "line": 166,
+          "symbol": "ensure_ready",
+          "detail": "Owner ensure_ready model-store API is called by CutRight models command."
+        }
+      ],
+      "delivery_flags": [
+        "Workspace/app Cargo manifests currently carry local rk-snapshot patch entries; publish-version cutover is still required before release."
+      ],
+      "remaining_work": "Keep current shared route; replace local path patch with published pinned RightKit version and verify standalone install.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-oauth",
+      "status": "NA",
+      "rationale": "No active CutRight caller for cargo:rightkit-oauth: Shared OAuth 2.0 sign-in for Right Suite apps: loopback PKCE, RFC 8628 device flow, provider presets, encrypted daemon persistence, and stored, refreshing credentials is absent from current Rust/Tauri desktop capability scope.",
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/cutright/apps/cutright/src-tauri/Cargo.toml",
+          "line": 14,
+          "symbol": "dependencies",
+          "detail": "Scoped production census: 193 Rust files under apps/cutright/src-tauri/src and workspace crates, tests/examples/cache/rk-snapshot excluded; the Tauri dependency block contains no component dependency/import/caller."
+        }
+      ],
+      "shared_evidence": [],
+      "local_evidence": [],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-ocr",
+      "status": "NA",
+      "rationale": "No active CutRight caller for cargo:rightkit-ocr: Product-neutral OCR: Apple Vision / Windows.Media.Ocr native backends with per-line geometry, isolated worker, and verified two-stage ONNX fallback is absent from current Rust/Tauri desktop capability scope.",
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/cutright/apps/cutright/src-tauri/Cargo.toml",
+          "line": 14,
+          "symbol": "dependencies",
+          "detail": "Scoped production census: 193 Rust files under apps/cutright/src-tauri/src and workspace crates, tests/examples/cache/rk-snapshot excluded; the Tauri dependency block contains no component dependency/import/caller."
+        }
+      ],
+      "shared_evidence": [],
+      "local_evidence": [],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-ort",
+      "status": "Y",
+      "rationale": "reframe configures and initializes rightkit_ort runtime; this is an operative production route for rightkit-ort.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/cutright/crates/cutright-speech/src/ort_init.rs",
+          "line": 38,
+          "symbol": "configure_runtime",
+          "detail": "Production runtime setup invokes shared configure_runtime/init_environment."
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-ort/src/lib.rs",
+          "line": 484,
+          "symbol": "configure_runtime",
+          "detail": "Owner configure_runtime/init_environment APIs are called by CutRight runtime setup."
+        }
+      ],
+      "delivery_flags": [
+        "Workspace/app Cargo manifests currently carry local rk-snapshot patch entries; publish-version cutover is still required before release."
+      ],
+      "remaining_work": "Keep current shared route; replace local path patch with published pinned RightKit version and verify standalone install.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-overlay",
+      "status": "NA",
+      "rationale": "rightkit-overlay owns native always-on-top window placement and hit testing; CutRight useContextMenuDismiss closes React context menu inside Tauri webview, a different runtime/category.",
+      "local_evidence": [],
+      "owner_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/cutright/apps/cutright/src-tauri/Cargo.toml",
+          "line": 17,
+          "symbol": "tauri",
+          "detail": "CutRight ships one Tauri desktop webview target; no native overlay window target is declared."
+        },
+        {
+          "path": "/Volumes/D/claude/cutright/apps/cutright/src/editor/vendor/hyperframes/useContextMenuDismiss.ts",
+          "line": 10,
+          "symbol": "useContextMenuDismiss",
+          "detail": "Local behavior dismisses DOM context menu on pointer/keyboard events; no native placement/hit-test policy."
+        },
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-overlay/src/lib.rs",
+          "line": 349,
+          "symbol": "OverlayModel::hit_test",
+          "detail": "Owner API performs native overlay placement/hit testing, not DOM menu dismissal."
+        }
+      ],
+      "shared_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-ownership",
+      "status": "NA",
+      "rationale": "No active CutRight caller for cargo:rightkit-ownership: RightKit ownership scanner, verdict and admission: the single Rust implementation the RustRight broker links is absent from current Rust/Tauri desktop capability scope.",
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/cutright/apps/cutright/src-tauri/Cargo.toml",
+          "line": 14,
+          "symbol": "dependencies",
+          "detail": "Scoped production census: 193 Rust files under apps/cutright/src-tauri/src and workspace crates, tests/examples/cache/rk-snapshot excluded; the Tauri dependency block contains no component dependency/import/caller."
+        }
+      ],
+      "shared_evidence": [],
+      "local_evidence": [],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-pdf",
+      "status": "NA",
+      "rationale": "No active CutRight caller for cargo:rightkit-pdf: Product-neutral PDF engine: inspect, compose (source-text replace / add text / OCR correction), font subsetting, staged atomic save, plus optional page merge/select and text extraction is absent from current Rust/Tauri desktop capability scope.",
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/cutright/apps/cutright/src-tauri/Cargo.toml",
+          "line": 14,
+          "symbol": "dependencies",
+          "detail": "Scoped production census: 193 Rust files under apps/cutright/src-tauri/src and workspace crates, tests/examples/cache/rk-snapshot excluded; the Tauri dependency block contains no component dependency/import/caller."
+        }
+      ],
+      "shared_evidence": [],
+      "local_evidence": [],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-playback",
+      "status": "Y",
+      "rationale": "PlaybackHost and SourceRegistry are imported from rightkit_playback; this is an operative production route for rightkit-playback.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/cutright/apps/cutright/src-tauri/src/lib.rs",
+          "line": 244,
+          "symbol": "PlaybackState::new",
+          "detail": "Production Tauri setup creates shared playback state/registry."
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-playback/src/source.rs",
+          "line": 125,
+          "symbol": "SourceRegistry",
+          "detail": "Owner SourceRegistry/PlaybackHost API is invoked by Tauri playback host."
+        }
+      ],
+      "delivery_flags": [
+        "Workspace/app Cargo manifests currently carry local rk-snapshot patch entries; publish-version cutover is still required before release."
+      ],
+      "remaining_work": "Keep current shared route; replace local path patch with published pinned RightKit version and verify standalone install.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-process",
+      "status": "Y",
+      "rationale": "rightkit_jobs supervisor transitively owns child lifecycle via rightkit_process; this is an operative production route for rightkit-process.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/cutright/apps/cutright/src-tauri/src/engine_supervisor.rs",
+          "line": 15,
+          "symbol": "rightkit_jobs",
+          "detail": "rightkit_jobs supervisor transitively owns child lifecycle via rightkit_process"
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-process/src/owned.rs",
+          "line": 102,
+          "symbol": "OwnedCommand::new",
+          "detail": "Owner OwnedCommand process-launch API is used by rightkit-jobs supervisor."
+        }
+      ],
+      "delivery_flags": [
+        "Workspace/app Cargo manifests currently carry local rk-snapshot patch entries; publish-version cutover is still required before release."
+      ],
+      "remaining_work": "Keep current shared route; replace local path patch with published pinned RightKit version and verify standalone install.",
+      "confidence": "medium"
+    },
+    {
+      "component_id": "cargo:rightkit-qa",
+      "status": "Y",
+      "rationale": "UI E2E harness imports rightkit_qa control/harness/workspace; this is an operative production route for rightkit-qa.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/cutright/crates/cutright-ui-e2e/src/lib.rs",
+          "line": 44,
+          "symbol": "Harness::new",
+          "detail": "Production UI E2E harness constructs shared rightkit-qa Harness."
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-qa/src/harness.rs",
+          "line": 66,
+          "symbol": "Harness",
+          "detail": "Owner Harness API is constructed by CutRight UI E2E."
+        }
+      ],
+      "delivery_flags": [
+        "Workspace/app Cargo manifests currently carry local rk-snapshot patch entries; publish-version cutover is still required before release."
+      ],
+      "remaining_work": "Keep current shared route; replace local path patch with published pinned RightKit version and verify standalone install.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-qts",
+      "status": "NA",
+      "rationale": "No active CutRight caller for cargo:rightkit-qts: Qwen3 TTS inference (GGUF + GGML), vendored from yet-another-ai/qts v0.2.0 for RightKit is absent from current Rust/Tauri desktop capability scope.",
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/cutright/apps/cutright/src-tauri/Cargo.toml",
+          "line": 14,
+          "symbol": "dependencies",
+          "detail": "Scoped production census: 193 Rust files under apps/cutright/src-tauri/src and workspace crates, tests/examples/cache/rk-snapshot excluded; the Tauri dependency block contains no component dependency/import/caller."
+        }
+      ],
+      "shared_evidence": [],
+      "local_evidence": [],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-qts-ggml",
+      "status": "NA",
+      "rationale": "No active CutRight caller for cargo:rightkit-qts-ggml: DEPRECATED: use rightkit-qts-ggml-sys directly. Thin safe wrappers over rightkit-qts-ggml-sys for rightkit-qts, vendored from yet-another-ai/qts v0.2.0 is absent from current Rust/Tauri desktop capability scope.",
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/cutright/apps/cutright/src-tauri/Cargo.toml",
+          "line": 14,
+          "symbol": "dependencies",
+          "detail": "Scoped production census: 193 Rust files under apps/cutright/src-tauri/src and workspace crates, tests/examples/cache/rk-snapshot excluded; the Tauri dependency block contains no component dependency/import/caller."
+        }
+      ],
+      "shared_evidence": [],
+      "local_evidence": [],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-qts-ggml-sys",
+      "status": "NA",
+      "rationale": "No active CutRight caller for cargo:rightkit-qts-ggml-sys: Low-level FFI bindings to ggml (CPU, Metal, Vulkan, BLAS) for rightkit-qts, vendored from yet-another-ai/qts v0.2.0 is absent from current Rust/Tauri desktop capability scope.",
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/cutright/apps/cutright/src-tauri/Cargo.toml",
+          "line": 14,
+          "symbol": "dependencies",
+          "detail": "Scoped production census: 193 Rust files under apps/cutright/src-tauri/src and workspace crates, tests/examples/cache/rk-snapshot excluded; the Tauri dependency block contains no component dependency/import/caller."
+        }
+      ],
+      "shared_evidence": [],
+      "local_evidence": [],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-record",
+      "status": "NA",
+      "rationale": "No active CutRight caller for cargo:rightkit-record: Platform-neutral core of the RightKit recorder (RK3): record lifecycle, quarantine and recovery, session bundle writer, per-field redaction, bundle verification and frame reader. OS capture lives in per-platform helpers behind the Backend trait is absent from current Rust/Tauri desktop capability scope.",
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/cutright/apps/cutright/src-tauri/Cargo.toml",
+          "line": 14,
+          "symbol": "dependencies",
+          "detail": "Scoped production census: 193 Rust files under apps/cutright/src-tauri/src and workspace crates, tests/examples/cache/rk-snapshot excluded; the Tauri dependency block contains no component dependency/import/caller."
+        }
+      ],
+      "shared_evidence": [],
+      "local_evidence": [],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-review",
+      "status": "Y",
+      "rationale": "CutRight production QA constructs RuleSet with rightkit-review resolution rule & evaluates Subject; remaining QA checks are CutRight-specific because shared evaluator has different semantics.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/cutright/crates/cutright-qa/src/run.rs",
+          "line": 108,
+          "symbol": "RuleSet::new",
+          "detail": "Production resolution_matches builds shared RuleSet with RESOLUTION and ResolutionMatchesDelivery."
+        },
+        {
+          "path": "/Volumes/D/claude/cutright/crates/cutright-qa/src/run.rs",
+          "line": 140,
+          "symbol": "RuleSet::evaluate",
+          "detail": "Production QA evaluates shared Subject and accepts Verified finding for resolution."
+        }
+      ],
+      "local_evidence": [],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-review/src/rules.rs",
+          "line": 138,
+          "symbol": "RuleSet",
+          "detail": "Owner RuleSet::new/evaluate executes deterministic review rules."
+        }
+      ],
+      "delivery_flags": [
+        "Current shared package is selected through local rk-snapshot path patch; replace path patch with published version before release."
+      ],
+      "remaining_work": "Keep RuleSet::new/evaluate route for resolution; retain CutRight-only decode, duration, frame, black/freeze, silence & caption checks whose semantics are not represented by rightkit-review.",
+      "confidence": "high",
+      "applicability_evidence": []
+    },
+    {
+      "component_id": "cargo:rightkit-sandbox",
+      "status": "NA",
+      "rationale": "No active CutRight caller for cargo:rightkit-sandbox: Shared OS sandbox, PTY lease, process-tree, and reserve-before-spawn resource authority for Right Suite apps is absent from current Rust/Tauri desktop capability scope.",
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/cutright/apps/cutright/src-tauri/Cargo.toml",
+          "line": 14,
+          "symbol": "dependencies",
+          "detail": "Scoped production census: 193 Rust files under apps/cutright/src-tauri/src and workspace crates, tests/examples/cache/rk-snapshot excluded; the Tauri dependency block contains no component dependency/import/caller."
+        }
+      ],
+      "shared_evidence": [],
+      "local_evidence": [],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-scenario",
+      "status": "NA",
+      "rationale": "No active CutRight caller for cargo:rightkit-scenario: Shared scenario interpreter and durable state machine for the RightKit scenario runtime (RK8): perform separated from observe_until, idempotency keys, append-only fsync journal, leases with fencing tokens, cooperative cancellation, retake replay, and a remote worker transport trait boundary is absent from current Rust/Tauri desktop capability scope.",
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/cutright/apps/cutright/src-tauri/Cargo.toml",
+          "line": 14,
+          "symbol": "dependencies",
+          "detail": "Scoped production census: 193 Rust files under apps/cutright/src-tauri/src and workspace crates, tests/examples/cache/rk-snapshot excluded; the Tauri dependency block contains no component dependency/import/caller."
+        }
+      ],
+      "shared_evidence": [],
+      "local_evidence": [],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-search",
+      "status": "NA",
+      "rationale": "Current phrase search finds contiguous transcript word sequences & returns timestamped word windows. RightKit search supplies query operators, SQL/FTS compilation & character excerpts; it has no timed-word matching API. Replacing this route would require new indexed-search behavior rather than cutting over an equivalent existing mechanism.",
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/cutright/crates/cutright-engine/src/media_cmd.rs",
+          "line": 985,
+          "symbol": "m_phrase_search",
+          "detail": "Production command tokenizes query, normalizes words and scans every transcript."
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-search/src/lib.rs",
+          "line": 1,
+          "symbol": "rightkit-search owner contract",
+          "detail": "Query grammar, SQL/FTS compiler, snippets & filename index; no timed transcript matcher."
+        },
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-search/src/snippet.rs",
+          "line": 56,
+          "symbol": "excerpt_around",
+          "detail": "Character window around first term hit differs from all contiguous word matches with timestamps."
+        }
+      ],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/cutright/crates/cutright-engine/src/media_cmd.rs",
+          "line": 1004,
+          "symbol": "Project::open",
+          "detail": "Phrase search reads project transcript files directly; no indexed FTS schema is present."
+        }
+      ],
+      "shared_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "Keep timestamped phrase matching local. Reassess rightkit-search if operator/FTS search is introduced; any adapter must preserve word_index, source times & context_words.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-secrets",
+      "status": "Y",
+      "rationale": "Anthropic credential store uses rightkit_secrets Store; this is an operative production route for rightkit-secrets.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/cutright/crates/cutright-shorts/src/llm.rs",
+          "line": 307,
+          "symbol": "Store::open/get",
+          "detail": "Production shorts path reads Anthropic credential via shared secret Store."
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-secrets/src/store.rs",
+          "line": 123,
+          "symbol": "Store",
+          "detail": "Owner Store::open/get API is called for Anthropic credentials."
+        }
+      ],
+      "delivery_flags": [
+        "Workspace/app Cargo manifests currently carry local rk-snapshot patch entries; publish-version cutover is still required before release."
+      ],
+      "remaining_work": "Keep current shared route; replace local path patch with published pinned RightKit version and verify standalone install.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-send",
+      "status": "NA",
+      "rationale": "No active CutRight caller for cargo:rightkit-send: Nearby file and text sharing over the open LocalSend v2 protocol, with Pulse extensions: TLS identity pinning, per-device trust, and macOS Bonjour discovery. Product-neutral; the host supplies identity, paths and policy is absent from current Rust/Tauri desktop capability scope.",
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/cutright/apps/cutright/src-tauri/Cargo.toml",
+          "line": 14,
+          "symbol": "dependencies",
+          "detail": "Scoped production census: 193 Rust files under apps/cutright/src-tauri/src and workspace crates, tests/examples/cache/rk-snapshot excluded; the Tauri dependency block contains no component dependency/import/caller."
+        }
+      ],
+      "shared_evidence": [],
+      "local_evidence": [],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-service",
+      "status": "Y",
+      "rationale": "engine discovery calls rightkit_service discovery APIs; this is an operative production route for rightkit-service.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/cutright/crates/cutright-engine/src/discovery.rs",
+          "line": 97,
+          "symbol": "discover_macos_with",
+          "detail": "Production engine invokes shared installed-app discovery."
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-service/src/discovery.rs",
+          "line": 117,
+          "symbol": "discover_apps",
+          "detail": "Owner discover_macos/windows discovery APIs are called by CutRight engine."
+        }
+      ],
+      "delivery_flags": [
+        "Workspace/app Cargo manifests currently carry local rk-snapshot patch entries; publish-version cutover is still required before release."
+      ],
+      "remaining_work": "Keep current shared route; replace local path patch with published pinned RightKit version and verify standalone install.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-settings",
+      "status": "Y",
+      "rationale": "settings commands use rightkit_settings Store and Schema; this is an operative production route for rightkit-settings.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/cutright/crates/cutright-engine/src/media_cmd.rs",
+          "line": 547,
+          "symbol": "Store::open_path",
+          "detail": "Production settings path opens shared settings Store."
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-settings/src/store.rs",
+          "line": 133,
+          "symbol": "Store",
+          "detail": "Owner settings Store::open_path/open_read_only APIs are called by CutRight."
+        }
+      ],
+      "delivery_flags": [
+        "Workspace/app Cargo manifests currently carry local rk-snapshot patch entries; publish-version cutover is still required before release."
+      ],
+      "remaining_work": "Keep current shared route; replace local path patch with published pinned RightKit version and verify standalone install.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-shell",
+      "status": "N",
+      "rationale": "CutRight’s active AppShell bridge directly calls Tauri minimize, toggleMaximize and close. Those window actions overlap RightKit shell’s native/renderer command contract, but no rightkit-shell route is registered.",
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/cutright/apps/cutright/src-tauri/Cargo.toml",
+          "line": 14,
+          "symbol": "dependencies",
+          "detail": "Tauri host has no rightkit-shell dependency or handler registration; its invoke handler lists only app/playback commands."
+        }
+      ],
+      "shared_evidence": [],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/cutright/apps/cutright/src/lib/shell.ts",
+          "line": 14,
+          "symbol": "shellBridge.window",
+          "detail": "Production AppShell bridge directly invokes getCurrentWindow().minimize, toggleMaximize and close."
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-shell/src/commands.rs",
+          "line": 107,
+          "symbol": "rk_shell_window",
+          "detail": "Owner implements same minimize/toggle-maximize/close actions as registered Tauri commands."
+        }
+      ],
+      "delivery_flags": [],
+      "remaining_work": "Add shared rightkit-shell host handler for this three-action window subset, then remove direct duplicate command plumbing after Tauri desktop QA.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-speech-client",
+      "status": "Y",
+      "rationale": "speech path imports rightkit_speech_client connect and capability contract; this is an operative production route for rightkit-speech-client.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/cutright/crates/cutright-speech/src/lib.rs",
+          "line": 435,
+          "symbol": "transcribe_via_service_with",
+          "detail": "Production speech path invokes shared service transcription."
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-speech-client/src/lib.rs",
+          "line": 848,
+          "symbol": "transcribe_via_service_with",
+          "detail": "Owner speech service request API is called by CutRight transcription path."
+        }
+      ],
+      "delivery_flags": [
+        "Workspace/app Cargo manifests currently carry local rk-snapshot patch entries; publish-version cutover is still required before release."
+      ],
+      "remaining_work": "Keep current shared route; replace local path patch with published pinned RightKit version and verify standalone install.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-sync",
+      "status": "NA",
+      "rationale": "No active CutRight caller for cargo:rightkit-sync: Brand-neutral desktop/mobile cloud sync engine: change tokens, tombstones, last-writer-wins conflicts, resumable batches, offline queue, retry/backoff is absent from current Rust/Tauri desktop capability scope.",
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/cutright/apps/cutright/src-tauri/Cargo.toml",
+          "line": 14,
+          "symbol": "dependencies",
+          "detail": "Scoped production census: 193 Rust files under apps/cutright/src-tauri/src and workspace crates, tests/examples/cache/rk-snapshot excluded; the Tauri dependency block contains no component dependency/import/caller."
+        }
+      ],
+      "shared_evidence": [],
+      "local_evidence": [],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-tauri",
+      "status": "NA",
+      "rationale": "CutRight directly builds Tauri window, engine and playback state, but has no rightkit-tauri secure device/licence, logs, or diagnostics adapter caller. Generic Tauri use is outside this owner’s precise API scope.",
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/cutright/apps/cutright/src-tauri/src/lib.rs",
+          "line": 215,
+          "symbol": "tauri::Builder::default",
+          "detail": "Current native setup directly registers app-specific Tauri plugins, engine and playback commands."
+        },
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-tauri/src/lib.rs",
+          "line": 223,
+          "symbol": "AuthorizationService",
+          "detail": "Owner provides secure entitlement/device and host diagnostic/log adapter services, none registered by CutRight."
+        }
+      ],
+      "shared_evidence": [],
+      "local_evidence": [],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-transcript",
+      "status": "Y",
+      "rationale": "CutRight transcript crate re-exports rightkit_transcript contract types; this is an operative production route for rightkit-transcript.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/cutright/crates/cutright-engine/src/media_cmd.rs",
+          "line": 151,
+          "symbol": "Transcript::from_json_strict",
+          "detail": "Production transcript reader invokes shared Transcript parser."
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-transcript/src/contract.rs",
+          "line": 37,
+          "symbol": "Transcript",
+          "detail": "Owner Transcript::from_json_strict contract API is invoked by CutRight."
+        }
+      ],
+      "delivery_flags": [
+        "Workspace/app Cargo manifests currently carry local rk-snapshot patch entries; publish-version cutover is still required before release."
+      ],
+      "remaining_work": "Keep current shared route; replace local path patch with published pinned RightKit version and verify standalone install.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-tts",
+      "status": "NA",
+      "rationale": "No active CutRight caller for cargo:rightkit-tts: Shared local text-to-speech for Right Suite apps: OS voices (say / SAPI) and a Qwen3-TTS QTS worker client is absent from current Rust/Tauri desktop capability scope.",
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/cutright/apps/cutright/src-tauri/Cargo.toml",
+          "line": 14,
+          "symbol": "dependencies",
+          "detail": "Scoped production census: 193 Rust files under apps/cutright/src-tauri/src and workspace crates, tests/examples/cache/rk-snapshot excluded; the Tauri dependency block contains no component dependency/import/caller."
+        }
+      ],
+      "shared_evidence": [],
+      "local_evidence": [],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-vad",
+      "status": "Y",
+      "rationale": "speech VAD exports rightkit_vad scorer and spans; this is an operative production route for rightkit-vad.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/cutright/crates/cutright-speech/src/vad.rs",
+          "line": 55,
+          "symbol": "scores_to_spans",
+          "detail": "Production VAD path invokes shared scores_to_spans."
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-vad/src/spans.rs",
+          "line": 96,
+          "symbol": "scores_to_spans",
+          "detail": "Owner scores_to_spans API is called by CutRight VAD path."
+        }
+      ],
+      "delivery_flags": [
+        "Workspace/app Cargo manifests currently carry local rk-snapshot patch entries; publish-version cutover is still required before release."
+      ],
+      "remaining_work": "Keep current shared route; replace local path patch with published pinned RightKit version and verify standalone install.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-watch",
+      "status": "NA",
+      "rationale": "CutRight persists projects and media state but has no production filesystem-watch subscription, debounce, or rename-coalescing caller. rightkit-watch therefore has no active host feature to route.",
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/cutright/crates/cutright-project/src/lib.rs",
+          "line": 1,
+          "symbol": "cutright-project",
+          "detail": "Product project persistence is active, while scoped 193-file Rust census found no notify/rightkit-watch watcher registration."
+        },
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-watch/src/lib.rs",
+          "line": 23,
+          "symbol": "FileWatcher",
+          "detail": "Owner API is an explicit watcher subscription not used by CutRight."
+        }
+      ],
+      "shared_evidence": [],
+      "local_evidence": [],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/agent-room-mcp",
+      "status": "NA",
+      "rationale": "No active CutRight caller for npm:@rightkit/agent-room-mcp: @rightkit/agent-room-mcp has no invoked renderer or script API in current Tauri/React desktop scope.",
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/cutright/apps/cutright/package.json",
+          "line": 50,
+          "symbol": "dependencies",
+          "detail": "Scoped production census: 61 TS/TSX renderer files plus app scripts, node_modules/build output excluded; direct package declarations alone do not prove an invoked component API."
+        }
+      ],
+      "shared_evidence": [],
+      "local_evidence": [],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/app-shell",
+      "status": "Y",
+      "rationale": "AppShell and StatusRow render production workspace shell; this is an operative production route for @rightkit/app-shell.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/cutright/apps/cutright/src/components/DesktopWorkspace.tsx",
+          "line": 453,
+          "symbol": "AppShell",
+          "detail": "Production workspace renders shared AppShell."
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/packages/app-shell/src/react/layout.tsx",
+          "line": 518,
+          "symbol": "AppShell",
+          "detail": "Owner AppShell API is rendered by CutRight workspace."
+        }
+      ],
+      "delivery_flags": [
+        "Pinned package version is declared in apps/cutright/package.json."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/ax",
+      "status": "NA",
+      "rationale": "No active CutRight caller for npm:@rightkit/ax: Suite-wide agent-experience (AX) + agent-plugins.org conformance layer: plugin scaffolding/validation and AXA-1 static/conformance/behavioral gates over one product's MCP/CLI surface has no invoked renderer or script API in current Tauri/React desktop scope.",
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/cutright/apps/cutright/package.json",
+          "line": 50,
+          "symbol": "dependencies",
+          "detail": "Scoped production census: 61 TS/TSX renderer files plus app scripts, node_modules/build output excluded; direct package declarations alone do not prove an invoked component API."
+        }
+      ],
+      "shared_evidence": [],
+      "local_evidence": [],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/build-control-policy",
+      "status": "NA",
+      "rationale": "No active CutRight caller for npm:@rightkit/build-control-policy: @rightkit/build-control-policy has no invoked renderer or script API in current Tauri/React desktop scope.",
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/cutright/apps/cutright/package.json",
+          "line": 50,
+          "symbol": "dependencies",
+          "detail": "Scoped production census: 61 TS/TSX renderer files plus app scripts, node_modules/build output excluded; direct package declarations alone do not prove an invoked component API."
+        }
+      ],
+      "shared_evidence": [],
+      "local_evidence": [],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/doc-render",
+      "status": "NA",
+      "rationale": "No active CutRight caller for npm:@rightkit/doc-render: Brand-neutral, read-only document renderer (Markdown, sanitized HTML, safe email frame) for Right Suite readers has no invoked renderer or script API in current Tauri/React desktop scope.",
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/cutright/apps/cutright/package.json",
+          "line": 50,
+          "symbol": "dependencies",
+          "detail": "Scoped production census: 61 TS/TSX renderer files plus app scripts, node_modules/build output excluded; direct package declarations alone do not prove an invoked component API."
+        }
+      ],
+      "shared_evidence": [],
+      "local_evidence": [],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/git",
+      "status": "NA",
+      "rationale": "No active CutRight caller for npm:@rightkit/git: Public-repo-only GitHub Actions workflow layer: templates, visibility gate, sync/drift/adopt/uninstall for right-git has no invoked renderer or script API in current Tauri/React desktop scope.",
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/cutright/apps/cutright/package.json",
+          "line": 50,
+          "symbol": "dependencies",
+          "detail": "Scoped production census: 61 TS/TSX renderer files plus app scripts, node_modules/build output excluded; direct package declarations alone do not prove an invoked component API."
+        }
+      ],
+      "shared_evidence": [],
+      "local_evidence": [],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/hooks",
+      "status": "NA",
+      "rationale": "No active CutRight caller for npm:@rightkit/hooks: Neutral lifecycle runtime shared by independently installable agent systems has no invoked renderer or script API in current Tauri/React desktop scope.",
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/cutright/apps/cutright/package.json",
+          "line": 50,
+          "symbol": "dependencies",
+          "detail": "Scoped production census: 61 TS/TSX renderer files plus app scripts, node_modules/build output excluded; direct package declarations alone do not prove an invoked component API."
+        }
+      ],
+      "shared_evidence": [],
+      "local_evidence": [],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/i18n",
+      "status": "NA",
+      "rationale": "CutRight has no locale catalog, I18n Provider, setLocale call, or translated renderer route. Its Tauri/React desktop UI uses static English product strings, so shared locale runtime is not active.",
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/cutright/apps/cutright/src/main.tsx",
+          "line": 20,
+          "symbol": "ReactDOM.createRoot",
+          "detail": "Production provider tree contains ShellProvider, MediaAdaptersProvider, ErrorBoundary and OnboardingGate; no I18n provider."
+        },
+        {
+          "path": "/Volumes/D/claude/rightkit/packages/i18n/src/index.tsx",
+          "line": 35,
+          "symbol": "createI18n",
+          "detail": "Owner requires catalog/provider and locale loaders, none present in CutRight’s 61 renderer files."
+        }
+      ],
+      "shared_evidence": [],
+      "local_evidence": [],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/legal",
+      "status": "Y",
+      "rationale": "legal snapshot calls assertLegalManifest and materialAcceptanceDigest; this is an operative production route for @rightkit/legal.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/cutright/apps/cutright/scripts/legal-snapshot.mjs",
+          "line": 18,
+          "symbol": "assertLegalManifest/materialAcceptanceDigest",
+          "detail": "Production legal snapshot invokes shared manifest/digest APIs."
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/packages/legal/src/index.ts",
+          "line": 102,
+          "symbol": "assertLegalManifest",
+          "detail": "Owner manifest assertion API is called by CutRight legal snapshot."
+        }
+      ],
+      "delivery_flags": [
+        "Pinned package version is declared in apps/cutright/package.json."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/legal-ui",
+      "status": "Y",
+      "rationale": "CutRight invokes shared Onboarding, which renders rightkit legal-ui LegalGate for first-run/re-acceptance; local LegalDocument only opens bundled document text and is not acceptance-gate logic.",
+      "local_evidence": [],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/packages/legal-ui/src/LegalGate.tsx",
+          "line": 272,
+          "symbol": "LegalGate",
+          "detail": "Owner LegalGate API is rendered transitively by Onboarding."
+        }
+      ],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/cutright/apps/cutright/src/views/OnboardingGate.tsx",
+          "line": 66,
+          "symbol": "LegalDocument",
+          "detail": "Local viewer opens document text from shared legal manifest after gate onOpen; it does not replace gate."
+        }
+      ],
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/cutright/apps/cutright/src/views/OnboardingGate.tsx",
+          "line": 55,
+          "symbol": "Onboarding",
+          "detail": "Production Onboarding invocation receives legal config; @rightkit/onboarding renders shared LegalGate internally."
+        }
+      ],
+      "delivery_flags": [
+        "Current app package version is 0.2.1 while catalog owner is 0.2.2; align published pinned version before release."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/license",
+      "status": "NA",
+      "rationale": "CutRight’s live legal gate records bundled-document acceptance, not online token exchange, licence activation, tier checks, or offline grace. @rightkit/license is declared for shared Settings UI compatibility but no CutRight source invokes its client API.",
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/cutright/apps/cutright/src/views/OnboardingGate.tsx",
+          "line": 55,
+          "symbol": "Onboarding",
+          "detail": "Live gate receives legal documents/settings only; no licence client, activation or entitlement API is passed."
+        },
+        {
+          "path": "/Volumes/D/claude/cutright/apps/cutright/package.json",
+          "line": 53,
+          "symbol": "@rightkit/license",
+          "detail": "Direct declaration exists, but 61-file renderer/script census found no @rightkit/license import or invoked client API."
+        }
+      ],
+      "shared_evidence": [],
+      "local_evidence": [],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/logs",
+      "status": "NA",
+      "rationale": "CutRight production diagnostics are native eprintln sinks; no renderer LogsClient caller exists, so @rightkit/logs structured webview client is outside current runtime.",
+      "local_evidence": [],
+      "owner_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/cutright/apps/cutright/src-tauri/src/engine_supervisor.rs",
+          "line": 302,
+          "symbol": "with_stderr_sink",
+          "detail": "Native supervisor writes stderr diagnostics; this is outside renderer LogsClient runtime."
+        },
+        {
+          "path": "/Volumes/D/claude/cutright/apps/cutright/package.json",
+          "line": 54,
+          "symbol": "dependency",
+          "detail": "Package is declared but source census found no createLogsClient/log/flush invocation in apps/cutright/src."
+        },
+        {
+          "path": "/Volumes/D/claude/rightkit/packages/logs/src/index.ts",
+          "line": 111,
+          "symbol": "createLogsClient",
+          "detail": "Owner API is renderer structured logging client requiring invoke adapter; CutRight has no caller."
+        }
+      ],
+      "shared_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/media-ui",
+      "status": "Y",
+      "rationale": "MediaPlayer and ImageViewer render production asset previews; this is an operative production route for @rightkit/media-ui.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/cutright/apps/cutright/src/views/AssetsView.tsx",
+          "line": 625,
+          "symbol": "MediaPlayer",
+          "detail": "Production assets view renders shared MediaPlayer."
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/packages/media-ui/src/MediaPlayer.tsx",
+          "line": 209,
+          "symbol": "MediaPlayer",
+          "detail": "Owner MediaPlayer API is rendered by CutRight asset/source views."
+        }
+      ],
+      "delivery_flags": [
+        "Pinned package version is declared in apps/cutright/package.json."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/onboarding",
+      "status": "Y",
+      "rationale": "Onboarding component gates workspace first run; this is an operative production route for @rightkit/onboarding.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/cutright/apps/cutright/src/views/OnboardingGate.tsx",
+          "line": 55,
+          "symbol": "Onboarding",
+          "detail": "Production first-run gate renders shared Onboarding."
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/packages/onboarding/src/Onboarding.tsx",
+          "line": 74,
+          "symbol": "Onboarding",
+          "detail": "Owner Onboarding API is rendered by CutRight first-run gate."
+        }
+      ],
+      "delivery_flags": [
+        "Pinned package version is declared in apps/cutright/package.json."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/pdf-ui",
+      "status": "NA",
+      "rationale": "No active CutRight caller for npm:@rightkit/pdf-ui: Brand-neutral read-only PDF viewer (pdf.js) for Right Suite apps has no invoked renderer or script API in current Tauri/React desktop scope.",
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/cutright/apps/cutright/package.json",
+          "line": 50,
+          "symbol": "dependencies",
+          "detail": "Scoped production census: 61 TS/TSX renderer files plus app scripts, node_modules/build output excluded; direct package declarations alone do not prove an invoked component API."
+        }
+      ],
+      "shared_evidence": [],
+      "local_evidence": [],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/platform-ui",
+      "status": "Y",
+      "rationale": "CutRight renders AppShell; app-shell invokes platform-ui getPlatform, window controls & React primitives transitively in production.",
+      "local_evidence": [],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/packages/platform-ui/src/index.ts",
+          "line": 75,
+          "symbol": "getPlatform",
+          "detail": "Owner getPlatform/createWindowControls APIs are invoked transitively by AppShell."
+        }
+      ],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/packages/app-shell/src/react/layout.tsx",
+          "line": 105,
+          "symbol": "createWindowControls",
+          "detail": "AppShell invokes platform-ui createWindowControls while rendering host window controls."
+        }
+      ],
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/cutright/apps/cutright/src/components/DesktopWorkspace.tsx",
+          "line": 453,
+          "symbol": "AppShell",
+          "detail": "Production AppShell invocation routes through app-shell platform-ui window/shortcut/context primitives."
+        }
+      ],
+      "delivery_flags": [
+        "Current app package version is 0.2.1 while catalog owner is 0.2.2; align published pinned version before release."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/qa",
+      "status": "NA",
+      "rationale": "CutRight’s desktop UI QA uses Rust cutright-ui-e2e plus shared cargo rightkit-control/rightkit-qa paths. No Node @rightkit/qa evidence/workspace/browser helper caller exists, so this distinct JavaScript harness is not active.",
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/cutright/crates/cutright-ui-e2e/src/lib.rs",
+          "line": 3,
+          "symbol": "cutright-ui-e2e",
+          "detail": "Current desktop UI harness is Rust and launches real CutRight.app; 61 renderer/script files have no @rightkit/qa import."
+        },
+        {
+          "path": "/Volumes/D/claude/rightkit/packages/qa/src/index.ts",
+          "line": 1,
+          "symbol": "package exports",
+          "detail": "Owner is a Node/browser evidence-helper package, not active Rust UI harness."
+        }
+      ],
+      "shared_evidence": [],
+      "local_evidence": [],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/qa-chrome",
+      "status": "NA",
+      "rationale": "CutRight has no Node Chrome-for-Testing resolver, launcher, CDP session, or @rightkit/qa-chrome import. Current UI testing is Rust cutright-ui-e2e against Tauri, so Chrome harness capability is not active.",
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/cutright/crates/cutright-ui-e2e/src/lib.rs",
+          "line": 3,
+          "symbol": "cutright-ui-e2e",
+          "detail": "Current UI harness is Rust/Tauri; app manifest/scripts declare no Chrome-for-Testing workflow."
+        },
+        {
+          "path": "/Volumes/D/claude/rightkit/packages/qa-chrome/src/index.ts",
+          "line": 1,
+          "symbol": "qa-chrome exports",
+          "detail": "Owner exports Chrome-for-Testing process management absent from CutRight."
+        }
+      ],
+      "shared_evidence": [],
+      "local_evidence": [],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/release",
+      "status": "Y",
+      "rationale": "release config resolves Tauri target through rightkit release API; this is an operative production route for @rightkit/release.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/cutright/apps/cutright/right-release.config.mjs",
+          "line": 4,
+          "symbol": "resolveTargetRoot",
+          "detail": "Production release config invokes shared target resolver."
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/packages/release/cargo-target.mjs",
+          "line": 18,
+          "symbol": "resolveTargetRoot",
+          "detail": "Owner resolveTargetRoot API is called by CutRight release config."
+        }
+      ],
+      "delivery_flags": [
+        "Pinned package version is declared in apps/cutright/package.json."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/settings-ui",
+      "status": "Y",
+      "rationale": "SettingsPanel and standard sections render production settings; this is an operative production route for @rightkit/settings-ui.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/cutright/apps/cutright/src/views/SettingsView.tsx",
+          "line": 454,
+          "symbol": "SettingsPanel",
+          "detail": "Production settings view renders shared SettingsPanel."
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/packages/settings-ui/src/SettingsPanel.tsx",
+          "line": 110,
+          "symbol": "SettingsPanel",
+          "detail": "Owner SettingsPanel API is rendered by CutRight settings view."
+        }
+      ],
+      "delivery_flags": [
+        "Pinned package version is declared in apps/cutright/package.json."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/shell",
+      "status": "N",
+      "rationale": "CutRight’s active AppShell bridge directly calls Tauri minimize, toggleMaximize and close. Those window actions overlap RightKit shell’s native/renderer command contract, but no rightkit-shell route is registered.",
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/cutright/apps/cutright/src-tauri/Cargo.toml",
+          "line": 14,
+          "symbol": "dependencies",
+          "detail": "Tauri host has no rightkit-shell dependency or handler registration; its invoke handler lists only app/playback commands."
+        }
+      ],
+      "shared_evidence": [],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/cutright/apps/cutright/src/lib/shell.ts",
+          "line": 14,
+          "symbol": "shellBridge.window",
+          "detail": "Production AppShell bridge directly invokes getCurrentWindow().minimize, toggleMaximize and close."
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/packages/shell/src/index.ts",
+          "line": 228,
+          "symbol": "createShell",
+          "detail": "Owner renderer bridge routes minimize/toggleMaximize/close through rightkit-shell commands."
+        }
+      ],
+      "delivery_flags": [],
+      "remaining_work": "Construct @rightkit/shell createShell from shared host bridge, route AppShell caption actions through it, then verify macOS and Windows caption controls.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/tauri",
+      "status": "NA",
+      "rationale": "CutRight directly uses @tauri-apps APIs, but has no createRightKitTauriClient or standard secure licence/device/log/diagnostic command bridge. Generic Tauri calls do not overlap this owner’s typed shared host adapter.",
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/cutright/apps/cutright/src/lib/shell.ts",
+          "line": 2,
+          "symbol": "getCurrentWindow",
+          "detail": "Renderer directly invokes Tauri window API for local AppShell bridge."
+        },
+        {
+          "path": "/Volumes/D/claude/rightkit/packages/tauri/src/index.ts",
+          "line": 58,
+          "symbol": "createRightKitTauriClient",
+          "detail": "Owner adapter requires standard secure licence, device, log and diagnostics command contract; no caller/commands exist in CutRight."
+        }
+      ],
+      "shared_evidence": [],
+      "local_evidence": [],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/theme",
+      "status": "Y",
+      "rationale": "generated production CSS records rightkit theme output; this is an operative production route for @rightkit/theme.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/cutright/apps/cutright/src/brand.css",
+          "line": 1,
+          "symbol": "generated theme CSS",
+          "detail": "Production CSS is generated by shared theme generateCss."
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/packages/theme/src/css.ts",
+          "line": 37,
+          "symbol": "generateCss",
+          "detail": "Owner generateCss API produces CutRight generated theme CSS."
+        }
+      ],
+      "delivery_flags": [
+        "Pinned package version is declared in apps/cutright/package.json."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/update",
+      "status": "NA",
+      "rationale": "CutRight release scripts use right-release for packaging/upload, not @rightkit/update’s dependency check/apply/gate workflow. No updater CLI/config caller exists in current app scripts.",
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/cutright/apps/cutright/package.json",
+          "line": 18,
+          "symbol": "release scripts",
+          "detail": "Release commands invoke right-release; 61 renderer/script census found no @rightkit/update import or scheduled dependency updater."
+        }
+      ],
+      "shared_evidence": [],
+      "local_evidence": [],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/updates",
+      "status": "NA",
+      "rationale": "CutRight declares @rightkit/updates, but ships no runtime check/install client or Settings updates section. Release config’s Windows updater artifact is distribution metadata, not an in-app shared update route.",
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/cutright/apps/cutright/right-release.config.mjs",
+          "line": 101,
+          "symbol": "updater.artifacts",
+          "detail": "Release-only Windows artifact metadata does not instantiate runtime update policy."
+        },
+        {
+          "path": "/Volumes/D/claude/cutright/apps/cutright/src/views/SettingsView.tsx",
+          "line": 421,
+          "symbol": "mergeSections",
+          "detail": "Live Settings sections omit updatesSection; 61 renderer/script census found no update check/install API caller."
+        },
+        {
+          "path": "/Volumes/D/claude/rightkit/packages/updates/src/index.ts",
+          "line": 137,
+          "symbol": "createAutoUpdateClient",
+          "detail": "Owner runtime requires explicit check/install client construction, absent from CutRight."
+        }
+      ],
+      "shared_evidence": [],
+      "local_evidence": [],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitLicense",
+      "status": "NA",
+      "rationale": "CutRight has macOS Swift helper sources, but they implement headless media-worker/verifier protocols; no helper performs signed entitlement activation, storage, refresh, or feature gating owned by RightKitLicense.",
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/cutright/sidecars/macos-media-worker/main.swift",
+          "line": 48,
+          "symbol": "handleRequest",
+          "detail": "Production Swift helper route has no RightKit import; current helper surface is headless media work via product JSONL protocol."
+        },
+        {
+          "path": "/Volumes/D/claude/rightkit/swift/RightKitSwift/Sources/RightKitLicense/LicenseClient.swift",
+          "line": 460,
+          "symbol": "LicenseActivationClient",
+          "detail": "Owner capability is license activation, lease renewal, entitlement storage, and scope verification; no equivalent Swift helper caller exists."
+        }
+      ],
+      "shared_evidence": [],
+      "local_evidence": [],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitDiagnostics",
+      "status": "NA",
+      "rationale": "CutRight’s macOS Swift helpers return bounded media results over JSONL; no helper collects/redacts diagnostic bundles or support reports owned by RightKitDiagnostics.",
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/cutright/sidecars/macos-media-worker/main.swift",
+          "line": 48,
+          "symbol": "handleRequest",
+          "detail": "macOS helper’s JSONL protocol routes inspectAsset, analyzeFrames, renderCaption, renderPreview, audioFeatures, and renderTimeline; it is a product media-worker boundary, not a SwiftUI/mobile app."
+        },
+        {
+          "path": "/Volumes/D/claude/rightkit/swift/RightKitSwift/Sources/RightKitDiagnostics/PrivacyRedactor.swift",
+          "line": 9,
+          "symbol": "PrivacyRedactor",
+          "detail": "Owner capability redacts diagnostic data; no CutRight Swift diagnostics caller exists."
+        }
+      ],
+      "shared_evidence": [],
+      "local_evidence": [],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitArtifacts",
+      "status": "NA",
+      "rationale": "CutRight’s Swift helpers emit product media-worker responses and caption rasters; this is not RightKitArtifacts’ shared artifact lifecycle contract, and no helper imports that owner.",
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/cutright/sidecars/macos-media-worker/main.swift",
+          "line": 48,
+          "symbol": "handleRequest",
+          "detail": "macOS helper’s JSONL protocol routes inspectAsset, analyzeFrames, renderCaption, renderPreview, audioFeatures, and renderTimeline; it is a product media-worker boundary, not a SwiftUI/mobile app."
+        },
+        {
+          "path": "/Volumes/D/claude/cutright/sidecars/render-worker/caption-card-macos.swift",
+          "line": 1,
+          "symbol": "caption-card-macos",
+          "detail": "Swift renderer produces CutRight caption-card output; no RightKitArtifacts import or artifact-contract caller occurs."
+        }
+      ],
+      "shared_evidence": [],
+      "local_evidence": [],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitPurchases",
+      "status": "NA",
+      "rationale": "No CutRight Swift helper imports StoreKit or manages products, transactions, restores, or purchase entitlements; media-worker and verifier targets have no purchase role.",
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/cutright/sidecars/macos-media-worker/main.swift",
+          "line": 48,
+          "symbol": "handleRequest",
+          "detail": "Production Swift helper route has no RightKit import; current helper surface is headless media work via product JSONL protocol."
+        },
+        {
+          "path": "/Volumes/D/claude/rightkit/swift/RightKitSwift/Sources/RightKitPurchases/PurchaseController.swift",
+          "line": 18,
+          "symbol": "PurchaseController",
+          "detail": "Owner manages StoreKit product loading, purchase, restore, and entitlement updates; no equivalent CutRight Swift caller exists."
+        }
+      ],
+      "shared_evidence": [],
+      "local_evidence": [],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitCloudSync",
+      "status": "NA",
+      "rationale": "No CutRight Swift helper imports CloudKit or runs sync lifecycle/retry logic; current helpers are local media processing and speech verification.",
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/cutright/sidecars/macos-media-worker/main.swift",
+          "line": 48,
+          "symbol": "handleRequest",
+          "detail": "macOS helper’s JSONL protocol routes inspectAsset, analyzeFrames, renderCaption, renderPreview, audioFeatures, and renderTimeline; it is a product media-worker boundary, not a SwiftUI/mobile app."
+        },
+        {
+          "path": "/Volumes/D/claude/rightkit/swift/RightKitSwift/Sources/RightKitCloudSync/CloudSyncCoordinator.swift",
+          "line": 50,
+          "symbol": "CloudSyncCoordinator.setEnabled",
+          "detail": "Owner provides CloudKit sync lifecycle and retry coordination; no CutRight Swift sync caller exists."
+        }
+      ],
+      "shared_evidence": [],
+      "local_evidence": [],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitStore",
+      "status": "NA",
+      "rationale": "CutRight’s helper targets do not host an App Group command queue or shared Swift app state; they only process product media-worker requests.",
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/cutright/sidecars/macos-media-worker/main.swift",
+          "line": 48,
+          "symbol": "handleRequest",
+          "detail": "macOS helper’s JSONL protocol routes inspectAsset, analyzeFrames, renderCaption, renderPreview, audioFeatures, and renderTimeline; it is a product media-worker boundary, not a SwiftUI/mobile app."
+        },
+        {
+          "path": "/Volumes/D/claude/rightkit/swift/RightKitSwift/Sources/RightKitStore/AppGroupCommandQueue.swift",
+          "line": 18,
+          "symbol": "AppGroupCommandQueue",
+          "detail": "Owner is an App Group command/state queue; no CutRight Swift helper caller exists."
+        }
+      ],
+      "shared_evidence": [],
+      "local_evidence": [],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitImportQueue",
+      "status": "NA",
+      "rationale": "CutRight’s AssetService inspects editor-selected media through its worker protocol; it does not provide share-extension intake, durable pending-share queueing, or acknowledgement owned by RightKitImportQueue.",
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/cutright/sidecars/macos-media-worker/main.swift",
+          "line": 56,
+          "symbol": "inspectAsset",
+          "detail": "Asset inspection is an explicit product worker operation, not shared-extension import intake."
+        },
+        {
+          "path": "/Volumes/D/claude/rightkit/swift/RightKitSwift/Sources/RightKitImportQueue/SharedImportQueue.swift",
+          "line": 32,
+          "symbol": "SharedImportQueue.enqueue",
+          "detail": "Owner queues pending share payloads for later app intake; no equivalent CutRight Swift caller exists."
+        }
+      ],
+      "shared_evidence": [],
+      "local_evidence": [],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitLiveActivity",
+      "status": "NA",
+      "rationale": "No CutRight Swift target imports ActivityKit or WidgetKit; headless macOS media helpers cannot host Live Activities.",
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/cutright/sidecars/macos-media-worker/main.swift",
+          "line": 48,
+          "symbol": "handleRequest",
+          "detail": "Production Swift helper route has no RightKit import; current helper surface is headless media work via product JSONL protocol."
+        },
+        {
+          "path": "/Volumes/D/claude/cutright/sidecars/macos-media-worker/main.swift",
+          "line": 48,
+          "symbol": "handleRequest",
+          "detail": "Active Swift helper protocol is headless media processing; no mobile widget/live-activity target exists."
+        }
+      ],
+      "shared_evidence": [],
+      "local_evidence": [],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitWatchBridge",
+      "status": "NA",
+      "rationale": "No CutRight Swift target imports WatchConnectivity or contains a watch counterpart; headless macOS helper protocols have no bridge payload or session route.",
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/cutright/sidecars/macos-media-worker/main.swift",
+          "line": 48,
+          "symbol": "handleRequest",
+          "detail": "Production Swift helper route has no RightKit import; current helper surface is headless media work via product JSONL protocol."
+        },
+        {
+          "path": "/Volumes/D/claude/cutright/sidecars/macos-media-worker/main.swift",
+          "line": 48,
+          "symbol": "handleRequest",
+          "detail": "Active Swift helper protocol is headless media processing; no WatchConnectivity caller exists."
+        }
+      ],
+      "shared_evidence": [],
+      "local_evidence": [],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitSpeech",
+      "status": "NA",
+      "rationale": "CutRight’s runtime verifier directly uses on-device SFSpeech and writes timestamped word evidence; RightKitSpeech’s AppleSpeechEngine returns transcription text, so no owner API supplies verifier’s timed-word pack contract.",
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/cutright/runtime/packs/verifier/src/main.swift",
+          "line": 50,
+          "symbol": "SFSpeechURLRecognitionRequest",
+          "detail": "Verifier requires on-device recognition and maps SFSpeech segments to timed words at lines 58–64."
+        },
+        {
+          "path": "/Volumes/D/claude/rightkit/swift/RightKitSwift/Sources/RightKitSpeech/AppleSpeechEngine.swift",
+          "line": 23,
+          "symbol": "AppleSpeechEngine.transcribe",
+          "detail": "Owner API transcribes a file to String; it does not expose CutRight verifier’s timed-word pack output."
+        }
+      ],
+      "shared_evidence": [],
+      "local_evidence": [],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitIntents",
+      "status": "NA",
+      "rationale": "No CutRight Swift target imports AppIntents or declares intent execution; media-worker JSONL operations are supervised by Rust, not system intents.",
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/cutright/sidecars/macos-media-worker/main.swift",
+          "line": 51,
+          "symbol": "cancel",
+          "detail": "Worker cancellation is explicitly owned by Rust supervision; no AppIntents caller exists."
+        }
+      ],
+      "shared_evidence": [],
+      "local_evidence": [],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitAppleCredentials",
+      "status": "NA",
+      "rationale": "No CutRight Swift helper imports Security or performs Apple credential/keychain flows; headless helper inputs are product worker payloads.",
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/cutright/sidecars/macos-media-worker/main.swift",
+          "line": 48,
+          "symbol": "handleRequest",
+          "detail": "Production Swift helper route has no RightKit import; current helper surface is headless media work via product JSONL protocol."
+        },
+        {
+          "path": "/Volumes/D/claude/cutright/sidecars/macos-media-worker/main.swift",
+          "line": 48,
+          "symbol": "handleRequest",
+          "detail": "Production Swift helper protocol contains media operations only; no credentials caller exists."
+        }
+      ],
+      "shared_evidence": [],
+      "local_evidence": [],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitOverlay",
+      "status": "NA",
+      "rationale": "CutRight’s caption-card helper rasterizes media output; it does not create a live NSPanel overlay, screen placement, or click-through behavior owned by RightKitOverlay.",
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/cutright/sidecars/render-worker/caption-card-macos.swift",
+          "line": 1,
+          "symbol": "caption-card-macos",
+          "detail": "Swift code produces a caption-card raster, not a window overlay."
+        },
+        {
+          "path": "/Volumes/D/claude/rightkit/swift/RightKitSwift/Sources/RightKitOverlay/Overlay.swift",
+          "line": 179,
+          "symbol": "RightKitOverlayPanel",
+          "detail": "Owner creates NSPanel overlays with click-through/window behavior; no CutRight Swift caller exists."
+        }
+      ],
+      "shared_evidence": [],
+      "local_evidence": [],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitWatch",
+      "status": "NA",
+      "rationale": "No CutRight Swift helper starts an FSEvents watcher or receives/coalesces filesystem events; worker requests are invoked by Rust supervision.",
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/cutright/sidecars/macos-media-worker/main.swift",
+          "line": 51,
+          "symbol": "cancel",
+          "detail": "Worker lifetime/cancellation is owned by Rust supervision; no filesystem-watch caller exists."
+        },
+        {
+          "path": "/Volumes/D/claude/rightkit/swift/RightKitSwift/Sources/RightKitWatch/RightKitWatch.swift",
+          "line": 192,
+          "symbol": "RightKitWatcher",
+          "detail": "Owner wraps FSEvents watching and event coalescing; no CutRight Swift caller exists."
+        }
+      ],
+      "shared_evidence": [],
+      "local_evidence": [],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitUI",
+      "status": "NA",
+      "rationale": "CutRight has no SwiftUI application/view target. Its macOS helper produces headless media results; AppKit caption rasterization is not RightKitUI’s reusable SwiftUI surface.",
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/cutright/sidecars/macos-media-worker/main.swift",
+          "line": 48,
+          "symbol": "handleRequest",
+          "detail": "Active Swift target is a JSONL media worker, not a SwiftUI app/view hierarchy."
+        },
+        {
+          "path": "/Volumes/D/claude/rightkit/swift/RightKitSwift/Sources/RightKitUI/AdaptiveGlassSurface.swift",
+          "line": 37,
+          "symbol": "rightKitAdaptiveGlass",
+          "detail": "Owner exposes a SwiftUI ViewModifier; no CutRight SwiftUI caller exists."
+        }
+      ],
+      "shared_evidence": [],
+      "local_evidence": [],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    }
+  ],
+  "searches": [
+    {
+      "pattern": "rightkit imports and manifest dependencies",
+      "scope": "CutRight crates, apps/cutright/src-tauri, apps/cutright/src, apps/cutright/scripts; excluding node_modules, target, rk-snapshot and caches",
+      "result": "Mapped operative callers to shared routes; unused declarations were not promoted to Y. Census covered 193 production Rust files and 61 renderer TS/TSX files; direct package declarations were checked separately from invoked APIs."
+    },
+    {
+      "pattern": "SwiftPM, Xcode, Swift helper targets and RightKit imports",
+      "scope": "CutRight production Swift helpers and runtime verifier; excluding caches and vendored data",
+      "result": "Found 14 macOS Swift helper sources plus Speech verifier pack. No Package.swift, Xcode project, or import RightKit source occurs. Each of 15 Swift rows was checked against active headless media-worker/verifier contracts: iOS/watch/SwiftUI rows remain NA; RightKitSpeech remains NA because owner returns transcription text while verifier emits timed-word evidence."
+    },
+    {
+      "pattern": "local media, speech, transcript, compositor, search, settings, shortcuts, overlay, logging and QA symbols",
+      "scope": "Current CutRight Rust and React source",
+      "result": "Captured exact local overlaps: stderr diagnostics, transcript phrase search, and direct Tauri caption-window actions remain N; wrappers around shared primitives are Y; web/native category mismatches are NA."
+    },
+    {
+      "pattern": "target and runtime applicability",
+      "scope": "Cargo workspace, Tauri manifest, package.json, Swift helper sources and runtime packs",
+      "result": "Targets are macOS/Windows Tauri desktop plus macOS headless Swift sidecars/runtime verifier; no iOS, watch app, SwiftUI app, or RightKitSwift package integration exists."
+    }
+  ],
+  "self_review": "Catalog coverage checked: 97 unique IDs; statuses 31 Y, 4 N, 0 M, 62 NA. Challenged 59 prior generic NA cells against a 193-Rust/61-renderer/14-Swift-helper census; direct declarations without invoked APIs remain NA. Checked all 15 Swift owners against headless media-worker and verifier sources: AVFoundation/Vision/Speech framework use alone is not owner-contract overlap; verifier timed-word output differs from RightKitSpeech String transcription. Corrected cargo/npm rightkit-shell NA→N: CutRight directly calls same caption-window actions as shared shell commands without a shared route. Challenged compose decoder vs evaluated model, project JSON vs six shared contracts, timestamped phrase search vs SQL/FTS/snippets, webview shortcuts vs native hotkeys, DOM menu dismissal vs native overlay, legal document viewer vs LegalGate, renderer logs vs native stderr, transitive platform-ui, & review evaluator vs app-specific QA. Y rows cite owner API definitions plus production invocation; N rows cite active local implementation plus exact migration task."
+}

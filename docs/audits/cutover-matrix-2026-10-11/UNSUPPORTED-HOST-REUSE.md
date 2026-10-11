@@ -1,0 +1,16 @@
+# Reuse opportunities outside direct cutover scope
+
+NA is specific to current component API, runtime & active feature. It does not mean every app is standardized or has no local infrastructure. These boundaries matter before assigning migration work.
+
+| App/tool | Local capability | Why current component is not directly applicable | Shared-platform work to evaluate |
+|---|---|---|---|
+| Xtool | Node MCP, HTTP, child processes, desktop automation & credential codecs | Matching owners are primarily Rust; current Node host has no corresponding supported RightKit binding. Narrow Swift helper handles desktop-control/capture commands, not every Apple module capability. | Define supported Node bindings or packaged sidecar APIs, preserving Xtool MCP/permission semantics, then reclassify relevant rows from source. |
+| Groundwork | Node stdio MCP & loopback JSON calls | Rust MCP/HTTP owners cannot be imported by its standalone JavaScript host. | Shared Node MCP host or versioned service bridge if this tool remains maintained. |
+| SwiftRight | Swift process client & wire protocol; Python qualification stages | Cargo process/framed-sidecar APIs require a language boundary; general Python qualification orchestration is not automatically a native RightKit QA runner. | Shared Swift service/process bindings or explicit interoperability package; keep compiler/renderer qualification contracts local. |
+| KDP formatter | Node/Python browser print generation & book layout | PDF reader/editor packages do not implement book pagination/cover generation, while current formatter has no Rust engine bridge. | Reuse a future supported render/print service only where exact capabilities overlap; retain book layout policy. |
+| Render tools | Node/Python FFmpeg, Blender & CAD process workflows | Current tools do not have a compatible shared media/owned-process host. Composition schema is not a Blender/HTML/CAD scene engine. | Evaluate supported service/CLI bindings; preserve scene, material & CAD semantics. |
+| SEO operations | Python/PowerShell orchestration, provider calls & process workflows | No current Cargo/Swift host or supported binding; Node QA/tool ownership is not established by scripts sharing generic names. | Consider supported CLI/service bindings for recurring infrastructure; preserve pipeline contracts. |
+| Workspace tools | Python skill validation, lifecycle gates & hook output | Shared AX, private build-control policy & npm hooks have different contracts; absence of a supported bridge is recorded explicitly. | Define an exact shared conformance or hook contract before a cutover; Remotion theme tokens already have a compatible TypeScript owner. |
+| SEO | Python MCP/data/provider scripts plus Node browser renderer | Rust/Swift APIs lack host bindings. Node browser launcher does have a directly matching shared API, so that cell is N. | Prioritize actual Node browser lifecycle cutover; consider common provider/HTTP bindings separately. |
+
+Detailed applicability, evidence & boundaries are recorded in each app's full JSON & report. These are expansion opportunities, not claims that any bridge already exists. No new shared packages or architectures were created during this audit.

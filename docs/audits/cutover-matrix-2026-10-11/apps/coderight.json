@@ -1,0 +1,2249 @@
+{
+  "app": "CodeRight",
+  "root": "/Volumes/D/claude/coderight",
+  "head": "011f0d68de1572b8996013909311d05482e6bbd0",
+  "reviewed_at": "2026-10-11T08:36:00+05:30",
+  "targets": [
+    "desktop-tauri",
+    "rust-engine",
+    "service/daemon",
+    "web-renderer",
+    "ios",
+    "ios-widget",
+    "ios-file-provider"
+  ],
+  "scope_note": "Fresh source-only census of active desktop, Rust engine/service, Tauri/web, iOS, widget, and File Provider targets. Generated/cache/vendor/node_modules/build outputs and prior audits excluded; no execution qualification implied.",
+  "cells": [
+    {
+      "component_id": "cargo:agent-room-core",
+      "status": "NA",
+      "rationale": "CodeRight builds its session tool registry directly; no room protocol/server target is exposed.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/coderight/engine/bins/coderight/src/session_tool_catalog.rs",
+          "line": 49,
+          "detail": "CodeRight session tools are engine-local; agent-room protocol/server is absent from active targets."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; reassess only if CodeRight adds this owner-specific target or bridge.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-agent-tools",
+      "status": "NA",
+      "rationale": "CodeRight session tools use its own registry; no right-ctl or rightkit-control bridge is registered.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/coderight/engine/bins/coderight/src/session_tool_catalog.rs",
+          "line": 49,
+          "detail": "Active tool registry has no bridge for owner agent-tools/control command surface."
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-agent-tools/src/backends/control.rs",
+          "line": 14,
+          "detail": "Owner tools expose rightkit-control in-app command methods for right-ctl/MCP."
+        }
+      ],
+      "delivery_flags": [],
+      "remaining_work": "None; reassess only if CodeRight adds this owner-specific target or bridge.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-align",
+      "status": "NA",
+      "rationale": "CodeRight has iOS Speech.framework dictation, but no timed-ASR Rust route feeds script-to-word alignment.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/coderight/apps/coderight-ios/CodeRight/Dictation/SpeechDictation.swift",
+          "line": 146,
+          "detail": "Speech target is native Swift; no Rust ASR/alignment bridge exists."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; reassess only if CodeRight adds this owner-specific target or bridge.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-asr",
+      "status": "NA",
+      "rationale": "The only active comparable CodeRight path is iOS Swift Speech/AVAudio; no Rust ASR dependency or Swift-to-Rust bridge routes it to rightkit-asr.",
+      "shared_evidence": [],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/coderight/apps/coderight-ios/CodeRight/Dictation/SpeechDictation.swift",
+          "line": 155,
+          "symbol": "speech",
+          "detail": "iOS speech path local"
+        }
+      ],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/coderight/apps/coderight-ios/CodeRight/Dictation/SpeechDictation.swift",
+          "line": 146,
+          "detail": "Active dictation instantiates AVAudioEngine and SFSpeechRecognizer; no usable Rust bridge"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None unless CodeRight adds a Rust ASR route reachable from this target.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-audio",
+      "status": "NA",
+      "rationale": "CodeRight iOS dictation uses AVAudioEngine directly; no Rust audio bridge exposes rightkit-audio to this Swift target.",
+      "shared_evidence": [],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/coderight/apps/coderight-ios/CodeRight/Dictation/SpeechDictation.swift",
+          "line": 155,
+          "symbol": "audio",
+          "detail": "AVAudioEngine local"
+        }
+      ],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/coderight/apps/coderight-ios/CodeRight/Dictation/SpeechDictation.swift",
+          "line": 146,
+          "detail": "AVAudioEngine is local Swift target implementation; no Rust bridge"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None unless CodeRight adds a compatible Rust audio route.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-automation",
+      "status": "NA",
+      "rationale": "CodeRight has self-app daemon actions, not cross-app AX/UIA automation with owner safety/evidence contracts.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/coderight/apps/coderight-tauri/src/hooks/app/useAppControlBridge.ts",
+          "line": 1,
+          "detail": "Bridge projects CodeRight app state; no desktop AX/UIA automation host is active."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; reassess only if CodeRight adds this owner-specific target or bridge.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-browser",
+      "status": "Y",
+      "rationale": "Production caller routes rightkit-browser through RightKit; no competing implementation in scope.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/coderight/engine/crates/tools/src/browser.rs",
+          "line": 557,
+          "symbol": "BrowserSession::launch",
+          "detail": "browser tool launches shared session"
+        }
+      ],
+      "local_evidence": [],
+      "applicability_evidence": [],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "exact manifest pin observed; runtime/build qualification not executed"
+      ],
+      "remaining_work": "Retain shared route; complete package/version/runtime qualification before release signoff.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-cache",
+      "status": "Y",
+      "rationale": "Production caller routes rightkit-cache through RightKit; no competing implementation in scope.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/coderight/engine/crates/engine/src/cache.rs",
+          "line": 15,
+          "symbol": "parse_iso_day",
+          "detail": "engine helper calls shared cache parser"
+        }
+      ],
+      "local_evidence": [],
+      "applicability_evidence": [],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "exact manifest pin observed; runtime/build qualification not executed"
+      ],
+      "remaining_work": "Retain shared route; complete package/version/runtime qualification before release signoff.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-channel-memory",
+      "status": "NA",
+      "rationale": "CodeRight session memory is product-local; no content-pipeline channel-memory.v1 proof/citation target exists.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/coderight/apps/coderight-tauri/src/components/MemoryPane.tsx",
+          "line": 1,
+          "detail": "Active memory surface is CodeRight session UI, not channel-memory content pipeline."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; reassess only if CodeRight adds this owner-specific target or bridge.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-compose",
+      "status": "NA",
+      "rationale": "CodeRight renderer provides single-image zoom only; it has no composition timeline, layered-media evaluation, or export route.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/coderight/apps/coderight-tauri/src/components/workbench/references/ImageZoomViewer.tsx",
+          "line": 1,
+          "detail": "Renderer provides a single-image zoom dialog, not composition timeline or export."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; reassess only if CodeRight adds this owner-specific target or bridge.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-contracts",
+      "status": "NA",
+      "rationale": "CodeRight engine owns session tooling; it has no Right Suite content-brief, delivery, recording, or demo-plan contract boundary.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/coderight/engine/bins/coderight/src/session_tool_catalog.rs",
+          "line": 49,
+          "detail": "Engine session-tool registry is CodeRight-specific; no content-pipeline contract boundary exists."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; reassess only if CodeRight adds this owner-specific target or bridge.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-control",
+      "status": "NA",
+      "rationale": "CodeRight app-control bridge changes its own daemon-backed UI state; no macOS AX/UIA/WebDriver bridge controls external apps.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/coderight/apps/coderight-tauri/src/hooks/app/useAppControlBridge.ts",
+          "line": 1,
+          "detail": "Active bridge is in-app state projection, not owner external-app control host."
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-control/src/lib.rs",
+          "line": 1,
+          "detail": "Owner controls real desktop apps through native accessibility/WebDriver integration."
+        }
+      ],
+      "delivery_flags": [],
+      "remaining_work": "None; reassess only if CodeRight adds this owner-specific target or bridge.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-crash",
+      "status": "NA",
+      "rationale": "Daemon lifecycle state is not crash capture: no panic hook, redacted crash report, pending-report queue, or support bundle caller exists in CodeRight.",
+      "shared_evidence": [],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/coderight/engine/crates/daemon_runtime/src/lifecycle.rs",
+          "line": 230,
+          "symbol": "crash",
+          "detail": "daemon failures local"
+        }
+      ],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/coderight/engine/crates/daemon_runtime/src/lifecycle.rs",
+          "line": 194,
+          "detail": "LifecycleState models daemon start/stop/restart/failure, not crash-report capture"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None unless CodeRight introduces crash-report capture.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-daemon",
+      "status": "NA",
+      "rationale": "CodeRight lifecycle delegates its own resident engine; rightkit-daemon is a transport-free TLS daemon-api server with signed webhooks and resumable uploads, none of which has a CodeRight caller.",
+      "shared_evidence": [],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/coderight/engine/crates/daemon_runtime/src/lifecycle.rs",
+          "line": 163,
+          "symbol": "daemon",
+          "detail": "resident daemon local"
+        }
+      ],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/coderight/engine/crates/daemon_runtime/src/lifecycle.rs",
+          "line": 239,
+          "detail": "CodeRight boundary delegates start/attach/stop/restart to existing engine daemon"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None unless CodeRight adopts daemon-api server behavior.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-db",
+      "status": "Y",
+      "rationale": "Production caller routes rightkit-db through RightKit; no competing implementation in scope.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/coderight/engine/crates/storage/src/lib.rs",
+          "line": 143,
+          "symbol": "DbOptions::new",
+          "detail": "storage opens shared DB options"
+        }
+      ],
+      "local_evidence": [],
+      "applicability_evidence": [],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "exact manifest pin observed; runtime/build qualification not executed"
+      ],
+      "remaining_work": "Retain shared route; complete package/version/runtime qualification before release signoff.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-embed",
+      "status": "N",
+      "rationale": "CodeRight actively implements rightkit-embed locally; no shared RightKit production caller found.",
+      "shared_evidence": [],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/coderight/engine/crates/local_models/src/lib.rs",
+          "line": 1,
+          "symbol": "embed",
+          "detail": "local model subsystem"
+        }
+      ],
+      "applicability_evidence": [],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-embed/src/embedder.rs",
+          "line": 1,
+          "detail": "production owner API source for rightkit-embed"
+        }
+      ],
+      "delivery_flags": [],
+      "remaining_work": "Compare local rightkit-embed with owner API; migrate only if target behavior/policy match, otherwise document app ownership.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-framed-sidecar",
+      "status": "NA",
+      "rationale": "CodeRight MCP gates stdio servers with its own typed protocol; no bounded owner sidecar framing bridge is used.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/coderight/engine/crates/mcp/src/trust_gate.rs",
+          "line": 1,
+          "detail": "Active stdio path is MCP trust-gated process configuration, not RightKit sidecar transport."
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-framed-sidecar/src/lib.rs",
+          "line": 1,
+          "detail": "Owner provides bounded JSON-lines sidecar transport."
+        }
+      ],
+      "delivery_flags": [],
+      "remaining_work": "None; reassess only if CodeRight adds this owner-specific target or bridge.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-fs",
+      "status": "Y",
+      "rationale": "Production caller routes rightkit-fs through RightKit; no competing implementation in scope.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/coderight/engine/crates/storage/src/lib.rs",
+          "line": 186,
+          "symbol": "restrict_owner_only",
+          "detail": "storage enforces shared owner-only state"
+        }
+      ],
+      "local_evidence": [],
+      "applicability_evidence": [],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "exact manifest pin observed; runtime/build qualification not executed"
+      ],
+      "remaining_work": "Retain shared route; complete package/version/runtime qualification before release signoff.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-fsindex",
+      "status": "NA",
+      "rationale": "CodeRight's session-event FTS mirror is not rightkit-fsindex's live whole-disk filename and folder-size index.",
+      "shared_evidence": [],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/coderight/engine/crates/storage/src/events/search.rs",
+          "line": 92,
+          "symbol": "fsindex",
+          "detail": "app FTS/index"
+        }
+      ],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/coderight/engine/crates/storage/src/events/search.rs",
+          "line": 70,
+          "detail": "FTS table mirrors CodeRight session events only"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None unless CodeRight adds whole-disk indexing.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-hotkeys",
+      "status": "NA",
+      "rationale": "CodeRight shortcuts are webview keydown handlers; no global OS shortcut or low-level input-hook target exists.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/coderight/apps/coderight-tauri/src/hooks/app/useKeyboardShortcuts.ts",
+          "line": 1,
+          "detail": "Active shortcut scope is window keydown; owner requires global OS registration/hooks."
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-hotkeys/src/lib.rs",
+          "line": 1,
+          "detail": "Owner provides global OS shortcuts and low-level input hooks."
+        }
+      ],
+      "delivery_flags": [],
+      "remaining_work": "None; reassess only if CodeRight adds this owner-specific target or bridge.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-http",
+      "status": "M",
+      "rationale": "GitHub sign-in uses rightkit_http::Client, while OpenAI-compatible provider streaming directly uses reqwest. rightkit-http AsyncClient supplies matching request deadlines, vetted DNS, retry, cancellation, and bounded SSE streams, so both active routes overlap.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/coderight/engine/bins/coderight/src/github_signin.rs",
+          "line": 36,
+          "symbol": "http",
+          "detail": "GitHub sign-in -> rightkit_http"
+        }
+      ],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/coderight/engine/crates/providers/src/client/transport.rs",
+          "line": 611,
+          "symbol": "OpenAiCompatClient::stream_once",
+          "detail": "Builds provider SSE request with reqwest and streams response bytes directly"
+        }
+      ],
+      "applicability_evidence": [],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-http/src/async_client.rs",
+          "line": 117,
+          "symbol": "AsyncClient::send/stream",
+          "detail": "Async shared client provides deadline-bounded buffered and stream requests"
+        },
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-http/src/async_client.rs",
+          "line": 582,
+          "symbol": "AsyncStreamResponse::sse",
+          "detail": "Shared stream exposes bounded SSE decoding"
+        }
+      ],
+      "delivery_flags": [
+        "shared and local routes both active; exact manifest pin observed; runtime/build qualification not executed"
+      ],
+      "remaining_work": "Route OpenAiCompatClient::stream_once request construction through rightkit_http::AsyncClient::stream and AsyncStreamResponse::sse; retain CodeRight request admission, provider headers, tool-call reassembly, continuation, and provider-specific retry/breaker policy.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-jobs",
+      "status": "NA",
+      "rationale": "CodeRight lifecycle scheduling controls its resident daemon; no rightkit-jobs durable job-store, runner, or framed engine-contract caller exists.",
+      "shared_evidence": [],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/coderight/engine/crates/daemon_runtime/src/lifecycle.rs",
+          "line": 163,
+          "symbol": "jobs",
+          "detail": "daemon jobs local"
+        }
+      ],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/coderight/engine/crates/daemon_runtime/src/lifecycle.rs",
+          "line": 250,
+          "detail": "Schedule methods delegate through CodeRight LifecycleBackend; no shared job contract"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None unless CodeRight chooses the shared job contract.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-license",
+      "status": "Y",
+      "rationale": "Production caller routes rightkit-license through RightKit; no competing implementation in scope.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/coderight/apps/coderight-tauri/src-tauri/src/license.rs",
+          "line": 104,
+          "symbol": "license command",
+          "detail": "Tauri command invokes shared license verifier"
+        }
+      ],
+      "local_evidence": [],
+      "applicability_evidence": [],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "exact manifest pin observed; runtime/build qualification not executed"
+      ],
+      "remaining_work": "Retain shared route; complete package/version/runtime qualification before release signoff.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-llm",
+      "status": "N",
+      "rationale": "CodeRight actively implements rightkit-llm locally; no shared RightKit production caller found.",
+      "shared_evidence": [],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/coderight/engine/crates/providers/src/client/transport.rs",
+          "line": 1,
+          "symbol": "llm",
+          "detail": "LLM transport local"
+        }
+      ],
+      "applicability_evidence": [],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-llm/src/anthropic.rs",
+          "line": 1,
+          "detail": "production owner API source for rightkit-llm"
+        }
+      ],
+      "delivery_flags": [],
+      "remaining_work": "Compare local rightkit-llm with owner API; migrate only if target behavior/policy match, otherwise document app ownership.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-logs",
+      "status": "Y",
+      "rationale": "Production caller routes rightkit-logs through RightKit; no competing implementation in scope.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/coderight/apps/coderight-tauri/src-tauri/src/logs.rs",
+          "line": 2,
+          "symbol": "collect_diagnostics",
+          "detail": "diagnostics handler calls shared logging collector"
+        }
+      ],
+      "local_evidence": [],
+      "applicability_evidence": [],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "exact manifest pin observed; runtime/build qualification not executed"
+      ],
+      "remaining_work": "Retain shared route; complete package/version/runtime qualification before release signoff.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-mcp",
+      "status": "Y",
+      "rationale": "Production caller routes rightkit-mcp through RightKit; no competing implementation in scope.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/coderight/engine/crates/mcp/src/manager.rs",
+          "line": 243,
+          "symbol": "parse_qualified_name",
+          "detail": "MCP manager parses shared qualified tool names"
+        }
+      ],
+      "local_evidence": [],
+      "applicability_evidence": [],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "exact manifest pin observed; runtime/build qualification not executed"
+      ],
+      "remaining_work": "Retain shared route; complete package/version/runtime qualification before release signoff.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-media",
+      "status": "N",
+      "rationale": "CodeRight actively implements rightkit-media locally; no shared RightKit production caller found.",
+      "shared_evidence": [],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/coderight/engine/crates/media/src/lib.rs",
+          "line": 1,
+          "symbol": "media",
+          "detail": "media pipeline local"
+        }
+      ],
+      "applicability_evidence": [],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-media/src/command.rs",
+          "line": 1,
+          "detail": "production owner API source for rightkit-media"
+        }
+      ],
+      "delivery_flags": [],
+      "remaining_work": "Compare local rightkit-media with owner API; migrate only if target behavior/policy match, otherwise document app ownership.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-models",
+      "status": "N",
+      "rationale": "CodeRight actively implements rightkit-models locally; no shared RightKit production caller found.",
+      "shared_evidence": [],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/coderight/engine/crates/local_models/src/lib.rs",
+          "line": 1,
+          "symbol": "models",
+          "detail": "model install local"
+        }
+      ],
+      "applicability_evidence": [],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-models/src/alias.rs",
+          "line": 1,
+          "detail": "production owner API source for rightkit-models"
+        }
+      ],
+      "delivery_flags": [],
+      "remaining_work": "Compare local rightkit-models with owner API; migrate only if target behavior/policy match, otherwise document app ownership.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-oauth",
+      "status": "M",
+      "rationale": "GitHub sign-in uses rightkit_oauth, while OpenAICodexOAuth independently generates PKCE, validates callback state, exchanges tokens, and refreshes them. rightkit-oauth provides OpenAI config plus loopback PKCE callback and token exchange APIs, so both active routes overlap.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/coderight/engine/bins/coderight/src/github_signin.rs",
+          "line": 31,
+          "symbol": "oauth",
+          "detail": "GitHub sign-in -> rightkit_oauth"
+        }
+      ],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/coderight/engine/crates/providers/src/subscription_auth/native_oauth.rs",
+          "line": 497,
+          "symbol": "OpenAICodexOAuth::login",
+          "detail": "Generates PKCE/state, receives callback or manual input, then exchanges OpenAI code"
+        }
+      ],
+      "applicability_evidence": [],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-oauth/src/lib.rs",
+          "line": 213,
+          "symbol": "OAuthConfig::openai",
+          "detail": "Shared OpenAI authorization and token endpoint configuration"
+        },
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-oauth/src/lib.rs",
+          "line": 368,
+          "symbol": "OAuthClient::begin_loopback",
+          "detail": "Shared S256 PKCE verifier/challenge, state, and loopback callback listener"
+        },
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-oauth/src/lib.rs",
+          "line": 426,
+          "symbol": "OAuthClient::finish_loopback",
+          "detail": "Shared callback state validation and authorization-code token exchange"
+        }
+      ],
+      "delivery_flags": [
+        "shared and local routes both active; exact manifest pin observed; runtime/build qualification not executed"
+      ],
+      "remaining_work": "Build OpenAI OAuthConfig::openai with CodeRight redirect, scopes, and originator authorization parameter; replace local PKCE/callback/exchange with OAuthClient::begin_loopback and finish_loopback. Keep CodeRight subscription eligibility, ChatGPT account headers, manual-code fallback, and credential-routing policy local.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-ocr",
+      "status": "Y",
+      "rationale": "Production caller routes rightkit-ocr through RightKit; no competing implementation in scope.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/coderight/engine/crates/media/src/lib.rs",
+          "line": 605,
+          "symbol": "Ocr::new",
+          "detail": "media creates shared OCR backend"
+        }
+      ],
+      "local_evidence": [],
+      "applicability_evidence": [],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "exact manifest pin observed; runtime/build qualification not executed"
+      ],
+      "remaining_work": "Retain shared route; complete package/version/runtime qualification before release signoff.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-ort",
+      "status": "Y",
+      "rationale": "Production caller routes rightkit-ort through RightKit; no competing implementation in scope.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/coderight/engine/bins/coderight/src/startup.rs",
+          "line": 109,
+          "symbol": "resolve_runtime",
+          "detail": "startup resolves shared ONNX runtime"
+        }
+      ],
+      "local_evidence": [],
+      "applicability_evidence": [],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "exact manifest pin observed; runtime/build qualification not executed"
+      ],
+      "remaining_work": "Retain shared route; complete package/version/runtime qualification before release signoff.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-overlay",
+      "status": "NA",
+      "rationale": "CodeRight ChatChrome is an iOS in-app chat view, not rightkit-overlay's Rust desktop status-pill or notch surface; no Rust bridge exists.",
+      "shared_evidence": [],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/coderight/apps/coderight-ios/CodeRight/Views/ChatChrome.swift",
+          "line": 1,
+          "symbol": "overlay",
+          "detail": "chat chrome local"
+        }
+      ],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/coderight/apps/coderight-ios/CodeRight/Views/ChatChrome.swift",
+          "line": 1,
+          "detail": "SwiftUI chat chrome target; no Rust overlay bridge"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None unless CodeRight adds a compatible desktop overlay.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-ownership",
+      "status": "NA",
+      "rationale": "CodeRight has no RustRight broker/admission target consuming RightKit ownership scanner verdicts.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/coderight/engine/bins/coderight/src/session_tool_catalog.rs",
+          "line": 49,
+          "detail": "Active engine registry is CodeRight session tooling; broker ownership admission host is absent."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; reassess only if CodeRight adds this owner-specific target or bridge.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-pdf",
+      "status": "NA",
+      "rationale": "CodeRight renders markdown artifacts and image references; no PDF inspection, editing, or staged-save target exists.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/coderight/apps/coderight-tauri/src/components/runtime/MarkdownArtifactView.tsx",
+          "line": 1,
+          "detail": "Active artifact renderer is Markdown; no Rust PDF editor bridge exists."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; reassess only if CodeRight adds this owner-specific target or bridge.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-playback",
+      "status": "NA",
+      "rationale": "CodeRight captures microphone input but has no FFmpeg compatibility-playback route or media-player target.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/coderight/apps/coderight-tauri/src/hooks/useMicRecorder.ts",
+          "line": 1,
+          "detail": "Active media path is browser recording; owner prepares source files for playback."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; reassess only if CodeRight adds this owner-specific target or bridge.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-process",
+      "status": "M",
+      "rationale": "CodeRight sandboxing uses rightkit-process, while CLI auto-start independently spawns a detached `coderight serve` child. This overlaps only detached process launch; CodeRight's daemon health probe and crash-safe reload policy are separate behavior.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/coderight/engine/crates/tools/src/sandbox/implementation.rs",
+          "line": 9,
+          "symbol": "process",
+          "detail": "sandbox -> rightkit_process"
+        }
+      ],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/coderight/engine/bins/coderight/src/cli_presence.rs",
+          "line": 283,
+          "symbol": "spawn_detached_daemon",
+          "detail": "CLI creates detached `coderight serve` child with redirected stdout/stderr"
+        }
+      ],
+      "applicability_evidence": [],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-process/src/owned.rs",
+          "line": 231,
+          "symbol": "OwnedCommand::spawn_uncontained_detached",
+          "detail": "Shared detached child launch uses setsid on Unix and explicit Windows breakaway behavior"
+        }
+      ],
+      "delivery_flags": [
+        "shared and local routes both active; exact manifest pin observed; runtime/build qualification not executed"
+      ],
+      "remaining_work": "Replace only cli_presence::spawn_detached_daemon with OwnedCommand::spawn_uncontained_detached after matching log redirection and Windows detached/no-window requirements. Retain CodeRight /health probing, daemon presence, and reload/handoff saga unchanged.",
+      "confidence": "medium"
+    },
+    {
+      "component_id": "cargo:rightkit-qa",
+      "status": "NA",
+      "rationale": "run-gates only executes named pnpm scripts; it neither uses Rust rightkit-qa nor implements its native control, engine, browser, or media harness APIs.",
+      "shared_evidence": [],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/coderight/apps/coderight-tauri/scripts/run-gates.mjs",
+          "line": 1,
+          "symbol": "qa",
+          "detail": "app QA local"
+        }
+      ],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/coderight/apps/coderight-tauri/scripts/run-gates.mjs",
+          "line": 25,
+          "detail": "Generic pnpm gate runner only"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None unless a CodeRight QA caller adopts rightkit-qa.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-qts",
+      "status": "NA",
+      "rationale": "CodeRight iOS speech synthesis uses AVSpeechSynthesizer; no Rust Qwen3 TTS inference bridge reaches that target.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/coderight/apps/coderight-ios/CodeRight/LocalRuntime/SpeechSynthesisPipeline.swift",
+          "line": 317,
+          "detail": "Active TTS is native Apple synthesis; no Rust model/runtime bridge exists."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; reassess only if CodeRight adds this owner-specific target or bridge.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-qts-ggml",
+      "status": "NA",
+      "rationale": "CodeRight has no Rust Qwen3 TTS runtime, so deprecated GGML facade has no reachable consumer.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/coderight/apps/coderight-ios/CodeRight/LocalRuntime/SpeechSynthesisPipeline.swift",
+          "line": 317,
+          "detail": "Only active TTS is native Apple synthesis; no Rust QTS bridge exists."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; reassess only if CodeRight adds this owner-specific target or bridge.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-qts-ggml-sys",
+      "status": "NA",
+      "rationale": "CodeRight has no Rust Qwen3 TTS runtime, so low-level GGML FFI has no reachable consumer.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/coderight/apps/coderight-ios/CodeRight/LocalRuntime/SpeechSynthesisPipeline.swift",
+          "line": 317,
+          "detail": "Only active TTS is native Apple synthesis; no Rust QTS bridge exists."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; reassess only if CodeRight adds this owner-specific target or bridge.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-record",
+      "status": "NA",
+      "rationale": "CodeRight microphone capture stops at browser recording; no recorder bundle, platform backend, or verification target exists.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/coderight/apps/coderight-tauri/src/hooks/useMicRecorder.ts",
+          "line": 1,
+          "detail": "Active recording produces browser MediaRecorder blobs, not RightKit record-session bundles."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; reassess only if CodeRight adds this owner-specific target or bridge.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-review",
+      "status": "NA",
+      "rationale": "CodeRight review UI concerns code/session artifacts; no content-pipeline media/text verdict-record target is active.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/coderight/apps/coderight-tauri/src/components/review/ReviewPane.tsx",
+          "line": 1,
+          "detail": "Active review UI handles CodeRight source changes, not owner content-pipeline review."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; reassess only if CodeRight adds this owner-specific target or bridge.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-sandbox",
+      "status": "Y",
+      "rationale": "Production caller routes rightkit-sandbox through RightKit; no competing implementation in scope.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/coderight/engine/crates/tools/src/sandbox/windows_appcontainer.rs",
+          "line": 29,
+          "symbol": "rightkit_sandbox",
+          "detail": "Windows sandbox uses shared sandbox API"
+        }
+      ],
+      "local_evidence": [],
+      "applicability_evidence": [],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "exact manifest pin observed; runtime/build qualification not executed"
+      ],
+      "remaining_work": "Retain shared route; complete package/version/runtime qualification before release signoff.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-scenario",
+      "status": "NA",
+      "rationale": "run-gates is a synchronous script launcher, not rightkit-scenario's durable leased scenario interpreter.",
+      "shared_evidence": [],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/coderight/apps/coderight-tauri/scripts/run-gates.mjs",
+          "line": 1,
+          "symbol": "scenario",
+          "detail": "app scenarios local"
+        }
+      ],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/coderight/apps/coderight-tauri/scripts/run-gates.mjs",
+          "line": 24,
+          "detail": "Script iterates gate names and captures exit status"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None unless CodeRight adds durable scenario execution.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-search",
+      "status": "N",
+      "rationale": "CodeRight actively implements rightkit-search locally; no shared RightKit production caller found.",
+      "shared_evidence": [],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/coderight/engine/crates/storage/src/events/search.rs",
+          "line": 92,
+          "symbol": "search",
+          "detail": "product search local"
+        }
+      ],
+      "applicability_evidence": [],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-search/src/ast.rs",
+          "line": 1,
+          "detail": "production owner API source for rightkit-search"
+        }
+      ],
+      "delivery_flags": [],
+      "remaining_work": "Compare local rightkit-search with owner API; migrate only if target behavior/policy match, otherwise document app ownership.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-secrets",
+      "status": "Y",
+      "rationale": "CodeRight's provider keystore is a policy wrapper over rightkit_secrets::Store; no competing secret-store implementation remains in this scope.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/coderight/engine/bins/coderight/src/github_signin.rs",
+          "line": 20,
+          "symbol": "secrets",
+          "detail": "GitHub sign-in -> rightkit_secrets"
+        }
+      ],
+      "local_evidence": [],
+      "applicability_evidence": [],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-secrets/src/apple_helper.rs",
+          "line": 1,
+          "detail": "production owner API source for rightkit-secrets"
+        }
+      ],
+      "delivery_flags": [
+        "exact manifest pin observed; runtime/build qualification not executed"
+      ],
+      "remaining_work": "Retain shared route; complete package/version/runtime qualification before release signoff.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-send",
+      "status": "NA",
+      "rationale": "CodeRight iOS sharing invokes system activity sheet; no LocalSend/Pulse discovery or TLS peer-transfer target exists.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/coderight/apps/coderight-ios/CodeRight/Sharing/ActivityShareSheet.swift",
+          "line": 7,
+          "detail": "Active sharing is UIActivityViewController, not owner nearby-transfer host."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; reassess only if CodeRight adds this owner-specific target or bridge.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-service",
+      "status": "NA",
+      "rationale": "CodeRight's daemon lifecycle reaches its own HTTP endpoint; no rightkit-service discovery record, local-peer authentication, takeover, or framed-service caller was found.",
+      "shared_evidence": [],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/coderight/engine/crates/daemon_runtime/src/lifecycle.rs",
+          "line": 1,
+          "symbol": "service",
+          "detail": "service adapter local"
+        }
+      ],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/coderight/engine/bins/coderight/src/daemon/lifecycle_backend.rs",
+          "line": 154,
+          "detail": "Daemon lifecycle resolves CodeRight's existing endpoint and token"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None unless CodeRight adopts shared local-service discovery and framing.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-settings",
+      "status": "N",
+      "rationale": "CodeRight actively implements rightkit-settings locally; no shared RightKit production caller found.",
+      "shared_evidence": [],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/coderight/engine/crates/config/src/lib.rs",
+          "line": 1,
+          "symbol": "settings",
+          "detail": "typed settings local"
+        }
+      ],
+      "applicability_evidence": [],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-settings/src/atomic.rs",
+          "line": 1,
+          "detail": "production owner API source for rightkit-settings"
+        }
+      ],
+      "delivery_flags": [],
+      "remaining_work": "Compare local rightkit-settings with owner API; migrate only if target behavior/policy match, otherwise document app ownership.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-shell",
+      "status": "Y",
+      "rationale": "Production caller routes rightkit-shell through RightKit; no competing implementation in scope.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/coderight/apps/coderight-tauri/src-tauri/src/notifications.rs",
+          "line": 36,
+          "symbol": "shell",
+          "detail": "notifications -> rightkit_shell"
+        }
+      ],
+      "local_evidence": [],
+      "applicability_evidence": [],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "exact manifest pin observed; runtime/build qualification not executed"
+      ],
+      "remaining_work": "Retain shared route; complete package/version/runtime qualification before release signoff.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-speech-client",
+      "status": "NA",
+      "rationale": "The active iOS path is direct Swift Speech.framework recognition; it does not run a Rust speech-service client or expose a bridge for rightkit-speech-client.",
+      "shared_evidence": [],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/coderight/apps/coderight-ios/CodeRight/Dictation/SpeechDictation.swift",
+          "line": 155,
+          "symbol": "speech client",
+          "detail": "iOS speech client local"
+        }
+      ],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/coderight/apps/coderight-ios/CodeRight/Dictation/SpeechDictation.swift",
+          "line": 171,
+          "detail": "Active recognition uses SFSpeechRecognizer callback in Swift"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None unless CodeRight adds a compatible Rust service-client bridge.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-sync",
+      "status": "NA",
+      "rationale": "CodeRight local workspace storage explicitly excludes iCloud; no cloud change-token/tombstone sync target exists.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/coderight/apps/coderight-ios/CodeRight/LocalRuntime/LocalWorkspaceStore.swift",
+          "line": 35,
+          "detail": "Active workspace store is local/app-group storage, not cloud sync."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; reassess only if CodeRight adds this owner-specific target or bridge.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-tauri",
+      "status": "Y",
+      "rationale": "Production caller routes rightkit-tauri through RightKit; no competing implementation in scope.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/coderight/apps/coderight-tauri/src-tauri/src/license.rs",
+          "line": 145,
+          "symbol": "Tauri adapter",
+          "detail": "host command uses shared Tauri adapter"
+        }
+      ],
+      "local_evidence": [],
+      "applicability_evidence": [],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "exact manifest pin observed; runtime/build qualification not executed"
+      ],
+      "remaining_work": "Retain shared route; complete package/version/runtime qualification before release signoff.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-transcript",
+      "status": "NA",
+      "rationale": "CodeRight formats visible transcript data into Markdown or JSON; rightkit-transcript owns aligned speech transcript primitives, with no Swift-to-Rust bridge here.",
+      "shared_evidence": [],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/coderight/apps/coderight-ios/CodeRight/Porting/TranscriptExport/TranscriptExportPort.swift",
+          "line": 213,
+          "symbol": "transcript",
+          "detail": "transcript export local"
+        }
+      ],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/coderight/apps/coderight-ios/CodeRight/Porting/TranscriptExport/TranscriptExportPort.swift",
+          "line": 211,
+          "detail": "Export formatter serializes visible session messages"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None unless CodeRight needs aligned speech transcript primitives.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-tts",
+      "status": "NA",
+      "rationale": "CodeRight's TtsPipeline has no wired synthesis backend or production caller; its tested generic helper is not an active competing runtime.",
+      "shared_evidence": [],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/coderight/engine/crates/media/src/tts_pipeline.rs",
+          "line": 339,
+          "symbol": "tts",
+          "detail": "TTS local"
+        }
+      ],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/coderight/engine/crates/media/src/lib.rs",
+          "line": 217,
+          "detail": "TTS description states no synthesis engine is wired in this crate"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None until a production TTS backend is wired.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-vad",
+      "status": "NA",
+      "rationale": "CodeRight browser recorder uses amplitude/silence timing; no Silero frame scorer or Rust VAD bridge is active.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/coderight/apps/coderight-tauri/src/hooks/useMicRecorder.ts",
+          "line": 1,
+          "detail": "Active voice capture is Web Audio/MediaRecorder, not owner streaming VAD."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; reassess only if CodeRight adds this owner-specific target or bridge.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-watch",
+      "status": "Y",
+      "rationale": "Production caller routes rightkit-watch through RightKit; no competing implementation in scope.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/coderight/engine/bins/coderight/src/api_fs_watch.rs",
+          "line": 40,
+          "symbol": "watch imports",
+          "detail": "filesystem API wires shared watcher"
+        }
+      ],
+      "local_evidence": [],
+      "applicability_evidence": [],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "exact manifest pin observed; runtime/build qualification not executed"
+      ],
+      "remaining_work": "Retain shared route; complete package/version/runtime qualification before release signoff.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/agent-room-mcp",
+      "status": "NA",
+      "rationale": "CodeRight loads its own session tool registry; no Agent Room MCP server target is exposed.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/coderight/engine/bins/coderight/src/session_tool_catalog.rs",
+          "line": 49,
+          "detail": "Active tools are CodeRight registry entries, not agent-room MCP surface."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; reassess only if CodeRight adds this owner-specific target or bridge.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/app-shell",
+      "status": "N",
+      "rationale": "CodeRight actively implements @rightkit/app-shell locally; no shared RightKit production caller found.",
+      "shared_evidence": [],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/coderight/apps/coderight-tauri/src/App.tsx",
+          "line": 176,
+          "symbol": "shell",
+          "detail": "app frame local"
+        }
+      ],
+      "applicability_evidence": [],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/packages/app-shell/src/bridge.ts",
+          "line": 1,
+          "detail": "production owner API source for @rightkit/app-shell"
+        }
+      ],
+      "delivery_flags": [],
+      "remaining_work": "Compare local @rightkit/app-shell with owner API; migrate only if target behavior/policy match, otherwise document app ownership.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/ax",
+      "status": "NA",
+      "rationale": "@rightkit/ax is a Node CLI conformance layer; App.tsx only owns settings-open state and contains no AX/plugin mechanism or caller.",
+      "shared_evidence": [],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/coderight/apps/coderight-tauri/src/App.tsx",
+          "line": 176,
+          "symbol": "ax",
+          "detail": "agent UX local"
+        }
+      ],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/coderight/apps/coderight-tauri/src/App.tsx",
+          "line": 176,
+          "detail": "Cited code only stores settings modal visibility"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None unless CodeRight adds an AX/plugin conformance caller.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/build-control-policy",
+      "status": "NA",
+      "rationale": "Owner package is repository build-policy tooling; CodeRight ships no runtime caller for that developer workflow.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/coderight/apps/coderight-tauri/src/App.tsx",
+          "line": 1,
+          "detail": "Active desktop entry is application UI, not repository policy installation/runtime."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; reassess only if CodeRight adds this owner-specific target or bridge.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/doc-render",
+      "status": "NA",
+      "rationale": "No production CodeRight caller formats citations or renders documents through this package; App.tsx settings state is unrelated.",
+      "shared_evidence": [],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/coderight/apps/coderight-tauri/src/App.tsx",
+          "line": 176,
+          "symbol": "doc",
+          "detail": "document renderer local"
+        }
+      ],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/coderight/apps/coderight-tauri/src/App.tsx",
+          "line": 176,
+          "detail": "Cited code only stores settings modal visibility"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None unless CodeRight adds document rendering or citation formatting.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/git",
+      "status": "NA",
+      "rationale": "Owner package generates public-repo GitHub Actions workflows; CodeRight active Git path is product-local workspace tooling.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/coderight/apps/coderight-ios/CodeRight/LocalRuntime/LocalGitService.swift",
+          "line": 1,
+          "detail": "Active target manages local Git service, not right-git workflow generation."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; reassess only if CodeRight adds this owner-specific target or bridge.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/hooks",
+      "status": "NA",
+      "rationale": "CodeRight has React lifecycle hooks and plugin registry, but no independently installable hook-event runtime host.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/coderight/apps/coderight-tauri/src/extensions/ExtensionRegistryProvider.tsx",
+          "line": 1,
+          "detail": "Active extensions are CodeRight UI contributions, not owner dispatchHookEvent module lifecycle."
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/packages/hooks/lib/runtime.mjs",
+          "line": 1,
+          "detail": "Owner dispatches bounded lifecycle events to independently installed modules."
+        }
+      ],
+      "delivery_flags": [],
+      "remaining_work": "None; reassess only if CodeRight adds this owner-specific target or bridge.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/i18n",
+      "status": "N",
+      "rationale": "CodeRight actively implements @rightkit/i18n locally; no shared RightKit production caller found.",
+      "shared_evidence": [],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/coderight/apps/coderight-tauri/src/i18n/context.tsx",
+          "line": 56,
+          "symbol": "i18n",
+          "detail": "i18n local"
+        }
+      ],
+      "applicability_evidence": [],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/packages/i18n/src/index.tsx",
+          "line": 1,
+          "detail": "production owner API source for @rightkit/i18n"
+        }
+      ],
+      "delivery_flags": [],
+      "remaining_work": "Compare local @rightkit/i18n with owner API; migrate only if target behavior/policy match, otherwise document app ownership.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/legal",
+      "status": "Y",
+      "rationale": "Production caller routes @rightkit/legal through RightKit; no competing implementation in scope.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/coderight/apps/coderight-tauri/scripts/test-legal-acceptance-contract.mjs",
+          "line": 4,
+          "symbol": "legal import",
+          "detail": "acceptance contract invokes shared legal package"
+        }
+      ],
+      "local_evidence": [],
+      "applicability_evidence": [],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "exact manifest pin observed; runtime/build qualification not executed"
+      ],
+      "remaining_work": "Retain shared route; complete package/version/runtime qualification before release signoff.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/legal-ui",
+      "status": "N",
+      "rationale": "CodeRight actively implements @rightkit/legal-ui locally; no shared RightKit production caller found.",
+      "shared_evidence": [],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/coderight/apps/coderight-tauri/src/OnboardingApp.tsx",
+          "line": 131,
+          "symbol": "legal UI",
+          "detail": "onboarding/legal UI local"
+        }
+      ],
+      "applicability_evidence": [],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/packages/legal-ui/src/LegalGate.tsx",
+          "line": 1,
+          "detail": "production owner API source for @rightkit/legal-ui"
+        }
+      ],
+      "delivery_flags": [],
+      "remaining_work": "Compare local @rightkit/legal-ui with owner API; migrate only if target behavior/policy match, otherwise document app ownership.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/license",
+      "status": "Y",
+      "rationale": "Production caller routes @rightkit/license through RightKit; no competing implementation in scope.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/coderight/apps/coderight-tauri/src/state/updateLicense.ts",
+          "line": 100,
+          "symbol": "license client",
+          "detail": "license state uses shared client contract"
+        }
+      ],
+      "local_evidence": [],
+      "applicability_evidence": [],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "exact manifest pin observed; runtime/build qualification not executed"
+      ],
+      "remaining_work": "Retain shared route; complete package/version/runtime qualification before release signoff.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/logs",
+      "status": "Y",
+      "rationale": "Production caller routes @rightkit/logs through RightKit; no competing implementation in scope.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/coderight/apps/coderight-tauri/src/lib/logs.ts",
+          "line": 4,
+          "symbol": "createLogsClient",
+          "detail": "renderer creates shared logs client"
+        }
+      ],
+      "local_evidence": [],
+      "applicability_evidence": [],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "exact manifest pin observed; runtime/build qualification not executed"
+      ],
+      "remaining_work": "Retain shared route; complete package/version/runtime qualification before release signoff.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/media-ui",
+      "status": "NA",
+      "rationale": "CodeRight renders a single-image zoom dialog; no media-player, image-editor, or media-adapter target is active.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/coderight/apps/coderight-tauri/src/components/workbench/references/ImageZoomViewer.tsx",
+          "line": 1,
+          "detail": "Active image UI is view-only zoom; owner player/editor adapters have no caller."
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/packages/media-ui/src/index.ts",
+          "line": 1,
+          "detail": "Owner provides media player plus image viewer/editor components."
+        }
+      ],
+      "delivery_flags": [],
+      "remaining_work": "None; reassess only if CodeRight adds this owner-specific target or bridge.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/onboarding",
+      "status": "N",
+      "rationale": "CodeRight actively implements @rightkit/onboarding locally; no shared RightKit production caller found.",
+      "shared_evidence": [],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/coderight/apps/coderight-tauri/src/OnboardingApp.tsx",
+          "line": 131,
+          "symbol": "onboarding",
+          "detail": "onboarding local"
+        }
+      ],
+      "applicability_evidence": [],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/packages/onboarding/src/Onboarding.tsx",
+          "line": 1,
+          "detail": "production owner API source for @rightkit/onboarding"
+        }
+      ],
+      "delivery_flags": [],
+      "remaining_work": "Compare local @rightkit/onboarding with owner API; migrate only if target behavior/policy match, otherwise document app ownership.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/pdf-ui",
+      "status": "NA",
+      "rationale": "CodeRight artifact surface renders Markdown; no pdf.js viewer, search, thumbnail, or PDF worker target is active.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/coderight/apps/coderight-tauri/src/components/runtime/MarkdownArtifactView.tsx",
+          "line": 1,
+          "detail": "Active artifact renderer is Markdown; owner PDF viewer runtime has no host."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; reassess only if CodeRight adds this owner-specific target or bridge.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/platform-ui",
+      "status": "NA",
+      "rationale": "Cited App.tsx code only tracks settings visibility; no CodeRight caller implements or invokes platform-ui detection, shortcut, capability, or window-control APIs.",
+      "shared_evidence": [],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/coderight/apps/coderight-tauri/src/App.tsx",
+          "line": 176,
+          "symbol": "platform UI",
+          "detail": "platform UI local"
+        }
+      ],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/coderight/apps/coderight-tauri/src/App.tsx",
+          "line": 176,
+          "detail": "Cited state is settings visibility, not platform UI"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None unless CodeRight adds a matching platform-ui caller.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/qa",
+      "status": "NA",
+      "rationale": "Cited run-gates code only aggregates pnpm exit statuses; it does not implement or call @rightkit/qa page, evidence, process, or storage helpers.",
+      "shared_evidence": [],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/coderight/apps/coderight-tauri/scripts/run-gates.mjs",
+          "line": 1,
+          "symbol": "qa",
+          "detail": "app QA local"
+        }
+      ],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/coderight/apps/coderight-tauri/scripts/run-gates.mjs",
+          "line": 24,
+          "detail": "Generic pnpm gate loop only"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None unless an active CodeRight QA script needs these helpers.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/qa-chrome",
+      "status": "NA",
+      "rationale": "Cited run-gates code neither resolves nor launches Chrome for Testing; no competing Chrome lifecycle mechanism was found.",
+      "shared_evidence": [],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/coderight/apps/coderight-tauri/scripts/run-gates.mjs",
+          "line": 1,
+          "symbol": "qa chrome",
+          "detail": "QA launcher local"
+        }
+      ],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/coderight/apps/coderight-tauri/scripts/run-gates.mjs",
+          "line": 25,
+          "detail": "Generic pnpm gate runner; no Chrome-for-Testing API"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None unless CodeRight adds a Chrome-for-Testing harness.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/release",
+      "status": "Y",
+      "rationale": "Production caller routes @rightkit/release through RightKit; no competing implementation in scope.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/coderight/apps/coderight-tauri/scripts/mac-dmg.mjs",
+          "line": 16,
+          "symbol": "release import",
+          "detail": "DMG script calls shared release CLI"
+        }
+      ],
+      "local_evidence": [],
+      "applicability_evidence": [],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "exact manifest pin observed; runtime/build qualification not executed"
+      ],
+      "remaining_work": "Retain shared route; complete package/version/runtime qualification before release signoff.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/settings-ui",
+      "status": "N",
+      "rationale": "CodeRight actively implements @rightkit/settings-ui locally; no shared RightKit production caller found.",
+      "shared_evidence": [],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/coderight/apps/coderight-tauri/src/components/app/AppFrame.tsx",
+          "line": 213,
+          "symbol": "SettingsModal",
+          "detail": "Rendered app-local SettingsModal receives live settings props"
+        }
+      ],
+      "applicability_evidence": [],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/packages/settings-ui/src/SettingsPanel.tsx",
+          "line": 1,
+          "detail": "production owner API source for @rightkit/settings-ui"
+        }
+      ],
+      "delivery_flags": [],
+      "remaining_work": "Compare rendered SettingsModal/SettingsPaneContent sections with SettingsPanel, preserve CodeRight-specific settings policy, then migrate compatible frame primitives.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/shell",
+      "status": "Y",
+      "rationale": "Production caller routes @rightkit/shell through RightKit; no competing implementation in scope.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/coderight/apps/coderight-tauri/src/lib/notifications.ts",
+          "line": 12,
+          "symbol": "createShell",
+          "detail": "renderer creates shared shell bridge"
+        }
+      ],
+      "local_evidence": [],
+      "applicability_evidence": [],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "exact manifest pin observed; runtime/build qualification not executed"
+      ],
+      "remaining_work": "Retain shared route; complete package/version/runtime qualification before release signoff.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/tauri",
+      "status": "Y",
+      "rationale": "Production caller routes @rightkit/tauri through RightKit; no competing implementation in scope.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/coderight/apps/coderight-tauri/src/state/updateLicense.ts",
+          "line": 16,
+          "symbol": "tauri",
+          "detail": "renderer -> @rightkit/tauri"
+        }
+      ],
+      "local_evidence": [],
+      "applicability_evidence": [],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "exact manifest pin observed; runtime/build qualification not executed"
+      ],
+      "remaining_work": "Retain shared route; complete package/version/runtime qualification before release signoff.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/theme",
+      "status": "N",
+      "rationale": "CodeRight actively implements @rightkit/theme locally; no shared RightKit production caller found.",
+      "shared_evidence": [],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/coderight/apps/coderight-tauri/src/index.css",
+          "line": 1,
+          "symbol": "theme",
+          "detail": "CSS theme local"
+        }
+      ],
+      "applicability_evidence": [],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/packages/theme/src/brand.ts",
+          "line": 1,
+          "detail": "production owner API source for @rightkit/theme"
+        }
+      ],
+      "delivery_flags": [],
+      "remaining_work": "Compare local @rightkit/theme with owner API; migrate only if target behavior/policy match, otherwise document app ownership.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/update",
+      "status": "NA",
+      "rationale": "CodeRight update UI is release awareness; no repository dependency-update CLI or scheduler target runs in product.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/coderight/apps/coderight-ios/CodeRight/Updates/UpdateAwareness.swift",
+          "line": 1,
+          "detail": "Active feature displays update awareness, not owner repo updater/gate/scheduler."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; reassess only if CodeRight adds this owner-specific target or bridge.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/updates",
+      "status": "Y",
+      "rationale": "Production caller routes @rightkit/updates through RightKit; no competing implementation in scope.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/coderight/apps/coderight-tauri/src/components/updater/UpdateOverlay.tsx",
+          "line": 2,
+          "symbol": "AutoUpdateStatus",
+          "detail": "update overlay consumes shared update types"
+        }
+      ],
+      "local_evidence": [],
+      "applicability_evidence": [],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "exact manifest pin observed; runtime/build qualification not executed"
+      ],
+      "remaining_work": "Retain shared route; complete package/version/runtime qualification before release signoff.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitLicense",
+      "status": "Y",
+      "rationale": "Production caller routes RightKitLicense through RightKit; no competing implementation in scope.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/coderight/apps/coderight-ios/CodeRight/License/LicenseStore.swift",
+          "line": 47,
+          "symbol": "LicenseVerifier",
+          "detail": "iOS store invokes shared verifier"
+        }
+      ],
+      "local_evidence": [],
+      "applicability_evidence": [],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "exact manifest pin observed; runtime/build qualification not executed"
+      ],
+      "remaining_work": "Retain shared route; complete package/version/runtime qualification before release signoff.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitDiagnostics",
+      "status": "NA",
+      "rationale": "CodeRight's local runner derives daemon pairing checks; RightKitDiagnostics owns redacted JSONL diagnostic persistence and neither mechanism calls other.",
+      "shared_evidence": [],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/coderight/apps/coderight-ios/CodeRight/Diagnostics/ConnectionDiagnostics.swift",
+          "line": 41,
+          "symbol": "diagnostics",
+          "detail": "linked package has no Swift import; implementation local"
+        }
+      ],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/coderight/apps/coderight-ios/CodeRight/Diagnostics/ConnectionDiagnostics.swift",
+          "line": 41,
+          "detail": "Pure daemon pairing/connection checks; no JSONL diagnostic store caller"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None unless CodeRight needs persisted diagnostic logs.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitArtifacts",
+      "status": "NA",
+      "rationale": "ArtifactSurfaceView reads CodeRight workspace artifact records; RightKitArtifacts validates and atomically installs archive payloads, with no matching install caller.",
+      "shared_evidence": [],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/coderight/apps/coderight-ios/CodeRight/Views/ArtifactSurfaceView.swift",
+          "line": 1,
+          "symbol": "artifacts",
+          "detail": "artifact rendering local"
+        }
+      ],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/coderight/apps/coderight-ios/CodeRight/Views/ArtifactSurfaceView.swift",
+          "line": 95,
+          "detail": "Local surface lists and previews workspace records, rather than archive installation"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None unless CodeRight adds archive installation.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitPurchases",
+      "status": "NA",
+      "rationale": "CodeRight licenses use RightKitLicense verification; no StoreKit purchase/transaction target is active.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/coderight/apps/coderight-ios/CodeRight/License/LicenseStore.swift",
+          "line": 3,
+          "detail": "Active entitlement is license-key verification, not owner StoreKit purchase flow."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; reassess only if CodeRight adds this owner-specific target or bridge.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitCloudSync",
+      "status": "NA",
+      "rationale": "CodeRight local workspace storage explicitly excludes iCloud; no CloudKit sync coordinator is reachable.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/coderight/apps/coderight-ios/CodeRight/LocalRuntime/LocalWorkspaceStore.swift",
+          "line": 35,
+          "detail": "Active iOS storage has no CloudKit route."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; reassess only if CodeRight adds this owner-specific target or bridge.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitStore",
+      "status": "NA",
+      "rationale": "CodeRight persists app-specific sessions/workspaces directly; no configured adapter imports RightKitStore app-group queue/revision APIs.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/coderight/apps/coderight-ios/CodeRight/LocalRuntime/LocalSessionStore.swift",
+          "line": 67,
+          "detail": "Active store owns CodeRight session model; no RightKitStore bridge is linked."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; reassess only if CodeRight adds this owner-specific target or bridge.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitImportQueue",
+      "status": "N",
+      "rationale": "CodeRight actively implements RightKitImportQueue locally; no shared RightKit production caller found.",
+      "shared_evidence": [],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/coderight/apps/coderight-ios/CodeRight/LocalRuntime/LocalDeferredInboxBridge.swift",
+          "line": 1,
+          "symbol": "import queue",
+          "detail": "deferred import local"
+        }
+      ],
+      "applicability_evidence": [],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/swift/RightKitSwift/Sources/RightKitImportQueue/PendingSharePayload.swift",
+          "line": 1,
+          "detail": "production owner API source for RightKitImportQueue"
+        }
+      ],
+      "delivery_flags": [],
+      "remaining_work": "Compare local RightKitImportQueue with owner API; migrate only if target behavior/policy match, otherwise document app ownership.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitLiveActivity",
+      "status": "N",
+      "rationale": "CodeRight actively implements RightKitLiveActivity locally; no shared RightKit production caller found.",
+      "shared_evidence": [],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/coderight/apps/coderight-ios/CodeRight/Porting/LiveActivities/CodeRightLiveActivities.swift",
+          "line": 1,
+          "symbol": "live activity",
+          "detail": "activity local"
+        }
+      ],
+      "applicability_evidence": [],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/swift/RightKitSwift/Sources/RightKitLiveActivity/ActivityLifecycle.swift",
+          "line": 1,
+          "detail": "production owner API source for RightKitLiveActivity"
+        }
+      ],
+      "delivery_flags": [],
+      "remaining_work": "Compare local RightKitLiveActivity with owner API; migrate only if target behavior/policy match, otherwise document app ownership.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitWatchBridge",
+      "status": "NA",
+      "rationale": "CodeRight Xcode targets are app, tests, widget, and File Provider; no WatchConnectivity target/bridge exists.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/coderight/apps/coderight-ios/CodeRight.xcodeproj/project.pbxproj",
+          "line": 1380,
+          "detail": "Native-target inventory has no watchOS target or WatchConnectivity bridge."
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/swift/RightKitSwift/Sources/RightKitWatchBridge/WatchBridgeSupport.swift",
+          "line": 107,
+          "detail": "Owner bridges WatchConnectivity WCSession."
+        }
+      ],
+      "delivery_flags": [],
+      "remaining_work": "None; reassess only if CodeRight adds this owner-specific target or bridge.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitSpeech",
+      "status": "N",
+      "rationale": "CodeRight actively implements RightKitSpeech locally; no shared RightKit production caller found.",
+      "shared_evidence": [],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/coderight/apps/coderight-ios/CodeRight/Dictation/SpeechDictation.swift",
+          "line": 155,
+          "symbol": "speech",
+          "detail": "AVAudioEngine local"
+        }
+      ],
+      "applicability_evidence": [],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/swift/RightKitSwift/Sources/RightKitSpeech/AppleSpeechEngine.swift",
+          "line": 1,
+          "detail": "production owner API source for RightKitSpeech"
+        }
+      ],
+      "delivery_flags": [],
+      "remaining_work": "Compare local RightKitSpeech with owner API; migrate only if target behavior/policy match, otherwise document app ownership.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitIntents",
+      "status": "NA",
+      "rationale": "CodeRight's widget intent opens a new-session deep link; RightKitIntents bridges recording actions to an active recording driver, which CodeRight does not call.",
+      "shared_evidence": [],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/coderight/apps/coderight-ios/CodeRightWidgets/NewSessionControl.swift",
+          "line": 19,
+          "symbol": "intent",
+          "detail": "widget intent local"
+        }
+      ],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/coderight/apps/coderight-ios/CodeRightWidgets/NewSessionControl.swift",
+          "line": 25,
+          "detail": "Intent returns OpenURLIntent for a new session only"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None unless CodeRight adds recording intent controls.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitAppleCredentials",
+      "status": "N",
+      "rationale": "CodeRight actively implements RightKitAppleCredentials locally; no shared RightKit production caller found.",
+      "shared_evidence": [],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/coderight/apps/coderight-ios/CodeRight/Storage/KeychainStore.swift",
+          "line": 1,
+          "symbol": "credentials",
+          "detail": "Keychain wrapper local"
+        }
+      ],
+      "applicability_evidence": [],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/swift/RightKitSwift/Sources/RightKitAppleCredentials/ForeignGenericPassword.swift",
+          "line": 1,
+          "detail": "production owner API source for RightKitAppleCredentials"
+        }
+      ],
+      "delivery_flags": [],
+      "remaining_work": "Compare local RightKitAppleCredentials with owner API; migrate only if target behavior/policy match, otherwise document app ownership.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitOverlay",
+      "status": "NA",
+      "rationale": "CodeRight ChatChrome is in-app chat UI; it has no recording/status-pill or macOS notch-panel target required by RightKitOverlay.",
+      "shared_evidence": [],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/coderight/apps/coderight-ios/CodeRight/Views/ChatChrome.swift",
+          "line": 1,
+          "symbol": "overlay",
+          "detail": "chat overlay local"
+        }
+      ],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/coderight/apps/coderight-ios/CodeRight/Views/ChatChrome.swift",
+          "line": 1,
+          "detail": "CodeRight SwiftUI chat chrome, without pill/notch surface caller"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None unless CodeRight introduces recording/status overlay UI.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitWatch",
+      "status": "NA",
+      "rationale": "CodeRight Xcode targets are app, tests, widget, and File Provider; no watchOS file-watcher host exists.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/coderight/apps/coderight-ios/CodeRight.xcodeproj/project.pbxproj",
+          "line": 1380,
+          "detail": "Native-target inventory has no watchOS target for RightKitWatch."
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/swift/RightKitSwift/Package.swift",
+          "line": 1,
+          "detail": "Owner package supplies file-watch APIs for Apple targets."
+        }
+      ],
+      "delivery_flags": [],
+      "remaining_work": "None; reassess only if CodeRight adds this owner-specific target or bridge.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitUI",
+      "status": "NA",
+      "rationale": "ChatChrome is CodeRight chat composition; RightKitUI's AdaptiveGlassSurface primitive has no matching caller or competing surface implementation in this target.",
+      "shared_evidence": [],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/coderight/apps/coderight-ios/CodeRight/Views/ChatChrome.swift",
+          "line": 1,
+          "symbol": "UI",
+          "detail": "SwiftUI local"
+        }
+      ],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/coderight/apps/coderight-ios/CodeRight/Views/ChatChrome.swift",
+          "line": 1,
+          "detail": "CodeRight-specific chat composition, not adaptive glass primitive"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None unless CodeRight adds a matching adaptive glass surface.",
+      "confidence": "high"
+    }
+  ],
+  "searches": [
+    {
+      "pattern": "rightkit|@rightkit|RightKit",
+      "scope": "engine, apps/coderight-tauri, apps/coderight-ios production source/manifests",
+      "result": "Direct shared routes found for Y/M rows; unused manifest-only packages separated from callers."
+    },
+    {
+      "pattern": "import RightKit",
+      "scope": "apps/coderight-ios/**/*.swift",
+      "result": "Only LicenseStore imports RightKitLicense; no active Swift imports for Diagnostics or other packages."
+    },
+    {
+      "pattern": "reqwest|oauth|Keychain|AVAudioEngine|daemon",
+      "scope": "engine/crates, engine/bins/coderight, apps/coderight-ios",
+      "result": "Local provider transport/OAuth/credential, daemon, and speech implementations support M/N rows."
+    },
+    {
+      "pattern": "path =|rightkit-swift|@rightkit/",
+      "scope": "Cargo.toml, package.json, project.pbxproj",
+      "result": "Manifest pins/routes recorded as delivery evidence; no runtime qualification executed."
+    }
+  ],
+  "self_review": "Challenged every Y/M/N against live target callers and owner semantics. Corrected secrets from M to Y because CodeRight wraps rightkit_secrets::Store. Reclassified name-only, helper-only, wrong-feature, inactive, and Swift-to-Rust-without-bridge rows as NA, including diagnostics/artifacts/intents and TTS. Replaced settings-ui directory evidence with AppFrame's rendered SettingsModal caller. Replaced all rote NA rationales with source-backed target/bridge exclusions; rightkit-watch stays Y. M rows now name exact active caller-to-owner API hand-offs. All catalog IDs are present exactly once."
+}

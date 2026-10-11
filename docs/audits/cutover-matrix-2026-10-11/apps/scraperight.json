@@ -1,0 +1,2398 @@
+{
+  "app": "ScrapeRight",
+  "root": "/Volumes/D/claude/scraperight",
+  "head": "b07dc0baf979699d3b12acfa314756d37302b35c",
+  "reviewed_at": "2026-10-11T08:20:32+05:30",
+  "targets": [
+    "desktop-windows",
+    "desktop-macos",
+    "ios",
+    "ios-share-extension",
+    "macos-credential-helper"
+  ],
+  "scope_note": "Current source-only recheck at ScrapeRight b07dc0baf979699d3b12acfa314756d37302b35c plus dirty worktree against current RightKit source; inspected Tauri/Rust desktop, renderer/scripts/QA/release, iOS app/share extension & macOS helper. No builds, installs, network or runtime qualification.",
+  "cells": [
+    {
+      "component_id": "cargo:agent-room-core",
+      "status": "NA",
+      "rationale": "Source census shows cargo:agent-room-core outside active ScrapeRight runtime or without applicable caller.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/scraperight/src-tauri/Cargo.toml",
+          "line": 26,
+          "symbol": "dependencies",
+          "detail": "Desktop Rust/Tauri source census found no production caller"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; keep excluded unless ScrapeRight adds feature/target.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-agent-tools",
+      "status": "NA",
+      "rationale": "Source census shows cargo:rightkit-agent-tools outside active ScrapeRight runtime or without applicable caller.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/scraperight/src-tauri/Cargo.toml",
+          "line": 26,
+          "symbol": "dependencies",
+          "detail": "Desktop Rust/Tauri source census found no production caller"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; keep excluded unless ScrapeRight adds feature/target.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-align",
+      "status": "NA",
+      "rationale": "Source census shows cargo:rightkit-align outside active ScrapeRight runtime or without applicable caller.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/scraperight/src-tauri/Cargo.toml",
+          "line": 26,
+          "symbol": "dependencies",
+          "detail": "Desktop Rust/Tauri source census found no production caller"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; keep excluded unless ScrapeRight adds feature/target.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-asr",
+      "status": "Y",
+      "rationale": "Production cargo:rightkit-asr call chain routes through shared RightKit API; no competing local implementation in owner scope.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/scraperight/crates/speech/src/coreml_asr.rs",
+          "line": 23,
+          "symbol": "CoreMlTdt::transcribe_window",
+          "detail": "Calls shared rightkit_asr CoreML decoder"
+        }
+      ],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/scraperight/src-tauri/Cargo.toml",
+          "line": 26,
+          "symbol": "dependencies",
+          "detail": "Desktop Rust/Tauri target has an operative caller for this shared route."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "Root Cargo.toml [patch.crates-io] points RightKit crates at local paths; publish/version-pin before release."
+      ],
+      "remaining_work": "Keep shared route; replace local Cargo path override with published pinned version.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-audio",
+      "status": "Y",
+      "rationale": "Desktop audio's applicable WAV I/O calls rightkit_audio::wav::read_wav_16k_mono; ScrapeRight keeps FFmpeg/process policy, with no competing local WAV primitive.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/scraperight/crates/audio/src/wav.rs",
+          "line": 8,
+          "symbol": "rightkit_audio::wav",
+          "detail": "Live audio decode delegates WAV parsing/resampling to a shared primitive; this is partial component use, not a claim that all audio policy moved."
+        }
+      ],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/scraperight/src-tauri/Cargo.toml",
+          "line": 26,
+          "symbol": "dependencies",
+          "detail": "Desktop Rust/Tauri target has an operative caller for this shared route."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "Root Cargo.toml [patch.crates-io] points RightKit crates at local paths; publish/version-pin before release."
+      ],
+      "remaining_work": "Keep shared route; replace local Cargo path override with published pinned version.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-automation",
+      "status": "NA",
+      "rationale": "Source census shows cargo:rightkit-automation outside active ScrapeRight runtime or without applicable caller.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/scraperight/src-tauri/Cargo.toml",
+          "line": 26,
+          "symbol": "dependencies",
+          "detail": "Desktop Rust/Tauri source census found no production caller"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; keep excluded unless ScrapeRight adds feature/target.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-browser",
+      "status": "N",
+      "rationale": "Desktop article/browser extraction actively owns an agent-browser command session; no production caller uses rightkit_browser::BrowserSession::launch or new_page.",
+      "shared_evidence": [],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/scraperight/crates/engine/src/browser/agent.rs",
+          "line": 1,
+          "symbol": "agent browser module",
+          "detail": "Local agent-browser process/session code owns extraction"
+        }
+      ],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/scraperight/src-tauri/Cargo.toml",
+          "line": 26,
+          "symbol": "dependencies",
+          "detail": "Desktop Rust/Tauri source census found no production caller"
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-browser/src/session.rs",
+          "line": 120,
+          "symbol": "BrowserSession::launch",
+          "detail": "Shared CDP session API; BrowserSession::new_page at line 330 owns page navigation."
+        }
+      ],
+      "delivery_flags": [],
+      "remaining_work": "Prove BrowserSession::launch/new_page plus BrowserPage::eval/close meet article profile, resource blocking & cancellation; replace AgentBrowserSession transport after parity.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-cache",
+      "status": "NA",
+      "rationale": "Source census shows cargo:rightkit-cache outside active ScrapeRight runtime or without applicable caller.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/scraperight/src-tauri/src/playback.rs",
+          "line": 77,
+          "symbol": "PlaybackRegistry",
+          "detail": "Playback cache is media policy; no generic cache owner is called"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; keep excluded unless ScrapeRight adds feature/target.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-channel-memory",
+      "status": "NA",
+      "rationale": "Source census shows cargo:rightkit-channel-memory outside active ScrapeRight runtime or without applicable caller.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/scraperight/src-tauri/Cargo.toml",
+          "line": 26,
+          "symbol": "dependencies",
+          "detail": "Desktop Rust/Tauri source census found no production caller"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; keep excluded unless ScrapeRight adds feature/target.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-compose",
+      "status": "NA",
+      "rationale": "Source census shows cargo:rightkit-compose outside active ScrapeRight runtime or without applicable caller.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/scraperight/src-tauri/Cargo.toml",
+          "line": 26,
+          "symbol": "dependencies",
+          "detail": "Desktop Rust/Tauri source census found no production caller"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; keep excluded unless ScrapeRight adds feature/target.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-contracts",
+      "status": "NA",
+      "rationale": "Source census shows cargo:rightkit-contracts outside active ScrapeRight runtime or without applicable caller.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/scraperight/src-tauri/Cargo.toml",
+          "line": 26,
+          "symbol": "dependencies",
+          "detail": "Desktop Rust/Tauri source census found no production caller"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; keep excluded unless ScrapeRight adds feature/target.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-control",
+      "status": "NA",
+      "rationale": "Source census shows cargo:rightkit-control outside active ScrapeRight runtime or without applicable caller.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/scraperight/src-tauri/Cargo.toml",
+          "line": 26,
+          "symbol": "dependencies",
+          "detail": "Desktop Rust/Tauri source census found no production caller"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; keep excluded unless ScrapeRight adds feature/target.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-crash",
+      "status": "NA",
+      "rationale": "Source census shows cargo:rightkit-crash outside active ScrapeRight runtime or without applicable caller.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/scraperight/src-tauri/src/engine_supervisor.rs",
+          "line": 631,
+          "symbol": "restart_engine",
+          "detail": "Supervisor restart has no crash-capture/support-bundle route"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; keep excluded unless ScrapeRight adds feature/target.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-daemon",
+      "status": "NA",
+      "rationale": "Source census shows cargo:rightkit-daemon outside active ScrapeRight runtime or without applicable caller.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/scraperight/src-tauri/Cargo.toml",
+          "line": 26,
+          "symbol": "dependencies",
+          "detail": "Desktop Rust/Tauri source census found no production caller"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; keep excluded unless ScrapeRight adds feature/target.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-db",
+      "status": "Y",
+      "rationale": "Production cargo:rightkit-db call chain routes through shared RightKit API; no competing local implementation in owner scope.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/scraperight/crates/store/src/lib.rs",
+          "line": 39,
+          "symbol": "Store::open",
+          "detail": "History store uses rightkit_db SQLite connection"
+        }
+      ],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/scraperight/src-tauri/Cargo.toml",
+          "line": 26,
+          "symbol": "dependencies",
+          "detail": "Desktop Rust/Tauri target has an operative caller for this shared route."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "Root Cargo.toml [patch.crates-io] points RightKit crates at local paths; publish/version-pin before release."
+      ],
+      "remaining_work": "Keep shared route; replace local Cargo path override with published pinned version.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-embed",
+      "status": "NA",
+      "rationale": "Source census shows cargo:rightkit-embed outside active ScrapeRight runtime or without applicable caller.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/scraperight/src-tauri/Cargo.toml",
+          "line": 26,
+          "symbol": "dependencies",
+          "detail": "Desktop Rust/Tauri source census found no production caller"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; keep excluded unless ScrapeRight adds feature/target.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-framed-sidecar",
+      "status": "Y",
+      "rationale": "Production cargo:rightkit-framed-sidecar call chain routes through shared RightKit API; no competing local implementation in owner scope.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/scraperight/crates/engine/src/main_stdio.rs",
+          "line": 2,
+          "symbol": "FramedSidecar",
+          "detail": "Engine stdio uses shared framed-sidecar protocol"
+        }
+      ],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/scraperight/src-tauri/Cargo.toml",
+          "line": 26,
+          "symbol": "dependencies",
+          "detail": "Desktop Rust/Tauri target has an operative caller for this shared route."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "Root Cargo.toml [patch.crates-io] points RightKit crates at local paths; publish/version-pin before release."
+      ],
+      "remaining_work": "Keep shared route; replace local Cargo path override with published pinned version.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-fs",
+      "status": "Y",
+      "rationale": "Production cargo:rightkit-fs call chain routes through shared RightKit API; no competing local implementation in owner scope.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/scraperight/crates/engine/src/queue.rs",
+          "line": 470,
+          "symbol": "persist_queue",
+          "detail": "Queue persistence calls rightkit_fs::atomic_write"
+        }
+      ],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/scraperight/src-tauri/Cargo.toml",
+          "line": 26,
+          "symbol": "dependencies",
+          "detail": "Desktop Rust/Tauri target has an operative caller for this shared route."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "Root Cargo.toml [patch.crates-io] points RightKit crates at local paths; publish/version-pin before release."
+      ],
+      "remaining_work": "Keep shared route; replace local Cargo path override with published pinned version.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-fsindex",
+      "status": "NA",
+      "rationale": "Source census shows cargo:rightkit-fsindex outside active ScrapeRight runtime or without applicable caller.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/scraperight/src-tauri/Cargo.toml",
+          "line": 26,
+          "symbol": "dependencies",
+          "detail": "Desktop Rust/Tauri source census found no production caller"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; keep excluded unless ScrapeRight adds feature/target.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-hotkeys",
+      "status": "NA",
+      "rationale": "Source census shows cargo:rightkit-hotkeys outside active ScrapeRight runtime or without applicable caller.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/scraperight/src-tauri/Cargo.toml",
+          "line": 26,
+          "symbol": "dependencies",
+          "detail": "Desktop Rust/Tauri source census found no production caller"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; keep excluded unless ScrapeRight adds feature/target.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-http",
+      "status": "M",
+      "rationale": "fetch_article_with_fallbacks first calls fetch_article_http, whose public_web_client sends through rightkit_http::Client::stream_any; a failed direct/browser-header route still invokes local TLS-fingerprint transport before browser fallback.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/scraperight/crates/engine/src/extraction/article.rs",
+          "line": 121,
+          "symbol": "fetch_article_http",
+          "detail": "Live primary article route calls public_web_client(...).stream_any(Request::get(...))."
+        }
+      ],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/scraperight/crates/engine/src/extraction/article_tls.rs",
+          "line": 12,
+          "symbol": "fetch_article_tls_fingerprint",
+          "detail": "Active fallback uses local tls-client FFI/custom TLS"
+        }
+      ],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/scraperight/src-tauri/Cargo.toml",
+          "line": 26,
+          "symbol": "dependencies",
+          "detail": "Desktop target exercises shared dependency & local implementation"
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-http/src/client.rs",
+          "line": 846,
+          "symbol": "Client::stream_any",
+          "detail": "Shared streamed request API used by ScrapeRight direct article fetch."
+        }
+      ],
+      "delivery_flags": [
+        "Root Cargo.toml [patch.crates-io] points RightKit crates at local paths; publish/version-pin before release."
+      ],
+      "remaining_work": "Keep Client::stream_any primary; prove fingerprinted TLS behavior through a RightKit HTTP API or remove fetch_article_tls_fingerprint from fallback order.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-jobs",
+      "status": "N",
+      "rationale": "Desktop engine owns durable queue.json recovery, worker admission & state transitions; no production caller constructs rightkit_jobs::JobStore or Runner.",
+      "shared_evidence": [],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/scraperight/crates/engine/src/queue.rs",
+          "line": 32,
+          "symbol": "Queue",
+          "detail": "App owns queue state, worker registry, recovery & queue.json"
+        }
+      ],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/scraperight/src-tauri/Cargo.toml",
+          "line": 26,
+          "symbol": "dependencies",
+          "detail": "Desktop Rust/Tauri source census found no production caller"
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-jobs/src/runner.rs",
+          "line": 289,
+          "symbol": "Runner::new",
+          "detail": "Shared durable-job runner; JobStore::open begins at store.rs:316."
+        }
+      ],
+      "delivery_flags": [],
+      "remaining_work": "Map Queue recovery, entitlement gates & EngineEvent framing onto JobStore::open plus Runner::new/run; replace queue.json worker only after transition parity.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-license",
+      "status": "Y",
+      "rationale": "Production cargo:rightkit-license call chain routes through shared RightKit API; no competing local implementation in owner scope.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/scraperight/src-tauri/src/license.rs",
+          "line": 321,
+          "symbol": "verify_token",
+          "detail": "License command calls rightkit_license verification"
+        }
+      ],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/scraperight/src-tauri/Cargo.toml",
+          "line": 26,
+          "symbol": "dependencies",
+          "detail": "Desktop Rust/Tauri target has an operative caller for this shared route."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "Root Cargo.toml [patch.crates-io] points RightKit crates at local paths; publish/version-pin before release."
+      ],
+      "remaining_work": "Keep shared route; replace local Cargo path override with published pinned version.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-llm",
+      "status": "NA",
+      "rationale": "Source census shows cargo:rightkit-llm outside active ScrapeRight runtime or without applicable caller.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/scraperight/src-tauri/Cargo.toml",
+          "line": 26,
+          "symbol": "dependencies",
+          "detail": "Desktop Rust/Tauri source census found no production caller"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; keep excluded unless ScrapeRight adds feature/target.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-logs",
+      "status": "Y",
+      "rationale": "Production cargo:rightkit-logs call chain routes through shared RightKit API; no competing local implementation in owner scope.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/scraperight/src-tauri/src/logging.rs",
+          "line": 16,
+          "symbol": "TracingFileConfig",
+          "detail": "Desktop logging constructs rightkit_logs layer"
+        }
+      ],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/scraperight/src-tauri/Cargo.toml",
+          "line": 26,
+          "symbol": "dependencies",
+          "detail": "Desktop Rust/Tauri target has an operative caller for this shared route."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "Root Cargo.toml [patch.crates-io] points RightKit crates at local paths; publish/version-pin before release."
+      ],
+      "remaining_work": "Keep shared route; replace local Cargo path override with published pinned version.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-mcp",
+      "status": "NA",
+      "rationale": "Source census shows cargo:rightkit-mcp outside active ScrapeRight runtime or without applicable caller.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/scraperight/src-tauri/Cargo.toml",
+          "line": 26,
+          "symbol": "dependencies",
+          "detail": "Desktop Rust/Tauri source census found no production caller"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; keep excluded unless ScrapeRight adds feature/target.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-media",
+      "status": "Y",
+      "rationale": "Production cargo:rightkit-media call chain routes through shared RightKit API; no competing local implementation in owner scope.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/scraperight/src-tauri/src/playback.rs",
+          "line": 10,
+          "symbol": "resolve_ffmpeg",
+          "detail": "Playback uses rightkit_media artifact catalog"
+        }
+      ],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/scraperight/src-tauri/Cargo.toml",
+          "line": 26,
+          "symbol": "dependencies",
+          "detail": "Desktop Rust/Tauri target has an operative caller for this shared route."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "Root Cargo.toml [patch.crates-io] points RightKit crates at local paths; publish/version-pin before release."
+      ],
+      "remaining_work": "Keep shared route; replace local Cargo path override with published pinned version.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-models",
+      "status": "Y",
+      "rationale": "Production cargo:rightkit-models call chain routes through shared RightKit API; no competing local implementation in owner scope.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/scraperight/crates/model-store/src/discover_compat.rs",
+          "line": 5,
+          "symbol": "discover_compat",
+          "detail": "Model discovery calls rightkit_models compatibility API"
+        }
+      ],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/scraperight/src-tauri/Cargo.toml",
+          "line": 26,
+          "symbol": "dependencies",
+          "detail": "Desktop Rust/Tauri target has an operative caller for this shared route."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "Root Cargo.toml [patch.crates-io] points RightKit crates at local paths; publish/version-pin before release."
+      ],
+      "remaining_work": "Keep shared route; replace local Cargo path override with published pinned version.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-oauth",
+      "status": "NA",
+      "rationale": "Source census shows cargo:rightkit-oauth outside active ScrapeRight runtime or without applicable caller.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/scraperight/src-tauri/Cargo.toml",
+          "line": 26,
+          "symbol": "dependencies",
+          "detail": "Desktop Rust/Tauri source census found no production caller"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; keep excluded unless ScrapeRight adds feature/target.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-ocr",
+      "status": "Y",
+      "rationale": "Production cargo:rightkit-ocr call chain routes through shared RightKit API; no competing local implementation in owner scope.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/scraperight/crates/ocr/src/lib.rs",
+          "line": 85,
+          "symbol": "rightkit_ocr",
+          "detail": "OCR production path uses shared OCR runtime"
+        }
+      ],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/scraperight/src-tauri/Cargo.toml",
+          "line": 26,
+          "symbol": "dependencies",
+          "detail": "Desktop Rust/Tauri target has an operative caller for this shared route."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "Root Cargo.toml [patch.crates-io] points RightKit crates at local paths; publish/version-pin before release."
+      ],
+      "remaining_work": "Keep shared route; replace local Cargo path override with published pinned version.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-ort",
+      "status": "Y",
+      "rationale": "Production cargo:rightkit-ort call chain routes through shared RightKit API; no competing local implementation in owner scope.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/scraperight/crates/engine/src/asr_route.rs",
+          "line": 12,
+          "symbol": "rightkit_ort",
+          "detail": "ASR route uses shared ORT types/runtime"
+        }
+      ],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/scraperight/src-tauri/Cargo.toml",
+          "line": 26,
+          "symbol": "dependencies",
+          "detail": "Desktop Rust/Tauri target has an operative caller for this shared route."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "Root Cargo.toml [patch.crates-io] points RightKit crates at local paths; publish/version-pin before release."
+      ],
+      "remaining_work": "Keep shared route; replace local Cargo path override with published pinned version.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-overlay",
+      "status": "NA",
+      "rationale": "Source census shows cargo:rightkit-overlay outside active ScrapeRight runtime or without applicable caller.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/scraperight/src-tauri/Cargo.toml",
+          "line": 26,
+          "symbol": "dependencies",
+          "detail": "Desktop Rust/Tauri source census found no production caller"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; keep excluded unless ScrapeRight adds feature/target.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-ownership",
+      "status": "NA",
+      "rationale": "Source census shows cargo:rightkit-ownership outside active ScrapeRight runtime or without applicable caller.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/scraperight/src-tauri/Cargo.toml",
+          "line": 26,
+          "symbol": "dependencies",
+          "detail": "Desktop Rust/Tauri source census found no production caller"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; keep excluded unless ScrapeRight adds feature/target.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-pdf",
+      "status": "M",
+      "rationale": "process_pdf uses app PDFium per-page text/raster/OCR whenever PDFium binds; only PDFium-bind failure reaches rightkit_pdf::extract::extract_text, so both extraction implementations remain live.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/scraperight/crates/engine/src/extraction_documents.rs",
+          "line": 54,
+          "symbol": "rightkit_pdf::extract::extract_text",
+          "detail": "PDFium-unavailable fallback calls shared PDF extractor"
+        }
+      ],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/scraperight/crates/engine/src/extraction_documents.rs",
+          "line": 40,
+          "symbol": "process_pdf",
+          "detail": "Primary path uses app-owned PDFium per-page text/raster/OCR"
+        }
+      ],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/scraperight/src-tauri/Cargo.toml",
+          "line": 26,
+          "symbol": "dependencies",
+          "detail": "Desktop target exercises shared dependency & local implementation"
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-pdf/src/extract.rs",
+          "line": 24,
+          "symbol": "extract_text",
+          "detail": "Shared PDF text extraction fallback"
+        }
+      ],
+      "delivery_flags": [
+        "Root Cargo.toml [patch.crates-io] points RightKit crates at local paths; publish/version-pin before release."
+      ],
+      "remaining_work": "Choose rightkit_pdf::extract::extract_text as primary only after it covers per-page raster/OCR, or retain PDFium as product pipeline & remove unreachable fallback duplication.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-playback",
+      "status": "Y",
+      "rationale": "Production cargo:rightkit-playback call chain routes through shared RightKit API; no competing local implementation in owner scope.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/scraperight/src-tauri/src/playback.rs",
+          "line": 12,
+          "symbol": "PlaybackRegistry",
+          "detail": "Playback uses rightkit_playback registry/source policy"
+        }
+      ],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/scraperight/src-tauri/Cargo.toml",
+          "line": 26,
+          "symbol": "dependencies",
+          "detail": "Desktop Rust/Tauri target has an operative caller for this shared route."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "Root Cargo.toml [patch.crates-io] points RightKit crates at local paths; publish/version-pin before release."
+      ],
+      "remaining_work": "Keep shared route; replace local Cargo path override with published pinned version.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-process",
+      "status": "Y",
+      "rationale": "Production cargo:rightkit-process call chain routes through shared RightKit API; no competing local implementation in owner scope.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/scraperight/src-tauri/src/engine_supervisor.rs",
+          "line": 41,
+          "symbol": "EngineSupervisor",
+          "detail": "Sidecar lifecycle uses rightkit_process"
+        }
+      ],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/scraperight/src-tauri/Cargo.toml",
+          "line": 26,
+          "symbol": "dependencies",
+          "detail": "Desktop Rust/Tauri target has an operative caller for this shared route."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "Root Cargo.toml [patch.crates-io] points RightKit crates at local paths; publish/version-pin before release."
+      ],
+      "remaining_work": "Keep shared route; replace local Cargo path override with published pinned version.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-qa",
+      "status": "NA",
+      "rationale": "Source census shows cargo:rightkit-qa outside active ScrapeRight runtime or without applicable caller.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/scraperight/src-tauri/Cargo.toml",
+          "line": 26,
+          "symbol": "dependencies",
+          "detail": "No Rust rightkit-qa dependency; npm QA is separate row"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; keep excluded unless ScrapeRight adds feature/target.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-qts",
+      "status": "NA",
+      "rationale": "Source census shows cargo:rightkit-qts outside active ScrapeRight runtime or without applicable caller.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/scraperight/src-tauri/Cargo.toml",
+          "line": 26,
+          "symbol": "dependencies",
+          "detail": "Desktop Rust/Tauri source census found no production caller"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; keep excluded unless ScrapeRight adds feature/target.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-qts-ggml",
+      "status": "NA",
+      "rationale": "Source census shows cargo:rightkit-qts-ggml outside active ScrapeRight runtime or without applicable caller.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/scraperight/src-tauri/Cargo.toml",
+          "line": 26,
+          "symbol": "dependencies",
+          "detail": "Desktop Rust/Tauri source census found no production caller"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; keep excluded unless ScrapeRight adds feature/target.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-qts-ggml-sys",
+      "status": "NA",
+      "rationale": "Source census shows cargo:rightkit-qts-ggml-sys outside active ScrapeRight runtime or without applicable caller.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/scraperight/src-tauri/Cargo.toml",
+          "line": 26,
+          "symbol": "dependencies",
+          "detail": "Desktop Rust/Tauri source census found no production caller"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; keep excluded unless ScrapeRight adds feature/target.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-record",
+      "status": "NA",
+      "rationale": "Source census shows cargo:rightkit-record outside active ScrapeRight runtime or without applicable caller.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/scraperight/src-tauri/Cargo.toml",
+          "line": 26,
+          "symbol": "dependencies",
+          "detail": "Desktop Rust/Tauri source census found no production caller"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; keep excluded unless ScrapeRight adds feature/target.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-review",
+      "status": "NA",
+      "rationale": "Source census shows cargo:rightkit-review outside active ScrapeRight runtime or without applicable caller.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/scraperight/src-tauri/Cargo.toml",
+          "line": 26,
+          "symbol": "dependencies",
+          "detail": "Desktop Rust/Tauri source census found no production caller"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; keep excluded unless ScrapeRight adds feature/target.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-sandbox",
+      "status": "NA",
+      "rationale": "Source census shows cargo:rightkit-sandbox outside active ScrapeRight runtime or without applicable caller.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/scraperight/src-tauri/Cargo.toml",
+          "line": 26,
+          "symbol": "dependencies",
+          "detail": "Desktop Rust/Tauri source census found no production caller"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; keep excluded unless ScrapeRight adds feature/target.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-scenario",
+      "status": "NA",
+      "rationale": "Source census shows cargo:rightkit-scenario outside active ScrapeRight runtime or without applicable caller.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/scraperight/src-tauri/Cargo.toml",
+          "line": 26,
+          "symbol": "dependencies",
+          "detail": "Desktop Rust/Tauri source census found no production caller"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; keep excluded unless ScrapeRight adds feature/target.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-search",
+      "status": "N",
+      "rationale": "Desktop history search actively executes Store::search's SQLite LIKE query/result shaping; no caller builds rightkit_search::sql::Schema or invokes Schema::compile.",
+      "shared_evidence": [],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/scraperight/crates/store/src/lib.rs",
+          "line": 316,
+          "symbol": "Store::search",
+          "detail": "App owns SQLite LIKE search & result shaping"
+        }
+      ],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/scraperight/src-tauri/Cargo.toml",
+          "line": 26,
+          "symbol": "dependencies",
+          "detail": "Desktop Rust/Tauri source census found no production caller"
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-search/src/sql.rs",
+          "line": 134,
+          "symbol": "Schema::compile",
+          "detail": "Shared FTS/query compiler API."
+        }
+      ],
+      "delivery_flags": [],
+      "remaining_work": "Define a transcript index with rightkit_search::sql::Schema::fts, then replace Store::search LIKE query after ranking/filter/result parity.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-secrets",
+      "status": "Y",
+      "rationale": "Production cargo:rightkit-secrets call chain routes through shared RightKit API; no competing local implementation in owner scope.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/scraperight/src-tauri/src/license.rs",
+          "line": 188,
+          "symbol": "rightkit_secrets",
+          "detail": "License persistence uses shared secret store"
+        }
+      ],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/scraperight/src-tauri/Cargo.toml",
+          "line": 26,
+          "symbol": "dependencies",
+          "detail": "Desktop Rust/Tauri target has an operative caller for this shared route."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "Root Cargo.toml [patch.crates-io] points RightKit crates at local paths; publish/version-pin before release."
+      ],
+      "remaining_work": "Keep shared route; replace local Cargo path override with published pinned version.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-send",
+      "status": "NA",
+      "rationale": "iOS production constructs StubSendEngine, whose documented send path only delays then returns sent and never touches a network. rightkit-send exposes Rust Service::start/send/respond, but ScrapeRight has no Rust iOS host or Swift RightKitSend product/FFI binding; this is a future-binding gap, not a live competing implementation.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/scraperight/ios-native/ScrapeRight/ScrapeRightApp.swift",
+          "line": 29,
+          "symbol": "ScrapeRightApp.init",
+          "detail": "Production app always injects StubSendEngine into SendCoordinator."
+        },
+        {
+          "path": "/Volumes/D/claude/scraperight/ios-native/ScrapeRight/Send/SendEngine.swift",
+          "line": 198,
+          "symbol": "StubSendEngine.sendText/sendFiles",
+          "detail": "Both methods call simulateSend; file comment at line 105 states no network, Keychain or Bonjour work occurs."
+        },
+        {
+          "path": "/Volumes/D/claude/rightkit/swift/RightKitSwift/Package.swift",
+          "line": 10,
+          "symbol": "products",
+          "detail": "Published Swift package exports no RightKitSend product; ScrapeRight iOS target has no Rust host/FFI bridge."
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-send/src/lib.rs",
+          "line": 634,
+          "symbol": "Service::start",
+          "detail": "Rust host API; Service::send is at line 930 and Service::respond at line 996."
+        }
+      ],
+      "delivery_flags": [],
+      "remaining_work": "Publish a supported iOS RightKitSend host/binding mapping Service::start/snapshot/send/respond into SendEngine, then replace StubSendEngine and qualify discovery, transfer, trust & background behavior.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-service",
+      "status": "NA",
+      "rationale": "Source census shows cargo:rightkit-service outside active ScrapeRight runtime or without applicable caller.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/scraperight/src-tauri/src/engine_supervisor.rs",
+          "line": 343,
+          "symbol": "EngineSupervisor::new",
+          "detail": "Local stdio sidecar has no service discovery contract"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; keep excluded unless ScrapeRight adds feature/target.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-settings",
+      "status": "Y",
+      "rationale": "Production cargo:rightkit-settings call chain routes through shared RightKit API; no competing local implementation in owner scope.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/scraperight/src-tauri/src/commands.rs",
+          "line": 83,
+          "symbol": "SettingsBackend::patch",
+          "detail": "Settings commands use rightkit_settings backend"
+        }
+      ],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/scraperight/src-tauri/Cargo.toml",
+          "line": 26,
+          "symbol": "dependencies",
+          "detail": "Desktop Rust/Tauri target has an operative caller for this shared route."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "Root Cargo.toml [patch.crates-io] points RightKit crates at local paths; publish/version-pin before release."
+      ],
+      "remaining_work": "Keep shared route; replace local Cargo path override with published pinned version.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-shell",
+      "status": "N",
+      "rationale": "Desktop Tauri shell actively owns engine supervision & window/bootstrap wiring; no production caller builds rightkit_shell::Shell or installs Shell::plugin.",
+      "shared_evidence": [],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/scraperight/src-tauri/src/engine_supervisor.rs",
+          "line": 343,
+          "symbol": "EngineSupervisor::new",
+          "detail": "Tauri bootstrap/window/sidecar supervision is app-owned"
+        }
+      ],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/scraperight/src-tauri/Cargo.toml",
+          "line": 26,
+          "symbol": "dependencies",
+          "detail": "Desktop Rust/Tauri source census found no production caller"
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-shell/src/lib.rs",
+          "line": 195,
+          "symbol": "Shell::builder",
+          "detail": "Shared Tauri shell builder; Shell::plugin installs it at line 455."
+        }
+      ],
+      "delivery_flags": [],
+      "remaining_work": "Map EngineSupervisor/window protocol, native menu & lifecycle decisions onto Shell::builder(...).plugin only after feature-by-feature shell parity.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-speech-client",
+      "status": "NA",
+      "rationale": "Source census shows cargo:rightkit-speech-client outside active ScrapeRight runtime or without applicable caller.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/scraperight/src-tauri/Cargo.toml",
+          "line": 26,
+          "symbol": "dependencies",
+          "detail": "Desktop Rust/Tauri source census found no production caller"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; keep excluded unless ScrapeRight adds feature/target.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-sync",
+      "status": "Y",
+      "rationale": "Production cargo:rightkit-sync call chain routes through shared RightKit API; no competing local implementation in owner scope.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/scraperight/src-tauri/src/cloud_sync.rs",
+          "line": 44,
+          "symbol": "SyncConfig",
+          "detail": "Cloud worker uses rightkit_sync config/outcome"
+        }
+      ],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/scraperight/src-tauri/Cargo.toml",
+          "line": 26,
+          "symbol": "dependencies",
+          "detail": "Desktop Rust/Tauri target has an operative caller for this shared route."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "Root Cargo.toml [patch.crates-io] points RightKit crates at local paths; publish/version-pin before release."
+      ],
+      "remaining_work": "Keep shared route; replace local Cargo path override with published pinned version.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-tauri",
+      "status": "Y",
+      "rationale": "Production cargo:rightkit-tauri call chain routes through shared RightKit API; no competing local implementation in owner scope.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/scraperight/src-tauri/src/license.rs",
+          "line": 242,
+          "symbol": "rightkit_tauri::SecureStore",
+          "detail": "Tauri command uses shared secure store"
+        }
+      ],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/scraperight/src-tauri/Cargo.toml",
+          "line": 26,
+          "symbol": "dependencies",
+          "detail": "Desktop Rust/Tauri target has an operative caller for this shared route."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "Root Cargo.toml [patch.crates-io] points RightKit crates at local paths; publish/version-pin before release."
+      ],
+      "remaining_work": "Keep shared route; replace local Cargo path override with published pinned version.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-transcript",
+      "status": "N",
+      "rationale": "Desktop speech export actively renders local SRT/VTT/timing JSON via timed_exports; no caller uses rightkit_transcript::to_srt, to_vtt or to_timing_json.",
+      "shared_evidence": [],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/scraperight/crates/speech/src/asr_window.rs",
+          "line": 476,
+          "symbol": "render_subtitles",
+          "detail": "Speech window locally renders timed subtitle/export output"
+        }
+      ],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/scraperight/src-tauri/Cargo.toml",
+          "line": 26,
+          "symbol": "dependencies",
+          "detail": "Desktop Rust/Tauri source census found no production caller"
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-transcript/src/export.rs",
+          "line": 42,
+          "symbol": "to_srt",
+          "detail": "Shared SRT export; to_vtt is line 73 and to_timing_json is line 105."
+        }
+      ],
+      "delivery_flags": [],
+      "remaining_work": "Map TimedTok/TimedWord semantics to rightkit_transcript::to_srt/to_vtt/to_timing_json, then replace timed_exports only after timing/cue parity.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-tts",
+      "status": "NA",
+      "rationale": "Source census shows cargo:rightkit-tts outside active ScrapeRight runtime or without applicable caller.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/scraperight/src-tauri/Cargo.toml",
+          "line": 26,
+          "symbol": "dependencies",
+          "detail": "Desktop Rust/Tauri source census found no production caller"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; keep excluded unless ScrapeRight adds feature/target.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-vad",
+      "status": "NA",
+      "rationale": "Source census shows cargo:rightkit-vad outside active ScrapeRight runtime or without applicable caller.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/scraperight/crates/speech/Cargo.toml",
+          "line": 16,
+          "symbol": "dependencies",
+          "detail": "No rightkit-vad dependency/caller; speech uses rightkit-asr"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; keep excluded unless ScrapeRight adds feature/target.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-watch",
+      "status": "NA",
+      "rationale": "Source census shows cargo:rightkit-watch outside active ScrapeRight runtime or without applicable caller.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/scraperight/src-tauri/Cargo.toml",
+          "line": 26,
+          "symbol": "dependencies",
+          "detail": "Desktop Rust/Tauri source census found no production caller"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; keep excluded unless ScrapeRight adds feature/target.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/agent-room-mcp",
+      "status": "NA",
+      "rationale": "Source census shows npm:@rightkit/agent-room-mcp outside active ScrapeRight runtime or without applicable caller.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/scraperight/package.json",
+          "line": 77,
+          "symbol": "dependencies",
+          "detail": "Renderer/scripts source census found no operative caller"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; keep excluded unless ScrapeRight adds feature/target.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/app-shell",
+      "status": "Y",
+      "rationale": "Production npm:@rightkit/app-shell call chain routes through shared RightKit API; no competing local implementation in owner scope.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/scraperight/src/components/TitleBar.tsx",
+          "line": 1,
+          "symbol": "TitleBar",
+          "detail": "Renderer imports shared app-shell window chrome"
+        }
+      ],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/scraperight/package.json",
+          "line": 77,
+          "symbol": "dependencies",
+          "detail": "Production renderer/scripts has an operative caller for this shared package."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "Keep shared route; retain ScrapeRight policy/config around shared API.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/ax",
+      "status": "NA",
+      "rationale": "Source census shows npm:@rightkit/ax outside active ScrapeRight runtime or without applicable caller.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/scraperight/package.json",
+          "line": 77,
+          "symbol": "dependencies",
+          "detail": "Renderer/scripts source census found no operative caller"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; keep excluded unless ScrapeRight adds feature/target.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/build-control-policy",
+      "status": "NA",
+      "rationale": "Source census shows npm:@rightkit/build-control-policy outside active ScrapeRight runtime or without applicable caller.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/scraperight/package.json",
+          "line": 77,
+          "symbol": "dependencies",
+          "detail": "Renderer/scripts source census found no operative caller"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; keep excluded unless ScrapeRight adds feature/target.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/doc-render",
+      "status": "N",
+      "rationale": "Mounted DetailReader calls local MarkdownBody/stripMarkdown for markdown tabs; no production caller renders @rightkit/doc-render MarkdownRenderer or renderMarkdown.",
+      "shared_evidence": [],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/scraperight/src/views/DetailReader.tsx",
+          "line": 369,
+          "symbol": "MarkdownBody",
+          "detail": "Reader owns markdown stripping/rendering/sanitization"
+        }
+      ],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/scraperight/package.json",
+          "line": 77,
+          "symbol": "dependencies",
+          "detail": "Renderer/scripts source census found no operative caller"
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/packages/doc-render/src/renderers.tsx",
+          "line": 103,
+          "symbol": "MarkdownRenderer",
+          "detail": "Shared parsed markdown React renderer; renderMarkdown wraps it at line 103."
+        }
+      ],
+      "delivery_flags": [],
+      "remaining_work": "Replace mounted MarkdownBody with MarkdownRenderer/renderMarkdown only after transcript markdown, link-opening & sanitization UX parity.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/git",
+      "status": "NA",
+      "rationale": "Source census shows npm:@rightkit/git outside active ScrapeRight runtime or without applicable caller.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/scraperight/package.json",
+          "line": 77,
+          "symbol": "dependencies",
+          "detail": "Renderer/scripts source census found no operative caller"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; keep excluded unless ScrapeRight adds feature/target.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/hooks",
+      "status": "NA",
+      "rationale": "Source census shows npm:@rightkit/hooks outside active ScrapeRight runtime or without applicable caller.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/scraperight/package.json",
+          "line": 77,
+          "symbol": "dependencies",
+          "detail": "Renderer/scripts source census found no operative caller"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; keep excluded unless ScrapeRight adds feature/target.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/i18n",
+      "status": "NA",
+      "rationale": "Source census shows npm:@rightkit/i18n outside active ScrapeRight runtime or without applicable caller.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/scraperight/package.json",
+          "line": 77,
+          "symbol": "dependencies",
+          "detail": "Renderer/scripts source census found no operative caller"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; keep excluded unless ScrapeRight adds feature/target.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/legal",
+      "status": "Y",
+      "rationale": "Production npm:@rightkit/legal call chain routes through shared RightKit API; no competing local implementation in owner scope.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/scraperight/scripts/sync-legal-acceptance-contract.mjs",
+          "line": 4,
+          "symbol": "assertLegalManifest",
+          "detail": "Acceptance script calls shared legal contract"
+        }
+      ],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/scraperight/package.json",
+          "line": 77,
+          "symbol": "dependencies",
+          "detail": "Production renderer/scripts has an operative caller for this shared package."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "Keep shared route; retain ScrapeRight policy/config around shared API.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/legal-ui",
+      "status": "Y",
+      "rationale": "Production npm:@rightkit/legal-ui call chain routes through shared RightKit API; no competing local implementation in owner scope.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/scraperight/src/views/onboarding/SetupGate.tsx",
+          "line": 1,
+          "symbol": "Onboarding",
+          "detail": "Onboarding call chain renders shared LegalGate"
+        }
+      ],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/scraperight/package.json",
+          "line": 77,
+          "symbol": "dependencies",
+          "detail": "Production renderer/scripts has an operative caller for this shared package."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "Keep shared route; retain ScrapeRight policy/config around shared API.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/license",
+      "status": "Y",
+      "rationale": "Production npm:@rightkit/license call chain routes through shared RightKit API; no competing local implementation in owner scope.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/scraperight/src/lib/license.ts",
+          "line": 6,
+          "symbol": "createLicenseClient",
+          "detail": "Renderer uses shared license client"
+        }
+      ],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/scraperight/package.json",
+          "line": 77,
+          "symbol": "dependencies",
+          "detail": "Production renderer/scripts has an operative caller for this shared package."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "Keep shared route; retain ScrapeRight policy/config around shared API.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/logs",
+      "status": "Y",
+      "rationale": "Production npm:@rightkit/logs call chain routes through shared RightKit API; no competing local implementation in owner scope.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/scraperight/src/lib/logs.ts",
+          "line": 1,
+          "symbol": "createLogsClient",
+          "detail": "Renderer uses shared logs client"
+        }
+      ],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/scraperight/package.json",
+          "line": 77,
+          "symbol": "dependencies",
+          "detail": "Production renderer/scripts has an operative caller for this shared package."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "Keep shared route; retain ScrapeRight policy/config around shared API.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/media-ui",
+      "status": "Y",
+      "rationale": "Production npm:@rightkit/media-ui call chain routes through shared RightKit API; no competing local implementation in owner scope.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/scraperight/src/views/DetailReader.tsx",
+          "line": 2,
+          "symbol": "SharedMediaPlayer",
+          "detail": "Reader imports shared media player"
+        }
+      ],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/scraperight/package.json",
+          "line": 77,
+          "symbol": "dependencies",
+          "detail": "Production renderer/scripts has an operative caller for this shared package."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "Keep shared route; retain ScrapeRight policy/config around shared API.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/onboarding",
+      "status": "Y",
+      "rationale": "Production npm:@rightkit/onboarding call chain routes through shared RightKit API; no competing local implementation in owner scope.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/scraperight/src/views/onboarding/SetupGate.tsx",
+          "line": 1,
+          "symbol": "Onboarding",
+          "detail": "Setup gate calls shared onboarding"
+        }
+      ],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/scraperight/package.json",
+          "line": 77,
+          "symbol": "dependencies",
+          "detail": "Production renderer/scripts has an operative caller for this shared package."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "Keep shared route; retain ScrapeRight policy/config around shared API.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/pdf-ui",
+      "status": "NA",
+      "rationale": "Source census shows npm:@rightkit/pdf-ui outside active ScrapeRight runtime or without applicable caller.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/scraperight/package.json",
+          "line": 77,
+          "symbol": "dependencies",
+          "detail": "Renderer/scripts source census found no operative caller"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; keep excluded unless ScrapeRight adds feature/target.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/platform-ui",
+      "status": "Y",
+      "rationale": "Production npm:@rightkit/platform-ui call chain routes through shared RightKit API; no competing local implementation in owner scope.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/scraperight/src/components/TitleBar.tsx",
+          "line": 2,
+          "symbol": "PlatformWindowControls",
+          "detail": "Title bar uses shared platform controls"
+        }
+      ],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/scraperight/package.json",
+          "line": 77,
+          "symbol": "dependencies",
+          "detail": "Production renderer/scripts has an operative caller for this shared package."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "Keep shared route; retain ScrapeRight policy/config around shared API.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/qa",
+      "status": "Y",
+      "rationale": "Production npm:@rightkit/qa call chain routes through shared RightKit API; no competing local implementation in owner scope.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/scraperight/tests/helpers/qaBrowser.ts",
+          "line": 4,
+          "symbol": "qaBrowser",
+          "detail": "QA helper imports shared QA harness"
+        }
+      ],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/scraperight/package.json",
+          "line": 77,
+          "symbol": "dependencies",
+          "detail": "Production renderer/scripts has an operative caller for this shared package."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "Keep shared route; retain ScrapeRight policy/config around shared API.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/qa-chrome",
+      "status": "Y",
+      "rationale": "Production npm:@rightkit/qa-chrome call chain routes through shared RightKit API; no competing local implementation in owner scope.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/scraperight/tests/helpers/qaBrowser.ts",
+          "line": 5,
+          "symbol": "createChromeSession",
+          "detail": "QA helper imports shared Chrome adapter"
+        }
+      ],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/scraperight/package.json",
+          "line": 77,
+          "symbol": "dependencies",
+          "detail": "Production renderer/scripts has an operative caller for this shared package."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "Keep shared route; retain ScrapeRight policy/config around shared API.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/release",
+      "status": "Y",
+      "rationale": "Production npm:@rightkit/release call chain routes through shared RightKit API; no competing local implementation in owner scope.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/scraperight/scripts/preflight-macos-release.mjs",
+          "line": 7,
+          "symbol": "release preflight",
+          "detail": "Release script uses shared release package"
+        }
+      ],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/scraperight/package.json",
+          "line": 77,
+          "symbol": "dependencies",
+          "detail": "Production renderer/scripts has an operative caller for this shared package."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "Keep shared route; retain ScrapeRight policy/config around shared API.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/settings-ui",
+      "status": "Y",
+      "rationale": "Production npm:@rightkit/settings-ui call chain routes through shared RightKit API; no competing local implementation in owner scope.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/scraperight/src/views/Settings.tsx",
+          "line": 9,
+          "symbol": "SettingsPanel",
+          "detail": "Settings UI imports shared settings components"
+        }
+      ],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/scraperight/package.json",
+          "line": 77,
+          "symbol": "dependencies",
+          "detail": "Production renderer/scripts has an operative caller for this shared package."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "Keep shared route; retain ScrapeRight policy/config around shared API.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/shell",
+      "status": "NA",
+      "rationale": "Source census shows npm:@rightkit/shell outside active ScrapeRight runtime or without applicable caller.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/scraperight/package.json",
+          "line": 77,
+          "symbol": "dependencies",
+          "detail": "Renderer/scripts source census found no operative caller"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; keep excluded unless ScrapeRight adds feature/target.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/tauri",
+      "status": "Y",
+      "rationale": "Production npm:@rightkit/tauri call chain routes through shared RightKit API; no competing local implementation in owner scope.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/scraperight/src/lib/license.ts",
+          "line": 14,
+          "symbol": "createTauriAdapter",
+          "detail": "Renderer uses shared Tauri adapter"
+        }
+      ],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/scraperight/package.json",
+          "line": 77,
+          "symbol": "dependencies",
+          "detail": "Production renderer/scripts has an operative caller for this shared package."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "Keep shared route; retain ScrapeRight policy/config around shared API.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/theme",
+      "status": "N",
+      "rationale": "Production main calls local applyTheme, whose paint resolves ScrapeRight presets, derives line shade & writes palette/font variables through document.documentElement.style; settings/desktop controls reuse it. @rightkit/theme supplies matching applyTokens/applyBrand APIs, but neither runtime API nor rightkit-theme generator is called by current source/scripts.",
+      "shared_evidence": [],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/scraperight/src/lib/theme.ts",
+          "line": 107,
+          "symbol": "paint",
+          "detail": "Live local theme runtime resolves presets, calls shade & writes root data-theme plus palette/font CSS variables."
+        },
+        {
+          "path": "/Volumes/D/claude/scraperight/src/main.tsx",
+          "line": 17,
+          "symbol": "applyTheme(loadThemeChoice())",
+          "detail": "Production bootstrap applies local palette before first React render."
+        }
+      ],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/scraperight/src/generated/brand.css",
+          "line": 1,
+          "symbol": "generated brand stylesheet",
+          "detail": "Mounted CSS was generated by @rightkit/theme, but package scripts contain no rightkit-theme generate/check route."
+        },
+        {
+          "path": "/Volumes/D/claude/scraperight/src/views/Settings.tsx",
+          "line": 162,
+          "symbol": "pickTheme",
+          "detail": "Settings invokes local applyTheme/saveThemeChoice for user-selected presets."
+        },
+        {
+          "path": "/Volumes/D/claude/scraperight/package.json",
+          "line": 87,
+          "symbol": "@rightkit/theme dependency",
+          "detail": "Package is present, but source/scripts have no direct applyTokens, applyBrand or rightkit-theme generator caller."
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/packages/theme/src/tokens.ts",
+          "line": 26,
+          "symbol": "applyTokens",
+          "detail": "Shared runtime API writes an app-owned CSS property record & restores previous values."
+        },
+        {
+          "path": "/Volumes/D/claude/rightkit/packages/theme/src/runtime.ts",
+          "line": 22,
+          "symbol": "applyBrand",
+          "detail": "Shared brand runtime derives mode variables from BrandFile; optional suite aliases are explicit."
+        }
+      ],
+      "delivery_flags": [],
+      "remaining_work": "Map each locked ScrapeRight palette/font token onto applyTokens or BrandFile/applyBrand without changing design values; add a checked rightkit-theme generate route only if generated CSS becomes release-owned.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/update",
+      "status": "NA",
+      "rationale": "Source census shows npm:@rightkit/update outside active ScrapeRight runtime or without applicable caller.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/scraperight/package.json",
+          "line": 77,
+          "symbol": "dependencies",
+          "detail": "Renderer/scripts source census found no operative caller"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; keep excluded unless ScrapeRight adds feature/target.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/updates",
+      "status": "Y",
+      "rationale": "Production npm:@rightkit/updates call chain routes through shared RightKit API; no competing local implementation in owner scope.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/scraperight/src/lib/license.ts",
+          "line": 13,
+          "symbol": "createUpdateClient",
+          "detail": "Runtime update client uses shared updates"
+        }
+      ],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/scraperight/package.json",
+          "line": 77,
+          "symbol": "dependencies",
+          "detail": "Production renderer/scripts has an operative caller for this shared package."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "Keep shared route; retain ScrapeRight policy/config around shared API.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitLicense",
+      "status": "Y",
+      "rationale": "Production swift:RightKitLicense call chain routes through shared RightKit API; no competing local implementation in owner scope.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/scraperight/ios-native/ScrapeRight/ScrapeRightApp.swift",
+          "line": 1,
+          "symbol": "RightKitLicense",
+          "detail": "iOS app initializes shared license controller"
+        }
+      ],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/scraperight/ios-native/project.yml",
+          "line": 100,
+          "symbol": "packages/products",
+          "detail": "iOS app/share target uses RightKitSwift package pinned at 0.4.0 for this shared route."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "Keep shared route; retain ScrapeRight policy/config around shared API.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitDiagnostics",
+      "status": "Y",
+      "rationale": "Production swift:RightKitDiagnostics call chain routes through shared RightKit API; no competing local implementation in owner scope.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/scraperight/ios-native/ScrapeRight/Diagnostics.swift",
+          "line": 2,
+          "symbol": "RightKitDiagnostics",
+          "detail": "iOS diagnostics uses shared diagnostics package"
+        }
+      ],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/scraperight/ios-native/project.yml",
+          "line": 100,
+          "symbol": "packages/products",
+          "detail": "iOS app/share target uses RightKitSwift package pinned at 0.4.0 for this shared route."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "Keep shared route; retain ScrapeRight policy/config around shared API.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitArtifacts",
+      "status": "Y",
+      "rationale": "Production swift:RightKitArtifacts call chain routes through shared RightKit API; no competing local implementation in owner scope.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/scraperight/ios-native/ScrapeRight/Models/ModelInstallStore.swift",
+          "line": 2,
+          "symbol": "RightKitArtifacts",
+          "detail": "Model install store uses shared artifacts"
+        }
+      ],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/scraperight/ios-native/project.yml",
+          "line": 100,
+          "symbol": "packages/products",
+          "detail": "iOS app/share target uses RightKitSwift package pinned at 0.4.0 for this shared route."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "Keep shared route; retain ScrapeRight policy/config around shared API.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitPurchases",
+      "status": "Y",
+      "rationale": "Production swift:RightKitPurchases call chain routes through shared RightKit API; no competing local implementation in owner scope.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/scraperight/ios-native/ScrapeRight/ScrapeRightApp.swift",
+          "line": 2,
+          "symbol": "RightKitPurchases",
+          "detail": "iOS app initializes shared purchases controller"
+        }
+      ],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/scraperight/ios-native/project.yml",
+          "line": 100,
+          "symbol": "packages/products",
+          "detail": "iOS app/share target uses RightKitSwift package pinned at 0.4.0 for this shared route."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "Keep shared route; retain ScrapeRight policy/config around shared API.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitCloudSync",
+      "status": "Y",
+      "rationale": "Production swift:RightKitCloudSync call chain routes through shared RightKit API; no competing local implementation in owner scope.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/scraperight/ios-native/ScrapeRight/Sync/ICloudSyncModel.swift",
+          "line": 17,
+          "symbol": "RightKitCloudSync",
+          "detail": "iCloud model wraps shared CloudSync"
+        }
+      ],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/scraperight/ios-native/project.yml",
+          "line": 100,
+          "symbol": "packages/products",
+          "detail": "iOS app/share target uses RightKitSwift package pinned at 0.4.0 for this shared route."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "Keep shared route; retain ScrapeRight policy/config around shared API.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitStore",
+      "status": "NA",
+      "rationale": "Source census shows swift:RightKitStore outside active ScrapeRight runtime or without applicable caller.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/scraperight/ios-native/project.yml",
+          "line": 100,
+          "symbol": "products",
+          "detail": "Store product declared but no Swift source imports/calls; local queue/store remains app-owned"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; keep excluded unless ScrapeRight adds feature/target.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitImportQueue",
+      "status": "Y",
+      "rationale": "Production swift:RightKitImportQueue call chain routes through shared RightKit API; no competing local implementation in owner scope.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/scraperight/ios-native/Shared/ShareIntake.swift",
+          "line": 2,
+          "symbol": "RightKitImportQueue",
+          "detail": "Share intake uses shared import queue"
+        }
+      ],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/scraperight/ios-native/project.yml",
+          "line": 100,
+          "symbol": "packages/products",
+          "detail": "iOS app/share target uses RightKitSwift package pinned at 0.4.0 for this shared route."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "Keep shared route; retain ScrapeRight policy/config around shared API.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitLiveActivity",
+      "status": "NA",
+      "rationale": "Source census shows swift:RightKitLiveActivity outside active ScrapeRight runtime or without applicable caller.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/scraperight/ios-native/project.yml",
+          "line": 100,
+          "symbol": "packages/products",
+          "detail": "iOS app/share source census found no operative caller"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; keep excluded unless ScrapeRight adds feature/target.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitWatchBridge",
+      "status": "NA",
+      "rationale": "Source census shows swift:RightKitWatchBridge outside active ScrapeRight runtime or without applicable caller.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/scraperight/ios-native/project.yml",
+          "line": 100,
+          "symbol": "packages/products",
+          "detail": "iOS app/share source census found no operative caller"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; keep excluded unless ScrapeRight adds feature/target.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitSpeech",
+      "status": "N",
+      "rationale": "iOS MediaTranscriber actively constructs local ParakeetTranscriber/ParakeetRuntimeCache; project.yml omits RightKitSpeech, so no production caller constructs shared ParakeetEngine.",
+      "shared_evidence": [],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/scraperight/ios-native/ScrapeRight/Extract/ParakeetTranscriber.swift",
+          "line": 25,
+          "symbol": "ParakeetRuntimeCache",
+          "detail": "iOS uses local ParakeetCoreMLRuntime/cache"
+        }
+      ],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/scraperight/ios-native/project.yml",
+          "line": 100,
+          "symbol": "packages/products",
+          "detail": "iOS app/share source census found no operative caller"
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/swift/RightKitSwift/Sources/RightKitSpeech/SpeechEngines.swift",
+          "line": 67,
+          "symbol": "ParakeetEngine",
+          "detail": "Shared file/samples speech engine; transcribe(fileURL:) is line 110."
+        }
+      ],
+      "delivery_flags": [],
+      "remaining_work": "Add RightKitSpeech product to ScrapeRight target, adapt MediaTranscriber to ParakeetEngine.transcribe(fileURL:), then remove local runtime/cache after Core ML behavior parity.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitIntents",
+      "status": "NA",
+      "rationale": "Source census shows swift:RightKitIntents outside active ScrapeRight runtime or without applicable caller.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/scraperight/ios-native/project.yml",
+          "line": 100,
+          "symbol": "packages/products",
+          "detail": "iOS app/share source census found no operative caller"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; keep excluded unless ScrapeRight adds feature/target.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitAppleCredentials",
+      "status": "Y",
+      "rationale": "Production swift:RightKitAppleCredentials call chain routes through shared RightKit API; no competing local implementation in owner scope.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/scraperight/ios-native/Shared/AppleSyncedCredentialStore.swift",
+          "line": 3,
+          "symbol": "RightKitAppleCredentials",
+          "detail": "Credential store uses shared Apple credential API"
+        }
+      ],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/scraperight/ios-native/project.yml",
+          "line": 100,
+          "symbol": "packages/products",
+          "detail": "iOS app/share target uses RightKitSwift package pinned at 0.4.0 for this shared route."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "Keep shared route; retain ScrapeRight policy/config around shared API.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitOverlay",
+      "status": "NA",
+      "rationale": "Source census shows swift:RightKitOverlay outside active ScrapeRight runtime or without applicable caller.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/scraperight/ios-native/project.yml",
+          "line": 100,
+          "symbol": "packages/products",
+          "detail": "iOS app/share source census found no operative caller"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; keep excluded unless ScrapeRight adds feature/target.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitWatch",
+      "status": "NA",
+      "rationale": "Source census shows swift:RightKitWatch outside active ScrapeRight runtime or without applicable caller.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/scraperight/ios-native/project.yml",
+          "line": 100,
+          "symbol": "packages/products",
+          "detail": "iOS app/share source census found no operative caller"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; keep excluded unless ScrapeRight adds feature/target.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitUI",
+      "status": "NA",
+      "rationale": "Source census shows swift:RightKitUI outside active ScrapeRight runtime or without applicable caller.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/scraperight/ios-native/project.yml",
+          "line": 100,
+          "symbol": "packages/products",
+          "detail": "iOS app/share source census found no operative caller"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; keep excluded unless ScrapeRight adds feature/target.",
+      "confidence": "high"
+    }
+  ],
+  "searches": [
+    {
+      "pattern": "rightkit_* / @rightkit/* / RightKit*",
+      "scope": "Cargo, Rust, package.json, src, scripts, tests, ios-native, macos-native",
+      "result": "Mapped imports/dependencies & production call chains; local implementations recorded separately."
+    },
+    {
+      "pattern": "PDFium|tls-client|agent-browser|queue.json|Store::search|MarkdownBody|ParakeetCoreMLRuntime",
+      "scope": "crates, src-tauri, src, ios-native",
+      "result": "Confirmed local PDF/TLS/browser/queue/search/markdown/Swift speech paths."
+    },
+    {
+      "pattern": "RightKitSwift products/imports",
+      "scope": "ios-native/project.yml, Swift sources, macos-native package/source",
+      "result": "Seven active Swift shared routes; Store declaration has no caller; no watch target."
+    },
+    {
+      "pattern": "[patch.crates-io]",
+      "scope": "Cargo root & package manifests",
+      "result": "Local path overrides recorded as delivery flags, never mixed status."
+    },
+    {
+      "pattern": "rightkit-qa vs @rightkit/qa",
+      "scope": "Cargo, package.json, tests, scripts",
+      "result": "Rust rightkit-qa absent; npm QA has actual callers."
+    },
+    {
+      "pattern": "StubSendEngine|RightKitSend|rightkit-send|Service::start",
+      "scope": "ios-native, RightKitSwift package, rightkit-send owner",
+      "result": "iOS injects a no-network stub; no Swift product, Rust host or FFI binding maps Service APIs into production."
+    },
+    {
+      "pattern": "@rightkit/theme|rightkit-theme|applyBrand|createThemeStore",
+      "scope": "src, scripts, package.json, rightkit settings-ui/theme source",
+      "result": "ScrapeRight mounts generated CSS but actively calls local applyTheme/paint; no @rightkit/theme runtime or generator API caller exists."
+    }
+  ],
+  "self_review": "Challenged every Y for actual caller, M for both live routes, N against canonical owner API, & NA against target/source census. Rechecked current HTTP fallback; corrected cargo:rightkit-send N to NA for missing iOS binding, npm:@rightkit/theme to N for live local paint, cargo:rightkit-qa to NA, HTTP/PDF to M, Swift Store to NA, & thin Rust wrappers to Y rather than M; limited cargo:rightkit-audio Y to WAV I/O."
+}

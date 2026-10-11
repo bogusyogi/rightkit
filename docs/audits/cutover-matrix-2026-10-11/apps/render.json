@@ -1,0 +1,2067 @@
+{
+  "app": "Render tools",
+  "root": "/Volumes/D/claude/workflows/render",
+  "head": "0cc72e7ae028bdb4cf53690814ed1e033a1b96e6",
+  "reviewed_at": "2026-10-11T08:15:00+05:30",
+  "targets": [
+    "node-cli",
+    "python-cli",
+    "blender-python",
+    "freecad-cli",
+    "keyshot-python"
+  ],
+  "scope_note": "Fresh source-only census of tracked Node/Python CAD/render/encode tools. Excludes .venv, generated render assets, test fixtures, node_modules, embedded external host software, caches, & untracked tests; no execution qualification implied.",
+  "cells": [
+    {
+      "component_id": "cargo:agent-room-core",
+      "status": "NA",
+      "rationale": "No active Render target can call this component: standalone Node/Python/host-renderer tooling has no compatible package target, FFI, JSON-line, or service bridge. Component feature is outside this runtime scope.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/render/render.mjs",
+          "line": 24,
+          "detail": "Node entrypoint uses built-in child-process/fs/path APIs; source census found no Cargo target, Rust source, FFI, framed-sidecar, or service client."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/render/cad_engine/cli.py",
+          "line": 3,
+          "detail": "CAD entrypoint is Python; imports & worker launch expose no Rust bridge."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None unless Render adds a target-compatible shared bridge & matching feature.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-agent-tools",
+      "status": "NA",
+      "rationale": "No active Render target can call this component: standalone Node/Python/host-renderer tooling has no compatible package target, FFI, JSON-line, or service bridge. Component feature is outside this runtime scope.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/render/render.mjs",
+          "line": 24,
+          "detail": "Node entrypoint uses built-in child-process/fs/path APIs; source census found no Cargo target, Rust source, FFI, framed-sidecar, or service client."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/render/cad_engine/cli.py",
+          "line": 3,
+          "detail": "CAD entrypoint is Python; imports & worker launch expose no Rust bridge."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None unless Render adds a target-compatible shared bridge & matching feature.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-align",
+      "status": "NA",
+      "rationale": "No active Render target can call this component: standalone Node/Python/host-renderer tooling has no compatible package target, FFI, JSON-line, or service bridge. Component feature is outside this runtime scope.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/render/render.mjs",
+          "line": 24,
+          "detail": "Node entrypoint uses built-in child-process/fs/path APIs; source census found no Cargo target, Rust source, FFI, framed-sidecar, or service client."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/render/cad_engine/cli.py",
+          "line": 3,
+          "detail": "CAD entrypoint is Python; imports & worker launch expose no Rust bridge."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None unless Render adds a target-compatible shared bridge & matching feature.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-asr",
+      "status": "NA",
+      "rationale": "No active Render target can call this component: standalone Node/Python/host-renderer tooling has no compatible package target, FFI, JSON-line, or service bridge. Component feature is outside this runtime scope.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/render/render.mjs",
+          "line": 24,
+          "detail": "Node entrypoint uses built-in child-process/fs/path APIs; source census found no Cargo target, Rust source, FFI, framed-sidecar, or service client."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/render/cad_engine/cli.py",
+          "line": 3,
+          "detail": "CAD entrypoint is Python; imports & worker launch expose no Rust bridge."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None unless Render adds a target-compatible shared bridge & matching feature.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-audio",
+      "status": "NA",
+      "rationale": "No active Render target can call this component: standalone Node/Python/host-renderer tooling has no compatible package target, FFI, JSON-line, or service bridge. Component feature is outside this runtime scope.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/render/render.mjs",
+          "line": 24,
+          "detail": "Node entrypoint uses built-in child-process/fs/path APIs; source census found no Cargo target, Rust source, FFI, framed-sidecar, or service client."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/render/cad_engine/cli.py",
+          "line": 3,
+          "detail": "CAD entrypoint is Python; imports & worker launch expose no Rust bridge."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None unless Render adds a target-compatible shared bridge & matching feature.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-automation",
+      "status": "NA",
+      "rationale": "No active Render target can call this component: standalone Node/Python/host-renderer tooling has no compatible package target, FFI, JSON-line, or service bridge. Component feature is outside this runtime scope.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/render/render.mjs",
+          "line": 24,
+          "detail": "Node entrypoint uses built-in child-process/fs/path APIs; source census found no Cargo target, Rust source, FFI, framed-sidecar, or service client."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/render/cad_engine/cli.py",
+          "line": 3,
+          "detail": "CAD entrypoint is Python; imports & worker launch expose no Rust bridge."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None unless Render adds a target-compatible shared bridge & matching feature.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-browser",
+      "status": "NA",
+      "rationale": "No active Render target can call this component: standalone Node/Python/host-renderer tooling has no compatible package target, FFI, JSON-line, or service bridge. Component feature is outside this runtime scope.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/render/render.mjs",
+          "line": 24,
+          "detail": "Node entrypoint uses built-in child-process/fs/path APIs; source census found no Cargo target, Rust source, FFI, framed-sidecar, or service client."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/render/cad_engine/cli.py",
+          "line": 3,
+          "detail": "CAD entrypoint is Python; imports & worker launch expose no Rust bridge."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None unless Render adds a target-compatible shared bridge & matching feature.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-cache",
+      "status": "NA",
+      "rationale": "Workflow writes render/CAD artifacts through Node/Python standard libraries; no Rust target or bridge can call this Rust storage API, & no matching shared route exists.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/render/render.mjs",
+          "line": 122,
+          "detail": "Node creates requested output directory directly."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/render/cad_engine/cli.py",
+          "line": 225,
+          "detail": "Python writes CAD result artifacts directly."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None unless Render adds a target-compatible shared bridge & matching feature.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-channel-memory",
+      "status": "NA",
+      "rationale": "No active Render target can call this component: standalone Node/Python/host-renderer tooling has no compatible package target, FFI, JSON-line, or service bridge. Component feature is outside this runtime scope.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/render/render.mjs",
+          "line": 24,
+          "detail": "Node entrypoint uses built-in child-process/fs/path APIs; source census found no Cargo target, Rust source, FFI, framed-sidecar, or service client."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/render/cad_engine/cli.py",
+          "line": 3,
+          "detail": "CAD entrypoint is Python; imports & worker launch expose no Rust bridge."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None unless Render adds a target-compatible shared bridge & matching feature.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-compose",
+      "status": "NA",
+      "rationale": "Blender-owned Python animation/compositor code is invoked by a Node one-shot renderer; rightkit-compose is a Rust RK9 serializable frame-evaluation API, with no compatible host, FFI, or service route in this workflow.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/render/lib/animations.py",
+          "line": 23,
+          "detail": "Blender bpy animation presets are direct host-side keyframe operations."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/render/lib/compositor.py",
+          "line": 22,
+          "detail": "Blender bpy compositor setup is direct host-side scene mutation; no Rust composition API bridge."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None unless Render adds a target-compatible shared bridge & matching feature.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-contracts",
+      "status": "NA",
+      "rationale": "No active Render target can call this component: standalone Node/Python/host-renderer tooling has no compatible package target, FFI, JSON-line, or service bridge. Component feature is outside this runtime scope.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/render/render.mjs",
+          "line": 24,
+          "detail": "Node entrypoint uses built-in child-process/fs/path APIs; source census found no Cargo target, Rust source, FFI, framed-sidecar, or service client."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/render/cad_engine/cli.py",
+          "line": 3,
+          "detail": "CAD entrypoint is Python; imports & worker launch expose no Rust bridge."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None unless Render adds a target-compatible shared bridge & matching feature.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-control",
+      "status": "NA",
+      "rationale": "No active Render target can call this component: standalone Node/Python/host-renderer tooling has no compatible package target, FFI, JSON-line, or service bridge. Component feature is outside this runtime scope.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/render/render.mjs",
+          "line": 24,
+          "detail": "Node entrypoint uses built-in child-process/fs/path APIs; source census found no Cargo target, Rust source, FFI, framed-sidecar, or service client."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/render/cad_engine/cli.py",
+          "line": 3,
+          "detail": "CAD entrypoint is Python; imports & worker launch expose no Rust bridge."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None unless Render adds a target-compatible shared bridge & matching feature.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-crash",
+      "status": "NA",
+      "rationale": "No active Render target can call this component: standalone Node/Python/host-renderer tooling has no compatible package target, FFI, JSON-line, or service bridge. Component feature is outside this runtime scope.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/render/render.mjs",
+          "line": 24,
+          "detail": "Node entrypoint uses built-in child-process/fs/path APIs; source census found no Cargo target, Rust source, FFI, framed-sidecar, or service client."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/render/cad_engine/cli.py",
+          "line": 3,
+          "detail": "CAD entrypoint is Python; imports & worker launch expose no Rust bridge."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None unless Render adds a target-compatible shared bridge & matching feature.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-daemon",
+      "status": "NA",
+      "rationale": "No active Render target can call this component: standalone Node/Python/host-renderer tooling has no compatible package target, FFI, JSON-line, or service bridge. Component feature is outside this runtime scope.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/render/render.mjs",
+          "line": 24,
+          "detail": "Node entrypoint uses built-in child-process/fs/path APIs; source census found no Cargo target, Rust source, FFI, framed-sidecar, or service client."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/render/cad_engine/cli.py",
+          "line": 3,
+          "detail": "CAD entrypoint is Python; imports & worker launch expose no Rust bridge."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None unless Render adds a target-compatible shared bridge & matching feature.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-db",
+      "status": "NA",
+      "rationale": "No active Render target can call this component: standalone Node/Python/host-renderer tooling has no compatible package target, FFI, JSON-line, or service bridge. Component feature is outside this runtime scope.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/render/render.mjs",
+          "line": 24,
+          "detail": "Node entrypoint uses built-in child-process/fs/path APIs; source census found no Cargo target, Rust source, FFI, framed-sidecar, or service client."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/render/cad_engine/cli.py",
+          "line": 3,
+          "detail": "CAD entrypoint is Python; imports & worker launch expose no Rust bridge."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None unless Render adds a target-compatible shared bridge & matching feature.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-embed",
+      "status": "NA",
+      "rationale": "No active Render target can call this component: standalone Node/Python/host-renderer tooling has no compatible package target, FFI, JSON-line, or service bridge. Component feature is outside this runtime scope.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/render/render.mjs",
+          "line": 24,
+          "detail": "Node entrypoint uses built-in child-process/fs/path APIs; source census found no Cargo target, Rust source, FFI, framed-sidecar, or service client."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/render/cad_engine/cli.py",
+          "line": 3,
+          "detail": "CAD entrypoint is Python; imports & worker launch expose no Rust bridge."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None unless Render adds a target-compatible shared bridge & matching feature.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-framed-sidecar",
+      "status": "NA",
+      "rationale": "No active Render target can call this component: standalone Node/Python/host-renderer tooling has no compatible package target, FFI, JSON-line, or service bridge. Component feature is outside this runtime scope.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/render/render.mjs",
+          "line": 24,
+          "detail": "Node entrypoint uses built-in child-process/fs/path APIs; source census found no Cargo target, Rust source, FFI, framed-sidecar, or service client."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/render/cad_engine/cli.py",
+          "line": 3,
+          "detail": "CAD entrypoint is Python; imports & worker launch expose no Rust bridge."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None unless Render adds a target-compatible shared bridge & matching feature.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-fs",
+      "status": "NA",
+      "rationale": "Workflow writes render/CAD artifacts through Node/Python standard libraries; no Rust target or bridge can call this Rust storage API, & no matching shared route exists.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/render/render.mjs",
+          "line": 122,
+          "detail": "Node creates requested output directory directly."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/render/cad_engine/cli.py",
+          "line": 225,
+          "detail": "Python writes CAD result artifacts directly."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None unless Render adds a target-compatible shared bridge & matching feature.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-fsindex",
+      "status": "NA",
+      "rationale": "No active Render target can call this component: standalone Node/Python/host-renderer tooling has no compatible package target, FFI, JSON-line, or service bridge. Component feature is outside this runtime scope.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/render/render.mjs",
+          "line": 24,
+          "detail": "Node entrypoint uses built-in child-process/fs/path APIs; source census found no Cargo target, Rust source, FFI, framed-sidecar, or service client."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/render/cad_engine/cli.py",
+          "line": 3,
+          "detail": "CAD entrypoint is Python; imports & worker launch expose no Rust bridge."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None unless Render adds a target-compatible shared bridge & matching feature.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-hotkeys",
+      "status": "NA",
+      "rationale": "No active Render target can call this component: standalone Node/Python/host-renderer tooling has no compatible package target, FFI, JSON-line, or service bridge. Component feature is outside this runtime scope.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/render/render.mjs",
+          "line": 24,
+          "detail": "Node entrypoint uses built-in child-process/fs/path APIs; source census found no Cargo target, Rust source, FFI, framed-sidecar, or service client."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/render/cad_engine/cli.py",
+          "line": 3,
+          "detail": "CAD entrypoint is Python; imports & worker launch expose no Rust bridge."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None unless Render adds a target-compatible shared bridge & matching feature.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-http",
+      "status": "NA",
+      "rationale": "No active Render target can call this component: standalone Node/Python/host-renderer tooling has no compatible package target, FFI, JSON-line, or service bridge. Component feature is outside this runtime scope.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/render/render.mjs",
+          "line": 24,
+          "detail": "Node entrypoint uses built-in child-process/fs/path APIs; source census found no Cargo target, Rust source, FFI, framed-sidecar, or service client."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/render/cad_engine/cli.py",
+          "line": 3,
+          "detail": "CAD entrypoint is Python; imports & worker launch expose no Rust bridge."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None unless Render adds a target-compatible shared bridge & matching feature.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-jobs",
+      "status": "NA",
+      "rationale": "No active Render target can call this component: standalone Node/Python/host-renderer tooling has no compatible package target, FFI, JSON-line, or service bridge. Component feature is outside this runtime scope.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/render/render.mjs",
+          "line": 24,
+          "detail": "Node entrypoint uses built-in child-process/fs/path APIs; source census found no Cargo target, Rust source, FFI, framed-sidecar, or service client."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/render/cad_engine/cli.py",
+          "line": 3,
+          "detail": "CAD entrypoint is Python; imports & worker launch expose no Rust bridge."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None unless Render adds a target-compatible shared bridge & matching feature.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-license",
+      "status": "NA",
+      "rationale": "No active Render target can call this component: standalone Node/Python/host-renderer tooling has no compatible package target, FFI, JSON-line, or service bridge. Component feature is outside this runtime scope.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/render/render.mjs",
+          "line": 24,
+          "detail": "Node entrypoint uses built-in child-process/fs/path APIs; source census found no Cargo target, Rust source, FFI, framed-sidecar, or service client."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/render/cad_engine/cli.py",
+          "line": 3,
+          "detail": "CAD entrypoint is Python; imports & worker launch expose no Rust bridge."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None unless Render adds a target-compatible shared bridge & matching feature.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-llm",
+      "status": "NA",
+      "rationale": "No active Render target can call this component: standalone Node/Python/host-renderer tooling has no compatible package target, FFI, JSON-line, or service bridge. Component feature is outside this runtime scope.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/render/render.mjs",
+          "line": 24,
+          "detail": "Node entrypoint uses built-in child-process/fs/path APIs; source census found no Cargo target, Rust source, FFI, framed-sidecar, or service client."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/render/cad_engine/cli.py",
+          "line": 3,
+          "detail": "CAD entrypoint is Python; imports & worker launch expose no Rust bridge."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None unless Render adds a target-compatible shared bridge & matching feature.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-logs",
+      "status": "NA",
+      "rationale": "No active Render target can call this component: standalone Node/Python/host-renderer tooling has no compatible package target, FFI, JSON-line, or service bridge. Component feature is outside this runtime scope.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/render/render.mjs",
+          "line": 24,
+          "detail": "Node entrypoint uses built-in child-process/fs/path APIs; source census found no Cargo target, Rust source, FFI, framed-sidecar, or service client."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/render/cad_engine/cli.py",
+          "line": 3,
+          "detail": "CAD entrypoint is Python; imports & worker launch expose no Rust bridge."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None unless Render adds a target-compatible shared bridge & matching feature.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-mcp",
+      "status": "NA",
+      "rationale": "No active Render target can call this component: standalone Node/Python/host-renderer tooling has no compatible package target, FFI, JSON-line, or service bridge. Component feature is outside this runtime scope.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/render/render.mjs",
+          "line": 24,
+          "detail": "Node entrypoint uses built-in child-process/fs/path APIs; source census found no Cargo target, Rust source, FFI, framed-sidecar, or service client."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/render/cad_engine/cli.py",
+          "line": 3,
+          "detail": "CAD entrypoint is Python; imports & worker launch expose no Rust bridge."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None unless Render adds a target-compatible shared bridge & matching feature.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-media",
+      "status": "NA",
+      "rationale": "encode.mjs directly spawns PATH ffmpeg for a render-frame preset; rightkit-media/playback are Rust library APIs with verified-artifact/typed preparation contracts, & this Node/Python workflow has no Rust host or bridge. This is not an API-compatible competing route.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/render/encode.mjs",
+          "line": 117,
+          "detail": "Node encoder builds ffmpeg argv then spawns PATH ffmpeg; no verified artifact resolver or Rust bridge."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/render/render.mjs",
+          "line": 24,
+          "detail": "Renderer host is Node built-ins, with no Cargo/FFI/service client."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None unless Render adds a target-compatible shared bridge & matching feature.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-models",
+      "status": "NA",
+      "rationale": "No active Render target can call this component: standalone Node/Python/host-renderer tooling has no compatible package target, FFI, JSON-line, or service bridge. Component feature is outside this runtime scope.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/render/render.mjs",
+          "line": 24,
+          "detail": "Node entrypoint uses built-in child-process/fs/path APIs; source census found no Cargo target, Rust source, FFI, framed-sidecar, or service client."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/render/cad_engine/cli.py",
+          "line": 3,
+          "detail": "CAD entrypoint is Python; imports & worker launch expose no Rust bridge."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None unless Render adds a target-compatible shared bridge & matching feature.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-oauth",
+      "status": "NA",
+      "rationale": "No active Render target can call this component: standalone Node/Python/host-renderer tooling has no compatible package target, FFI, JSON-line, or service bridge. Component feature is outside this runtime scope.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/render/render.mjs",
+          "line": 24,
+          "detail": "Node entrypoint uses built-in child-process/fs/path APIs; source census found no Cargo target, Rust source, FFI, framed-sidecar, or service client."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/render/cad_engine/cli.py",
+          "line": 3,
+          "detail": "CAD entrypoint is Python; imports & worker launch expose no Rust bridge."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None unless Render adds a target-compatible shared bridge & matching feature.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-ocr",
+      "status": "NA",
+      "rationale": "No active Render target can call this component: standalone Node/Python/host-renderer tooling has no compatible package target, FFI, JSON-line, or service bridge. Component feature is outside this runtime scope.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/render/render.mjs",
+          "line": 24,
+          "detail": "Node entrypoint uses built-in child-process/fs/path APIs; source census found no Cargo target, Rust source, FFI, framed-sidecar, or service client."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/render/cad_engine/cli.py",
+          "line": 3,
+          "detail": "CAD entrypoint is Python; imports & worker launch expose no Rust bridge."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None unless Render adds a target-compatible shared bridge & matching feature.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-ort",
+      "status": "NA",
+      "rationale": "No active Render target can call this component: standalone Node/Python/host-renderer tooling has no compatible package target, FFI, JSON-line, or service bridge. Component feature is outside this runtime scope.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/render/render.mjs",
+          "line": 24,
+          "detail": "Node entrypoint uses built-in child-process/fs/path APIs; source census found no Cargo target, Rust source, FFI, framed-sidecar, or service client."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/render/cad_engine/cli.py",
+          "line": 3,
+          "detail": "CAD entrypoint is Python; imports & worker launch expose no Rust bridge."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None unless Render adds a target-compatible shared bridge & matching feature.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-overlay",
+      "status": "NA",
+      "rationale": "No active Render target can call this component: standalone Node/Python/host-renderer tooling has no compatible package target, FFI, JSON-line, or service bridge. Component feature is outside this runtime scope.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/render/render.mjs",
+          "line": 24,
+          "detail": "Node entrypoint uses built-in child-process/fs/path APIs; source census found no Cargo target, Rust source, FFI, framed-sidecar, or service client."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/render/cad_engine/cli.py",
+          "line": 3,
+          "detail": "CAD entrypoint is Python; imports & worker launch expose no Rust bridge."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None unless Render adds a target-compatible shared bridge & matching feature.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-ownership",
+      "status": "NA",
+      "rationale": "No active Render target can call this component: standalone Node/Python/host-renderer tooling has no compatible package target, FFI, JSON-line, or service bridge. Component feature is outside this runtime scope.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/render/render.mjs",
+          "line": 24,
+          "detail": "Node entrypoint uses built-in child-process/fs/path APIs; source census found no Cargo target, Rust source, FFI, framed-sidecar, or service client."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/render/cad_engine/cli.py",
+          "line": 3,
+          "detail": "CAD entrypoint is Python; imports & worker launch expose no Rust bridge."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None unless Render adds a target-compatible shared bridge & matching feature.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-pdf",
+      "status": "NA",
+      "rationale": "No active Render target can call this component: standalone Node/Python/host-renderer tooling has no compatible package target, FFI, JSON-line, or service bridge. Component feature is outside this runtime scope.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/render/render.mjs",
+          "line": 24,
+          "detail": "Node entrypoint uses built-in child-process/fs/path APIs; source census found no Cargo target, Rust source, FFI, framed-sidecar, or service client."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/render/cad_engine/cli.py",
+          "line": 3,
+          "detail": "CAD entrypoint is Python; imports & worker launch expose no Rust bridge."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None unless Render adds a target-compatible shared bridge & matching feature.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-playback",
+      "status": "NA",
+      "rationale": "encode.mjs directly spawns PATH ffmpeg for a render-frame preset; rightkit-media/playback are Rust library APIs with verified-artifact/typed preparation contracts, & this Node/Python workflow has no Rust host or bridge. This is not an API-compatible competing route.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/render/encode.mjs",
+          "line": 117,
+          "detail": "Node encoder builds ffmpeg argv then spawns PATH ffmpeg; no verified artifact resolver or Rust bridge."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/render/render.mjs",
+          "line": 24,
+          "detail": "Renderer host is Node built-ins, with no Cargo/FFI/service client."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None unless Render adds a target-compatible shared bridge & matching feature.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-process",
+      "status": "NA",
+      "rationale": "External Blender, FreeCAD, KeyShot, & CAD-worker launches are Node/Python one-shot subprocess calls; no Rust RightKit process/sandbox API or compatible service bridge is present, & lifecycle contracts do not match.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/render/render.mjs",
+          "line": 159,
+          "detail": "Node spawns Blender directly for one invocation."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/render/cad_engine/cli.py",
+          "line": 191,
+          "detail": "Python runs one bounded CAD worker with its own timeout/report handling."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None unless Render adds a target-compatible shared bridge & matching feature.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-qa",
+      "status": "NA",
+      "rationale": "No active Render target can call this component: standalone Node/Python/host-renderer tooling has no compatible package target, FFI, JSON-line, or service bridge. Component feature is outside this runtime scope.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/render/render.mjs",
+          "line": 24,
+          "detail": "Node entrypoint uses built-in child-process/fs/path APIs; source census found no Cargo target, Rust source, FFI, framed-sidecar, or service client."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/render/cad_engine/cli.py",
+          "line": 3,
+          "detail": "CAD entrypoint is Python; imports & worker launch expose no Rust bridge."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None unless Render adds a target-compatible shared bridge & matching feature.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-qts",
+      "status": "NA",
+      "rationale": "No active Render target can call this component: standalone Node/Python/host-renderer tooling has no compatible package target, FFI, JSON-line, or service bridge. Component feature is outside this runtime scope.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/render/render.mjs",
+          "line": 24,
+          "detail": "Node entrypoint uses built-in child-process/fs/path APIs; source census found no Cargo target, Rust source, FFI, framed-sidecar, or service client."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/render/cad_engine/cli.py",
+          "line": 3,
+          "detail": "CAD entrypoint is Python; imports & worker launch expose no Rust bridge."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None unless Render adds a target-compatible shared bridge & matching feature.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-qts-ggml",
+      "status": "NA",
+      "rationale": "No active Render target can call this component: standalone Node/Python/host-renderer tooling has no compatible package target, FFI, JSON-line, or service bridge. Component feature is outside this runtime scope.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/render/render.mjs",
+          "line": 24,
+          "detail": "Node entrypoint uses built-in child-process/fs/path APIs; source census found no Cargo target, Rust source, FFI, framed-sidecar, or service client."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/render/cad_engine/cli.py",
+          "line": 3,
+          "detail": "CAD entrypoint is Python; imports & worker launch expose no Rust bridge."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None unless Render adds a target-compatible shared bridge & matching feature.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-qts-ggml-sys",
+      "status": "NA",
+      "rationale": "No active Render target can call this component: standalone Node/Python/host-renderer tooling has no compatible package target, FFI, JSON-line, or service bridge. Component feature is outside this runtime scope.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/render/render.mjs",
+          "line": 24,
+          "detail": "Node entrypoint uses built-in child-process/fs/path APIs; source census found no Cargo target, Rust source, FFI, framed-sidecar, or service client."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/render/cad_engine/cli.py",
+          "line": 3,
+          "detail": "CAD entrypoint is Python; imports & worker launch expose no Rust bridge."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None unless Render adds a target-compatible shared bridge & matching feature.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-record",
+      "status": "NA",
+      "rationale": "No active Render target can call this component: standalone Node/Python/host-renderer tooling has no compatible package target, FFI, JSON-line, or service bridge. Component feature is outside this runtime scope.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/render/render.mjs",
+          "line": 24,
+          "detail": "Node entrypoint uses built-in child-process/fs/path APIs; source census found no Cargo target, Rust source, FFI, framed-sidecar, or service client."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/render/cad_engine/cli.py",
+          "line": 3,
+          "detail": "CAD entrypoint is Python; imports & worker launch expose no Rust bridge."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None unless Render adds a target-compatible shared bridge & matching feature.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-review",
+      "status": "NA",
+      "rationale": "No active Render target can call this component: standalone Node/Python/host-renderer tooling has no compatible package target, FFI, JSON-line, or service bridge. Component feature is outside this runtime scope.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/render/render.mjs",
+          "line": 24,
+          "detail": "Node entrypoint uses built-in child-process/fs/path APIs; source census found no Cargo target, Rust source, FFI, framed-sidecar, or service client."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/render/cad_engine/cli.py",
+          "line": 3,
+          "detail": "CAD entrypoint is Python; imports & worker launch expose no Rust bridge."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None unless Render adds a target-compatible shared bridge & matching feature.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-sandbox",
+      "status": "NA",
+      "rationale": "External Blender, FreeCAD, KeyShot, & CAD-worker launches are Node/Python one-shot subprocess calls; no Rust RightKit process/sandbox API or compatible service bridge is present, & lifecycle contracts do not match.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/render/render.mjs",
+          "line": 159,
+          "detail": "Node spawns Blender directly for one invocation."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/render/cad_engine/cli.py",
+          "line": 191,
+          "detail": "Python runs one bounded CAD worker with its own timeout/report handling."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None unless Render adds a target-compatible shared bridge & matching feature.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-scenario",
+      "status": "NA",
+      "rationale": "No active Render target can call this component: standalone Node/Python/host-renderer tooling has no compatible package target, FFI, JSON-line, or service bridge. Component feature is outside this runtime scope.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/render/render.mjs",
+          "line": 24,
+          "detail": "Node entrypoint uses built-in child-process/fs/path APIs; source census found no Cargo target, Rust source, FFI, framed-sidecar, or service client."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/render/cad_engine/cli.py",
+          "line": 3,
+          "detail": "CAD entrypoint is Python; imports & worker launch expose no Rust bridge."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None unless Render adds a target-compatible shared bridge & matching feature.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-search",
+      "status": "NA",
+      "rationale": "No active Render target can call this component: standalone Node/Python/host-renderer tooling has no compatible package target, FFI, JSON-line, or service bridge. Component feature is outside this runtime scope.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/render/render.mjs",
+          "line": 24,
+          "detail": "Node entrypoint uses built-in child-process/fs/path APIs; source census found no Cargo target, Rust source, FFI, framed-sidecar, or service client."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/render/cad_engine/cli.py",
+          "line": 3,
+          "detail": "CAD entrypoint is Python; imports & worker launch expose no Rust bridge."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None unless Render adds a target-compatible shared bridge & matching feature.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-secrets",
+      "status": "NA",
+      "rationale": "No active Render target can call this component: standalone Node/Python/host-renderer tooling has no compatible package target, FFI, JSON-line, or service bridge. Component feature is outside this runtime scope.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/render/render.mjs",
+          "line": 24,
+          "detail": "Node entrypoint uses built-in child-process/fs/path APIs; source census found no Cargo target, Rust source, FFI, framed-sidecar, or service client."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/render/cad_engine/cli.py",
+          "line": 3,
+          "detail": "CAD entrypoint is Python; imports & worker launch expose no Rust bridge."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None unless Render adds a target-compatible shared bridge & matching feature.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-send",
+      "status": "NA",
+      "rationale": "No active Render target can call this component: standalone Node/Python/host-renderer tooling has no compatible package target, FFI, JSON-line, or service bridge. Component feature is outside this runtime scope.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/render/render.mjs",
+          "line": 24,
+          "detail": "Node entrypoint uses built-in child-process/fs/path APIs; source census found no Cargo target, Rust source, FFI, framed-sidecar, or service client."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/render/cad_engine/cli.py",
+          "line": 3,
+          "detail": "CAD entrypoint is Python; imports & worker launch expose no Rust bridge."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None unless Render adds a target-compatible shared bridge & matching feature.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-service",
+      "status": "NA",
+      "rationale": "No active Render target can call this component: standalone Node/Python/host-renderer tooling has no compatible package target, FFI, JSON-line, or service bridge. Component feature is outside this runtime scope.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/render/render.mjs",
+          "line": 24,
+          "detail": "Node entrypoint uses built-in child-process/fs/path APIs; source census found no Cargo target, Rust source, FFI, framed-sidecar, or service client."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/render/cad_engine/cli.py",
+          "line": 3,
+          "detail": "CAD entrypoint is Python; imports & worker launch expose no Rust bridge."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None unless Render adds a target-compatible shared bridge & matching feature.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-settings",
+      "status": "NA",
+      "rationale": "Workflow writes render/CAD artifacts through Node/Python standard libraries; no Rust target or bridge can call this Rust storage API, & no matching shared route exists.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/render/render.mjs",
+          "line": 122,
+          "detail": "Node creates requested output directory directly."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/render/cad_engine/cli.py",
+          "line": 225,
+          "detail": "Python writes CAD result artifacts directly."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None unless Render adds a target-compatible shared bridge & matching feature.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-shell",
+      "status": "NA",
+      "rationale": "No active Render target can call this component: standalone Node/Python/host-renderer tooling has no compatible package target, FFI, JSON-line, or service bridge. Component feature is outside this runtime scope.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/render/render.mjs",
+          "line": 24,
+          "detail": "Node entrypoint uses built-in child-process/fs/path APIs; source census found no Cargo target, Rust source, FFI, framed-sidecar, or service client."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/render/cad_engine/cli.py",
+          "line": 3,
+          "detail": "CAD entrypoint is Python; imports & worker launch expose no Rust bridge."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None unless Render adds a target-compatible shared bridge & matching feature.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-speech-client",
+      "status": "NA",
+      "rationale": "No active Render target can call this component: standalone Node/Python/host-renderer tooling has no compatible package target, FFI, JSON-line, or service bridge. Component feature is outside this runtime scope.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/render/render.mjs",
+          "line": 24,
+          "detail": "Node entrypoint uses built-in child-process/fs/path APIs; source census found no Cargo target, Rust source, FFI, framed-sidecar, or service client."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/render/cad_engine/cli.py",
+          "line": 3,
+          "detail": "CAD entrypoint is Python; imports & worker launch expose no Rust bridge."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None unless Render adds a target-compatible shared bridge & matching feature.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-sync",
+      "status": "NA",
+      "rationale": "No active Render target can call this component: standalone Node/Python/host-renderer tooling has no compatible package target, FFI, JSON-line, or service bridge. Component feature is outside this runtime scope.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/render/render.mjs",
+          "line": 24,
+          "detail": "Node entrypoint uses built-in child-process/fs/path APIs; source census found no Cargo target, Rust source, FFI, framed-sidecar, or service client."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/render/cad_engine/cli.py",
+          "line": 3,
+          "detail": "CAD entrypoint is Python; imports & worker launch expose no Rust bridge."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None unless Render adds a target-compatible shared bridge & matching feature.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-tauri",
+      "status": "NA",
+      "rationale": "No active Render target can call this component: standalone Node/Python/host-renderer tooling has no compatible package target, FFI, JSON-line, or service bridge. Component feature is outside this runtime scope.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/render/render.mjs",
+          "line": 24,
+          "detail": "Node entrypoint uses built-in child-process/fs/path APIs; source census found no Cargo target, Rust source, FFI, framed-sidecar, or service client."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/render/cad_engine/cli.py",
+          "line": 3,
+          "detail": "CAD entrypoint is Python; imports & worker launch expose no Rust bridge."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None unless Render adds a target-compatible shared bridge & matching feature.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-transcript",
+      "status": "NA",
+      "rationale": "No active Render target can call this component: standalone Node/Python/host-renderer tooling has no compatible package target, FFI, JSON-line, or service bridge. Component feature is outside this runtime scope.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/render/render.mjs",
+          "line": 24,
+          "detail": "Node entrypoint uses built-in child-process/fs/path APIs; source census found no Cargo target, Rust source, FFI, framed-sidecar, or service client."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/render/cad_engine/cli.py",
+          "line": 3,
+          "detail": "CAD entrypoint is Python; imports & worker launch expose no Rust bridge."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None unless Render adds a target-compatible shared bridge & matching feature.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-tts",
+      "status": "NA",
+      "rationale": "No active Render target can call this component: standalone Node/Python/host-renderer tooling has no compatible package target, FFI, JSON-line, or service bridge. Component feature is outside this runtime scope.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/render/render.mjs",
+          "line": 24,
+          "detail": "Node entrypoint uses built-in child-process/fs/path APIs; source census found no Cargo target, Rust source, FFI, framed-sidecar, or service client."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/render/cad_engine/cli.py",
+          "line": 3,
+          "detail": "CAD entrypoint is Python; imports & worker launch expose no Rust bridge."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None unless Render adds a target-compatible shared bridge & matching feature.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-vad",
+      "status": "NA",
+      "rationale": "No active Render target can call this component: standalone Node/Python/host-renderer tooling has no compatible package target, FFI, JSON-line, or service bridge. Component feature is outside this runtime scope.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/render/render.mjs",
+          "line": 24,
+          "detail": "Node entrypoint uses built-in child-process/fs/path APIs; source census found no Cargo target, Rust source, FFI, framed-sidecar, or service client."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/render/cad_engine/cli.py",
+          "line": 3,
+          "detail": "CAD entrypoint is Python; imports & worker launch expose no Rust bridge."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None unless Render adds a target-compatible shared bridge & matching feature.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-watch",
+      "status": "NA",
+      "rationale": "Workflow writes render/CAD artifacts through Node/Python standard libraries; no Rust target or bridge can call this Rust storage API, & no matching shared route exists.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/render/render.mjs",
+          "line": 122,
+          "detail": "Node creates requested output directory directly."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/render/cad_engine/cli.py",
+          "line": 225,
+          "detail": "Python writes CAD result artifacts directly."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None unless Render adds a target-compatible shared bridge & matching feature.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/agent-room-mcp",
+      "status": "NA",
+      "rationale": "No active Render target can call this component: standalone Node/Python/host-renderer tooling has no compatible package target, FFI, JSON-line, or service bridge. Component feature is outside this runtime scope.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/render/render.mjs",
+          "line": 24,
+          "detail": "Node entrypoint imports built-ins only; source census found no package manifest, React/Tauri/web target, or @rightkit import."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None unless Render adds a target-compatible shared bridge & matching feature.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/app-shell",
+      "status": "NA",
+      "rationale": "Render is a command-line Node/Python workflow, not a React/Tauri/browser UI target; no package manifest or @rightkit import routes this UI component.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/render/render.mjs",
+          "line": 24,
+          "detail": "Node entrypoint imports built-ins only; source census found no package manifest, React/Tauri/web target, or @rightkit import."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None unless Render adds a target-compatible shared bridge & matching feature.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/ax",
+      "status": "NA",
+      "rationale": "No active Render target can call this component: standalone Node/Python/host-renderer tooling has no compatible package target, FFI, JSON-line, or service bridge. Component feature is outside this runtime scope.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/render/render.mjs",
+          "line": 24,
+          "detail": "Node entrypoint imports built-ins only; source census found no package manifest, React/Tauri/web target, or @rightkit import."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None unless Render adds a target-compatible shared bridge & matching feature.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/build-control-policy",
+      "status": "NA",
+      "rationale": "No active Render target can call this component: standalone Node/Python/host-renderer tooling has no compatible package target, FFI, JSON-line, or service bridge. Component feature is outside this runtime scope.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/render/render.mjs",
+          "line": 24,
+          "detail": "Node entrypoint imports built-ins only; source census found no package manifest, React/Tauri/web target, or @rightkit import."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None unless Render adds a target-compatible shared bridge & matching feature.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/doc-render",
+      "status": "NA",
+      "rationale": "Render is a command-line Node/Python workflow, not a React/Tauri/browser UI target; no package manifest or @rightkit import routes this UI component.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/render/render.mjs",
+          "line": 24,
+          "detail": "Node entrypoint imports built-ins only; source census found no package manifest, React/Tauri/web target, or @rightkit import."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None unless Render adds a target-compatible shared bridge & matching feature.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/git",
+      "status": "NA",
+      "rationale": "No active Render target can call this component: standalone Node/Python/host-renderer tooling has no compatible package target, FFI, JSON-line, or service bridge. Component feature is outside this runtime scope.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/render/render.mjs",
+          "line": 24,
+          "detail": "Node entrypoint imports built-ins only; source census found no package manifest, React/Tauri/web target, or @rightkit import."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None unless Render adds a target-compatible shared bridge & matching feature.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/hooks",
+      "status": "NA",
+      "rationale": "No active Render target can call this component: standalone Node/Python/host-renderer tooling has no compatible package target, FFI, JSON-line, or service bridge. Component feature is outside this runtime scope.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/render/render.mjs",
+          "line": 24,
+          "detail": "Node entrypoint imports built-ins only; source census found no package manifest, React/Tauri/web target, or @rightkit import."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None unless Render adds a target-compatible shared bridge & matching feature.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/i18n",
+      "status": "NA",
+      "rationale": "Render is a command-line Node/Python workflow, not a React/Tauri/browser UI target; no package manifest or @rightkit import routes this UI component.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/render/render.mjs",
+          "line": 24,
+          "detail": "Node entrypoint imports built-ins only; source census found no package manifest, React/Tauri/web target, or @rightkit import."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None unless Render adds a target-compatible shared bridge & matching feature.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/legal",
+      "status": "NA",
+      "rationale": "Render has no packaged product shell, entitlement, or legal-gate target; source census found no package manifest or @rightkit route for this component.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/render/render.mjs",
+          "line": 24,
+          "detail": "Node entrypoint imports built-ins only; source census found no package manifest, React/Tauri/web target, or @rightkit import."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None unless Render adds a target-compatible shared bridge & matching feature.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/legal-ui",
+      "status": "NA",
+      "rationale": "Render is a command-line Node/Python workflow, not a React/Tauri/browser UI target; no package manifest or @rightkit import routes this UI component.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/render/render.mjs",
+          "line": 24,
+          "detail": "Node entrypoint imports built-ins only; source census found no package manifest, React/Tauri/web target, or @rightkit import."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None unless Render adds a target-compatible shared bridge & matching feature.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/license",
+      "status": "NA",
+      "rationale": "Render has no packaged product shell, entitlement, or legal-gate target; source census found no package manifest or @rightkit route for this component.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/render/render.mjs",
+          "line": 24,
+          "detail": "Node entrypoint imports built-ins only; source census found no package manifest, React/Tauri/web target, or @rightkit import."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None unless Render adds a target-compatible shared bridge & matching feature.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/logs",
+      "status": "NA",
+      "rationale": "No active Render target can call this component: standalone Node/Python/host-renderer tooling has no compatible package target, FFI, JSON-line, or service bridge. Component feature is outside this runtime scope.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/render/render.mjs",
+          "line": 24,
+          "detail": "Node entrypoint imports built-ins only; source census found no package manifest, React/Tauri/web target, or @rightkit import."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None unless Render adds a target-compatible shared bridge & matching feature.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/media-ui",
+      "status": "NA",
+      "rationale": "Render is a command-line Node/Python workflow, not a React/Tauri/browser UI target; no package manifest or @rightkit import routes this UI component.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/render/render.mjs",
+          "line": 24,
+          "detail": "Node entrypoint imports built-ins only; source census found no package manifest, React/Tauri/web target, or @rightkit import."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None unless Render adds a target-compatible shared bridge & matching feature.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/onboarding",
+      "status": "NA",
+      "rationale": "Render is a command-line Node/Python workflow, not a React/Tauri/browser UI target; no package manifest or @rightkit import routes this UI component.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/render/render.mjs",
+          "line": 24,
+          "detail": "Node entrypoint imports built-ins only; source census found no package manifest, React/Tauri/web target, or @rightkit import."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None unless Render adds a target-compatible shared bridge & matching feature.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/pdf-ui",
+      "status": "NA",
+      "rationale": "Render is a command-line Node/Python workflow, not a React/Tauri/browser UI target; no package manifest or @rightkit import routes this UI component.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/render/render.mjs",
+          "line": 24,
+          "detail": "Node entrypoint imports built-ins only; source census found no package manifest, React/Tauri/web target, or @rightkit import."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None unless Render adds a target-compatible shared bridge & matching feature.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/platform-ui",
+      "status": "NA",
+      "rationale": "Render is a command-line Node/Python workflow, not a React/Tauri/browser UI target; no package manifest or @rightkit import routes this UI component.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/render/render.mjs",
+          "line": 24,
+          "detail": "Node entrypoint imports built-ins only; source census found no package manifest, React/Tauri/web target, or @rightkit import."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None unless Render adds a target-compatible shared bridge & matching feature.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/qa",
+      "status": "NA",
+      "rationale": "No tracked production QA runner/config imports this package; excluded tests/fixtures & untracked test files do not establish an active shared route.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/render/render.mjs",
+          "line": 24,
+          "detail": "Node entrypoint imports built-ins only; source census found no package manifest, React/Tauri/web target, or @rightkit import."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None unless Render adds a target-compatible shared bridge & matching feature.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/qa-chrome",
+      "status": "NA",
+      "rationale": "No tracked production QA runner/config imports this package; excluded tests/fixtures & untracked test files do not establish an active shared route.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/render/render.mjs",
+          "line": 24,
+          "detail": "Node entrypoint imports built-ins only; source census found no package manifest, React/Tauri/web target, or @rightkit import."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None unless Render adds a target-compatible shared bridge & matching feature.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/release",
+      "status": "NA",
+      "rationale": "No Render release config, package manifest, or right-release caller exists; renderer commands are local production tools, not release tooling.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/render/render.mjs",
+          "line": 24,
+          "detail": "Node entrypoint imports built-ins only; source census found no package manifest, React/Tauri/web target, or @rightkit import."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None unless Render adds a target-compatible shared bridge & matching feature.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/settings-ui",
+      "status": "NA",
+      "rationale": "Render is a command-line Node/Python workflow, not a React/Tauri/browser UI target; no package manifest or @rightkit import routes this UI component.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/render/render.mjs",
+          "line": 24,
+          "detail": "Node entrypoint imports built-ins only; source census found no package manifest, React/Tauri/web target, or @rightkit import."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None unless Render adds a target-compatible shared bridge & matching feature.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/shell",
+      "status": "NA",
+      "rationale": "Render is a command-line Node/Python workflow, not a React/Tauri/browser UI target; no package manifest or @rightkit import routes this UI component.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/render/render.mjs",
+          "line": 24,
+          "detail": "Node entrypoint imports built-ins only; source census found no package manifest, React/Tauri/web target, or @rightkit import."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None unless Render adds a target-compatible shared bridge & matching feature.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/tauri",
+      "status": "NA",
+      "rationale": "Render is a command-line Node/Python workflow, not a React/Tauri/browser UI target; no package manifest or @rightkit import routes this UI component.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/render/render.mjs",
+          "line": 24,
+          "detail": "Node entrypoint imports built-ins only; source census found no package manifest, React/Tauri/web target, or @rightkit import."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None unless Render adds a target-compatible shared bridge & matching feature.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/theme",
+      "status": "NA",
+      "rationale": "Render is a command-line Node/Python workflow, not a React/Tauri/browser UI target; no package manifest or @rightkit import routes this UI component.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/render/render.mjs",
+          "line": 24,
+          "detail": "Node entrypoint imports built-ins only; source census found no package manifest, React/Tauri/web target, or @rightkit import."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None unless Render adds a target-compatible shared bridge & matching feature.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/update",
+      "status": "NA",
+      "rationale": "No Render dependency-updater config, package manifest, or right-update caller exists; CAD requirements are external tool pins, but no updater integration is implemented.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/render/render.mjs",
+          "line": 24,
+          "detail": "Node entrypoint imports built-ins only; source census found no package manifest, React/Tauri/web target, or @rightkit import."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None unless Render adds a target-compatible shared bridge & matching feature.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/updates",
+      "status": "NA",
+      "rationale": "No active Render target can call this component: standalone Node/Python/host-renderer tooling has no compatible package target, FFI, JSON-line, or service bridge. Component feature is outside this runtime scope.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/render/render.mjs",
+          "line": 24,
+          "detail": "Node entrypoint imports built-ins only; source census found no package manifest, React/Tauri/web target, or @rightkit import."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None unless Render adds a target-compatible shared bridge & matching feature.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitLicense",
+      "status": "NA",
+      "rationale": "Render has Node/Python/host-renderer targets only; no Swift or Apple target, package dependency, or bridge exposes this component.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/render/cad.py",
+          "line": 1,
+          "detail": "Active bounded CAD entrypoint is Python; source census found no Swift target, Package.swift, or RightKitSwift import."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None unless Render adds a target-compatible shared bridge & matching feature.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitDiagnostics",
+      "status": "NA",
+      "rationale": "Render has Node/Python/host-renderer targets only; no Swift or Apple target, package dependency, or bridge exposes this component.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/render/cad.py",
+          "line": 1,
+          "detail": "Active bounded CAD entrypoint is Python; source census found no Swift target, Package.swift, or RightKitSwift import."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None unless Render adds a target-compatible shared bridge & matching feature.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitArtifacts",
+      "status": "NA",
+      "rationale": "Render has Node/Python/host-renderer targets only; no Swift or Apple target, package dependency, or bridge exposes this component.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/render/cad.py",
+          "line": 1,
+          "detail": "Active bounded CAD entrypoint is Python; source census found no Swift target, Package.swift, or RightKitSwift import."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None unless Render adds a target-compatible shared bridge & matching feature.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitPurchases",
+      "status": "NA",
+      "rationale": "Render has Node/Python/host-renderer targets only; no Swift or Apple target, package dependency, or bridge exposes this component.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/render/cad.py",
+          "line": 1,
+          "detail": "Active bounded CAD entrypoint is Python; source census found no Swift target, Package.swift, or RightKitSwift import."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None unless Render adds a target-compatible shared bridge & matching feature.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitCloudSync",
+      "status": "NA",
+      "rationale": "Render has Node/Python/host-renderer targets only; no Swift or Apple target, package dependency, or bridge exposes this component.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/render/cad.py",
+          "line": 1,
+          "detail": "Active bounded CAD entrypoint is Python; source census found no Swift target, Package.swift, or RightKitSwift import."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None unless Render adds a target-compatible shared bridge & matching feature.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitStore",
+      "status": "NA",
+      "rationale": "Render has Node/Python/host-renderer targets only; no Swift or Apple target, package dependency, or bridge exposes this component.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/render/cad.py",
+          "line": 1,
+          "detail": "Active bounded CAD entrypoint is Python; source census found no Swift target, Package.swift, or RightKitSwift import."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None unless Render adds a target-compatible shared bridge & matching feature.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitImportQueue",
+      "status": "NA",
+      "rationale": "Render has Node/Python/host-renderer targets only; no Swift or Apple target, package dependency, or bridge exposes this component.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/render/cad.py",
+          "line": 1,
+          "detail": "Active bounded CAD entrypoint is Python; source census found no Swift target, Package.swift, or RightKitSwift import."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None unless Render adds a target-compatible shared bridge & matching feature.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitLiveActivity",
+      "status": "NA",
+      "rationale": "Render has Node/Python/host-renderer targets only; no Swift or Apple target, package dependency, or bridge exposes this component.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/render/cad.py",
+          "line": 1,
+          "detail": "Active bounded CAD entrypoint is Python; source census found no Swift target, Package.swift, or RightKitSwift import."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None unless Render adds a target-compatible shared bridge & matching feature.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitWatchBridge",
+      "status": "NA",
+      "rationale": "Render has Node/Python/host-renderer targets only; no Swift or Apple target, package dependency, or bridge exposes this component.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/render/cad.py",
+          "line": 1,
+          "detail": "Active bounded CAD entrypoint is Python; source census found no Swift target, Package.swift, or RightKitSwift import."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None unless Render adds a target-compatible shared bridge & matching feature.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitSpeech",
+      "status": "NA",
+      "rationale": "Render has Node/Python/host-renderer targets only; no Swift or Apple target, package dependency, or bridge exposes this component.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/render/cad.py",
+          "line": 1,
+          "detail": "Active bounded CAD entrypoint is Python; source census found no Swift target, Package.swift, or RightKitSwift import."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None unless Render adds a target-compatible shared bridge & matching feature.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitIntents",
+      "status": "NA",
+      "rationale": "Render has Node/Python/host-renderer targets only; no Swift or Apple target, package dependency, or bridge exposes this component.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/render/cad.py",
+          "line": 1,
+          "detail": "Active bounded CAD entrypoint is Python; source census found no Swift target, Package.swift, or RightKitSwift import."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None unless Render adds a target-compatible shared bridge & matching feature.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitAppleCredentials",
+      "status": "NA",
+      "rationale": "Render has Node/Python/host-renderer targets only; no Swift or Apple target, package dependency, or bridge exposes this component.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/render/cad.py",
+          "line": 1,
+          "detail": "Active bounded CAD entrypoint is Python; source census found no Swift target, Package.swift, or RightKitSwift import."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None unless Render adds a target-compatible shared bridge & matching feature.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitOverlay",
+      "status": "NA",
+      "rationale": "Render has Node/Python/host-renderer targets only; no Swift or Apple target, package dependency, or bridge exposes this component.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/render/cad.py",
+          "line": 1,
+          "detail": "Active bounded CAD entrypoint is Python; source census found no Swift target, Package.swift, or RightKitSwift import."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None unless Render adds a target-compatible shared bridge & matching feature.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitWatch",
+      "status": "NA",
+      "rationale": "Render has Node/Python/host-renderer targets only; no Swift or Apple target, package dependency, or bridge exposes this component.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/render/cad.py",
+          "line": 1,
+          "detail": "Active bounded CAD entrypoint is Python; source census found no Swift target, Package.swift, or RightKitSwift import."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None unless Render adds a target-compatible shared bridge & matching feature.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitUI",
+      "status": "NA",
+      "rationale": "Render has Node/Python/host-renderer targets only; no Swift or Apple target, package dependency, or bridge exposes this component.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/render/cad.py",
+          "line": 1,
+          "detail": "Active bounded CAD entrypoint is Python; source census found no Swift target, Package.swift, or RightKitSwift import."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None unless Render adds a target-compatible shared bridge & matching feature.",
+      "confidence": "high"
+    }
+  ],
+  "searches": [
+    {
+      "pattern": "@rightkit|rightkit",
+      "scope": "tracked Node/Python source excluding .venv/assets/tests/fixtures",
+      "result": "no production import, manifest, FFI, JSON-lines, HTTP service, or bridge call found"
+    },
+    {
+      "pattern": "Cargo.toml|package.json|Package.swift|pyproject.toml",
+      "scope": "tracked Render root",
+      "result": "no active Cargo, Node package, Swift package, or Python project manifest found; cad_engine has pinned requirements only"
+    },
+    {
+      "pattern": "ffmpeg|spawn|subprocess",
+      "scope": "tracked Node/Python source",
+      "result": "direct Node ffmpeg/Blender/KeyShot & Python CAD worker process calls; no RightKit media/process API route"
+    }
+  ],
+  "self_review": "Challenged potential local duplicates: encode.mjs PATH ffmpeg is not rightkit-media/playback because owner APIs are Rust libraries with verified-artifact/typed contracts & no Node/Python bridge; Blender compositor/animation is not rightkit-compose's RK9 evaluator; direct child-process/subprocess calls do not provide rightkit-process/sandbox lifecycle compatibility. Rechecked UI, Node package, & Swift rows against absent package/UI/Swift targets. All 97 remain NA with target-specific evidence."
+}
+
+

@@ -1,0 +1,53 @@
+{
+  "checked_at": "2026-10-11T03:08:23.693458+00:00",
+  "rows": 97,
+  "apps": 29,
+  "cells": 2813,
+  "counts": {
+    "NA": 2401,
+    "Y": 236,
+    "N": 164,
+    "M": 12
+  },
+  "checks": [
+    "29 app JSON payloads match assembled matrix",
+    "CSV round-trip all 2813 cells",
+    "XLSX round-trip all 2813 cells performed by builder",
+    "29 handoff files exist"
+  ],
+  "hashes": {
+    "matrix.json": "6a0a7bdbd6b50383f8b5f86604687551c15b5645be5e34b19a508f31d97593e7",
+    "matrix.csv": "2bedc6364c84dae9e487460f6de990dc728c11484368b0f4b3b9631953be2aaa",
+    "matrix.html": "1da8a5abf7f21349e4bda4c3f2da9e65ec45d49c94af671036fe78cc2851161e",
+    "rightkit-cutover-matrix.xlsx": "1fd3e47fe273dfcda97764b0eefb3a456cf40f2c726476d32603a16606eb8313",
+    "apps/coderight.json": "3d458ddde3eeba29bc1ee7e0b2198a954c0d3813da8a1fd9148d7f7b7dc163bf",
+    "apps/cutright.json": "b5fea2c8e77f89d49383027200e3745ee86fa90b09842acef5db4654952186af",
+    "apps/ember.json": "e9d779d1b60498ed29e5535bfc47bb533c3405f33665c8135cb0a8587315fada",
+    "apps/genright.json": "5773b80e239159fd7be392f708b2820ab5fcd7697a9fd6f4fd192e422257c30b",
+    "apps/groundwork.json": "5143bc3801e667c215ac9c22159e2517b71a26748608896eac2b71f5f569970a",
+    "apps/heardright.json": "2d2dd1b8ccc4adc0dad861f4e3483a88e1550fedf60a132e6ac0fb68ed7dfb0a",
+    "apps/kdp.json": "93b7327af7c49ce76acadbb8eeb763dd24ec0e98e12ddfdf07ac011793c49eae",
+    "apps/legion.json": "753f689a593c24c42df5da8fdfd89a4e871ac36d2387895de551010944fe785e",
+    "apps/lightcraft.json": "c1355235793454ce7fea04cc0c3dfa3b18238934fa69335fe4a513112df96d3e",
+    "apps/mailright.json": "38ba304095507cb918d3ddd68ad4f29eae0a8d12c76b0384bc0d87288031095c",
+    "apps/membrane.json": "8708e6b7f187a6e3958e3fc6cc6db2abb06ee8ec59d4f8dc8cc0b8800a4ad3ec",
+    "apps/postright.json": "55c5ed80cdefcf3f151166630a183fcfa88f058f92b4c0783b52afe7a9c19971",
+    "apps/pulse.json": "2dab369000c921e828a313def7506b3d6da3c869b3dc22dc39b03e4e58a7cd67",
+    "apps/render.json": "ab7a35bccef1339220344491ac9395b157415021636f85f418625837aff54824",
+    "apps/rhook.json": "a808867b3471e32c4e7af86574e7f4b5011c87118dead284a09286ded47578a3",
+    "apps/rightsites.json": "43c8d54ad2c890ff510b48b873c051353ee3ef88b4b490e4723a9afe2f18976f",
+    "apps/rustright.json": "6e0b4bccb234c85db9ca593e5ef1b3d9bfe0556aabc62052c59b425d8bd7e44c",
+    "apps/scraperight.json": "8b9c669b931ac40b5f877c34045008751e19e3058d8b5b187f96e60282506e22",
+    "apps/screenright.json": "c9b676ef9138aff2aaa245e25e777d825da199bea8de947f4c4990db13793dda",
+    "apps/sellright.json": "cdc9a5c737b7cffd69c041efa377536cfd83b06e29646067307d205884630b25",
+    "apps/seo-ops.json": "cd6692317a0e8bec3883885ffd98600395fd725669b4a57bd87649bcbb7d1154",
+    "apps/seo.json": "33e82707831d2554677e070b2f940c07adf677b38ab8c97ad8a30cb415888efc",
+    "apps/swiftright.json": "72df73958098881f1876c969716ea8cb2123b059cd48aed8ab830fd47fd94116",
+    "apps/viewright.json": "15c71a86206198e4b5a06cad47daa5593d10c374dff282dc3958cd6bd89034d3",
+    "apps/voiceright.json": "2d97e985c7992be5c1c56c16422904b057b347af3117b880d473192f4635543c",
+    "apps/waitlist.json": "08a8464229e9116c3180014bfe2eda30a24d1732535a2fe175128314d47fad76",
+    "apps/workright.json": "3ad29abdc92c74c8ac8a8366c1d9e326ce5c76275b63dd5ce6fb79b2a381ad7b",
+    "apps/workspace-tools.json": "90c1a66ca76d290491bcb82c5c117f3ddf176a870f6d59b81a580ae72819077d",
+    "apps/xtool.json": "bfa0a9d73be7f9a1168917c1503a36b3ec7bf7bb0d1e717a650cf702902eed47"
+  }
+}

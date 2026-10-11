@@ -1,0 +1,2332 @@
+{
+  "app": "ViewRight",
+  "root": "/Volumes/D/claude/viewright",
+  "head": "ea6bc90f27f277ffd063c42b605c599b902db374",
+  "reviewed_at": "2026-10-11T02:54:31Z",
+  "targets": [
+    "desktop",
+    "macos",
+    "windows"
+  ],
+  "scope_note": "Fresh current-source/config audit of backend, renderer, PDF/OCR reader paths, QA/release scripts, and manifests. Generated bundles, caches, node_modules, vendored dependencies, prior audits, and installed behavior excluded; no execution qualification implied.",
+  "cells": [
+    {
+      "component_id": "cargo:agent-room-core",
+      "status": "NA",
+      "rationale": "NA: private agent-room server not part of runtime",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/viewright/src-tauri/Cargo.toml",
+          "line": 24,
+          "symbol": "package viewright",
+          "detail": "desktop Rust/Tauri target"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none (inapplicable)",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-agent-tools",
+      "status": "NA",
+      "rationale": "NA: agent CLI not shipped",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/viewright/src-tauri/Cargo.toml",
+          "line": 24,
+          "symbol": "package viewright",
+          "detail": "desktop Rust/Tauri target"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none (inapplicable)",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-align",
+      "status": "NA",
+      "rationale": "NA: speech alignment irrelevant",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/viewright/src-tauri/Cargo.toml",
+          "line": 24,
+          "symbol": "package viewright",
+          "detail": "desktop Rust/Tauri target"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none (inapplicable)",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-asr",
+      "status": "NA",
+      "rationale": "NA: speech decoding absent",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/viewright/src-tauri/Cargo.toml",
+          "line": 24,
+          "symbol": "package viewright",
+          "detail": "desktop Rust/Tauri target"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none (inapplicable)",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-audio",
+      "status": "NA",
+      "rationale": "NA: audio pipeline absent",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/viewright/src-tauri/Cargo.toml",
+          "line": 24,
+          "symbol": "package viewright",
+          "detail": "desktop Rust/Tauri target"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none (inapplicable)",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-automation",
+      "status": "NA",
+      "rationale": "NA: automation runtime not production dependency",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/viewright/src-tauri/Cargo.toml",
+          "line": 24,
+          "symbol": "package viewright",
+          "detail": "desktop Rust/Tauri target"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none (inapplicable)",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-browser",
+      "status": "NA",
+      "rationale": "NA: shared CDP runtime not shipped",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/viewright/src-tauri/Cargo.toml",
+          "line": 24,
+          "symbol": "package viewright",
+          "detail": "desktop Rust/Tauri target"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none (inapplicable)",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-cache",
+      "status": "NA",
+      "rationale": "NA: cache API/prompt workload absent",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/viewright/src-tauri/Cargo.toml",
+          "line": 24,
+          "symbol": "package viewright",
+          "detail": "desktop Rust/Tauri target"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none (inapplicable)",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-channel-memory",
+      "status": "NA",
+      "rationale": "NA: content-pipeline memory irrelevant",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/viewright/src-tauri/Cargo.toml",
+          "line": 24,
+          "symbol": "package viewright",
+          "detail": "desktop Rust/Tauri target"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none (inapplicable)",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-compose",
+      "status": "NA",
+      "rationale": "NA: video composition irrelevant",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/viewright/src-tauri/Cargo.toml",
+          "line": 24,
+          "symbol": "package viewright",
+          "detail": "desktop Rust/Tauri target"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none (inapplicable)",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-contracts",
+      "status": "NA",
+      "rationale": "NA: content-pipeline contracts absent",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/viewright/src-tauri/Cargo.toml",
+          "line": 24,
+          "symbol": "package viewright",
+          "detail": "desktop Rust/Tauri target"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none (inapplicable)",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-control",
+      "status": "Y",
+      "rationale": "Y for optional native QA target only.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/viewright/src-tauri/src/lib.rs",
+          "line": 245,
+          "symbol": "rightkit_control::embedded::Control",
+          "detail": "hidden native QA -> shared control server"
+        }
+      ],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/viewright/src-tauri/Cargo.toml",
+          "line": 24,
+          "symbol": "package viewright",
+          "detail": "desktop Rust/Tauri target"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "Adopted 0.1.11; catalog 0.2.0; qualify QA before bump."
+      ],
+      "remaining_work": "Adopted 0.1.11; catalog 0.2.0; qualify QA before bump.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-crash",
+      "status": "N",
+      "rationale": "N; crash capture is local; migrate only if shared reports replace policy.",
+      "shared_evidence": [],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/viewright/src-tauri/src/lib.rs",
+          "line": 179,
+          "symbol": "std::panic::set_hook",
+          "detail": "local panic capture"
+        }
+      ],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/viewright/src-tauri/Cargo.toml",
+          "line": 24,
+          "symbol": "package viewright",
+          "detail": "desktop Rust/Tauri target"
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-crash/src/lib.rs",
+          "line": 1,
+          "symbol": "install_panic_hook",
+          "detail": "shared redacted panic API"
+        }
+      ],
+      "delivery_flags": [],
+      "remaining_work": "N; crash capture is local; migrate only if shared reports replace policy.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-daemon",
+      "status": "NA",
+      "rationale": "NA: resident daemon absent",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/viewright/src-tauri/Cargo.toml",
+          "line": 24,
+          "symbol": "package viewright",
+          "detail": "desktop Rust/Tauri target"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none (inapplicable)",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-db",
+      "status": "NA",
+      "rationale": "NA: no applicable production route found",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/viewright/src-tauri/Cargo.toml",
+          "line": 24,
+          "symbol": "package viewright",
+          "detail": "desktop Rust/Tauri target"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none (inapplicable)",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-embed",
+      "status": "NA",
+      "rationale": "NA: embeddings absent",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/viewright/src-tauri/Cargo.toml",
+          "line": 24,
+          "symbol": "package viewright",
+          "detail": "desktop Rust/Tauri target"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none (inapplicable)",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-framed-sidecar",
+      "status": "N",
+      "rationale": "N; OCR framing/supervision is local; migrate after protocol proof.",
+      "shared_evidence": [],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/viewright/src-tauri/src/ocr_worker.rs",
+          "line": 11,
+          "symbol": "WorkerResponse",
+          "detail": "local JSON-lines protocol"
+        }
+      ],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/viewright/src-tauri/Cargo.toml",
+          "line": 24,
+          "symbol": "package viewright",
+          "detail": "desktop Rust/Tauri target"
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-framed-sidecar/src/lib.rs",
+          "line": 1,
+          "symbol": "read_json_line/write_json_line",
+          "detail": "shared bounded framing"
+        }
+      ],
+      "delivery_flags": [],
+      "remaining_work": "N; OCR framing/supervision is local; migrate after protocol proof.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-fs",
+      "status": "N",
+      "rationale": "N; local atomic saves overlap shared fs; preserve broker/recovery.",
+      "shared_evidence": [],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/viewright/src-tauri/src/documents.rs",
+          "line": 416,
+          "symbol": "write_binary_with_backup",
+          "detail": "local atomic save"
+        }
+      ],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/viewright/src-tauri/Cargo.toml",
+          "line": 24,
+          "symbol": "package viewright",
+          "detail": "desktop Rust/Tauri target"
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-fs/src/lib.rs",
+          "line": 45,
+          "symbol": "atomic_write",
+          "detail": "shared filesystem"
+        }
+      ],
+      "delivery_flags": [],
+      "remaining_work": "N; local atomic saves overlap shared fs; preserve broker/recovery.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-fsindex",
+      "status": "NA",
+      "rationale": "NA: whole-disk index absent",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/viewright/src-tauri/Cargo.toml",
+          "line": 24,
+          "symbol": "package viewright",
+          "detail": "desktop Rust/Tauri target"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none (inapplicable)",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-hotkeys",
+      "status": "NA",
+      "rationale": "NA: global hotkey hook absent",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/viewright/src-tauri/Cargo.toml",
+          "line": 24,
+          "symbol": "package viewright",
+          "detail": "desktop Rust/Tauri target"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none (inapplicable)",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-http",
+      "status": "Y",
+      "rationale": "Y; license refresh uses shared HTTP.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/viewright/src-tauri/src/commands/license.rs",
+          "line": 766,
+          "symbol": "rightkit_http::Client::new",
+          "detail": "license refresh -> shared bounded HTTP"
+        }
+      ],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/viewright/src-tauri/Cargo.toml",
+          "line": 24,
+          "symbol": "package viewright",
+          "detail": "desktop Rust/Tauri target"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "Adopted 0.2.5; catalog 0.3.0; qualify before bump."
+      ],
+      "remaining_work": "Adopted 0.2.5; catalog 0.3.0; qualify before bump.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-jobs",
+      "status": "NA",
+      "rationale": "NA: durable job runner absent",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/viewright/src-tauri/Cargo.toml",
+          "line": 24,
+          "symbol": "package viewright",
+          "detail": "desktop Rust/Tauri target"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none (inapplicable)",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-license",
+      "status": "Y",
+      "rationale": "Y; native boundary uses shared signed-token verifier.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/viewright/src-tauri/src/commands/license.rs",
+          "line": 382,
+          "symbol": "rightkit_license::verify_token",
+          "detail": "native license -> shared signed verifier"
+        }
+      ],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/viewright/src-tauri/Cargo.toml",
+          "line": 24,
+          "symbol": "package viewright",
+          "detail": "desktop Rust/Tauri target"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-llm",
+      "status": "NA",
+      "rationale": "NA: LLM path absent",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/viewright/src-tauri/Cargo.toml",
+          "line": 24,
+          "symbol": "package viewright",
+          "detail": "desktop Rust/Tauri target"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none (inapplicable)",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-logs",
+      "status": "Y",
+      "rationale": "Y; native diagnostics route through shared logs.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/viewright/src-tauri/src/logs.rs",
+          "line": 183,
+          "symbol": "rightkit_logs_write",
+          "detail": "Tauri diagnostics IPC -> shared writer"
+        }
+      ],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/viewright/src-tauri/Cargo.toml",
+          "line": 24,
+          "symbol": "package viewright",
+          "detail": "desktop Rust/Tauri target"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "Adopted 0.2.1; catalog 0.2.2; qualify before bump."
+      ],
+      "remaining_work": "Adopted 0.2.1; catalog 0.2.2; qualify before bump.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-mcp",
+      "status": "NA",
+      "rationale": "NA: MCP path absent",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/viewright/src-tauri/Cargo.toml",
+          "line": 24,
+          "symbol": "package viewright",
+          "detail": "desktop Rust/Tauri target"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none (inapplicable)",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-media",
+      "status": "NA",
+      "rationale": "NA: FFmpeg pipeline absent",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/viewright/src-tauri/Cargo.toml",
+          "line": 24,
+          "symbol": "package viewright",
+          "detail": "desktop Rust/Tauri target"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none (inapplicable)",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-models",
+      "status": "NA",
+      "rationale": "NA: native OCR only; model installer absent",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/viewright/src-tauri/Cargo.toml",
+          "line": 24,
+          "symbol": "package viewright",
+          "detail": "desktop Rust/Tauri target"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none (inapplicable)",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-oauth",
+      "status": "NA",
+      "rationale": "NA: no applicable production route found",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/viewright/src-tauri/Cargo.toml",
+          "line": 24,
+          "symbol": "package viewright",
+          "detail": "desktop Rust/Tauri target"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none (inapplicable)",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-ocr",
+      "status": "Y",
+      "rationale": "Y; OCR reaches published Vision/Windows.Media backend; worker is wrapper.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/viewright/src-tauri/src/ocr_backend.rs",
+          "line": 23,
+          "symbol": "rightkit_ocr::vision::recognize_once",
+          "detail": "PDF page -> native recognition"
+        }
+      ],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/viewright/src-tauri/Cargo.toml",
+          "line": 24,
+          "symbol": "package viewright",
+          "detail": "desktop Rust/Tauri target"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "Adopted 0.2.0; catalog 0.2.1; qualify before bump."
+      ],
+      "remaining_work": "Adopted 0.2.0; catalog 0.2.1; qualify before bump.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-ort",
+      "status": "NA",
+      "rationale": "NA: ONNX route absent",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/viewright/src-tauri/Cargo.toml",
+          "line": 24,
+          "symbol": "package viewright",
+          "detail": "desktop Rust/Tauri target"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none (inapplicable)",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-overlay",
+      "status": "NA",
+      "rationale": "NA: rightkit-overlay owns status/notch overlay policy; ViewRight's PDF page-slot editor is a separate document surface.",
+      "shared_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/viewright/src/documents/pdf/PdfInlineTextEditor.tsx",
+          "line": 141,
+          "symbol": "appearanceToStyle",
+          "detail": "PDF page-slot editor geometry, not shared status/notch overlay runtime"
+        }
+      ],
+      "delivery_flags": [],
+      "remaining_work": "none (inapplicable)",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-ownership",
+      "status": "NA",
+      "rationale": "NA: ownership scanner absent",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/viewright/src-tauri/Cargo.toml",
+          "line": 24,
+          "symbol": "package viewright",
+          "detail": "desktop Rust/Tauri target"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none (inapplicable)",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-pdf",
+      "status": "Y",
+      "rationale": "Y; PDF backend reaches published engine; path authorization/commit remain app-owned.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/viewright/src-tauri/src/commands/pdf_adapter.rs",
+          "line": 19,
+          "symbol": "rightkit_pdf::compose",
+          "detail": "PDF adapter -> inspect/compose/save engine"
+        }
+      ],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/viewright/src-tauri/Cargo.toml",
+          "line": 24,
+          "symbol": "package viewright",
+          "detail": "desktop Rust/Tauri target"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "Adopted 0.2.0; catalog 0.2.1; qualify before bump."
+      ],
+      "remaining_work": "Adopted 0.2.0; catalog 0.2.1; qualify before bump.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-playback",
+      "status": "NA",
+      "rationale": "NA: media playback absent",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/viewright/src-tauri/Cargo.toml",
+          "line": 24,
+          "symbol": "package viewright",
+          "detail": "desktop Rust/Tauri target"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none (inapplicable)",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-process",
+      "status": "N",
+      "rationale": "N; local OCR supervision; migrate only if deadlines remain.",
+      "shared_evidence": [],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/viewright/src-tauri/src/ocr_worker.rs",
+          "line": 243,
+          "symbol": "Command::new(...).spawn",
+          "detail": "local OCR supervision"
+        }
+      ],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/viewright/src-tauri/Cargo.toml",
+          "line": 24,
+          "symbol": "package viewright",
+          "detail": "desktop Rust/Tauri target"
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-process/src/lib.rs",
+          "line": 1,
+          "symbol": "OwnedCommand/OwnedChild",
+          "detail": "shared child lifecycle"
+        }
+      ],
+      "delivery_flags": [],
+      "remaining_work": "N; local OCR supervision; migrate only if deadlines remain.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-qa",
+      "status": "Y",
+      "rationale": "Y; native PDF-edit QA is a live tooling caller of rightkit-qa Control, Harness, and workspace APIs; its ViewRight-specific scenario is an adapter, not a competing harness.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/viewright/src-tauri/qa-e2e/tests/pdf_edit.rs",
+          "line": 20,
+          "symbol": "rightkit_qa::control::{Control, LaunchSpec, Mode}",
+          "detail": "native PDF-edit test imports shared hidden-app control API"
+        },
+        {
+          "path": "/Volumes/D/claude/viewright/src-tauri/qa-e2e/tests/pdf_edit.rs",
+          "line": 478,
+          "symbol": "Harness::new",
+          "detail": "test runs ViewRight scenario through shared tiering, evidence, workspace, and process lifecycle"
+        }
+      ],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/viewright/src-tauri/Cargo.toml",
+          "line": 24,
+          "symbol": "package viewright",
+          "detail": "desktop Rust/Tauri target"
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-qa/src/lib.rs",
+          "line": 30,
+          "symbol": "pub mod control/harness/workspace",
+          "detail": "owner exports exact Control, Harness, and workspace modules used by ViewRight"
+        }
+      ],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-qts",
+      "status": "NA",
+      "rationale": "NA: Qwen TTS irrelevant",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/viewright/src-tauri/Cargo.toml",
+          "line": 24,
+          "symbol": "package viewright",
+          "detail": "desktop Rust/Tauri target"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none (inapplicable)",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-qts-ggml",
+      "status": "NA",
+      "rationale": "NA: deprecated Qwen FFI irrelevant",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/viewright/src-tauri/Cargo.toml",
+          "line": 24,
+          "symbol": "package viewright",
+          "detail": "desktop Rust/Tauri target"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none (inapplicable)",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-qts-ggml-sys",
+      "status": "NA",
+      "rationale": "NA: Qwen FFI irrelevant",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/viewright/src-tauri/Cargo.toml",
+          "line": 24,
+          "symbol": "package viewright",
+          "detail": "desktop Rust/Tauri target"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none (inapplicable)",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-record",
+      "status": "NA",
+      "rationale": "NA: recorder irrelevant",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/viewright/src-tauri/Cargo.toml",
+          "line": 24,
+          "symbol": "package viewright",
+          "detail": "desktop Rust/Tauri target"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none (inapplicable)",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-review",
+      "status": "NA",
+      "rationale": "NA: content review irrelevant",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/viewright/src-tauri/Cargo.toml",
+          "line": 24,
+          "symbol": "package viewright",
+          "detail": "desktop Rust/Tauri target"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none (inapplicable)",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-sandbox",
+      "status": "NA",
+      "rationale": "NA: OS sandbox not HTML sandbox",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/viewright/src-tauri/Cargo.toml",
+          "line": 24,
+          "symbol": "package viewright",
+          "detail": "desktop Rust/Tauri target"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none (inapplicable)",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-scenario",
+      "status": "NA",
+      "rationale": "NA: scenario interpreter absent",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/viewright/src-tauri/Cargo.toml",
+          "line": 24,
+          "symbol": "package viewright",
+          "detail": "desktop Rust/Tauri target"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none (inapplicable)",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-search",
+      "status": "NA",
+      "rationale": "NA: no rightkit-search AST/FTS5; local literal find only",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/viewright/src-tauri/Cargo.toml",
+          "line": 24,
+          "symbol": "package viewright",
+          "detail": "desktop Rust/Tauri target"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none (inapplicable)",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-secrets",
+      "status": "Y",
+      "rationale": "Y; shared OS credential storage.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/viewright/src-tauri/src/commands/license.rs",
+          "line": 12,
+          "symbol": "rightkit_secrets::{Store,Secret}",
+          "detail": "license/device -> OS credential store"
+        }
+      ],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/viewright/src-tauri/Cargo.toml",
+          "line": 24,
+          "symbol": "package viewright",
+          "detail": "desktop Rust/Tauri target"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "Adopted 0.1.2; catalog 0.1.3; qualify before bump."
+      ],
+      "remaining_work": "Adopted 0.1.2; catalog 0.1.3; qualify before bump.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-send",
+      "status": "NA",
+      "rationale": "NA: nearby sharing irrelevant",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/viewright/src-tauri/Cargo.toml",
+          "line": 24,
+          "symbol": "package viewright",
+          "detail": "desktop Rust/Tauri target"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none (inapplicable)",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-service",
+      "status": "NA",
+      "rationale": "NA: service discovery absent",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/viewright/src-tauri/Cargo.toml",
+          "line": 24,
+          "symbol": "package viewright",
+          "detail": "desktop Rust/Tauri target"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none (inapplicable)",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-settings",
+      "status": "N",
+      "rationale": "N; schema/migrations/mirror local; preserve vr.settings.v1.",
+      "shared_evidence": [],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/viewright/src-tauri/src/commands/settings.rs",
+          "line": 13,
+          "symbol": "settings_get/settings_set",
+          "detail": "SQLite mirror"
+        }
+      ],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/viewright/src-tauri/Cargo.toml",
+          "line": 24,
+          "symbol": "package viewright",
+          "detail": "desktop Rust/Tauri target"
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-settings/src/lib.rs",
+          "line": 1,
+          "symbol": "Store/read_with_options",
+          "detail": "shared settings"
+        }
+      ],
+      "delivery_flags": [],
+      "remaining_work": "N; schema/migrations/mirror local; preserve vr.settings.v1.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-shell",
+      "status": "Y",
+      "rationale": "Y; shared shell plugin is called; app menu policy stays local.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/viewright/src-tauri/src/lib.rs",
+          "line": 237,
+          "symbol": "rightkit_shell::Shell::builder",
+          "detail": "Tauri builder -> shared shell plugin"
+        }
+      ],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/viewright/src-tauri/Cargo.toml",
+          "line": 24,
+          "symbol": "package viewright",
+          "detail": "desktop Rust/Tauri target"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "Adopted 0.1.4; catalog 0.3.0; qualify before bump."
+      ],
+      "remaining_work": "Adopted 0.1.4; catalog 0.3.0; qualify before bump.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-speech-client",
+      "status": "NA",
+      "rationale": "NA: no applicable production route found",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/viewright/src-tauri/Cargo.toml",
+          "line": 24,
+          "symbol": "package viewright",
+          "detail": "desktop Rust/Tauri target"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none (inapplicable)",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-sync",
+      "status": "NA",
+      "rationale": "NA: cloud sync absent",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/viewright/src-tauri/Cargo.toml",
+          "line": 24,
+          "symbol": "package viewright",
+          "detail": "desktop Rust/Tauri target"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none (inapplicable)",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-tauri",
+      "status": "Y",
+      "rationale": "Y; shared license/device adapters.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/viewright/src-tauri/src/commands/license.rs",
+          "line": 13,
+          "symbol": "rightkit_tauri::{DeviceService,SecureService}",
+          "detail": "license -> shared host adapters"
+        }
+      ],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/viewright/src-tauri/Cargo.toml",
+          "line": 24,
+          "symbol": "package viewright",
+          "detail": "desktop Rust/Tauri target"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "Adopted 0.1.2; catalog 0.1.3; qualify before bump."
+      ],
+      "remaining_work": "Adopted 0.1.2; catalog 0.1.3; qualify before bump.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-transcript",
+      "status": "NA",
+      "rationale": "NA: timed transcript irrelevant",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/viewright/src-tauri/Cargo.toml",
+          "line": 24,
+          "symbol": "package viewright",
+          "detail": "desktop Rust/Tauri target"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none (inapplicable)",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-tts",
+      "status": "NA",
+      "rationale": "NA: speech synthesis irrelevant",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/viewright/src-tauri/Cargo.toml",
+          "line": 24,
+          "symbol": "package viewright",
+          "detail": "desktop Rust/Tauri target"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none (inapplicable)",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-vad",
+      "status": "NA",
+      "rationale": "NA: voice activity absent",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/viewright/src-tauri/Cargo.toml",
+          "line": 24,
+          "symbol": "package viewright",
+          "detail": "desktop Rust/Tauri target"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none (inapplicable)",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-watch",
+      "status": "Y",
+      "rationale": "Y; watchers use shared types; app adds policy.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/viewright/src-tauri/src/watcher.rs",
+          "line": 6,
+          "symbol": "rightkit_watch::{FileSetWatcher,DirWatchSet}",
+          "detail": "document/explorer -> shared watcher"
+        }
+      ],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/viewright/src-tauri/Cargo.toml",
+          "line": 24,
+          "symbol": "package viewright",
+          "detail": "desktop Rust/Tauri target"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "Adopted 0.3.1; catalog 0.3.3; qualify before bump."
+      ],
+      "remaining_work": "Adopted 0.3.1; catalog 0.3.3; qualify before bump.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/agent-room-mcp",
+      "status": "NA",
+      "rationale": "NA: no applicable production route found",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/viewright/package.json",
+          "line": 4,
+          "symbol": "private",
+          "detail": "current private desktop npm manifest"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none (inapplicable)",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/app-shell",
+      "status": "Y",
+      "rationale": "Y; ToastViewport delegates live-region, subscription, timer, stack-cap, and dismissal lifecycle to shared shell component; ViewRight supplies row markup.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/viewright/src/app/ToastViewport.tsx",
+          "line": 46,
+          "symbol": "ShellToastViewport",
+          "detail": "ViewRight mounts shared ToastViewport with its bus and row renderer"
+        }
+      ],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/viewright/package.json",
+          "line": 4,
+          "symbol": "private",
+          "detail": "current private desktop npm manifest"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/ax",
+      "status": "NA",
+      "rationale": "NA: agent conformance surface absent",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/viewright/package.json",
+          "line": 4,
+          "symbol": "private",
+          "detail": "current private desktop npm manifest"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none (inapplicable)",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/build-control-policy",
+      "status": "NA",
+      "rationale": "NA: private internal build-control owner",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/viewright/package.json",
+          "line": 4,
+          "symbol": "private",
+          "detail": "current private desktop npm manifest"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none (inapplicable)",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/doc-render",
+      "status": "Y",
+      "rationale": "Y; shared Markdown plugins/detectors are called.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/viewright/src/documents/markdown/semanticBlocks.ts",
+          "line": 4,
+          "symbol": "buildDocRenderBlocks",
+          "detail": "Markdown -> shared detector"
+        }
+      ],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/viewright/package.json",
+          "line": 4,
+          "symbol": "private",
+          "detail": "current private desktop npm manifest"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/git",
+      "status": "NA",
+      "rationale": "NA: private app; no public workflow consumer",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/viewright/package.json",
+          "line": 4,
+          "symbol": "private",
+          "detail": "current private desktop npm manifest"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none (inapplicable)",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/hooks",
+      "status": "NA",
+      "rationale": "NA: agent lifecycle runtime absent",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/viewright/package.json",
+          "line": 4,
+          "symbol": "private",
+          "detail": "current private desktop npm manifest"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none (inapplicable)",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/i18n",
+      "status": "NA",
+      "rationale": "NA: no locale provider/catalog",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/viewright/package.json",
+          "line": 4,
+          "symbol": "private",
+          "detail": "current private desktop npm manifest"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none (inapplicable)",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/legal",
+      "status": "Y",
+      "rationale": "Y for legal/release tooling.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/viewright/scripts/check-legal-contracts.mjs",
+          "line": 10,
+          "symbol": "assertLegalManifest",
+          "detail": "legal QA -> shared contract"
+        }
+      ],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/viewright/package.json",
+          "line": 4,
+          "symbol": "private",
+          "detail": "current private desktop npm manifest"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/legal-ui",
+      "status": "Y",
+      "rationale": "Y; production gate renders shared UI.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/viewright/src/app/AppRoot.tsx",
+          "line": 161,
+          "symbol": "<LegalGate>",
+          "detail": "receipt -> shared gate"
+        }
+      ],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/viewright/package.json",
+          "line": 4,
+          "symbol": "private",
+          "detail": "current private desktop npm manifest"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "Adopted 0.2.1; catalog 0.2.2; qualify before bump."
+      ],
+      "remaining_work": "Adopted 0.2.1; catalog 0.2.2; qualify before bump.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/license",
+      "status": "Y",
+      "rationale": "Y; runtime license lifecycle uses shared client.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/viewright/src/state/updateLicense.ts",
+          "line": 213,
+          "symbol": "licenseClient",
+          "detail": "ViewRight mapper -> shared client"
+        }
+      ],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/viewright/package.json",
+          "line": 4,
+          "symbol": "private",
+          "detail": "current private desktop npm manifest"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "Adopted 0.1.8; catalog 0.2.0; qualify before bump."
+      ],
+      "remaining_work": "Adopted 0.1.8; catalog 0.2.0; qualify before bump.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/logs",
+      "status": "Y",
+      "rationale": "Y; renderer diagnostics call shared client.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/viewright/src/state/diagnostics.ts",
+          "line": 35,
+          "symbol": "sharedLogs",
+          "detail": "renderer event -> native shared logs"
+        }
+      ],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/viewright/package.json",
+          "line": 4,
+          "symbol": "private",
+          "detail": "current private desktop npm manifest"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/media-ui",
+      "status": "Y",
+      "rationale": "Y; image document renders shared UI.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/viewright/src/documents/ImageDocument.tsx",
+          "line": 81,
+          "symbol": "<RightKitImageViewer>",
+          "detail": "image adapter -> shared viewer/editor"
+        }
+      ],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/viewright/package.json",
+          "line": 4,
+          "symbol": "private",
+          "detail": "current private desktop npm manifest"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/onboarding",
+      "status": "NA",
+      "rationale": "NA: legal gate only; no ordered onboarding flow",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/viewright/package.json",
+          "line": 4,
+          "symbol": "private",
+          "detail": "current private desktop npm manifest"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none (inapplicable)",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/pdf-ui",
+      "status": "M",
+      "rationale": "M; shared PdfViewer/search/rendering APIs cover basic read-only viewing, while ViewRight still owns overlapping pdf.js rendering/search plus edit/native/OCR policy.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/viewright/src/documents/pdf/PdfThumbnails.tsx",
+          "line": 35,
+          "symbol": "thumbnailWindow",
+          "detail": "thumbnail rail calls shared virtualization range"
+        },
+        {
+          "path": "/Volumes/D/claude/viewright/src/documents/pdf/PdfThumbnails.tsx",
+          "line": 103,
+          "symbol": "boundedCanvasDpr",
+          "detail": "thumbnail canvas uses shared DPR helper via pdfShared"
+        },
+        {
+          "path": "/Volumes/D/claude/viewright/src/documents/pdf/usePdfDocumentLoader.ts",
+          "line": 164,
+          "symbol": "pdfWasmUrl",
+          "detail": "PDF loader calls shared decoder asset URL"
+        }
+      ],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/viewright/src/documents/pdf/PdfViewer.tsx",
+          "line": 886,
+          "symbol": "renderPage",
+          "detail": "app-owned basic page render lifecycle"
+        },
+        {
+          "path": "/Volumes/D/claude/viewright/src/documents/pdf/PdfViewer.tsx",
+          "line": 1036,
+          "symbol": "page.render",
+          "detail": "app-owned pdf.js page rasterization"
+        },
+        {
+          "path": "/Volumes/D/claude/viewright/src/documents/pdf/PdfViewer.tsx",
+          "line": 1153,
+          "symbol": "page.render",
+          "detail": "second app-owned raster path for display/bench render"
+        },
+        {
+          "path": "/Volumes/D/claude/viewright/src/documents/pdf/PdfViewer.tsx",
+          "line": 771,
+          "symbol": "usePdfSearch",
+          "detail": "app-owned search hook overlaps shared viewer search"
+        },
+        {
+          "path": "/Volumes/D/claude/viewright/src/documents/pdf/usePdfSearch.ts",
+          "line": 145,
+          "symbol": "findLiteralMatches",
+          "detail": "app-owned text matching/search model"
+        }
+      ],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/viewright/package.json",
+          "line": 4,
+          "symbol": "private",
+          "detail": "current private desktop npm manifest"
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/packages/pdf-ui/src/index.ts",
+          "line": 1,
+          "symbol": "PdfViewer/usePdfSearch",
+          "detail": "shared reader and search exports"
+        },
+        {
+          "path": "/Volumes/D/claude/rightkit/packages/pdf-ui/src/PdfViewer.tsx",
+          "line": 261,
+          "symbol": "renderPage",
+          "detail": "shared page rasterization/text layer implementation"
+        },
+        {
+          "path": "/Volumes/D/claude/rightkit/packages/pdf-ui/src/PdfViewer.tsx",
+          "line": 330,
+          "symbol": "find",
+          "detail": "shared basic find implementation"
+        },
+        {
+          "path": "/Volumes/D/claude/rightkit/packages/pdf-ui/src/types.ts",
+          "line": 46,
+          "symbol": "PdfSearchProvider",
+          "detail": "host adapter contract for custom find UI"
+        },
+        {
+          "path": "/Volumes/D/claude/rightkit/packages/pdf-ui/package.json",
+          "line": 4,
+          "symbol": "description",
+          "detail": "owner explicitly scopes package to brand-neutral read-only pdf.js viewer"
+        }
+      ],
+      "delivery_flags": [],
+      "remaining_work": "M; route read-only page rendering/search/thumbnail lifecycle through PdfViewer/usePdfSearch or document a host adapter boundary; retain edit mode, annotations, OCR overlays, and macOS PDFKit/native paths where shared read-only viewer cannot apply.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/platform-ui",
+      "status": "Y",
+      "rationale": "Y; ToastViewport uses shared default toast bus and shared platform primitives remain live renderer imports.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/viewright/src/app/ToastViewport.tsx",
+          "line": 47,
+          "symbol": "defaultToastBus",
+          "detail": "actual shared bus passed into mounted shared ToastViewport"
+        }
+      ],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/viewright/package.json",
+          "line": 4,
+          "symbol": "private",
+          "detail": "current private desktop npm manifest"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/qa",
+      "status": "N",
+      "rationale": "N; active browser QA uses ViewRight-owned raw CDP/session helpers and fake Tauri host rather than @rightkit/qa's browser session, evidence, and workspace APIs.",
+      "shared_evidence": [],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/viewright/scripts/qa-browser-functional-helpers.mjs",
+          "line": 91,
+          "symbol": "connect",
+          "detail": "local raw-CDP connection/session harness used by browser QA"
+        },
+        {
+          "path": "/Volumes/D/claude/viewright/scripts/qa-native-host.mjs",
+          "line": 78,
+          "symbol": "HOST_SOURCE built-in commands",
+          "detail": "local fake Tauri IPC host drives browser QA journeys"
+        }
+      ],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/viewright/package.json",
+          "line": 4,
+          "symbol": "private",
+          "detail": "current private desktop npm manifest"
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/packages/qa/src/index.ts",
+          "line": 12,
+          "symbol": "page/workspace/evidence exports",
+          "detail": "owner exports browser session, managed workspace, and evidence APIs"
+        },
+        {
+          "path": "/Volumes/D/claude/rightkit/packages/qa/src/page.ts",
+          "line": 43,
+          "symbol": "QaBrowserSession",
+          "detail": "shared CDP browser-session owner overlapping local connect helper"
+        }
+      ],
+      "delivery_flags": [],
+      "remaining_work": "Route generic CDP/session, workspace, and evidence lifecycle through @rightkit/qa; retain ViewRight-only fake Tauri IPC behavior as an adapter.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/qa-chrome",
+      "status": "Y",
+      "rationale": "Y for browser QA tooling.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/viewright/scripts/qa-browser-functional.mjs",
+          "line": 3,
+          "symbol": "launchChromeForTesting",
+          "detail": "browser QA -> shared launcher"
+        }
+      ],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/viewright/package.json",
+          "line": 4,
+          "symbol": "private",
+          "detail": "current private desktop npm manifest"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/release",
+      "status": "Y",
+      "rationale": "Y for release tooling.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/viewright/scripts/check-release-truth.mjs",
+          "line": 195,
+          "symbol": "@rightkit/release manifest",
+          "detail": "truth check -> shared release manifest"
+        }
+      ],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/viewright/package.json",
+          "line": 4,
+          "symbol": "private",
+          "detail": "current private desktop npm manifest"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "Adopted 0.2.151; catalog 0.2.153; qualify before bump."
+      ],
+      "remaining_work": "Adopted 0.2.151; catalog 0.2.153; qualify before bump.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/settings-ui",
+      "status": "N",
+      "rationale": "N; ViewRight owns active modal settings frame/navigation and Section/Segmented/Toggle controls; these overlap shared settings panel/group/row composition while app-specific sections, schema, and file-association policy stay app-owned.",
+      "shared_evidence": [],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/viewright/src/settings/SettingsPanel.tsx",
+          "line": 35,
+          "symbol": "SettingsPanel",
+          "detail": "active app-owned modal frame, navigation, and section selection"
+        },
+        {
+          "path": "/Volumes/D/claude/viewright/src/settings/SettingsPanelControls.tsx",
+          "line": 3,
+          "symbol": "Section",
+          "detail": "active local titled settings group primitive"
+        },
+        {
+          "path": "/Volumes/D/claude/viewright/src/settings/SettingsPanelControls.tsx",
+          "line": 23,
+          "symbol": "Segmented",
+          "detail": "active local settings control used by editor, privacy, and typography sections"
+        }
+      ],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/viewright/package.json",
+          "line": 4,
+          "symbol": "private",
+          "detail": "current private desktop npm manifest"
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/packages/settings-ui/src/index.ts",
+          "line": 4,
+          "symbol": "SettingsGroup/SettingRow exports",
+          "detail": "owner exports shared settings composition primitives matching local settings grouping"
+        },
+        {
+          "path": "/Volumes/D/claude/rightkit/packages/settings-ui/src/primitives.tsx",
+          "line": 6,
+          "symbol": "SettingsGroup",
+          "detail": "shared titled settings-group primitive overlaps local Section"
+        },
+        {
+          "path": "/Volumes/D/claude/rightkit/packages/settings-ui/src/primitives.tsx",
+          "line": 27,
+          "symbol": "SettingRow",
+          "detail": "shared label/description/control-row primitive available for local settings sections"
+        }
+      ],
+      "delivery_flags": [],
+      "remaining_work": "Adopt shared settings frame/group/row where compatible; retain ViewRight schema, migrations, sections, and platform file-association policy.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/shell",
+      "status": "N",
+      "rationale": "N; direct menu bridge local; compare semantics before adoption.",
+      "shared_evidence": [],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/viewright/src/app/shell/nativeMenu.ts",
+          "line": 18,
+          "symbol": "useNativeDocumentMenu",
+          "detail": "local menu policy"
+        }
+      ],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/viewright/package.json",
+          "line": 4,
+          "symbol": "private",
+          "detail": "current private desktop npm manifest"
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/packages/shell/package.json",
+          "line": 1,
+          "symbol": "@rightkit/shell",
+          "detail": "typed renderer bridge"
+        }
+      ],
+      "delivery_flags": [],
+      "remaining_work": "N; direct menu bridge local; compare semantics before adoption.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/tauri",
+      "status": "Y",
+      "rationale": "Y; renderer IPC uses shared adapter.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/viewright/src/state/tauriBridge.ts",
+          "line": 9,
+          "symbol": "createViewRightTauriClient",
+          "detail": "renderer IPC -> typed adapter"
+        }
+      ],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/viewright/package.json",
+          "line": 4,
+          "symbol": "private",
+          "detail": "current private desktop npm manifest"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/theme",
+      "status": "Y",
+      "rationale": "Y; app theme policy calls shared token application.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/viewright/src/settings/settings.tsx",
+          "line": 332,
+          "symbol": "applyTokens",
+          "detail": "resolved theme -> shared token writer"
+        }
+      ],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/viewright/package.json",
+          "line": 4,
+          "symbol": "private",
+          "detail": "current private desktop npm manifest"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/update",
+      "status": "NA",
+      "rationale": "NA: dependency updater; runtime uses updates",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/viewright/package.json",
+          "line": 4,
+          "symbol": "private",
+          "detail": "current private desktop npm manifest"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none (inapplicable)",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/updates",
+      "status": "Y",
+      "rationale": "Y; runtime checks route through shared helper.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/viewright/src/state/updateLicense.ts",
+          "line": 488,
+          "symbol": "createViewRightUpdateClient",
+          "detail": "update adapter -> shared policy"
+        }
+      ],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/viewright/package.json",
+          "line": 4,
+          "symbol": "private",
+          "detail": "current private desktop npm manifest"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitLicense",
+      "status": "NA",
+      "rationale": "NA: no Swift target; Rust/TypeScript license",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/viewright/package.json",
+          "line": 4,
+          "symbol": "private",
+          "detail": "private desktop Tauri/React app; no Swift target"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none (inapplicable)",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitDiagnostics",
+      "status": "NA",
+      "rationale": "NA: no Swift target; Rust/TypeScript diagnostics",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/viewright/package.json",
+          "line": 4,
+          "symbol": "private",
+          "detail": "private desktop Tauri/React app; no Swift target"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none (inapplicable)",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitArtifacts",
+      "status": "NA",
+      "rationale": "NA: no Swift target; desktop release tooling",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/viewright/package.json",
+          "line": 4,
+          "symbol": "private",
+          "detail": "private desktop Tauri/React app; no Swift target"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none (inapplicable)",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitPurchases",
+      "status": "NA",
+      "rationale": "NA: no Swift target/purchase flow",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/viewright/package.json",
+          "line": 4,
+          "symbol": "private",
+          "detail": "private desktop Tauri/React app; no Swift target"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none (inapplicable)",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitCloudSync",
+      "status": "NA",
+      "rationale": "NA: no Swift target/cloud sync",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/viewright/package.json",
+          "line": 4,
+          "symbol": "private",
+          "detail": "private desktop Tauri/React app; no Swift target"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none (inapplicable)",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitStore",
+      "status": "NA",
+      "rationale": "NA: no Swift target/StoreKit",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/viewright/package.json",
+          "line": 4,
+          "symbol": "private",
+          "detail": "private desktop Tauri/React app; no Swift target"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none (inapplicable)",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitImportQueue",
+      "status": "NA",
+      "rationale": "NA: no Swift target/import queue",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/viewright/package.json",
+          "line": 4,
+          "symbol": "private",
+          "detail": "private desktop Tauri/React app; no Swift target"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none (inapplicable)",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitLiveActivity",
+      "status": "NA",
+      "rationale": "NA: no iOS/watchOS target",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/viewright/package.json",
+          "line": 4,
+          "symbol": "private",
+          "detail": "private desktop Tauri/React app; no Swift target"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none (inapplicable)",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitWatchBridge",
+      "status": "NA",
+      "rationale": "NA: no watch target",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/viewright/package.json",
+          "line": 4,
+          "symbol": "private",
+          "detail": "private desktop Tauri/React app; no Swift target"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none (inapplicable)",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitSpeech",
+      "status": "NA",
+      "rationale": "NA: no Swift speech target",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/viewright/package.json",
+          "line": 4,
+          "symbol": "private",
+          "detail": "private desktop Tauri/React app; no Swift target"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none (inapplicable)",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitIntents",
+      "status": "NA",
+      "rationale": "NA: no App Intents target",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/viewright/package.json",
+          "line": 4,
+          "symbol": "private",
+          "detail": "private desktop Tauri/React app; no Swift target"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none (inapplicable)",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitAppleCredentials",
+      "status": "NA",
+      "rationale": "NA: desktop credentials use Rust secrets",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/viewright/package.json",
+          "line": 4,
+          "symbol": "private",
+          "detail": "private desktop Tauri/React app; no Swift target"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none (inapplicable)",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitOverlay",
+      "status": "NA",
+      "rationale": "NA: no Swift overlay target",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/viewright/package.json",
+          "line": 4,
+          "symbol": "private",
+          "detail": "private desktop Tauri/React app; no Swift target"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none (inapplicable)",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitWatch",
+      "status": "NA",
+      "rationale": "NA: no watchOS target",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/viewright/package.json",
+          "line": 4,
+          "symbol": "private",
+          "detail": "private desktop Tauri/React app; no Swift target"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none (inapplicable)",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitUI",
+      "status": "NA",
+      "rationale": "NA: UI is React/Tauri, not SwiftUI",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/viewright/package.json",
+          "line": 4,
+          "symbol": "private",
+          "detail": "private desktop Tauri/React app; no Swift target"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none (inapplicable)",
+      "confidence": "high"
+    }
+  ],
+  "searches": [
+    {
+      "pattern": "@rightkit/",
+      "scope": "package.json, src, scripts, src-tauri, qa",
+      "result": "Shared UI, service, QA, legal, and release callers found."
+    },
+    {
+      "pattern": "rightkit_[a-z_]+|rightkit-[a-z-]+",
+      "scope": "src-tauri/Cargo.toml and src-tauri/src",
+      "result": "control, http, license, logs, ocr, pdf, secrets, shell, tauri, watch callers found; direct rightkit-db absent from catalog."
+    },
+    {
+      "pattern": "pdfjs|PDFKit|native_pdf",
+      "scope": "src/documents/pdf and src-tauri/src/mac_pdf_view.rs",
+      "result": "App pdf.js/PDFKit reader paths remain active; @rightkit/pdf-ui is also called for shared thumbnail/DPR/decoder APIs and exposes overlapping read-only PdfViewer/search, so reader status is M; Rust edit engine calls rightkit-pdf."
+    },
+    {
+      "pattern": "localStorage|settings_get|settings_set",
+      "scope": "src/settings, src/state, src-tauri",
+      "result": "Settings schema/migrations and SQLite mirror app-owned; no rightkit-settings dependency."
+    },
+    {
+      "pattern": "std::panic::set_hook|Command::new|write_atomic_with_backup",
+      "scope": "src-tauri/src",
+      "result": "Local crash hook, OCR child protocol, and atomic saves active."
+    },
+    {
+      "pattern": "Package.swift|RightKitSwift",
+      "scope": "ViewRight production source/manifests",
+      "result": "No Swift package/target; Swift rows NA."
+    },
+    {
+      "pattern": "@rightkit/qa|rightkit_qa",
+      "scope": "package.json, scripts, src-tauri/qa-e2e",
+      "result": "qa-e2e directly calls rightkit_qa Control, Harness, and workspace; qa-chrome is called by browser scripts; npm @rightkit/qa is absent while local raw-CDP helpers remain active."
+    },
+    {
+      "pattern": "right-release|release:upload",
+      "scope": "package.json, scripts/check-release-truth.mjs",
+      "result": "Shared release CLI called by packaging and truth checks."
+    }
+  ],
+  "self_review": "One adversarial pass challenged PDF engine vs reader, wrappers vs duplicates, stale pins (flags only), QA entry points, settings owner evidence, and NA rows for unsupported speech/media/Swift/agent features. It corrected cargo:rightkit-qa from N to Y because qa-e2e directly calls Control, Harness, and workspace; retained npm:@rightkit/qa N for active local raw-CDP browser harness; retained pdf-ui M because shared helpers/assets coexist with app-owned basic reader rendering/search."
+}

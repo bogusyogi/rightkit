@@ -1,0 +1,1841 @@
+{
+  "app": "Membrane (retained)",
+  "root": "/Volumes/D/worktrees/membrane-live-diagnostics-phase1-repair",
+  "head": "unavailable: retained worktree administrative gitdir is absent",
+  "reviewed_at": "2026-10-11T00:00:00+05:30",
+  "targets": [
+    "node-mcp-hooks",
+    "rust-engine",
+    "python-continuity-adapt",
+    "tauri-hub"
+  ],
+  "scope_note": "Source-only audit of retained Membrane snapshot family. Selected root has 1,039 operative source files; membrane-main-f602-baseline has 1,025 & membrane-blueprint-findings has 1,039. Comparator snapshots establish retained-family context only, not concurrent active implementations; no primary active repository was identified. Generated dist, node_modules, target, fixtures & tests excluded; execution qualification is not implied.",
+  "cells": [
+    {
+      "component_id": "cargo:agent-room-core",
+      "status": "NA",
+      "rationale": "No applicable agent-room-core runtime target or usable language bridge was found in retained Membrane.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/worktrees/membrane-live-diagnostics-phase1-repair/engine/Cargo.toml",
+          "line": 3,
+          "detail": "Rust target census; no RightKit dependency or matching member."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-agent-tools",
+      "status": "NA",
+      "rationale": "No applicable rightkit-agent-tools runtime target or usable language bridge was found in retained Membrane.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/worktrees/membrane-live-diagnostics-phase1-repair/engine/Cargo.toml",
+          "line": 3,
+          "detail": "Rust target census; no RightKit dependency or matching member."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-align",
+      "status": "NA",
+      "rationale": "No applicable rightkit-align runtime target or usable language bridge was found in retained Membrane.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/worktrees/membrane-live-diagnostics-phase1-repair/engine/Cargo.toml",
+          "line": 3,
+          "detail": "Rust target census; no RightKit dependency or matching member."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-asr",
+      "status": "NA",
+      "rationale": "No applicable rightkit-asr runtime target or usable language bridge was found in retained Membrane.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/worktrees/membrane-live-diagnostics-phase1-repair/engine/Cargo.toml",
+          "line": 3,
+          "detail": "Rust target census; no RightKit dependency or matching member."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-audio",
+      "status": "NA",
+      "rationale": "No applicable rightkit-audio runtime target or usable language bridge was found in retained Membrane.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/worktrees/membrane-live-diagnostics-phase1-repair/engine/Cargo.toml",
+          "line": 3,
+          "detail": "Rust target census; no RightKit dependency or matching member."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-automation",
+      "status": "NA",
+      "rationale": "No applicable rightkit-automation runtime target or usable language bridge was found in retained Membrane.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/worktrees/membrane-live-diagnostics-phase1-repair/engine/Cargo.toml",
+          "line": 3,
+          "detail": "Rust target census; no RightKit dependency or matching member."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-browser",
+      "status": "NA",
+      "rationale": "No applicable rightkit-browser runtime target or usable language bridge was found in retained Membrane.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/worktrees/membrane-live-diagnostics-phase1-repair/engine/Cargo.toml",
+          "line": 3,
+          "detail": "Rust target census; no RightKit dependency or matching member."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-cache",
+      "status": "NA",
+      "rationale": "Cache-age metadata is not RightKit disk-cache API overlap.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/worktrees/membrane-live-diagnostics-phase1-repair/apps/membrane-hub/src/popover.mjs",
+          "line": 52,
+          "detail": "Target-specific source evidence."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-channel-memory",
+      "status": "NA",
+      "rationale": "No applicable rightkit-channel-memory runtime target or usable language bridge was found in retained Membrane.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/worktrees/membrane-live-diagnostics-phase1-repair/engine/Cargo.toml",
+          "line": 3,
+          "detail": "Rust target census; no RightKit dependency or matching member."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-compose",
+      "status": "NA",
+      "rationale": "No applicable rightkit-compose runtime target or usable language bridge was found in retained Membrane.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/worktrees/membrane-live-diagnostics-phase1-repair/engine/Cargo.toml",
+          "line": 3,
+          "detail": "Rust target census; no RightKit dependency or matching member."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-contracts",
+      "status": "NA",
+      "rationale": "Content-pipeline contracts differ from Membrane protocol authority.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/worktrees/membrane-live-diagnostics-phase1-repair/engine/Cargo.toml",
+          "line": 10,
+          "detail": "Target-specific source evidence."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-control",
+      "status": "NA",
+      "rationale": "No applicable rightkit-control runtime target or usable language bridge was found in retained Membrane.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/worktrees/membrane-live-diagnostics-phase1-repair/engine/Cargo.toml",
+          "line": 3,
+          "detail": "Rust target census; no RightKit dependency or matching member."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-crash",
+      "status": "NA",
+      "rationale": "No applicable rightkit-crash runtime target or usable language bridge was found in retained Membrane.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/worktrees/membrane-live-diagnostics-phase1-repair/engine/Cargo.toml",
+          "line": 3,
+          "detail": "Rust target census; no RightKit dependency or matching member."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-daemon",
+      "status": "NA",
+      "rationale": "Membrane service protocol is product-specific, not RightKit device-enrolment/OAuth/upload daemon API.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/worktrees/membrane-live-diagnostics-phase1-repair/engine/Cargo.toml",
+          "line": 9,
+          "detail": "Target-specific source evidence."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-db",
+      "status": "N",
+      "rationale": "Rust Cortex opens SQLite directly; compatible RightKit DbOptions has no production route.",
+      "shared_evidence": [],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/worktrees/membrane-live-diagnostics-phase1-repair/engine/crates/cortex-store/src/memdb.rs",
+          "line": 397,
+          "symbol": "Connection::open_with_flags",
+          "detail": "Cortex durable store direct SQLite open."
+        }
+      ],
+      "applicability_evidence": [],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-db/src/lib.rs",
+          "line": 139,
+          "detail": "DbOptions controlled SQLite bootstrap API."
+        }
+      ],
+      "delivery_flags": [],
+      "remaining_work": "Route Cortex connection bootstrap through published rightkit-db after preserving Cortex schema & recovery policy.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-embed",
+      "status": "N",
+      "rationale": "Cortex implements local sentence embeddings with fastembed; compatible RightKit Embedder is unused.",
+      "shared_evidence": [],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/worktrees/membrane-live-diagnostics-phase1-repair/engine/crates/cortex-core/src/embed.rs",
+          "line": 162,
+          "symbol": "FastEmbedder",
+          "detail": "Local ONNX sentence embedding implementation."
+        }
+      ],
+      "applicability_evidence": [],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-embed/src/embedder.rs",
+          "line": 107,
+          "detail": "EmbedderConfig/Embedder API."
+        }
+      ],
+      "delivery_flags": [],
+      "remaining_work": "Evaluate rightkit-embed against Cortex model selection & vector-store contract.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-framed-sidecar",
+      "status": "NA",
+      "rationale": "No applicable rightkit-framed-sidecar runtime target or usable language bridge was found in retained Membrane.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/worktrees/membrane-live-diagnostics-phase1-repair/engine/Cargo.toml",
+          "line": 3,
+          "detail": "Rust target census; no RightKit dependency or matching member."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-fs",
+      "status": "NA",
+      "rationale": "Node atomic registry writes lack a usable Rust bridge; no Rust RightKit FS route exists.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/worktrees/membrane-live-diagnostics-phase1-repair/mcp/project-registry.mjs",
+          "line": 88,
+          "detail": "Target-specific source evidence."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-fsindex",
+      "status": "NA",
+      "rationale": "No applicable rightkit-fsindex runtime target or usable language bridge was found in retained Membrane.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/worktrees/membrane-live-diagnostics-phase1-repair/engine/Cargo.toml",
+          "line": 3,
+          "detail": "Rust target census; no RightKit dependency or matching member."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-hotkeys",
+      "status": "NA",
+      "rationale": "No applicable rightkit-hotkeys runtime target or usable language bridge was found in retained Membrane.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/worktrees/membrane-live-diagnostics-phase1-repair/engine/Cargo.toml",
+          "line": 3,
+          "detail": "Rust target census; no RightKit dependency or matching member."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-http",
+      "status": "NA",
+      "rationale": "Node/Python HTTP callers lack a usable Rust bridge; no engine client route was found.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/worktrees/membrane-live-diagnostics-phase1-repair/mcp/delivery-receipt.mjs",
+          "line": 82,
+          "detail": "Target-specific source evidence."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-jobs",
+      "status": "NA",
+      "rationale": "No applicable rightkit-jobs runtime target or usable language bridge was found in retained Membrane.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/worktrees/membrane-live-diagnostics-phase1-repair/engine/Cargo.toml",
+          "line": 3,
+          "detail": "Rust target census; no RightKit dependency or matching member."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-license",
+      "status": "NA",
+      "rationale": "No applicable rightkit-license runtime target or usable language bridge was found in retained Membrane.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/worktrees/membrane-live-diagnostics-phase1-repair/engine/Cargo.toml",
+          "line": 3,
+          "detail": "Rust target census; no RightKit dependency or matching member."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-llm",
+      "status": "NA",
+      "rationale": "Adapt is Python; no usable bridge to Rust LLM client exists.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/worktrees/membrane-live-diagnostics-phase1-repair/adapt/src/adapt/adapt_llm.py",
+          "line": 1,
+          "detail": "Target-specific source evidence."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-logs",
+      "status": "NA",
+      "rationale": "No applicable rightkit-logs runtime target or usable language bridge was found in retained Membrane.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/worktrees/membrane-live-diagnostics-phase1-repair/engine/Cargo.toml",
+          "line": 3,
+          "detail": "Rust target census; no RightKit dependency or matching member."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-mcp",
+      "status": "N",
+      "rationale": "Membrane owns active Rust stdio MCP server; compatible RightKit McpClient/ServerHost is unreferenced.",
+      "shared_evidence": [],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/worktrees/membrane-live-diagnostics-phase1-repair/engine/crates/membrane-mcp/src/jsonrpc.rs",
+          "line": 60,
+          "symbol": "serve_stdio",
+          "detail": "Local active MCP stdio server."
+        }
+      ],
+      "applicability_evidence": [],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-mcp/src/lib.rs",
+          "line": 38,
+          "detail": "Shared ServerHost/McpClient API."
+        }
+      ],
+      "delivery_flags": [],
+      "remaining_work": "Evaluate ServerHost transport/admission fit; preserve Membrane protocol/tool policy.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-media",
+      "status": "NA",
+      "rationale": "No applicable rightkit-media runtime target or usable language bridge was found in retained Membrane.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/worktrees/membrane-live-diagnostics-phase1-repair/engine/Cargo.toml",
+          "line": 3,
+          "detail": "Rust target census; no RightKit dependency or matching member."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-models",
+      "status": "NA",
+      "rationale": "No applicable rightkit-models runtime target or usable language bridge was found in retained Membrane.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/worktrees/membrane-live-diagnostics-phase1-repair/engine/Cargo.toml",
+          "line": 3,
+          "detail": "Rust target census; no RightKit dependency or matching member."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-oauth",
+      "status": "NA",
+      "rationale": "No applicable rightkit-oauth runtime target or usable language bridge was found in retained Membrane.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/worktrees/membrane-live-diagnostics-phase1-repair/engine/Cargo.toml",
+          "line": 3,
+          "detail": "Rust target census; no RightKit dependency or matching member."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-ocr",
+      "status": "NA",
+      "rationale": "No applicable rightkit-ocr runtime target or usable language bridge was found in retained Membrane.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/worktrees/membrane-live-diagnostics-phase1-repair/engine/Cargo.toml",
+          "line": 3,
+          "detail": "Rust target census; no RightKit dependency or matching member."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-ort",
+      "status": "NA",
+      "rationale": "Cortex fastembed use does not establish RightKit ORT API use.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/worktrees/membrane-live-diagnostics-phase1-repair/engine/crates/cortex-core/src/embed.rs",
+          "line": 11,
+          "detail": "Target-specific source evidence."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-overlay",
+      "status": "NA",
+      "rationale": "Hub popover is product UI, not shared overlay-state API.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/worktrees/membrane-live-diagnostics-phase1-repair/apps/membrane-hub/src-tauri/src/main.rs",
+          "line": 363,
+          "detail": "Target-specific source evidence."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-ownership",
+      "status": "NA",
+      "rationale": "No applicable rightkit-ownership runtime target or usable language bridge was found in retained Membrane.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/worktrees/membrane-live-diagnostics-phase1-repair/engine/Cargo.toml",
+          "line": 3,
+          "detail": "Rust target census; no RightKit dependency or matching member."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-pdf",
+      "status": "NA",
+      "rationale": "No applicable rightkit-pdf runtime target or usable language bridge was found in retained Membrane.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/worktrees/membrane-live-diagnostics-phase1-repair/engine/Cargo.toml",
+          "line": 3,
+          "detail": "Rust target census; no RightKit dependency or matching member."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-playback",
+      "status": "NA",
+      "rationale": "No applicable rightkit-playback runtime target or usable language bridge was found in retained Membrane.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/worktrees/membrane-live-diagnostics-phase1-repair/engine/Cargo.toml",
+          "line": 3,
+          "detail": "Rust target census; no RightKit dependency or matching member."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-process",
+      "status": "NA",
+      "rationale": "Node child-process launches lack a usable Rust process bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/worktrees/membrane-live-diagnostics-phase1-repair/mcp/membrane-mcp-native.mjs",
+          "line": 6,
+          "detail": "Target-specific source evidence."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-qa",
+      "status": "NA",
+      "rationale": "No applicable rightkit-qa runtime target or usable language bridge was found in retained Membrane.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/worktrees/membrane-live-diagnostics-phase1-repair/engine/Cargo.toml",
+          "line": 3,
+          "detail": "Rust target census; no RightKit dependency or matching member."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-qts",
+      "status": "NA",
+      "rationale": "No applicable rightkit-qts runtime target or usable language bridge was found in retained Membrane.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/worktrees/membrane-live-diagnostics-phase1-repair/engine/Cargo.toml",
+          "line": 3,
+          "detail": "Rust target census; no RightKit dependency or matching member."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-qts-ggml",
+      "status": "NA",
+      "rationale": "No applicable rightkit-qts-ggml runtime target or usable language bridge was found in retained Membrane.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/worktrees/membrane-live-diagnostics-phase1-repair/engine/Cargo.toml",
+          "line": 3,
+          "detail": "Rust target census; no RightKit dependency or matching member."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-qts-ggml-sys",
+      "status": "NA",
+      "rationale": "No applicable rightkit-qts-ggml-sys runtime target or usable language bridge was found in retained Membrane.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/worktrees/membrane-live-diagnostics-phase1-repair/engine/Cargo.toml",
+          "line": 3,
+          "detail": "Rust target census; no RightKit dependency or matching member."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-record",
+      "status": "NA",
+      "rationale": "No applicable rightkit-record runtime target or usable language bridge was found in retained Membrane.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/worktrees/membrane-live-diagnostics-phase1-repair/engine/Cargo.toml",
+          "line": 3,
+          "detail": "Rust target census; no RightKit dependency or matching member."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-review",
+      "status": "NA",
+      "rationale": "Adapt proposal review is product policy, not content-pipeline review API.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/worktrees/membrane-live-diagnostics-phase1-repair/mcp/proposal-store.mjs",
+          "line": 40,
+          "detail": "Target-specific source evidence."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-sandbox",
+      "status": "NA",
+      "rationale": "No applicable rightkit-sandbox runtime target or usable language bridge was found in retained Membrane.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/worktrees/membrane-live-diagnostics-phase1-repair/engine/Cargo.toml",
+          "line": 3,
+          "detail": "Rust target census; no RightKit dependency or matching member."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-scenario",
+      "status": "NA",
+      "rationale": "No applicable rightkit-scenario runtime target or usable language bridge was found in retained Membrane.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/worktrees/membrane-live-diagnostics-phase1-repair/engine/Cargo.toml",
+          "line": 3,
+          "detail": "Rust target census; no RightKit dependency or matching member."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-search",
+      "status": "NA",
+      "rationale": "Blueprint graph/search has distinct product semantics; no shared query API route.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/worktrees/membrane-live-diagnostics-phase1-repair/blueprint/package.json",
+          "line": 4,
+          "detail": "Target-specific source evidence."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-secrets",
+      "status": "NA",
+      "rationale": "Token-file handling is Node/Python with no Rust OS-keychain bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/worktrees/membrane-live-diagnostics-phase1-repair/mcp/project-registry.mjs",
+          "line": 135,
+          "detail": "Target-specific source evidence."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-send",
+      "status": "NA",
+      "rationale": "No applicable rightkit-send runtime target or usable language bridge was found in retained Membrane.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/worktrees/membrane-live-diagnostics-phase1-repair/engine/Cargo.toml",
+          "line": 3,
+          "detail": "Rust target census; no RightKit dependency or matching member."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-service",
+      "status": "NA",
+      "rationale": "Membrane service protocol is product-specific; no service.json convention consumer found.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/worktrees/membrane-live-diagnostics-phase1-repair/engine/Cargo.toml",
+          "line": 9,
+          "detail": "Target-specific source evidence."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-settings",
+      "status": "NA",
+      "rationale": "No applicable rightkit-settings runtime target or usable language bridge was found in retained Membrane.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/worktrees/membrane-live-diagnostics-phase1-repair/engine/Cargo.toml",
+          "line": 3,
+          "detail": "Rust target census; no RightKit dependency or matching member."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-shell",
+      "status": "NA",
+      "rationale": "Hub raw Tauri integration does not prove compatible Rust rightkit-shell contract.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/worktrees/membrane-live-diagnostics-phase1-repair/apps/membrane-hub/src-tauri/src/main.rs",
+          "line": 639,
+          "detail": "Target-specific source evidence."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-speech-client",
+      "status": "NA",
+      "rationale": "No applicable rightkit-speech-client runtime target or usable language bridge was found in retained Membrane.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/worktrees/membrane-live-diagnostics-phase1-repair/engine/Cargo.toml",
+          "line": 3,
+          "detail": "Rust target census; no RightKit dependency or matching member."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-sync",
+      "status": "NA",
+      "rationale": "No applicable rightkit-sync runtime target or usable language bridge was found in retained Membrane.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/worktrees/membrane-live-diagnostics-phase1-repair/engine/Cargo.toml",
+          "line": 3,
+          "detail": "Rust target census; no RightKit dependency or matching member."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-tauri",
+      "status": "NA",
+      "rationale": "Hub owns bespoke Rust commands; no RightKit Tauri crate dependency or exact adapter mapping shown.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/worktrees/membrane-live-diagnostics-phase1-repair/apps/membrane-hub/src-tauri/src/main.rs",
+          "line": 473,
+          "detail": "Target-specific source evidence."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-transcript",
+      "status": "NA",
+      "rationale": "Continuity transcript normalization is not word-timed transcript/cue interchange.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/worktrees/membrane-live-diagnostics-phase1-repair/continuity/pyproject.toml",
+          "line": 6,
+          "detail": "Target-specific source evidence."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-tts",
+      "status": "NA",
+      "rationale": "No applicable rightkit-tts runtime target or usable language bridge was found in retained Membrane.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/worktrees/membrane-live-diagnostics-phase1-repair/engine/Cargo.toml",
+          "line": 3,
+          "detail": "Rust target census; no RightKit dependency or matching member."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-vad",
+      "status": "NA",
+      "rationale": "No applicable rightkit-vad runtime target or usable language bridge was found in retained Membrane.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/worktrees/membrane-live-diagnostics-phase1-repair/engine/Cargo.toml",
+          "line": 3,
+          "detail": "Rust target census; no RightKit dependency or matching member."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-watch",
+      "status": "NA",
+      "rationale": "Blueprint uses Node watcher dependency, not compatible Rust watch API.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/worktrees/membrane-live-diagnostics-phase1-repair/blueprint/package.json",
+          "line": 87,
+          "detail": "Target-specific source evidence."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/agent-room-mcp",
+      "status": "NA",
+      "rationale": "No applicable @rightkit/agent-room-mcp production route was found in retained Membrane.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/worktrees/membrane-live-diagnostics-phase1-repair/package.json",
+          "line": 29,
+          "detail": "Root production dependency census."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/app-shell",
+      "status": "NA",
+      "rationale": "Hub is non-React direct DOM UI; React app-shell is inapplicable.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/worktrees/membrane-live-diagnostics-phase1-repair/apps/membrane-hub/src/popover.mjs",
+          "line": 77,
+          "detail": "Target-specific source evidence."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/ax",
+      "status": "Y",
+      "rationale": "Root scripts invoke RightKit AX plugin/static/conformance commands.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/worktrees/membrane-live-diagnostics-phase1-repair/package.json",
+          "line": 25,
+          "detail": "rightkit:ax scripts route checks through right-ax."
+        }
+      ],
+      "local_evidence": [],
+      "applicability_evidence": [],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/build-control-policy",
+      "status": "NA",
+      "rationale": "Private build-control owner is not an app target.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/worktrees/membrane-live-diagnostics-phase1-repair/package.json",
+          "line": 29,
+          "detail": "Target-specific source evidence."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/doc-render",
+      "status": "NA",
+      "rationale": "No applicable @rightkit/doc-render production route was found in retained Membrane.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/worktrees/membrane-live-diagnostics-phase1-repair/package.json",
+          "line": 29,
+          "detail": "Root production dependency census."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/git",
+      "status": "Y",
+      "rationale": "Root scripts explicitly route Git sync/drift through right-git.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/worktrees/membrane-live-diagnostics-phase1-repair/package.json",
+          "line": 23,
+          "detail": "rightkit:git scripts invoke right-git."
+        }
+      ],
+      "local_evidence": [],
+      "applicability_evidence": [],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/hooks",
+      "status": "Y",
+      "rationale": "Membrane production hook runtime imports & dispatches shared HookHost events.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/worktrees/membrane-live-diagnostics-phase1-repair/mcp/hooks/membrane-hook-runtime.mjs",
+          "line": 1,
+          "symbol": "dispatchHookEvent",
+          "detail": "Production import."
+        },
+        {
+          "path": "/Volumes/D/worktrees/membrane-live-diagnostics-phase1-repair/mcp/hooks/membrane-hook-runtime.mjs",
+          "line": 69,
+          "symbol": "dispatchMembraneHookEvent",
+          "detail": "Routes policy modules through shared dispatcher."
+        }
+      ],
+      "local_evidence": [],
+      "applicability_evidence": [],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/i18n",
+      "status": "NA",
+      "rationale": "No applicable @rightkit/i18n production route was found in retained Membrane.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/worktrees/membrane-live-diagnostics-phase1-repair/package.json",
+          "line": 29,
+          "detail": "Root production dependency census."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/legal",
+      "status": "NA",
+      "rationale": "No applicable @rightkit/legal production route was found in retained Membrane.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/worktrees/membrane-live-diagnostics-phase1-repair/package.json",
+          "line": 29,
+          "detail": "Root production dependency census."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/legal-ui",
+      "status": "NA",
+      "rationale": "No applicable @rightkit/legal-ui production route was found in retained Membrane.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/worktrees/membrane-live-diagnostics-phase1-repair/package.json",
+          "line": 29,
+          "detail": "Root production dependency census."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/license",
+      "status": "NA",
+      "rationale": "No applicable @rightkit/license production route was found in retained Membrane.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/worktrees/membrane-live-diagnostics-phase1-repair/package.json",
+          "line": 29,
+          "detail": "Root production dependency census."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/logs",
+      "status": "NA",
+      "rationale": "No applicable @rightkit/logs production route was found in retained Membrane.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/worktrees/membrane-live-diagnostics-phase1-repair/package.json",
+          "line": 29,
+          "detail": "Root production dependency census."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/media-ui",
+      "status": "NA",
+      "rationale": "No applicable @rightkit/media-ui production route was found in retained Membrane.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/worktrees/membrane-live-diagnostics-phase1-repair/package.json",
+          "line": 29,
+          "detail": "Root production dependency census."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/onboarding",
+      "status": "NA",
+      "rationale": "No applicable @rightkit/onboarding production route was found in retained Membrane.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/worktrees/membrane-live-diagnostics-phase1-repair/package.json",
+          "line": 29,
+          "detail": "Root production dependency census."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/pdf-ui",
+      "status": "NA",
+      "rationale": "No applicable @rightkit/pdf-ui production route was found in retained Membrane.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/worktrees/membrane-live-diagnostics-phase1-repair/package.json",
+          "line": 29,
+          "detail": "Root production dependency census."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/platform-ui",
+      "status": "Y",
+      "rationale": "Hub production UI imports shared window-control labels.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/worktrees/membrane-live-diagnostics-phase1-repair/apps/membrane-hub/src/popover.mjs",
+          "line": 78,
+          "symbol": "createWindowControlLabels",
+          "detail": "Production dynamic import."
+        },
+        {
+          "path": "/Volumes/D/worktrees/membrane-live-diagnostics-phase1-repair/apps/membrane-hub/src/popover.mjs",
+          "line": 80,
+          "symbol": "windowLabels",
+          "detail": "Shared labels feed accessible close control."
+        }
+      ],
+      "local_evidence": [],
+      "applicability_evidence": [],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/qa",
+      "status": "NA",
+      "rationale": "No applicable @rightkit/qa production route was found in retained Membrane.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/worktrees/membrane-live-diagnostics-phase1-repair/package.json",
+          "line": 29,
+          "detail": "Root production dependency census."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/qa-chrome",
+      "status": "NA",
+      "rationale": "No applicable @rightkit/qa-chrome production route was found in retained Membrane.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/worktrees/membrane-live-diagnostics-phase1-repair/package.json",
+          "line": 29,
+          "detail": "Root production dependency census."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/release",
+      "status": "Y",
+      "rationale": "Hub package config & packaging script route release work through RightKit.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/worktrees/membrane-live-diagnostics-phase1-repair/apps/membrane-hub/package.json",
+          "line": 13,
+          "symbol": "release:doctor",
+          "detail": "Configured right-release command."
+        },
+        {
+          "path": "/Volumes/D/worktrees/membrane-live-diagnostics-phase1-repair/apps/membrane-hub/scripts/build-mac-release.mjs",
+          "line": 17,
+          "symbol": "notarytoolAuthArgs",
+          "detail": "Shared release API import."
+        },
+        {
+          "path": "/Volumes/D/worktrees/membrane-live-diagnostics-phase1-repair/apps/membrane-hub/scripts/build-mac-release.mjs",
+          "line": 49,
+          "symbol": "right-release",
+          "detail": "Shared release CLI invocation."
+        }
+      ],
+      "local_evidence": [],
+      "applicability_evidence": [],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/settings-ui",
+      "status": "NA",
+      "rationale": "No applicable @rightkit/settings-ui production route was found in retained Membrane.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/worktrees/membrane-live-diagnostics-phase1-repair/package.json",
+          "line": 29,
+          "detail": "Root production dependency census."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/shell",
+      "status": "N",
+      "rationale": "Hub renderer invokes raw Tauri window/events commands; compatible typed shell bridge is unused.",
+      "shared_evidence": [],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/worktrees/membrane-live-diagnostics-phase1-repair/apps/membrane-hub/src/popover.mjs",
+          "line": 78,
+          "symbol": "invoke/listen/getCurrentWindow",
+          "detail": "Local raw Tauri renderer bridge."
+        }
+      ],
+      "applicability_evidence": [],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/packages/shell/package.json",
+          "line": 4,
+          "detail": "Shared typed renderer bridge contract."
+        }
+      ],
+      "delivery_flags": [],
+      "remaining_work": "Map Hub command/event surface to @rightkit/shell where contract matches.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/tauri",
+      "status": "N",
+      "rationale": "Hub exposes raw product Tauri commands; shared typed host adapters are unused.",
+      "shared_evidence": [],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/worktrees/membrane-live-diagnostics-phase1-repair/apps/membrane-hub/src-tauri/src/main.rs",
+          "line": 473,
+          "symbol": "tauri command",
+          "detail": "Local host command boundary."
+        }
+      ],
+      "applicability_evidence": [],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/packages/tauri/package.json",
+          "line": 4,
+          "detail": "Shared Tauri command-adapter contract."
+        }
+      ],
+      "delivery_flags": [],
+      "remaining_work": "Compare Hub command signatures with @rightkit/tauri; adopt exact shared adapter surface only.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/theme",
+      "status": "NA",
+      "rationale": "No applicable @rightkit/theme production route was found in retained Membrane.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/worktrees/membrane-live-diagnostics-phase1-repair/package.json",
+          "line": 29,
+          "detail": "Root production dependency census."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/update",
+      "status": "NA",
+      "rationale": "Dependency updater differs from app runtime updater; no consumer exists.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/worktrees/membrane-live-diagnostics-phase1-repair/package.json",
+          "line": 18,
+          "detail": "Target-specific source evidence."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/updates",
+      "status": "NA",
+      "rationale": "Hub update admission is explicitly not wired into running Tauri flow.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/worktrees/membrane-live-diagnostics-phase1-repair/apps/membrane-hub/src-tauri/src/main.rs",
+          "line": 25,
+          "detail": "Target-specific source evidence."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitLicense",
+      "status": "NA",
+      "rationale": "No Swift target exists in retained Membrane.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/worktrees/membrane-live-diagnostics-phase1-repair/engine/Cargo.toml",
+          "line": 1,
+          "detail": "Targets are Rust, Node, Python, & Tauri only."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitDiagnostics",
+      "status": "NA",
+      "rationale": "No Swift target exists in retained Membrane.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/worktrees/membrane-live-diagnostics-phase1-repair/engine/Cargo.toml",
+          "line": 1,
+          "detail": "Targets are Rust, Node, Python, & Tauri only."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitArtifacts",
+      "status": "NA",
+      "rationale": "No Swift target exists in retained Membrane.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/worktrees/membrane-live-diagnostics-phase1-repair/engine/Cargo.toml",
+          "line": 1,
+          "detail": "Targets are Rust, Node, Python, & Tauri only."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitPurchases",
+      "status": "NA",
+      "rationale": "No Swift target exists in retained Membrane.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/worktrees/membrane-live-diagnostics-phase1-repair/engine/Cargo.toml",
+          "line": 1,
+          "detail": "Targets are Rust, Node, Python, & Tauri only."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitCloudSync",
+      "status": "NA",
+      "rationale": "No Swift target exists in retained Membrane.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/worktrees/membrane-live-diagnostics-phase1-repair/engine/Cargo.toml",
+          "line": 1,
+          "detail": "Targets are Rust, Node, Python, & Tauri only."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitStore",
+      "status": "NA",
+      "rationale": "No Swift target exists in retained Membrane.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/worktrees/membrane-live-diagnostics-phase1-repair/engine/Cargo.toml",
+          "line": 1,
+          "detail": "Targets are Rust, Node, Python, & Tauri only."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitImportQueue",
+      "status": "NA",
+      "rationale": "No Swift target exists in retained Membrane.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/worktrees/membrane-live-diagnostics-phase1-repair/engine/Cargo.toml",
+          "line": 1,
+          "detail": "Targets are Rust, Node, Python, & Tauri only."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitLiveActivity",
+      "status": "NA",
+      "rationale": "No Swift target exists in retained Membrane.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/worktrees/membrane-live-diagnostics-phase1-repair/engine/Cargo.toml",
+          "line": 1,
+          "detail": "Targets are Rust, Node, Python, & Tauri only."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitWatchBridge",
+      "status": "NA",
+      "rationale": "No Swift target exists in retained Membrane.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/worktrees/membrane-live-diagnostics-phase1-repair/engine/Cargo.toml",
+          "line": 1,
+          "detail": "Targets are Rust, Node, Python, & Tauri only."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitSpeech",
+      "status": "NA",
+      "rationale": "No Swift target exists in retained Membrane.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/worktrees/membrane-live-diagnostics-phase1-repair/engine/Cargo.toml",
+          "line": 1,
+          "detail": "Targets are Rust, Node, Python, & Tauri only."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitIntents",
+      "status": "NA",
+      "rationale": "No Swift target exists in retained Membrane.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/worktrees/membrane-live-diagnostics-phase1-repair/engine/Cargo.toml",
+          "line": 1,
+          "detail": "Targets are Rust, Node, Python, & Tauri only."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitAppleCredentials",
+      "status": "NA",
+      "rationale": "No Swift target exists in retained Membrane.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/worktrees/membrane-live-diagnostics-phase1-repair/engine/Cargo.toml",
+          "line": 1,
+          "detail": "Targets are Rust, Node, Python, & Tauri only."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitOverlay",
+      "status": "NA",
+      "rationale": "No Swift target exists in retained Membrane.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/worktrees/membrane-live-diagnostics-phase1-repair/engine/Cargo.toml",
+          "line": 1,
+          "detail": "Targets are Rust, Node, Python, & Tauri only."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitWatch",
+      "status": "NA",
+      "rationale": "No Swift target exists in retained Membrane.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/worktrees/membrane-live-diagnostics-phase1-repair/engine/Cargo.toml",
+          "line": 1,
+          "detail": "Targets are Rust, Node, Python, & Tauri only."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitUI",
+      "status": "NA",
+      "rationale": "No Swift target exists in retained Membrane.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/worktrees/membrane-live-diagnostics-phase1-repair/engine/Cargo.toml",
+          "line": 1,
+          "detail": "Targets are Rust, Node, Python, & Tauri only."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    }
+  ],
+  "searches": [
+    {
+      "pattern": "@rightkit/|rightkit[_-]",
+      "scope": "selected root production manifests/source; generated/build/dependency trees excluded",
+      "result": "Live routes: hooks, platform-ui, release, ax, git; no Cargo RightKit dependency."
+    },
+    {
+      "pattern": "source-tree comparison",
+      "scope": "selected root versus two retained snapshots; generated/build/dependency trees excluded",
+      "result": "Selected root differs from baseline in active diagnostics/Hub/Blueprint/engine source; findings snapshot is comparison-only. No primary active checkout identified."
+    },
+    {
+      "pattern": "Swift manifests/imports",
+      "scope": "selected root",
+      "result": "No Package.swift, Xcode project, or Swift source target found."
+    }
+  ],
+  "self_review": "Challenged broad overlap candidates. Kept N only for active same-runtime exact overlaps: Rust SQLite, embeddings, MCP; Node Tauri renderer/host adapters. Classified cache, daemon, fs, HTTP, LLM, process, service, shell Rust, tauri Rust, updates, watch, transcript & product schemas NA where precise owner API or usable language bridge was absent. No M: no overlap has both local implementation & live shared production route."
+}

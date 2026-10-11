@@ -1,0 +1,2996 @@
+{
+  "app": "SellRight",
+  "root": "/Volumes/D/claude/sellright",
+  "head": "8774314134ade8f6197e9791d112382ea13078e2",
+  "reviewed_at": "2026-10-11T03:18:00Z",
+  "targets": [
+    "node-api",
+    "browser-admin",
+    "browser-storefront",
+    "docker-appliance",
+    "ios-admin",
+    "ios-widget"
+  ],
+  "scope_note": "Current production source/config only, reconciled against current RightKit owner source; no builds, installs, network access, or execution qualification.",
+  "cells": [
+    {
+      "component_id": "cargo:agent-room-core",
+      "status": "NA",
+      "rationale": "NA: agent-room-core is Rust/Cargo capability. SellRight production targets are Node API & browser SPAs; source has no Rust target or language bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/sellright/packages/api/src/index.ts",
+          "line": 2,
+          "detail": "production API starts Hono's Node server"
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/packages/admin/package.json",
+          "line": 11,
+          "detail": "admin production target is Vite browser build"
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/packages/storefront/package.json",
+          "line": 40,
+          "detail": "storefront production target is browser build"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-agent-tools",
+      "status": "NA",
+      "rationale": "NA: rightkit-agent-tools is Rust/Cargo capability. SellRight production targets are Node API & browser SPAs; source has no Rust target or language bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/sellright/packages/api/src/index.ts",
+          "line": 2,
+          "detail": "production API starts Hono's Node server"
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/packages/admin/package.json",
+          "line": 11,
+          "detail": "admin production target is Vite browser build"
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/packages/storefront/package.json",
+          "line": 40,
+          "detail": "storefront production target is browser build"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-align",
+      "status": "NA",
+      "rationale": "NA: rightkit-align is Rust/Cargo capability. SellRight production targets are Node API & browser SPAs; source has no Rust target or language bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/sellright/packages/api/src/index.ts",
+          "line": 2,
+          "detail": "production API starts Hono's Node server"
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/packages/admin/package.json",
+          "line": 11,
+          "detail": "admin production target is Vite browser build"
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/packages/storefront/package.json",
+          "line": 40,
+          "detail": "storefront production target is browser build"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-asr",
+      "status": "NA",
+      "rationale": "NA: rightkit-asr is Rust/Cargo capability. SellRight production targets are Node API & browser SPAs; source has no Rust target or language bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/sellright/packages/api/src/index.ts",
+          "line": 2,
+          "detail": "production API starts Hono's Node server"
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/packages/admin/package.json",
+          "line": 11,
+          "detail": "admin production target is Vite browser build"
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/packages/storefront/package.json",
+          "line": 40,
+          "detail": "storefront production target is browser build"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-audio",
+      "status": "NA",
+      "rationale": "NA: rightkit-audio is Rust/Cargo capability. SellRight production targets are Node API & browser SPAs; source has no Rust target or language bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/sellright/packages/api/src/index.ts",
+          "line": 2,
+          "detail": "production API starts Hono's Node server"
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/packages/admin/package.json",
+          "line": 11,
+          "detail": "admin production target is Vite browser build"
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/packages/storefront/package.json",
+          "line": 40,
+          "detail": "storefront production target is browser build"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-automation",
+      "status": "NA",
+      "rationale": "NA: rightkit-automation is Rust/Cargo capability. SellRight production targets are Node API & browser SPAs; source has no Rust target or language bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/sellright/packages/api/src/index.ts",
+          "line": 2,
+          "detail": "production API starts Hono's Node server"
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/packages/admin/package.json",
+          "line": 11,
+          "detail": "admin production target is Vite browser build"
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/packages/storefront/package.json",
+          "line": 40,
+          "detail": "storefront production target is browser build"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-browser",
+      "status": "NA",
+      "rationale": "NA: rightkit-browser is Rust/Cargo capability. SellRight production targets are Node API & browser SPAs; source has no Rust target or language bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/sellright/packages/api/src/index.ts",
+          "line": 2,
+          "detail": "production API starts Hono's Node server"
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/packages/admin/package.json",
+          "line": 11,
+          "detail": "admin production target is Vite browser build"
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/packages/storefront/package.json",
+          "line": 40,
+          "detail": "storefront production target is browser build"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-cache",
+      "status": "NA",
+      "rationale": "NA: rightkit-cache is Rust/Cargo capability. SellRight production targets are Node API & browser SPAs; source has no Rust target or language bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/sellright/packages/api/src/index.ts",
+          "line": 2,
+          "detail": "production API starts Hono's Node server"
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/packages/admin/package.json",
+          "line": 11,
+          "detail": "admin production target is Vite browser build"
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/packages/storefront/package.json",
+          "line": 40,
+          "detail": "storefront production target is browser build"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-channel-memory",
+      "status": "NA",
+      "rationale": "NA: rightkit-channel-memory is Rust/Cargo capability. SellRight production targets are Node API & browser SPAs; source has no Rust target or language bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/sellright/packages/api/src/index.ts",
+          "line": 2,
+          "detail": "production API starts Hono's Node server"
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/packages/admin/package.json",
+          "line": 11,
+          "detail": "admin production target is Vite browser build"
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/packages/storefront/package.json",
+          "line": 40,
+          "detail": "storefront production target is browser build"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-compose",
+      "status": "NA",
+      "rationale": "NA: rightkit-compose is Rust/Cargo capability. SellRight production targets are Node API & browser SPAs; source has no Rust target or language bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/sellright/packages/api/src/index.ts",
+          "line": 2,
+          "detail": "production API starts Hono's Node server"
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/packages/admin/package.json",
+          "line": 11,
+          "detail": "admin production target is Vite browser build"
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/packages/storefront/package.json",
+          "line": 40,
+          "detail": "storefront production target is browser build"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-contracts",
+      "status": "NA",
+      "rationale": "NA: rightkit-contracts is Rust/Cargo capability. SellRight production targets are Node API & browser SPAs; source has no Rust target or language bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/sellright/packages/api/src/index.ts",
+          "line": 2,
+          "detail": "production API starts Hono's Node server"
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/packages/admin/package.json",
+          "line": 11,
+          "detail": "admin production target is Vite browser build"
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/packages/storefront/package.json",
+          "line": 40,
+          "detail": "storefront production target is browser build"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-control",
+      "status": "NA",
+      "rationale": "NA: rightkit-control is Rust/Cargo capability. SellRight production targets are Node API & browser SPAs; source has no Rust target or language bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/sellright/packages/api/src/index.ts",
+          "line": 2,
+          "detail": "production API starts Hono's Node server"
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/packages/admin/package.json",
+          "line": 11,
+          "detail": "admin production target is Vite browser build"
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/packages/storefront/package.json",
+          "line": 40,
+          "detail": "storefront production target is browser build"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-crash",
+      "status": "NA",
+      "rationale": "NA: rightkit-crash is Rust/Cargo capability. SellRight production targets are Node API & browser SPAs; source has no Rust target or language bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/sellright/packages/api/src/index.ts",
+          "line": 2,
+          "detail": "production API starts Hono's Node server"
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/packages/admin/package.json",
+          "line": 11,
+          "detail": "admin production target is Vite browser build"
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/packages/storefront/package.json",
+          "line": 40,
+          "detail": "storefront production target is browser build"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-daemon",
+      "status": "NA",
+      "rationale": "NA: rightkit-daemon is Rust/Cargo capability. SellRight production targets are Node API & browser SPAs; source has no Rust target or language bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/sellright/packages/api/src/index.ts",
+          "line": 2,
+          "detail": "production API starts Hono's Node server"
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/packages/admin/package.json",
+          "line": 11,
+          "detail": "admin production target is Vite browser build"
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/packages/storefront/package.json",
+          "line": 40,
+          "detail": "storefront production target is browser build"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-db",
+      "status": "NA",
+      "rationale": "NA: rightkit-db is Rust/Cargo capability. SellRight production targets are Node API & browser SPAs; source has no Rust target or language bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/sellright/packages/api/src/index.ts",
+          "line": 2,
+          "detail": "production API starts Hono's Node server"
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/packages/admin/package.json",
+          "line": 11,
+          "detail": "admin production target is Vite browser build"
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/packages/storefront/package.json",
+          "line": 40,
+          "detail": "storefront production target is browser build"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-embed",
+      "status": "NA",
+      "rationale": "NA: rightkit-embed is Rust/Cargo capability. SellRight production targets are Node API & browser SPAs; source has no Rust target or language bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/sellright/packages/api/src/index.ts",
+          "line": 2,
+          "detail": "production API starts Hono's Node server"
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/packages/admin/package.json",
+          "line": 11,
+          "detail": "admin production target is Vite browser build"
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/packages/storefront/package.json",
+          "line": 40,
+          "detail": "storefront production target is browser build"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-framed-sidecar",
+      "status": "NA",
+      "rationale": "NA: rightkit-framed-sidecar is Rust/Cargo capability. SellRight production targets are Node API & browser SPAs; source has no Rust target or language bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/sellright/packages/api/src/index.ts",
+          "line": 2,
+          "detail": "production API starts Hono's Node server"
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/packages/admin/package.json",
+          "line": 11,
+          "detail": "admin production target is Vite browser build"
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/packages/storefront/package.json",
+          "line": 40,
+          "detail": "storefront production target is browser build"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-fs",
+      "status": "NA",
+      "rationale": "NA: rightkit-fs is Rust/Cargo capability. SellRight production targets are Node API & browser SPAs; source has no Rust target or language bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/sellright/packages/api/src/index.ts",
+          "line": 2,
+          "detail": "production API starts Hono's Node server"
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/packages/admin/package.json",
+          "line": 11,
+          "detail": "admin production target is Vite browser build"
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/packages/storefront/package.json",
+          "line": 40,
+          "detail": "storefront production target is browser build"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-fsindex",
+      "status": "NA",
+      "rationale": "NA: rightkit-fsindex is Rust/Cargo capability. SellRight production targets are Node API & browser SPAs; source has no Rust target or language bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/sellright/packages/api/src/index.ts",
+          "line": 2,
+          "detail": "production API starts Hono's Node server"
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/packages/admin/package.json",
+          "line": 11,
+          "detail": "admin production target is Vite browser build"
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/packages/storefront/package.json",
+          "line": 40,
+          "detail": "storefront production target is browser build"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-hotkeys",
+      "status": "NA",
+      "rationale": "NA: rightkit-hotkeys is Rust/Cargo capability. SellRight production targets are Node API & browser SPAs; source has no Rust target or language bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/sellright/packages/api/src/index.ts",
+          "line": 2,
+          "detail": "production API starts Hono's Node server"
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/packages/admin/package.json",
+          "line": 11,
+          "detail": "admin production target is Vite browser build"
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/packages/storefront/package.json",
+          "line": 40,
+          "detail": "storefront production target is browser build"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-http",
+      "status": "NA",
+      "rationale": "NA: rightkit-http is Rust/Cargo capability. SellRight production targets are Node API & browser SPAs; source has no Rust target or language bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/sellright/packages/api/src/index.ts",
+          "line": 2,
+          "detail": "production API starts Hono's Node server"
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/packages/admin/package.json",
+          "line": 11,
+          "detail": "admin production target is Vite browser build"
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/packages/storefront/package.json",
+          "line": 40,
+          "detail": "storefront production target is browser build"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-jobs",
+      "status": "NA",
+      "rationale": "NA: rightkit-jobs is Rust/Cargo capability. SellRight production targets are Node API & browser SPAs; source has no Rust target or language bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/sellright/packages/api/src/index.ts",
+          "line": 2,
+          "detail": "production API starts Hono's Node server"
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/packages/admin/package.json",
+          "line": 11,
+          "detail": "admin production target is Vite browser build"
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/packages/storefront/package.json",
+          "line": 40,
+          "detail": "storefront production target is browser build"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-license",
+      "status": "NA",
+      "rationale": "NA: rightkit-license is Rust/Cargo capability. SellRight production targets are Node API & browser SPAs; source has no Rust target or language bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/sellright/packages/api/src/index.ts",
+          "line": 2,
+          "detail": "production API starts Hono's Node server"
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/packages/admin/package.json",
+          "line": 11,
+          "detail": "admin production target is Vite browser build"
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/packages/storefront/package.json",
+          "line": 40,
+          "detail": "storefront production target is browser build"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-llm",
+      "status": "NA",
+      "rationale": "NA: rightkit-llm is Rust/Cargo capability. SellRight production targets are Node API & browser SPAs; source has no Rust target or language bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/sellright/packages/api/src/index.ts",
+          "line": 2,
+          "detail": "production API starts Hono's Node server"
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/packages/admin/package.json",
+          "line": 11,
+          "detail": "admin production target is Vite browser build"
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/packages/storefront/package.json",
+          "line": 40,
+          "detail": "storefront production target is browser build"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-logs",
+      "status": "NA",
+      "rationale": "NA: rightkit-logs is Rust/Cargo capability. SellRight production targets are Node API & browser SPAs; source has no Rust target or language bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/sellright/packages/api/src/index.ts",
+          "line": 2,
+          "detail": "production API starts Hono's Node server"
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/packages/admin/package.json",
+          "line": 11,
+          "detail": "admin production target is Vite browser build"
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/packages/storefront/package.json",
+          "line": 40,
+          "detail": "storefront production target is browser build"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-mcp",
+      "status": "NA",
+      "rationale": "NA: rightkit-mcp is Rust/Cargo capability. SellRight production targets are Node API & browser SPAs; source has no Rust target or language bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/sellright/packages/api/src/index.ts",
+          "line": 2,
+          "detail": "production API starts Hono's Node server"
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/packages/admin/package.json",
+          "line": 11,
+          "detail": "admin production target is Vite browser build"
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/packages/storefront/package.json",
+          "line": 40,
+          "detail": "storefront production target is browser build"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-media",
+      "status": "NA",
+      "rationale": "NA: rightkit-media is Rust/Cargo capability. SellRight production targets are Node API & browser SPAs; source has no Rust target or language bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/sellright/packages/api/src/index.ts",
+          "line": 2,
+          "detail": "production API starts Hono's Node server"
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/packages/admin/package.json",
+          "line": 11,
+          "detail": "admin production target is Vite browser build"
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/packages/storefront/package.json",
+          "line": 40,
+          "detail": "storefront production target is browser build"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-models",
+      "status": "NA",
+      "rationale": "NA: rightkit-models is Rust/Cargo capability. SellRight production targets are Node API & browser SPAs; source has no Rust target or language bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/sellright/packages/api/src/index.ts",
+          "line": 2,
+          "detail": "production API starts Hono's Node server"
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/packages/admin/package.json",
+          "line": 11,
+          "detail": "admin production target is Vite browser build"
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/packages/storefront/package.json",
+          "line": 40,
+          "detail": "storefront production target is browser build"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-oauth",
+      "status": "NA",
+      "rationale": "NA: rightkit-oauth is Rust/Cargo capability. SellRight production targets are Node API & browser SPAs; source has no Rust target or language bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/sellright/packages/api/src/index.ts",
+          "line": 2,
+          "detail": "production API starts Hono's Node server"
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/packages/admin/package.json",
+          "line": 11,
+          "detail": "admin production target is Vite browser build"
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/packages/storefront/package.json",
+          "line": 40,
+          "detail": "storefront production target is browser build"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-ocr",
+      "status": "NA",
+      "rationale": "NA: rightkit-ocr is Rust/Cargo capability. SellRight production targets are Node API & browser SPAs; source has no Rust target or language bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/sellright/packages/api/src/index.ts",
+          "line": 2,
+          "detail": "production API starts Hono's Node server"
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/packages/admin/package.json",
+          "line": 11,
+          "detail": "admin production target is Vite browser build"
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/packages/storefront/package.json",
+          "line": 40,
+          "detail": "storefront production target is browser build"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-ort",
+      "status": "NA",
+      "rationale": "NA: rightkit-ort is Rust/Cargo capability. SellRight production targets are Node API & browser SPAs; source has no Rust target or language bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/sellright/packages/api/src/index.ts",
+          "line": 2,
+          "detail": "production API starts Hono's Node server"
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/packages/admin/package.json",
+          "line": 11,
+          "detail": "admin production target is Vite browser build"
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/packages/storefront/package.json",
+          "line": 40,
+          "detail": "storefront production target is browser build"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-overlay",
+      "status": "NA",
+      "rationale": "NA: rightkit-overlay is Rust/Cargo capability. SellRight production targets are Node API & browser SPAs; source has no Rust target or language bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/sellright/packages/api/src/index.ts",
+          "line": 2,
+          "detail": "production API starts Hono's Node server"
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/packages/admin/package.json",
+          "line": 11,
+          "detail": "admin production target is Vite browser build"
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/packages/storefront/package.json",
+          "line": 40,
+          "detail": "storefront production target is browser build"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-ownership",
+      "status": "NA",
+      "rationale": "NA: rightkit-ownership is Rust/Cargo capability. SellRight production targets are Node API & browser SPAs; source has no Rust target or language bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/sellright/packages/api/src/index.ts",
+          "line": 2,
+          "detail": "production API starts Hono's Node server"
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/packages/admin/package.json",
+          "line": 11,
+          "detail": "admin production target is Vite browser build"
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/packages/storefront/package.json",
+          "line": 40,
+          "detail": "storefront production target is browser build"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-pdf",
+      "status": "NA",
+      "rationale": "NA: rightkit-pdf is Rust/Cargo capability. SellRight production targets are Node API & browser SPAs; source has no Rust target or language bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/sellright/packages/api/src/index.ts",
+          "line": 2,
+          "detail": "production API starts Hono's Node server"
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/packages/admin/package.json",
+          "line": 11,
+          "detail": "admin production target is Vite browser build"
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/packages/storefront/package.json",
+          "line": 40,
+          "detail": "storefront production target is browser build"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-playback",
+      "status": "NA",
+      "rationale": "NA: rightkit-playback is Rust/Cargo capability. SellRight production targets are Node API & browser SPAs; source has no Rust target or language bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/sellright/packages/api/src/index.ts",
+          "line": 2,
+          "detail": "production API starts Hono's Node server"
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/packages/admin/package.json",
+          "line": 11,
+          "detail": "admin production target is Vite browser build"
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/packages/storefront/package.json",
+          "line": 40,
+          "detail": "storefront production target is browser build"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-process",
+      "status": "NA",
+      "rationale": "NA: rightkit-process is Rust/Cargo capability. SellRight production targets are Node API & browser SPAs; source has no Rust target or language bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/sellright/packages/api/src/index.ts",
+          "line": 2,
+          "detail": "production API starts Hono's Node server"
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/packages/admin/package.json",
+          "line": 11,
+          "detail": "admin production target is Vite browser build"
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/packages/storefront/package.json",
+          "line": 40,
+          "detail": "storefront production target is browser build"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-qa",
+      "status": "NA",
+      "rationale": "NA: rightkit-qa is Rust/Cargo capability. SellRight production targets are Node API & browser SPAs; source has no Rust target or language bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/sellright/packages/api/src/index.ts",
+          "line": 2,
+          "detail": "production API starts Hono's Node server"
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/packages/admin/package.json",
+          "line": 11,
+          "detail": "admin production target is Vite browser build"
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/packages/storefront/package.json",
+          "line": 40,
+          "detail": "storefront production target is browser build"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-qts",
+      "status": "NA",
+      "rationale": "NA: rightkit-qts is Rust/Cargo capability. SellRight production targets are Node API & browser SPAs; source has no Rust target or language bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/sellright/packages/api/src/index.ts",
+          "line": 2,
+          "detail": "production API starts Hono's Node server"
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/packages/admin/package.json",
+          "line": 11,
+          "detail": "admin production target is Vite browser build"
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/packages/storefront/package.json",
+          "line": 40,
+          "detail": "storefront production target is browser build"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-qts-ggml",
+      "status": "NA",
+      "rationale": "NA: rightkit-qts-ggml is Rust/Cargo capability. SellRight production targets are Node API & browser SPAs; source has no Rust target or language bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/sellright/packages/api/src/index.ts",
+          "line": 2,
+          "detail": "production API starts Hono's Node server"
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/packages/admin/package.json",
+          "line": 11,
+          "detail": "admin production target is Vite browser build"
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/packages/storefront/package.json",
+          "line": 40,
+          "detail": "storefront production target is browser build"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-qts-ggml-sys",
+      "status": "NA",
+      "rationale": "NA: rightkit-qts-ggml-sys is Rust/Cargo capability. SellRight production targets are Node API & browser SPAs; source has no Rust target or language bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/sellright/packages/api/src/index.ts",
+          "line": 2,
+          "detail": "production API starts Hono's Node server"
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/packages/admin/package.json",
+          "line": 11,
+          "detail": "admin production target is Vite browser build"
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/packages/storefront/package.json",
+          "line": 40,
+          "detail": "storefront production target is browser build"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-record",
+      "status": "NA",
+      "rationale": "NA: rightkit-record is Rust/Cargo capability. SellRight production targets are Node API & browser SPAs; source has no Rust target or language bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/sellright/packages/api/src/index.ts",
+          "line": 2,
+          "detail": "production API starts Hono's Node server"
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/packages/admin/package.json",
+          "line": 11,
+          "detail": "admin production target is Vite browser build"
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/packages/storefront/package.json",
+          "line": 40,
+          "detail": "storefront production target is browser build"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-review",
+      "status": "NA",
+      "rationale": "NA: rightkit-review is Rust/Cargo capability. SellRight production targets are Node API & browser SPAs; source has no Rust target or language bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/sellright/packages/api/src/index.ts",
+          "line": 2,
+          "detail": "production API starts Hono's Node server"
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/packages/admin/package.json",
+          "line": 11,
+          "detail": "admin production target is Vite browser build"
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/packages/storefront/package.json",
+          "line": 40,
+          "detail": "storefront production target is browser build"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-sandbox",
+      "status": "NA",
+      "rationale": "NA: rightkit-sandbox is Rust/Cargo capability. SellRight production targets are Node API & browser SPAs; source has no Rust target or language bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/sellright/packages/api/src/index.ts",
+          "line": 2,
+          "detail": "production API starts Hono's Node server"
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/packages/admin/package.json",
+          "line": 11,
+          "detail": "admin production target is Vite browser build"
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/packages/storefront/package.json",
+          "line": 40,
+          "detail": "storefront production target is browser build"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-scenario",
+      "status": "NA",
+      "rationale": "NA: rightkit-scenario is Rust/Cargo capability. SellRight production targets are Node API & browser SPAs; source has no Rust target or language bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/sellright/packages/api/src/index.ts",
+          "line": 2,
+          "detail": "production API starts Hono's Node server"
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/packages/admin/package.json",
+          "line": 11,
+          "detail": "admin production target is Vite browser build"
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/packages/storefront/package.json",
+          "line": 40,
+          "detail": "storefront production target is browser build"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-search",
+      "status": "NA",
+      "rationale": "NA: rightkit-search is Rust/Cargo capability. SellRight production targets are Node API & browser SPAs; source has no Rust target or language bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/sellright/packages/api/src/index.ts",
+          "line": 2,
+          "detail": "production API starts Hono's Node server"
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/packages/admin/package.json",
+          "line": 11,
+          "detail": "admin production target is Vite browser build"
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/packages/storefront/package.json",
+          "line": 40,
+          "detail": "storefront production target is browser build"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-secrets",
+      "status": "NA",
+      "rationale": "NA: rightkit-secrets is Rust/Cargo capability. SellRight production targets are Node API & browser SPAs; source has no Rust target or language bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/sellright/packages/api/src/index.ts",
+          "line": 2,
+          "detail": "production API starts Hono's Node server"
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/packages/admin/package.json",
+          "line": 11,
+          "detail": "admin production target is Vite browser build"
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/packages/storefront/package.json",
+          "line": 40,
+          "detail": "storefront production target is browser build"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-send",
+      "status": "NA",
+      "rationale": "NA: rightkit-send is Rust/Cargo capability. SellRight production targets are Node API & browser SPAs; source has no Rust target or language bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/sellright/packages/api/src/index.ts",
+          "line": 2,
+          "detail": "production API starts Hono's Node server"
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/packages/admin/package.json",
+          "line": 11,
+          "detail": "admin production target is Vite browser build"
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/packages/storefront/package.json",
+          "line": 40,
+          "detail": "storefront production target is browser build"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-service",
+      "status": "NA",
+      "rationale": "NA: rightkit-service is Rust/Cargo capability. SellRight production targets are Node API & browser SPAs; source has no Rust target or language bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/sellright/packages/api/src/index.ts",
+          "line": 2,
+          "detail": "production API starts Hono's Node server"
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/packages/admin/package.json",
+          "line": 11,
+          "detail": "admin production target is Vite browser build"
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/packages/storefront/package.json",
+          "line": 40,
+          "detail": "storefront production target is browser build"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-settings",
+      "status": "NA",
+      "rationale": "NA: rightkit-settings is Rust/Cargo capability. SellRight production targets are Node API & browser SPAs; source has no Rust target or language bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/sellright/packages/api/src/index.ts",
+          "line": 2,
+          "detail": "production API starts Hono's Node server"
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/packages/admin/package.json",
+          "line": 11,
+          "detail": "admin production target is Vite browser build"
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/packages/storefront/package.json",
+          "line": 40,
+          "detail": "storefront production target is browser build"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-shell",
+      "status": "NA",
+      "rationale": "NA: rightkit-shell is Rust/Cargo capability. SellRight production targets are Node API & browser SPAs; source has no Rust target or language bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/sellright/packages/api/src/index.ts",
+          "line": 2,
+          "detail": "production API starts Hono's Node server"
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/packages/admin/package.json",
+          "line": 11,
+          "detail": "admin production target is Vite browser build"
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/packages/storefront/package.json",
+          "line": 40,
+          "detail": "storefront production target is browser build"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-speech-client",
+      "status": "NA",
+      "rationale": "NA: rightkit-speech-client is Rust/Cargo capability. SellRight production targets are Node API & browser SPAs; source has no Rust target or language bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/sellright/packages/api/src/index.ts",
+          "line": 2,
+          "detail": "production API starts Hono's Node server"
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/packages/admin/package.json",
+          "line": 11,
+          "detail": "admin production target is Vite browser build"
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/packages/storefront/package.json",
+          "line": 40,
+          "detail": "storefront production target is browser build"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-sync",
+      "status": "NA",
+      "rationale": "NA: rightkit-sync is Rust/Cargo capability. SellRight production targets are Node API & browser SPAs; source has no Rust target or language bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/sellright/packages/api/src/index.ts",
+          "line": 2,
+          "detail": "production API starts Hono's Node server"
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/packages/admin/package.json",
+          "line": 11,
+          "detail": "admin production target is Vite browser build"
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/packages/storefront/package.json",
+          "line": 40,
+          "detail": "storefront production target is browser build"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-tauri",
+      "status": "NA",
+      "rationale": "NA: rightkit-tauri is Rust/Cargo capability. SellRight production targets are Node API & browser SPAs; source has no Rust target or language bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/sellright/packages/api/src/index.ts",
+          "line": 2,
+          "detail": "production API starts Hono's Node server"
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/packages/admin/package.json",
+          "line": 11,
+          "detail": "admin production target is Vite browser build"
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/packages/storefront/package.json",
+          "line": 40,
+          "detail": "storefront production target is browser build"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-transcript",
+      "status": "NA",
+      "rationale": "NA: rightkit-transcript is Rust/Cargo capability. SellRight production targets are Node API & browser SPAs; source has no Rust target or language bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/sellright/packages/api/src/index.ts",
+          "line": 2,
+          "detail": "production API starts Hono's Node server"
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/packages/admin/package.json",
+          "line": 11,
+          "detail": "admin production target is Vite browser build"
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/packages/storefront/package.json",
+          "line": 40,
+          "detail": "storefront production target is browser build"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-tts",
+      "status": "NA",
+      "rationale": "NA: rightkit-tts is Rust/Cargo capability. SellRight production targets are Node API & browser SPAs; source has no Rust target or language bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/sellright/packages/api/src/index.ts",
+          "line": 2,
+          "detail": "production API starts Hono's Node server"
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/packages/admin/package.json",
+          "line": 11,
+          "detail": "admin production target is Vite browser build"
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/packages/storefront/package.json",
+          "line": 40,
+          "detail": "storefront production target is browser build"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-vad",
+      "status": "NA",
+      "rationale": "NA: rightkit-vad is Rust/Cargo capability. SellRight production targets are Node API & browser SPAs; source has no Rust target or language bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/sellright/packages/api/src/index.ts",
+          "line": 2,
+          "detail": "production API starts Hono's Node server"
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/packages/admin/package.json",
+          "line": 11,
+          "detail": "admin production target is Vite browser build"
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/packages/storefront/package.json",
+          "line": 40,
+          "detail": "storefront production target is browser build"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-watch",
+      "status": "NA",
+      "rationale": "NA: rightkit-watch is Rust/Cargo capability. SellRight production targets are Node API & browser SPAs; source has no Rust target or language bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/sellright/packages/api/src/index.ts",
+          "line": 2,
+          "detail": "production API starts Hono's Node server"
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/packages/admin/package.json",
+          "line": 11,
+          "detail": "admin production target is Vite browser build"
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/packages/storefront/package.json",
+          "line": 40,
+          "detail": "storefront production target is browser build"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/agent-room-mcp",
+      "status": "NA",
+      "rationale": "NA: No production MCP or agent-room server exists in SellRight's Node API or browser targets.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/sellright/packages/api/src/index.ts",
+          "line": 2,
+          "detail": "production API starts Hono's Node server"
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/packages/admin/package.json",
+          "line": 11,
+          "detail": "admin production target is Vite browser build"
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/packages/storefront/package.json",
+          "line": 40,
+          "detail": "storefront production target is browser build"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/app-shell",
+      "status": "NA",
+      "rationale": "NA: SellRight has browser SPAs, not a desktop React shell with native window controls.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/sellright/packages/api/src/index.ts",
+          "line": 2,
+          "detail": "production API starts Hono's Node server"
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/packages/admin/package.json",
+          "line": 11,
+          "detail": "admin production target is Vite browser build"
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/packages/storefront/package.json",
+          "line": 40,
+          "detail": "storefront production target is browser build"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/ax",
+      "status": "NA",
+      "rationale": "NA: SellRight exposes no agent-plugin MCP/CLI surface for AX conformance.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/sellright/packages/api/src/index.ts",
+          "line": 2,
+          "detail": "production API starts Hono's Node server"
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/packages/admin/package.json",
+          "line": 11,
+          "detail": "admin production target is Vite browser build"
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/packages/storefront/package.json",
+          "line": 40,
+          "detail": "storefront production target is browser build"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/build-control-policy",
+      "status": "NA",
+      "rationale": "NA: Private build-control policy belongs to RightKit internal tooling; SellRight has no applicable product runtime surface.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/sellright/packages/api/src/index.ts",
+          "line": 2,
+          "detail": "production API starts Hono's Node server"
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/packages/admin/package.json",
+          "line": 11,
+          "detail": "admin production target is Vite browser build"
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/packages/storefront/package.json",
+          "line": 40,
+          "detail": "storefront production target is browser build"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/doc-render",
+      "status": "NA",
+      "rationale": "NA: SellRight has no production document-reader surface using a sanitized document/email frame.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/sellright/packages/api/src/index.ts",
+          "line": 2,
+          "detail": "production API starts Hono's Node server"
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/packages/admin/package.json",
+          "line": 11,
+          "detail": "admin production target is Vite browser build"
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/packages/storefront/package.json",
+          "line": 40,
+          "detail": "storefront production target is browser build"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/git",
+      "status": "NA",
+      "rationale": "NA: App-specific CI workflow policy is outside this public workflow-adoption owner; no RightKit Git workflow runtime is present.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/sellright/packages/api/src/index.ts",
+          "line": 2,
+          "detail": "production API starts Hono's Node server"
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/packages/admin/package.json",
+          "line": 11,
+          "detail": "admin production target is Vite browser build"
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/packages/storefront/package.json",
+          "line": 40,
+          "detail": "storefront production target is browser build"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/hooks",
+      "status": "NA",
+      "rationale": "NA: SellRight has no independently installed agent lifecycle runtime.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/sellright/packages/api/src/index.ts",
+          "line": 2,
+          "detail": "production API starts Hono's Node server"
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/packages/admin/package.json",
+          "line": 11,
+          "detail": "admin production target is Vite browser build"
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/packages/storefront/package.json",
+          "line": 40,
+          "detail": "storefront production target is browser build"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/i18n",
+      "status": "NA",
+      "rationale": "NA: No locale catalog/provider exists; storefront has only merchant locale configuration.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/sellright/packages/storefront/src/theme/theme.config.ts",
+          "line": 147,
+          "detail": "merchant locale is a scalar config value; no locale catalog/provider"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/legal",
+      "status": "Y",
+      "rationale": "Y: checkout's live licensed-product path validates configured manifest with @rightkit/legal before server-attested receipt persistence; no competing manifest validator exists.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/sellright/packages/api/src/legal/manifests.ts",
+          "line": 19,
+          "symbol": "assertLegalManifest",
+          "detail": "live manifest resolution calls shared validator"
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/packages/api/src/routes/checkout.ts",
+          "line": 345,
+          "symbol": "legalManifestForApp",
+          "detail": "POST /v1/shop/checkout invokes validated manifest path for licensed variants"
+        }
+      ],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/sellright/packages/api/package.json",
+          "line": 30,
+          "detail": "published API dependency pins @rightkit/legal 0.3.1"
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/packages/api/src/routes/checkout.ts",
+          "line": 355,
+          "detail": "checkout calls legal receipt flow after manifest resolution"
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/packages/legal/src/index.ts",
+          "line": 102,
+          "detail": "assertLegalManifest defines shared legal-manifest validation"
+        }
+      ],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/legal-ui",
+      "status": "NA",
+      "rationale": "NA: Legal acceptance is server-validated checkout data, not a Right Suite desktop first-run/re-acceptance screen.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/sellright/packages/api/src/index.ts",
+          "line": 2,
+          "detail": "production API starts Hono's Node server"
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/packages/admin/package.json",
+          "line": 11,
+          "detail": "admin production target is Vite browser build"
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/packages/storefront/package.json",
+          "line": 40,
+          "detail": "storefront production target is browser build"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/license",
+      "status": "NA",
+      "rationale": "NA: SellRight is Node server-side issuer/activation authority; this owner is a desktop license client.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/sellright/packages/api/src/index.ts",
+          "line": 2,
+          "detail": "production API starts Hono's Node server"
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/packages/admin/package.json",
+          "line": 11,
+          "detail": "admin production target is Vite browser build"
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/packages/storefront/package.json",
+          "line": 40,
+          "detail": "storefront production target is browser build"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/logs",
+      "status": "NA",
+      "rationale": "NA: Pino serves Node API stdout logging; owner is a local desktop diagnostics client, so runtime contracts differ.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/sellright/packages/api/src/index.ts",
+          "line": 2,
+          "detail": "production API starts Hono's Node server"
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/packages/admin/package.json",
+          "line": 11,
+          "detail": "admin production target is Vite browser build"
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/packages/storefront/package.json",
+          "line": 40,
+          "detail": "storefront production target is browser build"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/media-ui",
+      "status": "NA",
+      "rationale": "NA: SellRight has no production media player or image viewer/editor surface within this owner's scope.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/sellright/packages/api/src/index.ts",
+          "line": 2,
+          "detail": "production API starts Hono's Node server"
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/packages/admin/package.json",
+          "line": 11,
+          "detail": "admin production target is Vite browser build"
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/packages/storefront/package.json",
+          "line": 40,
+          "detail": "storefront production target is browser build"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/onboarding",
+      "status": "NA",
+      "rationale": "NA: No first-run desktop onboarding flow exists.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/sellright/packages/api/src/index.ts",
+          "line": 2,
+          "detail": "production API starts Hono's Node server"
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/packages/admin/package.json",
+          "line": 11,
+          "detail": "admin production target is Vite browser build"
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/packages/storefront/package.json",
+          "line": 40,
+          "detail": "storefront production target is browser build"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/pdf-ui",
+      "status": "NA",
+      "rationale": "NA: No production PDF reader/viewer surface exists.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/sellright/packages/api/src/index.ts",
+          "line": 2,
+          "detail": "production API starts Hono's Node server"
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/packages/admin/package.json",
+          "line": 11,
+          "detail": "admin production target is Vite browser build"
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/packages/storefront/package.json",
+          "line": 40,
+          "detail": "storefront production target is browser build"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/platform-ui",
+      "status": "NA",
+      "rationale": "NA: No native desktop platform/window-control target exists.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/sellright/packages/api/src/index.ts",
+          "line": 2,
+          "detail": "production API starts Hono's Node server"
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/packages/admin/package.json",
+          "line": 11,
+          "detail": "admin production target is Vite browser build"
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/packages/storefront/package.json",
+          "line": 40,
+          "detail": "storefront production target is browser build"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/qa",
+      "status": "N",
+      "rationale": "N: storefront production e2e uses Playwright HTML reports plus failure-only traces/screenshots uploaded by GitHub Actions; it never calls @rightkit/qa. Current owner APIs can attach to CDP browser sessions & create hash-bound evidence bundles, so a source-compatible evidence cutover exists.",
+      "shared_evidence": [],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/sellright/packages/storefront/playwright.config.ts",
+          "line": 20,
+          "symbol": "defineConfig",
+          "detail": "Production-build E2E config selects Chromium, retain-on-failure trace & screenshot, plus CI HTML reporter."
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/.github/workflows/ci.yml",
+          "line": 684,
+          "symbol": "Run the storefront e2e suite",
+          "detail": "Active CI E2E job runs storefront Playwright suite then uploads playwright-report/ & test-results/ on failure."
+        }
+      ],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/sellright/packages/storefront/package.json",
+          "line": 41,
+          "symbol": "test:e2e",
+          "detail": "Storefront production package exposes playwright test:e2e script."
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/packages/qa/src/page.ts",
+          "line": 42,
+          "symbol": "QaBrowserSession.connect",
+          "detail": "QaBrowserSession connects to a supplied CDP endpoint & owns CDP-created pages."
+        },
+        {
+          "path": "/Volumes/D/claude/rightkit/packages/qa/src/evidence.ts",
+          "line": 73,
+          "symbol": "addEvidenceArtifact",
+          "detail": "addEvidenceArtifact records SHA-256 & size of browser artifacts before a check may reference them."
+        },
+        {
+          "path": "/Volumes/D/claude/rightkit/packages/qa/src/evidence.ts",
+          "line": 101,
+          "symbol": "addEvidenceCheck",
+          "detail": "addEvidenceCheck rejects artifact references that were not hash-recorded."
+        }
+      ],
+      "delivery_flags": [],
+      "remaining_work": "Add an @rightkit/qa consumer that records Playwright HTML report, trace & screenshot bytes with createEvidenceBundle/addEvidenceArtifact/addEvidenceCheck/writeEvidenceBundle; retain commerce-specific Playwright scenarios.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/qa-chrome",
+      "status": "NA",
+      "rationale": "NA: Playwright is an e2e runner, but no repository-owned Chrome-for-Testing resolver/launcher is implemented.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/sellright/packages/api/src/index.ts",
+          "line": 2,
+          "detail": "production API starts Hono's Node server"
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/packages/admin/package.json",
+          "line": 11,
+          "detail": "admin production target is Vite browser build"
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/packages/storefront/package.json",
+          "line": 40,
+          "detail": "storefront production target is browser build"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/release",
+      "status": "NA",
+      "rationale": "NA: SellRight actively builds three Linux OCI images, pushes them to GHCR, then keylessly cosign-signs image digests; current @rightkit/release accepts only mac|win targets & uploads GitHub Release assets. No current owner API models OCI image build/push, GHCR registry manifests, keyless cosign digest signing, or Linux container targets.",
+      "shared_evidence": [],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/sellright/.github/workflows/ci.yml",
+          "line": 721,
+          "symbol": "release",
+          "detail": "Main-branch release matrix covers api, admin & storefront."
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/.github/workflows/ci.yml",
+          "line": 762,
+          "symbol": "Build and push",
+          "detail": "docker/build-push-action pushes GHCR image tags for every component."
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/.github/workflows/ci.yml",
+          "line": 780,
+          "symbol": "Sign image (cosign keyless)",
+          "detail": "cosign keylessly signs each pushed image by immutable digest."
+        }
+      ],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/sellright/right-release.config.mjs",
+          "line": 1,
+          "symbol": "default config",
+          "detail": "Existing file has only schema/app/packageManager/deps workdirs; it declares no distribution provider or platform target."
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/deploy/compose.yaml",
+          "line": 91,
+          "symbol": "api.image",
+          "detail": "Appliance consumes GHCR API image; admin & storefront image refs follow at lines 182 & 200."
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/packages/release/release.mjs",
+          "line": 65,
+          "symbol": "release CLI options",
+          "detail": "Build defaults platform to win or mac; target is selected only from config.targets[platform]."
+        },
+        {
+          "path": "/Volumes/D/claude/rightkit/packages/release/release.mjs",
+          "line": 134,
+          "symbol": "target selection",
+          "detail": "Owner rejects a config without a selected release target & validates Windows/macOS signing contracts."
+        },
+        {
+          "path": "/Volumes/D/claude/rightkit/packages/release/upload-release.mjs",
+          "line": 35,
+          "symbol": "upload platform validation",
+          "detail": "Upload rejects a platform other than win or mac."
+        },
+        {
+          "path": "/Volumes/D/claude/rightkit/packages/release/upload-release.mjs",
+          "line": 55,
+          "symbol": "upload provider validation",
+          "detail": "Upload requires distribution.provider github-releases."
+        }
+      ],
+      "delivery_flags": [],
+      "remaining_work": "Future reuse gap: add a sealed Linux OCI target contract with Docker build inputs, GHCR push-by-digest, keyless cosign signing/verification, OCI manifest hash evidence & appliance pull qualification before reassessing @rightkit/release.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/settings-ui",
+      "status": "NA",
+      "rationale": "NA: Commerce-admin forms are product settings UX, not Right Suite desktop standard settings sections.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/sellright/packages/api/src/index.ts",
+          "line": 2,
+          "detail": "production API starts Hono's Node server"
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/packages/admin/package.json",
+          "line": 11,
+          "detail": "admin production target is Vite browser build"
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/packages/storefront/package.json",
+          "line": 40,
+          "detail": "storefront production target is browser build"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/shell",
+      "status": "NA",
+      "rationale": "NA: No Tauri renderer bridge or native shell target exists.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/sellright/packages/api/src/index.ts",
+          "line": 2,
+          "detail": "production API starts Hono's Node server"
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/packages/admin/package.json",
+          "line": 11,
+          "detail": "admin production target is Vite browser build"
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/packages/storefront/package.json",
+          "line": 40,
+          "detail": "storefront production target is browser build"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/tauri",
+      "status": "NA",
+      "rationale": "NA: No Tauri target exists.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/sellright/packages/api/src/index.ts",
+          "line": 2,
+          "detail": "production API starts Hono's Node server"
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/packages/admin/package.json",
+          "line": 11,
+          "detail": "admin production target is Vite browser build"
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/packages/storefront/package.json",
+          "line": 40,
+          "detail": "storefront production target is browser build"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/theme",
+      "status": "NA",
+      "rationale": "NA: Merchant storefront identity/policy configuration is not a Right Suite brand-file token generator integration.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/sellright/packages/api/src/index.ts",
+          "line": 2,
+          "detail": "production API starts Hono's Node server"
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/packages/admin/package.json",
+          "line": 11,
+          "detail": "admin production target is Vite browser build"
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/packages/storefront/package.json",
+          "line": 40,
+          "detail": "storefront production target is browser build"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/update",
+      "status": "N",
+      "rationale": "N: root scripts & scheduled workflow directly run pnpm up for root/admin workdirs. @rightkit/update currently supports pnpm manifest sources, project.yml SwiftPM sources, explicit gates, staged apply/discard & gated land, but SellRight has no .rightkit/update.json or shared invocation.",
+      "shared_evidence": [],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/sellright/package.json",
+          "line": 25,
+          "symbol": "deps scripts",
+          "detail": "Root exposes direct outdated/audit/up scripts; deps:update & deps:update:latest call pnpm up for workspace plus admin."
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/.github/workflows/refresh-dependencies.yml",
+          "line": 36,
+          "symbol": "refresh job",
+          "detail": "Manually dispatched workflow runs pnpm up in root & packages/admin, then verifies & commits."
+        }
+      ],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/sellright/right-release.config.mjs",
+          "line": 5,
+          "symbol": "deps.workdirs",
+          "detail": "Release config only lists dependency workdirs; it is not @rightkit/update’s required .rightkit/update.json manifest."
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/ios/project.yml",
+          "line": 16,
+          "symbol": "RightKitSwift package",
+          "detail": "iOS project is a project.yml Swift package consumer, a source kind supported by update owner."
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/packages/update/src/types.ts",
+          "line": 53,
+          "symbol": "PnpmSource/SwiftpmSource",
+          "detail": "PnpmSource accepts a package.json manifest/glob; SwiftpmSource accepts Package.swift or project.yml."
+        },
+        {
+          "path": "/Volumes/D/claude/rightkit/packages/update/src/run.ts",
+          "line": 30,
+          "symbol": "USAGE",
+          "detail": "CLI exposes check, apply, gate, land, discard & staged run commands."
+        },
+        {
+          "path": "/Volumes/D/claude/rightkit/packages/update/src/run.ts",
+          "line": 42,
+          "symbol": "command semantics",
+          "detail": "Documented stages compare pins, apply non-breaking rewrites, run gates, then commit/push per policy."
+        }
+      ],
+      "delivery_flags": [],
+      "remaining_work": "Create .rightkit/update.json with root/admin pnpm manifests, ios/project.yml, held-policy rules & SellRight verification gates; replace direct pnpm up workflow/scripts with right-update check/apply/gate/land.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/updates",
+      "status": "NA",
+      "rationale": "NA: SellRight updates Docker appliance images; this owner is Tauri desktop runtime update policy.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/sellright/packages/api/src/index.ts",
+          "line": 2,
+          "detail": "production API starts Hono's Node server"
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/packages/admin/package.json",
+          "line": 11,
+          "detail": "admin production target is Vite browser build"
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/packages/storefront/package.json",
+          "line": 40,
+          "detail": "storefront production target is browser build"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitLicense",
+      "status": "NA",
+      "rationale": "NA: SellRight has iOS admin & widget targets, but RightKitLicense is neither declared in project.yml nor reached by a matching production feature.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/sellright/ios/project.yml",
+          "line": 21,
+          "symbol": "SellRightAdmin target",
+          "detail": "iOS admin target declares only RightKitDiagnostics; no matching RightKitSwift product is declared."
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/packages/api/src/index.ts",
+          "line": 2,
+          "detail": "production API starts Hono's Node server"
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/packages/admin/package.json",
+          "line": 11,
+          "detail": "admin production target is Vite browser build"
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/packages/storefront/package.json",
+          "line": 40,
+          "detail": "storefront production target is browser build"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitDiagnostics",
+      "status": "Y",
+      "rationale": "Y: iOS admin declares & imports RightKitDiagnostics, then routes app diagnostic events through shared JSONLDiagnosticStore with shared PrivacyRedactor; its thin wrapper only chooses app path/event fields.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/sellright/ios/project.yml",
+          "line": 27,
+          "symbol": "SellRightAdmin.dependencies",
+          "detail": "SellRightAdmin declares RightKitDiagnostics product dependency."
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/ios/SellRightAdmin/Core/Diagnostics.swift",
+          "line": 7,
+          "symbol": "Diagnostics",
+          "detail": "App creates shared JSONLDiagnosticStore & PrivacyRedactor then records DiagnosticEvent through store."
+        }
+      ],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/sellright/ios/project.yml",
+          "line": 21,
+          "symbol": "SellRightAdmin target",
+          "detail": "SellRightAdmin is an iOS application target; its only RightKitSwift product dependency is RightKitDiagnostics at lines 27-30."
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/swift/RightKitSwift/Sources/RightKitDiagnostics/JSONLDiagnosticStore.swift",
+          "line": 77,
+          "symbol": "JSONLDiagnosticStore",
+          "detail": "JSONLDiagnosticStore is shared bounded JSONL diagnostics capability."
+        },
+        {
+          "path": "/Volumes/D/claude/rightkit/swift/RightKitSwift/Sources/RightKitDiagnostics/JSONLDiagnosticStore.swift",
+          "line": 105,
+          "symbol": "JSONLDiagnosticStore.record",
+          "detail": "record persists a DiagnosticEvent after shared encoding/redaction path."
+        }
+      ],
+      "delivery_flags": [
+        "RightKitSwift is declared with `from: 0.1.0` at ios/project.yml:17-19 rather than an exact tag pin."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitArtifacts",
+      "status": "NA",
+      "rationale": "NA: SellRight has iOS admin & widget targets, but RightKitArtifacts is neither declared in project.yml nor reached by a matching production feature.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/sellright/ios/project.yml",
+          "line": 21,
+          "symbol": "SellRightAdmin target",
+          "detail": "iOS admin target declares only RightKitDiagnostics; no matching RightKitSwift product is declared."
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/packages/api/src/index.ts",
+          "line": 2,
+          "detail": "production API starts Hono's Node server"
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/packages/admin/package.json",
+          "line": 11,
+          "detail": "admin production target is Vite browser build"
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/packages/storefront/package.json",
+          "line": 40,
+          "detail": "storefront production target is browser build"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitPurchases",
+      "status": "NA",
+      "rationale": "NA: SellRight has iOS admin & widget targets, but RightKitPurchases is neither declared in project.yml nor reached by a matching production feature.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/sellright/ios/project.yml",
+          "line": 21,
+          "symbol": "SellRightAdmin target",
+          "detail": "iOS admin target declares only RightKitDiagnostics; no matching RightKitSwift product is declared."
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/packages/api/src/index.ts",
+          "line": 2,
+          "detail": "production API starts Hono's Node server"
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/packages/admin/package.json",
+          "line": 11,
+          "detail": "admin production target is Vite browser build"
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/packages/storefront/package.json",
+          "line": 40,
+          "detail": "storefront production target is browser build"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitCloudSync",
+      "status": "NA",
+      "rationale": "NA: SellRight has iOS admin & widget targets, but RightKitCloudSync is neither declared in project.yml nor reached by a matching production feature.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/sellright/ios/project.yml",
+          "line": 21,
+          "symbol": "SellRightAdmin target",
+          "detail": "iOS admin target declares only RightKitDiagnostics; no matching RightKitSwift product is declared."
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/packages/api/src/index.ts",
+          "line": 2,
+          "detail": "production API starts Hono's Node server"
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/packages/admin/package.json",
+          "line": 11,
+          "detail": "admin production target is Vite browser build"
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/packages/storefront/package.json",
+          "line": 40,
+          "detail": "storefront production target is browser build"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitStore",
+      "status": "NA",
+      "rationale": "NA: SellRight has iOS admin & widget targets, but RightKitStore is neither declared in project.yml nor reached by a matching production feature.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/sellright/ios/project.yml",
+          "line": 21,
+          "symbol": "SellRightAdmin target",
+          "detail": "iOS admin target declares only RightKitDiagnostics; no matching RightKitSwift product is declared."
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/packages/api/src/index.ts",
+          "line": 2,
+          "detail": "production API starts Hono's Node server"
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/packages/admin/package.json",
+          "line": 11,
+          "detail": "admin production target is Vite browser build"
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/packages/storefront/package.json",
+          "line": 40,
+          "detail": "storefront production target is browser build"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitImportQueue",
+      "status": "NA",
+      "rationale": "NA: SellRight has iOS admin & widget targets, but RightKitImportQueue is neither declared in project.yml nor reached by a matching production feature.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/sellright/ios/project.yml",
+          "line": 21,
+          "symbol": "SellRightAdmin target",
+          "detail": "iOS admin target declares only RightKitDiagnostics; no matching RightKitSwift product is declared."
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/packages/api/src/index.ts",
+          "line": 2,
+          "detail": "production API starts Hono's Node server"
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/packages/admin/package.json",
+          "line": 11,
+          "detail": "admin production target is Vite browser build"
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/packages/storefront/package.json",
+          "line": 40,
+          "detail": "storefront production target is browser build"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitLiveActivity",
+      "status": "N",
+      "rationale": "N: iOS admin directly enumerates, updates & ends order ActivityKit activities. RightKitLiveActivity supplies typed fenced start/adopt/update/end plus generic lifecycle guards, but project.yml does not declare it. SellRight push-to-start token registration remains product-specific because owner host starts activities with pushType nil.",
+      "shared_evidence": [],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/sellright/ios/SellRightAdmin/Core/OrderActivityController.swift",
+          "line": 15,
+          "symbol": "OrderActivityController.update",
+          "detail": "Local controller finds order activity then updates or ends it."
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/ios/SellRightAdmin/Core/PushManager.swift",
+          "line": 111,
+          "symbol": "observePushToStartToken",
+          "detail": "Local manager observes push-to-start token updates & ends all activities on logout."
+        }
+      ],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/sellright/ios/project.yml",
+          "line": 21,
+          "symbol": "SellRightAdmin target",
+          "detail": "SellRightAdmin is an iOS application target; its only RightKitSwift product dependency is RightKitDiagnostics at lines 27-30."
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/ios/project.yml",
+          "line": 70,
+          "symbol": "SellRightWidgets target",
+          "detail": "SellRightWidgets is an iOS widget extension; no watchOS target or additional RightKitSwift product appears in project.yml."
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/swift/RightKitSwift/Sources/RightKitLiveActivity/LiveActivityHost.swift",
+          "line": 34,
+          "symbol": "LiveActivityHost",
+          "detail": "LiveActivityHost owns fenced ActivityKit lifecycle sequencing."
+        },
+        {
+          "path": "/Volumes/D/claude/rightkit/swift/RightKitSwift/Sources/RightKitLiveActivity/LiveActivityHost.swift",
+          "line": 75,
+          "symbol": "LiveActivityHost.update/end",
+          "detail": "Owner exposes update & end calls for hosted activity."
+        },
+        {
+          "path": "/Volumes/D/claude/rightkit/swift/RightKitSwift/Sources/RightKitLiveActivity/LiveActivityHost.swift",
+          "line": 65,
+          "symbol": "LiveActivityHost.start",
+          "detail": "Owner start currently requests pushType nil, excluding SellRight push-to-start registration."
+        }
+      ],
+      "delivery_flags": [],
+      "remaining_work": "Declare RightKitLiveActivity; route local app-side update/end lifecycle through its host while retaining order attributes/widget UI & SellRight push-to-start token registration.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitWatchBridge",
+      "status": "NA",
+      "rationale": "NA: SellRight has iOS admin & widget targets, but RightKitWatchBridge is neither declared in project.yml nor reached by a matching production feature.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/sellright/ios/project.yml",
+          "line": 70,
+          "symbol": "SellRightWidgets target",
+          "detail": "Widget extension is an iOS target; no watchOS target or matching RightKitSwift product is declared."
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/packages/api/src/index.ts",
+          "line": 2,
+          "detail": "production API starts Hono's Node server"
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/packages/admin/package.json",
+          "line": 11,
+          "detail": "admin production target is Vite browser build"
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/packages/storefront/package.json",
+          "line": 40,
+          "detail": "storefront production target is browser build"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitSpeech",
+      "status": "NA",
+      "rationale": "NA: SellRight has iOS admin & widget targets, but RightKitSpeech is neither declared in project.yml nor reached by a matching production feature.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/sellright/ios/project.yml",
+          "line": 21,
+          "symbol": "SellRightAdmin target",
+          "detail": "iOS admin target declares only RightKitDiagnostics; no matching RightKitSwift product is declared."
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/packages/api/src/index.ts",
+          "line": 2,
+          "detail": "production API starts Hono's Node server"
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/packages/admin/package.json",
+          "line": 11,
+          "detail": "admin production target is Vite browser build"
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/packages/storefront/package.json",
+          "line": 40,
+          "detail": "storefront production target is browser build"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitIntents",
+      "status": "NA",
+      "rationale": "NA: SellRight has iOS admin & widget targets, but RightKitIntents is neither declared in project.yml nor reached by a matching production feature.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/sellright/ios/project.yml",
+          "line": 21,
+          "symbol": "SellRightAdmin target",
+          "detail": "iOS admin target declares only RightKitDiagnostics; no matching RightKitSwift product is declared."
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/packages/api/src/index.ts",
+          "line": 2,
+          "detail": "production API starts Hono's Node server"
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/packages/admin/package.json",
+          "line": 11,
+          "detail": "admin production target is Vite browser build"
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/packages/storefront/package.json",
+          "line": 40,
+          "detail": "storefront production target is browser build"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitAppleCredentials",
+      "status": "N",
+      "rationale": "N: iOS admin’s active Keychain wrapper persists, reads & deletes adminToken directly with Security APIs. Current RightKitAppleCredentials supplies AppleCredentialStore read/write/delete APIs for the same per-app Keychain role, but project.yml does not declare it.",
+      "shared_evidence": [],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/sellright/ios/SellRightAdmin/Core/Keychain.swift",
+          "line": 6,
+          "symbol": "Keychain",
+          "detail": "Local Keychain wrapper directly deletes/adds/reads kSecClassGenericPassword items."
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/ios/SellRightAdmin/App/AppSession.swift",
+          "line": 40,
+          "symbol": "AppSession",
+          "detail": "Bootstrap, login & logout call local Keychain get/set/delete for adminToken."
+        }
+      ],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/sellright/ios/project.yml",
+          "line": 21,
+          "symbol": "SellRightAdmin target",
+          "detail": "SellRightAdmin is an iOS application target; its only RightKitSwift product dependency is RightKitDiagnostics at lines 27-30."
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/swift/RightKitSwift/Sources/RightKitAppleCredentials/RightKitAppleCredentials.swift",
+          "line": 77,
+          "symbol": "AppleCredentialStore",
+          "detail": "AppleCredentialStore is per-app Keychain storage."
+        },
+        {
+          "path": "/Volumes/D/claude/rightkit/swift/RightKitSwift/Sources/RightKitAppleCredentials/RightKitAppleCredentials.swift",
+          "line": 102,
+          "symbol": "AppleCredentialStore API",
+          "detail": "Owner exposes read, presence, write & deleteEverywhere operations."
+        }
+      ],
+      "delivery_flags": [],
+      "remaining_work": "Declare RightKitAppleCredentials, map adminToken to explicit device scope, then replace local Keychain get/set/delete callers while preserving SellRight service/account policy.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitOverlay",
+      "status": "NA",
+      "rationale": "NA: SellRight has iOS admin & widget targets, but RightKitOverlay is neither declared in project.yml nor reached by a matching production feature.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/sellright/ios/project.yml",
+          "line": 21,
+          "symbol": "SellRightAdmin target",
+          "detail": "iOS admin target declares only RightKitDiagnostics; no matching RightKitSwift product is declared."
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/packages/api/src/index.ts",
+          "line": 2,
+          "detail": "production API starts Hono's Node server"
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/packages/admin/package.json",
+          "line": 11,
+          "detail": "admin production target is Vite browser build"
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/packages/storefront/package.json",
+          "line": 40,
+          "detail": "storefront production target is browser build"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitWatch",
+      "status": "NA",
+      "rationale": "NA: SellRight has iOS admin & widget targets, but RightKitWatch is neither declared in project.yml nor reached by a matching production feature.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/sellright/ios/project.yml",
+          "line": 70,
+          "symbol": "SellRightWidgets target",
+          "detail": "Widget extension is an iOS target; no watchOS target or matching RightKitSwift product is declared."
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/packages/api/src/index.ts",
+          "line": 2,
+          "detail": "production API starts Hono's Node server"
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/packages/admin/package.json",
+          "line": 11,
+          "detail": "admin production target is Vite browser build"
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/packages/storefront/package.json",
+          "line": 40,
+          "detail": "storefront production target is browser build"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitUI",
+      "status": "NA",
+      "rationale": "NA: SellRight has iOS admin & widget targets, but RightKitUI is neither declared in project.yml nor reached by a matching production feature.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/sellright/ios/project.yml",
+          "line": 21,
+          "symbol": "SellRightAdmin target",
+          "detail": "iOS admin target declares only RightKitDiagnostics; no matching RightKitSwift product is declared."
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/packages/api/src/index.ts",
+          "line": 2,
+          "detail": "production API starts Hono's Node server"
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/packages/admin/package.json",
+          "line": 11,
+          "detail": "admin production target is Vite browser build"
+        },
+        {
+          "path": "/Volumes/D/claude/sellright/packages/storefront/package.json",
+          "line": 40,
+          "detail": "storefront production target is browser build"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    }
+  ],
+  "searches": [
+    {
+      "pattern": "Cargo.toml|\\.rs$",
+      "scope": "/Volumes/D/claude/sellright production source/config",
+      "result": "No SellRight Rust/Cargo target or Rust bridge found; Cargo owner rows remain NA."
+    },
+    {
+      "pattern": "RightKitSwift|import RightKit",
+      "scope": "/Volumes/D/claude/sellright/ios project & Swift sources",
+      "result": "iOS admin + widget targets exist; only RightKitDiagnostics is declared/imported. Local Keychain & ActivityKit callers remain active."
+    },
+    {
+      "pattern": "@rightkit/qa|createEvidenceBundle|QaBrowserSession",
+      "scope": "/Volumes/D/claude/sellright production/CI sources",
+      "result": "No @rightkit/qa consumer; current Playwright browser artifacts export through GitHub Actions upload-artifact."
+    },
+    {
+      "pattern": "right-release|targets:|distribution:|cosign|ghcr.io",
+      "scope": "/Volumes/D/claude/sellright release/config/CI sources",
+      "result": "No right-release invocation or target/distribution config; CI publishes & keylessly signs three GHCR OCI images."
+    },
+    {
+      "pattern": "right-update|.rightkit/update.json|pnpm up",
+      "scope": "/Volumes/D/claude/sellright scripts/workflows/config",
+      "result": "No right-update manifest/invocation; direct pnpm up scripts & refresh workflow remain active."
+    }
+  ],
+  "self_review": "Challenged former blanket Swift NA: source has iOS app/widget targets. Corrected RightKitDiagnostics to Y, Keychain & Live Activity to N, then retained other Swift rows as NA only where project dependency/caller plus matching local feature are absent. Challenged release N: current owner supports only win/mac signed release artifacts & GitHub Release upload, not Linux OCI/GHCR/cosign; corrected to NA with specific owner gap. QA N remains because current browser evidence export is app-local Playwright/GitHub artifact flow while owner has concrete CDP/evidence APIs. Update N remains because owner supports SellRight pnpm/project.yml sources & staged gates, but no manifest/caller exists."
+}
+

@@ -1,0 +1,2432 @@
+{
+  "app": "Pulse",
+  "root": "/Volumes/D/claude/pulse",
+  "head": "64839ce8b66628b883527bc85b35c9c2a08c0735",
+  "reviewed_at": "2026-10-11T08:13:43+05:30",
+  "targets": [
+    "macOS desktop notch (Swift/AppKit/SwiftUI)",
+    "Windows desktop notch (Rust/Win32)",
+    "Tauri React hub",
+    "Rust core",
+    "macOS Swift prototype package (inactive salvage target; inspected for source overlap)"
+  ],
+  "scope_note": "Fresh source-only audit of active Pulse production roots; excluded prior audits, docs, tests, generated bundles, caches, node_modules, vendored donor trees, builds, installs, execution, and release qualification. Swift rows were checked against active macOS sources; no iOS/watchOS target exists.",
+  "cells": [
+    {
+      "component_id": "cargo:agent-room-core",
+      "status": "NA",
+      "rationale": "No active Pulse production caller for cargo:agent-room-core; capability is outside Pulse's storage/monitor/notch/nearby-sharing product scope or has no applicable target/runtime.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/pulse/core/Cargo.toml",
+          "line": 15,
+          "detail": "Pulse active targets are core/hub Rust, Tauri React hub, macOS notch/Swift, and Windows native notch; source census scoped to these production roots."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-agent-tools",
+      "status": "NA",
+      "rationale": "No active Pulse production caller for cargo:rightkit-agent-tools; capability is outside Pulse's storage/monitor/notch/nearby-sharing product scope or has no applicable target/runtime.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/pulse/core/Cargo.toml",
+          "line": 15,
+          "detail": "Pulse active targets are core/hub Rust, Tauri React hub, macOS notch/Swift, and Windows native notch; source census scoped to these production roots."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-align",
+      "status": "NA",
+      "rationale": "No active Pulse production caller for cargo:rightkit-align; capability is outside Pulse's storage/monitor/notch/nearby-sharing product scope or has no applicable target/runtime.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/pulse/core/Cargo.toml",
+          "line": 15,
+          "detail": "Pulse active targets are core/hub Rust, Tauri React hub, macOS notch/Swift, and Windows native notch; source census scoped to these production roots."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-asr",
+      "status": "NA",
+      "rationale": "No active Pulse production caller for cargo:rightkit-asr; capability is outside Pulse's storage/monitor/notch/nearby-sharing product scope or has no applicable target/runtime.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/pulse/core/Cargo.toml",
+          "line": 15,
+          "detail": "Pulse active targets are core/hub Rust, Tauri React hub, macOS notch/Swift, and Windows native notch; source census scoped to these production roots."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-audio",
+      "status": "NA",
+      "rationale": "No active Pulse production caller for cargo:rightkit-audio; capability is outside Pulse's storage/monitor/notch/nearby-sharing product scope or has no applicable target/runtime.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/pulse/core/Cargo.toml",
+          "line": 15,
+          "detail": "Pulse active targets are core/hub Rust, Tauri React hub, macOS notch/Swift, and Windows native notch; source census scoped to these production roots."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-automation",
+      "status": "NA",
+      "rationale": "Pulse AXSupport.swift only provides Mac convenience AX geometry/actions, while Windows main owns notch UI; no production caller uses owner Rust AX/UIA observe/act engine.",
+      "shared_evidence": [],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/pulse/mac/Notch/Sources/Conveniences/AXSupport.swift",
+          "line": 1,
+          "symbol": "active production integration",
+          "detail": "Active Mac notch uses ApplicationServices accessibility support for app/window actions."
+        },
+        {
+          "path": "/Volumes/D/claude/pulse/windows/src/main.rs",
+          "line": 1,
+          "symbol": "active production integration",
+          "detail": "Active Windows notch implements native window/UI interactions."
+        }
+      ],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/pulse/core/Cargo.toml",
+          "line": 15,
+          "detail": "Pulse active targets are core/hub Rust, Tauri React hub, macOS notch/Swift, and Windows native notch; source census scoped to these production roots."
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-automation/src/lib.rs",
+          "line": 39,
+          "detail": "Owner API is Rust Automation/native AX/UIA engine; Pulse has no Rust automation caller."
+        }
+      ],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-browser",
+      "status": "NA",
+      "rationale": "No active Pulse production caller for cargo:rightkit-browser; capability is outside Pulse's storage/monitor/notch/nearby-sharing product scope or has no applicable target/runtime.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/pulse/core/Cargo.toml",
+          "line": 15,
+          "detail": "Pulse active targets are core/hub Rust, Tauri React hub, macOS notch/Swift, and Windows native notch; source census scoped to these production roots."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-cache",
+      "status": "NA",
+      "rationale": "Pulse app/update/icon snapshots are schema/timestamp JSON files written atomically; no owner DiskCache size cap, LRU index, grouped keys, or cache reservation is active.",
+      "shared_evidence": [],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/pulse/core/src/app_manager.rs",
+          "line": 622,
+          "symbol": "active production integration",
+          "detail": "Pulse defines local JSON atomic cache writer used by app/update/icon caches."
+        }
+      ],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/pulse/core/Cargo.toml",
+          "line": 15,
+          "detail": "Pulse active targets are core/hub Rust, Tauri React hub, macOS notch/Swift, and Windows native notch; source census scoped to these production roots."
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-cache/src/disk.rs",
+          "line": 147,
+          "detail": "Owner API is DiskCache with capped persistent entries, LRU state, put/reserve, and group clearing."
+        }
+      ],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-channel-memory",
+      "status": "NA",
+      "rationale": "No active Pulse production caller for cargo:rightkit-channel-memory; capability is outside Pulse's storage/monitor/notch/nearby-sharing product scope or has no applicable target/runtime.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/pulse/core/Cargo.toml",
+          "line": 15,
+          "detail": "Pulse active targets are core/hub Rust, Tauri React hub, macOS notch/Swift, and Windows native notch; source census scoped to these production roots."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-compose",
+      "status": "NA",
+      "rationale": "No active Pulse production caller for cargo:rightkit-compose; capability is outside Pulse's storage/monitor/notch/nearby-sharing product scope or has no applicable target/runtime.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/pulse/core/Cargo.toml",
+          "line": 15,
+          "detail": "Pulse active targets are core/hub Rust, Tauri React hub, macOS notch/Swift, and Windows native notch; source census scoped to these production roots."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-contracts",
+      "status": "NA",
+      "rationale": "No active Pulse production caller for cargo:rightkit-contracts; capability is outside Pulse's storage/monitor/notch/nearby-sharing product scope or has no applicable target/runtime.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/pulse/core/Cargo.toml",
+          "line": 15,
+          "detail": "Pulse active targets are core/hub Rust, Tauri React hub, macOS notch/Swift, and Windows native notch; source census scoped to these production roots."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-control",
+      "status": "Y",
+      "rationale": "Active Pulse qa-native Tauri caller routes hidden QA control through RightKit; no competing app-owned control implementation in same QA scope.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/pulse/hub/src-tauri/src/lib.rs",
+          "line": 500,
+          "symbol": "active production integration",
+          "detail": "qa-native builds rightkit_control embedded plugin for hidden QA UI control."
+        }
+      ],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/pulse/core/Cargo.toml",
+          "line": 15,
+          "detail": "Pulse active targets are core/hub Rust, Tauri React hub, macOS notch/Swift, and Windows native notch; source census scoped to these production roots."
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-control/src/lib.rs",
+          "line": 1,
+          "detail": "Shared control crate owns native QA/control bridge."
+        }
+      ],
+      "delivery_flags": [
+        "Optional qa-native only; excluded from release feature."
+      ],
+      "remaining_work": "none",
+      "confidence": "medium"
+    },
+    {
+      "component_id": "cargo:rightkit-crash",
+      "status": "NA",
+      "rationale": "No active Pulse production caller for cargo:rightkit-crash; capability is outside Pulse's storage/monitor/notch/nearby-sharing product scope or has no applicable target/runtime.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/pulse/core/Cargo.toml",
+          "line": 15,
+          "detail": "Pulse active targets are core/hub Rust, Tauri React hub, macOS notch/Swift, and Windows native notch; source census scoped to these production roots."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-daemon",
+      "status": "NA",
+      "rationale": "No active Pulse production caller for cargo:rightkit-daemon; capability is outside Pulse's storage/monitor/notch/nearby-sharing product scope or has no applicable target/runtime.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/pulse/core/Cargo.toml",
+          "line": 15,
+          "detail": "Pulse active targets are core/hub Rust, Tauri React hub, macOS notch/Swift, and Windows native notch; source census scoped to these production roots."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-db",
+      "status": "Y",
+      "rationale": "Active Pulse production caller routes this capability through RightKit on applicable target; no competing app-owned implementation in same owner scope.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/pulse/core/src/bridge/deliver_codex.rs",
+          "line": 42,
+          "symbol": "active production integration",
+          "detail": "deliver_codex imports rightkit_db::rusqlite for read-only Codex state discovery."
+        }
+      ],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/pulse/core/Cargo.toml",
+          "line": 15,
+          "detail": "Pulse active targets are core/hub Rust, Tauri React hub, macOS notch/Swift, and Windows native notch; source census scoped to these production roots."
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-db/src/lib.rs",
+          "line": 22,
+          "detail": "rightkit-db re-exports rusqlite and connection/bootstrap APIs."
+        }
+      ],
+      "delivery_flags": [
+        "Pinned package/crate route is present; runtime qualification remains outside source audit."
+      ],
+      "remaining_work": "none",
+      "confidence": "medium"
+    },
+    {
+      "component_id": "cargo:rightkit-embed",
+      "status": "NA",
+      "rationale": "No active Pulse production caller for cargo:rightkit-embed; capability is outside Pulse's storage/monitor/notch/nearby-sharing product scope or has no applicable target/runtime.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/pulse/core/Cargo.toml",
+          "line": 15,
+          "detail": "Pulse active targets are core/hub Rust, Tauri React hub, macOS notch/Swift, and Windows native notch; source census scoped to these production roots."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-framed-sidecar",
+      "status": "NA",
+      "rationale": "No active Pulse production caller for cargo:rightkit-framed-sidecar; capability is outside Pulse's storage/monitor/notch/nearby-sharing product scope or has no applicable target/runtime.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/pulse/core/Cargo.toml",
+          "line": 15,
+          "detail": "Pulse active targets are core/hub Rust, Tauri React hub, macOS notch/Swift, and Windows native notch; source census scoped to these production roots."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-fs",
+      "status": "N",
+      "rationale": "Pulse has active app-owned implementation overlapping cargo:rightkit-fs on applicable target(s); no RightKit production route is imported.",
+      "shared_evidence": [],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/pulse/core/src/app_manager.rs",
+          "line": 622,
+          "symbol": "active production integration",
+          "detail": "Pulse locally implements temp-write/rename state writes instead of rightkit-fs."
+        }
+      ],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/pulse/core/Cargo.toml",
+          "line": 15,
+          "detail": "Pulse active targets are core/hub Rust, Tauri React hub, macOS notch/Swift, and Windows native notch; source census scoped to these production roots."
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-fs/src/lib.rs",
+          "line": 45,
+          "detail": "Owner exports atomic_write/private/state and lock APIs."
+        }
+      ],
+      "delivery_flags": [
+        "No direct RightKit dependency/import for this capability in active Pulse manifests."
+      ],
+      "remaining_work": "Adopt cargo:rightkit-fs at owning runtime boundary, preserve Pulse policy/UI, route callers through owner API, then remove duplicate local implementation after focused parity evidence.",
+      "confidence": "medium"
+    },
+    {
+      "component_id": "cargo:rightkit-fsindex",
+      "status": "Y",
+      "rationale": "Active Pulse production caller routes this capability through RightKit on applicable target; no competing app-owned implementation in same owner scope.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/pulse/hub/src-tauri/src/disk_index.rs",
+          "line": 69,
+          "symbol": "active production integration",
+          "detail": "disk index creates rightkit_fsindex::Index for live whole-disk name/size index."
+        }
+      ],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/pulse/core/Cargo.toml",
+          "line": 15,
+          "detail": "Pulse active targets are core/hub Rust, Tauri React hub, macOS notch/Swift, and Windows native notch; source census scoped to these production roots."
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-fsindex/src/lib.rs",
+          "line": 1,
+          "detail": "rightkit-fsindex owns live filename index and folder-size rollups."
+        }
+      ],
+      "delivery_flags": [
+        "Pinned package/crate route is present; runtime qualification remains outside source audit."
+      ],
+      "remaining_work": "none",
+      "confidence": "medium"
+    },
+    {
+      "component_id": "cargo:rightkit-hotkeys",
+      "status": "N",
+      "rationale": "Pulse has active app-owned implementation overlapping cargo:rightkit-hotkeys on applicable target(s); no RightKit production route is imported.",
+      "shared_evidence": [],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/pulse/mac/Notch/Sources/Conveniences/EventTapHub.swift",
+          "line": 17,
+          "symbol": "active production integration",
+          "detail": "Active Mac notch owns CGEventTap registration."
+        },
+        {
+          "path": "/Volumes/D/claude/pulse/windows/src/keys.rs",
+          "line": 1,
+          "symbol": "active production integration",
+          "detail": "Active Windows notch owns WH_KEYBOARD_LL/RegisterHotKey hook layer."
+        }
+      ],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/pulse/core/Cargo.toml",
+          "line": 15,
+          "detail": "Pulse active targets are core/hub Rust, Tauri React hub, macOS notch/Swift, and Windows native notch; source census scoped to these production roots."
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-hotkeys/src/windows/mod.rs",
+          "line": 104,
+          "detail": "Owner LowLevelKeyboardHook::install path is the matching Windows hotkey API; Pulse windows/src/keys.rs owns same runtime behavior."
+        }
+      ],
+      "delivery_flags": [
+        "No direct RightKit dependency/import for this capability in active Pulse manifests."
+      ],
+      "remaining_work": "Adopt cargo:rightkit-hotkeys at owning runtime boundary, preserve Pulse policy/UI, route callers through owner API, then remove duplicate local implementation after focused parity evidence.",
+      "confidence": "medium"
+    },
+    {
+      "component_id": "cargo:rightkit-http",
+      "status": "N",
+      "rationale": "Pulse has active app-owned implementation overlapping cargo:rightkit-http on applicable target(s); no RightKit production route is imported.",
+      "shared_evidence": [],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/pulse/mac/Notch/Sources/Updater/ReleaseFeed.swift",
+          "line": 50,
+          "symbol": "active production integration",
+          "detail": "Mac updater uses URLSession/URLRequest directly."
+        },
+        {
+          "path": "/Volumes/D/claude/pulse/windows/src/http.rs",
+          "line": 1,
+          "symbol": "active production integration",
+          "detail": "Windows updater defines direct WinHTTP client."
+        }
+      ],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/pulse/core/Cargo.toml",
+          "line": 15,
+          "detail": "Pulse active targets are core/hub Rust, Tauri React hub, macOS notch/Swift, and Windows native notch; source census scoped to these production roots."
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-http/src/client.rs",
+          "line": 772,
+          "detail": "Owner Client::send path is the matching Rust transport API; Pulse windows/src/http.rs owns same runtime behavior."
+        }
+      ],
+      "delivery_flags": [
+        "No direct RightKit dependency/import for this capability in active Pulse manifests."
+      ],
+      "remaining_work": "Adopt cargo:rightkit-http at owning runtime boundary, preserve Pulse policy/UI, route callers through owner API, then remove duplicate local implementation after focused parity evidence.",
+      "confidence": "medium"
+    },
+    {
+      "component_id": "cargo:rightkit-jobs",
+      "status": "NA",
+      "rationale": "No active Pulse production caller for cargo:rightkit-jobs; capability is outside Pulse's storage/monitor/notch/nearby-sharing product scope or has no applicable target/runtime.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/pulse/core/Cargo.toml",
+          "line": 15,
+          "detail": "Pulse active targets are core/hub Rust, Tauri React hub, macOS notch/Swift, and Windows native notch; source census scoped to these production roots."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-license",
+      "status": "NA",
+      "rationale": "No active Pulse production caller for cargo:rightkit-license; capability is outside Pulse's storage/monitor/notch/nearby-sharing product scope or has no applicable target/runtime.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/pulse/core/Cargo.toml",
+          "line": 15,
+          "detail": "Pulse active targets are core/hub Rust, Tauri React hub, macOS notch/Swift, and Windows native notch; source census scoped to these production roots."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-llm",
+      "status": "NA",
+      "rationale": "No active Pulse production caller for cargo:rightkit-llm; capability is outside Pulse's storage/monitor/notch/nearby-sharing product scope or has no applicable target/runtime.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/pulse/core/Cargo.toml",
+          "line": 15,
+          "detail": "Pulse active targets are core/hub Rust, Tauri React hub, macOS notch/Swift, and Windows native notch; source census scoped to these production roots."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-logs",
+      "status": "N",
+      "rationale": "Pulse has active app-owned implementation overlapping cargo:rightkit-logs on applicable target(s); no RightKit production route is imported.",
+      "shared_evidence": [],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/pulse/windows/src/diag.rs",
+          "line": 50,
+          "symbol": "active production integration",
+          "detail": "Windows notch writes custom structured stderr/notch.log diagnostics."
+        },
+        {
+          "path": "/Volumes/D/claude/pulse/mac/Notch/Sources/App/Log.swift",
+          "line": 7,
+          "symbol": "active production integration",
+          "detail": "Mac notch uses local Logger categories."
+        }
+      ],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/pulse/core/Cargo.toml",
+          "line": 15,
+          "detail": "Pulse active targets are core/hub Rust, Tauri React hub, macOS notch/Swift, and Windows native notch; source census scoped to these production roots."
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-logs/src/store.rs",
+          "line": 29,
+          "detail": "Owner JsonlStore::append API is the matching Rust logging primitive; Pulse windows/src/diag.rs owns same runtime logging."
+        }
+      ],
+      "delivery_flags": [
+        "No direct RightKit dependency/import for this capability in active Pulse manifests."
+      ],
+      "remaining_work": "Adopt cargo:rightkit-logs at owning runtime boundary, preserve Pulse policy/UI, route callers through owner API, then remove duplicate local implementation after focused parity evidence.",
+      "confidence": "medium"
+    },
+    {
+      "component_id": "cargo:rightkit-mcp",
+      "status": "NA",
+      "rationale": "No active Pulse production caller for cargo:rightkit-mcp; capability is outside Pulse's storage/monitor/notch/nearby-sharing product scope or has no applicable target/runtime.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/pulse/core/Cargo.toml",
+          "line": 15,
+          "detail": "Pulse active targets are core/hub Rust, Tauri React hub, macOS notch/Swift, and Windows native notch; source census scoped to these production roots."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-media",
+      "status": "NA",
+      "rationale": "No active Pulse production caller for cargo:rightkit-media; capability is outside Pulse's storage/monitor/notch/nearby-sharing product scope or has no applicable target/runtime.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/pulse/core/Cargo.toml",
+          "line": 15,
+          "detail": "Pulse active targets are core/hub Rust, Tauri React hub, macOS notch/Swift, and Windows native notch; source census scoped to these production roots."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-models",
+      "status": "NA",
+      "rationale": "No active Pulse production caller for cargo:rightkit-models; capability is outside Pulse's storage/monitor/notch/nearby-sharing product scope or has no applicable target/runtime.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/pulse/core/Cargo.toml",
+          "line": 15,
+          "detail": "Pulse active targets are core/hub Rust, Tauri React hub, macOS notch/Swift, and Windows native notch; source census scoped to these production roots."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-oauth",
+      "status": "NA",
+      "rationale": "Pulse reads existing Claude credentials & calls usage endpoints from Swift/Rust; no production OAuth authorization-code PKCE, device flow, or refreshing OAuthClient caller exists.",
+      "shared_evidence": [],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/pulse/mac/Notch/Sources/Providers/ClaudeOAuthProvider.swift",
+          "line": 35,
+          "symbol": "active production integration",
+          "detail": "Active Mac provider performs direct OAuth usage URLSession flow and token handling."
+        }
+      ],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/pulse/core/Cargo.toml",
+          "line": 15,
+          "detail": "Pulse active targets are core/hub Rust, Tauri React hub, macOS notch/Swift, and Windows native notch; source census scoped to these production roots."
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-oauth/src/lib.rs",
+          "line": 353,
+          "detail": "Owner API is Rust OAuthClient loopback/device authorization; Pulse has no matching Rust caller."
+        }
+      ],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-ocr",
+      "status": "NA",
+      "rationale": "No active Pulse production caller for cargo:rightkit-ocr; capability is outside Pulse's storage/monitor/notch/nearby-sharing product scope or has no applicable target/runtime.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/pulse/core/Cargo.toml",
+          "line": 15,
+          "detail": "Pulse active targets are core/hub Rust, Tauri React hub, macOS notch/Swift, and Windows native notch; source census scoped to these production roots."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-ort",
+      "status": "NA",
+      "rationale": "No active Pulse production caller for cargo:rightkit-ort; capability is outside Pulse's storage/monitor/notch/nearby-sharing product scope or has no applicable target/runtime.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/pulse/core/Cargo.toml",
+          "line": 15,
+          "detail": "Pulse active targets are core/hub Rust, Tauri React hub, macOS notch/Swift, and Windows native notch; source census scoped to these production roots."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-overlay",
+      "status": "N",
+      "rationale": "Pulse has active app-owned implementation overlapping cargo:rightkit-overlay on applicable target(s); no RightKit production route is imported.",
+      "shared_evidence": [],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/pulse/mac/Notch/Sources/Notch/NotchPanel.swift",
+          "line": 6,
+          "symbol": "active production integration",
+          "detail": "Active Mac notch owns NSPanel overlay behavior."
+        },
+        {
+          "path": "/Volumes/D/claude/pulse/windows/src/main.rs",
+          "line": 1,
+          "symbol": "active production integration",
+          "detail": "Active Windows notch owns layered topmost panel/window interaction."
+        }
+      ],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/pulse/core/Cargo.toml",
+          "line": 15,
+          "detail": "Pulse active targets are core/hub Rust, Tauri React hub, macOS notch/Swift, and Windows native notch; source census scoped to these production roots."
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-overlay/src/lib.rs",
+          "line": 186,
+          "detail": "Owner make_noactivate/reassert overlay policy is the matching native window API; Pulse Windows notch owns same runtime behavior."
+        }
+      ],
+      "delivery_flags": [
+        "No direct RightKit dependency/import for this capability in active Pulse manifests."
+      ],
+      "remaining_work": "Adopt cargo:rightkit-overlay at owning runtime boundary, preserve Pulse policy/UI, route callers through owner API, then remove duplicate local implementation after focused parity evidence.",
+      "confidence": "medium"
+    },
+    {
+      "component_id": "cargo:rightkit-ownership",
+      "status": "NA",
+      "rationale": "No active Pulse production caller for cargo:rightkit-ownership; capability is outside Pulse's storage/monitor/notch/nearby-sharing product scope or has no applicable target/runtime.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/pulse/core/Cargo.toml",
+          "line": 15,
+          "detail": "Pulse active targets are core/hub Rust, Tauri React hub, macOS notch/Swift, and Windows native notch; source census scoped to these production roots."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-pdf",
+      "status": "NA",
+      "rationale": "No active Pulse production caller for cargo:rightkit-pdf; capability is outside Pulse's storage/monitor/notch/nearby-sharing product scope or has no applicable target/runtime.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/pulse/core/Cargo.toml",
+          "line": 15,
+          "detail": "Pulse active targets are core/hub Rust, Tauri React hub, macOS notch/Swift, and Windows native notch; source census scoped to these production roots."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-playback",
+      "status": "NA",
+      "rationale": "No active Pulse production caller for cargo:rightkit-playback; capability is outside Pulse's storage/monitor/notch/nearby-sharing product scope or has no applicable target/runtime.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/pulse/core/Cargo.toml",
+          "line": 15,
+          "detail": "Pulse active targets are core/hub Rust, Tauri React hub, macOS notch/Swift, and Windows native notch; source census scoped to these production roots."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-process",
+      "status": "N",
+      "rationale": "Pulse has active app-owned implementation overlapping cargo:rightkit-process on applicable target(s); no RightKit production route is imported.",
+      "shared_evidence": [],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/pulse/mac/Notch/Sources/System/ClaudeRestart.swift",
+          "line": 107,
+          "symbol": "active production integration",
+          "detail": "Mac notch launches/waits/terminates child processes directly."
+        },
+        {
+          "path": "/Volumes/D/claude/pulse/windows/src/update.rs",
+          "line": 764,
+          "symbol": "active production integration",
+          "detail": "Windows updater launches installer directly."
+        }
+      ],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/pulse/core/Cargo.toml",
+          "line": 15,
+          "detail": "Pulse active targets are core/hub Rust, Tauri React hub, macOS notch/Swift, and Windows native notch; source census scoped to these production roots."
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-process/src/process_handle.rs",
+          "line": 131,
+          "detail": "Owner ProcessHandle::try_wait/wait API is the matching process primitive; Pulse Windows updater owns same runtime process control."
+        }
+      ],
+      "delivery_flags": [
+        "No direct RightKit dependency/import for this capability in active Pulse manifests."
+      ],
+      "remaining_work": "Adopt cargo:rightkit-process at owning runtime boundary, preserve Pulse policy/UI, route callers through owner API, then remove duplicate local implementation after focused parity evidence.",
+      "confidence": "medium"
+    },
+    {
+      "component_id": "cargo:rightkit-qa",
+      "status": "NA",
+      "rationale": "No active Pulse production caller for cargo:rightkit-qa; capability is outside Pulse's storage/monitor/notch/nearby-sharing product scope or has no applicable target/runtime.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/pulse/core/Cargo.toml",
+          "line": 15,
+          "detail": "Pulse active targets are core/hub Rust, Tauri React hub, macOS notch/Swift, and Windows native notch; source census scoped to these production roots."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-qts",
+      "status": "NA",
+      "rationale": "No active Pulse production caller for cargo:rightkit-qts; capability is outside Pulse's storage/monitor/notch/nearby-sharing product scope or has no applicable target/runtime.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/pulse/core/Cargo.toml",
+          "line": 15,
+          "detail": "Pulse active targets are core/hub Rust, Tauri React hub, macOS notch/Swift, and Windows native notch; source census scoped to these production roots."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-qts-ggml",
+      "status": "NA",
+      "rationale": "No active Pulse production caller for cargo:rightkit-qts-ggml; capability is outside Pulse's storage/monitor/notch/nearby-sharing product scope or has no applicable target/runtime.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/pulse/core/Cargo.toml",
+          "line": 15,
+          "detail": "Pulse active targets are core/hub Rust, Tauri React hub, macOS notch/Swift, and Windows native notch; source census scoped to these production roots."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-qts-ggml-sys",
+      "status": "NA",
+      "rationale": "No active Pulse production caller for cargo:rightkit-qts-ggml-sys; capability is outside Pulse's storage/monitor/notch/nearby-sharing product scope or has no applicable target/runtime.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/pulse/core/Cargo.toml",
+          "line": 15,
+          "detail": "Pulse active targets are core/hub Rust, Tauri React hub, macOS notch/Swift, and Windows native notch; source census scoped to these production roots."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-record",
+      "status": "NA",
+      "rationale": "No active Pulse production caller for cargo:rightkit-record; capability is outside Pulse's storage/monitor/notch/nearby-sharing product scope or has no applicable target/runtime.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/pulse/core/Cargo.toml",
+          "line": 15,
+          "detail": "Pulse active targets are core/hub Rust, Tauri React hub, macOS notch/Swift, and Windows native notch; source census scoped to these production roots."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-review",
+      "status": "NA",
+      "rationale": "No active Pulse production caller for cargo:rightkit-review; capability is outside Pulse's storage/monitor/notch/nearby-sharing product scope or has no applicable target/runtime.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/pulse/core/Cargo.toml",
+          "line": 15,
+          "detail": "Pulse active targets are core/hub Rust, Tauri React hub, macOS notch/Swift, and Windows native notch; source census scoped to these production roots."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-sandbox",
+      "status": "NA",
+      "rationale": "No active Pulse production caller for cargo:rightkit-sandbox; capability is outside Pulse's storage/monitor/notch/nearby-sharing product scope or has no applicable target/runtime.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/pulse/core/Cargo.toml",
+          "line": 15,
+          "detail": "Pulse active targets are core/hub Rust, Tauri React hub, macOS notch/Swift, and Windows native notch; source census scoped to these production roots."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-scenario",
+      "status": "NA",
+      "rationale": "No active Pulse production caller for cargo:rightkit-scenario; capability is outside Pulse's storage/monitor/notch/nearby-sharing product scope or has no applicable target/runtime.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/pulse/core/Cargo.toml",
+          "line": 15,
+          "detail": "Pulse active targets are core/hub Rust, Tauri React hub, macOS notch/Swift, and Windows native notch; source census scoped to these production roots."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-search",
+      "status": "Y",
+      "rationale": "Active Pulse production caller routes this capability through RightKit on applicable target; no competing app-owned implementation in same owner scope.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/pulse/core/src/storage_browser.rs",
+          "line": 12,
+          "symbol": "active production integration",
+          "detail": "storage browser calls rightkit_search::filename::FilenameIndex for filename search."
+        }
+      ],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/pulse/core/Cargo.toml",
+          "line": 15,
+          "detail": "Pulse active targets are core/hub Rust, Tauri React hub, macOS notch/Swift, and Windows native notch; source census scoped to these production roots."
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-search/src/filename.rs",
+          "line": 9,
+          "detail": "Owner exports filename index request/search primitives."
+        }
+      ],
+      "delivery_flags": [
+        "Pinned package/crate route is present; runtime qualification remains outside source audit."
+      ],
+      "remaining_work": "none",
+      "confidence": "medium"
+    },
+    {
+      "component_id": "cargo:rightkit-secrets",
+      "status": "NA",
+      "rationale": "Pulse Keychain access is implemented in Swift providers; no Rust Store/credential-manager caller or cargo owner API is active. Swift credential cutover is tracked separately.",
+      "shared_evidence": [],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/pulse/mac/Notch/Sources/Providers/KeychainPrompt.swift",
+          "line": 125,
+          "symbol": "active production integration",
+          "detail": "Active Mac provider reads Keychain with Security SecItemCopyMatching."
+        },
+        {
+          "path": "/Volumes/D/claude/pulse/mac/Notch/Sources/Providers/KeychainItem.swift",
+          "line": 55,
+          "symbol": "active production integration",
+          "detail": "Active Mac credential adapter implements direct keychain item lookup."
+        }
+      ],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/pulse/core/Cargo.toml",
+          "line": 15,
+          "detail": "Pulse active targets are core/hub Rust, Tauri React hub, macOS notch/Swift, and Windows native notch; source census scoped to these production roots."
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-secrets/src/store.rs",
+          "line": 167,
+          "detail": "Owner API is Rust Store for OS credentials, namespaces, guards, migration, and get/set/delete."
+        }
+      ],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-send",
+      "status": "N",
+      "rationale": "Pulse has active app-owned implementation overlapping cargo:rightkit-send on applicable target(s); no RightKit production route is imported.",
+      "shared_evidence": [],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/pulse/core/src/localsend/mod.rs",
+          "line": 1,
+          "symbol": "active production integration",
+          "detail": "Pulse production hub implements LocalSend v2 Service locally."
+        },
+        {
+          "path": "/Volumes/D/claude/pulse/mac/Notch/Sources/Sharing/NearbySharing.swift",
+          "line": 173,
+          "symbol": "active production integration",
+          "detail": "Active Swift notch reads share-state and sends commands for local nearby sharing path."
+        }
+      ],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/pulse/core/Cargo.toml",
+          "line": 15,
+          "detail": "Pulse active targets are core/hub Rust, Tauri React hub, macOS notch/Swift, and Windows native notch; source census scoped to these production roots."
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-send/src/lib.rs",
+          "line": 634,
+          "detail": "Owner Service::start/send service API is the matching shared send route; Pulse core/localsend plus Mac NearbySharing remain active local production paths and have no dependency/import."
+        }
+      ],
+      "delivery_flags": [
+        "No direct RightKit dependency/import for this capability in active Pulse manifests."
+      ],
+      "remaining_work": "Adopt cargo:rightkit-send at owning runtime boundary, preserve Pulse policy/UI, route callers through owner API, then remove duplicate local implementation after focused parity evidence.",
+      "confidence": "medium"
+    },
+    {
+      "component_id": "cargo:rightkit-service",
+      "status": "NA",
+      "rationale": "Pulse bridge uses product-local JSON files plus Darwin/named notifications; it does not implement owner service.json discovery, authenticated sockets/pipes, takeover, or request allowlists.",
+      "shared_evidence": [],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/pulse/mac/Notch/Sources/System/HubBridge.swift",
+          "line": 7,
+          "symbol": "active production integration",
+          "detail": "Mac notch/hub IPC is app-owned JSON files plus Darwin notifications."
+        },
+        {
+          "path": "/Volumes/D/claude/pulse/hub/src-tauri/src/lib.rs",
+          "line": 52,
+          "symbol": "active production integration",
+          "detail": "Hub uses direct Darwin notifications and bridge files."
+        }
+      ],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/pulse/core/Cargo.toml",
+          "line": 15,
+          "detail": "Pulse active targets are core/hub Rust, Tauri React hub, macOS notch/Swift, and Windows native notch; source census scoped to these production roots."
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-service/src/lib.rs",
+          "line": 1,
+          "detail": "Owner API requires discovery records, authenticated transport, takeover, and per-app allowlists."
+        }
+      ],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-settings",
+      "status": "N",
+      "rationale": "Pulse has active app-owned implementation overlapping cargo:rightkit-settings on applicable target(s); no RightKit production route is imported.",
+      "shared_evidence": [],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/pulse/mac/Notch/Sources/Settings/Preferences.swift",
+          "line": 6,
+          "symbol": "active production integration",
+          "detail": "Mac notch persists settings in UserDefaults."
+        },
+        {
+          "path": "/Volumes/D/claude/pulse/windows/src/settings.rs",
+          "line": 1,
+          "symbol": "active production integration",
+          "detail": "Windows notch owns pill-settings.json parser/store."
+        }
+      ],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/pulse/core/Cargo.toml",
+          "line": 15,
+          "detail": "Pulse active targets are core/hub Rust, Tauri React hub, macOS notch/Swift, and Windows native notch; source census scoped to these production roots."
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-settings/src/store.rs",
+          "line": 299,
+          "detail": "Owner Store::update API is the matching Rust settings primitive; Pulse Windows settings owns same runtime persistence."
+        }
+      ],
+      "delivery_flags": [
+        "No direct RightKit dependency/import for this capability in active Pulse manifests."
+      ],
+      "remaining_work": "Adopt cargo:rightkit-settings at owning runtime boundary, preserve Pulse policy/UI, route callers through owner API, then remove duplicate local implementation after focused parity evidence.",
+      "confidence": "medium"
+    },
+    {
+      "component_id": "cargo:rightkit-shell",
+      "status": "NA",
+      "rationale": "Pulse uses default Tauri Builder plus product-specific window/bridge code; no rightkit-shell ShellBuilder plugin, webview hardening, tray/menu, deep-link, clipboard, or watchdog caller is active.",
+      "shared_evidence": [],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/pulse/hub/src-tauri/src/lib.rs",
+          "line": 1,
+          "symbol": "active production integration",
+          "detail": "Pulse owns Tauri host/window/command wiring directly."
+        }
+      ],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/pulse/core/Cargo.toml",
+          "line": 15,
+          "detail": "Pulse active targets are core/hub Rust, Tauri React hub, macOS notch/Swift, and Windows native notch; source census scoped to these production roots."
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-shell/src/lib.rs",
+          "line": 195,
+          "detail": "Owner API is Shell::builder/ShellBuilder plugin composing shared desktop shell services; Pulse does not instantiate it."
+        }
+      ],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-speech-client",
+      "status": "NA",
+      "rationale": "No active Pulse production caller for cargo:rightkit-speech-client; capability is outside Pulse's storage/monitor/notch/nearby-sharing product scope or has no applicable target/runtime.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/pulse/core/Cargo.toml",
+          "line": 15,
+          "detail": "Pulse active targets are core/hub Rust, Tauri React hub, macOS notch/Swift, and Windows native notch; source census scoped to these production roots."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-sync",
+      "status": "NA",
+      "rationale": "No active Pulse production caller for cargo:rightkit-sync; capability is outside Pulse's storage/monitor/notch/nearby-sharing product scope or has no applicable target/runtime.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/pulse/core/Cargo.toml",
+          "line": 15,
+          "detail": "Pulse active targets are core/hub Rust, Tauri React hub, macOS notch/Swift, and Windows native notch; source census scoped to these production roots."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-tauri",
+      "status": "NA",
+      "rationale": "Pulse registers product commands with Tauri, but exposes no owner SecureService, DeviceService, LogService, DiagnosticService, license/device guard, or standard host command contract.",
+      "shared_evidence": [],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/pulse/hub/src-tauri/src/lib.rs",
+          "line": 1,
+          "symbol": "active production integration",
+          "detail": "Pulse registers Tauri commands and managed host state locally."
+        }
+      ],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/pulse/core/Cargo.toml",
+          "line": 15,
+          "detail": "Pulse active targets are core/hub Rust, Tauri React hub, macOS notch/Swift, and Windows native notch; source census scoped to these production roots."
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-tauri/src/lib.rs",
+          "line": 72,
+          "detail": "Owner API is typed SecureService/DeviceService/authorization/log/diagnostic host services; Pulse has no matching caller."
+        }
+      ],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-transcript",
+      "status": "NA",
+      "rationale": "No active Pulse production caller for cargo:rightkit-transcript; capability is outside Pulse's storage/monitor/notch/nearby-sharing product scope or has no applicable target/runtime.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/pulse/core/Cargo.toml",
+          "line": 15,
+          "detail": "Pulse active targets are core/hub Rust, Tauri React hub, macOS notch/Swift, and Windows native notch; source census scoped to these production roots."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-tts",
+      "status": "NA",
+      "rationale": "No active Pulse production caller for cargo:rightkit-tts; capability is outside Pulse's storage/monitor/notch/nearby-sharing product scope or has no applicable target/runtime.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/pulse/core/Cargo.toml",
+          "line": 15,
+          "detail": "Pulse active targets are core/hub Rust, Tauri React hub, macOS notch/Swift, and Windows native notch; source census scoped to these production roots."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-vad",
+      "status": "NA",
+      "rationale": "No active Pulse production caller for cargo:rightkit-vad; capability is outside Pulse's storage/monitor/notch/nearby-sharing product scope or has no applicable target/runtime.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/pulse/core/Cargo.toml",
+          "line": 15,
+          "detail": "Pulse active targets are core/hub Rust, Tauri React hub, macOS notch/Swift, and Windows native notch; source census scoped to these production roots."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-watch",
+      "status": "N",
+      "rationale": "Pulse has active app-owned implementation overlapping cargo:rightkit-watch on applicable target(s); no RightKit production route is imported.",
+      "shared_evidence": [],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/pulse/hub/src-tauri/src/watch.rs",
+          "line": 89,
+          "symbol": "active production integration",
+          "detail": "Hub directly creates FSEventStream for live storage refresh."
+        },
+        {
+          "path": "/Volumes/D/claude/pulse/mac/Notch/Sources/Conveniences/ClaudeChatMirror.swift",
+          "line": 174,
+          "symbol": "active production integration",
+          "detail": "Mac notch directly creates FSEventStream for session mirror."
+        }
+      ],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/pulse/core/Cargo.toml",
+          "line": 15,
+          "detail": "Pulse active targets are core/hub Rust, Tauri React hub, macOS notch/Swift, and Windows native notch; source census scoped to these production roots."
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-watch/src/typed.rs",
+          "line": 104,
+          "detail": "Owner TypedWatcher::watch API is the matching Rust filesystem watcher; Pulse hub/src-tauri/src/watch.rs owns same runtime FSEvents/filesystem watch path."
+        }
+      ],
+      "delivery_flags": [
+        "No direct RightKit dependency/import for this capability in active Pulse manifests."
+      ],
+      "remaining_work": "Adopt cargo:rightkit-watch at owning runtime boundary, preserve Pulse policy/UI, route callers through owner API, then remove duplicate local implementation after focused parity evidence.",
+      "confidence": "medium"
+    },
+    {
+      "component_id": "npm:@rightkit/agent-room-mcp",
+      "status": "NA",
+      "rationale": "No active Pulse production caller for npm:@rightkit/agent-room-mcp; capability is outside Pulse's storage/monitor/notch/nearby-sharing product scope or has no applicable target/runtime.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/pulse/hub/package.json",
+          "line": 11,
+          "detail": "Pulse active targets are core/hub Rust, Tauri React hub, macOS notch/Swift, and Windows native notch; source census scoped to these production roots."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/app-shell",
+      "status": "Y",
+      "rationale": "Active Pulse production caller routes this capability through RightKit on applicable target; no competing app-owned implementation in same owner scope.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/pulse/hub/src/App.tsx",
+          "line": 5,
+          "symbol": "active production integration",
+          "detail": "Hub renders AppShell from @rightkit/app-shell/react."
+        }
+      ],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/pulse/hub/package.json",
+          "line": 11,
+          "detail": "Pulse active targets are core/hub Rust, Tauri React hub, macOS notch/Swift, and Windows native notch; source census scoped to these production roots."
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/packages/app-shell/src/react/layout.tsx",
+          "line": 518,
+          "detail": "Owner AppShell provides shared React shell layout."
+        }
+      ],
+      "delivery_flags": [
+        "Dependency is pinned at 0.5.0 while catalog package is 0.6.1."
+      ],
+      "remaining_work": "none",
+      "confidence": "medium"
+    },
+    {
+      "component_id": "npm:@rightkit/ax",
+      "status": "NA",
+      "rationale": "No active Pulse production caller for npm:@rightkit/ax; capability is outside Pulse's storage/monitor/notch/nearby-sharing product scope or has no applicable target/runtime.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/pulse/hub/package.json",
+          "line": 11,
+          "detail": "Pulse active targets are core/hub Rust, Tauri React hub, macOS notch/Swift, and Windows native notch; source census scoped to these production roots."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/build-control-policy",
+      "status": "NA",
+      "rationale": "No active Pulse production caller for npm:@rightkit/build-control-policy; capability is outside Pulse's storage/monitor/notch/nearby-sharing product scope or has no applicable target/runtime.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/pulse/hub/package.json",
+          "line": 11,
+          "detail": "Pulse active targets are core/hub Rust, Tauri React hub, macOS notch/Swift, and Windows native notch; source census scoped to these production roots."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/doc-render",
+      "status": "NA",
+      "rationale": "No active Pulse production caller for npm:@rightkit/doc-render; capability is outside Pulse's storage/monitor/notch/nearby-sharing product scope or has no applicable target/runtime.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/pulse/hub/package.json",
+          "line": 11,
+          "detail": "Pulse active targets are core/hub Rust, Tauri React hub, macOS notch/Swift, and Windows native notch; source census scoped to these production roots."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/git",
+      "status": "NA",
+      "rationale": "No active Pulse production caller for npm:@rightkit/git; capability is outside Pulse's storage/monitor/notch/nearby-sharing product scope or has no applicable target/runtime.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/pulse/hub/package.json",
+          "line": 11,
+          "detail": "Pulse active targets are core/hub Rust, Tauri React hub, macOS notch/Swift, and Windows native notch; source census scoped to these production roots."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/hooks",
+      "status": "NA",
+      "rationale": "No active Pulse production caller for npm:@rightkit/hooks; capability is outside Pulse's storage/monitor/notch/nearby-sharing product scope or has no applicable target/runtime.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/pulse/hub/package.json",
+          "line": 11,
+          "detail": "Pulse active targets are core/hub Rust, Tauri React hub, macOS notch/Swift, and Windows native notch; source census scoped to these production roots."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/i18n",
+      "status": "NA",
+      "rationale": "Only Mac Swift L10n.swift owns locale lookup; Pulse React hub has no locale catalog/provider caller, so npm React runtime does not overlap active Swift path.",
+      "shared_evidence": [],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/pulse/mac/Notch/Sources/L10n.swift",
+          "line": 8,
+          "symbol": "active production integration",
+          "detail": "Active Mac notch owns locale catalog/lookup and UserDefaults language selection."
+        }
+      ],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/pulse/hub/package.json",
+          "line": 11,
+          "detail": "Pulse active targets are core/hub Rust, Tauri React hub, macOS notch/Swift, and Windows native notch; source census scoped to these production roots."
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/packages/i18n/src/index.tsx",
+          "line": 35,
+          "detail": "Owner API is React createI18n/catalog provider; Pulse has no hub import or caller."
+        }
+      ],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/legal",
+      "status": "NA",
+      "rationale": "No active Pulse production caller for npm:@rightkit/legal; capability is outside Pulse's storage/monitor/notch/nearby-sharing product scope or has no applicable target/runtime.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/pulse/hub/package.json",
+          "line": 11,
+          "detail": "Pulse active targets are core/hub Rust, Tauri React hub, macOS notch/Swift, and Windows native notch; source census scoped to these production roots."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/legal-ui",
+      "status": "NA",
+      "rationale": "No active Pulse production caller for npm:@rightkit/legal-ui; capability is outside Pulse's storage/monitor/notch/nearby-sharing product scope or has no applicable target/runtime.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/pulse/hub/package.json",
+          "line": 11,
+          "detail": "Pulse active targets are core/hub Rust, Tauri React hub, macOS notch/Swift, and Windows native notch; source census scoped to these production roots."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/license",
+      "status": "NA",
+      "rationale": "No active Pulse production caller for npm:@rightkit/license; capability is outside Pulse's storage/monitor/notch/nearby-sharing product scope or has no applicable target/runtime.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/pulse/hub/package.json",
+          "line": 11,
+          "detail": "Pulse active targets are core/hub Rust, Tauri React hub, macOS notch/Swift, and Windows native notch; source census scoped to these production roots."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/logs",
+      "status": "NA",
+      "rationale": "Pulse diagnostics callers are Rust Windows diag.rs & Swift Logger; hub has no @rightkit/logs import or structured-log client path, so npm runtime does not overlap those native paths.",
+      "shared_evidence": [],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/pulse/hub/src-tauri/src/scanner.rs",
+          "line": 1,
+          "symbol": "active production integration",
+          "detail": "Hub scanner writes app-owned scan diagnostics."
+        },
+        {
+          "path": "/Volumes/D/claude/pulse/mac/Notch/Sources/App/Log.swift",
+          "line": 7,
+          "symbol": "active production integration",
+          "detail": "Mac active notch uses local Logger."
+        }
+      ],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/pulse/hub/package.json",
+          "line": 11,
+          "detail": "Pulse active targets are core/hub Rust, Tauri React hub, macOS notch/Swift, and Windows native notch; source census scoped to these production roots."
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/packages/logs/src/index.ts",
+          "line": 1,
+          "detail": "Owner API is TypeScript structured logging/diagnostics client; Pulse hub has no caller."
+        }
+      ],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/media-ui",
+      "status": "NA",
+      "rationale": "No active Pulse production caller for npm:@rightkit/media-ui; capability is outside Pulse's storage/monitor/notch/nearby-sharing product scope or has no applicable target/runtime.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/pulse/hub/package.json",
+          "line": 11,
+          "detail": "Pulse active targets are core/hub Rust, Tauri React hub, macOS notch/Swift, and Windows native notch; source census scoped to these production roots."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/onboarding",
+      "status": "NA",
+      "rationale": "No active Pulse production caller for npm:@rightkit/onboarding; capability is outside Pulse's storage/monitor/notch/nearby-sharing product scope or has no applicable target/runtime.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/pulse/hub/package.json",
+          "line": 11,
+          "detail": "Pulse active targets are core/hub Rust, Tauri React hub, macOS notch/Swift, and Windows native notch; source census scoped to these production roots."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/pdf-ui",
+      "status": "NA",
+      "rationale": "No active Pulse production caller for npm:@rightkit/pdf-ui; capability is outside Pulse's storage/monitor/notch/nearby-sharing product scope or has no applicable target/runtime.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/pulse/hub/package.json",
+          "line": 11,
+          "detail": "Pulse active targets are core/hub Rust, Tauri React hub, macOS notch/Swift, and Windows native notch; source census scoped to these production roots."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/platform-ui",
+      "status": "Y",
+      "rationale": "Active Pulse production caller routes this capability through RightKit on applicable target; no competing app-owned implementation in same owner scope.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/pulse/hub/src/api.ts",
+          "line": 2,
+          "symbol": "active production integration",
+          "detail": "Hub calls getPlatform from @rightkit/platform-ui."
+        }
+      ],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/pulse/hub/package.json",
+          "line": 11,
+          "detail": "Pulse active targets are core/hub Rust, Tauri React hub, macOS notch/Swift, and Windows native notch; source census scoped to these production roots."
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/packages/platform-ui/src/index.ts",
+          "line": 90,
+          "detail": "Owner getPlatform provides native/browser platform detection."
+        }
+      ],
+      "delivery_flags": [
+        "Dependency is pinned at 0.2.1 while catalog package is 0.2.2."
+      ],
+      "remaining_work": "none",
+      "confidence": "medium"
+    },
+    {
+      "component_id": "npm:@rightkit/qa",
+      "status": "NA",
+      "rationale": "No active Pulse production caller for npm:@rightkit/qa; capability is outside Pulse's storage/monitor/notch/nearby-sharing product scope or has no applicable target/runtime.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/pulse/hub/package.json",
+          "line": 11,
+          "detail": "Pulse active targets are core/hub Rust, Tauri React hub, macOS notch/Swift, and Windows native notch; source census scoped to these production roots."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/qa-chrome",
+      "status": "NA",
+      "rationale": "No active Pulse production caller for npm:@rightkit/qa-chrome; capability is outside Pulse's storage/monitor/notch/nearby-sharing product scope or has no applicable target/runtime.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/pulse/hub/package.json",
+          "line": 11,
+          "detail": "Pulse active targets are core/hub Rust, Tauri React hub, macOS notch/Swift, and Windows native notch; source census scoped to these production roots."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/release",
+      "status": "Y",
+      "rationale": "Active Pulse production caller routes this capability through RightKit on applicable target; no competing app-owned implementation in same owner scope.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/pulse/scripts/release/mac-payload.mjs",
+          "line": 296,
+          "symbol": "active production integration",
+          "detail": "Release payload dynamically imports @rightkit/release macOS signing identity helper."
+        }
+      ],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/pulse/hub/package.json",
+          "line": 11,
+          "detail": "Pulse active targets are core/hub Rust, Tauri React hub, macOS notch/Swift, and Windows native notch; source census scoped to these production roots."
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/packages/release/mac-bundle-signing.mjs",
+          "line": 1,
+          "detail": "Owner release package supplies signing/release lane helpers."
+        }
+      ],
+      "delivery_flags": [
+        "Pinned package/crate route is present; runtime qualification remains outside source audit."
+      ],
+      "remaining_work": "none",
+      "confidence": "medium"
+    },
+    {
+      "component_id": "npm:@rightkit/settings-ui",
+      "status": "N",
+      "rationale": "Pulse has active app-owned implementation overlapping npm:@rightkit/settings-ui on applicable target(s); no RightKit production route is imported.",
+      "shared_evidence": [],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/pulse/hub/src/views/Settings.tsx",
+          "line": 1,
+          "symbol": "active production integration",
+          "detail": "Hub implements settings page and controls locally."
+        },
+        {
+          "path": "/Volumes/D/claude/pulse/mac/Notch/Sources/Settings/Preferences.swift",
+          "line": 6,
+          "symbol": "active production integration",
+          "detail": "Mac notch owns native settings model."
+        }
+      ],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/pulse/hub/package.json",
+          "line": 11,
+          "detail": "Pulse active targets are core/hub Rust, Tauri React hub, macOS notch/Swift, and Windows native notch; source census scoped to these production roots."
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/packages/settings-ui/src/SettingsPanel.tsx",
+          "line": 110,
+          "detail": "Owner SettingsPanel component is the matching React settings surface; Pulse hub/src/views/Settings.tsx owns same runtime UI."
+        }
+      ],
+      "delivery_flags": [
+        "No direct RightKit dependency/import for this capability in active Pulse manifests."
+      ],
+      "remaining_work": "Adopt npm:@rightkit/settings-ui at owning runtime boundary, preserve Pulse policy/UI, route callers through owner API, then remove duplicate local implementation after focused parity evidence.",
+      "confidence": "medium"
+    },
+    {
+      "component_id": "npm:@rightkit/shell",
+      "status": "NA",
+      "rationale": "Pulse hub invokes product Tauri commands directly and passes a minimal local window bridge to AppShell; it does not call @rightkit/shell createShell or rightkit-shell command/event contracts.",
+      "shared_evidence": [],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/pulse/hub/src/api.ts",
+          "line": 1,
+          "symbol": "active production integration",
+          "detail": "Hub renderer invokes Tauri API directly; no @rightkit/shell bridge."
+        }
+      ],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/pulse/hub/package.json",
+          "line": 11,
+          "detail": "Pulse active targets are core/hub Rust, Tauri React hub, macOS notch/Swift, and Windows native notch; source census scoped to these production roots."
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/packages/shell/src/index.ts",
+          "line": 228,
+          "detail": "Owner API is createShell typed bridge over rightkit-shell commands/events; Pulse has no import or matching host contract."
+        }
+      ],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/tauri",
+      "status": "NA",
+      "rationale": "Pulse hub invokes product Tauri commands directly; no createRightKitTauriClient or standard license/device/log/diagnostic command adapter is active.",
+      "shared_evidence": [],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/pulse/hub/src-tauri/src/lib.rs",
+          "line": 1,
+          "symbol": "active production integration",
+          "detail": "Hub owns direct Tauri command/adapters."
+        }
+      ],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/pulse/hub/package.json",
+          "line": 11,
+          "detail": "Pulse active targets are core/hub Rust, Tauri React hub, macOS notch/Swift, and Windows native notch; source census scoped to these production roots."
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/packages/tauri/src/index.ts",
+          "line": 67,
+          "detail": "Owner API is createRightKitTauriClient standard host adapter; Pulse has no caller."
+        }
+      ],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/theme",
+      "status": "N",
+      "rationale": "Pulse has active app-owned implementation overlapping npm:@rightkit/theme on applicable target(s); no RightKit production route is imported.",
+      "shared_evidence": [],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/pulse/hub/src/styles.css",
+          "line": 1,
+          "symbol": "active production integration",
+          "detail": "Hub defines app-owned CSS tokens/theme."
+        },
+        {
+          "path": "/Volumes/D/claude/pulse/mac/Notch/Sources/DesignSystem/Palette.swift",
+          "line": 1,
+          "symbol": "active production integration",
+          "detail": "Mac notch defines app-owned palette/design system."
+        }
+      ],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/pulse/hub/package.json",
+          "line": 11,
+          "detail": "Pulse active targets are core/hub Rust, Tauri React hub, macOS notch/Swift, and Windows native notch; source census scoped to these production roots."
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/packages/theme/src/runtime.ts",
+          "line": 22,
+          "detail": "Owner applyBrand runtime theme API is the matching React theme primitive; Pulse hub/src/styles.css owns same runtime token surface."
+        }
+      ],
+      "delivery_flags": [
+        "No direct RightKit dependency/import for this capability in active Pulse manifests."
+      ],
+      "remaining_work": "Adopt npm:@rightkit/theme at owning runtime boundary, preserve Pulse policy/UI, route callers through owner API, then remove duplicate local implementation after focused parity evidence.",
+      "confidence": "medium"
+    },
+    {
+      "component_id": "npm:@rightkit/update",
+      "status": "NA",
+      "rationale": "No active Pulse production caller for npm:@rightkit/update; capability is outside Pulse's storage/monitor/notch/nearby-sharing product scope or has no applicable target/runtime.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/pulse/hub/package.json",
+          "line": 11,
+          "detail": "Pulse active targets are core/hub Rust, Tauri React hub, macOS notch/Swift, and Windows native notch; source census scoped to these production roots."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/updates",
+      "status": "NA",
+      "rationale": "Pulse update paths are Mac Swift ReleaseFeed/Updater & Rust app-manager/Windows updater; hub has no createAutoUpdateClient or @rightkit/updates runtime-policy caller.",
+      "shared_evidence": [],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/pulse/mac/Notch/Sources/Updater/ReleaseFeed.swift",
+          "line": 40,
+          "symbol": "active production integration",
+          "detail": "Mac updater owns release feed/cache/download verification."
+        },
+        {
+          "path": "/Volumes/D/claude/pulse/windows/src/update.rs",
+          "line": 1,
+          "symbol": "active production integration",
+          "detail": "Windows updater owns feed/download/install state machine."
+        }
+      ],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/pulse/hub/package.json",
+          "line": 11,
+          "detail": "Pulse active targets are core/hub Rust, Tauri React hub, macOS notch/Swift, and Windows native notch; source census scoped to these production roots."
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/packages/updates/src/index.ts",
+          "line": 104,
+          "detail": "Owner API is TypeScript createAutoUpdateClient runtime policy; Pulse has no caller."
+        }
+      ],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitLicense",
+      "status": "NA",
+      "rationale": "No active Pulse production caller for swift:RightKitLicense; capability is outside Pulse's storage/monitor/notch/nearby-sharing product scope or has no applicable target/runtime.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/pulse/mac/Package.swift",
+          "line": 9,
+          "detail": "Pulse active targets are core/hub Rust, Tauri React hub, macOS notch/Swift, and Windows native notch; source census scoped to these production roots."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitDiagnostics",
+      "status": "N",
+      "rationale": "Pulse has active app-owned implementation overlapping swift:RightKitDiagnostics on applicable target(s); no RightKit production route is imported.",
+      "shared_evidence": [],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/pulse/mac/Notch/Sources/App/Log.swift",
+          "line": 7,
+          "symbol": "active production integration",
+          "detail": "Active Mac notch uses local Logger instead of RightKitDiagnostics."
+        }
+      ],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/pulse/mac/Package.swift",
+          "line": 9,
+          "detail": "Pulse active targets are core/hub Rust, Tauri React hub, macOS notch/Swift, and Windows native notch; source census scoped to these production roots."
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/swift/RightKitSwift/Sources/RightKitDiagnostics/JSONLDiagnosticStore.swift",
+          "line": 128,
+          "detail": "Owner JSONLDiagnosticStore::append API is the matching Swift diagnostics path; Pulse Mac Logger owns same runtime logging."
+        }
+      ],
+      "delivery_flags": [
+        "No direct RightKit dependency/import for this capability in active Pulse manifests."
+      ],
+      "remaining_work": "Adopt swift:RightKitDiagnostics at owning runtime boundary, preserve Pulse policy/UI, route callers through owner API, then remove duplicate local implementation after focused parity evidence.",
+      "confidence": "medium"
+    },
+    {
+      "component_id": "swift:RightKitArtifacts",
+      "status": "NA",
+      "rationale": "No active Pulse production caller for swift:RightKitArtifacts; capability is outside Pulse's storage/monitor/notch/nearby-sharing product scope or has no applicable target/runtime.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/pulse/mac/Package.swift",
+          "line": 9,
+          "detail": "Pulse active targets are core/hub Rust, Tauri React hub, macOS notch/Swift, and Windows native notch; source census scoped to these production roots."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitPurchases",
+      "status": "NA",
+      "rationale": "No active Pulse production caller for swift:RightKitPurchases; capability is outside Pulse's storage/monitor/notch/nearby-sharing product scope or has no applicable target/runtime.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/pulse/mac/Package.swift",
+          "line": 9,
+          "detail": "Pulse active targets are core/hub Rust, Tauri React hub, macOS notch/Swift, and Windows native notch; source census scoped to these production roots."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitCloudSync",
+      "status": "NA",
+      "rationale": "No active Pulse production caller for swift:RightKitCloudSync; capability is outside Pulse's storage/monitor/notch/nearby-sharing product scope or has no applicable target/runtime.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/pulse/mac/Package.swift",
+          "line": 9,
+          "detail": "Pulse active targets are core/hub Rust, Tauri React hub, macOS notch/Swift, and Windows native notch; source census scoped to these production roots."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitStore",
+      "status": "NA",
+      "rationale": "No active Pulse production caller for swift:RightKitStore; capability is outside Pulse's storage/monitor/notch/nearby-sharing product scope or has no applicable target/runtime.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/pulse/mac/Package.swift",
+          "line": 9,
+          "detail": "Pulse active targets are core/hub Rust, Tauri React hub, macOS notch/Swift, and Windows native notch; source census scoped to these production roots."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitImportQueue",
+      "status": "NA",
+      "rationale": "No active Pulse production caller for swift:RightKitImportQueue; capability is outside Pulse's storage/monitor/notch/nearby-sharing product scope or has no applicable target/runtime.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/pulse/mac/Package.swift",
+          "line": 9,
+          "detail": "Pulse active targets are core/hub Rust, Tauri React hub, macOS notch/Swift, and Windows native notch; source census scoped to these production roots."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitLiveActivity",
+      "status": "NA",
+      "rationale": "No active Pulse production caller for swift:RightKitLiveActivity; capability is outside Pulse's storage/monitor/notch/nearby-sharing product scope or has no applicable target/runtime.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/pulse/mac/Package.swift",
+          "line": 9,
+          "detail": "Pulse active targets are core/hub Rust, Tauri React hub, macOS notch/Swift, and Windows native notch; source census scoped to these production roots."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitWatchBridge",
+      "status": "NA",
+      "rationale": "No active Pulse production caller for swift:RightKitWatchBridge; capability is outside Pulse's storage/monitor/notch/nearby-sharing product scope or has no applicable target/runtime.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/pulse/mac/Package.swift",
+          "line": 9,
+          "detail": "Pulse active targets are core/hub Rust, Tauri React hub, macOS notch/Swift, and Windows native notch; source census scoped to these production roots."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitSpeech",
+      "status": "NA",
+      "rationale": "No active Pulse production caller for swift:RightKitSpeech; capability is outside Pulse's storage/monitor/notch/nearby-sharing product scope or has no applicable target/runtime.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/pulse/mac/Package.swift",
+          "line": 9,
+          "detail": "Pulse active targets are core/hub Rust, Tauri React hub, macOS notch/Swift, and Windows native notch; source census scoped to these production roots."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitIntents",
+      "status": "NA",
+      "rationale": "No active Pulse production caller for swift:RightKitIntents; capability is outside Pulse's storage/monitor/notch/nearby-sharing product scope or has no applicable target/runtime.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/pulse/mac/Package.swift",
+          "line": 9,
+          "detail": "Pulse active targets are core/hub Rust, Tauri React hub, macOS notch/Swift, and Windows native notch; source census scoped to these production roots."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitAppleCredentials",
+      "status": "N",
+      "rationale": "Pulse has active app-owned implementation overlapping swift:RightKitAppleCredentials on applicable target(s); no RightKit production route is imported.",
+      "shared_evidence": [],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/pulse/mac/Notch/Sources/Providers/KeychainItem.swift",
+          "line": 55,
+          "symbol": "active production integration",
+          "detail": "Active Mac notch reads credentials through Security SecItemCopyMatching."
+        }
+      ],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/pulse/mac/Package.swift",
+          "line": 9,
+          "detail": "Pulse active targets are core/hub Rust, Tauri React hub, macOS notch/Swift, and Windows native notch; source census scoped to these production roots."
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/swift/RightKitSwift/Sources/RightKitAppleCredentials/RightKitAppleCredentials.swift",
+          "line": 103,
+          "detail": "Owner AppleCredentialStore::read API is the matching Security-backed credential path; Pulse KeychainItem owns same runtime credentials."
+        }
+      ],
+      "delivery_flags": [
+        "No direct RightKit dependency/import for this capability in active Pulse manifests."
+      ],
+      "remaining_work": "Adopt swift:RightKitAppleCredentials at owning runtime boundary, preserve Pulse policy/UI, route callers through owner API, then remove duplicate local implementation after focused parity evidence.",
+      "confidence": "medium"
+    },
+    {
+      "component_id": "swift:RightKitOverlay",
+      "status": "N",
+      "rationale": "Pulse has active app-owned implementation overlapping swift:RightKitOverlay on applicable target(s); no RightKit production route is imported.",
+      "shared_evidence": [],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/pulse/mac/Notch/Sources/Notch/NotchPanel.swift",
+          "line": 6,
+          "symbol": "active production integration",
+          "detail": "Active Mac notch owns NSPanel overlay."
+        }
+      ],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/pulse/mac/Package.swift",
+          "line": 9,
+          "detail": "Pulse active targets are core/hub Rust, Tauri React hub, macOS notch/Swift, and Windows native notch; source census scoped to these production roots."
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/swift/RightKitSwift/Sources/RightKitOverlay/Overlay.swift",
+          "line": 179,
+          "detail": "Owner provides RightKitOverlayPanel/placement/hit regions."
+        }
+      ],
+      "delivery_flags": [
+        "No direct RightKit dependency/import for this capability in active Pulse manifests."
+      ],
+      "remaining_work": "Adopt swift:RightKitOverlay at owning runtime boundary, preserve Pulse policy/UI, route callers through owner API, then remove duplicate local implementation after focused parity evidence.",
+      "confidence": "medium"
+    },
+    {
+      "component_id": "swift:RightKitWatch",
+      "status": "N",
+      "rationale": "Pulse has active app-owned implementation overlapping swift:RightKitWatch on applicable target(s); no RightKit production route is imported.",
+      "shared_evidence": [],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/pulse/mac/Notch/Sources/Conveniences/ClaudeChatMirror.swift",
+          "line": 174,
+          "symbol": "active production integration",
+          "detail": "Active Mac notch owns FSEventStream session mirror."
+        }
+      ],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/pulse/mac/Package.swift",
+          "line": 9,
+          "detail": "Pulse active targets are core/hub Rust, Tauri React hub, macOS notch/Swift, and Windows native notch; source census scoped to these production roots."
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/swift/RightKitSwift/Sources/RightKitWatch/RightKitWatch.swift",
+          "line": 192,
+          "detail": "Owner RightKitWatcher class over FSEvents is the matching Swift watch API; Pulse ClaudeChatMirror owns same runtime watcher."
+        }
+      ],
+      "delivery_flags": [
+        "No direct RightKit dependency/import for this capability in active Pulse manifests."
+      ],
+      "remaining_work": "Adopt swift:RightKitWatch at owning runtime boundary, preserve Pulse policy/UI, route callers through owner API, then remove duplicate local implementation after focused parity evidence.",
+      "confidence": "medium"
+    },
+    {
+      "component_id": "swift:RightKitUI",
+      "status": "N",
+      "rationale": "Pulse has active app-owned implementation overlapping swift:RightKitUI on applicable target(s); no RightKit production route is imported.",
+      "shared_evidence": [],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/pulse/mac/Notch/Sources/DesignSystem/Design.swift",
+          "line": 1,
+          "symbol": "active production integration",
+          "detail": "Active Mac notch owns SwiftUI design system."
+        },
+        {
+          "path": "/Volumes/D/claude/pulse/mac/Notch/Sources/Notch/NotchRootView.swift",
+          "line": 1,
+          "symbol": "active production integration",
+          "detail": "Active Mac notch owns SwiftUI notch UI."
+        }
+      ],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/pulse/mac/Package.swift",
+          "line": 9,
+          "detail": "Pulse active targets are core/hub Rust, Tauri React hub, macOS notch/Swift, and Windows native notch; source census scoped to these production roots."
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/swift/RightKitSwift/Sources/RightKitUI/AdaptiveGlassSurface.swift",
+          "line": 37,
+          "detail": "Owner rightKitAdaptiveGlass SwiftUI modifier is the matching UI primitive; Pulse Design.swift/NotchRootView own same runtime surface."
+        }
+      ],
+      "delivery_flags": [
+        "No direct RightKit dependency/import for this capability in active Pulse manifests."
+      ],
+      "remaining_work": "Adopt swift:RightKitUI at owning runtime boundary, preserve Pulse policy/UI, route callers through owner API, then remove duplicate local implementation after focused parity evidence.",
+      "confidence": "medium"
+    }
+  ],
+  "searches": [
+    {
+      "pattern": "rightkit|@rightkit",
+      "scope": "core, hub, mac/Notch, windows, manifests, scripts",
+      "result": "Direct production imports: rightkit-control, rightkit-db, rightkit-fsindex, rightkit-search, app-shell, platform-ui, release; no rightkit-send import."
+    },
+    {
+      "pattern": "localsend|Service|send|NearbySharing|SendProvider",
+      "scope": "core/src/localsend, hub/src-tauri/src/share.rs, mac/Notch/Sources/Sharing, windows/src/send.rs",
+      "result": "Active app-owned nearby sharing path runs pulse_core::localsend with Swift/Windows adapters; rightkit-send is absent."
+    },
+    {
+      "pattern": "URLSession|URLRequest|WinHTTP|curl",
+      "scope": "mac/Notch/Sources, core/src/app_manager.rs, windows/src/http.rs/update.rs",
+      "result": "Active app-owned HTTP/update/OAuth implementations exist."
+    },
+    {
+      "pattern": "UserDefaults|pill-settings|Preferences|JSON settings",
+      "scope": "mac/Notch/Sources/Settings, windows/src/settings.rs, hub/src-tauri",
+      "result": "Active app-owned settings persistence exists."
+    },
+    {
+      "pattern": "CGEventTap|WH_KEYBOARD_LL|RegisterHotKey|EventTap",
+      "scope": "mac/Notch/Sources/Conveniences/Keyboard, windows/src/keys.rs",
+      "result": "Active app-owned global input hooks exist."
+    },
+    {
+      "pattern": "NSPanel|UpdateLayeredWindow|topmost|overlay",
+      "scope": "mac/Notch/Sources/Notch, windows/src",
+      "result": "Active app-owned overlay/window implementations exist."
+    },
+    {
+      "pattern": "FSEventStream|FSEvents|ReadDirectoryChangesW",
+      "scope": "hub/src-tauri/src/watch.rs/watch_windows.rs, mac/Notch/Sources session mirrors",
+      "result": "Active app-owned filesystem watchers exist; fsindex itself separately routes through rightkit-fsindex."
+    },
+    {
+      "pattern": "Keychain|SecItem|Credential|OAuth",
+      "scope": "mac/Notch/Sources/Providers",
+      "result": "Active app-owned credential and Claude OAuth paths exist."
+    },
+    {
+      "pattern": "Logger|notch.log|scan.log|diagnostic",
+      "scope": "mac/Notch/Sources/App, windows/src/diag.rs, hub/src-tauri/src/scanner.rs",
+      "result": "Active app-owned diagnostics/logging paths exist."
+    },
+    {
+      "pattern": "Process\\(|Command::new|CreateProcess|taskkill",
+      "scope": "mac/Notch/Sources, core/src, windows/src, hub/src-tauri/src",
+      "result": "Active app-owned process launch/restart/termination paths exist."
+    },
+    {
+      "pattern": "rightkit-control",
+      "scope": "hub/src-tauri/src/lib.rs and hub/src-tauri/Cargo.toml",
+      "result": "Only qa-native path calls shared control plugin."
+    },
+    {
+      "pattern": "rightkit_fsindex|rightkit_search|rightkit_db",
+      "scope": "hub/src-tauri/src/disk_index.rs, core/src/storage_browser.rs, core/src/bridge/deliver_codex.rs",
+      "result": "Shared routes have live callers."
+    },
+    {
+      "pattern": "@rightkit/app-shell|@rightkit/platform-ui|@rightkit/release",
+      "scope": "hub/src, hub/package.json, scripts/release",
+      "result": "Shared npm callers are live."
+    },
+    {
+      "pattern": "pulse_core::localsend|rightkit-send|LocalSend|Service::start",
+      "scope": "core/src/localsend/mod.rs, hub/src-tauri/src/share.rs, mac/Notch/Sources/Sharing/NearbySharing.swift",
+      "result": "Read 2026-10-11T08:13+05:30 at Pulse HEAD 64839ce8; rechecked after concurrent edits, active local Service::start/send routing remains. SHA-256: core localsend a07d9d00dd30e0171445d8165f9f3c653ac7e21288b80de4059b019f76565c1c; hub share bff768aefc3b34114e20ac0504624b18b5c33a95f2b5d2c29367d9b4d1ea160f; Swift nearby b9770071ffa3fb84b45ad3f457f9e223dc37298e55944ccadcca98f99321502d."
+    }
+  ],
+  "self_review": "Bounded semantic rereview challenged rightkit-send (shared owner exists but Pulse does not import it: N), fsindex/search wrappers (wrappers around shared route remain Y), cache JSON writes (no DiskCache cap/LRU overlap: NA), OAuth/Keychain Swift paths versus Rust owners (Swift-only rows remain with Swift owners; cargo rows NA), Tauri shell/host contracts (no ShellBuilder or standard typed host caller: NA), npm native-runtime rows (no React caller: NA), Swift prototype FSEvents (inactive package excluded from active runtime but active Notch watcher remains N), and cross-language SQLite/UI rows. No M row was supported by both an imported shared route and same-scope competing local implementation."
+}

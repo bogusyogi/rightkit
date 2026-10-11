@@ -1,0 +1,2773 @@
+{
+  "app": "Waitlist",
+  "root": "/Volumes/D/claude/bogusyogi/workers/waitlist",
+  "head": "22d78df2e5c9849ff97d566284acabdfc169de2d",
+  "reviewed_at": "2026-10-11T08:15:05+05:30",
+  "targets": [
+    "cloudflare-workers",
+    "typescript"
+  ],
+  "scope_note": "Fresh source-only audit of active Waitlist Cloudflare Worker request handler, KV bindings, Wrangler config, and scripts. Subscriber KV values were not read. No browser, desktop, Cargo, Swift, Tauri, sidecar, release-artifact, or test target exists. Generated files, caches, node_modules, README, and prior audits were excluded; no execution qualification implied.",
+  "cells": [
+    {
+      "component_id": "cargo:agent-room-core",
+      "status": "NA",
+      "rationale": "NA: agent-room-core is a Rust capability; live source is one Cloudflare Workers TypeScript Fetch/KV handler with no Cargo target, Rust engine/sidecar, FFI, or bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/src/index.ts",
+          "line": 52,
+          "detail": "Only production entry is a Cloudflare Workers fetch handler using Request, Env, Response, and ExecutionContext."
+        },
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/package.json",
+          "line": 2,
+          "detail": "Package declares Wrangler-only development/deployment/KV scripts and no dependencies or desktop/native target."
+        },
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/wrangler.toml",
+          "line": 2,
+          "detail": "Wrangler entrypoint is src/index.ts; bindings configure the Workers host."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-agent-tools",
+      "status": "NA",
+      "rationale": "NA: rightkit-agent-tools is a Rust capability; live source is one Cloudflare Workers TypeScript Fetch/KV handler with no Cargo target, Rust engine/sidecar, FFI, or bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/src/index.ts",
+          "line": 52,
+          "detail": "Only production entry is a Cloudflare Workers fetch handler using Request, Env, Response, and ExecutionContext."
+        },
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/package.json",
+          "line": 2,
+          "detail": "Package declares Wrangler-only development/deployment/KV scripts and no dependencies or desktop/native target."
+        },
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/wrangler.toml",
+          "line": 2,
+          "detail": "Wrangler entrypoint is src/index.ts; bindings configure the Workers host."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-align",
+      "status": "NA",
+      "rationale": "NA: rightkit-align is a Rust capability; live source is one Cloudflare Workers TypeScript Fetch/KV handler with no Cargo target, Rust engine/sidecar, FFI, or bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/src/index.ts",
+          "line": 52,
+          "detail": "Only production entry is a Cloudflare Workers fetch handler using Request, Env, Response, and ExecutionContext."
+        },
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/package.json",
+          "line": 2,
+          "detail": "Package declares Wrangler-only development/deployment/KV scripts and no dependencies or desktop/native target."
+        },
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/wrangler.toml",
+          "line": 2,
+          "detail": "Wrangler entrypoint is src/index.ts; bindings configure the Workers host."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-asr",
+      "status": "NA",
+      "rationale": "NA: rightkit-asr is a Rust capability; live source is one Cloudflare Workers TypeScript Fetch/KV handler with no Cargo target, Rust engine/sidecar, FFI, or bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/src/index.ts",
+          "line": 52,
+          "detail": "Only production entry is a Cloudflare Workers fetch handler using Request, Env, Response, and ExecutionContext."
+        },
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/package.json",
+          "line": 2,
+          "detail": "Package declares Wrangler-only development/deployment/KV scripts and no dependencies or desktop/native target."
+        },
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/wrangler.toml",
+          "line": 2,
+          "detail": "Wrangler entrypoint is src/index.ts; bindings configure the Workers host."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-audio",
+      "status": "NA",
+      "rationale": "NA: rightkit-audio is a Rust capability; live source is one Cloudflare Workers TypeScript Fetch/KV handler with no Cargo target, Rust engine/sidecar, FFI, or bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/src/index.ts",
+          "line": 52,
+          "detail": "Only production entry is a Cloudflare Workers fetch handler using Request, Env, Response, and ExecutionContext."
+        },
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/package.json",
+          "line": 2,
+          "detail": "Package declares Wrangler-only development/deployment/KV scripts and no dependencies or desktop/native target."
+        },
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/wrangler.toml",
+          "line": 2,
+          "detail": "Wrangler entrypoint is src/index.ts; bindings configure the Workers host."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-automation",
+      "status": "NA",
+      "rationale": "NA: rightkit-automation is a Rust capability; live source is one Cloudflare Workers TypeScript Fetch/KV handler with no Cargo target, Rust engine/sidecar, FFI, or bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/src/index.ts",
+          "line": 52,
+          "detail": "Only production entry is a Cloudflare Workers fetch handler using Request, Env, Response, and ExecutionContext."
+        },
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/package.json",
+          "line": 2,
+          "detail": "Package declares Wrangler-only development/deployment/KV scripts and no dependencies or desktop/native target."
+        },
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/wrangler.toml",
+          "line": 2,
+          "detail": "Wrangler entrypoint is src/index.ts; bindings configure the Workers host."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-browser",
+      "status": "NA",
+      "rationale": "NA: rightkit-browser is a Rust capability; live source is one Cloudflare Workers TypeScript Fetch/KV handler with no Cargo target, Rust engine/sidecar, FFI, or bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/src/index.ts",
+          "line": 52,
+          "detail": "Only production entry is a Cloudflare Workers fetch handler using Request, Env, Response, and ExecutionContext."
+        },
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/package.json",
+          "line": 2,
+          "detail": "Package declares Wrangler-only development/deployment/KV scripts and no dependencies or desktop/native target."
+        },
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/wrangler.toml",
+          "line": 2,
+          "detail": "Wrangler entrypoint is src/index.ts; bindings configure the Workers host."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-cache",
+      "status": "NA",
+      "rationale": "NA: rightkit-cache is a Rust capability; live source is one Cloudflare Workers TypeScript Fetch/KV handler with no Cargo target, Rust engine/sidecar, FFI, or bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/src/index.ts",
+          "line": 52,
+          "detail": "Only production entry is a Cloudflare Workers fetch handler using Request, Env, Response, and ExecutionContext."
+        },
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/package.json",
+          "line": 2,
+          "detail": "Package declares Wrangler-only development/deployment/KV scripts and no dependencies or desktop/native target."
+        },
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/wrangler.toml",
+          "line": 2,
+          "detail": "Wrangler entrypoint is src/index.ts; bindings configure the Workers host."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-channel-memory",
+      "status": "NA",
+      "rationale": "NA: rightkit-channel-memory is a Rust capability; live source is one Cloudflare Workers TypeScript Fetch/KV handler with no Cargo target, Rust engine/sidecar, FFI, or bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/src/index.ts",
+          "line": 52,
+          "detail": "Only production entry is a Cloudflare Workers fetch handler using Request, Env, Response, and ExecutionContext."
+        },
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/package.json",
+          "line": 2,
+          "detail": "Package declares Wrangler-only development/deployment/KV scripts and no dependencies or desktop/native target."
+        },
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/wrangler.toml",
+          "line": 2,
+          "detail": "Wrangler entrypoint is src/index.ts; bindings configure the Workers host."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-compose",
+      "status": "NA",
+      "rationale": "NA: rightkit-compose is a Rust capability; live source is one Cloudflare Workers TypeScript Fetch/KV handler with no Cargo target, Rust engine/sidecar, FFI, or bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/src/index.ts",
+          "line": 52,
+          "detail": "Only production entry is a Cloudflare Workers fetch handler using Request, Env, Response, and ExecutionContext."
+        },
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/package.json",
+          "line": 2,
+          "detail": "Package declares Wrangler-only development/deployment/KV scripts and no dependencies or desktop/native target."
+        },
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/wrangler.toml",
+          "line": 2,
+          "detail": "Wrangler entrypoint is src/index.ts; bindings configure the Workers host."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-contracts",
+      "status": "NA",
+      "rationale": "NA: rightkit-contracts is a Rust capability; live source is one Cloudflare Workers TypeScript Fetch/KV handler with no Cargo target, Rust engine/sidecar, FFI, or bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/src/index.ts",
+          "line": 52,
+          "detail": "Only production entry is a Cloudflare Workers fetch handler using Request, Env, Response, and ExecutionContext."
+        },
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/package.json",
+          "line": 2,
+          "detail": "Package declares Wrangler-only development/deployment/KV scripts and no dependencies or desktop/native target."
+        },
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/wrangler.toml",
+          "line": 2,
+          "detail": "Wrangler entrypoint is src/index.ts; bindings configure the Workers host."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-control",
+      "status": "NA",
+      "rationale": "NA: rightkit-control is a Rust capability; live source is one Cloudflare Workers TypeScript Fetch/KV handler with no Cargo target, Rust engine/sidecar, FFI, or bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/src/index.ts",
+          "line": 52,
+          "detail": "Only production entry is a Cloudflare Workers fetch handler using Request, Env, Response, and ExecutionContext."
+        },
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/package.json",
+          "line": 2,
+          "detail": "Package declares Wrangler-only development/deployment/KV scripts and no dependencies or desktop/native target."
+        },
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/wrangler.toml",
+          "line": 2,
+          "detail": "Wrangler entrypoint is src/index.ts; bindings configure the Workers host."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-crash",
+      "status": "NA",
+      "rationale": "NA: rightkit-crash is a Rust capability; live source is one Cloudflare Workers TypeScript Fetch/KV handler with no Cargo target, Rust engine/sidecar, FFI, or bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/src/index.ts",
+          "line": 52,
+          "detail": "Only production entry is a Cloudflare Workers fetch handler using Request, Env, Response, and ExecutionContext."
+        },
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/package.json",
+          "line": 2,
+          "detail": "Package declares Wrangler-only development/deployment/KV scripts and no dependencies or desktop/native target."
+        },
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/wrangler.toml",
+          "line": 2,
+          "detail": "Wrangler entrypoint is src/index.ts; bindings configure the Workers host."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-daemon",
+      "status": "NA",
+      "rationale": "NA: rightkit-daemon is a Rust capability; live source is one Cloudflare Workers TypeScript Fetch/KV handler with no Cargo target, Rust engine/sidecar, FFI, or bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/src/index.ts",
+          "line": 52,
+          "detail": "Only production entry is a Cloudflare Workers fetch handler using Request, Env, Response, and ExecutionContext."
+        },
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/package.json",
+          "line": 2,
+          "detail": "Package declares Wrangler-only development/deployment/KV scripts and no dependencies or desktop/native target."
+        },
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/wrangler.toml",
+          "line": 2,
+          "detail": "Wrangler entrypoint is src/index.ts; bindings configure the Workers host."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-db",
+      "status": "NA",
+      "rationale": "NA: rightkit-db is a Rust capability; live source is one Cloudflare Workers TypeScript Fetch/KV handler with no Cargo target, Rust engine/sidecar, FFI, or bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/src/index.ts",
+          "line": 52,
+          "detail": "Only production entry is a Cloudflare Workers fetch handler using Request, Env, Response, and ExecutionContext."
+        },
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/package.json",
+          "line": 2,
+          "detail": "Package declares Wrangler-only development/deployment/KV scripts and no dependencies or desktop/native target."
+        },
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/wrangler.toml",
+          "line": 2,
+          "detail": "Wrangler entrypoint is src/index.ts; bindings configure the Workers host."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-embed",
+      "status": "NA",
+      "rationale": "NA: rightkit-embed is a Rust capability; live source is one Cloudflare Workers TypeScript Fetch/KV handler with no Cargo target, Rust engine/sidecar, FFI, or bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/src/index.ts",
+          "line": 52,
+          "detail": "Only production entry is a Cloudflare Workers fetch handler using Request, Env, Response, and ExecutionContext."
+        },
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/package.json",
+          "line": 2,
+          "detail": "Package declares Wrangler-only development/deployment/KV scripts and no dependencies or desktop/native target."
+        },
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/wrangler.toml",
+          "line": 2,
+          "detail": "Wrangler entrypoint is src/index.ts; bindings configure the Workers host."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-framed-sidecar",
+      "status": "NA",
+      "rationale": "NA: rightkit-framed-sidecar is a Rust capability; live source is one Cloudflare Workers TypeScript Fetch/KV handler with no Cargo target, Rust engine/sidecar, FFI, or bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/src/index.ts",
+          "line": 52,
+          "detail": "Only production entry is a Cloudflare Workers fetch handler using Request, Env, Response, and ExecutionContext."
+        },
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/package.json",
+          "line": 2,
+          "detail": "Package declares Wrangler-only development/deployment/KV scripts and no dependencies or desktop/native target."
+        },
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/wrangler.toml",
+          "line": 2,
+          "detail": "Wrangler entrypoint is src/index.ts; bindings configure the Workers host."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-fs",
+      "status": "NA",
+      "rationale": "NA: rightkit-fs is a Rust capability; live source is one Cloudflare Workers TypeScript Fetch/KV handler with no Cargo target, Rust engine/sidecar, FFI, or bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/src/index.ts",
+          "line": 52,
+          "detail": "Only production entry is a Cloudflare Workers fetch handler using Request, Env, Response, and ExecutionContext."
+        },
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/package.json",
+          "line": 2,
+          "detail": "Package declares Wrangler-only development/deployment/KV scripts and no dependencies or desktop/native target."
+        },
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/wrangler.toml",
+          "line": 2,
+          "detail": "Wrangler entrypoint is src/index.ts; bindings configure the Workers host."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-fsindex",
+      "status": "NA",
+      "rationale": "NA: rightkit-fsindex is a Rust capability; live source is one Cloudflare Workers TypeScript Fetch/KV handler with no Cargo target, Rust engine/sidecar, FFI, or bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/src/index.ts",
+          "line": 52,
+          "detail": "Only production entry is a Cloudflare Workers fetch handler using Request, Env, Response, and ExecutionContext."
+        },
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/package.json",
+          "line": 2,
+          "detail": "Package declares Wrangler-only development/deployment/KV scripts and no dependencies or desktop/native target."
+        },
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/wrangler.toml",
+          "line": 2,
+          "detail": "Wrangler entrypoint is src/index.ts; bindings configure the Workers host."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-hotkeys",
+      "status": "NA",
+      "rationale": "NA: rightkit-hotkeys is a Rust capability; live source is one Cloudflare Workers TypeScript Fetch/KV handler with no Cargo target, Rust engine/sidecar, FFI, or bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/src/index.ts",
+          "line": 52,
+          "detail": "Only production entry is a Cloudflare Workers fetch handler using Request, Env, Response, and ExecutionContext."
+        },
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/package.json",
+          "line": 2,
+          "detail": "Package declares Wrangler-only development/deployment/KV scripts and no dependencies or desktop/native target."
+        },
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/wrangler.toml",
+          "line": 2,
+          "detail": "Wrangler entrypoint is src/index.ts; bindings configure the Workers host."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-http",
+      "status": "NA",
+      "rationale": "NA: Outbound Listmonk enrolment uses Cloudflare Workers native fetch; rightkit-http is Rust with no Cargo target, sidecar, FFI, or bridge in this Worker.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/src/index.ts",
+          "line": 52,
+          "detail": "Only production entry is a Cloudflare Workers fetch handler using Request, Env, Response, and ExecutionContext."
+        },
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/package.json",
+          "line": 2,
+          "detail": "Package declares Wrangler-only development/deployment/KV scripts and no dependencies or desktop/native target."
+        },
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/wrangler.toml",
+          "line": 2,
+          "detail": "Wrangler entrypoint is src/index.ts; bindings configure the Workers host."
+        },
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/src/index.ts",
+          "line": 107,
+          "detail": "Listmonk call uses the Workers platform fetch implementation."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-jobs",
+      "status": "NA",
+      "rationale": "NA: rightkit-jobs is a Rust capability; live source is one Cloudflare Workers TypeScript Fetch/KV handler with no Cargo target, Rust engine/sidecar, FFI, or bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/src/index.ts",
+          "line": 52,
+          "detail": "Only production entry is a Cloudflare Workers fetch handler using Request, Env, Response, and ExecutionContext."
+        },
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/package.json",
+          "line": 2,
+          "detail": "Package declares Wrangler-only development/deployment/KV scripts and no dependencies or desktop/native target."
+        },
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/wrangler.toml",
+          "line": 2,
+          "detail": "Wrangler entrypoint is src/index.ts; bindings configure the Workers host."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-license",
+      "status": "NA",
+      "rationale": "NA: rightkit-license is a Rust capability; live source is one Cloudflare Workers TypeScript Fetch/KV handler with no Cargo target, Rust engine/sidecar, FFI, or bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/src/index.ts",
+          "line": 52,
+          "detail": "Only production entry is a Cloudflare Workers fetch handler using Request, Env, Response, and ExecutionContext."
+        },
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/package.json",
+          "line": 2,
+          "detail": "Package declares Wrangler-only development/deployment/KV scripts and no dependencies or desktop/native target."
+        },
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/wrangler.toml",
+          "line": 2,
+          "detail": "Wrangler entrypoint is src/index.ts; bindings configure the Workers host."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-llm",
+      "status": "NA",
+      "rationale": "NA: rightkit-llm is a Rust capability; live source is one Cloudflare Workers TypeScript Fetch/KV handler with no Cargo target, Rust engine/sidecar, FFI, or bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/src/index.ts",
+          "line": 52,
+          "detail": "Only production entry is a Cloudflare Workers fetch handler using Request, Env, Response, and ExecutionContext."
+        },
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/package.json",
+          "line": 2,
+          "detail": "Package declares Wrangler-only development/deployment/KV scripts and no dependencies or desktop/native target."
+        },
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/wrangler.toml",
+          "line": 2,
+          "detail": "Wrangler entrypoint is src/index.ts; bindings configure the Workers host."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-logs",
+      "status": "NA",
+      "rationale": "NA: Request failure logging is Cloudflare console.error; no Rust process, local diagnostic store, or bridge exists for rightkit-logs.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/src/index.ts",
+          "line": 52,
+          "detail": "Only production entry is a Cloudflare Workers fetch handler using Request, Env, Response, and ExecutionContext."
+        },
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/package.json",
+          "line": 2,
+          "detail": "Package declares Wrangler-only development/deployment/KV scripts and no dependencies or desktop/native target."
+        },
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/wrangler.toml",
+          "line": 2,
+          "detail": "Wrangler entrypoint is src/index.ts; bindings configure the Workers host."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-mcp",
+      "status": "NA",
+      "rationale": "NA: rightkit-mcp is a Rust capability; live source is one Cloudflare Workers TypeScript Fetch/KV handler with no Cargo target, Rust engine/sidecar, FFI, or bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/src/index.ts",
+          "line": 52,
+          "detail": "Only production entry is a Cloudflare Workers fetch handler using Request, Env, Response, and ExecutionContext."
+        },
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/package.json",
+          "line": 2,
+          "detail": "Package declares Wrangler-only development/deployment/KV scripts and no dependencies or desktop/native target."
+        },
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/wrangler.toml",
+          "line": 2,
+          "detail": "Wrangler entrypoint is src/index.ts; bindings configure the Workers host."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-media",
+      "status": "NA",
+      "rationale": "NA: rightkit-media is a Rust capability; live source is one Cloudflare Workers TypeScript Fetch/KV handler with no Cargo target, Rust engine/sidecar, FFI, or bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/src/index.ts",
+          "line": 52,
+          "detail": "Only production entry is a Cloudflare Workers fetch handler using Request, Env, Response, and ExecutionContext."
+        },
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/package.json",
+          "line": 2,
+          "detail": "Package declares Wrangler-only development/deployment/KV scripts and no dependencies or desktop/native target."
+        },
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/wrangler.toml",
+          "line": 2,
+          "detail": "Wrangler entrypoint is src/index.ts; bindings configure the Workers host."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-models",
+      "status": "NA",
+      "rationale": "NA: rightkit-models is a Rust capability; live source is one Cloudflare Workers TypeScript Fetch/KV handler with no Cargo target, Rust engine/sidecar, FFI, or bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/src/index.ts",
+          "line": 52,
+          "detail": "Only production entry is a Cloudflare Workers fetch handler using Request, Env, Response, and ExecutionContext."
+        },
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/package.json",
+          "line": 2,
+          "detail": "Package declares Wrangler-only development/deployment/KV scripts and no dependencies or desktop/native target."
+        },
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/wrangler.toml",
+          "line": 2,
+          "detail": "Wrangler entrypoint is src/index.ts; bindings configure the Workers host."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-oauth",
+      "status": "NA",
+      "rationale": "NA: rightkit-oauth is a Rust capability; live source is one Cloudflare Workers TypeScript Fetch/KV handler with no Cargo target, Rust engine/sidecar, FFI, or bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/src/index.ts",
+          "line": 52,
+          "detail": "Only production entry is a Cloudflare Workers fetch handler using Request, Env, Response, and ExecutionContext."
+        },
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/package.json",
+          "line": 2,
+          "detail": "Package declares Wrangler-only development/deployment/KV scripts and no dependencies or desktop/native target."
+        },
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/wrangler.toml",
+          "line": 2,
+          "detail": "Wrangler entrypoint is src/index.ts; bindings configure the Workers host."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-ocr",
+      "status": "NA",
+      "rationale": "NA: rightkit-ocr is a Rust capability; live source is one Cloudflare Workers TypeScript Fetch/KV handler with no Cargo target, Rust engine/sidecar, FFI, or bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/src/index.ts",
+          "line": 52,
+          "detail": "Only production entry is a Cloudflare Workers fetch handler using Request, Env, Response, and ExecutionContext."
+        },
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/package.json",
+          "line": 2,
+          "detail": "Package declares Wrangler-only development/deployment/KV scripts and no dependencies or desktop/native target."
+        },
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/wrangler.toml",
+          "line": 2,
+          "detail": "Wrangler entrypoint is src/index.ts; bindings configure the Workers host."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-ort",
+      "status": "NA",
+      "rationale": "NA: rightkit-ort is a Rust capability; live source is one Cloudflare Workers TypeScript Fetch/KV handler with no Cargo target, Rust engine/sidecar, FFI, or bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/src/index.ts",
+          "line": 52,
+          "detail": "Only production entry is a Cloudflare Workers fetch handler using Request, Env, Response, and ExecutionContext."
+        },
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/package.json",
+          "line": 2,
+          "detail": "Package declares Wrangler-only development/deployment/KV scripts and no dependencies or desktop/native target."
+        },
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/wrangler.toml",
+          "line": 2,
+          "detail": "Wrangler entrypoint is src/index.ts; bindings configure the Workers host."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-overlay",
+      "status": "NA",
+      "rationale": "NA: rightkit-overlay is a Rust capability; live source is one Cloudflare Workers TypeScript Fetch/KV handler with no Cargo target, Rust engine/sidecar, FFI, or bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/src/index.ts",
+          "line": 52,
+          "detail": "Only production entry is a Cloudflare Workers fetch handler using Request, Env, Response, and ExecutionContext."
+        },
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/package.json",
+          "line": 2,
+          "detail": "Package declares Wrangler-only development/deployment/KV scripts and no dependencies or desktop/native target."
+        },
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/wrangler.toml",
+          "line": 2,
+          "detail": "Wrangler entrypoint is src/index.ts; bindings configure the Workers host."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-ownership",
+      "status": "NA",
+      "rationale": "NA: rightkit-ownership is a Rust capability; live source is one Cloudflare Workers TypeScript Fetch/KV handler with no Cargo target, Rust engine/sidecar, FFI, or bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/src/index.ts",
+          "line": 52,
+          "detail": "Only production entry is a Cloudflare Workers fetch handler using Request, Env, Response, and ExecutionContext."
+        },
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/package.json",
+          "line": 2,
+          "detail": "Package declares Wrangler-only development/deployment/KV scripts and no dependencies or desktop/native target."
+        },
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/wrangler.toml",
+          "line": 2,
+          "detail": "Wrangler entrypoint is src/index.ts; bindings configure the Workers host."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-pdf",
+      "status": "NA",
+      "rationale": "NA: rightkit-pdf is a Rust capability; live source is one Cloudflare Workers TypeScript Fetch/KV handler with no Cargo target, Rust engine/sidecar, FFI, or bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/src/index.ts",
+          "line": 52,
+          "detail": "Only production entry is a Cloudflare Workers fetch handler using Request, Env, Response, and ExecutionContext."
+        },
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/package.json",
+          "line": 2,
+          "detail": "Package declares Wrangler-only development/deployment/KV scripts and no dependencies or desktop/native target."
+        },
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/wrangler.toml",
+          "line": 2,
+          "detail": "Wrangler entrypoint is src/index.ts; bindings configure the Workers host."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-playback",
+      "status": "NA",
+      "rationale": "NA: rightkit-playback is a Rust capability; live source is one Cloudflare Workers TypeScript Fetch/KV handler with no Cargo target, Rust engine/sidecar, FFI, or bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/src/index.ts",
+          "line": 52,
+          "detail": "Only production entry is a Cloudflare Workers fetch handler using Request, Env, Response, and ExecutionContext."
+        },
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/package.json",
+          "line": 2,
+          "detail": "Package declares Wrangler-only development/deployment/KV scripts and no dependencies or desktop/native target."
+        },
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/wrangler.toml",
+          "line": 2,
+          "detail": "Wrangler entrypoint is src/index.ts; bindings configure the Workers host."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-process",
+      "status": "NA",
+      "rationale": "NA: rightkit-process is a Rust capability; live source is one Cloudflare Workers TypeScript Fetch/KV handler with no Cargo target, Rust engine/sidecar, FFI, or bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/src/index.ts",
+          "line": 52,
+          "detail": "Only production entry is a Cloudflare Workers fetch handler using Request, Env, Response, and ExecutionContext."
+        },
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/package.json",
+          "line": 2,
+          "detail": "Package declares Wrangler-only development/deployment/KV scripts and no dependencies or desktop/native target."
+        },
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/wrangler.toml",
+          "line": 2,
+          "detail": "Wrangler entrypoint is src/index.ts; bindings configure the Workers host."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-qa",
+      "status": "NA",
+      "rationale": "NA: rightkit-qa is a Rust capability; live source is one Cloudflare Workers TypeScript Fetch/KV handler with no Cargo target, Rust engine/sidecar, FFI, or bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/src/index.ts",
+          "line": 52,
+          "detail": "Only production entry is a Cloudflare Workers fetch handler using Request, Env, Response, and ExecutionContext."
+        },
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/package.json",
+          "line": 2,
+          "detail": "Package declares Wrangler-only development/deployment/KV scripts and no dependencies or desktop/native target."
+        },
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/wrangler.toml",
+          "line": 2,
+          "detail": "Wrangler entrypoint is src/index.ts; bindings configure the Workers host."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-qts",
+      "status": "NA",
+      "rationale": "NA: rightkit-qts is a Rust capability; live source is one Cloudflare Workers TypeScript Fetch/KV handler with no Cargo target, Rust engine/sidecar, FFI, or bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/src/index.ts",
+          "line": 52,
+          "detail": "Only production entry is a Cloudflare Workers fetch handler using Request, Env, Response, and ExecutionContext."
+        },
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/package.json",
+          "line": 2,
+          "detail": "Package declares Wrangler-only development/deployment/KV scripts and no dependencies or desktop/native target."
+        },
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/wrangler.toml",
+          "line": 2,
+          "detail": "Wrangler entrypoint is src/index.ts; bindings configure the Workers host."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-qts-ggml",
+      "status": "NA",
+      "rationale": "NA: rightkit-qts-ggml is a Rust capability; live source is one Cloudflare Workers TypeScript Fetch/KV handler with no Cargo target, Rust engine/sidecar, FFI, or bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/src/index.ts",
+          "line": 52,
+          "detail": "Only production entry is a Cloudflare Workers fetch handler using Request, Env, Response, and ExecutionContext."
+        },
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/package.json",
+          "line": 2,
+          "detail": "Package declares Wrangler-only development/deployment/KV scripts and no dependencies or desktop/native target."
+        },
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/wrangler.toml",
+          "line": 2,
+          "detail": "Wrangler entrypoint is src/index.ts; bindings configure the Workers host."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-qts-ggml-sys",
+      "status": "NA",
+      "rationale": "NA: rightkit-qts-ggml-sys is a Rust capability; live source is one Cloudflare Workers TypeScript Fetch/KV handler with no Cargo target, Rust engine/sidecar, FFI, or bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/src/index.ts",
+          "line": 52,
+          "detail": "Only production entry is a Cloudflare Workers fetch handler using Request, Env, Response, and ExecutionContext."
+        },
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/package.json",
+          "line": 2,
+          "detail": "Package declares Wrangler-only development/deployment/KV scripts and no dependencies or desktop/native target."
+        },
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/wrangler.toml",
+          "line": 2,
+          "detail": "Wrangler entrypoint is src/index.ts; bindings configure the Workers host."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-record",
+      "status": "NA",
+      "rationale": "NA: rightkit-record is a Rust capability; live source is one Cloudflare Workers TypeScript Fetch/KV handler with no Cargo target, Rust engine/sidecar, FFI, or bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/src/index.ts",
+          "line": 52,
+          "detail": "Only production entry is a Cloudflare Workers fetch handler using Request, Env, Response, and ExecutionContext."
+        },
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/package.json",
+          "line": 2,
+          "detail": "Package declares Wrangler-only development/deployment/KV scripts and no dependencies or desktop/native target."
+        },
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/wrangler.toml",
+          "line": 2,
+          "detail": "Wrangler entrypoint is src/index.ts; bindings configure the Workers host."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-review",
+      "status": "NA",
+      "rationale": "NA: rightkit-review is a Rust capability; live source is one Cloudflare Workers TypeScript Fetch/KV handler with no Cargo target, Rust engine/sidecar, FFI, or bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/src/index.ts",
+          "line": 52,
+          "detail": "Only production entry is a Cloudflare Workers fetch handler using Request, Env, Response, and ExecutionContext."
+        },
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/package.json",
+          "line": 2,
+          "detail": "Package declares Wrangler-only development/deployment/KV scripts and no dependencies or desktop/native target."
+        },
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/wrangler.toml",
+          "line": 2,
+          "detail": "Wrangler entrypoint is src/index.ts; bindings configure the Workers host."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-sandbox",
+      "status": "NA",
+      "rationale": "NA: rightkit-sandbox is a Rust capability; live source is one Cloudflare Workers TypeScript Fetch/KV handler with no Cargo target, Rust engine/sidecar, FFI, or bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/src/index.ts",
+          "line": 52,
+          "detail": "Only production entry is a Cloudflare Workers fetch handler using Request, Env, Response, and ExecutionContext."
+        },
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/package.json",
+          "line": 2,
+          "detail": "Package declares Wrangler-only development/deployment/KV scripts and no dependencies or desktop/native target."
+        },
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/wrangler.toml",
+          "line": 2,
+          "detail": "Wrangler entrypoint is src/index.ts; bindings configure the Workers host."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-scenario",
+      "status": "NA",
+      "rationale": "NA: rightkit-scenario is a Rust capability; live source is one Cloudflare Workers TypeScript Fetch/KV handler with no Cargo target, Rust engine/sidecar, FFI, or bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/src/index.ts",
+          "line": 52,
+          "detail": "Only production entry is a Cloudflare Workers fetch handler using Request, Env, Response, and ExecutionContext."
+        },
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/package.json",
+          "line": 2,
+          "detail": "Package declares Wrangler-only development/deployment/KV scripts and no dependencies or desktop/native target."
+        },
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/wrangler.toml",
+          "line": 2,
+          "detail": "Wrangler entrypoint is src/index.ts; bindings configure the Workers host."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-search",
+      "status": "NA",
+      "rationale": "NA: rightkit-search is a Rust capability; live source is one Cloudflare Workers TypeScript Fetch/KV handler with no Cargo target, Rust engine/sidecar, FFI, or bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/src/index.ts",
+          "line": 52,
+          "detail": "Only production entry is a Cloudflare Workers fetch handler using Request, Env, Response, and ExecutionContext."
+        },
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/package.json",
+          "line": 2,
+          "detail": "Package declares Wrangler-only development/deployment/KV scripts and no dependencies or desktop/native target."
+        },
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/wrangler.toml",
+          "line": 2,
+          "detail": "Wrangler entrypoint is src/index.ts; bindings configure the Workers host."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-secrets",
+      "status": "NA",
+      "rationale": "NA: rightkit-secrets is a Rust capability; live source is one Cloudflare Workers TypeScript Fetch/KV handler with no Cargo target, Rust engine/sidecar, FFI, or bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/src/index.ts",
+          "line": 52,
+          "detail": "Only production entry is a Cloudflare Workers fetch handler using Request, Env, Response, and ExecutionContext."
+        },
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/package.json",
+          "line": 2,
+          "detail": "Package declares Wrangler-only development/deployment/KV scripts and no dependencies or desktop/native target."
+        },
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/wrangler.toml",
+          "line": 2,
+          "detail": "Wrangler entrypoint is src/index.ts; bindings configure the Workers host."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-send",
+      "status": "NA",
+      "rationale": "NA: rightkit-send is a Rust capability; live source is one Cloudflare Workers TypeScript Fetch/KV handler with no Cargo target, Rust engine/sidecar, FFI, or bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/src/index.ts",
+          "line": 52,
+          "detail": "Only production entry is a Cloudflare Workers fetch handler using Request, Env, Response, and ExecutionContext."
+        },
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/package.json",
+          "line": 2,
+          "detail": "Package declares Wrangler-only development/deployment/KV scripts and no dependencies or desktop/native target."
+        },
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/wrangler.toml",
+          "line": 2,
+          "detail": "Wrangler entrypoint is src/index.ts; bindings configure the Workers host."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-service",
+      "status": "NA",
+      "rationale": "NA: rightkit-service is a Rust capability; live source is one Cloudflare Workers TypeScript Fetch/KV handler with no Cargo target, Rust engine/sidecar, FFI, or bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/src/index.ts",
+          "line": 52,
+          "detail": "Only production entry is a Cloudflare Workers fetch handler using Request, Env, Response, and ExecutionContext."
+        },
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/package.json",
+          "line": 2,
+          "detail": "Package declares Wrangler-only development/deployment/KV scripts and no dependencies or desktop/native target."
+        },
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/wrangler.toml",
+          "line": 2,
+          "detail": "Wrangler entrypoint is src/index.ts; bindings configure the Workers host."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-settings",
+      "status": "NA",
+      "rationale": "NA: rightkit-settings is a Rust capability; live source is one Cloudflare Workers TypeScript Fetch/KV handler with no Cargo target, Rust engine/sidecar, FFI, or bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/src/index.ts",
+          "line": 52,
+          "detail": "Only production entry is a Cloudflare Workers fetch handler using Request, Env, Response, and ExecutionContext."
+        },
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/package.json",
+          "line": 2,
+          "detail": "Package declares Wrangler-only development/deployment/KV scripts and no dependencies or desktop/native target."
+        },
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/wrangler.toml",
+          "line": 2,
+          "detail": "Wrangler entrypoint is src/index.ts; bindings configure the Workers host."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-shell",
+      "status": "NA",
+      "rationale": "NA: rightkit-shell is a Rust capability; live source is one Cloudflare Workers TypeScript Fetch/KV handler with no Cargo target, Rust engine/sidecar, FFI, or bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/src/index.ts",
+          "line": 52,
+          "detail": "Only production entry is a Cloudflare Workers fetch handler using Request, Env, Response, and ExecutionContext."
+        },
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/package.json",
+          "line": 2,
+          "detail": "Package declares Wrangler-only development/deployment/KV scripts and no dependencies or desktop/native target."
+        },
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/wrangler.toml",
+          "line": 2,
+          "detail": "Wrangler entrypoint is src/index.ts; bindings configure the Workers host."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-speech-client",
+      "status": "NA",
+      "rationale": "NA: rightkit-speech-client is a Rust capability; live source is one Cloudflare Workers TypeScript Fetch/KV handler with no Cargo target, Rust engine/sidecar, FFI, or bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/src/index.ts",
+          "line": 52,
+          "detail": "Only production entry is a Cloudflare Workers fetch handler using Request, Env, Response, and ExecutionContext."
+        },
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/package.json",
+          "line": 2,
+          "detail": "Package declares Wrangler-only development/deployment/KV scripts and no dependencies or desktop/native target."
+        },
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/wrangler.toml",
+          "line": 2,
+          "detail": "Wrangler entrypoint is src/index.ts; bindings configure the Workers host."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-sync",
+      "status": "NA",
+      "rationale": "NA: rightkit-sync is a Rust capability; live source is one Cloudflare Workers TypeScript Fetch/KV handler with no Cargo target, Rust engine/sidecar, FFI, or bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/src/index.ts",
+          "line": 52,
+          "detail": "Only production entry is a Cloudflare Workers fetch handler using Request, Env, Response, and ExecutionContext."
+        },
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/package.json",
+          "line": 2,
+          "detail": "Package declares Wrangler-only development/deployment/KV scripts and no dependencies or desktop/native target."
+        },
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/wrangler.toml",
+          "line": 2,
+          "detail": "Wrangler entrypoint is src/index.ts; bindings configure the Workers host."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-tauri",
+      "status": "NA",
+      "rationale": "NA: rightkit-tauri is a Rust capability; live source is one Cloudflare Workers TypeScript Fetch/KV handler with no Cargo target, Rust engine/sidecar, FFI, or bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/src/index.ts",
+          "line": 52,
+          "detail": "Only production entry is a Cloudflare Workers fetch handler using Request, Env, Response, and ExecutionContext."
+        },
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/package.json",
+          "line": 2,
+          "detail": "Package declares Wrangler-only development/deployment/KV scripts and no dependencies or desktop/native target."
+        },
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/wrangler.toml",
+          "line": 2,
+          "detail": "Wrangler entrypoint is src/index.ts; bindings configure the Workers host."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-transcript",
+      "status": "NA",
+      "rationale": "NA: rightkit-transcript is a Rust capability; live source is one Cloudflare Workers TypeScript Fetch/KV handler with no Cargo target, Rust engine/sidecar, FFI, or bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/src/index.ts",
+          "line": 52,
+          "detail": "Only production entry is a Cloudflare Workers fetch handler using Request, Env, Response, and ExecutionContext."
+        },
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/package.json",
+          "line": 2,
+          "detail": "Package declares Wrangler-only development/deployment/KV scripts and no dependencies or desktop/native target."
+        },
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/wrangler.toml",
+          "line": 2,
+          "detail": "Wrangler entrypoint is src/index.ts; bindings configure the Workers host."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-tts",
+      "status": "NA",
+      "rationale": "NA: rightkit-tts is a Rust capability; live source is one Cloudflare Workers TypeScript Fetch/KV handler with no Cargo target, Rust engine/sidecar, FFI, or bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/src/index.ts",
+          "line": 52,
+          "detail": "Only production entry is a Cloudflare Workers fetch handler using Request, Env, Response, and ExecutionContext."
+        },
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/package.json",
+          "line": 2,
+          "detail": "Package declares Wrangler-only development/deployment/KV scripts and no dependencies or desktop/native target."
+        },
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/wrangler.toml",
+          "line": 2,
+          "detail": "Wrangler entrypoint is src/index.ts; bindings configure the Workers host."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-vad",
+      "status": "NA",
+      "rationale": "NA: rightkit-vad is a Rust capability; live source is one Cloudflare Workers TypeScript Fetch/KV handler with no Cargo target, Rust engine/sidecar, FFI, or bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/src/index.ts",
+          "line": 52,
+          "detail": "Only production entry is a Cloudflare Workers fetch handler using Request, Env, Response, and ExecutionContext."
+        },
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/package.json",
+          "line": 2,
+          "detail": "Package declares Wrangler-only development/deployment/KV scripts and no dependencies or desktop/native target."
+        },
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/wrangler.toml",
+          "line": 2,
+          "detail": "Wrangler entrypoint is src/index.ts; bindings configure the Workers host."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-watch",
+      "status": "NA",
+      "rationale": "NA: rightkit-watch is a Rust capability; live source is one Cloudflare Workers TypeScript Fetch/KV handler with no Cargo target, Rust engine/sidecar, FFI, or bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/src/index.ts",
+          "line": 52,
+          "detail": "Only production entry is a Cloudflare Workers fetch handler using Request, Env, Response, and ExecutionContext."
+        },
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/package.json",
+          "line": 2,
+          "detail": "Package declares Wrangler-only development/deployment/KV scripts and no dependencies or desktop/native target."
+        },
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/wrangler.toml",
+          "line": 2,
+          "detail": "Wrangler entrypoint is src/index.ts; bindings configure the Workers host."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/agent-room-mcp",
+      "status": "NA",
+      "rationale": "NA: No agent, MCP, plugin, or lifecycle-system endpoint exists; live scope is email capture through Workers Fetch & KV.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/src/index.ts",
+          "line": 52,
+          "detail": "Only production entry is a Cloudflare Workers fetch handler using Request, Env, Response, and ExecutionContext."
+        },
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/package.json",
+          "line": 2,
+          "detail": "Package declares Wrangler-only development/deployment/KV scripts and no dependencies or desktop/native target."
+        },
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/wrangler.toml",
+          "line": 2,
+          "detail": "Wrangler entrypoint is src/index.ts; bindings configure the Workers host."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/app-shell",
+      "status": "NA",
+      "rationale": "NA: @rightkit/app-shell serves Brand-neutral React frame for Right Suite desktop apps: optional fused sidebar+titlebar layout with slots, command palette, shortcut registry/help, toasts, modals, context menus, ui kit, theme hooks., while this target is a Cloudflare Worker HTTP/KV endpoint with no browser renderer, desktop host, or matching caller.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/src/index.ts",
+          "line": 52,
+          "detail": "Only production entry is a Cloudflare Workers fetch handler using Request, Env, Response, and ExecutionContext."
+        },
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/package.json",
+          "line": 2,
+          "detail": "Package declares Wrangler-only development/deployment/KV scripts and no dependencies or desktop/native target."
+        },
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/wrangler.toml",
+          "line": 2,
+          "detail": "Wrangler entrypoint is src/index.ts; bindings configure the Workers host."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/ax",
+      "status": "NA",
+      "rationale": "NA: No agent, MCP, plugin, or lifecycle-system endpoint exists; live scope is email capture through Workers Fetch & KV.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/src/index.ts",
+          "line": 52,
+          "detail": "Only production entry is a Cloudflare Workers fetch handler using Request, Env, Response, and ExecutionContext."
+        },
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/package.json",
+          "line": 2,
+          "detail": "Package declares Wrangler-only development/deployment/KV scripts and no dependencies or desktop/native target."
+        },
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/wrangler.toml",
+          "line": 2,
+          "detail": "Wrangler entrypoint is src/index.ts; bindings configure the Workers host."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/build-control-policy",
+      "status": "NA",
+      "rationale": "NA: No build-control policy or dependency-allowlist caller exists; only Worker source & Wrangler scripts are in scope.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/src/index.ts",
+          "line": 52,
+          "detail": "Only production entry is a Cloudflare Workers fetch handler using Request, Env, Response, and ExecutionContext."
+        },
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/package.json",
+          "line": 2,
+          "detail": "Package declares Wrangler-only development/deployment/KV scripts and no dependencies or desktop/native target."
+        },
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/wrangler.toml",
+          "line": 2,
+          "detail": "Wrangler entrypoint is src/index.ts; bindings configure the Workers host."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/doc-render",
+      "status": "NA",
+      "rationale": "NA: @rightkit/doc-render serves Brand-neutral, read-only document renderer (Markdown, sanitized HTML, safe email frame) for Right Suite readers., while this target is a Cloudflare Worker HTTP/KV endpoint with no browser renderer, desktop host, or matching caller.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/src/index.ts",
+          "line": 52,
+          "detail": "Only production entry is a Cloudflare Workers fetch handler using Request, Env, Response, and ExecutionContext."
+        },
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/package.json",
+          "line": 2,
+          "detail": "Package declares Wrangler-only development/deployment/KV scripts and no dependencies or desktop/native target."
+        },
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/wrangler.toml",
+          "line": 2,
+          "detail": "Wrangler entrypoint is src/index.ts; bindings configure the Workers host."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/git",
+      "status": "NA",
+      "rationale": "NA: Source census found no GitHub Actions or public-repository workflow surface; Worker request/KV code has no Git integration.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/src/index.ts",
+          "line": 52,
+          "detail": "Only production entry is a Cloudflare Workers fetch handler using Request, Env, Response, and ExecutionContext."
+        },
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/package.json",
+          "line": 2,
+          "detail": "Package declares Wrangler-only development/deployment/KV scripts and no dependencies or desktop/native target."
+        },
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/wrangler.toml",
+          "line": 2,
+          "detail": "Wrangler entrypoint is src/index.ts; bindings configure the Workers host."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/hooks",
+      "status": "NA",
+      "rationale": "NA: No agent, MCP, plugin, or lifecycle-system endpoint exists; live scope is email capture through Workers Fetch & KV.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/src/index.ts",
+          "line": 52,
+          "detail": "Only production entry is a Cloudflare Workers fetch handler using Request, Env, Response, and ExecutionContext."
+        },
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/package.json",
+          "line": 2,
+          "detail": "Package declares Wrangler-only development/deployment/KV scripts and no dependencies or desktop/native target."
+        },
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/wrangler.toml",
+          "line": 2,
+          "detail": "Wrangler entrypoint is src/index.ts; bindings configure the Workers host."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/i18n",
+      "status": "NA",
+      "rationale": "NA: @rightkit/i18n serves Shared locale catalog and React provider for Right Suite apps., while this target is a Cloudflare Worker HTTP/KV endpoint with no browser renderer, desktop host, or matching caller.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/src/index.ts",
+          "line": 52,
+          "detail": "Only production entry is a Cloudflare Workers fetch handler using Request, Env, Response, and ExecutionContext."
+        },
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/package.json",
+          "line": 2,
+          "detail": "Package declares Wrangler-only development/deployment/KV scripts and no dependencies or desktop/native target."
+        },
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/wrangler.toml",
+          "line": 2,
+          "detail": "Wrangler entrypoint is src/index.ts; bindings configure the Workers host."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/legal",
+      "status": "NA",
+      "rationale": "NA: @rightkit/legal serves Legal manifest, assent receipt, and release-contract primitives for proprietary Right Suite desktop apps., while this target is a Cloudflare Worker HTTP/KV endpoint with no browser renderer, desktop host, or matching caller.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/src/index.ts",
+          "line": 52,
+          "detail": "Only production entry is a Cloudflare Workers fetch handler using Request, Env, Response, and ExecutionContext."
+        },
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/package.json",
+          "line": 2,
+          "detail": "Package declares Wrangler-only development/deployment/KV scripts and no dependencies or desktop/native target."
+        },
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/wrangler.toml",
+          "line": 2,
+          "detail": "Wrangler entrypoint is src/index.ts; bindings configure the Workers host."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/legal-ui",
+      "status": "NA",
+      "rationale": "NA: @rightkit/legal-ui serves The one first-run / re-acceptance legal gate screen for Right Suite desktop apps., while this target is a Cloudflare Worker HTTP/KV endpoint with no browser renderer, desktop host, or matching caller.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/src/index.ts",
+          "line": 52,
+          "detail": "Only production entry is a Cloudflare Workers fetch handler using Request, Env, Response, and ExecutionContext."
+        },
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/package.json",
+          "line": 2,
+          "detail": "Package declares Wrangler-only development/deployment/KV scripts and no dependencies or desktop/native target."
+        },
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/wrangler.toml",
+          "line": 2,
+          "detail": "Wrangler entrypoint is src/index.ts; bindings configure the Workers host."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/license",
+      "status": "NA",
+      "rationale": "NA: @rightkit/license serves The one license client for every Right Suite app (online token-exchange against the unified RightApps backend, with per-kind offline grace)., while this target is a Cloudflare Worker HTTP/KV endpoint with no browser renderer, desktop host, or matching caller.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/src/index.ts",
+          "line": 52,
+          "detail": "Only production entry is a Cloudflare Workers fetch handler using Request, Env, Response, and ExecutionContext."
+        },
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/package.json",
+          "line": 2,
+          "detail": "Package declares Wrangler-only development/deployment/KV scripts and no dependencies or desktop/native target."
+        },
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/wrangler.toml",
+          "line": 2,
+          "detail": "Wrangler entrypoint is src/index.ts; bindings configure the Workers host."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/logs",
+      "status": "NA",
+      "rationale": "NA: Worker console.error calls report request/enrolment failures to Cloudflare observability; @rightkit/logs requires a Tauri invoke host for local diagnostics, absent from this Worker.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/src/index.ts",
+          "line": 52,
+          "detail": "Only production entry is a Cloudflare Workers fetch handler using Request, Env, Response, and ExecutionContext."
+        },
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/package.json",
+          "line": 2,
+          "detail": "Package declares Wrangler-only development/deployment/KV scripts and no dependencies or desktop/native target."
+        },
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/wrangler.toml",
+          "line": 2,
+          "detail": "Wrangler entrypoint is src/index.ts; bindings configure the Workers host."
+        },
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/src/index.ts",
+          "line": 95,
+          "detail": "Only local logging is console.error in error handling; there is no Tauri invoke host."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/media-ui",
+      "status": "NA",
+      "rationale": "NA: @rightkit/media-ui serves Brand-neutral media player and image viewer/editor for Right Suite apps., while this target is a Cloudflare Worker HTTP/KV endpoint with no browser renderer, desktop host, or matching caller.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/src/index.ts",
+          "line": 52,
+          "detail": "Only production entry is a Cloudflare Workers fetch handler using Request, Env, Response, and ExecutionContext."
+        },
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/package.json",
+          "line": 2,
+          "detail": "Package declares Wrangler-only development/deployment/KV scripts and no dependencies or desktop/native target."
+        },
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/wrangler.toml",
+          "line": 2,
+          "detail": "Wrangler entrypoint is src/index.ts; bindings configure the Workers host."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/onboarding",
+      "status": "NA",
+      "rationale": "NA: @rightkit/onboarding serves First-run onboarding framework: ordered steps, progress, skip/resume, legal gate first, permissions, model download and licence/trial steps., while this target is a Cloudflare Worker HTTP/KV endpoint with no browser renderer, desktop host, or matching caller.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/src/index.ts",
+          "line": 52,
+          "detail": "Only production entry is a Cloudflare Workers fetch handler using Request, Env, Response, and ExecutionContext."
+        },
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/package.json",
+          "line": 2,
+          "detail": "Package declares Wrangler-only development/deployment/KV scripts and no dependencies or desktop/native target."
+        },
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/wrangler.toml",
+          "line": 2,
+          "detail": "Wrangler entrypoint is src/index.ts; bindings configure the Workers host."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/pdf-ui",
+      "status": "NA",
+      "rationale": "NA: @rightkit/pdf-ui serves Brand-neutral read-only PDF viewer (pdf.js) for Right Suite apps., while this target is a Cloudflare Worker HTTP/KV endpoint with no browser renderer, desktop host, or matching caller.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/src/index.ts",
+          "line": 52,
+          "detail": "Only production entry is a Cloudflare Workers fetch handler using Request, Env, Response, and ExecutionContext."
+        },
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/package.json",
+          "line": 2,
+          "detail": "Package declares Wrangler-only development/deployment/KV scripts and no dependencies or desktop/native target."
+        },
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/wrangler.toml",
+          "line": 2,
+          "detail": "Wrangler entrypoint is src/index.ts; bindings configure the Workers host."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/platform-ui",
+      "status": "NA",
+      "rationale": "NA: @rightkit/platform-ui serves Brand-neutral platform, shortcut, and window-control primitives for Right Suite apps., while this target is a Cloudflare Worker HTTP/KV endpoint with no browser renderer, desktop host, or matching caller.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/src/index.ts",
+          "line": 52,
+          "detail": "Only production entry is a Cloudflare Workers fetch handler using Request, Env, Response, and ExecutionContext."
+        },
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/package.json",
+          "line": 2,
+          "detail": "Package declares Wrangler-only development/deployment/KV scripts and no dependencies or desktop/native target."
+        },
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/wrangler.toml",
+          "line": 2,
+          "detail": "Wrangler entrypoint is src/index.ts; bindings configure the Workers host."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/qa",
+      "status": "NA",
+      "rationale": "NA: Package scripts expose only Wrangler dev/deploy/tail/KV actions; no Worker QA harness or browser-control caller exists.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/src/index.ts",
+          "line": 52,
+          "detail": "Only production entry is a Cloudflare Workers fetch handler using Request, Env, Response, and ExecutionContext."
+        },
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/package.json",
+          "line": 2,
+          "detail": "Package declares Wrangler-only development/deployment/KV scripts and no dependencies or desktop/native target."
+        },
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/wrangler.toml",
+          "line": 2,
+          "detail": "Wrangler entrypoint is src/index.ts; bindings configure the Workers host."
+        },
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/package.json",
+          "line": 6,
+          "detail": "Scripts contain Wrangler actions only; no test/browser runner is configured."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/qa-chrome",
+      "status": "NA",
+      "rationale": "NA: No Chrome process, browser test target, or resolver caller exists; this is a serverless Cloudflare fetch handler.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/src/index.ts",
+          "line": 52,
+          "detail": "Only production entry is a Cloudflare Workers fetch handler using Request, Env, Response, and ExecutionContext."
+        },
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/package.json",
+          "line": 2,
+          "detail": "Package declares Wrangler-only development/deployment/KV scripts and no dependencies or desktop/native target."
+        },
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/wrangler.toml",
+          "line": 2,
+          "detail": "Wrangler entrypoint is src/index.ts; bindings configure the Workers host."
+        },
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/package.json",
+          "line": 6,
+          "detail": "Scripts contain Wrangler actions only; no test/browser runner is configured."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/release",
+      "status": "NA",
+      "rationale": "NA: wrangler deploy is Worker deployment; no packaged desktop artifact, release manifest, or RightKit release caller exists.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/src/index.ts",
+          "line": 52,
+          "detail": "Only production entry is a Cloudflare Workers fetch handler using Request, Env, Response, and ExecutionContext."
+        },
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/package.json",
+          "line": 2,
+          "detail": "Package declares Wrangler-only development/deployment/KV scripts and no dependencies or desktop/native target."
+        },
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/wrangler.toml",
+          "line": 2,
+          "detail": "Wrangler entrypoint is src/index.ts; bindings configure the Workers host."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/settings-ui",
+      "status": "NA",
+      "rationale": "NA: @rightkit/settings-ui serves Settings panel frame and standard sections (appearance, updates, license, legal, diagnostics, models, API keys, about) persisted through rightkit-settings., while this target is a Cloudflare Worker HTTP/KV endpoint with no browser renderer, desktop host, or matching caller.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/src/index.ts",
+          "line": 52,
+          "detail": "Only production entry is a Cloudflare Workers fetch handler using Request, Env, Response, and ExecutionContext."
+        },
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/package.json",
+          "line": 2,
+          "detail": "Package declares Wrangler-only development/deployment/KV scripts and no dependencies or desktop/native target."
+        },
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/wrangler.toml",
+          "line": 2,
+          "detail": "Wrangler entrypoint is src/index.ts; bindings configure the Workers host."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/shell",
+      "status": "NA",
+      "rationale": "NA: @rightkit/shell serves Typed renderer bridge for the rightkit-shell Tauri crate: window controls, menu/tray events, deep links, autostart, rich clipboard, engine calls., while this target is a Cloudflare Worker HTTP/KV endpoint with no browser renderer, desktop host, or matching caller.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/src/index.ts",
+          "line": 52,
+          "detail": "Only production entry is a Cloudflare Workers fetch handler using Request, Env, Response, and ExecutionContext."
+        },
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/package.json",
+          "line": 2,
+          "detail": "Package declares Wrangler-only development/deployment/KV scripts and no dependencies or desktop/native target."
+        },
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/wrangler.toml",
+          "line": 2,
+          "detail": "Wrangler entrypoint is src/index.ts; bindings configure the Workers host."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/tauri",
+      "status": "NA",
+      "rationale": "NA: @rightkit/tauri serves Typed host adapters for shared Right Suite Tauri commands., while this target is a Cloudflare Worker HTTP/KV endpoint with no browser renderer, desktop host, or matching caller.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/src/index.ts",
+          "line": 52,
+          "detail": "Only production entry is a Cloudflare Workers fetch handler using Request, Env, Response, and ExecutionContext."
+        },
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/package.json",
+          "line": 2,
+          "detail": "Package declares Wrangler-only development/deployment/KV scripts and no dependencies or desktop/native target."
+        },
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/wrangler.toml",
+          "line": 2,
+          "detail": "Wrangler entrypoint is src/index.ts; bindings configure the Workers host."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/theme",
+      "status": "NA",
+      "rationale": "NA: @rightkit/theme serves Brand file to CSS tokens generator for Right Suite apps: light/dark/system, derived dark accent, WCAG contrast and hard-coded-colour checks, runtime brand application., while this target is a Cloudflare Worker HTTP/KV endpoint with no browser renderer, desktop host, or matching caller.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/src/index.ts",
+          "line": 52,
+          "detail": "Only production entry is a Cloudflare Workers fetch handler using Request, Env, Response, and ExecutionContext."
+        },
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/package.json",
+          "line": 2,
+          "detail": "Package declares Wrangler-only development/deployment/KV scripts and no dependencies or desktop/native target."
+        },
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/wrangler.toml",
+          "line": 2,
+          "detail": "Wrangler entrypoint is src/index.ts; bindings configure the Workers host."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/update",
+      "status": "NA",
+      "rationale": "NA: This Worker has no dependency-update configuration or scheduled updater; @rightkit/update is repo tooling, not request handling.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/src/index.ts",
+          "line": 52,
+          "detail": "Only production entry is a Cloudflare Workers fetch handler using Request, Env, Response, and ExecutionContext."
+        },
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/package.json",
+          "line": 2,
+          "detail": "Package declares Wrangler-only development/deployment/KV scripts and no dependencies or desktop/native target."
+        },
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/wrangler.toml",
+          "line": 2,
+          "detail": "Wrangler entrypoint is src/index.ts; bindings configure the Workers host."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/updates",
+      "status": "NA",
+      "rationale": "NA: @rightkit/updates serves Shared runtime update policy helper for Right Suite Tauri apps., while this target is a Cloudflare Worker HTTP/KV endpoint with no browser renderer, desktop host, or matching caller.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/src/index.ts",
+          "line": 52,
+          "detail": "Only production entry is a Cloudflare Workers fetch handler using Request, Env, Response, and ExecutionContext."
+        },
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/package.json",
+          "line": 2,
+          "detail": "Package declares Wrangler-only development/deployment/KV scripts and no dependencies or desktop/native target."
+        },
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/wrangler.toml",
+          "line": 2,
+          "detail": "Wrangler entrypoint is src/index.ts; bindings configure the Workers host."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitLicense",
+      "status": "NA",
+      "rationale": "NA: RightKitLicense has no executable Apple target here: source census shows only a Cloudflare Workers TypeScript handler, with no Swift package, native host, or bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/src/index.ts",
+          "line": 52,
+          "detail": "Only production entry is a Cloudflare Workers fetch handler using Request, Env, Response, and ExecutionContext."
+        },
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/package.json",
+          "line": 2,
+          "detail": "Package declares Wrangler-only development/deployment/KV scripts and no dependencies or desktop/native target."
+        },
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/wrangler.toml",
+          "line": 2,
+          "detail": "Wrangler entrypoint is src/index.ts; bindings configure the Workers host."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitDiagnostics",
+      "status": "NA",
+      "rationale": "NA: RightKitDiagnostics has no executable Apple target here: source census shows only a Cloudflare Workers TypeScript handler, with no Swift package, native host, or bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/src/index.ts",
+          "line": 52,
+          "detail": "Only production entry is a Cloudflare Workers fetch handler using Request, Env, Response, and ExecutionContext."
+        },
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/package.json",
+          "line": 2,
+          "detail": "Package declares Wrangler-only development/deployment/KV scripts and no dependencies or desktop/native target."
+        },
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/wrangler.toml",
+          "line": 2,
+          "detail": "Wrangler entrypoint is src/index.ts; bindings configure the Workers host."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitArtifacts",
+      "status": "NA",
+      "rationale": "NA: RightKitArtifacts has no executable Apple target here: source census shows only a Cloudflare Workers TypeScript handler, with no Swift package, native host, or bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/src/index.ts",
+          "line": 52,
+          "detail": "Only production entry is a Cloudflare Workers fetch handler using Request, Env, Response, and ExecutionContext."
+        },
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/package.json",
+          "line": 2,
+          "detail": "Package declares Wrangler-only development/deployment/KV scripts and no dependencies or desktop/native target."
+        },
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/wrangler.toml",
+          "line": 2,
+          "detail": "Wrangler entrypoint is src/index.ts; bindings configure the Workers host."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitPurchases",
+      "status": "NA",
+      "rationale": "NA: RightKitPurchases has no executable Apple target here: source census shows only a Cloudflare Workers TypeScript handler, with no Swift package, native host, or bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/src/index.ts",
+          "line": 52,
+          "detail": "Only production entry is a Cloudflare Workers fetch handler using Request, Env, Response, and ExecutionContext."
+        },
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/package.json",
+          "line": 2,
+          "detail": "Package declares Wrangler-only development/deployment/KV scripts and no dependencies or desktop/native target."
+        },
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/wrangler.toml",
+          "line": 2,
+          "detail": "Wrangler entrypoint is src/index.ts; bindings configure the Workers host."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitCloudSync",
+      "status": "NA",
+      "rationale": "NA: RightKitCloudSync has no executable Apple target here: source census shows only a Cloudflare Workers TypeScript handler, with no Swift package, native host, or bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/src/index.ts",
+          "line": 52,
+          "detail": "Only production entry is a Cloudflare Workers fetch handler using Request, Env, Response, and ExecutionContext."
+        },
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/package.json",
+          "line": 2,
+          "detail": "Package declares Wrangler-only development/deployment/KV scripts and no dependencies or desktop/native target."
+        },
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/wrangler.toml",
+          "line": 2,
+          "detail": "Wrangler entrypoint is src/index.ts; bindings configure the Workers host."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitStore",
+      "status": "NA",
+      "rationale": "NA: RightKitStore has no executable Apple target here: source census shows only a Cloudflare Workers TypeScript handler, with no Swift package, native host, or bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/src/index.ts",
+          "line": 52,
+          "detail": "Only production entry is a Cloudflare Workers fetch handler using Request, Env, Response, and ExecutionContext."
+        },
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/package.json",
+          "line": 2,
+          "detail": "Package declares Wrangler-only development/deployment/KV scripts and no dependencies or desktop/native target."
+        },
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/wrangler.toml",
+          "line": 2,
+          "detail": "Wrangler entrypoint is src/index.ts; bindings configure the Workers host."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitImportQueue",
+      "status": "NA",
+      "rationale": "NA: RightKitImportQueue has no executable Apple target here: source census shows only a Cloudflare Workers TypeScript handler, with no Swift package, native host, or bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/src/index.ts",
+          "line": 52,
+          "detail": "Only production entry is a Cloudflare Workers fetch handler using Request, Env, Response, and ExecutionContext."
+        },
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/package.json",
+          "line": 2,
+          "detail": "Package declares Wrangler-only development/deployment/KV scripts and no dependencies or desktop/native target."
+        },
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/wrangler.toml",
+          "line": 2,
+          "detail": "Wrangler entrypoint is src/index.ts; bindings configure the Workers host."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitLiveActivity",
+      "status": "NA",
+      "rationale": "NA: RightKitLiveActivity has no executable Apple target here: source census shows only a Cloudflare Workers TypeScript handler, with no Swift package, native host, or bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/src/index.ts",
+          "line": 52,
+          "detail": "Only production entry is a Cloudflare Workers fetch handler using Request, Env, Response, and ExecutionContext."
+        },
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/package.json",
+          "line": 2,
+          "detail": "Package declares Wrangler-only development/deployment/KV scripts and no dependencies or desktop/native target."
+        },
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/wrangler.toml",
+          "line": 2,
+          "detail": "Wrangler entrypoint is src/index.ts; bindings configure the Workers host."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitWatchBridge",
+      "status": "NA",
+      "rationale": "NA: RightKitWatchBridge has no executable Apple target here: source census shows only a Cloudflare Workers TypeScript handler, with no Swift package, native host, or bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/src/index.ts",
+          "line": 52,
+          "detail": "Only production entry is a Cloudflare Workers fetch handler using Request, Env, Response, and ExecutionContext."
+        },
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/package.json",
+          "line": 2,
+          "detail": "Package declares Wrangler-only development/deployment/KV scripts and no dependencies or desktop/native target."
+        },
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/wrangler.toml",
+          "line": 2,
+          "detail": "Wrangler entrypoint is src/index.ts; bindings configure the Workers host."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitSpeech",
+      "status": "NA",
+      "rationale": "NA: RightKitSpeech has no executable Apple target here: source census shows only a Cloudflare Workers TypeScript handler, with no Swift package, native host, or bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/src/index.ts",
+          "line": 52,
+          "detail": "Only production entry is a Cloudflare Workers fetch handler using Request, Env, Response, and ExecutionContext."
+        },
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/package.json",
+          "line": 2,
+          "detail": "Package declares Wrangler-only development/deployment/KV scripts and no dependencies or desktop/native target."
+        },
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/wrangler.toml",
+          "line": 2,
+          "detail": "Wrangler entrypoint is src/index.ts; bindings configure the Workers host."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitIntents",
+      "status": "NA",
+      "rationale": "NA: RightKitIntents has no executable Apple target here: source census shows only a Cloudflare Workers TypeScript handler, with no Swift package, native host, or bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/src/index.ts",
+          "line": 52,
+          "detail": "Only production entry is a Cloudflare Workers fetch handler using Request, Env, Response, and ExecutionContext."
+        },
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/package.json",
+          "line": 2,
+          "detail": "Package declares Wrangler-only development/deployment/KV scripts and no dependencies or desktop/native target."
+        },
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/wrangler.toml",
+          "line": 2,
+          "detail": "Wrangler entrypoint is src/index.ts; bindings configure the Workers host."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitAppleCredentials",
+      "status": "NA",
+      "rationale": "NA: RightKitAppleCredentials has no executable Apple target here: source census shows only a Cloudflare Workers TypeScript handler, with no Swift package, native host, or bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/src/index.ts",
+          "line": 52,
+          "detail": "Only production entry is a Cloudflare Workers fetch handler using Request, Env, Response, and ExecutionContext."
+        },
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/package.json",
+          "line": 2,
+          "detail": "Package declares Wrangler-only development/deployment/KV scripts and no dependencies or desktop/native target."
+        },
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/wrangler.toml",
+          "line": 2,
+          "detail": "Wrangler entrypoint is src/index.ts; bindings configure the Workers host."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitOverlay",
+      "status": "NA",
+      "rationale": "NA: RightKitOverlay has no executable Apple target here: source census shows only a Cloudflare Workers TypeScript handler, with no Swift package, native host, or bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/src/index.ts",
+          "line": 52,
+          "detail": "Only production entry is a Cloudflare Workers fetch handler using Request, Env, Response, and ExecutionContext."
+        },
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/package.json",
+          "line": 2,
+          "detail": "Package declares Wrangler-only development/deployment/KV scripts and no dependencies or desktop/native target."
+        },
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/wrangler.toml",
+          "line": 2,
+          "detail": "Wrangler entrypoint is src/index.ts; bindings configure the Workers host."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitWatch",
+      "status": "NA",
+      "rationale": "NA: RightKitWatch has no executable Apple target here: source census shows only a Cloudflare Workers TypeScript handler, with no Swift package, native host, or bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/src/index.ts",
+          "line": 52,
+          "detail": "Only production entry is a Cloudflare Workers fetch handler using Request, Env, Response, and ExecutionContext."
+        },
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/package.json",
+          "line": 2,
+          "detail": "Package declares Wrangler-only development/deployment/KV scripts and no dependencies or desktop/native target."
+        },
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/wrangler.toml",
+          "line": 2,
+          "detail": "Wrangler entrypoint is src/index.ts; bindings configure the Workers host."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitUI",
+      "status": "NA",
+      "rationale": "NA: RightKitUI has no executable Apple target here: source census shows only a Cloudflare Workers TypeScript handler, with no Swift package, native host, or bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/src/index.ts",
+          "line": 52,
+          "detail": "Only production entry is a Cloudflare Workers fetch handler using Request, Env, Response, and ExecutionContext."
+        },
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/package.json",
+          "line": 2,
+          "detail": "Package declares Wrangler-only development/deployment/KV scripts and no dependencies or desktop/native target."
+        },
+        {
+          "path": "/Volumes/D/claude/bogusyogi/workers/waitlist/wrangler.toml",
+          "line": 2,
+          "detail": "Wrangler entrypoint is src/index.ts; bindings configure the Workers host."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    }
+  ],
+  "searches": [
+    {
+      "pattern": "find production files excluding .git/node_modules/dist/.wrangler",
+      "scope": "/Volumes/D/claude/bogusyogi/workers/waitlist",
+      "result": "Only src/index.ts, package.json, tsconfig.json, wrangler.toml, .gitignore, and README.md; active operative source is src/index.ts plus package/wrangler configuration."
+    },
+    {
+      "pattern": "@rightkit|tauri|cargo|swift|react|electron|chrome|desktop|ios|watch",
+      "scope": "/Volumes/D/claude/bogusyogi/workers/waitlist excluding README.md and node_modules",
+      "result": "No production dependency, native target, browser renderer, desktop host, Apple target, or language bridge found."
+    },
+    {
+      "pattern": "fetch\\(|KVNamespace|WAITLIST|RATELIMIT|crypto.subtle|console.error",
+      "scope": "/Volumes/D/claude/bogusyogi/workers/waitlist/src/index.ts and /Volumes/D/claude/bogusyogi/workers/waitlist/wrangler.toml",
+      "result": "Production route uses Cloudflare Request/Response, Workers fetch, Web Crypto, WAITLIST/RATELIMIT KV bindings, and console.error; no RightKit callable integration exists."
+    },
+    {
+      "pattern": "scripts and manifest target census",
+      "scope": "/Volumes/D/claude/bogusyogi/workers/waitlist/package.json and /Volumes/D/claude/bogusyogi/workers/waitlist/wrangler.toml",
+      "result": "Wrangler dev/deploy/tail/KV scripts and one Workers entrypoint only; no QA, release, updater, build-control, Cargo, Swift, or desktop runtime caller."
+    }
+  ],
+  "self_review": "Challenged every NA against actual Worker scope rather than missing imports. rightkit-http was checked against live Listmonk fetch: it is Workers-native, not a Rust bridge. @rightkit/logs was checked against console.error: owner requires a Tauri invoke host, absent here. @rightkit/qa, @rightkit/release, @rightkit/update, @rightkit/git, and build-control policy were checked against Wrangler scripts/config and found outside this request-only Worker. KV is Cloudflare-host storage, so SQLite/settings/fs/sync substitutions are neither host-compatible nor active scope. All Rust and Swift rows remain NA because no compatible runtime or bridge exists; no desktop adoption was inferred."
+}
+

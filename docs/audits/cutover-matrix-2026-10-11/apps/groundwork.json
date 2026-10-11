@@ -1,0 +1,1793 @@
+{
+  "app": "Groundwork",
+  "root": "/Volumes/D/claude/mcps/groundwork",
+  "head": "No independent Git checkout at this source root.",
+  "reviewed_at": "2026-10-11T00:00:00+05:30",
+  "targets": [
+    "node",
+    "mcp-stdio"
+  ],
+  "scope_note": "Fresh source-only review of server.js; test.mjs excluded from feature evidence. Source root has no manifest, RightKit import, Cargo target, Swift target, FFI, sidecar, or service bridge. No execution qualification implied.",
+  "cells": [
+    {
+      "component_id": "cargo:agent-room-core",
+      "status": "NA",
+      "rationale": "agent-room-core is a Rust owner capability absent from Groundwork's three-tool Node MCP surface; Groundwork has no Rust target or compatible bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/mcps/groundwork/server.js",
+          "line": 94,
+          "detail": "Production tool census: Groundwork exposes only sequentialthinking, resolve-library-id, and query-docs."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; this owner feature is outside Groundwork production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-agent-tools",
+      "status": "NA",
+      "rationale": "rightkit-agent-tools is a Rust owner capability absent from Groundwork's three-tool Node MCP surface; Groundwork has no Rust target or compatible bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/mcps/groundwork/server.js",
+          "line": 94,
+          "detail": "Production tool census: Groundwork exposes only sequentialthinking, resolve-library-id, and query-docs."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; this owner feature is outside Groundwork production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-align",
+      "status": "NA",
+      "rationale": "rightkit-align is a Rust owner capability absent from Groundwork's three-tool Node MCP surface; Groundwork has no Rust target or compatible bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/mcps/groundwork/server.js",
+          "line": 94,
+          "detail": "Production tool census: Groundwork exposes only sequentialthinking, resolve-library-id, and query-docs."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; this owner feature is outside Groundwork production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-asr",
+      "status": "NA",
+      "rationale": "rightkit-asr is a Rust owner capability absent from Groundwork's three-tool Node MCP surface; Groundwork has no Rust target or compatible bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/mcps/groundwork/server.js",
+          "line": 94,
+          "detail": "Production tool census: Groundwork exposes only sequentialthinking, resolve-library-id, and query-docs."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; this owner feature is outside Groundwork production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-audio",
+      "status": "NA",
+      "rationale": "rightkit-audio is a Rust owner capability absent from Groundwork's three-tool Node MCP surface; Groundwork has no Rust target or compatible bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/mcps/groundwork/server.js",
+          "line": 94,
+          "detail": "Production tool census: Groundwork exposes only sequentialthinking, resolve-library-id, and query-docs."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; this owner feature is outside Groundwork production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-automation",
+      "status": "NA",
+      "rationale": "rightkit-automation is a Rust owner capability absent from Groundwork's three-tool Node MCP surface; Groundwork has no Rust target or compatible bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/mcps/groundwork/server.js",
+          "line": 94,
+          "detail": "Production tool census: Groundwork exposes only sequentialthinking, resolve-library-id, and query-docs."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; this owner feature is outside Groundwork production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-browser",
+      "status": "NA",
+      "rationale": "rightkit-browser is a Rust owner capability absent from Groundwork's three-tool Node MCP surface; Groundwork has no Rust target or compatible bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/mcps/groundwork/server.js",
+          "line": 94,
+          "detail": "Production tool census: Groundwork exposes only sequentialthinking, resolve-library-id, and query-docs."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; this owner feature is outside Groundwork production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-cache",
+      "status": "NA",
+      "rationale": "rightkit-cache is a Rust owner capability absent from Groundwork's three-tool Node MCP surface; Groundwork has no Rust target or compatible bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/mcps/groundwork/server.js",
+          "line": 94,
+          "detail": "Production tool census: Groundwork exposes only sequentialthinking, resolve-library-id, and query-docs."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; this owner feature is outside Groundwork production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-channel-memory",
+      "status": "NA",
+      "rationale": "rightkit-channel-memory is a Rust owner capability absent from Groundwork's three-tool Node MCP surface; Groundwork has no Rust target or compatible bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/mcps/groundwork/server.js",
+          "line": 94,
+          "detail": "Production tool census: Groundwork exposes only sequentialthinking, resolve-library-id, and query-docs."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; this owner feature is outside Groundwork production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-compose",
+      "status": "NA",
+      "rationale": "rightkit-compose is a Rust owner capability absent from Groundwork's three-tool Node MCP surface; Groundwork has no Rust target or compatible bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/mcps/groundwork/server.js",
+          "line": 94,
+          "detail": "Production tool census: Groundwork exposes only sequentialthinking, resolve-library-id, and query-docs."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; this owner feature is outside Groundwork production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-contracts",
+      "status": "NA",
+      "rationale": "rightkit-contracts is a Rust owner capability absent from Groundwork's three-tool Node MCP surface; Groundwork has no Rust target or compatible bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/mcps/groundwork/server.js",
+          "line": 94,
+          "detail": "Production tool census: Groundwork exposes only sequentialthinking, resolve-library-id, and query-docs."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; this owner feature is outside Groundwork production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-control",
+      "status": "NA",
+      "rationale": "rightkit-control is a Rust owner capability absent from Groundwork's three-tool Node MCP surface; Groundwork has no Rust target or compatible bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/mcps/groundwork/server.js",
+          "line": 94,
+          "detail": "Production tool census: Groundwork exposes only sequentialthinking, resolve-library-id, and query-docs."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; this owner feature is outside Groundwork production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-crash",
+      "status": "NA",
+      "rationale": "rightkit-crash is a Rust owner capability absent from Groundwork's three-tool Node MCP surface; Groundwork has no Rust target or compatible bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/mcps/groundwork/server.js",
+          "line": 94,
+          "detail": "Production tool census: Groundwork exposes only sequentialthinking, resolve-library-id, and query-docs."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; this owner feature is outside Groundwork production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-daemon",
+      "status": "NA",
+      "rationale": "rightkit-daemon is a Rust owner capability absent from Groundwork's three-tool Node MCP surface; Groundwork has no Rust target or compatible bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/mcps/groundwork/server.js",
+          "line": 94,
+          "detail": "Production tool census: Groundwork exposes only sequentialthinking, resolve-library-id, and query-docs."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; this owner feature is outside Groundwork production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-db",
+      "status": "NA",
+      "rationale": "rightkit-db is a Rust owner capability absent from Groundwork's three-tool Node MCP surface; Groundwork has no Rust target or compatible bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/mcps/groundwork/server.js",
+          "line": 94,
+          "detail": "Production tool census: Groundwork exposes only sequentialthinking, resolve-library-id, and query-docs."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; this owner feature is outside Groundwork production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-embed",
+      "status": "NA",
+      "rationale": "rightkit-embed is a Rust owner capability absent from Groundwork's three-tool Node MCP surface; Groundwork has no Rust target or compatible bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/mcps/groundwork/server.js",
+          "line": 94,
+          "detail": "Production tool census: Groundwork exposes only sequentialthinking, resolve-library-id, and query-docs."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; this owner feature is outside Groundwork production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-framed-sidecar",
+      "status": "NA",
+      "rationale": "rightkit-framed-sidecar is a Rust owner capability absent from Groundwork's three-tool Node MCP surface; Groundwork has no Rust target or compatible bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/mcps/groundwork/server.js",
+          "line": 94,
+          "detail": "Production tool census: Groundwork exposes only sequentialthinking, resolve-library-id, and query-docs."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; this owner feature is outside Groundwork production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-fs",
+      "status": "NA",
+      "rationale": "rightkit-fs is a Rust owner capability absent from Groundwork's three-tool Node MCP surface; Groundwork has no Rust target or compatible bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/mcps/groundwork/server.js",
+          "line": 94,
+          "detail": "Production tool census: Groundwork exposes only sequentialthinking, resolve-library-id, and query-docs."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; this owner feature is outside Groundwork production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-fsindex",
+      "status": "NA",
+      "rationale": "rightkit-fsindex is a Rust owner capability absent from Groundwork's three-tool Node MCP surface; Groundwork has no Rust target or compatible bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/mcps/groundwork/server.js",
+          "line": 94,
+          "detail": "Production tool census: Groundwork exposes only sequentialthinking, resolve-library-id, and query-docs."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; this owner feature is outside Groundwork production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-hotkeys",
+      "status": "NA",
+      "rationale": "rightkit-hotkeys is a Rust owner capability absent from Groundwork's three-tool Node MCP surface; Groundwork has no Rust target or compatible bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/mcps/groundwork/server.js",
+          "line": 94,
+          "detail": "Production tool census: Groundwork exposes only sequentialthinking, resolve-library-id, and query-docs."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; this owner feature is outside Groundwork production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-http",
+      "status": "NA",
+      "rationale": "Groundwork uses native Node fetch for two Context7 requests. rightkit-http is a Rust API; no Node binding, sidecar, or service bridge exists. This is a possible bridge design input, not a compatible shared route or mandatory migration.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/mcps/groundwork/server.js",
+          "line": 265,
+          "detail": "Native Node URL/fetch Context7 transport with AbortController timeout."
+        },
+        {
+          "path": "/Volumes/D/claude/mcps/groundwork/server.js",
+          "line": 1,
+          "detail": "Node executable entrypoint; source census found server.js and test.mjs only, with no Cargo, SwiftPM, FFI, sidecar, or service bridge."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None. A future Node-compatible bridge would need separate scope and proof before reuse.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-jobs",
+      "status": "NA",
+      "rationale": "rightkit-jobs is a Rust owner capability absent from Groundwork's three-tool Node MCP surface; Groundwork has no Rust target or compatible bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/mcps/groundwork/server.js",
+          "line": 94,
+          "detail": "Production tool census: Groundwork exposes only sequentialthinking, resolve-library-id, and query-docs."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; this owner feature is outside Groundwork production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-license",
+      "status": "NA",
+      "rationale": "rightkit-license is a Rust owner capability absent from Groundwork's three-tool Node MCP surface; Groundwork has no Rust target or compatible bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/mcps/groundwork/server.js",
+          "line": 94,
+          "detail": "Production tool census: Groundwork exposes only sequentialthinking, resolve-library-id, and query-docs."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; this owner feature is outside Groundwork production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-llm",
+      "status": "NA",
+      "rationale": "rightkit-llm is a Rust owner capability absent from Groundwork's three-tool Node MCP surface; Groundwork has no Rust target or compatible bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/mcps/groundwork/server.js",
+          "line": 94,
+          "detail": "Production tool census: Groundwork exposes only sequentialthinking, resolve-library-id, and query-docs."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; this owner feature is outside Groundwork production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-logs",
+      "status": "NA",
+      "rationale": "rightkit-logs is a Rust owner capability absent from Groundwork's three-tool Node MCP surface; Groundwork has no Rust target or compatible bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/mcps/groundwork/server.js",
+          "line": 94,
+          "detail": "Production tool census: Groundwork exposes only sequentialthinking, resolve-library-id, and query-docs."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; this owner feature is outside Groundwork production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-mcp",
+      "status": "NA",
+      "rationale": "Groundwork directly implements a small Node stdio MCP dispatcher, while rightkit-mcp exposes Rust ServerHost APIs. No Node binding, Rust sidecar, or local service bridge exists, so this cross-runtime overlap is not a compatible cutover target.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/mcps/groundwork/server.js",
+          "line": 144,
+          "detail": "Node source directly dispatches initialize, tools/list, and tools/call over stdio."
+        },
+        {
+          "path": "/Volumes/D/claude/mcps/groundwork/server.js",
+          "line": 1,
+          "detail": "Node executable entrypoint; source census found server.js and test.mjs only, with no Cargo, SwiftPM, FFI, sidecar, or service bridge."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None. A future Node-compatible bridge would need separate scope and proof before reuse.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-media",
+      "status": "NA",
+      "rationale": "rightkit-media is a Rust owner capability absent from Groundwork's three-tool Node MCP surface; Groundwork has no Rust target or compatible bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/mcps/groundwork/server.js",
+          "line": 94,
+          "detail": "Production tool census: Groundwork exposes only sequentialthinking, resolve-library-id, and query-docs."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; this owner feature is outside Groundwork production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-models",
+      "status": "NA",
+      "rationale": "rightkit-models is a Rust owner capability absent from Groundwork's three-tool Node MCP surface; Groundwork has no Rust target or compatible bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/mcps/groundwork/server.js",
+          "line": 94,
+          "detail": "Production tool census: Groundwork exposes only sequentialthinking, resolve-library-id, and query-docs."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; this owner feature is outside Groundwork production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-oauth",
+      "status": "NA",
+      "rationale": "rightkit-oauth is a Rust owner capability absent from Groundwork's three-tool Node MCP surface; Groundwork has no Rust target or compatible bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/mcps/groundwork/server.js",
+          "line": 94,
+          "detail": "Production tool census: Groundwork exposes only sequentialthinking, resolve-library-id, and query-docs."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; this owner feature is outside Groundwork production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-ocr",
+      "status": "NA",
+      "rationale": "rightkit-ocr is a Rust owner capability absent from Groundwork's three-tool Node MCP surface; Groundwork has no Rust target or compatible bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/mcps/groundwork/server.js",
+          "line": 94,
+          "detail": "Production tool census: Groundwork exposes only sequentialthinking, resolve-library-id, and query-docs."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; this owner feature is outside Groundwork production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-ort",
+      "status": "NA",
+      "rationale": "rightkit-ort is a Rust owner capability absent from Groundwork's three-tool Node MCP surface; Groundwork has no Rust target or compatible bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/mcps/groundwork/server.js",
+          "line": 94,
+          "detail": "Production tool census: Groundwork exposes only sequentialthinking, resolve-library-id, and query-docs."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; this owner feature is outside Groundwork production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-overlay",
+      "status": "NA",
+      "rationale": "rightkit-overlay is a Rust owner capability absent from Groundwork's three-tool Node MCP surface; Groundwork has no Rust target or compatible bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/mcps/groundwork/server.js",
+          "line": 94,
+          "detail": "Production tool census: Groundwork exposes only sequentialthinking, resolve-library-id, and query-docs."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; this owner feature is outside Groundwork production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-ownership",
+      "status": "NA",
+      "rationale": "rightkit-ownership is a Rust owner capability absent from Groundwork's three-tool Node MCP surface; Groundwork has no Rust target or compatible bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/mcps/groundwork/server.js",
+          "line": 94,
+          "detail": "Production tool census: Groundwork exposes only sequentialthinking, resolve-library-id, and query-docs."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; this owner feature is outside Groundwork production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-pdf",
+      "status": "NA",
+      "rationale": "rightkit-pdf is a Rust owner capability absent from Groundwork's three-tool Node MCP surface; Groundwork has no Rust target or compatible bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/mcps/groundwork/server.js",
+          "line": 94,
+          "detail": "Production tool census: Groundwork exposes only sequentialthinking, resolve-library-id, and query-docs."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; this owner feature is outside Groundwork production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-playback",
+      "status": "NA",
+      "rationale": "rightkit-playback is a Rust owner capability absent from Groundwork's three-tool Node MCP surface; Groundwork has no Rust target or compatible bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/mcps/groundwork/server.js",
+          "line": 94,
+          "detail": "Production tool census: Groundwork exposes only sequentialthinking, resolve-library-id, and query-docs."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; this owner feature is outside Groundwork production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-process",
+      "status": "NA",
+      "rationale": "rightkit-process is a Rust owner capability absent from Groundwork's three-tool Node MCP surface; Groundwork has no Rust target or compatible bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/mcps/groundwork/server.js",
+          "line": 94,
+          "detail": "Production tool census: Groundwork exposes only sequentialthinking, resolve-library-id, and query-docs."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; this owner feature is outside Groundwork production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-qa",
+      "status": "NA",
+      "rationale": "rightkit-qa is a Rust owner capability absent from Groundwork's three-tool Node MCP surface; Groundwork has no Rust target or compatible bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/mcps/groundwork/server.js",
+          "line": 94,
+          "detail": "Production tool census: Groundwork exposes only sequentialthinking, resolve-library-id, and query-docs."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; this owner feature is outside Groundwork production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-qts",
+      "status": "NA",
+      "rationale": "rightkit-qts is a Rust owner capability absent from Groundwork's three-tool Node MCP surface; Groundwork has no Rust target or compatible bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/mcps/groundwork/server.js",
+          "line": 94,
+          "detail": "Production tool census: Groundwork exposes only sequentialthinking, resolve-library-id, and query-docs."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; this owner feature is outside Groundwork production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-qts-ggml",
+      "status": "NA",
+      "rationale": "rightkit-qts-ggml is a Rust owner capability absent from Groundwork's three-tool Node MCP surface; Groundwork has no Rust target or compatible bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/mcps/groundwork/server.js",
+          "line": 94,
+          "detail": "Production tool census: Groundwork exposes only sequentialthinking, resolve-library-id, and query-docs."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; this owner feature is outside Groundwork production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-qts-ggml-sys",
+      "status": "NA",
+      "rationale": "rightkit-qts-ggml-sys is a Rust owner capability absent from Groundwork's three-tool Node MCP surface; Groundwork has no Rust target or compatible bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/mcps/groundwork/server.js",
+          "line": 94,
+          "detail": "Production tool census: Groundwork exposes only sequentialthinking, resolve-library-id, and query-docs."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; this owner feature is outside Groundwork production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-record",
+      "status": "NA",
+      "rationale": "rightkit-record is a Rust owner capability absent from Groundwork's three-tool Node MCP surface; Groundwork has no Rust target or compatible bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/mcps/groundwork/server.js",
+          "line": 94,
+          "detail": "Production tool census: Groundwork exposes only sequentialthinking, resolve-library-id, and query-docs."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; this owner feature is outside Groundwork production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-review",
+      "status": "NA",
+      "rationale": "rightkit-review is a Rust owner capability absent from Groundwork's three-tool Node MCP surface; Groundwork has no Rust target or compatible bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/mcps/groundwork/server.js",
+          "line": 94,
+          "detail": "Production tool census: Groundwork exposes only sequentialthinking, resolve-library-id, and query-docs."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; this owner feature is outside Groundwork production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-sandbox",
+      "status": "NA",
+      "rationale": "rightkit-sandbox is a Rust owner capability absent from Groundwork's three-tool Node MCP surface; Groundwork has no Rust target or compatible bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/mcps/groundwork/server.js",
+          "line": 94,
+          "detail": "Production tool census: Groundwork exposes only sequentialthinking, resolve-library-id, and query-docs."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; this owner feature is outside Groundwork production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-scenario",
+      "status": "NA",
+      "rationale": "rightkit-scenario is a Rust owner capability absent from Groundwork's three-tool Node MCP surface; Groundwork has no Rust target or compatible bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/mcps/groundwork/server.js",
+          "line": 94,
+          "detail": "Production tool census: Groundwork exposes only sequentialthinking, resolve-library-id, and query-docs."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; this owner feature is outside Groundwork production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-search",
+      "status": "NA",
+      "rationale": "rightkit-search is a Rust owner capability absent from Groundwork's three-tool Node MCP surface; Groundwork has no Rust target or compatible bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/mcps/groundwork/server.js",
+          "line": 94,
+          "detail": "Production tool census: Groundwork exposes only sequentialthinking, resolve-library-id, and query-docs."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; this owner feature is outside Groundwork production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-secrets",
+      "status": "NA",
+      "rationale": "rightkit-secrets is a Rust owner capability absent from Groundwork's three-tool Node MCP surface; Groundwork has no Rust target or compatible bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/mcps/groundwork/server.js",
+          "line": 94,
+          "detail": "Production tool census: Groundwork exposes only sequentialthinking, resolve-library-id, and query-docs."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; this owner feature is outside Groundwork production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-send",
+      "status": "NA",
+      "rationale": "rightkit-send is a Rust owner capability absent from Groundwork's three-tool Node MCP surface; Groundwork has no Rust target or compatible bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/mcps/groundwork/server.js",
+          "line": 94,
+          "detail": "Production tool census: Groundwork exposes only sequentialthinking, resolve-library-id, and query-docs."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; this owner feature is outside Groundwork production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-service",
+      "status": "NA",
+      "rationale": "rightkit-service is a Rust owner capability absent from Groundwork's three-tool Node MCP surface; Groundwork has no Rust target or compatible bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/mcps/groundwork/server.js",
+          "line": 94,
+          "detail": "Production tool census: Groundwork exposes only sequentialthinking, resolve-library-id, and query-docs."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; this owner feature is outside Groundwork production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-settings",
+      "status": "NA",
+      "rationale": "rightkit-settings is a Rust owner capability absent from Groundwork's three-tool Node MCP surface; Groundwork has no Rust target or compatible bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/mcps/groundwork/server.js",
+          "line": 94,
+          "detail": "Production tool census: Groundwork exposes only sequentialthinking, resolve-library-id, and query-docs."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; this owner feature is outside Groundwork production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-shell",
+      "status": "NA",
+      "rationale": "rightkit-shell is a Rust owner capability absent from Groundwork's three-tool Node MCP surface; Groundwork has no Rust target or compatible bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/mcps/groundwork/server.js",
+          "line": 94,
+          "detail": "Production tool census: Groundwork exposes only sequentialthinking, resolve-library-id, and query-docs."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; this owner feature is outside Groundwork production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-speech-client",
+      "status": "NA",
+      "rationale": "rightkit-speech-client is a Rust owner capability absent from Groundwork's three-tool Node MCP surface; Groundwork has no Rust target or compatible bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/mcps/groundwork/server.js",
+          "line": 94,
+          "detail": "Production tool census: Groundwork exposes only sequentialthinking, resolve-library-id, and query-docs."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; this owner feature is outside Groundwork production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-sync",
+      "status": "NA",
+      "rationale": "rightkit-sync is a Rust owner capability absent from Groundwork's three-tool Node MCP surface; Groundwork has no Rust target or compatible bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/mcps/groundwork/server.js",
+          "line": 94,
+          "detail": "Production tool census: Groundwork exposes only sequentialthinking, resolve-library-id, and query-docs."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; this owner feature is outside Groundwork production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-tauri",
+      "status": "NA",
+      "rationale": "rightkit-tauri is a Rust owner capability absent from Groundwork's three-tool Node MCP surface; Groundwork has no Rust target or compatible bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/mcps/groundwork/server.js",
+          "line": 94,
+          "detail": "Production tool census: Groundwork exposes only sequentialthinking, resolve-library-id, and query-docs."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; this owner feature is outside Groundwork production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-transcript",
+      "status": "NA",
+      "rationale": "rightkit-transcript is a Rust owner capability absent from Groundwork's three-tool Node MCP surface; Groundwork has no Rust target or compatible bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/mcps/groundwork/server.js",
+          "line": 94,
+          "detail": "Production tool census: Groundwork exposes only sequentialthinking, resolve-library-id, and query-docs."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; this owner feature is outside Groundwork production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-tts",
+      "status": "NA",
+      "rationale": "rightkit-tts is a Rust owner capability absent from Groundwork's three-tool Node MCP surface; Groundwork has no Rust target or compatible bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/mcps/groundwork/server.js",
+          "line": 94,
+          "detail": "Production tool census: Groundwork exposes only sequentialthinking, resolve-library-id, and query-docs."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; this owner feature is outside Groundwork production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-vad",
+      "status": "NA",
+      "rationale": "rightkit-vad is a Rust owner capability absent from Groundwork's three-tool Node MCP surface; Groundwork has no Rust target or compatible bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/mcps/groundwork/server.js",
+          "line": 94,
+          "detail": "Production tool census: Groundwork exposes only sequentialthinking, resolve-library-id, and query-docs."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; this owner feature is outside Groundwork production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-watch",
+      "status": "NA",
+      "rationale": "rightkit-watch is a Rust owner capability absent from Groundwork's three-tool Node MCP surface; Groundwork has no Rust target or compatible bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/mcps/groundwork/server.js",
+          "line": 94,
+          "detail": "Production tool census: Groundwork exposes only sequentialthinking, resolve-library-id, and query-docs."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; this owner feature is outside Groundwork production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/agent-room-mcp",
+      "status": "NA",
+      "rationale": "Groundwork implements three Context7/thought tools, not agent-room-mcp's room_join, room_status, and room mutation tools; its product-specific API is absent.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/mcps/groundwork/server.js",
+          "line": 94,
+          "detail": "Groundwork tool list differs from agent-room MCP room API."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; this owner feature is outside Groundwork production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/app-shell",
+      "status": "NA",
+      "rationale": "@rightkit/app-shell requires a host or feature absent from Groundwork's three-tool Node MCP surface; production source has no import or route to it.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/mcps/groundwork/server.js",
+          "line": 94,
+          "detail": "Production tool census: Groundwork exposes only sequentialthinking, resolve-library-id, and query-docs."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; this owner feature is outside Groundwork production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/ax",
+      "status": "NA",
+      "rationale": "Groundwork is an MCP server, but contains no AX conformance/scaffold command or production caller. A server protocol implementation is not an AX conformance feature.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/mcps/groundwork/server.js",
+          "line": 144,
+          "detail": "MCP request dispatcher only; no AX conformance or scaffold command."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; this owner feature is outside Groundwork production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/build-control-policy",
+      "status": "NA",
+      "rationale": "@rightkit/build-control-policy requires a host or feature absent from Groundwork's three-tool Node MCP surface; production source has no import or route to it.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/mcps/groundwork/server.js",
+          "line": 94,
+          "detail": "Production tool census: Groundwork exposes only sequentialthinking, resolve-library-id, and query-docs."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; this owner feature is outside Groundwork production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/doc-render",
+      "status": "NA",
+      "rationale": "@rightkit/doc-render requires a host or feature absent from Groundwork's three-tool Node MCP surface; production source has no import or route to it.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/mcps/groundwork/server.js",
+          "line": 94,
+          "detail": "Production tool census: Groundwork exposes only sequentialthinking, resolve-library-id, and query-docs."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; this owner feature is outside Groundwork production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/git",
+      "status": "NA",
+      "rationale": "@rightkit/git requires a host or feature absent from Groundwork's three-tool Node MCP surface; production source has no import or route to it.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/mcps/groundwork/server.js",
+          "line": 94,
+          "detail": "Production tool census: Groundwork exposes only sequentialthinking, resolve-library-id, and query-docs."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; this owner feature is outside Groundwork production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/hooks",
+      "status": "NA",
+      "rationale": "Groundwork has request dispatch only; it has no hook-event normalization, module lifecycle, or hook host caller.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/mcps/groundwork/server.js",
+          "line": 144,
+          "detail": "Request-method dispatcher; no hook event or module runtime."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; this owner feature is outside Groundwork production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/i18n",
+      "status": "NA",
+      "rationale": "@rightkit/i18n requires a host or feature absent from Groundwork's three-tool Node MCP surface; production source has no import or route to it.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/mcps/groundwork/server.js",
+          "line": 94,
+          "detail": "Production tool census: Groundwork exposes only sequentialthinking, resolve-library-id, and query-docs."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; this owner feature is outside Groundwork production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/legal",
+      "status": "NA",
+      "rationale": "@rightkit/legal requires a host or feature absent from Groundwork's three-tool Node MCP surface; production source has no import or route to it.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/mcps/groundwork/server.js",
+          "line": 94,
+          "detail": "Production tool census: Groundwork exposes only sequentialthinking, resolve-library-id, and query-docs."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; this owner feature is outside Groundwork production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/legal-ui",
+      "status": "NA",
+      "rationale": "@rightkit/legal-ui requires a host or feature absent from Groundwork's three-tool Node MCP surface; production source has no import or route to it.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/mcps/groundwork/server.js",
+          "line": 94,
+          "detail": "Production tool census: Groundwork exposes only sequentialthinking, resolve-library-id, and query-docs."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; this owner feature is outside Groundwork production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/license",
+      "status": "NA",
+      "rationale": "@rightkit/license requires a host or feature absent from Groundwork's three-tool Node MCP surface; production source has no import or route to it.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/mcps/groundwork/server.js",
+          "line": 94,
+          "detail": "Production tool census: Groundwork exposes only sequentialthinking, resolve-library-id, and query-docs."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; this owner feature is outside Groundwork production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/logs",
+      "status": "NA",
+      "rationale": "Groundwork returns JSON-RPC results/errors but has no structured local logging or diagnostics client route.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/mcps/groundwork/server.js",
+          "line": 299,
+          "detail": "JSON-RPC text/error result formatting; no structured logging client."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; this owner feature is outside Groundwork production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/media-ui",
+      "status": "NA",
+      "rationale": "@rightkit/media-ui requires a host or feature absent from Groundwork's three-tool Node MCP surface; production source has no import or route to it.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/mcps/groundwork/server.js",
+          "line": 94,
+          "detail": "Production tool census: Groundwork exposes only sequentialthinking, resolve-library-id, and query-docs."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; this owner feature is outside Groundwork production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/onboarding",
+      "status": "NA",
+      "rationale": "@rightkit/onboarding requires a host or feature absent from Groundwork's three-tool Node MCP surface; production source has no import or route to it.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/mcps/groundwork/server.js",
+          "line": 94,
+          "detail": "Production tool census: Groundwork exposes only sequentialthinking, resolve-library-id, and query-docs."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; this owner feature is outside Groundwork production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/pdf-ui",
+      "status": "NA",
+      "rationale": "@rightkit/pdf-ui requires a host or feature absent from Groundwork's three-tool Node MCP surface; production source has no import or route to it.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/mcps/groundwork/server.js",
+          "line": 94,
+          "detail": "Production tool census: Groundwork exposes only sequentialthinking, resolve-library-id, and query-docs."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; this owner feature is outside Groundwork production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/platform-ui",
+      "status": "NA",
+      "rationale": "@rightkit/platform-ui requires a host or feature absent from Groundwork's three-tool Node MCP surface; production source has no import or route to it.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/mcps/groundwork/server.js",
+          "line": 94,
+          "detail": "Production tool census: Groundwork exposes only sequentialthinking, resolve-library-id, and query-docs."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; this owner feature is outside Groundwork production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/qa",
+      "status": "NA",
+      "rationale": "Groundwork production source has no RightKit QA/evidence/browser helper route; test.mjs is excluded from production feature classification.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/mcps/groundwork/server.js",
+          "line": 94,
+          "detail": "Production tool census: Groundwork exposes only sequentialthinking, resolve-library-id, and query-docs."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; this owner feature is outside Groundwork production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/qa-chrome",
+      "status": "NA",
+      "rationale": "@rightkit/qa-chrome requires a host or feature absent from Groundwork's three-tool Node MCP surface; production source has no import or route to it.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/mcps/groundwork/server.js",
+          "line": 94,
+          "detail": "Production tool census: Groundwork exposes only sequentialthinking, resolve-library-id, and query-docs."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; this owner feature is outside Groundwork production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/release",
+      "status": "NA",
+      "rationale": "@rightkit/release requires a host or feature absent from Groundwork's three-tool Node MCP surface; production source has no import or route to it.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/mcps/groundwork/server.js",
+          "line": 94,
+          "detail": "Production tool census: Groundwork exposes only sequentialthinking, resolve-library-id, and query-docs."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; this owner feature is outside Groundwork production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/settings-ui",
+      "status": "NA",
+      "rationale": "@rightkit/settings-ui requires a host or feature absent from Groundwork's three-tool Node MCP surface; production source has no import or route to it.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/mcps/groundwork/server.js",
+          "line": 94,
+          "detail": "Production tool census: Groundwork exposes only sequentialthinking, resolve-library-id, and query-docs."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; this owner feature is outside Groundwork production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/shell",
+      "status": "NA",
+      "rationale": "@rightkit/shell requires a host or feature absent from Groundwork's three-tool Node MCP surface; production source has no import or route to it.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/mcps/groundwork/server.js",
+          "line": 94,
+          "detail": "Production tool census: Groundwork exposes only sequentialthinking, resolve-library-id, and query-docs."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; this owner feature is outside Groundwork production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/tauri",
+      "status": "NA",
+      "rationale": "@rightkit/tauri requires a host or feature absent from Groundwork's three-tool Node MCP surface; production source has no import or route to it.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/mcps/groundwork/server.js",
+          "line": 94,
+          "detail": "Production tool census: Groundwork exposes only sequentialthinking, resolve-library-id, and query-docs."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; this owner feature is outside Groundwork production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/theme",
+      "status": "NA",
+      "rationale": "@rightkit/theme requires a host or feature absent from Groundwork's three-tool Node MCP surface; production source has no import or route to it.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/mcps/groundwork/server.js",
+          "line": 94,
+          "detail": "Production tool census: Groundwork exposes only sequentialthinking, resolve-library-id, and query-docs."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; this owner feature is outside Groundwork production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/update",
+      "status": "NA",
+      "rationale": "@rightkit/update requires a host or feature absent from Groundwork's three-tool Node MCP surface; production source has no import or route to it.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/mcps/groundwork/server.js",
+          "line": 94,
+          "detail": "Production tool census: Groundwork exposes only sequentialthinking, resolve-library-id, and query-docs."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; this owner feature is outside Groundwork production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/updates",
+      "status": "NA",
+      "rationale": "@rightkit/updates requires a host or feature absent from Groundwork's three-tool Node MCP surface; production source has no import or route to it.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/mcps/groundwork/server.js",
+          "line": 94,
+          "detail": "Production tool census: Groundwork exposes only sequentialthinking, resolve-library-id, and query-docs."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; this owner feature is outside Groundwork production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitLicense",
+      "status": "NA",
+      "rationale": "RightKitLicense is a Swift product; Groundwork has only a Node stdio entrypoint and no Swift target, SwiftPM import, or bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/mcps/groundwork/server.js",
+          "line": 94,
+          "detail": "Production tool census: Groundwork exposes only sequentialthinking, resolve-library-id, and query-docs."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; this owner feature is outside Groundwork production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitDiagnostics",
+      "status": "NA",
+      "rationale": "RightKitDiagnostics is a Swift product; Groundwork has only a Node stdio entrypoint and no Swift target, SwiftPM import, or bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/mcps/groundwork/server.js",
+          "line": 94,
+          "detail": "Production tool census: Groundwork exposes only sequentialthinking, resolve-library-id, and query-docs."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; this owner feature is outside Groundwork production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitArtifacts",
+      "status": "NA",
+      "rationale": "RightKitArtifacts is a Swift product; Groundwork has only a Node stdio entrypoint and no Swift target, SwiftPM import, or bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/mcps/groundwork/server.js",
+          "line": 94,
+          "detail": "Production tool census: Groundwork exposes only sequentialthinking, resolve-library-id, and query-docs."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; this owner feature is outside Groundwork production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitPurchases",
+      "status": "NA",
+      "rationale": "RightKitPurchases is a Swift product; Groundwork has only a Node stdio entrypoint and no Swift target, SwiftPM import, or bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/mcps/groundwork/server.js",
+          "line": 94,
+          "detail": "Production tool census: Groundwork exposes only sequentialthinking, resolve-library-id, and query-docs."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; this owner feature is outside Groundwork production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitCloudSync",
+      "status": "NA",
+      "rationale": "RightKitCloudSync is a Swift product; Groundwork has only a Node stdio entrypoint and no Swift target, SwiftPM import, or bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/mcps/groundwork/server.js",
+          "line": 94,
+          "detail": "Production tool census: Groundwork exposes only sequentialthinking, resolve-library-id, and query-docs."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; this owner feature is outside Groundwork production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitStore",
+      "status": "NA",
+      "rationale": "RightKitStore is a Swift product; Groundwork has only a Node stdio entrypoint and no Swift target, SwiftPM import, or bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/mcps/groundwork/server.js",
+          "line": 94,
+          "detail": "Production tool census: Groundwork exposes only sequentialthinking, resolve-library-id, and query-docs."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; this owner feature is outside Groundwork production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitImportQueue",
+      "status": "NA",
+      "rationale": "RightKitImportQueue is a Swift product; Groundwork has only a Node stdio entrypoint and no Swift target, SwiftPM import, or bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/mcps/groundwork/server.js",
+          "line": 94,
+          "detail": "Production tool census: Groundwork exposes only sequentialthinking, resolve-library-id, and query-docs."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; this owner feature is outside Groundwork production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitLiveActivity",
+      "status": "NA",
+      "rationale": "RightKitLiveActivity is a Swift product; Groundwork has only a Node stdio entrypoint and no Swift target, SwiftPM import, or bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/mcps/groundwork/server.js",
+          "line": 94,
+          "detail": "Production tool census: Groundwork exposes only sequentialthinking, resolve-library-id, and query-docs."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; this owner feature is outside Groundwork production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitWatchBridge",
+      "status": "NA",
+      "rationale": "RightKitWatchBridge is a Swift product; Groundwork has only a Node stdio entrypoint and no Swift target, SwiftPM import, or bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/mcps/groundwork/server.js",
+          "line": 94,
+          "detail": "Production tool census: Groundwork exposes only sequentialthinking, resolve-library-id, and query-docs."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; this owner feature is outside Groundwork production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitSpeech",
+      "status": "NA",
+      "rationale": "RightKitSpeech is a Swift product; Groundwork has only a Node stdio entrypoint and no Swift target, SwiftPM import, or bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/mcps/groundwork/server.js",
+          "line": 94,
+          "detail": "Production tool census: Groundwork exposes only sequentialthinking, resolve-library-id, and query-docs."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; this owner feature is outside Groundwork production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitIntents",
+      "status": "NA",
+      "rationale": "RightKitIntents is a Swift product; Groundwork has only a Node stdio entrypoint and no Swift target, SwiftPM import, or bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/mcps/groundwork/server.js",
+          "line": 94,
+          "detail": "Production tool census: Groundwork exposes only sequentialthinking, resolve-library-id, and query-docs."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; this owner feature is outside Groundwork production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitAppleCredentials",
+      "status": "NA",
+      "rationale": "RightKitAppleCredentials is a Swift product; Groundwork has only a Node stdio entrypoint and no Swift target, SwiftPM import, or bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/mcps/groundwork/server.js",
+          "line": 94,
+          "detail": "Production tool census: Groundwork exposes only sequentialthinking, resolve-library-id, and query-docs."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; this owner feature is outside Groundwork production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitOverlay",
+      "status": "NA",
+      "rationale": "RightKitOverlay is a Swift product; Groundwork has only a Node stdio entrypoint and no Swift target, SwiftPM import, or bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/mcps/groundwork/server.js",
+          "line": 94,
+          "detail": "Production tool census: Groundwork exposes only sequentialthinking, resolve-library-id, and query-docs."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; this owner feature is outside Groundwork production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitWatch",
+      "status": "NA",
+      "rationale": "RightKitWatch is a Swift product; Groundwork has only a Node stdio entrypoint and no Swift target, SwiftPM import, or bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/mcps/groundwork/server.js",
+          "line": 94,
+          "detail": "Production tool census: Groundwork exposes only sequentialthinking, resolve-library-id, and query-docs."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; this owner feature is outside Groundwork production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitUI",
+      "status": "NA",
+      "rationale": "RightKitUI is a Swift product; Groundwork has only a Node stdio entrypoint and no Swift target, SwiftPM import, or bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/mcps/groundwork/server.js",
+          "line": 94,
+          "detail": "Production tool census: Groundwork exposes only sequentialthinking, resolve-library-id, and query-docs."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; this owner feature is outside Groundwork production scope.",
+      "confidence": "high"
+    }
+  ],
+  "searches": [
+    {
+      "pattern": "rightkit|@rightkit|RightKit",
+      "scope": "Groundwork production source",
+      "result": "No matches in server.js."
+    },
+    {
+      "pattern": "tools/list|tools/call|initialize|sequentialthinking|resolve-library-id|query-docs",
+      "scope": "Groundwork production source",
+      "result": "One Node stdio MCP dispatcher exposes exactly three tools."
+    },
+    {
+      "pattern": "fetch\\(|AbortController|CONTEXT7_",
+      "scope": "Groundwork production source",
+      "result": "Native Node Context7 request transport only; no shared HTTP route."
+    },
+    {
+      "pattern": "Cargo.toml|Package.swift|package.json|@rightkit",
+      "scope": "Groundwork source root",
+      "result": "No production manifest or dependency declaration; no Rust/Swift bridge or npm import."
+    }
+  ],
+  "self_review": "Challenged apparent overlap for cargo:rightkit-mcp and cargo:rightkit-http. Both have active Node-local mechanisms, but their owner APIs are Rust and Groundwork contains no binding, sidecar, or service bridge; retained NA rather than unsupported N. Challenged npm:@rightkit/agent-room-mcp and npm:@rightkit/ax: both concern MCP, but their exact room/conformance features are absent. Every catalog ID appears once; no Y/M claim lacks a production caller."
+}
+

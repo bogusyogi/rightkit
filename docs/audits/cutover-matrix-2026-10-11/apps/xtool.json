@@ -1,0 +1,1799 @@
+{
+  "app": "Xtool",
+  "root": "/Volumes/D/claude/xtool",
+  "head": "17dcc15c67b43464850ed24f5d36b096ebdc9f4f",
+  "reviewed_at": "2026-10-11T08:11:15+05:30",
+  "targets": [
+    "desktop",
+    "windows",
+    "macos",
+    "linux"
+  ],
+  "scope_note": "Current production TypeScript Node host, direct Swift macOS helper, manifests, packaging scripts, & workflow census only; no execution qualification implied.",
+  "cells": [
+    {
+      "component_id": "cargo:agent-room-core",
+      "status": "NA",
+      "rationale": "Xtool has native CLI sessions & a Codex bridge, but no Rust agent-room runtime or Node bridge to this private crate.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/xtool/src/main/node-index.ts",
+          "line": 1,
+          "detail": "Production host is Node/TypeScript; source census found no Cargo manifest or Rust bridge."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-agent-tools",
+      "status": "NA",
+      "rationale": "Xtool exposes its own MCP tools, but this Rust typed-agent CLI requires an absent Rust/service bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/xtool/src/main/mcp/tools.ts",
+          "line": 1,
+          "detail": "Node MCP server owns Xtool tool registration; no Cargo or right-ctl bridge exists."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-align",
+      "status": "NA",
+      "rationale": "No ASR script-to-word alignment feature exists in Xtool's source.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/xtool/package.json",
+          "line": 20,
+          "detail": "Production dependency list has no ASR runtime or Rust bridge."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-asr",
+      "status": "NA",
+      "rationale": "Xtool has no speech-recognition runtime; Rust ASR cannot route through its Node host without a bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/xtool/package.json",
+          "line": 20,
+          "detail": "Production dependencies contain no ASR runtime or RightKit bridge."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-audio",
+      "status": "NA",
+      "rationale": "Xtool has no shared audio pipeline; desktop control does not create a Rust audio integration.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/xtool/src/main/computer/index.ts",
+          "line": 1,
+          "detail": "Desktop feature is Node control/capture, not audio processing; no Rust bridge."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-automation",
+      "status": "NA",
+      "rationale": "Xtool desktop automation is active, but it is Node plus direct platform helpers; no N-API, child-service, or Rust bridge invokes this Rust crate.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/xtool/src/main/computer/index.ts",
+          "line": 1,
+          "detail": "Production desktop controller is TypeScript and selects Node/Swift or PowerShell helpers."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-browser",
+      "status": "NA",
+      "rationale": "Xtool's retired browser surface is absent; no CDP browser runtime is implemented or bridged.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/xtool/src/main/mcp/surfaces.ts",
+          "line": 72,
+          "detail": "Current Core surface lists laptop, document, CLI, Codex, and desktop functions, not browser CDP."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-cache",
+      "status": "NA",
+      "rationale": "Xtool uses local durable state, not a Rust cache; no cross-runtime cache bridge exists.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/xtool/src/main/durable.ts",
+          "line": 1,
+          "detail": "Local JSON durable-state owner is Node source."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-channel-memory",
+      "status": "NA",
+      "rationale": "Xtool stores MCP activity, not channel-memory content-pipeline schema data.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/xtool/src/main/session/store.ts",
+          "line": 1,
+          "detail": "Current session store is Xtool MCP activity history."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-compose",
+      "status": "NA",
+      "rationale": "No composition/editor-generation runtime matching this Rust component is present.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/xtool/src/main/mcp/tools-document.ts",
+          "line": 1,
+          "detail": "Document surface is bounded codec I/O, not a content composition engine."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-contracts",
+      "status": "NA",
+      "rationale": "Xtool's local MCP contracts do not use this Rust crate and no Rust bridge exists.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/xtool/src/main/mcp/tools.ts",
+          "line": 1,
+          "detail": "MCP contracts are Node SDK registrations in Xtool."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-control",
+      "status": "NA",
+      "rationale": "No Rust control-plane bridge exists; Xtool's control feature remains local Node MCP behavior.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/xtool/src/main/mcp/tools-core.ts",
+          "line": 1,
+          "detail": "Core controls are implemented in TypeScript."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-crash",
+      "status": "NA",
+      "rationale": "Xtool has diagnostics logs but no Rust crash-reporting integration or bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/xtool/src/main/logger.ts",
+          "line": 1,
+          "detail": "Diagnostics are locally implemented in Node."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-daemon",
+      "status": "NA",
+      "rationale": "Xtool runs its own Node host; no RightKit Rust daemon client/server route is present.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/xtool/src/main/node-index.ts",
+          "line": 1,
+          "detail": "Node host initialization is Xtool-owned."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-db",
+      "status": "NA",
+      "rationale": "Xtool session persistence uses local files, not a Rust database owner or bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/xtool/src/main/session/store.ts",
+          "line": 577,
+          "detail": "Store reconstructs from Xtool durable journal/message shards."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-embed",
+      "status": "NA",
+      "rationale": "No embedding/vector feature exists in current Xtool source.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/xtool/package.json",
+          "line": 20,
+          "detail": "Production dependencies have no embedding runtime."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-framed-sidecar",
+      "status": "NA",
+      "rationale": "Xtool has no framed Rust sidecar transport; its Node host communicates through MCP and platform helpers.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/xtool/src/main/mcp/server.ts",
+          "line": 1,
+          "detail": "MCP server is local Node implementation."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-fs",
+      "status": "NA",
+      "rationale": "Xtool implements approved-root file operations in Node; no compatible Rust FFI/service bridge is active.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/xtool/src/main/mcp/tools-core.ts",
+          "line": 1,
+          "detail": "File tools are Xtool TypeScript MCP handlers."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-fsindex",
+      "status": "NA",
+      "rationale": "Xtool search deliberately has no index; it cannot route to this Rust index owner.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/xtool/src/main/search.ts",
+          "line": 1,
+          "detail": "Source explicitly owns bounded walk/search without an index."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-hotkeys",
+      "status": "NA",
+      "rationale": "No global hotkey product feature exists; keypress is an explicit desktop-control action only.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/xtool/src/main/computer/index.ts",
+          "line": 111,
+          "detail": "Keyboard input is part of model-requested computer actions."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-http",
+      "status": "NA",
+      "rationale": "Xtool has a local Node MCP HTTP server, not an adopted Rust HTTP library or bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/xtool/src/main/mcp/server.ts",
+          "line": 1,
+          "detail": "Server implementation is TypeScript."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-jobs",
+      "status": "NA",
+      "rationale": "No shared Rust job queue is used; Xtool's native session/Codex lifecycles are local Node mechanisms.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/xtool/src/main/cli-sessions.ts",
+          "line": 1,
+          "detail": "CLI session lifecycle is local TypeScript."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-license",
+      "status": "NA",
+      "rationale": "Xtool has no proprietary-license runtime feature or Rust bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/xtool/package.json",
+          "line": 5,
+          "detail": "Manifest declares MIT; production dependencies contain no license client."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-llm",
+      "status": "NA",
+      "rationale": "Xtool delegates model work to authorized native CLIs/Codex bridge; it has no local Rust LLM runtime.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/xtool/src/main/cli-sessions.ts",
+          "line": 1,
+          "detail": "Native CLI adapter is Node-owned."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-logs",
+      "status": "NA",
+      "rationale": "Local Node logging exists, but no Rust bridge can invoke this crate; local logging alone is not compatible adoption.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/xtool/src/main/logger.ts",
+          "line": 1,
+          "detail": "Xtool owns in-memory/file logging in Node."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-mcp",
+      "status": "NA",
+      "rationale": "Xtool's MCP implementation uses Node SDK, with no Rust MCP bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/xtool/src/main/mcp/tools.ts",
+          "line": 1,
+          "detail": "Node MCP server construction is production route."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-media",
+      "status": "NA",
+      "rationale": "No Rust media engine route exists; image viewing/document codecs use Node dependencies.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/xtool/package.json",
+          "line": 20,
+          "detail": "Node dependencies provide sharp, pdf-lib, and unpdf."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-models",
+      "status": "NA",
+      "rationale": "Xtool discovers external Codex model metadata; it has no shared Rust model-management runtime.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/xtool/src/main/mcp/tools-codex.ts",
+          "line": 58,
+          "detail": "list_models routes through Xtool's Codex bridge."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-oauth",
+      "status": "NA",
+      "rationale": "Xtool does not host an OAuth owner; native CLIs remain independently authorized.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/xtool/src/main/cli-sessions.ts",
+          "line": 3,
+          "detail": "CLI contracts use installed provider CLIs, not an app OAuth runtime."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-ocr",
+      "status": "NA",
+      "rationale": "No OCR feature or compatible Rust bridge exists in current source.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/xtool/package.json",
+          "line": 20,
+          "detail": "Production dependencies have no OCR engine."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-ort",
+      "status": "NA",
+      "rationale": "No ONNX Runtime feature or Rust bridge exists in current Xtool host.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/xtool/package.json",
+          "line": 20,
+          "detail": "Production dependencies have no ORT binding."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-overlay",
+      "status": "NA",
+      "rationale": "Headless Xtool has no overlay UI feature.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/xtool/src/main/node-index.ts",
+          "line": 1,
+          "detail": "Product runtime is headless Node host."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-ownership",
+      "status": "NA",
+      "rationale": "Xtool session/Codex attribution is app policy, not a Rust ownership-component bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/xtool/src/main/codex/ownership.ts",
+          "line": 1,
+          "detail": "Current ownership logic is Xtool TypeScript adapter policy."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-pdf",
+      "status": "NA",
+      "rationale": "Xtool's PDF read/write codecs use Node libraries; no Rust engine bridge is active.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/xtool/src/main/documents.ts",
+          "line": 1,
+          "detail": "PDF codec imports pdf-lib and unpdf in Node."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-playback",
+      "status": "NA",
+      "rationale": "No media-playback feature appears in Xtool source.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/xtool/src/main/mcp/surfaces.ts",
+          "line": 72,
+          "detail": "Current Core feature surface excludes playback."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-process",
+      "status": "NA",
+      "rationale": "Xtool owns local Node process/PTY tools; no Rust process bridge is active.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/xtool/src/main/mcp/tools-laptop.ts",
+          "line": 1,
+          "detail": "Terminal/process handlers are Xtool TypeScript."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-qa",
+      "status": "NA",
+      "rationale": "No Rust QA runtime/bridge is used by Xtool production host.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/xtool/package.json",
+          "line": 15,
+          "detail": "Xtool QA uses Vitest scripts, not a Rust QA crate."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-qts",
+      "status": "NA",
+      "rationale": "No local text-to-speech feature or Rust bridge exists.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/xtool/package.json",
+          "line": 20,
+          "detail": "Production dependencies have no TTS runtime."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-qts-ggml",
+      "status": "NA",
+      "rationale": "No GGML TTS feature or Rust bridge exists.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/xtool/package.json",
+          "line": 20,
+          "detail": "Production dependencies have no GGML/TTS engine."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-qts-ggml-sys",
+      "status": "NA",
+      "rationale": "No native GGML sys dependency or bridge exists in Xtool.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/xtool/package.json",
+          "line": 20,
+          "detail": "Production native dependencies are Node modules, not Cargo sys crates."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-record",
+      "status": "NA",
+      "rationale": "Xtool records local MCP activity through Node session files, not this Rust recorder or bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/xtool/src/main/session/recorder.ts",
+          "line": 1,
+          "detail": "Production recorder is Xtool TypeScript."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-review",
+      "status": "NA",
+      "rationale": "No review-runtime feature owned by this Rust crate is present.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/xtool/src/main/mcp/surfaces.ts",
+          "line": 72,
+          "detail": "Current product surfaces exclude a review engine."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-sandbox",
+      "status": "NA",
+      "rationale": "Xtool has local sandbox policy, but no compatible Rust bridge; app policy alone is not shared-owner duplication.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/xtool/src/main/sandbox.ts",
+          "line": 1,
+          "detail": "Sandbox rules are Xtool Node source."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-scenario",
+      "status": "NA",
+      "rationale": "No Rust scenario runner or bridge appears in Xtool production paths.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/xtool/package.json",
+          "line": 15,
+          "detail": "Tests are Vitest scripts, with no Cargo target."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-search",
+      "status": "NA",
+      "rationale": "Xtool's bounded Node search is active, but no Rust search bridge exists; Cargo index/search API cannot be invoked directly.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/xtool/src/main/search.ts",
+          "line": 1,
+          "detail": "Source owns Node bounded walk and optional ripgrep route without an index."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-secrets",
+      "status": "NA",
+      "rationale": "Xtool uses Node Keychain/DPAPI codecs; no Rust credential-store bridge is active.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/xtool/src/main/secrets.ts",
+          "line": 1,
+          "detail": "Secret persistence owner is TypeScript codec layer."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-send",
+      "status": "NA",
+      "rationale": "No LocalSend/Pulse sharing feature or Rust bridge exists.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/xtool/src/main/mcp/surfaces.ts",
+          "line": 72,
+          "detail": "Current tool surface excludes nearby transfer."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-service",
+      "status": "NA",
+      "rationale": "Xtool owns its local Node MCP endpoint; no RightKit service discovery/socket bridge is present.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/xtool/src/main/mcp/server.ts",
+          "line": 1,
+          "detail": "Production service endpoint is Node MCP server."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-settings",
+      "status": "NA",
+      "rationale": "Xtool stores local Node config; no Rust settings bridge is active.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/xtool/src/main/config.ts",
+          "line": 1,
+          "detail": "Current configuration owner is TypeScript."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-shell",
+      "status": "NA",
+      "rationale": "Xtool is headless Node host, not a Tauri shell consumer.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/xtool/src/main/node-index.ts",
+          "line": 1,
+          "detail": "Production entrypoint is headless Node host."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-speech-client",
+      "status": "NA",
+      "rationale": "No shared speech-service client or speech feature exists.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/xtool/package.json",
+          "line": 20,
+          "detail": "Production dependencies contain no speech client."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-sync",
+      "status": "NA",
+      "rationale": "No cloud-sync engine feature is present in Xtool.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/xtool/src/main/durable.ts",
+          "line": 1,
+          "detail": "Persistence is local JSON state, not cloud sync."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-tauri",
+      "status": "NA",
+      "rationale": "Xtool has no Tauri host or Rust command bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/xtool/package.json",
+          "line": 9,
+          "detail": "Main entrypoint is node-host.cjs; no Tauri dependency or target."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-transcript",
+      "status": "NA",
+      "rationale": "Xtool session activity is not a word-timed transcript feature.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/xtool/src/main/session/store.ts",
+          "line": 1,
+          "detail": "Current storage owns MCP activity/session records."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-tts",
+      "status": "NA",
+      "rationale": "No text-to-speech feature or Rust bridge exists.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/xtool/package.json",
+          "line": 20,
+          "detail": "Production dependency set contains no TTS engine."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-vad",
+      "status": "NA",
+      "rationale": "No voice-activity detection feature or Rust bridge exists.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/xtool/package.json",
+          "line": 20,
+          "detail": "Production dependency set contains no audio/VAD runtime."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-watch",
+      "status": "NA",
+      "rationale": "Xtool's session-retention timer is not filesystem watching; no Rust watcher bridge exists.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/xtool/src/main/session/retention.ts",
+          "line": 1,
+          "detail": "Only scheduled retention maintenance was found, not filesystem watching."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/agent-room-mcp",
+      "status": "NA",
+      "rationale": "Xtool's MCP endpoint has no agent-room protocol feature or package dependency.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/xtool/package.json",
+          "line": 20,
+          "detail": "No @rightkit dependency is declared; local MCP uses Model Context Protocol Node packages."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/app-shell",
+      "status": "NA",
+      "rationale": "Xtool is headless and has no React/app-shell surface.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/xtool/package.json",
+          "line": 9,
+          "detail": "Node host main entrypoint; dependency list has no React/UI shell."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/ax",
+      "status": "NA",
+      "rationale": "No AX conformance/scaffolding command or dependency is part of Xtool production/QA scripts.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/xtool/package.json",
+          "line": 10,
+          "detail": "Script inventory contains build/test/verify commands, no RightKit AX route."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/build-control-policy",
+      "status": "NA",
+      "rationale": "This private build-control owner is not an Xtool application runtime feature.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/xtool/package.json",
+          "line": 10,
+          "detail": "Xtool script inventory has no build-control-policy dependency or invocation."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/doc-render",
+      "status": "NA",
+      "rationale": "Xtool provides document codecs, not a read-only rendered-document UI.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/xtool/src/main/documents.ts",
+          "line": 1,
+          "detail": "Production document path reads/writes DOCX/XLSX/PDF codecs in Node."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/git",
+      "status": "NA",
+      "rationale": "No GitHub Actions workflow or right-git invocation exists; local privacy guard/hooks are repository-specific scripts, not this workflow layer.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/xtool/scripts/install-git-hooks.mjs",
+          "line": 1,
+          "detail": "Only local core.hooksPath setup is active; .github contains templates, no workflows."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/hooks",
+      "status": "NA",
+      "rationale": "Xtool configures Git hooks, but has no independently installable agent lifecycle runtime import or invocation.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/xtool/scripts/install-git-hooks.mjs",
+          "line": 1,
+          "detail": "Script only writes Git core.hooksPath."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/i18n",
+      "status": "NA",
+      "rationale": "Headless Xtool has no locale-catalog or React provider feature.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/xtool/package.json",
+          "line": 20,
+          "detail": "No UI/i18n dependency or renderer target exists."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/legal",
+      "status": "NA",
+      "rationale": "MIT Xtool has no proprietary legal-assent manifest runtime.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/xtool/package.json",
+          "line": 5,
+          "detail": "Manifest declares MIT and no legal runtime dependency."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/legal-ui",
+      "status": "NA",
+      "rationale": "Headless Xtool has no first-run legal UI.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/xtool/src/main/node-index.ts",
+          "line": 1,
+          "detail": "Product runtime is Node host with no UI target."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/license",
+      "status": "NA",
+      "rationale": "No unified RightApps license client is declared or invoked by Xtool.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/xtool/package.json",
+          "line": 20,
+          "detail": "Production dependency list contains no @rightkit/license."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/logs",
+      "status": "NA",
+      "rationale": "Xtool has local Node diagnostics, but this owner requires a Tauri invoke adapter; no Tauri/invoke bridge exists, so local logger is not a compatible duplicate.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/xtool/src/main/logger.ts",
+          "line": 1,
+          "detail": "Current Node logger writes local bounded diagnostics."
+        },
+        {
+          "path": "/Volumes/D/claude/xtool/package.json",
+          "line": 9,
+          "detail": "Main is node-host.cjs, not a Tauri renderer."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/media-ui",
+      "status": "NA",
+      "rationale": "No media-player/image-editor UI exists in headless Xtool.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/xtool/package.json",
+          "line": 20,
+          "detail": "No UI framework or media UI package is declared."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/onboarding",
+      "status": "NA",
+      "rationale": "No first-run UI onboarding flow exists in Xtool's headless host.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/xtool/src/main/node-index.ts",
+          "line": 1,
+          "detail": "Host starts local services without renderer/onboarding target."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/pdf-ui",
+      "status": "NA",
+      "rationale": "Xtool handles PDF content as MCP document codecs, with no read-only PDF viewer UI.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/xtool/src/main/documents.ts",
+          "line": 1,
+          "detail": "PDF operations use Node pdf-lib/unpdf codecs."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/platform-ui",
+      "status": "NA",
+      "rationale": "No renderer/window-control UI primitive consumer exists in Xtool.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/xtool/package.json",
+          "line": 20,
+          "detail": "No React/UI platform dependency or target is declared."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/qa",
+      "status": "NA",
+      "rationale": "Xtool has Vitest checks, but no shared QA evidence/browser-helper route or package invocation; generic tests are not this owner feature.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/xtool/package.json",
+          "line": 10,
+          "detail": "QA scripts run Vitest directly and declare no @rightkit/qa dependency."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/qa-chrome",
+      "status": "NA",
+      "rationale": "Current Xtool has no Chrome-for-Testing QA launcher feature.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/xtool/package.json",
+          "line": 20,
+          "detail": "No Chrome QA dependency is declared."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/release",
+      "status": "NA",
+      "rationale": "Xtool has local build/packaging preparation only; no right-release invocation, release configuration, or publication path is active.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/xtool/package.json",
+          "line": 10,
+          "detail": "Script inventory has build and packaging:prepare, no release/upload script or @rightkit/release dependency."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/settings-ui",
+      "status": "NA",
+      "rationale": "Xtool has Node configuration persistence, not a settings UI surface.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/xtool/src/main/config.ts",
+          "line": 1,
+          "detail": "Settings owner is local TypeScript configuration, with no renderer target."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/shell",
+      "status": "NA",
+      "rationale": "No rightkit-shell Tauri renderer bridge exists in this Node host.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/xtool/package.json",
+          "line": 9,
+          "detail": "Main is node-host.cjs; no Tauri dependency is declared."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/tauri",
+      "status": "NA",
+      "rationale": "No Tauri host adapters can run in current Node-only Xtool architecture.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/xtool/package.json",
+          "line": 9,
+          "detail": "Node host manifest, no Tauri target."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/theme",
+      "status": "NA",
+      "rationale": "No browser/React theme target exists in headless Xtool.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/xtool/package.json",
+          "line": 20,
+          "detail": "No UI/theme dependency or renderer bundle is declared."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/update",
+      "status": "NA",
+      "rationale": "No RightKit dependency-update command is used by Xtool scripts.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/xtool/package.json",
+          "line": 10,
+          "detail": "Script inventory has no updater command or @rightkit/update dependency."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/updates",
+      "status": "NA",
+      "rationale": "Xtool has no Tauri runtime-update policy route.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/xtool/package.json",
+          "line": 9,
+          "detail": "Node host manifest has no Tauri or @rightkit/updates dependency."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitLicense",
+      "status": "NA",
+      "rationale": "Xtool has no SwiftPM RightKit license import or proprietary license feature.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/xtool/native/macos-desktop-helper/main.swift",
+          "line": 1,
+          "detail": "Direct Foundation/AppKit helper has no RightKit import or SwiftPM bridge."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitDiagnostics",
+      "status": "NA",
+      "rationale": "Xtool logs in Node. Native Swift helper emits JSON protocol responses through writeResponse, not a persistent diagnostic journal/redaction/export feature matching RightKitDiagnostics.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/xtool/src/main/logger.ts",
+          "line": 1,
+          "detail": "Diagnostics owner is Node logger."
+        },
+        {
+          "path": "/Volumes/D/claude/xtool/native/macos-desktop-helper/main.swift",
+          "line": 1,
+          "detail": "Swift helper starts with direct Apple framework imports."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitArtifacts",
+      "status": "NA",
+      "rationale": "Xtool artifact download is Node MCP behavior, with no SwiftPM RightKitArtifacts bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/xtool/src/main/mcp/artifact-download.ts",
+          "line": 1,
+          "detail": "Artifact path is local TypeScript."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitPurchases",
+      "status": "NA",
+      "rationale": "No Apple purchases feature exists in Xtool.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/xtool/native/macos-desktop-helper/main.swift",
+          "line": 1,
+          "detail": "Helper imports desktop-control frameworks only; no StoreKit/RightKit import."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitCloudSync",
+      "status": "NA",
+      "rationale": "No CloudKit/cloud-sync feature or SwiftPM bridge exists.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/xtool/src/main/durable.ts",
+          "line": 1,
+          "detail": "Persistence is local JSON state."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitStore",
+      "status": "NA",
+      "rationale": "No Swift store/persistence module is imported; Xtool persists through Node files.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/xtool/src/main/durable.ts",
+          "line": 1,
+          "detail": "Durable state owner is Node filesystem code."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitImportQueue",
+      "status": "NA",
+      "rationale": "No Apple import-queue feature is present.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/xtool/native/macos-desktop-helper/main.swift",
+          "line": 1,
+          "detail": "Only direct desktop-control helper target exists."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitLiveActivity",
+      "status": "NA",
+      "rationale": "Xtool has no iOS Live Activity target or feature.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/xtool/package.json",
+          "line": 9,
+          "detail": "Targets are Node desktop host; no iOS project/package exists."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitWatchBridge",
+      "status": "NA",
+      "rationale": "Xtool has no watchOS target or watch bridge feature.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/xtool/package.json",
+          "line": 9,
+          "detail": "Node desktop host only; no Apple watch target."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitSpeech",
+      "status": "NA",
+      "rationale": "No Apple speech feature or SwiftPM bridge exists.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/xtool/native/macos-desktop-helper/main.swift",
+          "line": 1,
+          "detail": "Helper imports AppKit/AX/capture frameworks, not speech or RightKit."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitIntents",
+      "status": "NA",
+      "rationale": "No App Intents/Shortcuts feature or Apple target exists.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/xtool/package.json",
+          "line": 9,
+          "detail": "Node desktop host only; no iOS/macOS app-intents package target."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitAppleCredentials",
+      "status": "NA",
+      "rationale": "Credential lookup lives in Node Keychain codec. Native Swift desktop helper has no credential-store command; moving Node credentials into this Swift module requires a new shared language bridge, not an existing compatible cutover.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/xtool/src/main/secrets-keychain.ts",
+          "line": 1,
+          "detail": "Credential protection is Node Keychain implementation."
+        },
+        {
+          "path": "/Volumes/D/claude/xtool/native/macos-desktop-helper/main.swift",
+          "line": 1,
+          "detail": "Swift helper imports no RightKit module."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitOverlay",
+      "status": "NA",
+      "rationale": "No native overlay feature exists in Xtool's direct AppKit helper.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/xtool/native/macos-desktop-helper/main.swift",
+          "line": 1,
+          "detail": "Helper is desktop capture/accessibility protocol, not overlay UI."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitWatch",
+      "status": "NA",
+      "rationale": "RightKitWatch owns macOS FSEvents. Xtool native helper handles request-driven desktop control/capture & has no active file-watching feature; no watchOS inference is involved.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/xtool/package.json",
+          "line": 9,
+          "detail": "Node desktop host only; no watch target."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitUI",
+      "status": "NA",
+      "rationale": "Xtool has no SwiftUI/AppKit application UI; helper is a direct protocol backend.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/xtool/native/macos-desktop-helper/main.swift",
+          "line": 1,
+          "detail": "Direct AppKit/AX helper imports no RightKitUI module."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    }
+  ],
+  "searches": [
+    {
+      "pattern": "@rightkit|rightkit|right-release|right-git",
+      "scope": "package.json, pnpm-lock.yaml, src, scripts excluding vendor/node_modules",
+      "result": "No production dependency, import, or invocation found."
+    },
+    {
+      "pattern": "Cargo.toml|Package.swift",
+      "scope": "Xtool root and production target manifests",
+      "result": "No Cargo target or SwiftPM manifest/dependency found."
+    },
+    {
+      "pattern": "rightkit|RightKit",
+      "scope": "native/macos-desktop-helper/main.swift",
+      "result": "No RightKit Swift module import found; helper imports direct Apple frameworks."
+    },
+    {
+      "pattern": "from '@rightkit/'|require('@rightkit/')",
+      "scope": "src and scripts excluding vendor/node_modules",
+      "result": "No source-level RightKit route found."
+    }
+  ],
+  "self_review": "Challenged every apparent local overlap: Node logger vs @rightkit/logs needs Tauri invoke; Node documents vs pdf/doc-render owners are codecs versus UI; Node Keychain/DPAPI versus Swift/Rust credential owners lack a bridge; Node desktop automation, files, search, MCP, process, config, sessions, and packaging have no Cargo bridge. Rechecked direct Swift helper for RightKit imports and manifest for all @rightkit packages. No Y/M or compatible N claim survives current source evidence."
+}

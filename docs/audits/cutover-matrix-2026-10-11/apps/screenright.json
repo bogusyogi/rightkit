@@ -1,0 +1,2383 @@
+{
+  "app": "ScreenRight (archive)",
+  "root": "/Volumes/D/claude/archive/screenright-2026-10-08",
+  "head": "b4e2104ed7a32167bb803a93779ebda36df41e9b",
+  "reviewed_at": "2026-10-11T00:00:00+05:30",
+  "targets": [
+    "desktop-macos-node",
+    "desktop-macos-swift-helper"
+  ],
+  "scope_note": "Retained ScreenRight archive only. Current archived Node/Swift source, config, release scripts, and Rust release shim were inspected; archived binaries, dist, caches, generated output, tests, docs, and prior audits were excluded. Status describes archived source routing, never active rollout or runtime/release qualification.",
+  "cells": [
+    {
+      "component_id": "cargo:agent-room-core",
+      "status": "NA",
+      "rationale": "Archived ScreenRight has no production caller for this component in its retained Node/Swift macOS recorder, release scripts, or Rust release shim; component runtime or precise feature is outside this archived source route.",
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/package.json",
+          "line": 1,
+          "detail": "Archived ScreenRight declares a Node ESM macOS recorder/release tool; no @rightkit package is installed except @rightkit/release."
+        },
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/scripts/build-app.mjs",
+          "line": 76,
+          "detail": "Archived macOS app builds five local Swift helpers with AppKit and ScreenCaptureKit; src-tauri is only a release shim."
+        }
+      ],
+      "shared_evidence": [],
+      "local_evidence": [],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-agent-tools",
+      "status": "NA",
+      "rationale": "Archived ScreenRight has no production caller for this component in its retained Node/Swift macOS recorder, release scripts, or Rust release shim; component runtime or precise feature is outside this archived source route.",
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/package.json",
+          "line": 1,
+          "detail": "Archived ScreenRight declares a Node ESM macOS recorder/release tool; no @rightkit package is installed except @rightkit/release."
+        },
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/scripts/build-app.mjs",
+          "line": 76,
+          "detail": "Archived macOS app builds five local Swift helpers with AppKit and ScreenCaptureKit; src-tauri is only a release shim."
+        }
+      ],
+      "shared_evidence": [],
+      "local_evidence": [],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-align",
+      "status": "NA",
+      "rationale": "Archived ScreenRight has no production caller for this component in its retained Node/Swift macOS recorder, release scripts, or Rust release shim; component runtime or precise feature is outside this archived source route.",
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/package.json",
+          "line": 1,
+          "detail": "Archived ScreenRight declares a Node ESM macOS recorder/release tool; no @rightkit package is installed except @rightkit/release."
+        },
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/scripts/build-app.mjs",
+          "line": 76,
+          "detail": "Archived macOS app builds five local Swift helpers with AppKit and ScreenCaptureKit; src-tauri is only a release shim."
+        }
+      ],
+      "shared_evidence": [],
+      "local_evidence": [],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-asr",
+      "status": "NA",
+      "rationale": "Archived ScreenRight has no production caller for this component in its retained Node/Swift macOS recorder, release scripts, or Rust release shim; component runtime or precise feature is outside this archived source route.",
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/package.json",
+          "line": 1,
+          "detail": "Archived ScreenRight declares a Node ESM macOS recorder/release tool; no @rightkit package is installed except @rightkit/release."
+        },
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/scripts/build-app.mjs",
+          "line": 76,
+          "detail": "Archived macOS app builds five local Swift helpers with AppKit and ScreenCaptureKit; src-tauri is only a release shim."
+        }
+      ],
+      "shared_evidence": [],
+      "local_evidence": [],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-audio",
+      "status": "NA",
+      "rationale": "Archived Node audio lane uses local mixer and capture modules. rightkit-audio is Rust-only and no bridge or dependency exists, so retained local audio code does not establish a competing shared production route.",
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/src/audio-mixer.mjs",
+          "line": 138,
+          "symbol": "buildMixer",
+          "detail": "Local Node mixer owns audio mix behavior."
+        },
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/src-tauri/Cargo.toml",
+          "line": 1,
+          "detail": "No rightkit-audio dependency or bridge."
+        }
+      ],
+      "shared_evidence": [],
+      "local_evidence": [],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-audio/src/lib.rs",
+          "line": 1,
+          "detail": "Owner is Rust shared audio API."
+        }
+      ],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-automation",
+      "status": "NA",
+      "rationale": "Archived ScreenRight has no production caller for this component in its retained Node/Swift macOS recorder, release scripts, or Rust release shim; component runtime or precise feature is outside this archived source route.",
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/package.json",
+          "line": 1,
+          "detail": "Archived ScreenRight declares a Node ESM macOS recorder/release tool; no @rightkit package is installed except @rightkit/release."
+        },
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/scripts/build-app.mjs",
+          "line": 76,
+          "detail": "Archived macOS app builds five local Swift helpers with AppKit and ScreenCaptureKit; src-tauri is only a release shim."
+        }
+      ],
+      "shared_evidence": [],
+      "local_evidence": [],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-browser",
+      "status": "NA",
+      "rationale": "Archived ScreenRight has no production caller for this component in its retained Node/Swift macOS recorder, release scripts, or Rust release shim; component runtime or precise feature is outside this archived source route.",
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/package.json",
+          "line": 1,
+          "detail": "Archived ScreenRight declares a Node ESM macOS recorder/release tool; no @rightkit package is installed except @rightkit/release."
+        },
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/scripts/build-app.mjs",
+          "line": 76,
+          "detail": "Archived macOS app builds five local Swift helpers with AppKit and ScreenCaptureKit; src-tauri is only a release shim."
+        }
+      ],
+      "shared_evidence": [],
+      "local_evidence": [],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-cache",
+      "status": "NA",
+      "rationale": "Archived ScreenRight has no production caller for this component in its retained Node/Swift macOS recorder, release scripts, or Rust release shim; component runtime or precise feature is outside this archived source route.",
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/package.json",
+          "line": 1,
+          "detail": "Archived ScreenRight declares a Node ESM macOS recorder/release tool; no @rightkit package is installed except @rightkit/release."
+        },
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/scripts/build-app.mjs",
+          "line": 76,
+          "detail": "Archived macOS app builds five local Swift helpers with AppKit and ScreenCaptureKit; src-tauri is only a release shim."
+        }
+      ],
+      "shared_evidence": [],
+      "local_evidence": [],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-channel-memory",
+      "status": "NA",
+      "rationale": "Archived ScreenRight has no production caller for this component in its retained Node/Swift macOS recorder, release scripts, or Rust release shim; component runtime or precise feature is outside this archived source route.",
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/package.json",
+          "line": 1,
+          "detail": "Archived ScreenRight declares a Node ESM macOS recorder/release tool; no @rightkit package is installed except @rightkit/release."
+        },
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/scripts/build-app.mjs",
+          "line": 76,
+          "detail": "Archived macOS app builds five local Swift helpers with AppKit and ScreenCaptureKit; src-tauri is only a release shim."
+        }
+      ],
+      "shared_evidence": [],
+      "local_evidence": [],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-compose",
+      "status": "NA",
+      "rationale": "Archived Node renderer calls local compileRenderPlan for product-specific timeline/camera/cursor plan. rightkit-compose is a Rust evaluated composition model and archive exposes no Rust bridge; similar video vocabulary is not an active shared route.",
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/src/runner.mjs",
+          "line": 15,
+          "symbol": "compileRenderPlan import",
+          "detail": "Node renderer imports local plan compiler."
+        },
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/src/runner.mjs",
+          "line": 875,
+          "symbol": "compileRenderPlan caller",
+          "detail": "Production runner writes local render plan."
+        },
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/src-tauri/Cargo.toml",
+          "line": 1,
+          "detail": "No rightkit-compose dependency or Node-to-Rust bridge."
+        }
+      ],
+      "shared_evidence": [],
+      "local_evidence": [],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-compose/src/lib.rs",
+          "line": 29,
+          "symbol": "evaluate",
+          "detail": "Owner pure Rust per-frame evaluation API is not called by archive."
+        }
+      ],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-contracts",
+      "status": "NA",
+      "rationale": "Archived ScreenRight has no production caller for this component in its retained Node/Swift macOS recorder, release scripts, or Rust release shim; component runtime or precise feature is outside this archived source route.",
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/package.json",
+          "line": 1,
+          "detail": "Archived ScreenRight declares a Node ESM macOS recorder/release tool; no @rightkit package is installed except @rightkit/release."
+        },
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/scripts/build-app.mjs",
+          "line": 76,
+          "detail": "Archived macOS app builds five local Swift helpers with AppKit and ScreenCaptureKit; src-tauri is only a release shim."
+        }
+      ],
+      "shared_evidence": [],
+      "local_evidence": [],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-control",
+      "status": "NA",
+      "rationale": "Archived ScreenRight has no production caller for this component in its retained Node/Swift macOS recorder, release scripts, or Rust release shim; component runtime or precise feature is outside this archived source route.",
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/package.json",
+          "line": 1,
+          "detail": "Archived ScreenRight declares a Node ESM macOS recorder/release tool; no @rightkit package is installed except @rightkit/release."
+        },
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/scripts/build-app.mjs",
+          "line": 76,
+          "detail": "Archived macOS app builds five local Swift helpers with AppKit and ScreenCaptureKit; src-tauri is only a release shim."
+        }
+      ],
+      "shared_evidence": [],
+      "local_evidence": [],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-crash",
+      "status": "NA",
+      "rationale": "Archived ScreenRight has no production caller for this component in its retained Node/Swift macOS recorder, release scripts, or Rust release shim; component runtime or precise feature is outside this archived source route.",
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/package.json",
+          "line": 1,
+          "detail": "Archived ScreenRight declares a Node ESM macOS recorder/release tool; no @rightkit package is installed except @rightkit/release."
+        },
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/scripts/build-app.mjs",
+          "line": 76,
+          "detail": "Archived macOS app builds five local Swift helpers with AppKit and ScreenCaptureKit; src-tauri is only a release shim."
+        }
+      ],
+      "shared_evidence": [],
+      "local_evidence": [],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-daemon",
+      "status": "NA",
+      "rationale": "Archived ScreenRight has no production caller for this component in its retained Node/Swift macOS recorder, release scripts, or Rust release shim; component runtime or precise feature is outside this archived source route.",
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/package.json",
+          "line": 1,
+          "detail": "Archived ScreenRight declares a Node ESM macOS recorder/release tool; no @rightkit package is installed except @rightkit/release."
+        },
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/scripts/build-app.mjs",
+          "line": 76,
+          "detail": "Archived macOS app builds five local Swift helpers with AppKit and ScreenCaptureKit; src-tauri is only a release shim."
+        }
+      ],
+      "shared_evidence": [],
+      "local_evidence": [],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-db",
+      "status": "NA",
+      "rationale": "Archived ScreenRight has no production caller for this component in its retained Node/Swift macOS recorder, release scripts, or Rust release shim; component runtime or precise feature is outside this archived source route.",
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/package.json",
+          "line": 1,
+          "detail": "Archived ScreenRight declares a Node ESM macOS recorder/release tool; no @rightkit package is installed except @rightkit/release."
+        },
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/scripts/build-app.mjs",
+          "line": 76,
+          "detail": "Archived macOS app builds five local Swift helpers with AppKit and ScreenCaptureKit; src-tauri is only a release shim."
+        }
+      ],
+      "shared_evidence": [],
+      "local_evidence": [],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-embed",
+      "status": "NA",
+      "rationale": "Archived ScreenRight has no production caller for this component in its retained Node/Swift macOS recorder, release scripts, or Rust release shim; component runtime or precise feature is outside this archived source route.",
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/package.json",
+          "line": 1,
+          "detail": "Archived ScreenRight declares a Node ESM macOS recorder/release tool; no @rightkit package is installed except @rightkit/release."
+        },
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/scripts/build-app.mjs",
+          "line": 76,
+          "detail": "Archived macOS app builds five local Swift helpers with AppKit and ScreenCaptureKit; src-tauri is only a release shim."
+        }
+      ],
+      "shared_evidence": [],
+      "local_evidence": [],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-framed-sidecar",
+      "status": "NA",
+      "rationale": "Archived ScreenRight has no production caller for this component in its retained Node/Swift macOS recorder, release scripts, or Rust release shim; component runtime or precise feature is outside this archived source route.",
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/package.json",
+          "line": 1,
+          "detail": "Archived ScreenRight declares a Node ESM macOS recorder/release tool; no @rightkit package is installed except @rightkit/release."
+        },
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/scripts/build-app.mjs",
+          "line": 76,
+          "detail": "Archived macOS app builds five local Swift helpers with AppKit and ScreenCaptureKit; src-tauri is only a release shim."
+        }
+      ],
+      "shared_evidence": [],
+      "local_evidence": [],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-fs",
+      "status": "NA",
+      "rationale": "Archived Node session layer implements temp-write plus rename. rightkit-fs is Rust-only and archive has no Rust bridge, so this is not a same-runtime competing owner implementation.",
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/src/session/atomic-write.mjs",
+          "line": 39,
+          "symbol": "writeTempAndRename",
+          "detail": "Local Node session persistence atomically writes then renames."
+        },
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/src/session/atomic-write.mjs",
+          "line": 57,
+          "symbol": "atomicWriteFile",
+          "detail": "Runner persistence API is local Node code."
+        }
+      ],
+      "shared_evidence": [],
+      "local_evidence": [],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-fs/src/lib.rs",
+          "line": 45,
+          "detail": "Owner filesystem API is Rust-only for this archive."
+        }
+      ],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-fsindex",
+      "status": "NA",
+      "rationale": "Archived ScreenRight has no production caller for this component in its retained Node/Swift macOS recorder, release scripts, or Rust release shim; component runtime or precise feature is outside this archived source route.",
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/package.json",
+          "line": 1,
+          "detail": "Archived ScreenRight declares a Node ESM macOS recorder/release tool; no @rightkit package is installed except @rightkit/release."
+        },
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/scripts/build-app.mjs",
+          "line": 76,
+          "detail": "Archived macOS app builds five local Swift helpers with AppKit and ScreenCaptureKit; src-tauri is only a release shim."
+        }
+      ],
+      "shared_evidence": [],
+      "local_evidence": [],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-hotkeys",
+      "status": "NA",
+      "rationale": "Archived ScreenRight has no production caller for this component in its retained Node/Swift macOS recorder, release scripts, or Rust release shim; component runtime or precise feature is outside this archived source route.",
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/package.json",
+          "line": 1,
+          "detail": "Archived ScreenRight declares a Node ESM macOS recorder/release tool; no @rightkit package is installed except @rightkit/release."
+        },
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/scripts/build-app.mjs",
+          "line": 76,
+          "detail": "Archived macOS app builds five local Swift helpers with AppKit and ScreenCaptureKit; src-tauri is only a release shim."
+        }
+      ],
+      "shared_evidence": [],
+      "local_evidence": [],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-http",
+      "status": "NA",
+      "rationale": "Archived ScreenRight has no production caller for this component in its retained Node/Swift macOS recorder, release scripts, or Rust release shim; component runtime or precise feature is outside this archived source route.",
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/package.json",
+          "line": 1,
+          "detail": "Archived ScreenRight declares a Node ESM macOS recorder/release tool; no @rightkit package is installed except @rightkit/release."
+        },
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/scripts/build-app.mjs",
+          "line": 76,
+          "detail": "Archived macOS app builds five local Swift helpers with AppKit and ScreenCaptureKit; src-tauri is only a release shim."
+        }
+      ],
+      "shared_evidence": [],
+      "local_evidence": [],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-jobs",
+      "status": "NA",
+      "rationale": "Archived ScreenRight has no production caller for this component in its retained Node/Swift macOS recorder, release scripts, or Rust release shim; component runtime or precise feature is outside this archived source route.",
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/package.json",
+          "line": 1,
+          "detail": "Archived ScreenRight declares a Node ESM macOS recorder/release tool; no @rightkit package is installed except @rightkit/release."
+        },
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/scripts/build-app.mjs",
+          "line": 76,
+          "detail": "Archived macOS app builds five local Swift helpers with AppKit and ScreenCaptureKit; src-tauri is only a release shim."
+        }
+      ],
+      "shared_evidence": [],
+      "local_evidence": [],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-license",
+      "status": "NA",
+      "rationale": "Archived ScreenRight has no production caller for this component in its retained Node/Swift macOS recorder, release scripts, or Rust release shim; component runtime or precise feature is outside this archived source route.",
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/package.json",
+          "line": 1,
+          "detail": "Archived ScreenRight declares a Node ESM macOS recorder/release tool; no @rightkit package is installed except @rightkit/release."
+        },
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/scripts/build-app.mjs",
+          "line": 76,
+          "detail": "Archived macOS app builds five local Swift helpers with AppKit and ScreenCaptureKit; src-tauri is only a release shim."
+        }
+      ],
+      "shared_evidence": [],
+      "local_evidence": [],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-llm",
+      "status": "NA",
+      "rationale": "Archived ScreenRight has no production caller for this component in its retained Node/Swift macOS recorder, release scripts, or Rust release shim; component runtime or precise feature is outside this archived source route.",
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/package.json",
+          "line": 1,
+          "detail": "Archived ScreenRight declares a Node ESM macOS recorder/release tool; no @rightkit package is installed except @rightkit/release."
+        },
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/scripts/build-app.mjs",
+          "line": 76,
+          "detail": "Archived macOS app builds five local Swift helpers with AppKit and ScreenCaptureKit; src-tauri is only a release shim."
+        }
+      ],
+      "shared_evidence": [],
+      "local_evidence": [],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-logs",
+      "status": "NA",
+      "rationale": "Archived ScreenRight has no production caller for this component in its retained Node/Swift macOS recorder, release scripts, or Rust release shim; component runtime or precise feature is outside this archived source route.",
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/package.json",
+          "line": 1,
+          "detail": "Archived ScreenRight declares a Node ESM macOS recorder/release tool; no @rightkit package is installed except @rightkit/release."
+        },
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/scripts/build-app.mjs",
+          "line": 76,
+          "detail": "Archived macOS app builds five local Swift helpers with AppKit and ScreenCaptureKit; src-tauri is only a release shim."
+        }
+      ],
+      "shared_evidence": [],
+      "local_evidence": [],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-mcp",
+      "status": "NA",
+      "rationale": "Archived ScreenRight has no production caller for this component in its retained Node/Swift macOS recorder, release scripts, or Rust release shim; component runtime or precise feature is outside this archived source route.",
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/package.json",
+          "line": 1,
+          "detail": "Archived ScreenRight declares a Node ESM macOS recorder/release tool; no @rightkit package is installed except @rightkit/release."
+        },
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/scripts/build-app.mjs",
+          "line": 76,
+          "detail": "Archived macOS app builds five local Swift helpers with AppKit and ScreenCaptureKit; src-tauri is only a release shim."
+        }
+      ],
+      "shared_evidence": [],
+      "local_evidence": [],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-media",
+      "status": "NA",
+      "rationale": "Archived Node postprocess invokes bundled FFmpeg directly for rendering, while rightkit-media supplies Rust artifact/lifecycle primitives. No Rust bridge or dependency makes owner API available to this archive.",
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/src/postprocess.mjs",
+          "line": 3,
+          "symbol": "spawn",
+          "detail": "Local Node postprocess runs FFmpeg."
+        },
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/src/postprocess.mjs",
+          "line": 113,
+          "symbol": "buildScrubCommand",
+          "detail": "Local renderer selects FFmpeg command and filters."
+        }
+      ],
+      "shared_evidence": [],
+      "local_evidence": [],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-media/src/lib.rs",
+          "line": 1,
+          "detail": "Owner Rust media primitive has no archive caller."
+        }
+      ],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-models",
+      "status": "NA",
+      "rationale": "Archived ScreenRight has no production caller for this component in its retained Node/Swift macOS recorder, release scripts, or Rust release shim; component runtime or precise feature is outside this archived source route.",
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/package.json",
+          "line": 1,
+          "detail": "Archived ScreenRight declares a Node ESM macOS recorder/release tool; no @rightkit package is installed except @rightkit/release."
+        },
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/scripts/build-app.mjs",
+          "line": 76,
+          "detail": "Archived macOS app builds five local Swift helpers with AppKit and ScreenCaptureKit; src-tauri is only a release shim."
+        }
+      ],
+      "shared_evidence": [],
+      "local_evidence": [],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-oauth",
+      "status": "NA",
+      "rationale": "Archived ScreenRight has no production caller for this component in its retained Node/Swift macOS recorder, release scripts, or Rust release shim; component runtime or precise feature is outside this archived source route.",
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/package.json",
+          "line": 1,
+          "detail": "Archived ScreenRight declares a Node ESM macOS recorder/release tool; no @rightkit package is installed except @rightkit/release."
+        },
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/scripts/build-app.mjs",
+          "line": 76,
+          "detail": "Archived macOS app builds five local Swift helpers with AppKit and ScreenCaptureKit; src-tauri is only a release shim."
+        }
+      ],
+      "shared_evidence": [],
+      "local_evidence": [],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-ocr",
+      "status": "NA",
+      "rationale": "Archived ScreenRight has no production caller for this component in its retained Node/Swift macOS recorder, release scripts, or Rust release shim; component runtime or precise feature is outside this archived source route.",
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/package.json",
+          "line": 1,
+          "detail": "Archived ScreenRight declares a Node ESM macOS recorder/release tool; no @rightkit package is installed except @rightkit/release."
+        },
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/scripts/build-app.mjs",
+          "line": 76,
+          "detail": "Archived macOS app builds five local Swift helpers with AppKit and ScreenCaptureKit; src-tauri is only a release shim."
+        }
+      ],
+      "shared_evidence": [],
+      "local_evidence": [],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-ort",
+      "status": "NA",
+      "rationale": "Archived ScreenRight has no production caller for this component in its retained Node/Swift macOS recorder, release scripts, or Rust release shim; component runtime or precise feature is outside this archived source route.",
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/package.json",
+          "line": 1,
+          "detail": "Archived ScreenRight declares a Node ESM macOS recorder/release tool; no @rightkit package is installed except @rightkit/release."
+        },
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/scripts/build-app.mjs",
+          "line": 76,
+          "detail": "Archived macOS app builds five local Swift helpers with AppKit and ScreenCaptureKit; src-tauri is only a release shim."
+        }
+      ],
+      "shared_evidence": [],
+      "local_evidence": [],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-overlay",
+      "status": "NA",
+      "rationale": "Archived ScreenRight has no production caller for this component in its retained Node/Swift macOS recorder, release scripts, or Rust release shim; component runtime or precise feature is outside this archived source route.",
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/package.json",
+          "line": 1,
+          "detail": "Archived ScreenRight declares a Node ESM macOS recorder/release tool; no @rightkit package is installed except @rightkit/release."
+        },
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/scripts/build-app.mjs",
+          "line": 76,
+          "detail": "Archived macOS app builds five local Swift helpers with AppKit and ScreenCaptureKit; src-tauri is only a release shim."
+        }
+      ],
+      "shared_evidence": [],
+      "local_evidence": [],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-ownership",
+      "status": "NA",
+      "rationale": "Archived ScreenRight has no production caller for this component in its retained Node/Swift macOS recorder, release scripts, or Rust release shim; component runtime or precise feature is outside this archived source route.",
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/package.json",
+          "line": 1,
+          "detail": "Archived ScreenRight declares a Node ESM macOS recorder/release tool; no @rightkit package is installed except @rightkit/release."
+        },
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/scripts/build-app.mjs",
+          "line": 76,
+          "detail": "Archived macOS app builds five local Swift helpers with AppKit and ScreenCaptureKit; src-tauri is only a release shim."
+        }
+      ],
+      "shared_evidence": [],
+      "local_evidence": [],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-pdf",
+      "status": "NA",
+      "rationale": "Archived ScreenRight has no production caller for this component in its retained Node/Swift macOS recorder, release scripts, or Rust release shim; component runtime or precise feature is outside this archived source route.",
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/package.json",
+          "line": 1,
+          "detail": "Archived ScreenRight declares a Node ESM macOS recorder/release tool; no @rightkit package is installed except @rightkit/release."
+        },
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/scripts/build-app.mjs",
+          "line": 76,
+          "detail": "Archived macOS app builds five local Swift helpers with AppKit and ScreenCaptureKit; src-tauri is only a release shim."
+        }
+      ],
+      "shared_evidence": [],
+      "local_evidence": [],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-playback",
+      "status": "NA",
+      "rationale": "Archived ScreenRight has no production caller for this component in its retained Node/Swift macOS recorder, release scripts, or Rust release shim; component runtime or precise feature is outside this archived source route.",
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/package.json",
+          "line": 1,
+          "detail": "Archived ScreenRight declares a Node ESM macOS recorder/release tool; no @rightkit package is installed except @rightkit/release."
+        },
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/scripts/build-app.mjs",
+          "line": 76,
+          "detail": "Archived macOS app builds five local Swift helpers with AppKit and ScreenCaptureKit; src-tauri is only a release shim."
+        }
+      ],
+      "shared_evidence": [],
+      "local_evidence": [],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-process",
+      "status": "NA",
+      "rationale": "Archived ScreenRight has no production caller for this component in its retained Node/Swift macOS recorder, release scripts, or Rust release shim; component runtime or precise feature is outside this archived source route.",
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/package.json",
+          "line": 1,
+          "detail": "Archived ScreenRight declares a Node ESM macOS recorder/release tool; no @rightkit package is installed except @rightkit/release."
+        },
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/scripts/build-app.mjs",
+          "line": 76,
+          "detail": "Archived macOS app builds five local Swift helpers with AppKit and ScreenCaptureKit; src-tauri is only a release shim."
+        }
+      ],
+      "shared_evidence": [],
+      "local_evidence": [],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-qa",
+      "status": "NA",
+      "rationale": "Archived ScreenRight has no production caller for this component in its retained Node/Swift macOS recorder, release scripts, or Rust release shim; component runtime or precise feature is outside this archived source route.",
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/package.json",
+          "line": 1,
+          "detail": "Archived ScreenRight declares a Node ESM macOS recorder/release tool; no @rightkit package is installed except @rightkit/release."
+        },
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/scripts/build-app.mjs",
+          "line": 76,
+          "detail": "Archived macOS app builds five local Swift helpers with AppKit and ScreenCaptureKit; src-tauri is only a release shim."
+        }
+      ],
+      "shared_evidence": [],
+      "local_evidence": [],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-qts",
+      "status": "NA",
+      "rationale": "Archived ScreenRight has no production caller for this component in its retained Node/Swift macOS recorder, release scripts, or Rust release shim; component runtime or precise feature is outside this archived source route.",
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/package.json",
+          "line": 1,
+          "detail": "Archived ScreenRight declares a Node ESM macOS recorder/release tool; no @rightkit package is installed except @rightkit/release."
+        },
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/scripts/build-app.mjs",
+          "line": 76,
+          "detail": "Archived macOS app builds five local Swift helpers with AppKit and ScreenCaptureKit; src-tauri is only a release shim."
+        }
+      ],
+      "shared_evidence": [],
+      "local_evidence": [],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-qts-ggml",
+      "status": "NA",
+      "rationale": "Archived ScreenRight has no production caller for this component in its retained Node/Swift macOS recorder, release scripts, or Rust release shim; component runtime or precise feature is outside this archived source route.",
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/package.json",
+          "line": 1,
+          "detail": "Archived ScreenRight declares a Node ESM macOS recorder/release tool; no @rightkit package is installed except @rightkit/release."
+        },
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/scripts/build-app.mjs",
+          "line": 76,
+          "detail": "Archived macOS app builds five local Swift helpers with AppKit and ScreenCaptureKit; src-tauri is only a release shim."
+        }
+      ],
+      "shared_evidence": [],
+      "local_evidence": [],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-qts-ggml-sys",
+      "status": "NA",
+      "rationale": "Archived ScreenRight has no production caller for this component in its retained Node/Swift macOS recorder, release scripts, or Rust release shim; component runtime or precise feature is outside this archived source route.",
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/package.json",
+          "line": 1,
+          "detail": "Archived ScreenRight declares a Node ESM macOS recorder/release tool; no @rightkit package is installed except @rightkit/release."
+        },
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/scripts/build-app.mjs",
+          "line": 76,
+          "detail": "Archived macOS app builds five local Swift helpers with AppKit and ScreenCaptureKit; src-tauri is only a release shim."
+        }
+      ],
+      "shared_evidence": [],
+      "local_evidence": [],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-record",
+      "status": "NA",
+      "rationale": "Archived recorder is Node/Swift: runner calls local startCapture and writes its own session bundle. rightkit-record is Rust-only, while src-tauri has no dependency or bridge; retained local recorder is not an active Rust competing route.",
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/src/runner.mjs",
+          "line": 7,
+          "symbol": "startCapture import",
+          "detail": "Node recorder imports local capture implementation."
+        },
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/src/runner.mjs",
+          "line": 655,
+          "symbol": "run recording",
+          "detail": "Production runner calls local startCapture."
+        },
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/src-tauri/Cargo.toml",
+          "line": 1,
+          "detail": "Only release-shim manifest; no rightkit-record dependency or Node-to-Rust bridge."
+        }
+      ],
+      "shared_evidence": [],
+      "local_evidence": [],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-record/src/lib.rs",
+          "line": 1,
+          "detail": "Owner is Rust recorder core, unavailable to archive Node/Swift route without a bridge."
+        }
+      ],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-review",
+      "status": "NA",
+      "rationale": "Archived ScreenRight has no production caller for this component in its retained Node/Swift macOS recorder, release scripts, or Rust release shim; component runtime or precise feature is outside this archived source route.",
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/package.json",
+          "line": 1,
+          "detail": "Archived ScreenRight declares a Node ESM macOS recorder/release tool; no @rightkit package is installed except @rightkit/release."
+        },
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/scripts/build-app.mjs",
+          "line": 76,
+          "detail": "Archived macOS app builds five local Swift helpers with AppKit and ScreenCaptureKit; src-tauri is only a release shim."
+        }
+      ],
+      "shared_evidence": [],
+      "local_evidence": [],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-sandbox",
+      "status": "NA",
+      "rationale": "Archived ScreenRight has no production caller for this component in its retained Node/Swift macOS recorder, release scripts, or Rust release shim; component runtime or precise feature is outside this archived source route.",
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/package.json",
+          "line": 1,
+          "detail": "Archived ScreenRight declares a Node ESM macOS recorder/release tool; no @rightkit package is installed except @rightkit/release."
+        },
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/scripts/build-app.mjs",
+          "line": 76,
+          "detail": "Archived macOS app builds five local Swift helpers with AppKit and ScreenCaptureKit; src-tauri is only a release shim."
+        }
+      ],
+      "shared_evidence": [],
+      "local_evidence": [],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-scenario",
+      "status": "NA",
+      "rationale": "Archived ScreenRight has no production caller for this component in its retained Node/Swift macOS recorder, release scripts, or Rust release shim; component runtime or precise feature is outside this archived source route.",
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/package.json",
+          "line": 1,
+          "detail": "Archived ScreenRight declares a Node ESM macOS recorder/release tool; no @rightkit package is installed except @rightkit/release."
+        },
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/scripts/build-app.mjs",
+          "line": 76,
+          "detail": "Archived macOS app builds five local Swift helpers with AppKit and ScreenCaptureKit; src-tauri is only a release shim."
+        }
+      ],
+      "shared_evidence": [],
+      "local_evidence": [],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-search",
+      "status": "NA",
+      "rationale": "Archived ScreenRight has no production caller for this component in its retained Node/Swift macOS recorder, release scripts, or Rust release shim; component runtime or precise feature is outside this archived source route.",
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/package.json",
+          "line": 1,
+          "detail": "Archived ScreenRight declares a Node ESM macOS recorder/release tool; no @rightkit package is installed except @rightkit/release."
+        },
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/scripts/build-app.mjs",
+          "line": 76,
+          "detail": "Archived macOS app builds five local Swift helpers with AppKit and ScreenCaptureKit; src-tauri is only a release shim."
+        }
+      ],
+      "shared_evidence": [],
+      "local_evidence": [],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-secrets",
+      "status": "NA",
+      "rationale": "Archived ScreenRight has no production caller for this component in its retained Node/Swift macOS recorder, release scripts, or Rust release shim; component runtime or precise feature is outside this archived source route.",
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/package.json",
+          "line": 1,
+          "detail": "Archived ScreenRight declares a Node ESM macOS recorder/release tool; no @rightkit package is installed except @rightkit/release."
+        },
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/scripts/build-app.mjs",
+          "line": 76,
+          "detail": "Archived macOS app builds five local Swift helpers with AppKit and ScreenCaptureKit; src-tauri is only a release shim."
+        }
+      ],
+      "shared_evidence": [],
+      "local_evidence": [],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-send",
+      "status": "NA",
+      "rationale": "Archived ScreenRight has no production caller for this component in its retained Node/Swift macOS recorder, release scripts, or Rust release shim; component runtime or precise feature is outside this archived source route.",
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/package.json",
+          "line": 1,
+          "detail": "Archived ScreenRight declares a Node ESM macOS recorder/release tool; no @rightkit package is installed except @rightkit/release."
+        },
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/scripts/build-app.mjs",
+          "line": 76,
+          "detail": "Archived macOS app builds five local Swift helpers with AppKit and ScreenCaptureKit; src-tauri is only a release shim."
+        }
+      ],
+      "shared_evidence": [],
+      "local_evidence": [],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-service",
+      "status": "NA",
+      "rationale": "Archived ScreenRight has no production caller for this component in its retained Node/Swift macOS recorder, release scripts, or Rust release shim; component runtime or precise feature is outside this archived source route.",
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/package.json",
+          "line": 1,
+          "detail": "Archived ScreenRight declares a Node ESM macOS recorder/release tool; no @rightkit package is installed except @rightkit/release."
+        },
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/scripts/build-app.mjs",
+          "line": 76,
+          "detail": "Archived macOS app builds five local Swift helpers with AppKit and ScreenCaptureKit; src-tauri is only a release shim."
+        }
+      ],
+      "shared_evidence": [],
+      "local_evidence": [],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-settings",
+      "status": "NA",
+      "rationale": "Archived ScreenRight has no production caller for this component in its retained Node/Swift macOS recorder, release scripts, or Rust release shim; component runtime or precise feature is outside this archived source route.",
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/package.json",
+          "line": 1,
+          "detail": "Archived ScreenRight declares a Node ESM macOS recorder/release tool; no @rightkit package is installed except @rightkit/release."
+        },
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/scripts/build-app.mjs",
+          "line": 76,
+          "detail": "Archived macOS app builds five local Swift helpers with AppKit and ScreenCaptureKit; src-tauri is only a release shim."
+        }
+      ],
+      "shared_evidence": [],
+      "local_evidence": [],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-shell",
+      "status": "NA",
+      "rationale": "Archived ScreenRight has no production caller for this component in its retained Node/Swift macOS recorder, release scripts, or Rust release shim; component runtime or precise feature is outside this archived source route.",
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/package.json",
+          "line": 1,
+          "detail": "Archived ScreenRight declares a Node ESM macOS recorder/release tool; no @rightkit package is installed except @rightkit/release."
+        },
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/scripts/build-app.mjs",
+          "line": 76,
+          "detail": "Archived macOS app builds five local Swift helpers with AppKit and ScreenCaptureKit; src-tauri is only a release shim."
+        }
+      ],
+      "shared_evidence": [],
+      "local_evidence": [],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-speech-client",
+      "status": "NA",
+      "rationale": "Archived ScreenRight has no production caller for this component in its retained Node/Swift macOS recorder, release scripts, or Rust release shim; component runtime or precise feature is outside this archived source route.",
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/package.json",
+          "line": 1,
+          "detail": "Archived ScreenRight declares a Node ESM macOS recorder/release tool; no @rightkit package is installed except @rightkit/release."
+        },
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/scripts/build-app.mjs",
+          "line": 76,
+          "detail": "Archived macOS app builds five local Swift helpers with AppKit and ScreenCaptureKit; src-tauri is only a release shim."
+        }
+      ],
+      "shared_evidence": [],
+      "local_evidence": [],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-sync",
+      "status": "NA",
+      "rationale": "Archived ScreenRight has no production caller for this component in its retained Node/Swift macOS recorder, release scripts, or Rust release shim; component runtime or precise feature is outside this archived source route.",
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/package.json",
+          "line": 1,
+          "detail": "Archived ScreenRight declares a Node ESM macOS recorder/release tool; no @rightkit package is installed except @rightkit/release."
+        },
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/scripts/build-app.mjs",
+          "line": 76,
+          "detail": "Archived macOS app builds five local Swift helpers with AppKit and ScreenCaptureKit; src-tauri is only a release shim."
+        }
+      ],
+      "shared_evidence": [],
+      "local_evidence": [],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-tauri",
+      "status": "NA",
+      "rationale": "Archived ScreenRight has no production caller for this component in its retained Node/Swift macOS recorder, release scripts, or Rust release shim; component runtime or precise feature is outside this archived source route.",
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/package.json",
+          "line": 1,
+          "detail": "Archived ScreenRight declares a Node ESM macOS recorder/release tool; no @rightkit package is installed except @rightkit/release."
+        },
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/scripts/build-app.mjs",
+          "line": 76,
+          "detail": "Archived macOS app builds five local Swift helpers with AppKit and ScreenCaptureKit; src-tauri is only a release shim."
+        }
+      ],
+      "shared_evidence": [],
+      "local_evidence": [],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-transcript",
+      "status": "NA",
+      "rationale": "Archived ScreenRight has no production caller for this component in its retained Node/Swift macOS recorder, release scripts, or Rust release shim; component runtime or precise feature is outside this archived source route.",
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/package.json",
+          "line": 1,
+          "detail": "Archived ScreenRight declares a Node ESM macOS recorder/release tool; no @rightkit package is installed except @rightkit/release."
+        },
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/scripts/build-app.mjs",
+          "line": 76,
+          "detail": "Archived macOS app builds five local Swift helpers with AppKit and ScreenCaptureKit; src-tauri is only a release shim."
+        }
+      ],
+      "shared_evidence": [],
+      "local_evidence": [],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-tts",
+      "status": "NA",
+      "rationale": "Archived ScreenRight has no production caller for this component in its retained Node/Swift macOS recorder, release scripts, or Rust release shim; component runtime or precise feature is outside this archived source route.",
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/package.json",
+          "line": 1,
+          "detail": "Archived ScreenRight declares a Node ESM macOS recorder/release tool; no @rightkit package is installed except @rightkit/release."
+        },
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/scripts/build-app.mjs",
+          "line": 76,
+          "detail": "Archived macOS app builds five local Swift helpers with AppKit and ScreenCaptureKit; src-tauri is only a release shim."
+        }
+      ],
+      "shared_evidence": [],
+      "local_evidence": [],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-vad",
+      "status": "NA",
+      "rationale": "Archived ScreenRight has no production caller for this component in its retained Node/Swift macOS recorder, release scripts, or Rust release shim; component runtime or precise feature is outside this archived source route.",
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/package.json",
+          "line": 1,
+          "detail": "Archived ScreenRight declares a Node ESM macOS recorder/release tool; no @rightkit package is installed except @rightkit/release."
+        },
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/scripts/build-app.mjs",
+          "line": 76,
+          "detail": "Archived macOS app builds five local Swift helpers with AppKit and ScreenCaptureKit; src-tauri is only a release shim."
+        }
+      ],
+      "shared_evidence": [],
+      "local_evidence": [],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-watch",
+      "status": "NA",
+      "rationale": "Archived ScreenRight has no production caller for this component in its retained Node/Swift macOS recorder, release scripts, or Rust release shim; component runtime or precise feature is outside this archived source route.",
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/package.json",
+          "line": 1,
+          "detail": "Archived ScreenRight declares a Node ESM macOS recorder/release tool; no @rightkit package is installed except @rightkit/release."
+        },
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/scripts/build-app.mjs",
+          "line": 76,
+          "detail": "Archived macOS app builds five local Swift helpers with AppKit and ScreenCaptureKit; src-tauri is only a release shim."
+        }
+      ],
+      "shared_evidence": [],
+      "local_evidence": [],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/agent-room-mcp",
+      "status": "NA",
+      "rationale": "Archived ScreenRight has no production caller for this component in its retained Node/Swift macOS recorder, release scripts, or Rust release shim; component runtime or precise feature is outside this archived source route.",
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/package.json",
+          "line": 1,
+          "detail": "Archived ScreenRight declares a Node ESM macOS recorder/release tool; no @rightkit package is installed except @rightkit/release."
+        },
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/scripts/build-app.mjs",
+          "line": 76,
+          "detail": "Archived macOS app builds five local Swift helpers with AppKit and ScreenCaptureKit; src-tauri is only a release shim."
+        }
+      ],
+      "shared_evidence": [],
+      "local_evidence": [],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/app-shell",
+      "status": "NA",
+      "rationale": "Archived ScreenRight has no production caller for this component in its retained Node/Swift macOS recorder, release scripts, or Rust release shim; component runtime or precise feature is outside this archived source route.",
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/package.json",
+          "line": 1,
+          "detail": "Archived ScreenRight declares a Node ESM macOS recorder/release tool; no @rightkit package is installed except @rightkit/release."
+        },
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/scripts/build-app.mjs",
+          "line": 76,
+          "detail": "Archived macOS app builds five local Swift helpers with AppKit and ScreenCaptureKit; src-tauri is only a release shim."
+        }
+      ],
+      "shared_evidence": [],
+      "local_evidence": [],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/ax",
+      "status": "NA",
+      "rationale": "Archived ScreenRight has no production caller for this component in its retained Node/Swift macOS recorder, release scripts, or Rust release shim; component runtime or precise feature is outside this archived source route.",
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/package.json",
+          "line": 1,
+          "detail": "Archived ScreenRight declares a Node ESM macOS recorder/release tool; no @rightkit package is installed except @rightkit/release."
+        },
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/scripts/build-app.mjs",
+          "line": 76,
+          "detail": "Archived macOS app builds five local Swift helpers with AppKit and ScreenCaptureKit; src-tauri is only a release shim."
+        }
+      ],
+      "shared_evidence": [],
+      "local_evidence": [],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/build-control-policy",
+      "status": "NA",
+      "rationale": "Archived ScreenRight has no production caller for this component in its retained Node/Swift macOS recorder, release scripts, or Rust release shim; component runtime or precise feature is outside this archived source route.",
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/package.json",
+          "line": 1,
+          "detail": "Archived ScreenRight declares a Node ESM macOS recorder/release tool; no @rightkit package is installed except @rightkit/release."
+        },
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/scripts/build-app.mjs",
+          "line": 76,
+          "detail": "Archived macOS app builds five local Swift helpers with AppKit and ScreenCaptureKit; src-tauri is only a release shim."
+        }
+      ],
+      "shared_evidence": [],
+      "local_evidence": [],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/doc-render",
+      "status": "NA",
+      "rationale": "Archived ScreenRight has no production caller for this component in its retained Node/Swift macOS recorder, release scripts, or Rust release shim; component runtime or precise feature is outside this archived source route.",
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/package.json",
+          "line": 1,
+          "detail": "Archived ScreenRight declares a Node ESM macOS recorder/release tool; no @rightkit package is installed except @rightkit/release."
+        },
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/scripts/build-app.mjs",
+          "line": 76,
+          "detail": "Archived macOS app builds five local Swift helpers with AppKit and ScreenCaptureKit; src-tauri is only a release shim."
+        }
+      ],
+      "shared_evidence": [],
+      "local_evidence": [],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/git",
+      "status": "NA",
+      "rationale": "Archived ScreenRight has no production caller for this component in its retained Node/Swift macOS recorder, release scripts, or Rust release shim; component runtime or precise feature is outside this archived source route.",
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/package.json",
+          "line": 1,
+          "detail": "Archived ScreenRight declares a Node ESM macOS recorder/release tool; no @rightkit package is installed except @rightkit/release."
+        },
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/scripts/build-app.mjs",
+          "line": 76,
+          "detail": "Archived macOS app builds five local Swift helpers with AppKit and ScreenCaptureKit; src-tauri is only a release shim."
+        }
+      ],
+      "shared_evidence": [],
+      "local_evidence": [],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/hooks",
+      "status": "NA",
+      "rationale": "Archived ScreenRight has no production caller for this component in its retained Node/Swift macOS recorder, release scripts, or Rust release shim; component runtime or precise feature is outside this archived source route.",
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/package.json",
+          "line": 1,
+          "detail": "Archived ScreenRight declares a Node ESM macOS recorder/release tool; no @rightkit package is installed except @rightkit/release."
+        },
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/scripts/build-app.mjs",
+          "line": 76,
+          "detail": "Archived macOS app builds five local Swift helpers with AppKit and ScreenCaptureKit; src-tauri is only a release shim."
+        }
+      ],
+      "shared_evidence": [],
+      "local_evidence": [],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/i18n",
+      "status": "NA",
+      "rationale": "Archived ScreenRight has no production caller for this component in its retained Node/Swift macOS recorder, release scripts, or Rust release shim; component runtime or precise feature is outside this archived source route.",
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/package.json",
+          "line": 1,
+          "detail": "Archived ScreenRight declares a Node ESM macOS recorder/release tool; no @rightkit package is installed except @rightkit/release."
+        },
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/scripts/build-app.mjs",
+          "line": 76,
+          "detail": "Archived macOS app builds five local Swift helpers with AppKit and ScreenCaptureKit; src-tauri is only a release shim."
+        }
+      ],
+      "shared_evidence": [],
+      "local_evidence": [],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/legal",
+      "status": "NA",
+      "rationale": "Archived ScreenRight has no production caller for this component in its retained Node/Swift macOS recorder, release scripts, or Rust release shim; component runtime or precise feature is outside this archived source route.",
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/package.json",
+          "line": 1,
+          "detail": "Archived ScreenRight declares a Node ESM macOS recorder/release tool; no @rightkit package is installed except @rightkit/release."
+        },
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/scripts/build-app.mjs",
+          "line": 76,
+          "detail": "Archived macOS app builds five local Swift helpers with AppKit and ScreenCaptureKit; src-tauri is only a release shim."
+        }
+      ],
+      "shared_evidence": [],
+      "local_evidence": [],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/legal-ui",
+      "status": "NA",
+      "rationale": "Archived ScreenRight has no production caller for this component in its retained Node/Swift macOS recorder, release scripts, or Rust release shim; component runtime or precise feature is outside this archived source route.",
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/package.json",
+          "line": 1,
+          "detail": "Archived ScreenRight declares a Node ESM macOS recorder/release tool; no @rightkit package is installed except @rightkit/release."
+        },
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/scripts/build-app.mjs",
+          "line": 76,
+          "detail": "Archived macOS app builds five local Swift helpers with AppKit and ScreenCaptureKit; src-tauri is only a release shim."
+        }
+      ],
+      "shared_evidence": [],
+      "local_evidence": [],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/license",
+      "status": "NA",
+      "rationale": "Archived ScreenRight has no production caller for this component in its retained Node/Swift macOS recorder, release scripts, or Rust release shim; component runtime or precise feature is outside this archived source route.",
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/package.json",
+          "line": 1,
+          "detail": "Archived ScreenRight declares a Node ESM macOS recorder/release tool; no @rightkit package is installed except @rightkit/release."
+        },
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/scripts/build-app.mjs",
+          "line": 76,
+          "detail": "Archived macOS app builds five local Swift helpers with AppKit and ScreenCaptureKit; src-tauri is only a release shim."
+        }
+      ],
+      "shared_evidence": [],
+      "local_evidence": [],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/logs",
+      "status": "NA",
+      "rationale": "Archived ScreenRight has no production caller for this component in its retained Node/Swift macOS recorder, release scripts, or Rust release shim; component runtime or precise feature is outside this archived source route.",
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/package.json",
+          "line": 1,
+          "detail": "Archived ScreenRight declares a Node ESM macOS recorder/release tool; no @rightkit package is installed except @rightkit/release."
+        },
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/scripts/build-app.mjs",
+          "line": 76,
+          "detail": "Archived macOS app builds five local Swift helpers with AppKit and ScreenCaptureKit; src-tauri is only a release shim."
+        }
+      ],
+      "shared_evidence": [],
+      "local_evidence": [],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/media-ui",
+      "status": "NA",
+      "rationale": "Archived ScreenRight has no production caller for this component in its retained Node/Swift macOS recorder, release scripts, or Rust release shim; component runtime or precise feature is outside this archived source route.",
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/package.json",
+          "line": 1,
+          "detail": "Archived ScreenRight declares a Node ESM macOS recorder/release tool; no @rightkit package is installed except @rightkit/release."
+        },
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/scripts/build-app.mjs",
+          "line": 76,
+          "detail": "Archived macOS app builds five local Swift helpers with AppKit and ScreenCaptureKit; src-tauri is only a release shim."
+        }
+      ],
+      "shared_evidence": [],
+      "local_evidence": [],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/onboarding",
+      "status": "NA",
+      "rationale": "Archived ScreenRight has no production caller for this component in its retained Node/Swift macOS recorder, release scripts, or Rust release shim; component runtime or precise feature is outside this archived source route.",
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/package.json",
+          "line": 1,
+          "detail": "Archived ScreenRight declares a Node ESM macOS recorder/release tool; no @rightkit package is installed except @rightkit/release."
+        },
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/scripts/build-app.mjs",
+          "line": 76,
+          "detail": "Archived macOS app builds five local Swift helpers with AppKit and ScreenCaptureKit; src-tauri is only a release shim."
+        }
+      ],
+      "shared_evidence": [],
+      "local_evidence": [],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/pdf-ui",
+      "status": "NA",
+      "rationale": "Archived ScreenRight has no production caller for this component in its retained Node/Swift macOS recorder, release scripts, or Rust release shim; component runtime or precise feature is outside this archived source route.",
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/package.json",
+          "line": 1,
+          "detail": "Archived ScreenRight declares a Node ESM macOS recorder/release tool; no @rightkit package is installed except @rightkit/release."
+        },
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/scripts/build-app.mjs",
+          "line": 76,
+          "detail": "Archived macOS app builds five local Swift helpers with AppKit and ScreenCaptureKit; src-tauri is only a release shim."
+        }
+      ],
+      "shared_evidence": [],
+      "local_evidence": [],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/platform-ui",
+      "status": "NA",
+      "rationale": "Archived ScreenRight has no production caller for this component in its retained Node/Swift macOS recorder, release scripts, or Rust release shim; component runtime or precise feature is outside this archived source route.",
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/package.json",
+          "line": 1,
+          "detail": "Archived ScreenRight declares a Node ESM macOS recorder/release tool; no @rightkit package is installed except @rightkit/release."
+        },
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/scripts/build-app.mjs",
+          "line": 76,
+          "detail": "Archived macOS app builds five local Swift helpers with AppKit and ScreenCaptureKit; src-tauri is only a release shim."
+        }
+      ],
+      "shared_evidence": [],
+      "local_evidence": [],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/qa",
+      "status": "NA",
+      "rationale": "Archived ScreenRight has no production caller for this component in its retained Node/Swift macOS recorder, release scripts, or Rust release shim; component runtime or precise feature is outside this archived source route.",
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/package.json",
+          "line": 1,
+          "detail": "Archived ScreenRight declares a Node ESM macOS recorder/release tool; no @rightkit package is installed except @rightkit/release."
+        },
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/scripts/build-app.mjs",
+          "line": 76,
+          "detail": "Archived macOS app builds five local Swift helpers with AppKit and ScreenCaptureKit; src-tauri is only a release shim."
+        }
+      ],
+      "shared_evidence": [],
+      "local_evidence": [],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/qa-chrome",
+      "status": "NA",
+      "rationale": "Archived ScreenRight has no production caller for this component in its retained Node/Swift macOS recorder, release scripts, or Rust release shim; component runtime or precise feature is outside this archived source route.",
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/package.json",
+          "line": 1,
+          "detail": "Archived ScreenRight declares a Node ESM macOS recorder/release tool; no @rightkit package is installed except @rightkit/release."
+        },
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/scripts/build-app.mjs",
+          "line": 76,
+          "detail": "Archived macOS app builds five local Swift helpers with AppKit and ScreenCaptureKit; src-tauri is only a release shim."
+        }
+      ],
+      "shared_evidence": [],
+      "local_evidence": [],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/release",
+      "status": "Y",
+      "rationale": "Archived package scripts and macOS release config invoke installed right-release commands for build, upload, update publication, updater signing, and artifact mirroring; no competing local release CLI is active.",
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/package.json",
+          "line": 1,
+          "detail": "Archived ScreenRight declares a Node ESM macOS recorder/release tool; no @rightkit package is installed except @rightkit/release."
+        },
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/scripts/build-app.mjs",
+          "line": 76,
+          "detail": "Archived macOS app builds five local Swift helpers with AppKit and ScreenCaptureKit; src-tauri is only a release shim."
+        }
+      ],
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/package.json",
+          "line": 16,
+          "symbol": "scripts.release:build:mac",
+          "detail": "Production release script invokes right-release build."
+        },
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/scripts/release-package.mjs",
+          "line": 55,
+          "symbol": "release packaging",
+          "detail": "macOS package route invokes pnpm exec right-release sign-updater and mirror-root-artifact."
+        }
+      ],
+      "local_evidence": [],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/packages/release/cli/right-release.mjs",
+          "line": 8,
+          "symbol": "commands",
+          "detail": "Shared CLI dispatches build, upload, publish-update, sign-updater, and mirror-root-artifact."
+        }
+      ],
+      "delivery_flags": [
+        "Archived package pins @rightkit/release 0.2.66 as a devDependency; source status does not qualify current artifact/release execution."
+      ],
+      "remaining_work": "Retain release route only if archive becomes maintained; update to a published supported release version before a new delivery.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/settings-ui",
+      "status": "NA",
+      "rationale": "Archived ScreenRight has no production caller for this component in its retained Node/Swift macOS recorder, release scripts, or Rust release shim; component runtime or precise feature is outside this archived source route.",
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/package.json",
+          "line": 1,
+          "detail": "Archived ScreenRight declares a Node ESM macOS recorder/release tool; no @rightkit package is installed except @rightkit/release."
+        },
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/scripts/build-app.mjs",
+          "line": 76,
+          "detail": "Archived macOS app builds five local Swift helpers with AppKit and ScreenCaptureKit; src-tauri is only a release shim."
+        }
+      ],
+      "shared_evidence": [],
+      "local_evidence": [],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/shell",
+      "status": "NA",
+      "rationale": "Archived ScreenRight has no production caller for this component in its retained Node/Swift macOS recorder, release scripts, or Rust release shim; component runtime or precise feature is outside this archived source route.",
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/package.json",
+          "line": 1,
+          "detail": "Archived ScreenRight declares a Node ESM macOS recorder/release tool; no @rightkit package is installed except @rightkit/release."
+        },
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/scripts/build-app.mjs",
+          "line": 76,
+          "detail": "Archived macOS app builds five local Swift helpers with AppKit and ScreenCaptureKit; src-tauri is only a release shim."
+        }
+      ],
+      "shared_evidence": [],
+      "local_evidence": [],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/tauri",
+      "status": "NA",
+      "rationale": "Archived ScreenRight has no production caller for this component in its retained Node/Swift macOS recorder, release scripts, or Rust release shim; component runtime or precise feature is outside this archived source route.",
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/package.json",
+          "line": 1,
+          "detail": "Archived ScreenRight declares a Node ESM macOS recorder/release tool; no @rightkit package is installed except @rightkit/release."
+        },
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/scripts/build-app.mjs",
+          "line": 76,
+          "detail": "Archived macOS app builds five local Swift helpers with AppKit and ScreenCaptureKit; src-tauri is only a release shim."
+        }
+      ],
+      "shared_evidence": [],
+      "local_evidence": [],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/theme",
+      "status": "NA",
+      "rationale": "Archived ScreenRight has no production caller for this component in its retained Node/Swift macOS recorder, release scripts, or Rust release shim; component runtime or precise feature is outside this archived source route.",
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/package.json",
+          "line": 1,
+          "detail": "Archived ScreenRight declares a Node ESM macOS recorder/release tool; no @rightkit package is installed except @rightkit/release."
+        },
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/scripts/build-app.mjs",
+          "line": 76,
+          "detail": "Archived macOS app builds five local Swift helpers with AppKit and ScreenCaptureKit; src-tauri is only a release shim."
+        }
+      ],
+      "shared_evidence": [],
+      "local_evidence": [],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/update",
+      "status": "NA",
+      "rationale": "Archived ScreenRight has no production caller for this component in its retained Node/Swift macOS recorder, release scripts, or Rust release shim; component runtime or precise feature is outside this archived source route.",
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/package.json",
+          "line": 1,
+          "detail": "Archived ScreenRight declares a Node ESM macOS recorder/release tool; no @rightkit package is installed except @rightkit/release."
+        },
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/scripts/build-app.mjs",
+          "line": 76,
+          "detail": "Archived macOS app builds five local Swift helpers with AppKit and ScreenCaptureKit; src-tauri is only a release shim."
+        }
+      ],
+      "shared_evidence": [],
+      "local_evidence": [],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/updates",
+      "status": "NA",
+      "rationale": "Archived native helper has a local Swift DMG updater, but it does not import the TypeScript runtime update package and no Node/Swift bridge is present; package is not a production route.",
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/menu/RightAppsUpdater.swift",
+          "line": 16,
+          "symbol": "RightAppsUpdater",
+          "detail": "Local Swift updater owns archive DMG check/download/verification."
+        },
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/package.json",
+          "line": 27,
+          "detail": "No @rightkit/updates dependency is declared."
+        }
+      ],
+      "shared_evidence": [],
+      "local_evidence": [],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/packages/updates/src/index.ts",
+          "line": 137,
+          "symbol": "createAutoUpdateClient",
+          "detail": "Owner TypeScript runtime update API is not imported by archive."
+        }
+      ],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitLicense",
+      "status": "NA",
+      "rationale": "Archived ScreenRight has no production caller for this component in its retained Node/Swift macOS recorder, release scripts, or Rust release shim; component runtime or precise feature is outside this archived source route.",
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/package.json",
+          "line": 1,
+          "detail": "Archived ScreenRight declares a Node ESM macOS recorder/release tool; no @rightkit package is installed except @rightkit/release."
+        },
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/scripts/build-app.mjs",
+          "line": 76,
+          "detail": "Archived macOS app builds five local Swift helpers with AppKit and ScreenCaptureKit; src-tauri is only a release shim."
+        }
+      ],
+      "shared_evidence": [],
+      "local_evidence": [],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitDiagnostics",
+      "status": "N",
+      "rationale": "Built local Swift helper writes redacted JSONL diagnostics; it does not import RightKitDiagnostics, so retained source has an active local implementation overlapping owner diagnostic storage.",
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/package.json",
+          "line": 1,
+          "detail": "Archived ScreenRight declares a Node ESM macOS recorder/release tool; no @rightkit package is installed except @rightkit/release."
+        },
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/scripts/build-app.mjs",
+          "line": 76,
+          "detail": "Archived macOS app builds five local Swift helpers with AppKit and ScreenCaptureKit; src-tauri is only a release shim."
+        }
+      ],
+      "shared_evidence": [],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/menu/RightKitDiagnostics.swift",
+          "line": 6,
+          "symbol": "RightKitDiagnostics",
+          "detail": "Built local helper owns persistent diagnostic sink."
+        },
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/menu/RightKitDiagnostics.swift",
+          "line": 17,
+          "symbol": "record",
+          "detail": "Local route redacts fields then appends JSONL."
+        },
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/scripts/build-app.mjs",
+          "line": 84,
+          "symbol": "swift sources",
+          "detail": "Production macOS build compiles RightKitDiagnostics.swift into menu helper."
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/swift/RightKitSwift/Sources/RightKitDiagnostics/JSONLDiagnosticStore.swift",
+          "line": 77,
+          "symbol": "JSONLDiagnosticStore",
+          "detail": "Owner provides Swift JSONL diagnostic store."
+        },
+        {
+          "path": "/Volumes/D/claude/rightkit/swift/RightKitSwift/Sources/RightKitDiagnostics/JSONLDiagnosticStore.swift",
+          "line": 105,
+          "symbol": "record",
+          "detail": "Owner records one redacted diagnostic event under a file lock."
+        }
+      ],
+      "delivery_flags": [],
+      "remaining_work": "If archive is reactivated, replace local helper with version-pinned RightKitDiagnostics integration and preserve ScreenRight event schema/redaction policy.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitArtifacts",
+      "status": "NA",
+      "rationale": "Local Swift updater validates and stages DMG updates, while RightKitArtifacts installs verified tar.gz artifact directories. Archive imports neither package nor matching artifact API; mechanisms have distinct contracts.",
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/menu/RightAppsUpdater.swift",
+          "line": 16,
+          "symbol": "RightAppsUpdater",
+          "detail": "Local helper owns signed DMG updater."
+        },
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/menu/RightAppsUpdater.swift",
+          "line": 97,
+          "symbol": "install",
+          "detail": "Local updater requires signed DMG artifact."
+        }
+      ],
+      "shared_evidence": [],
+      "local_evidence": [],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/swift/RightKitSwift/Sources/RightKitArtifacts/ArtifactInstaller.swift",
+          "line": 153,
+          "symbol": "ArtifactInstaller.install",
+          "detail": "Owner installs verified tar.gz directory artifacts, not application DMGs."
+        }
+      ],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitPurchases",
+      "status": "NA",
+      "rationale": "Archived ScreenRight has no production caller for this component in its retained Node/Swift macOS recorder, release scripts, or Rust release shim; component runtime or precise feature is outside this archived source route.",
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/package.json",
+          "line": 1,
+          "detail": "Archived ScreenRight declares a Node ESM macOS recorder/release tool; no @rightkit package is installed except @rightkit/release."
+        },
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/scripts/build-app.mjs",
+          "line": 76,
+          "detail": "Archived macOS app builds five local Swift helpers with AppKit and ScreenCaptureKit; src-tauri is only a release shim."
+        }
+      ],
+      "shared_evidence": [],
+      "local_evidence": [],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitCloudSync",
+      "status": "NA",
+      "rationale": "Archived ScreenRight has no production caller for this component in its retained Node/Swift macOS recorder, release scripts, or Rust release shim; component runtime or precise feature is outside this archived source route.",
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/package.json",
+          "line": 1,
+          "detail": "Archived ScreenRight declares a Node ESM macOS recorder/release tool; no @rightkit package is installed except @rightkit/release."
+        },
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/scripts/build-app.mjs",
+          "line": 76,
+          "detail": "Archived macOS app builds five local Swift helpers with AppKit and ScreenCaptureKit; src-tauri is only a release shim."
+        }
+      ],
+      "shared_evidence": [],
+      "local_evidence": [],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitStore",
+      "status": "NA",
+      "rationale": "Archived ScreenRight has no production caller for this component in its retained Node/Swift macOS recorder, release scripts, or Rust release shim; component runtime or precise feature is outside this archived source route.",
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/package.json",
+          "line": 1,
+          "detail": "Archived ScreenRight declares a Node ESM macOS recorder/release tool; no @rightkit package is installed except @rightkit/release."
+        },
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/scripts/build-app.mjs",
+          "line": 76,
+          "detail": "Archived macOS app builds five local Swift helpers with AppKit and ScreenCaptureKit; src-tauri is only a release shim."
+        }
+      ],
+      "shared_evidence": [],
+      "local_evidence": [],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitImportQueue",
+      "status": "NA",
+      "rationale": "Archived ScreenRight has no production caller for this component in its retained Node/Swift macOS recorder, release scripts, or Rust release shim; component runtime or precise feature is outside this archived source route.",
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/package.json",
+          "line": 1,
+          "detail": "Archived ScreenRight declares a Node ESM macOS recorder/release tool; no @rightkit package is installed except @rightkit/release."
+        },
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/scripts/build-app.mjs",
+          "line": 76,
+          "detail": "Archived macOS app builds five local Swift helpers with AppKit and ScreenCaptureKit; src-tauri is only a release shim."
+        }
+      ],
+      "shared_evidence": [],
+      "local_evidence": [],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitLiveActivity",
+      "status": "NA",
+      "rationale": "Archived ScreenRight has no production caller for this component in its retained Node/Swift macOS recorder, release scripts, or Rust release shim; component runtime or precise feature is outside this archived source route.",
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/package.json",
+          "line": 1,
+          "detail": "Archived ScreenRight declares a Node ESM macOS recorder/release tool; no @rightkit package is installed except @rightkit/release."
+        },
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/scripts/build-app.mjs",
+          "line": 76,
+          "detail": "Archived macOS app builds five local Swift helpers with AppKit and ScreenCaptureKit; src-tauri is only a release shim."
+        }
+      ],
+      "shared_evidence": [],
+      "local_evidence": [],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitWatchBridge",
+      "status": "NA",
+      "rationale": "Archived ScreenRight has no production caller for this component in its retained Node/Swift macOS recorder, release scripts, or Rust release shim; component runtime or precise feature is outside this archived source route.",
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/package.json",
+          "line": 1,
+          "detail": "Archived ScreenRight declares a Node ESM macOS recorder/release tool; no @rightkit package is installed except @rightkit/release."
+        },
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/scripts/build-app.mjs",
+          "line": 76,
+          "detail": "Archived macOS app builds five local Swift helpers with AppKit and ScreenCaptureKit; src-tauri is only a release shim."
+        }
+      ],
+      "shared_evidence": [],
+      "local_evidence": [],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitSpeech",
+      "status": "NA",
+      "rationale": "Archived ScreenRight has no production caller for this component in its retained Node/Swift macOS recorder, release scripts, or Rust release shim; component runtime or precise feature is outside this archived source route.",
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/package.json",
+          "line": 1,
+          "detail": "Archived ScreenRight declares a Node ESM macOS recorder/release tool; no @rightkit package is installed except @rightkit/release."
+        },
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/scripts/build-app.mjs",
+          "line": 76,
+          "detail": "Archived macOS app builds five local Swift helpers with AppKit and ScreenCaptureKit; src-tauri is only a release shim."
+        }
+      ],
+      "shared_evidence": [],
+      "local_evidence": [],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitIntents",
+      "status": "NA",
+      "rationale": "Archived ScreenRight has no production caller for this component in its retained Node/Swift macOS recorder, release scripts, or Rust release shim; component runtime or precise feature is outside this archived source route.",
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/package.json",
+          "line": 1,
+          "detail": "Archived ScreenRight declares a Node ESM macOS recorder/release tool; no @rightkit package is installed except @rightkit/release."
+        },
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/scripts/build-app.mjs",
+          "line": 76,
+          "detail": "Archived macOS app builds five local Swift helpers with AppKit and ScreenCaptureKit; src-tauri is only a release shim."
+        }
+      ],
+      "shared_evidence": [],
+      "local_evidence": [],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitAppleCredentials",
+      "status": "NA",
+      "rationale": "Archived ScreenRight has no production caller for this component in its retained Node/Swift macOS recorder, release scripts, or Rust release shim; component runtime or precise feature is outside this archived source route.",
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/package.json",
+          "line": 1,
+          "detail": "Archived ScreenRight declares a Node ESM macOS recorder/release tool; no @rightkit package is installed except @rightkit/release."
+        },
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/scripts/build-app.mjs",
+          "line": 76,
+          "detail": "Archived macOS app builds five local Swift helpers with AppKit and ScreenCaptureKit; src-tauri is only a release shim."
+        }
+      ],
+      "shared_evidence": [],
+      "local_evidence": [],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitOverlay",
+      "status": "NA",
+      "rationale": "Archived ScreenRight has no production caller for this component in its retained Node/Swift macOS recorder, release scripts, or Rust release shim; component runtime or precise feature is outside this archived source route.",
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/package.json",
+          "line": 1,
+          "detail": "Archived ScreenRight declares a Node ESM macOS recorder/release tool; no @rightkit package is installed except @rightkit/release."
+        },
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/scripts/build-app.mjs",
+          "line": 76,
+          "detail": "Archived macOS app builds five local Swift helpers with AppKit and ScreenCaptureKit; src-tauri is only a release shim."
+        }
+      ],
+      "shared_evidence": [],
+      "local_evidence": [],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitWatch",
+      "status": "NA",
+      "rationale": "Archived ScreenRight has no production caller for this component in its retained Node/Swift macOS recorder, release scripts, or Rust release shim; component runtime or precise feature is outside this archived source route.",
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/package.json",
+          "line": 1,
+          "detail": "Archived ScreenRight declares a Node ESM macOS recorder/release tool; no @rightkit package is installed except @rightkit/release."
+        },
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/scripts/build-app.mjs",
+          "line": 76,
+          "detail": "Archived macOS app builds five local Swift helpers with AppKit and ScreenCaptureKit; src-tauri is only a release shim."
+        }
+      ],
+      "shared_evidence": [],
+      "local_evidence": [],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitUI",
+      "status": "NA",
+      "rationale": "Archived ScreenRight has no production caller for this component in its retained Node/Swift macOS recorder, release scripts, or Rust release shim; component runtime or precise feature is outside this archived source route.",
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/package.json",
+          "line": 1,
+          "detail": "Archived ScreenRight declares a Node ESM macOS recorder/release tool; no @rightkit package is installed except @rightkit/release."
+        },
+        {
+          "path": "/Volumes/D/claude/archive/screenright-2026-10-08/scripts/build-app.mjs",
+          "line": 76,
+          "detail": "Archived macOS app builds five local Swift helpers with AppKit and ScreenCaptureKit; src-tauri is only a release shim."
+        }
+      ],
+      "shared_evidence": [],
+      "local_evidence": [],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    }
+  ],
+  "searches": [
+    {
+      "pattern": "rightkit|RightKit|@rightkit|right-release|RightApps",
+      "scope": "retained package.json, right-release.config.mjs, src, menu, scripts, src-tauri; generated/binary/cache/test paths excluded",
+      "result": "Only @rightkit/release is declared/invoked. Local Swift files named RightKitDiagnostics and RightAppsUpdater are compiled helpers, not imported RightKitSwift modules."
+    },
+    {
+      "pattern": "startCapture|compileRenderPlan|atomicWriteFile|buildMixer|ffmpeg",
+      "scope": "retained src production Node modules and runner",
+      "result": "Local Node recorder, render-plan, atomic session persistence, audio mixer, and FFmpeg route are live within archive; no Cargo bridge/dependency was found."
+    },
+    {
+      "pattern": "rightkit-record|rightkit-compose|rightkit-audio|rightkit-media|rightkit-fs|RightKitDiagnostics|RightKitArtifacts|@rightkit/updates",
+      "scope": "retained manifests, source imports and Cargo release shim",
+      "result": "No Rust/SwiftPM RightKit integration exists; local diagnostics overlaps Swift RightKitDiagnostics, while other same-name capability matches lack a usable archive bridge or have different API contracts."
+    }
+  ],
+  "self_review": "Challenged apparent recorder, composition, audio, media, filesystem, and updater duplicates. Kept them NA because archive production route is Node/Swift and src-tauri has no dependencies or bridge to Rust/TypeScript owners; classified only local Swift diagnostics N because exact Swift owner API exists in same native language and no shared import is present. Confirmed release Y from declared dependency plus active scripts/config, not package presence alone."
+}

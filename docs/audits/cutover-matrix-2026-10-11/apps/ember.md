@@ -1,0 +1,34 @@
+# Ember cutover audit
+
+Fresh source-only audit at `7ee6f2c7e17a8b6ddeaeebc876653dbd9e2ebc55`. Targets: desktop-tauri-macos, desktop-tauri-windows, desktop-linux-egui, web-wasm, cli, mcp.
+
+Counts: Y=8, N=13, M=0, NA=76.
+
+Applicable rows:
+- `cargo:rightkit-cache` **N** — Preview::DiskCache and Lru are live Ember thumbnail caches; no rightkit-cache caller reaches production. Task: Compare preview::DiskCache JPEG encoding, key shape, budget/eviction and rebuild behavior with rightkit-cache::DiskCache; migrate only after parity, then remove local cache.
+- `cargo:rightkit-control` **Y** — qa-native Tauri registers Ember commands through RightKit Control. Ember's egui JSON-lines server remains target-specific because RightKit Control's embedded owner requires a Tauri webview. Task: Retain shared qa-native route & egui protocol.
+- `cargo:rightkit-crash` **N** — AppLogger::record_panics installs Ember panic capture; no rightkit-crash hook is wired. Task: Route logging::record_panics through rightkit-crash::install_panic_hook/record_report; preserve Ember redaction, rotation and pending-file policy before deleting local hook.
+- `cargo:rightkit-fs` **N** — Ember safe_file::write_atomic and LibraryLock own durable writes/locking; no rightkit-fs caller is wired. Task: Map safe_file::write_atomic and LibraryLock to rightkit-fs atomic_write/FileLock; preserve export durability plus network-filesystem fallback before deleting local primitives.
+- `cargo:rightkit-http` **N** — photo-ai calls Ember lightcraft_fetch get/post_json directly for OpenRouter; no rightkit-http caller is wired. Task: Adapt photo-ai get/post_json to rightkit-http::Client; preserve OpenRouter endpoint policy, response caps and cancellation before deleting lightcraft_fetch HTTP.
+- `cargo:rightkit-llm` **N** — photo-ai owns OpenRouter request construction, auth, response limits and parsing; no rightkit-llm provider caller is wired. Task: Adapt OpenRouter request_body/parse_response to rightkit-llm::openai::OpenAiCompatProvider; preserve Ember prompt, receipt and model-selection policy before removing transport code.
+- `cargo:rightkit-logs` **N** — Ember AppLogger owns filters, rotating files and panic records; no rightkit-logs writer/tracing caller is wired. Task: Map AppLogger install/record_panics to rightkit-logs JsonlStore/tracing APIs; preserve Ember filters, rotation and stderr behavior before removal.
+- `cargo:rightkit-mcp` **N** — Ember crates/mcp Server owns JSON-RPC lifecycle, tools/list and tools/call; no rightkit-mcp ServerHost caller is wired. Task: Adapt crates/mcp Server to rightkit-mcp ServerHost; preserve Ember tool schemas, resource URIs and local admission policy before removing JSON-RPC server code.
+- `cargo:rightkit-models` **N** — Segmenter::start_download uses Ember SAM3 downloader, mirrors and activation; no rightkit-models Store caller is wired. Task: Map Segmenter downloader to rightkit-models Store/InstallOptions; preserve SAM3 mirror acknowledgment, license UX and model path before deleting local installer.
+- `cargo:rightkit-qa` **Y** — native_qualification.rs imports rightkit_qa::control::launch, Harness, workspace and evidence APIs for actual Tauri qualification. Task: Retain shared route; complete package/version/runtime qualification before release signoff.
+- `cargo:rightkit-settings` **N** — Preferences::patch owns Ember JSON merge, corruption quarantine and atomic persistence; no rightkit-settings Store caller is wired. Task: Map Preferences load/patch/quarantine to rightkit-settings Store/FileBackend; preserve unknown keys and blocked-session behavior before deleting local persistence.
+- `cargo:rightkit-shell` **Y** — native.rs builds rightkit_shell::Shell, installs shell.plugin and dispatches rightkit_shell::handler in live Tauri host. Task: Retain shared route; complete package/version/runtime qualification before release signoff.
+- `cargo:rightkit-watch` **N** — AutoImport::poll owns Ember folder polling, worker cancellation and import queueing; no rightkit-watch FileSetWatcher caller is wired. Task: Replace AutoImport::poll with rightkit-watch FileSetWatcher only after preserving generation cancellation, rename handling and import queue semantics.
+- `npm:@rightkit/app-shell` **Y** — App.tsx mounts shared AppShell and registers useCommands/useShortcuts in live renderer. Task: Retain shared route; complete package/version/runtime qualification before release signoff.
+- `npm:@rightkit/git` **Y** — package scripts rightgit:sync and rightgit:drift dispatch right-git over Ember workspace. Task: Retain shared route; complete package/version/runtime qualification before release signoff.
+- `npm:@rightkit/i18n` **N** — Ember i18n.ts owns locale normalization, imported catalogs and translation fallback; no @rightkit/i18n createI18n caller is wired. Task: Replace i18n.ts normalizeLocale/translate with @rightkit/i18n createI18n; preserve Ember locale catalogs and fallback behavior before deleting local provider.
+- `npm:@rightkit/media-ui` **N** — PhotoPreview owns native preview-handle conversion, layered handoff & retry state; no ImageViewer/ImageEditor caller is wired. StageWorkspace mask geometry & photo-develop commands remain Ember policy. Task: Evaluate adapter for base viewing only.
+- `npm:@rightkit/platform-ui` **Y** — App.tsx passes getPlatform() into live AppShell; shared QA/native platform resolver is active. Task: Retain shared route; complete package/version/runtime qualification before release signoff.
+- `npm:@rightkit/release` **Y** — desktop gate/candidate/build scripts call runCargoSync or runDevelopment from @rightkit/release. Task: Retain shared route; complete package/version/runtime qualification before release signoff.
+- `npm:@rightkit/shell` **Y** — App.tsx creates shared createShell bridge and awaits shell.ready() during live renderer startup. Task: Retain shared route; complete package/version/runtime qualification before release signoff.
+- `npm:@rightkit/theme` **N** — Ember app.css owns local token overrides and stage surfaces; @rightkit/theme has no production import. Task: Adopt @rightkit/theme token/runtime APIs for Ember colors and dark mode or document product-owned overrides; remove duplicate token definitions only after rendered parity.
+
+Largest gaps:
+- App-owned cache, crash, filesystem, HTTP, LLM, logs, MCP, model install, settings, watch, i18n, base media viewing & theme paths need individual behavior/target comparisons before any cutover.
+- `rightkit-jobs` is durable/recoverable work, unlike Ember's in-memory worker queue; `rightkit-search` is SQL/FTS compilation, unlike Ember's in-memory photo filter. Both are NA, not cutover gaps.
+
+Evidence rule: every Y/M uses production caller evidence; every N uses live local caller plus canonical owner API. No builds, installs, network or product changes were run.

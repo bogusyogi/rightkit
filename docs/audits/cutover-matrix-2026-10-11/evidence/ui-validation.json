@@ -1,0 +1,18 @@
+{
+  "checked_at": "2026-10-11T03:08:54.479Z",
+  "matrix_sha256": "1da8a5abf7f21349e4bda4c3f2da9e65ec45d49c94af671036fe78cc2851161e",
+  "rows": 97,
+  "apps": 29,
+  "cells": 2813,
+  "checks": [
+    "full render",
+    "PDF Y/M states",
+    "evidence dialog",
+    "migration filter",
+    "RightSites 15 Swift states",
+    "27 active columns",
+    "2 retained columns",
+    "no JavaScript errors",
+    "no network requests"
+  ]
+}

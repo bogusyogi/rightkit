@@ -1,0 +1,1981 @@
+{
+  "app": "Ember",
+  "root": "/Volumes/D/claude/ember",
+  "head": "7ee6f2c7e17a8b6ddeaeebc876653dbd9e2ebc55",
+  "reviewed_at": "2026-10-11T08:25:47+05:30",
+  "targets": [
+    "desktop-tauri-macos",
+    "desktop-tauri-windows",
+    "desktop-linux-egui",
+    "web-wasm",
+    "cli",
+    "mcp"
+  ],
+  "scope_note": "Fresh source-only census of active Ember Rust photo-library/editor, Tauri desktop renderer, egui desktop, CLI, MCP, scripts, QA and release config. Generated/cache/vendor/node_modules/build outputs and prior audits excluded; no execution qualification implied.",
+  "cells": [
+    {
+      "component_id": "cargo:agent-room-core",
+      "status": "NA",
+      "rationale": "No active Ember target/caller exercises cargo:agent-room-core.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/ember/Cargo.toml",
+          "line": 1,
+          "detail": "Rust workspace source census excludes cargo:agent-room-core; no production dependency or caller"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None unless Ember adds this runtime or feature.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-agent-tools",
+      "status": "NA",
+      "rationale": "No typed agent-tool runtime or right-ctl caller in Ember targets.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/ember/Cargo.toml",
+          "line": 1,
+          "detail": "Rust workspace source census excludes cargo:rightkit-agent-tools; no production dependency or caller"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None unless Ember adds this runtime or feature.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-align",
+      "status": "NA",
+      "rationale": "No speech script/word alignment feature in Ember.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/ember/Cargo.toml",
+          "line": 1,
+          "detail": "Rust workspace source census excludes cargo:rightkit-align; no production dependency or caller"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None unless Ember adds this runtime or feature.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-asr",
+      "status": "NA",
+      "rationale": "No speech decoder or microphone transcription feature in Ember.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/ember/Cargo.toml",
+          "line": 1,
+          "detail": "Rust workspace source census excludes cargo:rightkit-asr; no production dependency or caller"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None unless Ember adds this runtime or feature.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-audio",
+      "status": "NA",
+      "rationale": "No shared audio bus or recording pipeline in Ember.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/ember/Cargo.toml",
+          "line": 1,
+          "detail": "Rust workspace source census excludes cargo:rightkit-audio; no production dependency or caller"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None unless Ember adds this runtime or feature.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-automation",
+      "status": "NA",
+      "rationale": "No external-app automation ladder in Ember production targets.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/ember/Cargo.toml",
+          "line": 1,
+          "detail": "Rust workspace source census excludes cargo:rightkit-automation; no production dependency or caller"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None unless Ember adds this runtime or feature.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-browser",
+      "status": "NA",
+      "rationale": "No browser automation target; renderer runs in Tauri/webview.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/ember/Cargo.toml",
+          "line": 1,
+          "detail": "Rust workspace source census excludes cargo:rightkit-browser; no production dependency or caller"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None unless Ember adds this runtime or feature.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-cache",
+      "status": "N",
+      "rationale": "Preview::DiskCache and Lru are live Ember thumbnail caches; no rightkit-cache caller reaches production.",
+      "shared_evidence": [],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/ember/crates/preview/src/disk.rs",
+          "line": 23,
+          "symbol": "preview::DiskCache",
+          "detail": "live thumbnail cache uses app-owned disk cache with temp+rename, budget and LRU eviction"
+        }
+      ],
+      "applicability_evidence": [],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-cache/src/lib.rs",
+          "line": 3,
+          "detail": "DiskCache provides restart-safe byte cache with LRU, atomic writes and invalidation"
+        }
+      ],
+      "delivery_flags": [],
+      "remaining_work": "Compare preview::DiskCache JPEG encoding, key shape, budget/eviction and rebuild behavior with rightkit-cache::DiskCache; migrate only after parity, then remove local cache.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-channel-memory",
+      "status": "NA",
+      "rationale": "No agent channel-memory runtime in Ember.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/ember/Cargo.toml",
+          "line": 1,
+          "detail": "Rust workspace source census excludes cargo:rightkit-channel-memory; no production dependency or caller"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None unless Ember adds this runtime or feature.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-compose",
+      "status": "NA",
+      "rationale": "No compose/document authoring runtime in Ember.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/ember/Cargo.toml",
+          "line": 1,
+          "detail": "Rust workspace source census excludes cargo:rightkit-compose; no production dependency or caller"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None unless Ember adds this runtime or feature.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-contracts",
+      "status": "NA",
+      "rationale": "No direct shared contracts package dependency/caller in Ember.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/ember/Cargo.toml",
+          "line": 1,
+          "detail": "Rust workspace source census excludes cargo:rightkit-contracts; no production dependency or caller"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None unless Ember adds this runtime or feature.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-control",
+      "status": "Y",
+      "rationale": "The qa-native Tauri host registers Ember commands through RightKit Control. Ember's separate egui JSON-lines server is not a competing route: RightKit Control's embedded owner is a Tauri webview plugin, not an egui transport.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/ember/apps/lightcraft-desktop/src/native.rs",
+          "line": 725,
+          "symbol": "rightkit_control::embedded::Control::<Wry>::new",
+          "detail": "qa-native Tauri plugin embeds RightKit control server and registers live lc_* commands"
+        }
+      ],
+      "local_evidence": [],
+      "applicability_evidence": [],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-control/src/embedded/mod.rs",
+          "line": 200,
+          "symbol": "embedded::Control::command",
+          "detail": "owner is an in-app Tauri plugin that registers typed app commands; its transport requires a Tauri Runtime/webview"
+        }
+      ],
+      "delivery_flags": [
+        "Published version pins are present in current config; source-only audit did not execute build, install, or runtime qualification."
+      ],
+      "remaining_work": "Retain shared qa-native Tauri route; keep the egui JSON-lines protocol as its target-specific control surface.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-crash",
+      "status": "N",
+      "rationale": "AppLogger::record_panics installs Ember panic capture; no rightkit-crash hook is wired.",
+      "shared_evidence": [],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/ember/apps/lightcraft/src/main.rs",
+          "line": 605,
+          "symbol": "logging::record_panics",
+          "detail": "running egui app installs app-owned panic recording"
+        }
+      ],
+      "applicability_evidence": [],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-crash/src/lib.rs",
+          "line": 3,
+          "detail": "install_panic_hook writes redacted structured panic reports"
+        }
+      ],
+      "delivery_flags": [],
+      "remaining_work": "Route logging::record_panics through rightkit-crash::install_panic_hook/record_report; preserve Ember redaction, rotation and pending-file policy before deleting local hook.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-daemon",
+      "status": "NA",
+      "rationale": "No RightKit daemon/service target in Ember.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/ember/Cargo.toml",
+          "line": 1,
+          "detail": "Rust workspace source census excludes cargo:rightkit-daemon; no production dependency or caller"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None unless Ember adds this runtime or feature.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-db",
+      "status": "NA",
+      "rationale": "Catalog uses app-owned journal/snapshot storage; no RightKit DB caller.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/ember/Cargo.toml",
+          "line": 1,
+          "detail": "Rust workspace source census excludes cargo:rightkit-db; no production dependency or caller"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None unless Ember adds this runtime or feature.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-embed",
+      "status": "NA",
+      "rationale": "No persistent embedding/vector-store feature; numeric Personal Auto features are app-local.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/ember/Cargo.toml",
+          "line": 1,
+          "detail": "Rust workspace source census excludes cargo:rightkit-embed; no production dependency or caller"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None unless Ember adds this runtime or feature.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-framed-sidecar",
+      "status": "NA",
+      "rationale": "No framed sidecar process; control/MCP transports are app-owned.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/ember/Cargo.toml",
+          "line": 1,
+          "detail": "Rust workspace source census excludes cargo:rightkit-framed-sidecar; no production dependency or caller"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None unless Ember adds this runtime or feature.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-fs",
+      "status": "N",
+      "rationale": "Ember safe_file::write_atomic and LibraryLock own durable writes/locking; no rightkit-fs caller is wired.",
+      "shared_evidence": [],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/ember/crates/catalog/src/safe_file.rs",
+          "line": 155,
+          "symbol": "write_atomic",
+          "detail": "catalog/export code uses app-owned atomic temp+rename writer; catalog lock is app-owned at lock.rs:96"
+        }
+      ],
+      "applicability_evidence": [],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-fs/src/lib.rs",
+          "line": 45,
+          "detail": "atomic_write plus FileLock provide shared crash-safe filesystem state"
+        }
+      ],
+      "delivery_flags": [],
+      "remaining_work": "Map safe_file::write_atomic and LibraryLock to rightkit-fs atomic_write/FileLock; preserve export durability plus network-filesystem fallback before deleting local primitives.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-fsindex",
+      "status": "NA",
+      "rationale": "No RightKit filesystem index dependency/caller.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/ember/Cargo.toml",
+          "line": 1,
+          "detail": "Rust workspace source census excludes cargo:rightkit-fsindex; no production dependency or caller"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None unless Ember adds this runtime or feature.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-hotkeys",
+      "status": "NA",
+      "rationale": "No global OS hotkey registration; in-app chords register through app-shell.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/ember/Cargo.toml",
+          "line": 1,
+          "detail": "Rust workspace source census excludes cargo:rightkit-hotkeys; no production dependency or caller"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None unless Ember adds this runtime or feature.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-http",
+      "status": "N",
+      "rationale": "photo-ai calls Ember lightcraft_fetch get/post_json directly for OpenRouter; no rightkit-http caller is wired.",
+      "shared_evidence": [],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/ember/crates/photo-ai/src/network.rs",
+          "line": 5,
+          "symbol": "lightcraft_fetch::http::{get,post_json}",
+          "detail": "live OpenRouter model and completion calls use Ember-owned HTTP client"
+        }
+      ],
+      "applicability_evidence": [],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-http/src/lib.rs",
+          "line": 3,
+          "detail": "Client and download_to_path provide bounded/retried HTTP, cancellation and verified downloads"
+        }
+      ],
+      "delivery_flags": [],
+      "remaining_work": "Adapt photo-ai get/post_json to rightkit-http::Client; preserve OpenRouter endpoint policy, response caps and cancellation before deleting lightcraft_fetch HTTP.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-jobs",
+      "status": "NA",
+      "rationale": "Ember Tasks is an in-process bounded-worker coordinator, not a durable job store: terminal records are retained only in memory and discarded beyond a fixed queue. RightKit Jobs owns persisted job rows, recovery, fencing and Runner lifecycle, so there is no competing Ember implementation in its precise scope.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/ember/crates/desktop-host/src/tasks.rs",
+          "line": 121,
+          "symbol": "Tasks",
+          "detail": "Task map, channels and JoinHandles are process-local; completed records are capped then evicted at lines 1108-1111, proving no durable JobStore-equivalent"
+        },
+        {
+          "path": "/Volumes/D/claude/ember/Cargo.toml",
+          "line": 1,
+          "detail": "Workspace manifest has no cargo:rightkit-jobs dependency; source census found no JobStore, Runner or persisted job-state route"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; evaluate RightKit Jobs only if Ember adds durable, restart-resumable jobs or cross-process job control.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-license",
+      "status": "NA",
+      "rationale": "No licensing/entitlement runtime in Ember.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/ember/Cargo.toml",
+          "line": 1,
+          "detail": "Rust workspace source census excludes cargo:rightkit-license; no production dependency or caller"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None unless Ember adds this runtime or feature.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-llm",
+      "status": "N",
+      "rationale": "photo-ai owns OpenRouter request construction, auth, response limits and parsing; no rightkit-llm provider caller is wired.",
+      "shared_evidence": [],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/ember/crates/photo-ai/src/network.rs",
+          "line": 10,
+          "symbol": "OpenRouter::request path",
+          "detail": "photo AI sends provider-specific OpenRouter requests and parses responses locally"
+        }
+      ],
+      "applicability_evidence": [],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-llm/src/lib.rs",
+          "line": 3,
+          "detail": "OpenAiCompatProvider and AnthropicProvider provide provider clients, streaming and failover"
+        }
+      ],
+      "delivery_flags": [],
+      "remaining_work": "Adapt OpenRouter request_body/parse_response to rightkit-llm::openai::OpenAiCompatProvider; preserve Ember prompt, receipt and model-selection policy before removing transport code.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-logs",
+      "status": "N",
+      "rationale": "Ember AppLogger owns filters, rotating files and panic records; no rightkit-logs writer/tracing caller is wired.",
+      "shared_evidence": [],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/ember/apps/lightcraft/src/logging.rs",
+          "line": 241,
+          "symbol": "AppLogger",
+          "detail": "running egui app owns filtering, rotating file sink and panic records"
+        }
+      ],
+      "applicability_evidence": [],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-logs/src/lib.rs",
+          "line": 20,
+          "detail": "JsonlStore, diagnostics collection, redaction and tracing installation are shared APIs"
+        }
+      ],
+      "delivery_flags": [],
+      "remaining_work": "Map AppLogger install/record_panics to rightkit-logs JsonlStore/tracing APIs; preserve Ember filters, rotation and stderr behavior before removal.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-mcp",
+      "status": "N",
+      "rationale": "Ember crates/mcp Server owns JSON-RPC lifecycle, tools/list and tools/call; no rightkit-mcp ServerHost caller is wired.",
+      "shared_evidence": [],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/ember/crates/mcp/src/server.rs",
+          "line": 36,
+          "symbol": "Server",
+          "detail": "production MCP server owns JSON-RPC lifecycle, tools/list and tools/call"
+        }
+      ],
+      "applicability_evidence": [],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-mcp/src/lib.rs",
+          "line": 38,
+          "detail": "ServerHost/McpClient provide shared MCP server/client lifecycle"
+        }
+      ],
+      "delivery_flags": [],
+      "remaining_work": "Adapt crates/mcp Server to rightkit-mcp ServerHost; preserve Ember tool schemas, resource URIs and local admission policy before removing JSON-RPC server code.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-media",
+      "status": "NA",
+      "rationale": "No shared media playback/codec lifecycle target; photo codecs remain app-owned.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/ember/Cargo.toml",
+          "line": 1,
+          "detail": "Rust workspace source census excludes cargo:rightkit-media; no production dependency or caller"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None unless Ember adds this runtime or feature.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-models",
+      "status": "N",
+      "rationale": "Segmenter::start_download uses Ember SAM3 downloader, mirrors and activation; no rightkit-models Store caller is wired.",
+      "shared_evidence": [],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/ember/crates/engine/src/segment/mod.rs",
+          "line": 295,
+          "symbol": "Segmenter::start_download",
+          "detail": "AI mask model download runs through Ember-owned downloader, mirror policy and local activation"
+        }
+      ],
+      "applicability_evidence": [],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-models/src/lib.rs",
+          "line": 3,
+          "detail": "Store and InstallOptions provide revisioned verified model install/activation"
+        }
+      ],
+      "delivery_flags": [],
+      "remaining_work": "Map Segmenter downloader to rightkit-models Store/InstallOptions; preserve SAM3 mirror acknowledgment, license UX and model path before deleting local installer.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-oauth",
+      "status": "NA",
+      "rationale": "No OAuth flow or callback target in Ember.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/ember/Cargo.toml",
+          "line": 1,
+          "detail": "Rust workspace source census excludes cargo:rightkit-oauth; no production dependency or caller"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None unless Ember adds this runtime or feature.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-ocr",
+      "status": "NA",
+      "rationale": "No OCR pipeline in Ember.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/ember/Cargo.toml",
+          "line": 1,
+          "detail": "Rust workspace source census excludes cargo:rightkit-ocr; no production dependency or caller"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None unless Ember adds this runtime or feature.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-ort",
+      "status": "NA",
+      "rationale": "No ONNX Runtime target; Ember model work uses candle/SAM3 code.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/ember/Cargo.toml",
+          "line": 1,
+          "detail": "Rust workspace source census excludes cargo:rightkit-ort; no production dependency or caller"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None unless Ember adds this runtime or feature.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-overlay",
+      "status": "NA",
+      "rationale": "No OS recording/status overlay; photo mask geometry is product UI.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/ember/Cargo.toml",
+          "line": 1,
+          "detail": "Rust workspace source census excludes cargo:rightkit-overlay; no production dependency or caller"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None unless Ember adds this runtime or feature.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-ownership",
+      "status": "NA",
+      "rationale": "No ownership/trust-sync runtime caller in Ember.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/ember/Cargo.toml",
+          "line": 1,
+          "detail": "Rust workspace source census excludes cargo:rightkit-ownership; no production dependency or caller"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None unless Ember adds this runtime or feature.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-pdf",
+      "status": "NA",
+      "rationale": "No PDF document reader/export pipeline in Ember.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/ember/Cargo.toml",
+          "line": 1,
+          "detail": "Rust workspace source census excludes cargo:rightkit-pdf; no production dependency or caller"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None unless Ember adds this runtime or feature.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-playback",
+      "status": "NA",
+      "rationale": "No audio/video playback feature in Ember.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/ember/Cargo.toml",
+          "line": 1,
+          "detail": "Rust workspace source census excludes cargo:rightkit-playback; no production dependency or caller"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None unless Ember adds this runtime or feature.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-process",
+      "status": "NA",
+      "rationale": "External opener spawn is not a managed child-process lifecycle.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/ember/Cargo.toml",
+          "line": 1,
+          "detail": "Rust workspace source census excludes cargo:rightkit-process; no production dependency or caller"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None unless Ember adds this runtime or feature.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-qa",
+      "status": "Y",
+      "rationale": "native_qualification.rs imports rightkit_qa::control::launch, Harness, workspace and evidence APIs for actual Tauri qualification.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/ember/apps/lightcraft-desktop/tests/native_qualification.rs",
+          "line": 17,
+          "symbol": "rightkit_qa::control::launch",
+          "detail": "native qualification imports shared launch, Harness, workspace and evidence APIs"
+        }
+      ],
+      "local_evidence": [],
+      "applicability_evidence": [],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-qa/src/lib.rs",
+          "line": 10,
+          "detail": "Control launches real Tauri app hidden/backgrounded; Harness owns scenarios and evidence"
+        }
+      ],
+      "delivery_flags": [
+        "Published version pins are present in current config; source-only audit did not execute build, install, or runtime qualification."
+      ],
+      "remaining_work": "Retain shared route; complete package/version/runtime qualification before release signoff.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-qts",
+      "status": "NA",
+      "rationale": "No QTS speech runtime in Ember.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/ember/Cargo.toml",
+          "line": 1,
+          "detail": "Rust workspace source census excludes cargo:rightkit-qts; no production dependency or caller"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None unless Ember adds this runtime or feature.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-qts-ggml",
+      "status": "NA",
+      "rationale": "No QTS GGML runtime in Ember.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/ember/Cargo.toml",
+          "line": 1,
+          "detail": "Rust workspace source census excludes cargo:rightkit-qts-ggml; no production dependency or caller"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None unless Ember adds this runtime or feature.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-qts-ggml-sys",
+      "status": "NA",
+      "rationale": "No QTS GGML system binding in Ember.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/ember/Cargo.toml",
+          "line": 1,
+          "detail": "Rust workspace source census excludes cargo:rightkit-qts-ggml-sys; no production dependency or caller"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None unless Ember adds this runtime or feature.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-record",
+      "status": "NA",
+      "rationale": "No screen/audio recording runtime in Ember.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/ember/Cargo.toml",
+          "line": 1,
+          "detail": "Rust workspace source census excludes cargo:rightkit-record; no production dependency or caller"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None unless Ember adds this runtime or feature.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-review",
+      "status": "NA",
+      "rationale": "Photo culling/review policy is Ember-owned; no shared review runtime caller.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/ember/Cargo.toml",
+          "line": 1,
+          "detail": "Rust workspace source census excludes cargo:rightkit-review; no production dependency or caller"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None unless Ember adds this runtime or feature.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-sandbox",
+      "status": "NA",
+      "rationale": "No sandbox policy/runner target in Ember.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/ember/Cargo.toml",
+          "line": 1,
+          "detail": "Rust workspace source census excludes cargo:rightkit-sandbox; no production dependency or caller"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None unless Ember adds this runtime or feature.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-scenario",
+      "status": "NA",
+      "rationale": "No shared scenario runner in Ember production scripts.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/ember/Cargo.toml",
+          "line": 1,
+          "detail": "Rust workspace source census excludes cargo:rightkit-scenario; no production dependency or caller"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None unless Ember adds this runtime or feature.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-search",
+      "status": "NA",
+      "rationale": "Ember Catalog::query evaluates photo-domain Filter and Sort over in-memory Photo records, including smart-album and hierarchy semantics. RightKit Search requires a caller-defined SQL/FTS Schema and compiles a parameterised WHERE clause; Ember has no SQL/FTS query route, so its filters are not a competing implementation.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/ember/crates/catalog/src/query.rs",
+          "line": 19,
+          "symbol": "Filter",
+          "detail": "Photo-specific in-memory filter includes album, hierarchical keyword, face-person and smart-rule fields"
+        },
+        {
+          "path": "/Volumes/D/claude/ember/crates/catalog/src/query.rs",
+          "line": 348,
+          "symbol": "Catalog::query",
+          "detail": "Production route filters iterator-backed Photos then applies domain sort; it does not call SQL/FTS"
+        },
+        {
+          "path": "/Volumes/D/claude/ember/Cargo.toml",
+          "line": 1,
+          "detail": "Workspace manifest has no cargo:rightkit-search dependency; source census found no shared Schema or SQL/FTS caller"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; reconsider only for a future SQL/FTS-backed photo index with an explicit binding for every photo-domain operator.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-secrets",
+      "status": "NA",
+      "rationale": "OpenRouter key is read by app network code; no shared credential-store caller.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/ember/Cargo.toml",
+          "line": 1,
+          "detail": "Rust workspace source census excludes cargo:rightkit-secrets; no production dependency or caller"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None unless Ember adds this runtime or feature.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-send",
+      "status": "NA",
+      "rationale": "No outbound send/share workflow in Ember.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/ember/Cargo.toml",
+          "line": 1,
+          "detail": "Rust workspace source census excludes cargo:rightkit-send; no production dependency or caller"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None unless Ember adds this runtime or feature.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-service",
+      "status": "NA",
+      "rationale": "No RightKit service discovery/engine service target in Ember.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/ember/Cargo.toml",
+          "line": 1,
+          "detail": "Rust workspace source census excludes cargo:rightkit-service; no production dependency or caller"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None unless Ember adds this runtime or feature.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-settings",
+      "status": "N",
+      "rationale": "Preferences::patch owns Ember JSON merge, corruption quarantine and atomic persistence; no rightkit-settings Store caller is wired.",
+      "shared_evidence": [],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/ember/apps/lightcraft-desktop/src/preferences.rs",
+          "line": 54,
+          "symbol": "Preferences::patch",
+          "detail": "desktop preferences merge bounded JSON patches and persist with app-owned atomic writer"
+        }
+      ],
+      "applicability_evidence": [],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-settings/src/lib.rs",
+          "line": 1,
+          "detail": "versioned Store/FileBackend provide settings persistence, migrations and subscriptions"
+        }
+      ],
+      "delivery_flags": [],
+      "remaining_work": "Map Preferences load/patch/quarantine to rightkit-settings Store/FileBackend; preserve unknown keys and blocked-session behavior before deleting local persistence.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-shell",
+      "status": "Y",
+      "rationale": "native.rs builds rightkit_shell::Shell, installs shell.plugin and dispatches rightkit_shell::handler in live Tauri host.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/ember/apps/lightcraft-desktop/src/native.rs",
+          "line": 1049,
+          "symbol": "shell.plugin()",
+          "detail": "Tauri builder installs RightKit shell plugin before app plugins"
+        }
+      ],
+      "local_evidence": [],
+      "applicability_evidence": [],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-shell/src/lib.rs",
+          "line": 1,
+          "detail": "shared native shell plugin owns window/menu/single-instance host integration"
+        }
+      ],
+      "delivery_flags": [
+        "Published version pins are present in current config; source-only audit did not execute build, install, or runtime qualification."
+      ],
+      "remaining_work": "Retain shared route; complete package/version/runtime qualification before release signoff.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-speech-client",
+      "status": "NA",
+      "rationale": "No speech client feature in Ember.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/ember/Cargo.toml",
+          "line": 1,
+          "detail": "Rust workspace source census excludes cargo:rightkit-speech-client; no production dependency or caller"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None unless Ember adds this runtime or feature.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-sync",
+      "status": "NA",
+      "rationale": "No cloud sync or file-sync target in Ember.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/ember/Cargo.toml",
+          "line": 1,
+          "detail": "Rust workspace source census excludes cargo:rightkit-sync; no production dependency or caller"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None unless Ember adds this runtime or feature.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-tauri",
+      "status": "NA",
+      "rationale": "Ember uses direct Tauri plus rightkit-shell; no rightkit-tauri crate caller.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/ember/Cargo.toml",
+          "line": 1,
+          "detail": "Rust workspace source census excludes cargo:rightkit-tauri; no production dependency or caller"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None unless Ember adds this runtime or feature.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-transcript",
+      "status": "NA",
+      "rationale": "No transcript model or editor in Ember.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/ember/Cargo.toml",
+          "line": 1,
+          "detail": "Rust workspace source census excludes cargo:rightkit-transcript; no production dependency or caller"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None unless Ember adds this runtime or feature.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-tts",
+      "status": "NA",
+      "rationale": "No text-to-speech target in Ember.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/ember/Cargo.toml",
+          "line": 1,
+          "detail": "Rust workspace source census excludes cargo:rightkit-tts; no production dependency or caller"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None unless Ember adds this runtime or feature.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-vad",
+      "status": "NA",
+      "rationale": "No voice activity detection target in Ember.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/ember/Cargo.toml",
+          "line": 1,
+          "detail": "Rust workspace source census excludes cargo:rightkit-vad; no production dependency or caller"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None unless Ember adds this runtime or feature.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-watch",
+      "status": "N",
+      "rationale": "AutoImport::poll owns Ember folder polling, worker cancellation and import queueing; no rightkit-watch FileSetWatcher caller is wired.",
+      "shared_evidence": [],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/ember/crates/desktop-host/src/auto_import.rs",
+          "line": 54,
+          "symbol": "AutoImport::poll",
+          "detail": "live auto-import detects folder changes by app-owned polling worker, cancellation and listing consumption"
+        }
+      ],
+      "applicability_evidence": [],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-watch/src/lib.rs",
+          "line": 6,
+          "detail": "FileSetWatcher provides debounced OS file-set watching with rename handling"
+        }
+      ],
+      "delivery_flags": [],
+      "remaining_work": "Replace AutoImport::poll with rightkit-watch FileSetWatcher only after preserving generation cancellation, rename handling and import queue semantics.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/agent-room-mcp",
+      "status": "NA",
+      "rationale": "No agent-room MCP package caller in Ember.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/ember/package.json",
+          "line": 28,
+          "detail": "active npm dependency list does not include npm:@rightkit/agent-room-mcp"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None unless Ember adds this runtime or feature.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/app-shell",
+      "status": "Y",
+      "rationale": "App.tsx mounts shared AppShell and registers useCommands/useShortcuts in live renderer.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/ember/apps/lightcraft-desktop/web/src/App.tsx",
+          "line": 119,
+          "symbol": "AppShell",
+          "detail": "production renderer mounts shared AppShell with bridge, platform, theme and command registry"
+        }
+      ],
+      "local_evidence": [],
+      "applicability_evidence": [],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/packages/app-shell/src/react/provider.tsx",
+          "line": 249,
+          "detail": "useShortcuts registers production shortcut definitions in shared shell registry"
+        }
+      ],
+      "delivery_flags": [
+        "Published version pins are present in current config; source-only audit did not execute build, install, or runtime qualification."
+      ],
+      "remaining_work": "Retain shared route; complete package/version/runtime qualification before release signoff.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/ax",
+      "status": "NA",
+      "rationale": "No accessibility package caller; QA uses Rust rightkit-control/qa.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/ember/package.json",
+          "line": 28,
+          "detail": "active npm dependency list does not include npm:@rightkit/ax"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None unless Ember adds this runtime or feature.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/build-control-policy",
+      "status": "NA",
+      "rationale": "No build-control policy package import; release config is app-local.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/ember/package.json",
+          "line": 28,
+          "detail": "active npm dependency list does not include npm:@rightkit/build-control-policy"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None unless Ember adds this runtime or feature.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/doc-render",
+      "status": "NA",
+      "rationale": "No document rendering target in Ember.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/ember/package.json",
+          "line": 28,
+          "detail": "active npm dependency list does not include npm:@rightkit/doc-render"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None unless Ember adds this runtime or feature.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/git",
+      "status": "Y",
+      "rationale": "package scripts rightgit:sync and rightgit:drift dispatch right-git over Ember workspace.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/ember/package.json",
+          "line": 15,
+          "symbol": "rightgit:sync",
+          "detail": "active workspace script dispatches RightKit git sync; rightgit:drift is adjacent at line 16"
+        }
+      ],
+      "local_evidence": [],
+      "applicability_evidence": [],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/packages/git/cli/right-git.mjs",
+          "line": 10,
+          "detail": "right-git dispatches sync and drift commands for repository manifests"
+        }
+      ],
+      "delivery_flags": [
+        "Published version pins are present in current config; source-only audit did not execute build, install, or runtime qualification."
+      ],
+      "remaining_work": "Retain shared route; complete package/version/runtime qualification before release signoff.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/hooks",
+      "status": "NA",
+      "rationale": "No shared hooks package dependency/caller in Ember.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/ember/package.json",
+          "line": 28,
+          "detail": "active npm dependency list does not include npm:@rightkit/hooks"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None unless Ember adds this runtime or feature.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/i18n",
+      "status": "N",
+      "rationale": "Ember i18n.ts owns locale normalization, imported catalogs and translation fallback; no @rightkit/i18n createI18n caller is wired.",
+      "shared_evidence": [],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/ember/apps/lightcraft-desktop/web/src/i18n.ts",
+          "line": 29,
+          "symbol": "translate",
+          "detail": "renderer translates against app-owned locale catalogs imported from ui-egui JSON"
+        }
+      ],
+      "applicability_evidence": [],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/packages/i18n/src/index.tsx",
+          "line": 35,
+          "detail": "createI18n owns catalog loading, locale state, RTL direction and provider hooks"
+        }
+      ],
+      "delivery_flags": [],
+      "remaining_work": "Replace i18n.ts normalizeLocale/translate with @rightkit/i18n createI18n; preserve Ember locale catalogs and fallback behavior before deleting local provider.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/legal",
+      "status": "NA",
+      "rationale": "No legal content runtime in Ember.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/ember/package.json",
+          "line": 28,
+          "detail": "active npm dependency list does not include npm:@rightkit/legal"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None unless Ember adds this runtime or feature.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/legal-ui",
+      "status": "NA",
+      "rationale": "No legal UI flow in Ember.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/ember/package.json",
+          "line": 28,
+          "detail": "active npm dependency list does not include npm:@rightkit/legal-ui"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None unless Ember adds this runtime or feature.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/license",
+      "status": "NA",
+      "rationale": "No license UI/runtime in Ember.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/ember/package.json",
+          "line": 28,
+          "detail": "active npm dependency list does not include npm:@rightkit/license"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None unless Ember adds this runtime or feature.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/logs",
+      "status": "NA",
+      "rationale": "No browser log package caller; Rust logger owns production logs.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/ember/package.json",
+          "line": 28,
+          "detail": "active npm dependency list does not include npm:@rightkit/logs"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None unless Ember adds this runtime or feature.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/media-ui",
+      "status": "N",
+      "rationale": "PhotoPreview is a live app-owned base image-viewing route with native preview-handle conversion, layered handoff and retry state; no @rightkit/media-ui ImageViewer/ImageEditor caller is wired. StageWorkspace mask geometry and engine commands are Ember policy outside generic viewer/editor ownership.",
+      "shared_evidence": [],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/ember/apps/lightcraft-desktop/web/src/preview/PhotoPreview.tsx",
+          "line": 24,
+          "symbol": "PhotoPreview",
+          "detail": "renderer owns layered photo preview loading, retry/error state and native URL conversion"
+        }
+      ],
+      "applicability_evidence": [],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/packages/media-ui/src/image/ImageViewer.tsx",
+          "line": 97,
+          "symbol": "ImageViewer",
+          "detail": "shared base viewer owns image source, transform and generic edit recipe; ImageEditor is its editable alias at lines 745-750"
+        }
+      ],
+      "delivery_flags": [],
+      "remaining_work": "Evaluate an adapter for PhotoPreview's base viewing/handoff behavior only; retain StageWorkspace mask geometry, mask.add/mask.update commands and photo-develop policy.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/onboarding",
+      "status": "NA",
+      "rationale": "No onboarding flow in Ember.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/ember/package.json",
+          "line": 28,
+          "detail": "active npm dependency list does not include npm:@rightkit/onboarding"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None unless Ember adds this runtime or feature.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/pdf-ui",
+      "status": "NA",
+      "rationale": "No PDF reader UI in Ember.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/ember/package.json",
+          "line": 28,
+          "detail": "active npm dependency list does not include npm:@rightkit/pdf-ui"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None unless Ember adds this runtime or feature.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/platform-ui",
+      "status": "Y",
+      "rationale": "App.tsx passes getPlatform() into live AppShell; shared QA/native platform resolver is active.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/ember/apps/lightcraft-desktop/web/src/App.tsx",
+          "line": 130,
+          "symbol": "getPlatform()",
+          "detail": "production AppShell receives shared platform detection result"
+        }
+      ],
+      "local_evidence": [],
+      "applicability_evidence": [],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/packages/platform-ui/src/index.ts",
+          "line": 90,
+          "detail": "getPlatform resolves canonical native/browser platform with QA override"
+        }
+      ],
+      "delivery_flags": [
+        "Published version pins are present in current config; source-only audit did not execute build, install, or runtime qualification."
+      ],
+      "remaining_work": "Retain shared route; complete package/version/runtime qualification before release signoff.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/qa",
+      "status": "NA",
+      "rationale": "No Node @rightkit/qa caller; native qualification imports Rust rightkit-qa.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/ember/package.json",
+          "line": 28,
+          "detail": "active npm dependency list does not include npm:@rightkit/qa"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None unless Ember adds this runtime or feature.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/qa-chrome",
+      "status": "NA",
+      "rationale": "Package is listed for workspace/static pin checks only; no active Ember caller.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/ember/package.json",
+          "line": 28,
+          "detail": "package.json pins @rightkit/qa-chrome as devDependency, but source census found no active caller or QA script import"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None unless Ember adds this runtime or feature.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/release",
+      "status": "Y",
+      "rationale": "desktop gate/candidate/build scripts call runCargoSync or runDevelopment from @rightkit/release.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/ember/scripts/desktop/gate.mjs",
+          "line": 4,
+          "symbol": "runCargoSync",
+          "detail": "active desktop gate invokes published RightKit release managed Cargo helper"
+        }
+      ],
+      "local_evidence": [],
+      "applicability_evidence": [],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/packages/release/development.mjs",
+          "line": 63,
+          "detail": "runDevelopment validates release config and executes managed desktop development builds"
+        }
+      ],
+      "delivery_flags": [
+        "Published version pins are present in current config; source-only audit did not execute build, install, or runtime qualification."
+      ],
+      "remaining_work": "Retain shared route; complete package/version/runtime qualification before release signoff.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/settings-ui",
+      "status": "NA",
+      "rationale": "AppShell labels settings, but Ember has no active settings panel implementation.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/ember/package.json",
+          "line": 28,
+          "detail": "active npm dependency list does not include npm:@rightkit/settings-ui"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None unless Ember adds this runtime or feature.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/shell",
+      "status": "Y",
+      "rationale": "App.tsx creates shared createShell bridge and awaits shell.ready() during live renderer startup.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/ember/apps/lightcraft-desktop/web/src/App.tsx",
+          "line": 18,
+          "symbol": "createShell()",
+          "detail": "production renderer creates shared Tauri shell bridge and calls ready()"
+        }
+      ],
+      "local_evidence": [],
+      "applicability_evidence": [],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/packages/shell/src/index.ts",
+          "line": 228,
+          "detail": "createShell exposes stable Tauri shell bridge and readiness/window commands"
+        }
+      ],
+      "delivery_flags": [
+        "Published version pins are present in current config; source-only audit did not execute build, install, or runtime qualification."
+      ],
+      "remaining_work": "Retain shared route; complete package/version/runtime qualification before release signoff.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/tauri",
+      "status": "NA",
+      "rationale": "No @rightkit/tauri package caller; native host uses direct Tauri APIs.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/ember/package.json",
+          "line": 28,
+          "detail": "active npm dependency list does not include npm:@rightkit/tauri"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None unless Ember adds this runtime or feature.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/theme",
+      "status": "N",
+      "rationale": "Ember app.css owns local token overrides and stage surfaces; @rightkit/theme has no production import.",
+      "shared_evidence": [],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/ember/apps/lightcraft-desktop/web/src/app.css",
+          "line": 1,
+          "symbol": "app.css",
+          "detail": "renderer owns Ember CSS variables/layout; @rightkit/theme is only a dev dependency and has no production import"
+        }
+      ],
+      "applicability_evidence": [],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/packages/theme/src/index.ts",
+          "line": 1,
+          "detail": "theme exports color, brand, CSS runtime and token APIs"
+        }
+      ],
+      "delivery_flags": [
+        "@rightkit/theme is pinned in devDependencies but no production import was found."
+      ],
+      "remaining_work": "Adopt @rightkit/theme token/runtime APIs for Ember colors and dark mode or document product-owned overrides; remove duplicate token definitions only after rendered parity.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/update",
+      "status": "NA",
+      "rationale": "No update installer/runtime caller in Ember.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/ember/package.json",
+          "line": 28,
+          "detail": "active npm dependency list does not include npm:@rightkit/update"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None unless Ember adds this runtime or feature.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/updates",
+      "status": "NA",
+      "rationale": "No update status/feed UI caller in Ember.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/ember/package.json",
+          "line": 28,
+          "detail": "active npm dependency list does not include npm:@rightkit/updates"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None unless Ember adds this runtime or feature.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitLicense",
+      "status": "NA",
+      "rationale": "Ember has no Swift Package.swift, Swift target, or Apple extension; runtime is Rust/Tauri.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/ember/Cargo.toml",
+          "line": 1,
+          "detail": "Ember workspace is Rust; no Swift manifest or Swift target found in source census"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None unless Ember adds this runtime or feature.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitDiagnostics",
+      "status": "NA",
+      "rationale": "Ember has no Swift Package.swift, Swift target, or Apple extension; runtime is Rust/Tauri.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/ember/Cargo.toml",
+          "line": 1,
+          "detail": "Ember workspace is Rust; no Swift manifest or Swift target found in source census"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None unless Ember adds this runtime or feature.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitArtifacts",
+      "status": "NA",
+      "rationale": "Ember has no Swift Package.swift, Swift target, or Apple extension; runtime is Rust/Tauri.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/ember/Cargo.toml",
+          "line": 1,
+          "detail": "Ember workspace is Rust; no Swift manifest or Swift target found in source census"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None unless Ember adds this runtime or feature.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitPurchases",
+      "status": "NA",
+      "rationale": "Ember has no Swift Package.swift, Swift target, or Apple extension; runtime is Rust/Tauri.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/ember/Cargo.toml",
+          "line": 1,
+          "detail": "Ember workspace is Rust; no Swift manifest or Swift target found in source census"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None unless Ember adds this runtime or feature.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitCloudSync",
+      "status": "NA",
+      "rationale": "Ember has no Swift Package.swift, Swift target, or Apple extension; runtime is Rust/Tauri.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/ember/Cargo.toml",
+          "line": 1,
+          "detail": "Ember workspace is Rust; no Swift manifest or Swift target found in source census"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None unless Ember adds this runtime or feature.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitStore",
+      "status": "NA",
+      "rationale": "Ember has no Swift Package.swift, Swift target, or Apple extension; runtime is Rust/Tauri.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/ember/Cargo.toml",
+          "line": 1,
+          "detail": "Ember workspace is Rust; no Swift manifest or Swift target found in source census"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None unless Ember adds this runtime or feature.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitImportQueue",
+      "status": "NA",
+      "rationale": "Ember has no Swift Package.swift, Swift target, or Apple extension; runtime is Rust/Tauri.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/ember/Cargo.toml",
+          "line": 1,
+          "detail": "Ember workspace is Rust; no Swift manifest or Swift target found in source census"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None unless Ember adds this runtime or feature.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitLiveActivity",
+      "status": "NA",
+      "rationale": "Ember has no Swift Package.swift, Swift target, or Apple extension; runtime is Rust/Tauri.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/ember/Cargo.toml",
+          "line": 1,
+          "detail": "Ember workspace is Rust; no Swift manifest or Swift target found in source census"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None unless Ember adds this runtime or feature.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitWatchBridge",
+      "status": "NA",
+      "rationale": "Ember has no Swift Package.swift, Swift target, or Apple extension; runtime is Rust/Tauri.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/ember/Cargo.toml",
+          "line": 1,
+          "detail": "Ember workspace is Rust; no Swift manifest or Swift target found in source census"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None unless Ember adds this runtime or feature.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitSpeech",
+      "status": "NA",
+      "rationale": "Ember has no Swift Package.swift, Swift target, or Apple extension; runtime is Rust/Tauri.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/ember/Cargo.toml",
+          "line": 1,
+          "detail": "Ember workspace is Rust; no Swift manifest or Swift target found in source census"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None unless Ember adds this runtime or feature.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitIntents",
+      "status": "NA",
+      "rationale": "Ember has no Swift Package.swift, Swift target, or Apple extension; runtime is Rust/Tauri.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/ember/Cargo.toml",
+          "line": 1,
+          "detail": "Ember workspace is Rust; no Swift manifest or Swift target found in source census"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None unless Ember adds this runtime or feature.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitAppleCredentials",
+      "status": "NA",
+      "rationale": "Ember has no Swift Package.swift, Swift target, or Apple extension; runtime is Rust/Tauri.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/ember/Cargo.toml",
+          "line": 1,
+          "detail": "Ember workspace is Rust; no Swift manifest or Swift target found in source census"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None unless Ember adds this runtime or feature.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitOverlay",
+      "status": "NA",
+      "rationale": "Ember has no Swift Package.swift, Swift target, or Apple extension; runtime is Rust/Tauri.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/ember/Cargo.toml",
+          "line": 1,
+          "detail": "Ember workspace is Rust; no Swift manifest or Swift target found in source census"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None unless Ember adds this runtime or feature.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitWatch",
+      "status": "NA",
+      "rationale": "Ember has no Swift Package.swift, Swift target, or Apple extension; runtime is Rust/Tauri.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/ember/Cargo.toml",
+          "line": 1,
+          "detail": "Ember workspace is Rust; no Swift manifest or Swift target found in source census"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None unless Ember adds this runtime or feature.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitUI",
+      "status": "NA",
+      "rationale": "Ember has no Swift Package.swift, Swift target, or Apple extension; runtime is Rust/Tauri.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/ember/Cargo.toml",
+          "line": 1,
+          "detail": "Ember workspace is Rust; no Swift manifest or Swift target found in source census"
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None unless Ember adds this runtime or feature.",
+      "confidence": "high"
+    }
+  ],
+  "searches": [
+    {
+      "pattern": "rightkit dependency/import census",
+      "scope": "/Volumes/D/claude/ember/Cargo.toml, apps/*/Cargo.toml, package.json, apps/lightcraft-desktop/web/src, scripts/desktop",
+      "result": "Only rightkit-control/rightkit-shell/rightkit-qa Cargo callers plus app-shell/platform-ui/shell/git/release npm callers are active; no other catalog package imports found."
+    },
+    {
+      "pattern": "local capability census: cache/fs/settings/jobs/http/logs/mcp/search/watch/models",
+      "scope": "/Volumes/D/claude/ember/apps /Volumes/D/claude/ember/crates",
+      "result": "Found app-owned preview cache, safe-file/lock, Preferences, in-process Tasks, fetch HTTP, AppLogger, MCP Server, in-memory Catalog::query, AutoImport::poll and Segmenter::start_download. Tasks and Catalog::query were excluded after owner-boundary review; remaining exact overlaps are cited in N cells."
+    },
+    {
+      "pattern": "control transport census",
+      "scope": "/Volumes/D/claude/ember/apps/lightcraft/src/control_server.rs, /Volumes/D/claude/ember/apps/lightcraft/src/main.rs, /Volumes/D/claude/ember/apps/lightcraft-desktop/src/native.rs",
+      "result": "Found egui TcpListener JSON-lines server plus qa-native Tauri rightkit-control plugin. Owner Control is a Tauri webview plugin, so the egui server is target-specific rather than a competing shared-control route; classified Y."
+    },
+    {
+      "pattern": "renderer UI census",
+      "scope": "/Volumes/D/claude/ember/apps/lightcraft-desktop/web/src",
+      "result": "AppShell/platform/shell are shared; photo preview/stage, locale catalog, CSS/theme and command policy remain Ember-owned."
+    },
+    {
+      "pattern": "Swift manifest census",
+      "scope": "/Volumes/D/claude/ember",
+      "result": "No Package.swift or Swift target; all 15 Swift rows are NA for Rust/Tauri Ember."
+    },
+    {
+      "pattern": "prior audit artifacts",
+      "scope": "/Volumes/D/claude/rightkit/docs/audits/cutover-matrix-2026-10-11",
+      "result": "No prior Ember artifact used as implementation evidence; only catalog and reviewer instructions read."
+    }
+  ],
+  "self_review": "Adversarial pass changed control M to Y after validating Control::command requires a Tauri Runtime/webview, so egui JSON-lines is a separate target. Changed jobs and search N to NA: Tasks only retains in-memory terminal records, while JobStore persists/restarts work; Catalog::query filters Photo records in memory, while Search compiles caller-bound SQL/FTS. Retained media-ui N only for PhotoPreview base viewing; StageWorkspace masks remain app policy. Reviewed every remaining N against local caller plus owner API, retained only concrete overlap, and checked 97 unique catalog IDs once."
+}

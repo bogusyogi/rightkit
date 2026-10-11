@@ -1,0 +1,993 @@
+{
+  "validated_at": "2026-10-11T03:07:58.829649+00:00",
+  "apps_received": 29,
+  "requested_apps": 29,
+  "rows_per_app": 97,
+  "missing_apps": [],
+  "errors": [],
+  "warnings": [
+    [
+      "CutRight",
+      "cargo:agent-room-core",
+      "NA absence needs semantic review"
+    ],
+    [
+      "CutRight",
+      "cargo:rightkit-agent-tools",
+      "NA absence needs semantic review"
+    ],
+    [
+      "CutRight",
+      "cargo:rightkit-align",
+      "NA absence needs semantic review"
+    ],
+    [
+      "CutRight",
+      "cargo:rightkit-automation",
+      "NA absence needs semantic review"
+    ],
+    [
+      "CutRight",
+      "cargo:rightkit-browser",
+      "NA absence needs semantic review"
+    ],
+    [
+      "CutRight",
+      "cargo:rightkit-channel-memory",
+      "NA absence needs semantic review"
+    ],
+    [
+      "CutRight",
+      "cargo:rightkit-daemon",
+      "NA absence needs semantic review"
+    ],
+    [
+      "CutRight",
+      "cargo:rightkit-db",
+      "NA absence needs semantic review"
+    ],
+    [
+      "CutRight",
+      "cargo:rightkit-embed",
+      "NA absence needs semantic review"
+    ],
+    [
+      "CutRight",
+      "cargo:rightkit-fsindex",
+      "NA absence needs semantic review"
+    ],
+    [
+      "CutRight",
+      "cargo:rightkit-mcp",
+      "NA absence needs semantic review"
+    ],
+    [
+      "CutRight",
+      "cargo:rightkit-oauth",
+      "NA absence needs semantic review"
+    ],
+    [
+      "CutRight",
+      "cargo:rightkit-ocr",
+      "NA absence needs semantic review"
+    ],
+    [
+      "CutRight",
+      "cargo:rightkit-ownership",
+      "NA absence needs semantic review"
+    ],
+    [
+      "CutRight",
+      "cargo:rightkit-pdf",
+      "NA absence needs semantic review"
+    ],
+    [
+      "CutRight",
+      "cargo:rightkit-qts",
+      "NA absence needs semantic review"
+    ],
+    [
+      "CutRight",
+      "cargo:rightkit-qts-ggml",
+      "NA absence needs semantic review"
+    ],
+    [
+      "CutRight",
+      "cargo:rightkit-qts-ggml-sys",
+      "NA absence needs semantic review"
+    ],
+    [
+      "CutRight",
+      "cargo:rightkit-record",
+      "NA absence needs semantic review"
+    ],
+    [
+      "CutRight",
+      "cargo:rightkit-sandbox",
+      "NA absence needs semantic review"
+    ],
+    [
+      "CutRight",
+      "cargo:rightkit-scenario",
+      "NA absence needs semantic review"
+    ],
+    [
+      "CutRight",
+      "cargo:rightkit-send",
+      "NA absence needs semantic review"
+    ],
+    [
+      "CutRight",
+      "cargo:rightkit-sync",
+      "NA absence needs semantic review"
+    ],
+    [
+      "CutRight",
+      "cargo:rightkit-tts",
+      "NA absence needs semantic review"
+    ],
+    [
+      "CutRight",
+      "npm:@rightkit/agent-room-mcp",
+      "NA absence needs semantic review"
+    ],
+    [
+      "CutRight",
+      "npm:@rightkit/ax",
+      "NA absence needs semantic review"
+    ],
+    [
+      "CutRight",
+      "npm:@rightkit/build-control-policy",
+      "NA absence needs semantic review"
+    ],
+    [
+      "CutRight",
+      "npm:@rightkit/doc-render",
+      "NA absence needs semantic review"
+    ],
+    [
+      "CutRight",
+      "npm:@rightkit/git",
+      "NA absence needs semantic review"
+    ],
+    [
+      "CutRight",
+      "npm:@rightkit/hooks",
+      "NA absence needs semantic review"
+    ],
+    [
+      "CutRight",
+      "npm:@rightkit/pdf-ui",
+      "NA absence needs semantic review"
+    ],
+    [
+      "Ember",
+      "cargo:agent-room-core",
+      "NA absence needs semantic review"
+    ],
+    [
+      "LightCraft",
+      "cargo:agent-room-core",
+      "NA absence needs semantic review"
+    ],
+    [
+      "LightCraft",
+      "cargo:rightkit-agent-tools",
+      "NA absence needs semantic review"
+    ],
+    [
+      "LightCraft",
+      "cargo:rightkit-align",
+      "NA absence needs semantic review"
+    ],
+    [
+      "LightCraft",
+      "cargo:rightkit-asr",
+      "NA absence needs semantic review"
+    ],
+    [
+      "LightCraft",
+      "cargo:rightkit-audio",
+      "NA absence needs semantic review"
+    ],
+    [
+      "LightCraft",
+      "cargo:rightkit-automation",
+      "NA absence needs semantic review"
+    ],
+    [
+      "LightCraft",
+      "cargo:rightkit-browser",
+      "NA absence needs semantic review"
+    ],
+    [
+      "LightCraft",
+      "cargo:rightkit-channel-memory",
+      "NA absence needs semantic review"
+    ],
+    [
+      "LightCraft",
+      "cargo:rightkit-compose",
+      "NA absence needs semantic review"
+    ],
+    [
+      "LightCraft",
+      "cargo:rightkit-contracts",
+      "NA absence needs semantic review"
+    ],
+    [
+      "LightCraft",
+      "cargo:rightkit-control",
+      "NA absence needs semantic review"
+    ],
+    [
+      "LightCraft",
+      "cargo:rightkit-daemon",
+      "NA absence needs semantic review"
+    ],
+    [
+      "LightCraft",
+      "cargo:rightkit-db",
+      "NA absence needs semantic review"
+    ],
+    [
+      "LightCraft",
+      "cargo:rightkit-embed",
+      "NA absence needs semantic review"
+    ],
+    [
+      "LightCraft",
+      "cargo:rightkit-fsindex",
+      "NA absence needs semantic review"
+    ],
+    [
+      "LightCraft",
+      "cargo:rightkit-hotkeys",
+      "NA absence needs semantic review"
+    ],
+    [
+      "LightCraft",
+      "cargo:rightkit-jobs",
+      "NA absence needs semantic review"
+    ],
+    [
+      "LightCraft",
+      "cargo:rightkit-license",
+      "NA absence needs semantic review"
+    ],
+    [
+      "LightCraft",
+      "cargo:rightkit-oauth",
+      "NA absence needs semantic review"
+    ],
+    [
+      "LightCraft",
+      "cargo:rightkit-ocr",
+      "NA absence needs semantic review"
+    ],
+    [
+      "LightCraft",
+      "cargo:rightkit-ort",
+      "NA absence needs semantic review"
+    ],
+    [
+      "LightCraft",
+      "cargo:rightkit-overlay",
+      "NA absence needs semantic review"
+    ],
+    [
+      "LightCraft",
+      "cargo:rightkit-ownership",
+      "NA absence needs semantic review"
+    ],
+    [
+      "LightCraft",
+      "cargo:rightkit-pdf",
+      "NA absence needs semantic review"
+    ],
+    [
+      "LightCraft",
+      "cargo:rightkit-qts",
+      "NA absence needs semantic review"
+    ],
+    [
+      "LightCraft",
+      "cargo:rightkit-qts-ggml",
+      "NA absence needs semantic review"
+    ],
+    [
+      "LightCraft",
+      "cargo:rightkit-qts-ggml-sys",
+      "NA absence needs semantic review"
+    ],
+    [
+      "LightCraft",
+      "cargo:rightkit-record",
+      "NA absence needs semantic review"
+    ],
+    [
+      "LightCraft",
+      "cargo:rightkit-review",
+      "NA absence needs semantic review"
+    ],
+    [
+      "LightCraft",
+      "cargo:rightkit-sandbox",
+      "NA absence needs semantic review"
+    ],
+    [
+      "LightCraft",
+      "cargo:rightkit-scenario",
+      "NA absence needs semantic review"
+    ],
+    [
+      "LightCraft",
+      "cargo:rightkit-secrets",
+      "NA absence needs semantic review"
+    ],
+    [
+      "LightCraft",
+      "cargo:rightkit-send",
+      "NA absence needs semantic review"
+    ],
+    [
+      "LightCraft",
+      "cargo:rightkit-service",
+      "NA absence needs semantic review"
+    ],
+    [
+      "LightCraft",
+      "cargo:rightkit-shell",
+      "NA absence needs semantic review"
+    ],
+    [
+      "LightCraft",
+      "cargo:rightkit-speech-client",
+      "NA absence needs semantic review"
+    ],
+    [
+      "LightCraft",
+      "cargo:rightkit-sync",
+      "NA absence needs semantic review"
+    ],
+    [
+      "LightCraft",
+      "cargo:rightkit-tauri",
+      "NA absence needs semantic review"
+    ],
+    [
+      "LightCraft",
+      "cargo:rightkit-transcript",
+      "NA absence needs semantic review"
+    ],
+    [
+      "LightCraft",
+      "cargo:rightkit-tts",
+      "NA absence needs semantic review"
+    ],
+    [
+      "LightCraft",
+      "cargo:rightkit-vad",
+      "NA absence needs semantic review"
+    ],
+    [
+      "LightCraft",
+      "cargo:rightkit-watch",
+      "NA absence needs semantic review"
+    ],
+    [
+      "Pulse",
+      "cargo:agent-room-core",
+      "NA absence needs semantic review"
+    ],
+    [
+      "Pulse",
+      "cargo:rightkit-agent-tools",
+      "NA absence needs semantic review"
+    ],
+    [
+      "Pulse",
+      "cargo:rightkit-align",
+      "NA absence needs semantic review"
+    ],
+    [
+      "Pulse",
+      "cargo:rightkit-asr",
+      "NA absence needs semantic review"
+    ],
+    [
+      "Pulse",
+      "cargo:rightkit-audio",
+      "NA absence needs semantic review"
+    ],
+    [
+      "Pulse",
+      "cargo:rightkit-browser",
+      "NA absence needs semantic review"
+    ],
+    [
+      "Pulse",
+      "cargo:rightkit-channel-memory",
+      "NA absence needs semantic review"
+    ],
+    [
+      "Pulse",
+      "cargo:rightkit-compose",
+      "NA absence needs semantic review"
+    ],
+    [
+      "Pulse",
+      "cargo:rightkit-contracts",
+      "NA absence needs semantic review"
+    ],
+    [
+      "Pulse",
+      "cargo:rightkit-crash",
+      "NA absence needs semantic review"
+    ],
+    [
+      "Pulse",
+      "cargo:rightkit-daemon",
+      "NA absence needs semantic review"
+    ],
+    [
+      "Pulse",
+      "cargo:rightkit-embed",
+      "NA absence needs semantic review"
+    ],
+    [
+      "Pulse",
+      "cargo:rightkit-framed-sidecar",
+      "NA absence needs semantic review"
+    ],
+    [
+      "Pulse",
+      "cargo:rightkit-jobs",
+      "NA absence needs semantic review"
+    ],
+    [
+      "Pulse",
+      "cargo:rightkit-license",
+      "NA absence needs semantic review"
+    ],
+    [
+      "Pulse",
+      "cargo:rightkit-llm",
+      "NA absence needs semantic review"
+    ],
+    [
+      "Pulse",
+      "cargo:rightkit-mcp",
+      "NA absence needs semantic review"
+    ],
+    [
+      "Pulse",
+      "cargo:rightkit-media",
+      "NA absence needs semantic review"
+    ],
+    [
+      "Pulse",
+      "cargo:rightkit-models",
+      "NA absence needs semantic review"
+    ],
+    [
+      "Pulse",
+      "cargo:rightkit-ocr",
+      "NA absence needs semantic review"
+    ],
+    [
+      "Pulse",
+      "cargo:rightkit-ort",
+      "NA absence needs semantic review"
+    ],
+    [
+      "Pulse",
+      "cargo:rightkit-ownership",
+      "NA absence needs semantic review"
+    ],
+    [
+      "Pulse",
+      "cargo:rightkit-pdf",
+      "NA absence needs semantic review"
+    ],
+    [
+      "Pulse",
+      "cargo:rightkit-playback",
+      "NA absence needs semantic review"
+    ],
+    [
+      "Pulse",
+      "cargo:rightkit-qa",
+      "NA absence needs semantic review"
+    ],
+    [
+      "Pulse",
+      "cargo:rightkit-qts",
+      "NA absence needs semantic review"
+    ],
+    [
+      "Pulse",
+      "cargo:rightkit-qts-ggml",
+      "NA absence needs semantic review"
+    ],
+    [
+      "Pulse",
+      "cargo:rightkit-qts-ggml-sys",
+      "NA absence needs semantic review"
+    ],
+    [
+      "Pulse",
+      "cargo:rightkit-record",
+      "NA absence needs semantic review"
+    ],
+    [
+      "Pulse",
+      "cargo:rightkit-review",
+      "NA absence needs semantic review"
+    ],
+    [
+      "Pulse",
+      "cargo:rightkit-sandbox",
+      "NA absence needs semantic review"
+    ],
+    [
+      "Pulse",
+      "cargo:rightkit-scenario",
+      "NA absence needs semantic review"
+    ],
+    [
+      "Pulse",
+      "cargo:rightkit-speech-client",
+      "NA absence needs semantic review"
+    ],
+    [
+      "Pulse",
+      "cargo:rightkit-sync",
+      "NA absence needs semantic review"
+    ],
+    [
+      "Pulse",
+      "cargo:rightkit-transcript",
+      "NA absence needs semantic review"
+    ],
+    [
+      "Pulse",
+      "cargo:rightkit-tts",
+      "NA absence needs semantic review"
+    ],
+    [
+      "Pulse",
+      "cargo:rightkit-vad",
+      "NA absence needs semantic review"
+    ],
+    [
+      "Pulse",
+      "npm:@rightkit/agent-room-mcp",
+      "NA absence needs semantic review"
+    ],
+    [
+      "Pulse",
+      "npm:@rightkit/ax",
+      "NA absence needs semantic review"
+    ],
+    [
+      "Pulse",
+      "npm:@rightkit/build-control-policy",
+      "NA absence needs semantic review"
+    ],
+    [
+      "Pulse",
+      "npm:@rightkit/doc-render",
+      "NA absence needs semantic review"
+    ],
+    [
+      "Pulse",
+      "npm:@rightkit/git",
+      "NA absence needs semantic review"
+    ],
+    [
+      "Pulse",
+      "npm:@rightkit/hooks",
+      "NA absence needs semantic review"
+    ],
+    [
+      "Pulse",
+      "npm:@rightkit/legal",
+      "NA absence needs semantic review"
+    ],
+    [
+      "Pulse",
+      "npm:@rightkit/legal-ui",
+      "NA absence needs semantic review"
+    ],
+    [
+      "Pulse",
+      "npm:@rightkit/license",
+      "NA absence needs semantic review"
+    ],
+    [
+      "Pulse",
+      "npm:@rightkit/media-ui",
+      "NA absence needs semantic review"
+    ],
+    [
+      "Pulse",
+      "npm:@rightkit/onboarding",
+      "NA absence needs semantic review"
+    ],
+    [
+      "Pulse",
+      "npm:@rightkit/pdf-ui",
+      "NA absence needs semantic review"
+    ],
+    [
+      "Pulse",
+      "npm:@rightkit/qa",
+      "NA absence needs semantic review"
+    ],
+    [
+      "Pulse",
+      "npm:@rightkit/qa-chrome",
+      "NA absence needs semantic review"
+    ],
+    [
+      "Pulse",
+      "npm:@rightkit/update",
+      "NA absence needs semantic review"
+    ],
+    [
+      "Pulse",
+      "swift:RightKitLicense",
+      "NA absence needs semantic review"
+    ],
+    [
+      "Pulse",
+      "swift:RightKitArtifacts",
+      "NA absence needs semantic review"
+    ],
+    [
+      "Pulse",
+      "swift:RightKitPurchases",
+      "NA absence needs semantic review"
+    ],
+    [
+      "Pulse",
+      "swift:RightKitCloudSync",
+      "NA absence needs semantic review"
+    ],
+    [
+      "Pulse",
+      "swift:RightKitStore",
+      "NA absence needs semantic review"
+    ],
+    [
+      "Pulse",
+      "swift:RightKitImportQueue",
+      "NA absence needs semantic review"
+    ],
+    [
+      "Pulse",
+      "swift:RightKitLiveActivity",
+      "NA absence needs semantic review"
+    ],
+    [
+      "Pulse",
+      "swift:RightKitWatchBridge",
+      "NA absence needs semantic review"
+    ],
+    [
+      "Pulse",
+      "swift:RightKitSpeech",
+      "NA absence needs semantic review"
+    ],
+    [
+      "Pulse",
+      "swift:RightKitIntents",
+      "NA absence needs semantic review"
+    ],
+    [
+      "Render tools",
+      "cargo:agent-room-core",
+      "NA absence needs semantic review"
+    ],
+    [
+      "Render tools",
+      "cargo:rightkit-agent-tools",
+      "NA absence needs semantic review"
+    ],
+    [
+      "Render tools",
+      "cargo:rightkit-align",
+      "NA absence needs semantic review"
+    ],
+    [
+      "Render tools",
+      "cargo:rightkit-asr",
+      "NA absence needs semantic review"
+    ],
+    [
+      "Render tools",
+      "cargo:rightkit-audio",
+      "NA absence needs semantic review"
+    ],
+    [
+      "Render tools",
+      "cargo:rightkit-automation",
+      "NA absence needs semantic review"
+    ],
+    [
+      "Render tools",
+      "cargo:rightkit-browser",
+      "NA absence needs semantic review"
+    ],
+    [
+      "Render tools",
+      "cargo:rightkit-channel-memory",
+      "NA absence needs semantic review"
+    ],
+    [
+      "Render tools",
+      "cargo:rightkit-contracts",
+      "NA absence needs semantic review"
+    ],
+    [
+      "Render tools",
+      "cargo:rightkit-control",
+      "NA absence needs semantic review"
+    ],
+    [
+      "Render tools",
+      "cargo:rightkit-crash",
+      "NA absence needs semantic review"
+    ],
+    [
+      "Render tools",
+      "cargo:rightkit-daemon",
+      "NA absence needs semantic review"
+    ],
+    [
+      "Render tools",
+      "cargo:rightkit-db",
+      "NA absence needs semantic review"
+    ],
+    [
+      "Render tools",
+      "cargo:rightkit-embed",
+      "NA absence needs semantic review"
+    ],
+    [
+      "Render tools",
+      "cargo:rightkit-framed-sidecar",
+      "NA absence needs semantic review"
+    ],
+    [
+      "Render tools",
+      "cargo:rightkit-fsindex",
+      "NA absence needs semantic review"
+    ],
+    [
+      "Render tools",
+      "cargo:rightkit-hotkeys",
+      "NA absence needs semantic review"
+    ],
+    [
+      "Render tools",
+      "cargo:rightkit-http",
+      "NA absence needs semantic review"
+    ],
+    [
+      "Render tools",
+      "cargo:rightkit-jobs",
+      "NA absence needs semantic review"
+    ],
+    [
+      "Render tools",
+      "cargo:rightkit-license",
+      "NA absence needs semantic review"
+    ],
+    [
+      "Render tools",
+      "cargo:rightkit-llm",
+      "NA absence needs semantic review"
+    ],
+    [
+      "Render tools",
+      "cargo:rightkit-logs",
+      "NA absence needs semantic review"
+    ],
+    [
+      "Render tools",
+      "cargo:rightkit-mcp",
+      "NA absence needs semantic review"
+    ],
+    [
+      "Render tools",
+      "cargo:rightkit-models",
+      "NA absence needs semantic review"
+    ],
+    [
+      "Render tools",
+      "cargo:rightkit-oauth",
+      "NA absence needs semantic review"
+    ],
+    [
+      "Render tools",
+      "cargo:rightkit-ocr",
+      "NA absence needs semantic review"
+    ],
+    [
+      "Render tools",
+      "cargo:rightkit-ort",
+      "NA absence needs semantic review"
+    ],
+    [
+      "Render tools",
+      "cargo:rightkit-overlay",
+      "NA absence needs semantic review"
+    ],
+    [
+      "Render tools",
+      "cargo:rightkit-ownership",
+      "NA absence needs semantic review"
+    ],
+    [
+      "Render tools",
+      "cargo:rightkit-pdf",
+      "NA absence needs semantic review"
+    ],
+    [
+      "Render tools",
+      "cargo:rightkit-qa",
+      "NA absence needs semantic review"
+    ],
+    [
+      "Render tools",
+      "cargo:rightkit-qts",
+      "NA absence needs semantic review"
+    ],
+    [
+      "Render tools",
+      "cargo:rightkit-qts-ggml",
+      "NA absence needs semantic review"
+    ],
+    [
+      "Render tools",
+      "cargo:rightkit-qts-ggml-sys",
+      "NA absence needs semantic review"
+    ],
+    [
+      "Render tools",
+      "cargo:rightkit-record",
+      "NA absence needs semantic review"
+    ],
+    [
+      "Render tools",
+      "cargo:rightkit-review",
+      "NA absence needs semantic review"
+    ],
+    [
+      "Render tools",
+      "cargo:rightkit-scenario",
+      "NA absence needs semantic review"
+    ],
+    [
+      "Render tools",
+      "cargo:rightkit-search",
+      "NA absence needs semantic review"
+    ],
+    [
+      "Render tools",
+      "cargo:rightkit-secrets",
+      "NA absence needs semantic review"
+    ],
+    [
+      "Render tools",
+      "cargo:rightkit-send",
+      "NA absence needs semantic review"
+    ],
+    [
+      "Render tools",
+      "cargo:rightkit-service",
+      "NA absence needs semantic review"
+    ],
+    [
+      "Render tools",
+      "cargo:rightkit-shell",
+      "NA absence needs semantic review"
+    ],
+    [
+      "Render tools",
+      "cargo:rightkit-speech-client",
+      "NA absence needs semantic review"
+    ],
+    [
+      "Render tools",
+      "cargo:rightkit-sync",
+      "NA absence needs semantic review"
+    ],
+    [
+      "Render tools",
+      "cargo:rightkit-tauri",
+      "NA absence needs semantic review"
+    ],
+    [
+      "Render tools",
+      "cargo:rightkit-transcript",
+      "NA absence needs semantic review"
+    ],
+    [
+      "Render tools",
+      "cargo:rightkit-tts",
+      "NA absence needs semantic review"
+    ],
+    [
+      "Render tools",
+      "cargo:rightkit-vad",
+      "NA absence needs semantic review"
+    ],
+    [
+      "Render tools",
+      "npm:@rightkit/agent-room-mcp",
+      "NA absence needs semantic review"
+    ],
+    [
+      "Render tools",
+      "npm:@rightkit/ax",
+      "NA absence needs semantic review"
+    ],
+    [
+      "Render tools",
+      "npm:@rightkit/build-control-policy",
+      "NA absence needs semantic review"
+    ],
+    [
+      "Render tools",
+      "npm:@rightkit/git",
+      "NA absence needs semantic review"
+    ],
+    [
+      "Render tools",
+      "npm:@rightkit/hooks",
+      "NA absence needs semantic review"
+    ],
+    [
+      "Render tools",
+      "npm:@rightkit/logs",
+      "NA absence needs semantic review"
+    ],
+    [
+      "Render tools",
+      "npm:@rightkit/updates",
+      "NA absence needs semantic review"
+    ]
+  ],
+  "cited_files": 814,
+  "cited_files_changed_since_baseline": [
+    "/Volumes/D/claude/rightkit/crates/rightkit-fs/src/atomic.rs",
+    "/Volumes/D/claude/rightkit/crates/rightkit-logs/src/lib.rs",
+    "/Volumes/D/claude/cutright/crates/cutright-project/src/probe.rs",
+    "/Volumes/D/claude/rightkit/crates/rightkit-media/src/runner.rs",
+    "/Volumes/D/claude/rightkit/swift/RightKitSwift/Sources/RightKitLicense/LicenseClient.swift",
+    "/Volumes/D/claude/rightkit/swift/RightKitSwift/Sources/RightKitWatch/RightKitWatch.swift",
+    "/Volumes/D/claude/rightkit/crates/rightkit-fs/src/lib.rs",
+    "/Volumes/D/claude/rightkit/crates/rightkit-qa/src/lib.rs",
+    "/Volumes/D/claude/rightkit/crates/rightkit-process/src/lib.rs",
+    "/Volumes/D/claude/rightkit/swift/RightKitSwift/Sources/RightKitCloudSync/CloudSyncEngine.swift",
+    "/Volumes/D/claude/rightkit/swift/RightKitSwift/Sources/RightKitSpeech/SpeechEngines.swift",
+    "/Volumes/D/claude/legion/engine/bins/legion/src/commands/script.rs",
+    "/Volumes/D/claude/postright/crates/engine/Cargo.toml",
+    "/Volumes/D/claude/pulse/core/src/localsend/mod.rs",
+    "/Volumes/D/claude/pulse/mac/Notch/Sources/Sharing/NearbySharing.swift",
+    "/Volumes/D/claude/rightkit/crates/rightkit-send/src/lib.rs",
+    "/Volumes/D/claude/rustright/crates/rustright-state/src/fsops.rs",
+    "/Volumes/D/claude/scraperight/src-tauri/Cargo.toml",
+    "/Volumes/D/claude/viewright/src-tauri/qa-e2e/tests/pdf_edit.rs",
+    "/Volumes/D/claude/viewright/package.json",
+    "/Volumes/D/claude/viewright/src/app/ToastViewport.tsx",
+    "/Volumes/D/claude/rightkit/crates/rightkit-logs/src/tracing_file.rs"
+  ],
+  "complete": true,
+  "validation_scope": "Structural completeness & citation integrity. Semantic judgments are documented in app reports & RECONCILIATION.md.",
+  "warning_interpretation": "Text-pattern review prompts, retained for transparency; they are not automatic classification failures or a substitute for source review."
+}

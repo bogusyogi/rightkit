@@ -1,0 +1,1988 @@
+{
+  "app": "GenRight",
+  "root": "/Volumes/D/claude/genright",
+  "head": "1d76671b560d35df3441bba51cf39f25f35105ee",
+  "reviewed_at": "2026-10-11T00:00:00+05:30",
+  "targets": [
+    "desktop",
+    "macos",
+    "windows"
+  ],
+  "scope_note": "Fresh source-only audit of current GenRight production Rust/Tauri backend, renderer, engine, release/QA scripts & manifests at reviewed HEAD. Excluded generated bundles, caches, build output, node_modules, fixtures, docs & prior audits; no execution qualification implied.",
+  "cells": [
+    {
+      "component_id": "cargo:agent-room-core",
+      "status": "NA",
+      "rationale": "Not applicable to current GenRight production scope: no caller/import for agent-room-core was found in source; no precise feature route is owned by this component.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/genright/Cargo.toml",
+          "line": 1,
+          "symbol": "[workspace]",
+          "detail": "Current GenRight source census found no production caller/import for this component; app runtime is desktop Tauri/Rust plus listed renderer packages."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; outside current GenRight production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-agent-tools",
+      "status": "NA",
+      "rationale": "Not applicable to current GenRight production scope: no caller/import for rightkit-agent-tools was found in source; no precise feature route is owned by this component.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/genright/Cargo.toml",
+          "line": 1,
+          "symbol": "[workspace]",
+          "detail": "Current GenRight source census found no production caller/import for this component; app runtime is desktop Tauri/Rust plus listed renderer packages."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; outside current GenRight production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-align",
+      "status": "NA",
+      "rationale": "Not applicable to current GenRight production scope: no caller/import for rightkit-align was found in source; no precise feature route is owned by this component.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/genright/Cargo.toml",
+          "line": 1,
+          "symbol": "[workspace]",
+          "detail": "Current GenRight source census found no production caller/import for this component; app runtime is desktop Tauri/Rust plus listed renderer packages."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; outside current GenRight production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-asr",
+      "status": "N",
+      "rationale": "GenRight cargo production source actively implements rightkit-asr's capability locally, with no shared production route found.",
+      "shared_evidence": [],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/genright/crates/genright-studio/src/pipeline_workflows/asr.rs",
+          "line": 73,
+          "symbol": "transcribe",
+          "detail": "Production ASR workflow shells out to whisper.cpp & parses its output locally."
+        }
+      ],
+      "applicability_evidence": [],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-asr/src/whisper/mod.rs",
+          "line": 307,
+          "symbol": "Whisper::load",
+          "detail": "Shared Whisper API selects WhisperCpp for a GGML library/model & decodes through its FFI backend."
+        }
+      ],
+      "delivery_flags": [],
+      "remaining_work": "Route transcribe through rightkit_asr::Whisper, preserve GenRight transcript/caption policy, then remove local whisper-cli runner/parser after parity.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-audio",
+      "status": "N",
+      "rationale": "GenRight cargo production source actively implements rightkit-audio's capability locally, with no shared production route found.",
+      "shared_evidence": [],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/genright/crates/genright-studio/src/pipeline_workflows/compose.rs",
+          "line": 211,
+          "symbol": "build_args",
+          "detail": "Production compose workflow constructs its FFmpeg narration/music amix, volume, trim & loudnorm filter chain."
+        }
+      ],
+      "applicability_evidence": [],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-audio/src/lib.rs",
+          "line": 30,
+          "symbol": "Filter/dialogue_bus_fragment/Ducking",
+          "detail": "Shared typed FFmpeg filter, bus mixing & ducking APIs cover audio-filter primitives in the local chain."
+        }
+      ],
+      "delivery_flags": [],
+      "remaining_work": "Replace compose's untyped narration/music filter construction with rightkit-audio primitives where supported; retain GenRight video assembly, subtitle & loudness policy.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-automation",
+      "status": "NA",
+      "rationale": "Not applicable to current GenRight production scope: no caller/import for rightkit-automation was found in source; no precise feature route is owned by this component.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/genright/Cargo.toml",
+          "line": 1,
+          "symbol": "[workspace]",
+          "detail": "Current GenRight source census found no production caller/import for this component; app runtime is desktop Tauri/Rust plus listed renderer packages."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; outside current GenRight production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-browser",
+      "status": "Y",
+      "rationale": "GenRight cargo production source has an actual caller into rightkit-browser; no active app-owned implementation overlaps this owner's precise scope.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/genright/crates/genright-e2e/tests/ui_workflows.rs",
+        "line": 117,
+        "symbol": "BrowserPage::goto",
+        "detail": "UI workflow invokes shared BrowserPage navigation against the production renderer."
+        }
+      ],
+      "local_evidence": [],
+      "applicability_evidence": [],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "Current GenRight Cargo.toml uses a local [patch.crates-io] path; app manifest versions differ from catalog; switch to published RightKit version before release qualification."
+      ],
+      "remaining_work": "Keep caller on published rightkit-browser; replace local [patch.crates-io] path & align manifest version before release qualification.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-cache",
+      "status": "NA",
+      "rationale": "Not applicable to current GenRight production scope: no caller/import for rightkit-cache was found in source; no precise feature route is owned by this component.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/genright/Cargo.toml",
+          "line": 1,
+          "symbol": "[workspace]",
+          "detail": "Current GenRight source census found no production caller/import for this component; app runtime is desktop Tauri/Rust plus listed renderer packages."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; outside current GenRight production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-channel-memory",
+      "status": "NA",
+      "rationale": "Not applicable to current GenRight production scope: no caller/import for rightkit-channel-memory was found in source; no precise feature route is owned by this component.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/genright/Cargo.toml",
+          "line": 1,
+          "symbol": "[workspace]",
+          "detail": "Current GenRight source census found no production caller/import for this component; app runtime is desktop Tauri/Rust plus listed renderer packages."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; outside current GenRight production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-compose",
+      "status": "NA",
+      "rationale": "Not applicable to current GenRight Motion route: its document permits one HTML WebView layer only, while rightkit-compose evaluates typed visual/media layers with no HTML content type.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/genright/src-tauri/src/motion/doc.rs",
+          "line": 64,
+          "symbol": "CompositionDoc::validate",
+          "detail": "Production Motion documents reject more than one html layer; KNOWN_TEMPLATES contains only html."
+        },
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-compose/src/model.rs",
+          "line": 177,
+          "symbol": "Content",
+          "detail": "Shared composition content supports media, cursor, background, badge, caption & click layers; no HTML/WebView layer exists."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; rightkit-compose does not own GenRight's HTML/WebView Motion composition contract.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-contracts",
+      "status": "NA",
+      "rationale": "Not applicable to current GenRight production scope: no caller/import for rightkit-contracts was found in source; no precise feature route is owned by this component.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/genright/Cargo.toml",
+          "line": 1,
+          "symbol": "[workspace]",
+          "detail": "Current GenRight source census found no production caller/import for this component; app runtime is desktop Tauri/Rust plus listed renderer packages."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; outside current GenRight production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-control",
+      "status": "Y",
+      "rationale": "GenRight cargo production source has an actual caller into rightkit-control; no active app-owned implementation overlaps this owner's precise scope.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/genright/src-tauri/src/lib.rs",
+          "line": 34,
+          "symbol": "rightkit_control::embedded::Control::<tauri::Wry>::new().build_if_enabled",
+          "detail": "Tauri startup embeds shared desktop control bridge."
+        }
+      ],
+      "local_evidence": [],
+      "applicability_evidence": [],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "Current GenRight Cargo.toml uses a local [patch.crates-io] path; app manifest versions differ from catalog; switch to published RightKit version before release qualification."
+      ],
+      "remaining_work": "Keep embedded shared control route; replace local path patch & align published version before release qualification.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-crash",
+      "status": "NA",
+      "rationale": "Not applicable to current GenRight production scope: no caller/import for rightkit-crash was found in source; no precise feature route is owned by this component.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/genright/Cargo.toml",
+          "line": 1,
+          "symbol": "[workspace]",
+          "detail": "Current GenRight source census found no production caller/import for this component; app runtime is desktop Tauri/Rust plus listed renderer packages."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; outside current GenRight production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-daemon",
+      "status": "NA",
+      "rationale": "Not applicable to current GenRight production scope: no caller/import for rightkit-daemon was found in source; no precise feature route is owned by this component.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/genright/Cargo.toml",
+          "line": 1,
+          "symbol": "[workspace]",
+          "detail": "Current GenRight source census found no production caller/import for this component; app runtime is desktop Tauri/Rust plus listed renderer packages."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; outside current GenRight production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-db",
+      "status": "Y",
+      "rationale": "GenRight cargo production source has an actual caller into rightkit-db; no active app-owned implementation overlaps this owner's precise scope.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/genright/crates/genright-gen/src/store.rs",
+          "line": 107,
+          "symbol": "JobStore::open_configured",
+          "detail": "Production generation store opens through rightkit-db."
+        }
+      ],
+      "local_evidence": [],
+      "applicability_evidence": [],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "Current GenRight Cargo.toml uses a local [patch.crates-io] path; app manifest versions differ from catalog; switch to published RightKit version before release qualification."
+      ],
+      "remaining_work": "Keep JobStore route; replace local path patch & align published version before release qualification.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-embed",
+      "status": "NA",
+      "rationale": "Not applicable to current GenRight production scope: no caller/import for rightkit-embed was found in source; no precise feature route is owned by this component.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/genright/Cargo.toml",
+          "line": 1,
+          "symbol": "[workspace]",
+          "detail": "Current GenRight source census found no production caller/import for this component; app runtime is desktop Tauri/Rust plus listed renderer packages."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; outside current GenRight production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-framed-sidecar",
+      "status": "N",
+      "rationale": "GenRight cargo production source actively implements rightkit-framed-sidecar's capability locally, with no shared production route found.",
+      "shared_evidence": [],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/genright/crates/genright-engine/src/main_stdio.rs",
+          "line": 27,
+          "symbol": "EngineFrame",
+          "detail": "Production engine/supervisor exchange local NDJSON EngineFrame protocol."
+        }
+      ],
+      "applicability_evidence": [],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-framed-sidecar/src/lib.rs",
+          "line": 8,
+          "symbol": "framed JSON lines wire",
+          "detail": "Shared bounded NDJSON framing/deadline API covers EngineFrame transport."
+        }
+      ],
+      "delivery_flags": [],
+      "remaining_work": "Adopt rightkit-framed-sidecar wire/deadline APIs in engine supervisor & stdio engine while preserving EngineFrame semantics, then remove local framing.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-fs",
+      "status": "Y",
+      "rationale": "GenRight cargo production source has an actual caller into rightkit-fs; no active app-owned implementation overlaps this owner's precise scope.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/genright/crates/genright-gen/src/library.rs",
+          "line": 105,
+          "symbol": "rightkit_fs::atomic_write",
+          "detail": "Production library writes use shared atomic filesystem primitive."
+        }
+      ],
+      "local_evidence": [],
+      "applicability_evidence": [],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "Current GenRight Cargo.toml uses a local [patch.crates-io] path; app manifest versions differ from catalog; switch to published RightKit version before release qualification."
+      ],
+      "remaining_work": "Keep atomic_write route; replace local path patch & align published version before release qualification.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-fsindex",
+      "status": "NA",
+      "rationale": "Not applicable to current GenRight production scope: no caller/import for rightkit-fsindex was found in source; no precise feature route is owned by this component.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/genright/Cargo.toml",
+          "line": 1,
+          "symbol": "[workspace]",
+          "detail": "Current GenRight source census found no production caller/import for this component; app runtime is desktop Tauri/Rust plus listed renderer packages."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; outside current GenRight production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-hotkeys",
+      "status": "NA",
+      "rationale": "Not applicable to current GenRight production scope: no caller/import for rightkit-hotkeys was found in source; no precise feature route is owned by this component.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/genright/Cargo.toml",
+          "line": 1,
+          "symbol": "[workspace]",
+          "detail": "Current GenRight source census found no production caller/import for this component; app runtime is desktop Tauri/Rust plus listed renderer packages."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; outside current GenRight production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-http",
+      "status": "Y",
+      "rationale": "GenRight cargo production source has an actual caller into rightkit-http; no active app-owned implementation overlaps this owner's precise scope.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/genright/crates/genright-local-image/src/provider.rs",
+          "line": 108,
+          "symbol": "Http::new",
+          "detail": "Local image provider constructs shared HTTP client; protocol wrapper reexports it."
+        }
+      ],
+      "local_evidence": [],
+      "applicability_evidence": [],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "Current GenRight Cargo.toml uses a local [patch.crates-io] path; app manifest versions differ from catalog; switch to published RightKit version before release qualification."
+      ],
+      "remaining_work": "Keep shared Http route; replace local path patch & align published version before release qualification.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-jobs",
+      "status": "Y",
+      "rationale": "GenRight cargo production source has an actual caller into rightkit-jobs; no active app-owned implementation overlaps this owner's precise scope.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/genright/crates/genright-gen/src/store.rs",
+          "line": 8,
+          "symbol": "rightkit_jobs::JobStore",
+          "detail": "Production job store type/open path is shared job runtime."
+        }
+      ],
+      "local_evidence": [],
+      "applicability_evidence": [],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "Current GenRight Cargo.toml uses a local [patch.crates-io] path; app manifest versions differ from catalog; switch to published RightKit version before release qualification."
+      ],
+      "remaining_work": "Keep shared JobStore/job runtime route; replace local path patch & align published version before release qualification.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-license",
+      "status": "NA",
+      "rationale": "Not applicable to current GenRight production scope: no caller/import for rightkit-license was found in source; no precise feature route is owned by this component.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/genright/Cargo.toml",
+          "line": 1,
+          "symbol": "[workspace]",
+          "detail": "Current GenRight source census found no production caller/import for this component; app runtime is desktop Tauri/Rust plus listed renderer packages."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; outside current GenRight production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-llm",
+      "status": "NA",
+      "rationale": "Not applicable to current GenRight production scope: no caller/import for rightkit-llm was found in source; no precise feature route is owned by this component.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/genright/Cargo.toml",
+          "line": 1,
+          "symbol": "[workspace]",
+          "detail": "Current GenRight source census found no production caller/import for this component; app runtime is desktop Tauri/Rust plus listed renderer packages."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; outside current GenRight production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-logs",
+      "status": "Y",
+      "rationale": "GenRight cargo production source has an actual caller into rightkit-logs; no active app-owned implementation overlaps this owner's precise scope.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/genright/crates/genright-local-image/src/runtime.rs",
+          "line": 45,
+          "symbol": "rightkit_logs::JsonlStore::new",
+          "detail": "Local image runtime persists structured logs with shared JSONL store."
+        }
+      ],
+      "local_evidence": [],
+      "applicability_evidence": [],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "Current GenRight Cargo.toml uses a local [patch.crates-io] path; app manifest versions differ from catalog; switch to published RightKit version before release qualification."
+      ],
+      "remaining_work": "Keep JsonlStore route; replace local path patch & align published version before release qualification.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-mcp",
+      "status": "NA",
+      "rationale": "Not applicable to current GenRight production scope: no caller/import for rightkit-mcp was found in source; no precise feature route is owned by this component.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/genright/Cargo.toml",
+          "line": 1,
+          "symbol": "[workspace]",
+          "detail": "Current GenRight source census found no production caller/import for this component; app runtime is desktop Tauri/Rust plus listed renderer packages."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; outside current GenRight production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-media",
+      "status": "Y",
+      "rationale": "GenRight cargo production source has an actual caller into rightkit-media; no active app-owned implementation overlaps this owner's precise scope.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/genright/crates/genright-studio/src/ffmpeg.rs",
+          "line": 95,
+          "symbol": "rightkit_media::resolve",
+          "detail": "Production FFmpeg/media resolution uses shared media runtime."
+        }
+      ],
+      "local_evidence": [],
+      "applicability_evidence": [],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "Current GenRight Cargo.toml uses a local [patch.crates-io] path; app manifest versions differ from catalog; switch to published RightKit version before release qualification."
+      ],
+      "remaining_work": "Keep shared media resolver route; replace local path patch & align published version before release qualification.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-models",
+      "status": "M",
+      "rationale": "GenRight routes studio model installs through rightkit-models, while its active ASR provision route separately owns a pinned Whisper manifest, download lifecycle & checksum verification.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/genright/crates/genright-studio/src/model_management/mod.rs",
+          "line": 610,
+          "symbol": "install_cmd -> install::start",
+          "detail": "Live studio.models.install command creates a ModelSpec then starts shared Store::adopt_then_install."
+        }
+      ],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/genright/crates/genright-studio/src/pipeline_workflows/asr.rs",
+          "line": 110,
+          "symbol": "asr_provision",
+          "detail": "Live ASR provision command owns its Whisper model allowlist, pinned sizes/SHA-256 values, destination & post-download integrity handling."
+        }
+      ],
+      "applicability_evidence": [],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-models/src/install.rs",
+          "line": 329,
+          "symbol": "Store::adopt_then_install",
+          "detail": "Shared model store accepts a ModelSpec & performs verified install with adoption, staging & activation."
+        }
+      ],
+      "delivery_flags": [
+        "Current GenRight Cargo.toml uses a local [patch.crates-io] path; app manifest versions differ from catalog; switch to published RightKit version before release qualification."
+      ],
+      "remaining_work": "Express Whisper artifacts as a rightkit-models ModelSpec/Store install route, migrate existing files, then remove asr_provision's independent manifest/download/checksum lifecycle; replace local path patch before release qualification.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-oauth",
+      "status": "NA",
+      "rationale": "Not applicable to current GenRight production scope: no caller/import for rightkit-oauth was found in source; no precise feature route is owned by this component.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/genright/Cargo.toml",
+          "line": 1,
+          "symbol": "[workspace]",
+          "detail": "Current GenRight source census found no production caller/import for this component; app runtime is desktop Tauri/Rust plus listed renderer packages."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; outside current GenRight production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-ocr",
+      "status": "NA",
+      "rationale": "Not applicable to current GenRight production scope: no caller/import for rightkit-ocr was found in source; no precise feature route is owned by this component.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/genright/Cargo.toml",
+          "line": 1,
+          "symbol": "[workspace]",
+          "detail": "Current GenRight source census found no production caller/import for this component; app runtime is desktop Tauri/Rust plus listed renderer packages."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; outside current GenRight production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-ort",
+      "status": "Y",
+      "rationale": "GenRight cargo production source has an actual caller into rightkit-ort; no active app-owned implementation overlaps this owner's precise scope.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/genright/crates/genright-qts/src/models.rs",
+          "line": 216,
+          "symbol": "rightkit_ort::resolve_runtime",
+          "detail": "Production QTS model runtime resolves ONNX Runtime through shared resolver."
+        }
+      ],
+      "local_evidence": [],
+      "applicability_evidence": [],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "Current GenRight Cargo.toml uses a local [patch.crates-io] path; app manifest versions differ from catalog; switch to published RightKit version before release qualification."
+      ],
+      "remaining_work": "Keep shared ORT resolver route; replace local path patch & align published version before release qualification.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-overlay",
+      "status": "NA",
+      "rationale": "Not applicable to current GenRight production scope: no caller/import for rightkit-overlay was found in source; no precise feature route is owned by this component.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/genright/Cargo.toml",
+          "line": 1,
+          "symbol": "[workspace]",
+          "detail": "Current GenRight source census found no production caller/import for this component; app runtime is desktop Tauri/Rust plus listed renderer packages."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; outside current GenRight production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-ownership",
+      "status": "NA",
+      "rationale": "Not applicable to current GenRight production scope: no caller/import for rightkit-ownership was found in source; no precise feature route is owned by this component.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/genright/Cargo.toml",
+          "line": 1,
+          "symbol": "[workspace]",
+          "detail": "Current GenRight source census found no production caller/import for this component; app runtime is desktop Tauri/Rust plus listed renderer packages."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; outside current GenRight production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-pdf",
+      "status": "NA",
+      "rationale": "Not applicable to current GenRight production scope: no caller/import for rightkit-pdf was found in source; no precise feature route is owned by this component.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/genright/Cargo.toml",
+          "line": 1,
+          "symbol": "[workspace]",
+          "detail": "Current GenRight source census found no production caller/import for this component; app runtime is desktop Tauri/Rust plus listed renderer packages."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; outside current GenRight production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-playback",
+      "status": "NA",
+      "rationale": "Not applicable to current GenRight production scope: no caller/import for rightkit-playback was found in source; no precise feature route is owned by this component.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/genright/Cargo.toml",
+          "line": 1,
+          "symbol": "[workspace]",
+          "detail": "Current GenRight source census found no production caller/import for this component; app runtime is desktop Tauri/Rust plus listed renderer packages."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; outside current GenRight production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-process",
+      "status": "Y",
+      "rationale": "GenRight cargo production source has an actual caller into rightkit-process; no active app-owned implementation overlaps this owner's precise scope.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/genright/src-tauri/src/engine_supervisor.rs",
+          "line": 159,
+          "symbol": "OwnedCommand::from_command",
+          "detail": "Engine supervisor launches production engine through shared process ownership."
+        }
+      ],
+      "local_evidence": [],
+      "applicability_evidence": [],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "Current GenRight Cargo.toml uses a local [patch.crates-io] path; app manifest versions differ from catalog; switch to published RightKit version before release qualification."
+      ],
+      "remaining_work": "Keep shared process ownership route; replace local path patch & align published version before release qualification.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-qa",
+      "status": "Y",
+      "rationale": "GenRight cargo production source has an actual caller into rightkit-qa; no active app-owned implementation overlaps this owner's precise scope.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/genright/crates/genright-e2e/src/lib.rs",
+        "line": 276,
+        "symbol": "Harness::new",
+        "detail": "Maintained GenRight E2E suite constructs shared QA Harness for real-engine scenarios."
+        }
+      ],
+      "local_evidence": [],
+      "applicability_evidence": [],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "Current GenRight Cargo.toml uses a local [patch.crates-io] path; app manifest versions differ from catalog; switch to published RightKit version before release qualification."
+      ],
+      "remaining_work": "Keep shared QA harness route; replace local path patch & align published version before release qualification.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-qts",
+      "status": "Y",
+      "rationale": "GenRight cargo production source has an actual caller into rightkit-qts; no active app-owned implementation overlaps this owner's precise scope.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/genright/crates/genright-qts/src/worker.rs",
+          "line": 117,
+          "symbol": "qts::synth",
+          "detail": "Production local voice worker invokes shared QTS synthesis engine."
+        }
+      ],
+      "local_evidence": [],
+      "applicability_evidence": [],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "Current GenRight Cargo.toml uses a local [patch.crates-io] path; app manifest versions differ from catalog; switch to published RightKit version before release qualification."
+      ],
+      "remaining_work": "Keep shared QTS worker route; replace local path patch & align published version before release qualification.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-qts-ggml",
+      "status": "Y",
+      "rationale": "GenRight cargo production source has an actual caller into rightkit-qts-ggml; no active app-owned implementation overlaps this owner's precise scope.",
+      "shared_evidence": [
+        {
+        "path": "/Volumes/D/claude/genright/crates/genright-qts/src/worker.rs",
+        "line": 117,
+        "symbol": "Request::Synth -> synth",
+        "detail": "Production worker invokes shared QTS synth; enabled GGML feature selects rightkit-qts-ggml backend."
+        }
+      ],
+      "local_evidence": [],
+      "applicability_evidence": [],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "Current GenRight Cargo.toml uses a local [patch.crates-io] path; app manifest versions differ from catalog; switch to published RightKit version before release qualification."
+      ],
+      "remaining_work": "Keep shared GGML backend feature route; replace local path patch & align published version before release qualification.",
+      "confidence": "medium"
+    },
+    {
+      "component_id": "cargo:rightkit-qts-ggml-sys",
+      "status": "Y",
+      "rationale": "GenRight cargo production source has an actual caller into rightkit-qts-ggml-sys; no active app-owned implementation overlaps this owner's precise scope.",
+      "shared_evidence": [
+        {
+        "path": "/Volumes/D/claude/genright/crates/genright-qts/src/worker.rs",
+        "line": 117,
+        "symbol": "Request::Synth -> synth",
+        "detail": "Production worker invokes shared QTS synth; enabled GGML feature reaches rightkit-qts-ggml-sys FFI backend."
+        }
+      ],
+      "local_evidence": [],
+      "applicability_evidence": [],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "Current GenRight Cargo.toml uses a local [patch.crates-io] path; app manifest versions differ from catalog; switch to published RightKit version before release qualification."
+      ],
+      "remaining_work": "Keep shared GGML FFI feature route; replace local path patch & align published version before release qualification.",
+      "confidence": "medium"
+    },
+    {
+      "component_id": "cargo:rightkit-record",
+      "status": "NA",
+      "rationale": "Not applicable to current GenRight production scope: no caller/import for rightkit-record was found in source; no precise feature route is owned by this component.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/genright/Cargo.toml",
+          "line": 1,
+          "symbol": "[workspace]",
+          "detail": "Current GenRight source census found no production caller/import for this component; app runtime is desktop Tauri/Rust plus listed renderer packages."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; outside current GenRight production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-review",
+      "status": "NA",
+      "rationale": "Not applicable to current GenRight production scope: no caller/import for rightkit-review was found in source; no precise feature route is owned by this component.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/genright/Cargo.toml",
+          "line": 1,
+          "symbol": "[workspace]",
+          "detail": "Current GenRight source census found no production caller/import for this component; app runtime is desktop Tauri/Rust plus listed renderer packages."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; outside current GenRight production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-sandbox",
+      "status": "NA",
+      "rationale": "Not applicable to current GenRight production scope: no caller/import for rightkit-sandbox was found in source; no precise feature route is owned by this component.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/genright/Cargo.toml",
+          "line": 1,
+          "symbol": "[workspace]",
+          "detail": "Current GenRight source census found no production caller/import for this component; app runtime is desktop Tauri/Rust plus listed renderer packages."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; outside current GenRight production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-scenario",
+      "status": "NA",
+      "rationale": "Not applicable to current GenRight production scope: no caller/import for rightkit-scenario was found in source; no precise feature route is owned by this component.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/genright/Cargo.toml",
+          "line": 1,
+          "symbol": "[workspace]",
+          "detail": "Current GenRight source census found no production caller/import for this component; app runtime is desktop Tauri/Rust plus listed renderer packages."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; outside current GenRight production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-search",
+      "status": "NA",
+      "rationale": "Not applicable to current GenRight production scope: no caller/import for rightkit-search was found in source; no precise feature route is owned by this component.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/genright/Cargo.toml",
+          "line": 1,
+          "symbol": "[workspace]",
+          "detail": "Current GenRight source census found no production caller/import for this component; app runtime is desktop Tauri/Rust plus listed renderer packages."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; outside current GenRight production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-secrets",
+      "status": "Y",
+      "rationale": "GenRight cargo production source has an actual caller into rightkit-secrets; no active app-owned implementation overlaps this owner's precise scope.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/genright/crates/genright-gen/src/credentials.rs",
+          "line": 61,
+          "symbol": "Credentials::get/set/contains",
+          "detail": "Production provider credential route reads/writes through shared OS secret store."
+        }
+      ],
+      "local_evidence": [],
+      "applicability_evidence": [],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "Current GenRight Cargo.toml uses a local [patch.crates-io] path; app manifest versions differ from catalog; switch to published RightKit version before release qualification."
+      ],
+      "remaining_work": "Keep shared credential route; replace local path patch & align published version before release qualification.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-send",
+      "status": "NA",
+      "rationale": "Not applicable to current GenRight production scope: no caller/import for rightkit-send was found in source; no precise feature route is owned by this component.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/genright/Cargo.toml",
+          "line": 1,
+          "symbol": "[workspace]",
+          "detail": "Current GenRight source census found no production caller/import for this component; app runtime is desktop Tauri/Rust plus listed renderer packages."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; outside current GenRight production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-service",
+      "status": "NA",
+      "rationale": "Not applicable to current GenRight production scope: no caller/import for rightkit-service was found in source; no precise feature route is owned by this component.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/genright/Cargo.toml",
+          "line": 1,
+          "symbol": "[workspace]",
+          "detail": "Current GenRight source census found no production caller/import for this component; app runtime is desktop Tauri/Rust plus listed renderer packages."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; outside current GenRight production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-settings",
+      "status": "Y",
+      "rationale": "GenRight cargo production source has an actual caller into rightkit-settings; no active app-owned implementation overlaps this owner's precise scope.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/genright/src-tauri/src/settings.rs",
+          "line": 9,
+          "symbol": "rightkit_settings::{Schema, Store}",
+          "detail": "Tauri settings commands use shared schema/store; renderer invokes these commands."
+        }
+      ],
+      "local_evidence": [],
+      "applicability_evidence": [],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "Current GenRight Cargo.toml uses a local [patch.crates-io] path; app manifest versions differ from catalog; switch to published RightKit version before release qualification."
+      ],
+      "remaining_work": "Keep shared settings route; replace local path patch & align published version before release qualification.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-shell",
+      "status": "N",
+      "rationale": "GenRight cargo production source actively implements rightkit-shell's capability locally, with no shared production route found.",
+      "shared_evidence": [],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/genright/src-tauri/src/lib.rs",
+          "line": 19,
+          "symbol": "tauri::Builder",
+          "detail": "Production app owns Tauri builder/plugins/window/command wiring."
+        }
+      ],
+      "applicability_evidence": [],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-shell/src/lib.rs",
+          "line": 17,
+          "symbol": "Shell builder",
+          "detail": "Shared hardened Tauri shell/window/menu/engine wiring can host GenRight commands."
+        }
+      ],
+      "delivery_flags": [],
+      "remaining_work": "Adopt rightkit-shell for hardened Tauri/window/menu/engine plumbing, preserve GenRight commands & Motion protocol, then remove duplicate builder wiring.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-speech-client",
+      "status": "NA",
+      "rationale": "Not applicable to current GenRight production scope: no caller/import for rightkit-speech-client was found in source; no precise feature route is owned by this component.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/genright/Cargo.toml",
+          "line": 1,
+          "symbol": "[workspace]",
+          "detail": "Current GenRight source census found no production caller/import for this component; app runtime is desktop Tauri/Rust plus listed renderer packages."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; outside current GenRight production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-sync",
+      "status": "NA",
+      "rationale": "Not applicable to current GenRight production scope: no caller/import for rightkit-sync was found in source; no precise feature route is owned by this component.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/genright/Cargo.toml",
+          "line": 1,
+          "symbol": "[workspace]",
+          "detail": "Current GenRight source census found no production caller/import for this component; app runtime is desktop Tauri/Rust plus listed renderer packages."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; outside current GenRight production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-tauri",
+      "status": "NA",
+      "rationale": "Not applicable to current GenRight production scope: no caller/import for rightkit-tauri was found in source; no precise feature route is owned by this component.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/genright/Cargo.toml",
+          "line": 1,
+          "symbol": "[workspace]",
+          "detail": "Current GenRight source census found no production caller/import for this component; app runtime is desktop Tauri/Rust plus listed renderer packages."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; outside current GenRight production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-transcript",
+      "status": "N",
+      "rationale": "GenRight cargo production source actively implements rightkit-transcript's capability locally, with no shared production route found.",
+      "shared_evidence": [],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/genright/crates/genright-studio/src/pipeline_workflows/asr.rs",
+          "line": 24,
+          "symbol": "parse_srt",
+          "detail": "Production ASR path locally parses SRT & returns caption segments."
+        }
+      ],
+      "applicability_evidence": [],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-transcript/src/lib.rs",
+          "line": 25,
+          "symbol": "parse_srt/to_srt",
+          "detail": "Shared transcript parse/export/word-timing API covers local SRT path."
+        }
+      ],
+      "delivery_flags": [],
+      "remaining_work": "Use rightkit-transcript for SRT/VTT parsing/export & timing, preserve caption policy/FFmpeg integration, then remove local parser/export path.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-tts",
+      "status": "Y",
+      "rationale": "GenRight cargo production source has an actual caller into rightkit-tts; no active app-owned implementation overlaps this owner's precise scope.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/genright/crates/genright-qts/src/lib.rs",
+          "line": 16,
+          "symbol": "pub use rightkit_tts::{chunk,wav}",
+          "detail": "Production QTS voice flow consumes shared TTS chunk/WAV helpers."
+        }
+      ],
+      "local_evidence": [],
+      "applicability_evidence": [],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "Current GenRight Cargo.toml uses a local [patch.crates-io] path; app manifest versions differ from catalog; switch to published RightKit version before release qualification."
+      ],
+      "remaining_work": "Keep shared TTS helper route; replace local path patch & align published version before release qualification.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-vad",
+      "status": "NA",
+      "rationale": "Not applicable to current GenRight production scope: no caller/import for rightkit-vad was found in source; no precise feature route is owned by this component.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/genright/Cargo.toml",
+          "line": 1,
+          "symbol": "[workspace]",
+          "detail": "Current GenRight source census found no production caller/import for this component; app runtime is desktop Tauri/Rust plus listed renderer packages."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; outside current GenRight production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-watch",
+      "status": "NA",
+      "rationale": "Not applicable to current GenRight production scope: no caller/import for rightkit-watch was found in source; no precise feature route is owned by this component.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/genright/Cargo.toml",
+          "line": 1,
+          "symbol": "[workspace]",
+          "detail": "Current GenRight source census found no production caller/import for this component; app runtime is desktop Tauri/Rust plus listed renderer packages."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; outside current GenRight production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/agent-room-mcp",
+      "status": "NA",
+      "rationale": "Not applicable to current GenRight production scope: no caller/import for @rightkit/agent-room-mcp was found in source; no precise feature route is owned by this component.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/genright/package.json",
+          "line": 57,
+          "symbol": "dependencies",
+          "detail": "Current GenRight source census found no production caller/import for this component; app runtime is desktop Tauri/Rust plus listed renderer packages."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; outside current GenRight production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/app-shell",
+      "status": "Y",
+      "rationale": "GenRight npm production source has an actual caller into @rightkit/app-shell; no active app-owned implementation overlaps this owner's precise scope.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/genright/src/components/DesktopWorkspace.tsx",
+          "line": 108,
+          "symbol": "<AppShell>",
+          "detail": "Production desktop workspace renders shared AppShell/NavGroup."
+        }
+      ],
+      "local_evidence": [],
+      "applicability_evidence": [],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "Keep published shared route; align dependency version & qualify release.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/ax",
+      "status": "NA",
+      "rationale": "Not applicable to current GenRight production scope: no caller/import for @rightkit/ax was found in source; no precise feature route is owned by this component.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/genright/package.json",
+          "line": 57,
+          "symbol": "dependencies",
+          "detail": "Current GenRight source census found no production caller/import for this component; app runtime is desktop Tauri/Rust plus listed renderer packages."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; outside current GenRight production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/build-control-policy",
+      "status": "NA",
+      "rationale": "Not applicable to current GenRight production scope: no caller/import for @rightkit/build-control-policy was found in source; no precise feature route is owned by this component.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/genright/package.json",
+          "line": 57,
+          "symbol": "dependencies",
+          "detail": "Current GenRight source census found no production caller/import for this component; app runtime is desktop Tauri/Rust plus listed renderer packages."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; outside current GenRight production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/doc-render",
+      "status": "NA",
+      "rationale": "Not applicable to current GenRight production scope: no caller/import for @rightkit/doc-render was found in source; no precise feature route is owned by this component.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/genright/package.json",
+          "line": 57,
+          "symbol": "dependencies",
+          "detail": "Current GenRight source census found no production caller/import for this component; app runtime is desktop Tauri/Rust plus listed renderer packages."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; outside current GenRight production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/git",
+      "status": "NA",
+      "rationale": "Not applicable to current GenRight production scope: no caller/import for @rightkit/git was found in source; no precise feature route is owned by this component.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/genright/package.json",
+          "line": 57,
+          "symbol": "dependencies",
+          "detail": "Current GenRight source census found no production caller/import for this component; app runtime is desktop Tauri/Rust plus listed renderer packages."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; outside current GenRight production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/hooks",
+      "status": "NA",
+      "rationale": "Not applicable to current GenRight production scope: no caller/import for @rightkit/hooks was found in source; no precise feature route is owned by this component.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/genright/package.json",
+          "line": 57,
+          "symbol": "dependencies",
+          "detail": "Current GenRight source census found no production caller/import for this component; app runtime is desktop Tauri/Rust plus listed renderer packages."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; outside current GenRight production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/i18n",
+      "status": "NA",
+      "rationale": "Not applicable to current GenRight production scope: no caller/import for @rightkit/i18n was found in source; no precise feature route is owned by this component.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/genright/package.json",
+          "line": 57,
+          "symbol": "dependencies",
+          "detail": "Current GenRight source census found no production caller/import for this component; app runtime is desktop Tauri/Rust plus listed renderer packages."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; outside current GenRight production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/legal",
+      "status": "NA",
+      "rationale": "Not applicable to current GenRight production scope: no caller/import for @rightkit/legal was found in source; no precise feature route is owned by this component.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/genright/package.json",
+          "line": 57,
+          "symbol": "dependencies",
+          "detail": "Current GenRight source census found no production caller/import for this component; app runtime is desktop Tauri/Rust plus listed renderer packages."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; outside current GenRight production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/legal-ui",
+      "status": "Y",
+      "rationale": "GenRight's production onboarding route passes legal configuration into shared Onboarding, which renders shared LegalGate; legal document content is still app-owned delivery work.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/packages/onboarding/src/Onboarding.tsx",
+          "line": 156,
+          "symbol": "<LegalGate>",
+          "detail": "GenRight passes legal config into onboarding; shared onboarding renders LegalGate in production route."
+        }
+      ],
+      "local_evidence": [],
+      "applicability_evidence": [],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "GenRight LEGAL_STEP_CONFIG currently has empty legal documents; shared gate wiring exists but legal content delivery remains."
+      ],
+      "remaining_work": "Populate & ship GenRight legal documents in LEGAL_STEP_CONFIG; keep shared LegalGate wiring, then qualify blocking/acceptance behavior.",
+      "confidence": "medium"
+    },
+    {
+      "component_id": "npm:@rightkit/license",
+      "status": "NA",
+      "rationale": "Not applicable to current GenRight production scope: no caller/import for @rightkit/license was found in source; no precise feature route is owned by this component.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/genright/package.json",
+          "line": 57,
+          "symbol": "dependencies",
+          "detail": "Current GenRight source census found no production caller/import for this component; app runtime is desktop Tauri/Rust plus listed renderer packages."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; outside current GenRight production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/logs",
+      "status": "NA",
+      "rationale": "Not applicable to current GenRight production scope: no caller/import for @rightkit/logs was found in source; no precise feature route is owned by this component.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/genright/package.json",
+          "line": 57,
+          "symbol": "dependencies",
+          "detail": "Current GenRight source census found no production caller/import for this component; app runtime is desktop Tauri/Rust plus listed renderer packages."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; outside current GenRight production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/media-ui",
+      "status": "Y",
+      "rationale": "GenRight npm production source has an actual caller into @rightkit/media-ui; no active app-owned implementation overlaps this owner's precise scope.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/genright/src/views/Gallery.tsx",
+          "line": 259,
+          "symbol": "<MediaPlayer>/<ImageViewer>",
+          "detail": "Production Gallery renders shared media player & image viewer."
+        }
+      ],
+      "local_evidence": [],
+      "applicability_evidence": [],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "Keep published shared route; align dependency version & qualify release.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/onboarding",
+      "status": "Y",
+      "rationale": "GenRight npm production source has an actual caller into @rightkit/onboarding; no active app-owned implementation overlaps this owner's precise scope.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/genright/src/views/Onboarding.tsx",
+          "line": 123,
+          "symbol": "<Onboarding>",
+          "detail": "Production onboarding route renders shared onboarding flow."
+        }
+      ],
+      "local_evidence": [],
+      "applicability_evidence": [],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "Keep published shared route; align dependency version & qualify release.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/pdf-ui",
+      "status": "NA",
+      "rationale": "Not applicable to current GenRight production scope: no caller/import for @rightkit/pdf-ui was found in source; no precise feature route is owned by this component.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/genright/package.json",
+          "line": 57,
+          "symbol": "dependencies",
+          "detail": "Current GenRight source census found no production caller/import for this component; app runtime is desktop Tauri/Rust plus listed renderer packages."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; outside current GenRight production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/platform-ui",
+      "status": "Y",
+      "rationale": "GenRight npm production source has an actual caller into @rightkit/platform-ui; no active app-owned implementation overlaps this owner's precise scope.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/genright/src/lib/platform.ts",
+          "line": 28,
+          "symbol": "bootstrapQaPlatform/getPlatform",
+          "detail": "Production renderer bootstraps shared platform adapter & uses formatChord."
+        }
+      ],
+      "local_evidence": [],
+      "applicability_evidence": [],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "Keep published shared route; align dependency version & qualify release.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/qa",
+      "status": "NA",
+      "rationale": "Not applicable to current GenRight production scope: no caller/import for @rightkit/qa was found in source; no precise feature route is owned by this component.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/genright/package.json",
+          "line": 57,
+          "symbol": "dependencies",
+          "detail": "Current GenRight source census found no production caller/import for this component; app runtime is desktop Tauri/Rust plus listed renderer packages."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; outside current GenRight production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/qa-chrome",
+      "status": "NA",
+      "rationale": "Not applicable to current GenRight production scope: no caller/import for @rightkit/qa-chrome was found in source; no precise feature route is owned by this component.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/genright/package.json",
+          "line": 57,
+          "symbol": "dependencies",
+          "detail": "Current GenRight source census found no production caller/import for this component; app runtime is desktop Tauri/Rust plus listed renderer packages."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; outside current GenRight production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/release",
+      "status": "Y",
+      "rationale": "GenRight npm production source has an actual caller into @rightkit/release; no active app-owned implementation overlaps this owner's precise scope.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/genright/scripts/build-engine-for-tauri.mjs",
+          "line": 4,
+          "symbol": "resolveCommand",
+          "detail": "Release/build tooling imports shared release development SDK; signing & release config also import it."
+        }
+      ],
+      "local_evidence": [],
+      "applicability_evidence": [],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "Keep published shared route; align dependency version & qualify release.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/settings-ui",
+      "status": "Y",
+      "rationale": "GenRight npm production source has an actual caller into @rightkit/settings-ui; no active app-owned implementation overlaps this owner's precise scope.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/genright/src/views/Settings.tsx",
+          "line": 145,
+          "symbol": "<SettingsPanel>",
+          "detail": "Production settings route renders shared SettingsPanel & standard sections."
+        }
+      ],
+      "local_evidence": [],
+      "applicability_evidence": [],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "Keep published shared route; align dependency version & qualify release.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/shell",
+      "status": "NA",
+      "rationale": "Not applicable to current GenRight production scope: no caller/import for @rightkit/shell was found in source; no precise feature route is owned by this component.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/genright/package.json",
+          "line": 57,
+          "symbol": "dependencies",
+          "detail": "Current GenRight source census found no production caller/import for this component; app runtime is desktop Tauri/Rust plus listed renderer packages."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; outside current GenRight production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/tauri",
+      "status": "NA",
+      "rationale": "Not applicable to current GenRight production scope: no caller/import for @rightkit/tauri was found in source; no precise feature route is owned by this component.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/genright/package.json",
+          "line": 57,
+          "symbol": "dependencies",
+          "detail": "Current GenRight source census found no production caller/import for this component; app runtime is desktop Tauri/Rust plus listed renderer packages."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; outside current GenRight production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/theme",
+      "status": "Y",
+      "rationale": "GenRight npm production source has an actual caller into @rightkit/theme; no active app-owned implementation overlaps this owner's precise scope.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/genright/src/lib/theme.ts",
+          "line": 15,
+          "symbol": "createThemeStore",
+          "detail": "Production renderer creates shared theme store."
+        }
+      ],
+      "local_evidence": [],
+      "applicability_evidence": [],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "Keep published shared route; align dependency version & qualify release.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/update",
+      "status": "NA",
+      "rationale": "Not applicable to current GenRight production scope: no caller/import for @rightkit/update was found in source; no precise feature route is owned by this component.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/genright/package.json",
+          "line": 57,
+          "symbol": "dependencies",
+          "detail": "Current GenRight source census found no production caller/import for this component; app runtime is desktop Tauri/Rust plus listed renderer packages."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; outside current GenRight production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/updates",
+      "status": "NA",
+      "rationale": "Not applicable to current GenRight production scope: no caller/import for @rightkit/updates was found in source; no precise feature route is owned by this component.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/genright/package.json",
+          "line": 57,
+          "symbol": "dependencies",
+          "detail": "Current GenRight source census found no production caller/import for this component; app runtime is desktop Tauri/Rust plus listed renderer packages."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; outside current GenRight production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitLicense",
+      "status": "NA",
+      "rationale": "Not applicable: GenRight has no Swift target or RightKitLicense caller; its production runtime is Tauri/Rust desktop.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/genright/src-tauri/Cargo.toml",
+          "line": 1,
+          "symbol": "[package]",
+          "detail": "GenRight is a Rust/Tauri desktop target for macOS & Windows; source census found no SwiftPM/Xcode/iOS/watchOS target or import."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; outside GenRight's current desktop runtime scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitDiagnostics",
+      "status": "NA",
+      "rationale": "Not applicable: GenRight has no Swift target or RightKitDiagnostics caller; its production runtime is Tauri/Rust desktop.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/genright/src-tauri/Cargo.toml",
+          "line": 1,
+          "symbol": "[package]",
+          "detail": "GenRight is a Rust/Tauri desktop target for macOS & Windows; source census found no SwiftPM/Xcode/iOS/watchOS target or import."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; outside GenRight's current desktop runtime scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitArtifacts",
+      "status": "NA",
+      "rationale": "Not applicable: GenRight has no Swift target or RightKitArtifacts caller; its production runtime is Tauri/Rust desktop.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/genright/src-tauri/Cargo.toml",
+          "line": 1,
+          "symbol": "[package]",
+          "detail": "GenRight is a Rust/Tauri desktop target for macOS & Windows; source census found no SwiftPM/Xcode/iOS/watchOS target or import."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; outside GenRight's current desktop runtime scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitPurchases",
+      "status": "NA",
+      "rationale": "Not applicable: GenRight has no Swift target or RightKitPurchases caller; its production runtime is Tauri/Rust desktop.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/genright/src-tauri/Cargo.toml",
+          "line": 1,
+          "symbol": "[package]",
+          "detail": "GenRight is a Rust/Tauri desktop target for macOS & Windows; source census found no SwiftPM/Xcode/iOS/watchOS target or import."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; outside GenRight's current desktop runtime scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitCloudSync",
+      "status": "NA",
+      "rationale": "Not applicable: GenRight has no Swift target or RightKitCloudSync caller; its production runtime is Tauri/Rust desktop.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/genright/src-tauri/Cargo.toml",
+          "line": 1,
+          "symbol": "[package]",
+          "detail": "GenRight is a Rust/Tauri desktop target for macOS & Windows; source census found no SwiftPM/Xcode/iOS/watchOS target or import."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; outside GenRight's current desktop runtime scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitStore",
+      "status": "NA",
+      "rationale": "Not applicable: GenRight has no Swift target or RightKitStore caller; its production runtime is Tauri/Rust desktop.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/genright/src-tauri/Cargo.toml",
+          "line": 1,
+          "symbol": "[package]",
+          "detail": "GenRight is a Rust/Tauri desktop target for macOS & Windows; source census found no SwiftPM/Xcode/iOS/watchOS target or import."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; outside GenRight's current desktop runtime scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitImportQueue",
+      "status": "NA",
+      "rationale": "Not applicable: GenRight has no Swift target or RightKitImportQueue caller; its production runtime is Tauri/Rust desktop.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/genright/src-tauri/Cargo.toml",
+          "line": 1,
+          "symbol": "[package]",
+          "detail": "GenRight is a Rust/Tauri desktop target for macOS & Windows; source census found no SwiftPM/Xcode/iOS/watchOS target or import."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; outside GenRight's current desktop runtime scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitLiveActivity",
+      "status": "NA",
+      "rationale": "Not applicable: GenRight has no Swift target or RightKitLiveActivity caller; its production runtime is Tauri/Rust desktop.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/genright/src-tauri/Cargo.toml",
+          "line": 1,
+          "symbol": "[package]",
+          "detail": "GenRight is a Rust/Tauri desktop target for macOS & Windows; source census found no SwiftPM/Xcode/iOS/watchOS target or import."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; outside GenRight's current desktop runtime scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitWatchBridge",
+      "status": "NA",
+      "rationale": "Not applicable: GenRight has no Swift target or RightKitWatchBridge caller; its production runtime is Tauri/Rust desktop.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/genright/src-tauri/Cargo.toml",
+          "line": 1,
+          "symbol": "[package]",
+          "detail": "GenRight is a Rust/Tauri desktop target for macOS & Windows; source census found no SwiftPM/Xcode/iOS/watchOS target or import."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; outside GenRight's current desktop runtime scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitSpeech",
+      "status": "NA",
+      "rationale": "Not applicable: GenRight has no Swift target or RightKitSpeech caller; its production runtime is Tauri/Rust desktop.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/genright/src-tauri/Cargo.toml",
+          "line": 1,
+          "symbol": "[package]",
+          "detail": "GenRight is a Rust/Tauri desktop target for macOS & Windows; source census found no SwiftPM/Xcode/iOS/watchOS target or import."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; outside GenRight's current desktop runtime scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitIntents",
+      "status": "NA",
+      "rationale": "Not applicable: GenRight has no Swift target or RightKitIntents caller; its production runtime is Tauri/Rust desktop.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/genright/src-tauri/Cargo.toml",
+          "line": 1,
+          "symbol": "[package]",
+          "detail": "GenRight is a Rust/Tauri desktop target for macOS & Windows; source census found no SwiftPM/Xcode/iOS/watchOS target or import."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; outside GenRight's current desktop runtime scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitAppleCredentials",
+      "status": "NA",
+      "rationale": "Not applicable: GenRight has no Swift target or RightKitAppleCredentials caller; its production runtime is Tauri/Rust desktop.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/genright/src-tauri/Cargo.toml",
+          "line": 1,
+          "symbol": "[package]",
+          "detail": "GenRight is a Rust/Tauri desktop target for macOS & Windows; source census found no SwiftPM/Xcode/iOS/watchOS target or import."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; outside GenRight's current desktop runtime scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitOverlay",
+      "status": "NA",
+      "rationale": "Not applicable: GenRight has no Swift target or RightKitOverlay caller; its production runtime is Tauri/Rust desktop.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/genright/src-tauri/Cargo.toml",
+          "line": 1,
+          "symbol": "[package]",
+          "detail": "GenRight is a Rust/Tauri desktop target for macOS & Windows; source census found no SwiftPM/Xcode/iOS/watchOS target or import."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; outside GenRight's current desktop runtime scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitWatch",
+      "status": "NA",
+      "rationale": "Not applicable: GenRight has no Swift target or RightKitWatch caller; its production runtime is Tauri/Rust desktop.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/genright/src-tauri/Cargo.toml",
+          "line": 1,
+          "symbol": "[package]",
+          "detail": "GenRight is a Rust/Tauri desktop target for macOS & Windows; source census found no SwiftPM/Xcode/iOS/watchOS target or import."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; outside GenRight's current desktop runtime scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitUI",
+      "status": "NA",
+      "rationale": "Not applicable: GenRight has no Swift target or RightKitUI caller; its production runtime is Tauri/Rust desktop.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/genright/src-tauri/Cargo.toml",
+          "line": 1,
+          "symbol": "[package]",
+          "detail": "GenRight is a Rust/Tauri desktop target for macOS & Windows; source census found no SwiftPM/Xcode/iOS/watchOS target or import."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; outside GenRight's current desktop runtime scope.",
+      "confidence": "high"
+    }
+  ],
+  "searches": [
+    {
+      "pattern": "@rightkit/",
+      "scope": "/Volumes/D/claude/genright/src, /Volumes/D/claude/genright/scripts, package.json",
+      "result": "Direct runtime imports are app-shell, media-ui, onboarding, platform-ui, settings-ui & theme; release tooling imports @rightkit/release; legal-ui is reached transitively through onboarding; no other npm production caller found."
+    },
+    {
+      "pattern": "rightkit_[a-z-]+|use rightkit_[a-z-]+",
+      "scope": "/Volumes/D/claude/genright/src-tauri, /Volumes/D/claude/genright/crates (production source)",
+      "result": "Actual shared Cargo callers cover browser, control, db, fs, http, jobs, logs, media, models, ort, process, qa, qts, qts-ggml, qts-ggml-sys, secrets, settings & tts; six local overlaps remain for asr, audio, compose, framed-sidecar, shell & transcript."
+    },
+    {
+      "pattern": "[patch.crates-io]|path = .*rightkit",
+      "scope": "/Volumes/D/claude/genright/Cargo.toml, package manifests",
+      "result": "Current Cargo dependencies are locally patched to a RightKit checkout; treated as delivery/version flags, never as mixed status."
+    },
+    {
+      "pattern": "whisper|parse_srt|CompositionDoc|EngineFrame|tauri::Builder",
+      "scope": "/Volumes/D/claude/genright/crates, /Volumes/D/claude/genright/src-tauri",
+      "result": "Source confirms active app-owned mechanisms for ASR, audio, model provisioning, framed sidecar, shell & transcript; HTML-only Motion does not overlap rightkit-compose."
+    },
+    {
+      "pattern": "No updater client|No license client|No logs client|No legal documents",
+      "scope": "/Volumes/D/claude/genright/src/views/Settings.tsx, /Volumes/D/claude/genright/src/lib/onboarding.ts",
+      "result": "Settings/onboarding source records absent updater/license/logs clients & empty legal content; no runtime rows were upgraded from this absence."
+    },
+    {
+      "pattern": "Package.swift|import RightKit",
+      "scope": "/Volumes/D/claude/genright (production source)",
+      "result": "No SwiftPM/Xcode/native Apple target or RightKitSwift import; all Swift rows are desktop-runtime NA."
+    },
+    {
+      "pattern": "target,node_modules,dist,build,generated,fixtures,docs",
+      "scope": "audit search exclusions",
+      "result": "Excluded generated/cache/build/vendor/fixture/docs paths per reviewer instructions."
+    }
+  ],
+  "self_review": "Challenged every Y for an actual production caller, including transitive QTS GGML backends & legal-ui. Reclassified models as M: studio.models.install calls rightkit-models while asr_provision independently owns an active pinned Whisper artifact lifecycle. Retained HTTP as Y because all found direct app routes terminate in rightkit-http through GenRight's policy wrapper, which adds product policy but no competing transport. Reclassified compose as NA: Motion permits only one HTML/WebView layer, outside rightkit-compose's typed visual/media model. Confirmed rightkit-asr exposes WhisperCpp FFI & rightkit-audio exposes typed FFmpeg primitives; retained both N for unshared active GenRight routes. Kept stale local patches as delivery_flags, not M; kept Swift rows NA because GenRight is Tauri/Rust desktop."
+}

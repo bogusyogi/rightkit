@@ -1,0 +1,777 @@
+{
+  "recorded_at": "2026-10-11T02:34:48.109929+00:00",
+  "source": "/Volumes/D/claude/rightkit/packages/release/rightkit-versions.json",
+  "sha256": "12a4226754c552e12bda8ab8c9734f0779cf8c36fa4a38828ff8035dcbacbac1",
+  "meaning": "Local release-ledger claims only; no registry fetch, publication or build verified. Source versions do not prescribe consumer upgrades.",
+  "rows": [
+    {
+      "component_id": "cargo:agent-room-core",
+      "source_version_at_catalog_freeze": "0.3.1",
+      "registry_recorded": null,
+      "staged_unverified": "0.3.0",
+      "private_at_catalog_freeze": true
+    },
+    {
+      "component_id": "cargo:rightkit-agent-tools",
+      "source_version_at_catalog_freeze": "0.1.2",
+      "registry_recorded": null,
+      "staged_unverified": null,
+      "private_at_catalog_freeze": true
+    },
+    {
+      "component_id": "cargo:rightkit-align",
+      "source_version_at_catalog_freeze": "0.1.0",
+      "registry_recorded": null,
+      "staged_unverified": null,
+      "private_at_catalog_freeze": true
+    },
+    {
+      "component_id": "cargo:rightkit-asr",
+      "source_version_at_catalog_freeze": "0.2.0",
+      "registry_recorded": "0.0.2",
+      "staged_unverified": "0.1.0",
+      "private_at_catalog_freeze": false
+    },
+    {
+      "component_id": "cargo:rightkit-audio",
+      "source_version_at_catalog_freeze": "0.2.1",
+      "registry_recorded": "0.2.0",
+      "staged_unverified": "0.2.1",
+      "private_at_catalog_freeze": false
+    },
+    {
+      "component_id": "cargo:rightkit-automation",
+      "source_version_at_catalog_freeze": "0.3.0",
+      "registry_recorded": null,
+      "staged_unverified": "0.1.0",
+      "private_at_catalog_freeze": true
+    },
+    {
+      "component_id": "cargo:rightkit-browser",
+      "source_version_at_catalog_freeze": "0.2.4",
+      "registry_recorded": "0.2.2",
+      "staged_unverified": "0.2.4",
+      "private_at_catalog_freeze": false
+    },
+    {
+      "component_id": "cargo:rightkit-cache",
+      "source_version_at_catalog_freeze": "0.2.0",
+      "registry_recorded": "0.1.0",
+      "staged_unverified": "0.1.0",
+      "private_at_catalog_freeze": false
+    },
+    {
+      "component_id": "cargo:rightkit-channel-memory",
+      "source_version_at_catalog_freeze": "0.1.0",
+      "registry_recorded": null,
+      "staged_unverified": null,
+      "private_at_catalog_freeze": true
+    },
+    {
+      "component_id": "cargo:rightkit-compose",
+      "source_version_at_catalog_freeze": "0.1.0",
+      "registry_recorded": null,
+      "staged_unverified": null,
+      "private_at_catalog_freeze": true
+    },
+    {
+      "component_id": "cargo:rightkit-contracts",
+      "source_version_at_catalog_freeze": "0.1.4",
+      "registry_recorded": null,
+      "staged_unverified": "0.1.2",
+      "private_at_catalog_freeze": true
+    },
+    {
+      "component_id": "cargo:rightkit-control",
+      "source_version_at_catalog_freeze": "0.2.0",
+      "registry_recorded": "0.1.11",
+      "staged_unverified": "0.2.0",
+      "private_at_catalog_freeze": false
+    },
+    {
+      "component_id": "cargo:rightkit-crash",
+      "source_version_at_catalog_freeze": "0.2.1",
+      "registry_recorded": "0.2.0",
+      "staged_unverified": "0.2.1",
+      "private_at_catalog_freeze": false
+    },
+    {
+      "component_id": "cargo:rightkit-daemon",
+      "source_version_at_catalog_freeze": "0.1.3",
+      "registry_recorded": null,
+      "staged_unverified": null,
+      "private_at_catalog_freeze": true
+    },
+    {
+      "component_id": "cargo:rightkit-db",
+      "source_version_at_catalog_freeze": "0.4.0",
+      "registry_recorded": "0.3.2",
+      "staged_unverified": "0.3.2",
+      "private_at_catalog_freeze": false
+    },
+    {
+      "component_id": "cargo:rightkit-embed",
+      "source_version_at_catalog_freeze": "0.3.2",
+      "registry_recorded": "0.3.1",
+      "staged_unverified": "0.3.2",
+      "private_at_catalog_freeze": false
+    },
+    {
+      "component_id": "cargo:rightkit-framed-sidecar",
+      "source_version_at_catalog_freeze": "0.2.0",
+      "registry_recorded": "0.1.0",
+      "staged_unverified": "0.1.0",
+      "private_at_catalog_freeze": false
+    },
+    {
+      "component_id": "cargo:rightkit-fs",
+      "source_version_at_catalog_freeze": "0.3.4",
+      "registry_recorded": "0.3.3",
+      "staged_unverified": "0.3.3",
+      "private_at_catalog_freeze": false
+    },
+    {
+      "component_id": "cargo:rightkit-fsindex",
+      "source_version_at_catalog_freeze": "0.2.0",
+      "registry_recorded": "0.1.0",
+      "staged_unverified": "0.1.1",
+      "private_at_catalog_freeze": false
+    },
+    {
+      "component_id": "cargo:rightkit-hotkeys",
+      "source_version_at_catalog_freeze": "0.1.0",
+      "registry_recorded": null,
+      "staged_unverified": "0.1.0",
+      "private_at_catalog_freeze": false
+    },
+    {
+      "component_id": "cargo:rightkit-http",
+      "source_version_at_catalog_freeze": "0.3.0",
+      "registry_recorded": "0.2.4",
+      "staged_unverified": "0.2.5",
+      "private_at_catalog_freeze": false
+    },
+    {
+      "component_id": "cargo:rightkit-jobs",
+      "source_version_at_catalog_freeze": "0.2.8",
+      "registry_recorded": "0.2.6",
+      "staged_unverified": "0.2.7",
+      "private_at_catalog_freeze": false
+    },
+    {
+      "component_id": "cargo:rightkit-license",
+      "source_version_at_catalog_freeze": "0.1.3",
+      "registry_recorded": "0.1.3",
+      "staged_unverified": "0.1.3",
+      "private_at_catalog_freeze": false
+    },
+    {
+      "component_id": "cargo:rightkit-llm",
+      "source_version_at_catalog_freeze": "0.2.0",
+      "registry_recorded": null,
+      "staged_unverified": "0.2.0",
+      "private_at_catalog_freeze": false
+    },
+    {
+      "component_id": "cargo:rightkit-logs",
+      "source_version_at_catalog_freeze": "0.2.2",
+      "registry_recorded": "0.2.0",
+      "staged_unverified": "0.2.1",
+      "private_at_catalog_freeze": false
+    },
+    {
+      "component_id": "cargo:rightkit-mcp",
+      "source_version_at_catalog_freeze": "0.5.3",
+      "registry_recorded": "0.5.2",
+      "staged_unverified": "0.5.3",
+      "private_at_catalog_freeze": false
+    },
+    {
+      "component_id": "cargo:rightkit-media",
+      "source_version_at_catalog_freeze": "0.2.6",
+      "registry_recorded": "0.2.4",
+      "staged_unverified": "0.2.5",
+      "private_at_catalog_freeze": false
+    },
+    {
+      "component_id": "cargo:rightkit-models",
+      "source_version_at_catalog_freeze": "0.2.9",
+      "registry_recorded": "0.2.7",
+      "staged_unverified": "0.2.8",
+      "private_at_catalog_freeze": false
+    },
+    {
+      "component_id": "cargo:rightkit-oauth",
+      "source_version_at_catalog_freeze": "0.3.1",
+      "registry_recorded": "0.3.0",
+      "staged_unverified": "0.3.1",
+      "private_at_catalog_freeze": false
+    },
+    {
+      "component_id": "cargo:rightkit-ocr",
+      "source_version_at_catalog_freeze": "0.2.1",
+      "registry_recorded": "0.1.2",
+      "staged_unverified": "0.2.0",
+      "private_at_catalog_freeze": false
+    },
+    {
+      "component_id": "cargo:rightkit-ort",
+      "source_version_at_catalog_freeze": "0.2.3",
+      "registry_recorded": "0.2.2",
+      "staged_unverified": "0.2.2",
+      "private_at_catalog_freeze": false
+    },
+    {
+      "component_id": "cargo:rightkit-overlay",
+      "source_version_at_catalog_freeze": "0.1.1",
+      "registry_recorded": null,
+      "staged_unverified": "0.1.1",
+      "private_at_catalog_freeze": false
+    },
+    {
+      "component_id": "cargo:rightkit-ownership",
+      "source_version_at_catalog_freeze": "0.2.1",
+      "registry_recorded": "0.2.1",
+      "staged_unverified": "0.2.1",
+      "private_at_catalog_freeze": false
+    },
+    {
+      "component_id": "cargo:rightkit-pdf",
+      "source_version_at_catalog_freeze": "0.2.1",
+      "registry_recorded": "0.2.0",
+      "staged_unverified": "0.2.0",
+      "private_at_catalog_freeze": false
+    },
+    {
+      "component_id": "cargo:rightkit-playback",
+      "source_version_at_catalog_freeze": "0.2.0",
+      "registry_recorded": "0.1.1",
+      "staged_unverified": "0.1.2",
+      "private_at_catalog_freeze": false
+    },
+    {
+      "component_id": "cargo:rightkit-process",
+      "source_version_at_catalog_freeze": "0.3.4",
+      "registry_recorded": "0.3.3",
+      "staged_unverified": "0.3.3",
+      "private_at_catalog_freeze": false
+    },
+    {
+      "component_id": "cargo:rightkit-qa",
+      "source_version_at_catalog_freeze": "0.2.16",
+      "registry_recorded": "0.2.14",
+      "staged_unverified": "0.2.15",
+      "private_at_catalog_freeze": false
+    },
+    {
+      "component_id": "cargo:rightkit-qts",
+      "source_version_at_catalog_freeze": "0.2.6",
+      "registry_recorded": "0.2.4",
+      "staged_unverified": "0.2.5",
+      "private_at_catalog_freeze": false
+    },
+    {
+      "component_id": "cargo:rightkit-qts-ggml",
+      "source_version_at_catalog_freeze": "0.1.2",
+      "registry_recorded": "0.1.1",
+      "staged_unverified": "0.1.2",
+      "private_at_catalog_freeze": false
+    },
+    {
+      "component_id": "cargo:rightkit-qts-ggml-sys",
+      "source_version_at_catalog_freeze": "0.1.2",
+      "registry_recorded": "0.1.1",
+      "staged_unverified": "0.1.2",
+      "private_at_catalog_freeze": false
+    },
+    {
+      "component_id": "cargo:rightkit-record",
+      "source_version_at_catalog_freeze": "0.2.0",
+      "registry_recorded": null,
+      "staged_unverified": null,
+      "private_at_catalog_freeze": true
+    },
+    {
+      "component_id": "cargo:rightkit-review",
+      "source_version_at_catalog_freeze": "0.2.0",
+      "registry_recorded": null,
+      "staged_unverified": "0.1.0",
+      "private_at_catalog_freeze": false
+    },
+    {
+      "component_id": "cargo:rightkit-sandbox",
+      "source_version_at_catalog_freeze": "0.3.4",
+      "registry_recorded": "0.3.3",
+      "staged_unverified": "0.3.4",
+      "private_at_catalog_freeze": false
+    },
+    {
+      "component_id": "cargo:rightkit-scenario",
+      "source_version_at_catalog_freeze": "0.1.0",
+      "registry_recorded": null,
+      "staged_unverified": "0.1.0",
+      "private_at_catalog_freeze": false
+    },
+    {
+      "component_id": "cargo:rightkit-search",
+      "source_version_at_catalog_freeze": "0.2.0",
+      "registry_recorded": "0.2.0",
+      "staged_unverified": "0.2.0",
+      "private_at_catalog_freeze": false
+    },
+    {
+      "component_id": "cargo:rightkit-secrets",
+      "source_version_at_catalog_freeze": "0.1.3",
+      "registry_recorded": "0.1.2",
+      "staged_unverified": "0.1.3",
+      "private_at_catalog_freeze": false
+    },
+    {
+      "component_id": "cargo:rightkit-send",
+      "source_version_at_catalog_freeze": "0.1.0",
+      "registry_recorded": null,
+      "staged_unverified": null,
+      "private_at_catalog_freeze": true
+    },
+    {
+      "component_id": "cargo:rightkit-service",
+      "source_version_at_catalog_freeze": "0.1.5",
+      "registry_recorded": "0.1.3",
+      "staged_unverified": "0.1.4",
+      "private_at_catalog_freeze": false
+    },
+    {
+      "component_id": "cargo:rightkit-settings",
+      "source_version_at_catalog_freeze": "0.2.0",
+      "registry_recorded": "0.1.0",
+      "staged_unverified": "0.1.1",
+      "private_at_catalog_freeze": false
+    },
+    {
+      "component_id": "cargo:rightkit-shell",
+      "source_version_at_catalog_freeze": "0.3.0",
+      "registry_recorded": "0.1.4",
+      "staged_unverified": "0.2.0",
+      "private_at_catalog_freeze": false
+    },
+    {
+      "component_id": "cargo:rightkit-speech-client",
+      "source_version_at_catalog_freeze": "0.3.3",
+      "registry_recorded": "0.3.2",
+      "staged_unverified": "0.3.3",
+      "private_at_catalog_freeze": false
+    },
+    {
+      "component_id": "cargo:rightkit-sync",
+      "source_version_at_catalog_freeze": "0.1.1",
+      "registry_recorded": null,
+      "staged_unverified": "0.1.0",
+      "private_at_catalog_freeze": false
+    },
+    {
+      "component_id": "cargo:rightkit-tauri",
+      "source_version_at_catalog_freeze": "0.1.3",
+      "registry_recorded": "0.1.2",
+      "staged_unverified": "0.1.2",
+      "private_at_catalog_freeze": false
+    },
+    {
+      "component_id": "cargo:rightkit-transcript",
+      "source_version_at_catalog_freeze": "0.3.0",
+      "registry_recorded": "0.2.0",
+      "staged_unverified": "0.2.0",
+      "private_at_catalog_freeze": false
+    },
+    {
+      "component_id": "cargo:rightkit-tts",
+      "source_version_at_catalog_freeze": "0.2.0",
+      "registry_recorded": "0.1.0",
+      "staged_unverified": "0.1.1",
+      "private_at_catalog_freeze": false
+    },
+    {
+      "component_id": "cargo:rightkit-vad",
+      "source_version_at_catalog_freeze": "0.1.0",
+      "registry_recorded": "0.0.2",
+      "staged_unverified": "0.0.3",
+      "private_at_catalog_freeze": false
+    },
+    {
+      "component_id": "cargo:rightkit-watch",
+      "source_version_at_catalog_freeze": "0.3.3",
+      "registry_recorded": "0.3.1",
+      "staged_unverified": "0.3.2",
+      "private_at_catalog_freeze": false
+    },
+    {
+      "component_id": "npm:@rightkit/agent-room-mcp",
+      "source_version_at_catalog_freeze": "0.1.0",
+      "registry_recorded": null,
+      "staged_unverified": null,
+      "private_at_catalog_freeze": true
+    },
+    {
+      "component_id": "npm:@rightkit/app-shell",
+      "source_version_at_catalog_freeze": "0.6.1",
+      "registry_recorded": "0.6.1",
+      "staged_unverified": "0.6.1",
+      "private_at_catalog_freeze": false
+    },
+    {
+      "component_id": "npm:@rightkit/ax",
+      "source_version_at_catalog_freeze": "0.2.4",
+      "registry_recorded": "0.2.4",
+      "staged_unverified": "0.2.4",
+      "private_at_catalog_freeze": false
+    },
+    {
+      "component_id": "npm:@rightkit/build-control-policy",
+      "source_version_at_catalog_freeze": "0.1.0-phase1",
+      "registry_recorded": null,
+      "staged_unverified": null,
+      "private_at_catalog_freeze": true
+    },
+    {
+      "component_id": "npm:@rightkit/doc-render",
+      "source_version_at_catalog_freeze": "0.1.6",
+      "registry_recorded": "0.1.6",
+      "staged_unverified": "0.1.6",
+      "private_at_catalog_freeze": false
+    },
+    {
+      "component_id": "npm:@rightkit/git",
+      "source_version_at_catalog_freeze": "0.2.39",
+      "registry_recorded": "0.2.39",
+      "staged_unverified": "0.2.39",
+      "private_at_catalog_freeze": false
+    },
+    {
+      "component_id": "npm:@rightkit/hooks",
+      "source_version_at_catalog_freeze": "0.1.2",
+      "registry_recorded": "0.1.2",
+      "staged_unverified": "0.1.2",
+      "private_at_catalog_freeze": false
+    },
+    {
+      "component_id": "npm:@rightkit/i18n",
+      "source_version_at_catalog_freeze": "0.1.0",
+      "registry_recorded": "0.1.0",
+      "staged_unverified": "0.1.0",
+      "private_at_catalog_freeze": false
+    },
+    {
+      "component_id": "npm:@rightkit/legal",
+      "source_version_at_catalog_freeze": "0.3.1",
+      "registry_recorded": "0.3.1",
+      "staged_unverified": "0.3.1",
+      "private_at_catalog_freeze": false
+    },
+    {
+      "component_id": "npm:@rightkit/legal-ui",
+      "source_version_at_catalog_freeze": "0.2.2",
+      "registry_recorded": "0.2.2",
+      "staged_unverified": "0.2.2",
+      "private_at_catalog_freeze": false
+    },
+    {
+      "component_id": "npm:@rightkit/license",
+      "source_version_at_catalog_freeze": "0.2.0",
+      "registry_recorded": "0.1.8",
+      "staged_unverified": "0.1.8",
+      "private_at_catalog_freeze": false
+    },
+    {
+      "component_id": "npm:@rightkit/logs",
+      "source_version_at_catalog_freeze": "0.1.4",
+      "registry_recorded": "0.1.4",
+      "staged_unverified": "0.1.4",
+      "private_at_catalog_freeze": false
+    },
+    {
+      "component_id": "npm:@rightkit/media-ui",
+      "source_version_at_catalog_freeze": "0.3.2",
+      "registry_recorded": "0.3.2",
+      "staged_unverified": "0.3.2",
+      "private_at_catalog_freeze": false
+    },
+    {
+      "component_id": "npm:@rightkit/onboarding",
+      "source_version_at_catalog_freeze": "0.3.2",
+      "registry_recorded": "0.3.2",
+      "staged_unverified": "0.3.2",
+      "private_at_catalog_freeze": false
+    },
+    {
+      "component_id": "npm:@rightkit/pdf-ui",
+      "source_version_at_catalog_freeze": "0.1.5",
+      "registry_recorded": "0.1.5",
+      "staged_unverified": "0.1.5",
+      "private_at_catalog_freeze": false
+    },
+    {
+      "component_id": "npm:@rightkit/platform-ui",
+      "source_version_at_catalog_freeze": "0.2.2",
+      "registry_recorded": "0.2.2",
+      "staged_unverified": "0.2.2",
+      "private_at_catalog_freeze": false
+    },
+    {
+      "component_id": "npm:@rightkit/qa",
+      "source_version_at_catalog_freeze": "0.4.1",
+      "registry_recorded": "0.4.1",
+      "staged_unverified": "0.4.1",
+      "private_at_catalog_freeze": false
+    },
+    {
+      "component_id": "npm:@rightkit/qa-chrome",
+      "source_version_at_catalog_freeze": "0.1.3",
+      "registry_recorded": "0.1.3",
+      "staged_unverified": "0.1.3",
+      "private_at_catalog_freeze": false
+    },
+    {
+      "component_id": "npm:@rightkit/release",
+      "source_version_at_catalog_freeze": "0.2.153",
+      "registry_recorded": "0.2.151",
+      "staged_unverified": "0.2.153",
+      "private_at_catalog_freeze": false
+    },
+    {
+      "component_id": "npm:@rightkit/settings-ui",
+      "source_version_at_catalog_freeze": "0.3.4",
+      "registry_recorded": "0.3.4",
+      "staged_unverified": "0.3.4",
+      "private_at_catalog_freeze": false
+    },
+    {
+      "component_id": "npm:@rightkit/shell",
+      "source_version_at_catalog_freeze": "0.1.0",
+      "registry_recorded": "0.1.0",
+      "staged_unverified": "0.1.0",
+      "private_at_catalog_freeze": false
+    },
+    {
+      "component_id": "npm:@rightkit/tauri",
+      "source_version_at_catalog_freeze": "0.2.0",
+      "registry_recorded": "0.2.0",
+      "staged_unverified": "0.2.0",
+      "private_at_catalog_freeze": false
+    },
+    {
+      "component_id": "npm:@rightkit/theme",
+      "source_version_at_catalog_freeze": "0.2.3",
+      "registry_recorded": "0.2.3",
+      "staged_unverified": "0.2.3",
+      "private_at_catalog_freeze": false
+    },
+    {
+      "component_id": "npm:@rightkit/update",
+      "source_version_at_catalog_freeze": "0.2.0",
+      "registry_recorded": null,
+      "staged_unverified": null,
+      "private_at_catalog_freeze": false
+    },
+    {
+      "component_id": "npm:@rightkit/updates",
+      "source_version_at_catalog_freeze": "0.2.5",
+      "registry_recorded": "0.2.5",
+      "staged_unverified": "0.2.5",
+      "private_at_catalog_freeze": false
+    },
+    {
+      "component_id": "swift:RightKitLicense",
+      "source_version_at_catalog_freeze": "see RightKitSwift tag",
+      "registry_recorded": {
+        "url": "https://github.com/bogusyogi/rightkit-swift.git",
+        "version": "0.4.0"
+      },
+      "staged_unverified": {
+        "url": "https://github.com/bogusyogi/rightkit-swift.git",
+        "version": "0.4.0"
+      },
+      "private_at_catalog_freeze": false
+    },
+    {
+      "component_id": "swift:RightKitDiagnostics",
+      "source_version_at_catalog_freeze": "see RightKitSwift tag",
+      "registry_recorded": {
+        "url": "https://github.com/bogusyogi/rightkit-swift.git",
+        "version": "0.4.0"
+      },
+      "staged_unverified": {
+        "url": "https://github.com/bogusyogi/rightkit-swift.git",
+        "version": "0.4.0"
+      },
+      "private_at_catalog_freeze": false
+    },
+    {
+      "component_id": "swift:RightKitArtifacts",
+      "source_version_at_catalog_freeze": "see RightKitSwift tag",
+      "registry_recorded": {
+        "url": "https://github.com/bogusyogi/rightkit-swift.git",
+        "version": "0.4.0"
+      },
+      "staged_unverified": {
+        "url": "https://github.com/bogusyogi/rightkit-swift.git",
+        "version": "0.4.0"
+      },
+      "private_at_catalog_freeze": false
+    },
+    {
+      "component_id": "swift:RightKitPurchases",
+      "source_version_at_catalog_freeze": "see RightKitSwift tag",
+      "registry_recorded": {
+        "url": "https://github.com/bogusyogi/rightkit-swift.git",
+        "version": "0.4.0"
+      },
+      "staged_unverified": {
+        "url": "https://github.com/bogusyogi/rightkit-swift.git",
+        "version": "0.4.0"
+      },
+      "private_at_catalog_freeze": false
+    },
+    {
+      "component_id": "swift:RightKitCloudSync",
+      "source_version_at_catalog_freeze": "see RightKitSwift tag",
+      "registry_recorded": {
+        "url": "https://github.com/bogusyogi/rightkit-swift.git",
+        "version": "0.4.0"
+      },
+      "staged_unverified": {
+        "url": "https://github.com/bogusyogi/rightkit-swift.git",
+        "version": "0.4.0"
+      },
+      "private_at_catalog_freeze": false
+    },
+    {
+      "component_id": "swift:RightKitStore",
+      "source_version_at_catalog_freeze": "see RightKitSwift tag",
+      "registry_recorded": {
+        "url": "https://github.com/bogusyogi/rightkit-swift.git",
+        "version": "0.4.0"
+      },
+      "staged_unverified": {
+        "url": "https://github.com/bogusyogi/rightkit-swift.git",
+        "version": "0.4.0"
+      },
+      "private_at_catalog_freeze": false
+    },
+    {
+      "component_id": "swift:RightKitImportQueue",
+      "source_version_at_catalog_freeze": "see RightKitSwift tag",
+      "registry_recorded": {
+        "url": "https://github.com/bogusyogi/rightkit-swift.git",
+        "version": "0.4.0"
+      },
+      "staged_unverified": {
+        "url": "https://github.com/bogusyogi/rightkit-swift.git",
+        "version": "0.4.0"
+      },
+      "private_at_catalog_freeze": false
+    },
+    {
+      "component_id": "swift:RightKitLiveActivity",
+      "source_version_at_catalog_freeze": "see RightKitSwift tag",
+      "registry_recorded": {
+        "url": "https://github.com/bogusyogi/rightkit-swift.git",
+        "version": "0.4.0"
+      },
+      "staged_unverified": {
+        "url": "https://github.com/bogusyogi/rightkit-swift.git",
+        "version": "0.4.0"
+      },
+      "private_at_catalog_freeze": false
+    },
+    {
+      "component_id": "swift:RightKitWatchBridge",
+      "source_version_at_catalog_freeze": "see RightKitSwift tag",
+      "registry_recorded": {
+        "url": "https://github.com/bogusyogi/rightkit-swift.git",
+        "version": "0.4.0"
+      },
+      "staged_unverified": {
+        "url": "https://github.com/bogusyogi/rightkit-swift.git",
+        "version": "0.4.0"
+      },
+      "private_at_catalog_freeze": false
+    },
+    {
+      "component_id": "swift:RightKitSpeech",
+      "source_version_at_catalog_freeze": "see RightKitSwift tag",
+      "registry_recorded": {
+        "url": "https://github.com/bogusyogi/rightkit-swift.git",
+        "version": "0.4.0"
+      },
+      "staged_unverified": {
+        "url": "https://github.com/bogusyogi/rightkit-swift.git",
+        "version": "0.4.0"
+      },
+      "private_at_catalog_freeze": false
+    },
+    {
+      "component_id": "swift:RightKitIntents",
+      "source_version_at_catalog_freeze": "see RightKitSwift tag",
+      "registry_recorded": {
+        "url": "https://github.com/bogusyogi/rightkit-swift.git",
+        "version": "0.4.0"
+      },
+      "staged_unverified": {
+        "url": "https://github.com/bogusyogi/rightkit-swift.git",
+        "version": "0.4.0"
+      },
+      "private_at_catalog_freeze": false
+    },
+    {
+      "component_id": "swift:RightKitAppleCredentials",
+      "source_version_at_catalog_freeze": "see RightKitSwift tag",
+      "registry_recorded": {
+        "url": "https://github.com/bogusyogi/rightkit-swift.git",
+        "version": "0.4.0"
+      },
+      "staged_unverified": {
+        "url": "https://github.com/bogusyogi/rightkit-swift.git",
+        "version": "0.4.0"
+      },
+      "private_at_catalog_freeze": false
+    },
+    {
+      "component_id": "swift:RightKitOverlay",
+      "source_version_at_catalog_freeze": "see RightKitSwift tag",
+      "registry_recorded": {
+        "url": "https://github.com/bogusyogi/rightkit-swift.git",
+        "version": "0.4.0"
+      },
+      "staged_unverified": {
+        "url": "https://github.com/bogusyogi/rightkit-swift.git",
+        "version": "0.4.0"
+      },
+      "private_at_catalog_freeze": false
+    },
+    {
+      "component_id": "swift:RightKitWatch",
+      "source_version_at_catalog_freeze": "see RightKitSwift tag",
+      "registry_recorded": {
+        "url": "https://github.com/bogusyogi/rightkit-swift.git",
+        "version": "0.4.0"
+      },
+      "staged_unverified": {
+        "url": "https://github.com/bogusyogi/rightkit-swift.git",
+        "version": "0.4.0"
+      },
+      "private_at_catalog_freeze": false
+    },
+    {
+      "component_id": "swift:RightKitUI",
+      "source_version_at_catalog_freeze": "see RightKitSwift tag",
+      "registry_recorded": {
+        "url": "https://github.com/bogusyogi/rightkit-swift.git",
+        "version": "0.4.0"
+      },
+      "staged_unverified": {
+        "url": "https://github.com/bogusyogi/rightkit-swift.git",
+        "version": "0.4.0"
+      },
+      "private_at_catalog_freeze": false
+    }
+  ]
+}

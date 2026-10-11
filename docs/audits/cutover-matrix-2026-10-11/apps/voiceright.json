@@ -1,0 +1,2173 @@
+{
+  "app": "VoiceRight",
+  "root": "/Volumes/D/claude/voiceright",
+  "head": "c42cf611f04355e666523ae7d3e6c2a9210a4cea",
+  "reviewed_at": "2026-10-11T08:20:07+05:30",
+  "targets": [
+    "desktop",
+    "windows",
+    "macos"
+  ],
+  "scope_note": "Fresh source/config audit of Tauri 2 + React 19 desktop targets, Rust engine, release scripts, and active QA files. No builds, installs, network, publication, or product changes; Swift/iOS/watchOS scope checked and absent.",
+  "cells": [
+    {
+      "component_id": "cargo:agent-room-core",
+      "status": "NA",
+      "rationale": "Component is not applicable to current VoiceRight runtime/target; no active production caller or implementation was found.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/voiceright/src-tauri/Cargo.toml",
+          "line": 1,
+          "symbol": "manifest/source census",
+          "detail": "No active caller or implementation matching this component in current production target."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-agent-tools",
+      "status": "NA",
+      "rationale": "Component is not applicable to current VoiceRight runtime/target; no active production caller or implementation was found.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/voiceright/src-tauri/Cargo.toml",
+          "line": 1,
+          "symbol": "manifest/source census",
+          "detail": "No active caller or implementation matching this component in current production target."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-align",
+      "status": "NA",
+      "rationale": "Component is not applicable to current VoiceRight runtime/target; no active production caller or implementation was found.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/voiceright/src-tauri/Cargo.toml",
+          "line": 1,
+          "symbol": "manifest/source census",
+          "detail": "VoiceRight synthesizes/clones speech; no ASR, alignment, VAD, or shared speech-service caller."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-asr",
+      "status": "NA",
+      "rationale": "Component is not applicable to current VoiceRight runtime/target; no active production caller or implementation was found.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/voiceright/src-tauri/Cargo.toml",
+          "line": 1,
+          "symbol": "manifest/source census",
+          "detail": "VoiceRight synthesizes/clones speech; no ASR, alignment, VAD, or shared speech-service caller."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-audio",
+      "status": "N",
+      "rationale": "Local WAV validation/write overlaps shared WAV I/O; no RightKit route.",
+      "shared_evidence": [],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/voiceright/src-tauri/src/engine/wav.rs",
+          "line": 8,
+          "symbol": "read_wav_info",
+          "detail": "Local RIFF/WAVE parser validates sample rate, duration, and bytes."
+        },
+        {
+          "path": "/Volumes/D/claude/voiceright/src-tauri/src/engine/qts_embedded.rs",
+          "line": 91,
+          "symbol": "write_wav",
+          "detail": "Local QTS adapter converts PCM and writes generated WAV."
+        }
+      ],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/voiceright/src-tauri/Cargo.toml",
+          "line": 15,
+          "symbol": "active dependency/target",
+          "detail": "Current desktop target contains local implementation and caller."
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-audio/src/wav.rs",
+          "line": 66,
+          "symbol": "write_wav_mono_i16",
+          "detail": "Owner writes 16-bit PCM WAV from mono f32 samples, matching VoiceRight's generated-WAV boundary."
+        }
+      ],
+      "delivery_flags": [],
+      "remaining_work": "Route WAV parsing/writing through rightkit-audio or rightkit-tts; preserve sample-rate/export checks.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-automation",
+      "status": "NA",
+      "rationale": "Component is not applicable to current VoiceRight runtime/target; no active production caller or implementation was found.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/voiceright/src-tauri/Cargo.toml",
+          "line": 1,
+          "symbol": "manifest/source census",
+          "detail": "No active caller or implementation matching this component in current production target."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-browser",
+      "status": "NA",
+      "rationale": "Component is not applicable to current VoiceRight runtime/target; no active production caller or implementation was found.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/voiceright/src-tauri/Cargo.toml",
+          "line": 1,
+          "symbol": "manifest/source census",
+          "detail": "No active caller or implementation matching this component in current production target."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-cache",
+      "status": "NA",
+      "rationale": "Component is not applicable to current VoiceRight runtime/target; no active production caller or implementation was found.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/voiceright/src-tauri/Cargo.toml",
+          "line": 1,
+          "symbol": "manifest/source census",
+          "detail": "No active caller or implementation matching this component in current production target."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-channel-memory",
+      "status": "NA",
+      "rationale": "Component is not applicable to current VoiceRight runtime/target; no active production caller or implementation was found.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/voiceright/src-tauri/Cargo.toml",
+          "line": 1,
+          "symbol": "manifest/source census",
+          "detail": "No active caller or implementation matching this component in current production target."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-compose",
+      "status": "NA",
+      "rationale": "Component is not applicable to current VoiceRight runtime/target; no active production caller or implementation was found.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/voiceright/src-tauri/Cargo.toml",
+          "line": 1,
+          "symbol": "manifest/source census",
+          "detail": "No active caller or implementation matching this component in current production target."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-contracts",
+      "status": "NA",
+      "rationale": "Component is not applicable to current VoiceRight runtime/target; no active production caller or implementation was found.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/voiceright/src-tauri/Cargo.toml",
+          "line": 1,
+          "symbol": "manifest/source census",
+          "detail": "No active caller or implementation matching this component in current production target."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-control",
+      "status": "NA",
+      "rationale": "Component is not applicable to current VoiceRight runtime/target; no active production caller or implementation was found.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/voiceright/src-tauri/Cargo.toml",
+          "line": 1,
+          "symbol": "manifest/source census",
+          "detail": "No active caller or implementation matching this component in current production target."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-crash",
+      "status": "NA",
+      "rationale": "Component is not applicable to current VoiceRight runtime/target; no active production caller or implementation was found.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/voiceright/src-tauri/Cargo.toml",
+          "line": 1,
+          "symbol": "manifest/source census",
+          "detail": "No active caller or implementation matching this component in current production target."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-daemon",
+      "status": "NA",
+      "rationale": "Component is not applicable to current VoiceRight runtime/target; no active production caller or implementation was found.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/voiceright/src-tauri/Cargo.toml",
+          "line": 1,
+          "symbol": "manifest/source census",
+          "detail": "No active caller or implementation matching this component in current production target."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-db",
+      "status": "NA",
+      "rationale": "Component is not applicable to current VoiceRight runtime/target; no active production caller or implementation was found.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/voiceright/src-tauri/Cargo.toml",
+          "line": 1,
+          "symbol": "manifest/source census",
+          "detail": "No SQLite/rusqlite dependency or persistent history store."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-embed",
+      "status": "NA",
+      "rationale": "Component is not applicable to current VoiceRight runtime/target; no active production caller or implementation was found.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/voiceright/src-tauri/Cargo.toml",
+          "line": 1,
+          "symbol": "manifest/source census",
+          "detail": "No active caller or implementation matching this component in current production target."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-framed-sidecar",
+      "status": "NA",
+      "rationale": "Component is not applicable to current VoiceRight runtime/target; no active production caller or implementation was found.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/voiceright/src-tauri/Cargo.toml",
+          "line": 1,
+          "symbol": "manifest/source census",
+          "detail": "No Python/JSON-lines sidecar is active; QTS is embedded Rust."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-fs",
+      "status": "N",
+      "rationale": "Local app-data/staged/generated/voice writes overlap shared state/file safety; no RightKit route.",
+      "shared_evidence": [],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/voiceright/src-tauri/src/engine/mod.rs",
+          "line": 150,
+          "symbol": "set_artifact_root",
+          "detail": "Local app-data engine root uses std::fs::create_dir_all and mutex."
+        },
+        {
+          "path": "/Volumes/D/claude/voiceright/src-tauri/src/commands.rs",
+          "line": 70,
+          "symbol": "stage_audio_file",
+          "detail": "Local staged audio copy uses std::fs directly."
+        }
+      ],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/voiceright/src-tauri/Cargo.toml",
+          "line": 15,
+          "symbol": "active dependency/target",
+          "detail": "Current desktop target contains local implementation and caller."
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-fs/src/state.rs",
+          "line": 105,
+          "symbol": "StateDir::child",
+          "detail": "Owner pins an owner-only state directory then creates validated child state directories."
+        }
+      ],
+      "delivery_flags": [],
+      "remaining_work": "Adopt rightkit-fs for app-data/staged/generated/voice writes; remove direct std::fs after parity.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-fsindex",
+      "status": "NA",
+      "rationale": "Component is not applicable to current VoiceRight runtime/target; no active production caller or implementation was found.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/voiceright/src-tauri/Cargo.toml",
+          "line": 1,
+          "symbol": "manifest/source census",
+          "detail": "No active caller or implementation matching this component in current production target."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-hotkeys",
+      "status": "NA",
+      "rationale": "Component is not applicable to current VoiceRight runtime/target; no active production caller or implementation was found.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/voiceright/src-tauri/Cargo.toml",
+          "line": 1,
+          "symbol": "manifest/source census",
+          "detail": "No active caller or implementation matching this component in current production target."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-http",
+      "status": "NA",
+      "rationale": "Component is not applicable to current VoiceRight runtime/target; no active production caller or implementation was found.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/voiceright/src-tauri/Cargo.toml",
+          "line": 1,
+          "symbol": "manifest/source census",
+          "detail": "No active caller or implementation matching this component in current production target."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-jobs",
+      "status": "NA",
+      "rationale": "Component is not applicable to current VoiceRight runtime/target; no active production caller or implementation was found.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/voiceright/src-tauri/Cargo.toml",
+          "line": 1,
+          "symbol": "manifest/source census",
+          "detail": "No active caller or implementation matching this component in current production target."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-license",
+      "status": "NA",
+      "rationale": "Component is not applicable to current VoiceRight runtime/target; no active production caller or implementation was found.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/voiceright/src-tauri/Cargo.toml",
+          "line": 1,
+          "symbol": "manifest/source census",
+          "detail": "No active license/legal gate or command in current Tauri surface."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-llm",
+      "status": "NA",
+      "rationale": "Component is not applicable to current VoiceRight runtime/target; no active production caller or implementation was found.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/voiceright/src-tauri/Cargo.toml",
+          "line": 1,
+          "symbol": "manifest/source census",
+          "detail": "No active caller or implementation matching this component in current production target."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-logs",
+      "status": "NA",
+      "rationale": "Component is not applicable to current VoiceRight runtime/target; no active production caller or implementation was found.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/voiceright/src-tauri/Cargo.toml",
+          "line": 1,
+          "symbol": "manifest/source census",
+          "detail": "No active caller or implementation matching this component in current production target."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-mcp",
+      "status": "NA",
+      "rationale": "Component is not applicable to current VoiceRight runtime/target; no active production caller or implementation was found.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/voiceright/src-tauri/Cargo.toml",
+          "line": 1,
+          "symbol": "manifest/source census",
+          "detail": "No active caller or implementation matching this component in current production target."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-media",
+      "status": "NA",
+      "rationale": "Component is not applicable to current VoiceRight runtime/target; no active production caller or implementation was found.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/voiceright/src-tauri/Cargo.toml",
+          "line": 1,
+          "symbol": "manifest/source census",
+          "detail": "No active caller or implementation matching this component in current production target."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-models",
+      "status": "N",
+      "rationale": "Local QTS model/ORT bundle provisioning overlaps shared model installation; no RightKit route.",
+      "shared_evidence": [],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/voiceright/src-tauri/src/engine/mod.rs",
+          "line": 170,
+          "symbol": "provision_from_bundle",
+          "detail": "Local model/ORT checks and bundle copy provision artifacts."
+        },
+        {
+          "path": "/Volumes/D/claude/voiceright/src-tauri/src/engine/artifacts.rs",
+          "line": 10,
+          "symbol": "models_exist",
+          "detail": "Local manifest is two hard-coded model files with is_file checks."
+        }
+      ],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/voiceright/src-tauri/Cargo.toml",
+          "line": 15,
+          "symbol": "active dependency/target",
+          "detail": "Current desktop target contains local implementation and caller."
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-models/src/install.rs",
+          "line": 329,
+          "symbol": "Store::adopt_then_install",
+          "detail": "Owner adopts existing pinned model files, verifies them, then activates one revision atomically."
+        }
+      ],
+      "delivery_flags": [],
+      "remaining_work": "Adopt rightkit-models manifest/verification/activation for QTS model and ORT provisioning.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-oauth",
+      "status": "NA",
+      "rationale": "Component is not applicable to current VoiceRight runtime/target; no active production caller or implementation was found.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/voiceright/src-tauri/Cargo.toml",
+          "line": 1,
+          "symbol": "manifest/source census",
+          "detail": "No active caller or implementation matching this component in current production target."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-ocr",
+      "status": "NA",
+      "rationale": "Component is not applicable to current VoiceRight runtime/target; no active production caller or implementation was found.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/voiceright/src-tauri/Cargo.toml",
+          "line": 1,
+          "symbol": "manifest/source census",
+          "detail": "No active caller or implementation matching this component in current production target."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-ort",
+      "status": "N",
+      "rationale": "Direct ort and local ORT runtime setup overlap rightkit-ort's runtime binding API; no RightKit route.",
+      "shared_evidence": [],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/voiceright/src-tauri/Cargo.toml",
+          "line": 15,
+          "symbol": "ort dependency",
+          "detail": "Direct optional ort dependency instead of rightkit-ort."
+        },
+        {
+          "path": "/Volumes/D/claude/voiceright/src-tauri/src/engine/qts_embedded.rs",
+          "line": 216,
+          "symbol": "configure_runtime",
+          "detail": "Local adapter sets ORT_DYLIB_PATH and prepends runtime directory."
+        }
+      ],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/voiceright/src-tauri/Cargo.toml",
+          "line": 15,
+          "symbol": "active dependency/target",
+          "detail": "Current desktop target contains local implementation and caller."
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-ort/src/lib.rs",
+          "line": 484,
+          "symbol": "configure_runtime",
+          "detail": "Owner resolves approved runtime candidates before setting ORT_DYLIB_PATH."
+        }
+      ],
+      "delivery_flags": [
+        "Manifest requests ort 2.0.0-rc.9; Cargo.lock resolves 2.0.0-rc.12; no rightkit-ort dependency."
+      ],
+      "remaining_work": "Route ORT setup through rightkit-ort; remove direct ort and local env/path setup.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-overlay",
+      "status": "NA",
+      "rationale": "Component is not applicable to current VoiceRight runtime/target; no active production caller or implementation was found.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/voiceright/src-tauri/Cargo.toml",
+          "line": 1,
+          "symbol": "manifest/source census",
+          "detail": "No active caller or implementation matching this component in current production target."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-ownership",
+      "status": "NA",
+      "rationale": "Component is not applicable to current VoiceRight runtime/target; no active production caller or implementation was found.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/voiceright/src-tauri/Cargo.toml",
+          "line": 1,
+          "symbol": "manifest/source census",
+          "detail": "No active caller or implementation matching this component in current production target."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-pdf",
+      "status": "NA",
+      "rationale": "Component is not applicable to current VoiceRight runtime/target; no active production caller or implementation was found.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/voiceright/src-tauri/Cargo.toml",
+          "line": 1,
+          "symbol": "manifest/source census",
+          "detail": "No active caller or implementation matching this component in current production target."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-playback",
+      "status": "NA",
+      "rationale": "Component is not applicable to current VoiceRight runtime/target; no active production caller or implementation was found.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/voiceright/src-tauri/Cargo.toml",
+          "line": 1,
+          "symbol": "manifest/source census",
+          "detail": "No active caller or implementation matching this component in current production target."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-process",
+      "status": "NA",
+      "rationale": "Component is not applicable to current VoiceRight runtime/target; no active production caller or implementation was found.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/voiceright/src-tauri/Cargo.toml",
+          "line": 1,
+          "symbol": "manifest/source census",
+          "detail": "qts CLI child process exists only under cfg(test)/qts-cli-proof; no production child lifecycle/health feature."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-qa",
+      "status": "NA",
+      "rationale": "VoiceRight has only a product-local query-mode mock and Vitest coverage; neither runs rightkit-qa's native app/engine harness or evidence contract.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/voiceright/src-tauri/Cargo.toml",
+          "line": 1,
+          "symbol": "Rust target census",
+          "detail": "Desktop Cargo target declares no rightkit-qa/control/browser route; its Rust tests are unit tests, while query doubles live in the React renderer."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-qts",
+      "status": "N",
+      "rationale": "Embedded engine calls local-path qts despite a matching rightkit-qts API; no RightKit route.",
+      "shared_evidence": [],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/voiceright/src-tauri/Cargo.toml",
+          "line": 16,
+          "symbol": "qts dependency",
+          "detail": "qts resolves from ../eval/qts-upstream path, not published RightKit."
+        },
+        {
+          "path": "/Volumes/D/claude/voiceright/src-tauri/src/engine/qts_embedded.rs",
+          "line": 113,
+          "symbol": "Qwen3TtsEngine::from_model_dir",
+          "detail": "Embedded production feature loads local QTS engine."
+        }
+      ],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/voiceright/src-tauri/Cargo.toml",
+          "line": 15,
+          "symbol": "active dependency/target",
+          "detail": "Current desktop target contains local implementation and caller."
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-qts/src/lib.rs",
+          "line": 139,
+          "symbol": "Qwen3TtsEngine",
+          "detail": "Owner provides direct embedded Qwen3 engine loading plus synthesis and clone-prompt APIs."
+        }
+      ],
+      "delivery_flags": [
+        "Configured local path dependency ../eval/qts-upstream is absent from this checkout; classification follows the active manifest route and embedded caller, not a build claim."
+      ],
+      "remaining_work": "Replace eval/qts-upstream with published rightkit-qts; preserve embedded and voice-prompt contracts.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-qts-ggml",
+      "status": "N",
+      "rationale": "Active local qts dependency brings qts_ggml transitively; no RightKit GGML route is active.",
+      "shared_evidence": [],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/voiceright/src-tauri/Cargo.lock",
+          "line": 2843,
+          "symbol": "qts_ggml package",
+          "detail": "Local qts path resolves active qts_ggml dependency."
+        },
+        {
+          "path": "/Volumes/D/claude/voiceright/src-tauri/src/engine/qts_embedded.rs",
+          "line": 113,
+          "symbol": "Qwen3TtsEngine::from_model_dir",
+          "detail": "App call chain reaches local GGML implementation transitively."
+        }
+      ],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/voiceright/src-tauri/Cargo.toml",
+          "line": 15,
+          "symbol": "active dependency/target",
+          "detail": "Current desktop target contains local implementation and caller."
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-qts-ggml/src/lib.rs",
+          "line": 12,
+          "symbol": "Context",
+          "detail": "Owner's deprecated facade supplies the same GGML context wrapper present in VoiceRight's active local QTS lock chain."
+        }
+      ],
+      "delivery_flags": [
+        "Transitive qts_ggml comes from the configured local qts path; no RightKit route is active."
+      ],
+      "remaining_work": "After qts adoption, remove local qts_ggml path and verify Vulkan/CPU behavior.",
+      "confidence": "medium"
+    },
+    {
+      "component_id": "cargo:rightkit-qts-ggml-sys",
+      "status": "N",
+      "rationale": "Active local qts dependency brings qts_ggml_sys transitively; no RightKit GGML FFI route is active.",
+      "shared_evidence": [],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/voiceright/src-tauri/Cargo.lock",
+          "line": 2850,
+          "symbol": "qts_ggml_sys package",
+          "detail": "Local qts path resolves active qts_ggml_sys dependency."
+        },
+        {
+          "path": "/Volumes/D/claude/voiceright/src-tauri/src/engine/qts_embedded.rs",
+          "line": 113,
+          "symbol": "Qwen3TtsEngine::from_model_dir",
+          "detail": "App call chain reaches local GGML FFI transitively."
+        }
+      ],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/voiceright/src-tauri/Cargo.toml",
+          "line": 15,
+          "symbol": "active dependency/target",
+          "detail": "Current desktop target contains local implementation and caller."
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-qts-ggml-sys/src/lib.rs",
+          "line": 9,
+          "symbol": "generated ggml bindings",
+          "detail": "Owner exposes GGML FFI bindings used by the QTS stack; VoiceRight reaches its local equivalent through qts_ggml."
+        }
+      ],
+      "delivery_flags": [
+        "Transitive qts_ggml_sys comes from the configured local qts path; no RightKit route is active."
+      ],
+      "remaining_work": "After qts adoption, remove local qts_ggml_sys path and verify native linkage.",
+      "confidence": "medium"
+    },
+    {
+      "component_id": "cargo:rightkit-record",
+      "status": "NA",
+      "rationale": "Component is not applicable to current VoiceRight runtime/target; no active production caller or implementation was found.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/voiceright/src-tauri/Cargo.toml",
+          "line": 1,
+          "symbol": "manifest/source census",
+          "detail": "No active caller or implementation matching this component in current production target."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-review",
+      "status": "NA",
+      "rationale": "Component is not applicable to current VoiceRight runtime/target; no active production caller or implementation was found.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/voiceright/src-tauri/Cargo.toml",
+          "line": 1,
+          "symbol": "manifest/source census",
+          "detail": "No active caller or implementation matching this component in current production target."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-sandbox",
+      "status": "NA",
+      "rationale": "Component is not applicable to current VoiceRight runtime/target; no active production caller or implementation was found.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/voiceright/src-tauri/Cargo.toml",
+          "line": 1,
+          "symbol": "manifest/source census",
+          "detail": "No active caller or implementation matching this component in current production target."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-scenario",
+      "status": "NA",
+      "rationale": "Component is not applicable to current VoiceRight runtime/target; no active production caller or implementation was found.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/voiceright/src-tauri/Cargo.toml",
+          "line": 1,
+          "symbol": "manifest/source census",
+          "detail": "No active caller or implementation matching this component in current production target."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-search",
+      "status": "NA",
+      "rationale": "Component is not applicable to current VoiceRight runtime/target; no active production caller or implementation was found.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/voiceright/src-tauri/Cargo.toml",
+          "line": 1,
+          "symbol": "manifest/source census",
+          "detail": "No active caller or implementation matching this component in current production target."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-secrets",
+      "status": "NA",
+      "rationale": "Component is not applicable to current VoiceRight runtime/target; no active production caller or implementation was found.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/voiceright/src-tauri/Cargo.toml",
+          "line": 1,
+          "symbol": "manifest/source census",
+          "detail": "No active caller or implementation matching this component in current production target."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-send",
+      "status": "NA",
+      "rationale": "Component is not applicable to current VoiceRight runtime/target; no active production caller or implementation was found.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/voiceright/src-tauri/Cargo.toml",
+          "line": 1,
+          "symbol": "manifest/source census",
+          "detail": "No active caller or implementation matching this component in current production target."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-service",
+      "status": "NA",
+      "rationale": "Component is not applicable to current VoiceRight runtime/target; no active production caller or implementation was found.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/voiceright/src-tauri/Cargo.toml",
+          "line": 1,
+          "symbol": "manifest/source census",
+          "detail": "No active caller or implementation matching this component in current production target."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-settings",
+      "status": "NA",
+      "rationale": "Component is not applicable to current VoiceRight runtime/target; no active production caller or implementation was found.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/voiceright/src-tauri/Cargo.toml",
+          "line": 1,
+          "symbol": "manifest/source census",
+          "detail": "No active caller or implementation matching this component in current production target."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-shell",
+      "status": "N",
+      "rationale": "Local Tauri builder/config own shared shell concerns; no rightkit-shell route.",
+      "shared_evidence": [],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/voiceright/src-tauri/src/lib.rs",
+          "line": 7,
+          "symbol": "tauri::Builder",
+          "detail": "Local Tauri builder owns plugins, setup, handler, and run."
+        },
+        {
+          "path": "/Volumes/D/claude/voiceright/src-tauri/tauri.conf.json",
+          "line": 12,
+          "symbol": "app.windows",
+          "detail": "Local config owns window/security shell behavior."
+        }
+      ],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/voiceright/src-tauri/Cargo.toml",
+          "line": 15,
+          "symbol": "active dependency/target",
+          "detail": "Current desktop target contains local implementation and caller."
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-shell/src/modules.rs",
+          "line": 183,
+          "symbol": "ShellPluginBuilder::build",
+          "detail": "Owner installs a configured Tauri shell plugin; VoiceRight instead registers its own Tauri shell and frameless window configuration."
+        }
+      ],
+      "delivery_flags": [],
+      "remaining_work": "Adopt rightkit-shell for Tauri shell wiring; keep product commands local.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-speech-client",
+      "status": "NA",
+      "rationale": "Component is not applicable to current VoiceRight runtime/target; no active production caller or implementation was found.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/voiceright/src-tauri/Cargo.toml",
+          "line": 1,
+          "symbol": "manifest/source census",
+          "detail": "VoiceRight synthesizes/clones speech; no ASR, alignment, VAD, or shared speech-service caller."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-sync",
+      "status": "NA",
+      "rationale": "Component is not applicable to current VoiceRight runtime/target; no active production caller or implementation was found.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/voiceright/src-tauri/Cargo.toml",
+          "line": 1,
+          "symbol": "manifest/source census",
+          "detail": "No active caller or implementation matching this component in current production target."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-tauri",
+      "status": "NA",
+      "rationale": "VoiceRight has a Tauri host, but its direct plugins and product commands do not implement rightkit-tauri's license/device adapter scope.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/voiceright/src-tauri/Cargo.toml",
+          "line": 19,
+          "symbol": "Tauri plugin manifest",
+          "detail": "Host declares dialog, OS, updater, and process plugins; no RightKit license/device host adapter or equivalent command exists."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-transcript",
+      "status": "NA",
+      "rationale": "Component is not applicable to current VoiceRight runtime/target; no active production caller or implementation was found.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/voiceright/src-tauri/Cargo.toml",
+          "line": 1,
+          "symbol": "manifest/source census",
+          "detail": "No active caller or implementation matching this component in current production target."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-tts",
+      "status": "N",
+      "rationale": "Local Rust QTS adapter owns shared TTS concerns; no rightkit-tts route.",
+      "shared_evidence": [],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/voiceright/src-tauri/src/engine/mod.rs",
+          "line": 63,
+          "symbol": "synth_text",
+          "detail": "Local engine owns TTS command and voice-prompt routing."
+        },
+        {
+          "path": "/Volumes/D/claude/voiceright/src-tauri/src/engine/qts_embedded.rs",
+          "line": 81,
+          "symbol": "Qwen3TtsEngine::synthesize",
+          "detail": "Local QTS synthesis and voice-clone adapter are active."
+        }
+      ],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/voiceright/src-tauri/Cargo.toml",
+          "line": 15,
+          "symbol": "active dependency/target",
+          "detail": "Current desktop target contains local implementation and caller."
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-tts/src/client.rs",
+          "line": 79,
+          "symbol": "QtsClient::synthesize",
+          "detail": "Owner QTS client exposes synthesis and clone-to-library calls through its managed worker boundary."
+        }
+      ],
+      "delivery_flags": [],
+      "remaining_work": "Adopt rightkit-tts or document retained product-specific adapter; remove duplicate path when clone is covered.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-vad",
+      "status": "NA",
+      "rationale": "Component is not applicable to current VoiceRight runtime/target; no active production caller or implementation was found.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/voiceright/src-tauri/Cargo.toml",
+          "line": 1,
+          "symbol": "manifest/source census",
+          "detail": "VoiceRight synthesizes/clones speech; no ASR, alignment, VAD, or shared speech-service caller."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-watch",
+      "status": "NA",
+      "rationale": "Component is not applicable to current VoiceRight runtime/target; no active production caller or implementation was found.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/voiceright/src-tauri/Cargo.toml",
+          "line": 1,
+          "symbol": "manifest/source census",
+          "detail": "No active caller or implementation matching this component in current production target."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/agent-room-mcp",
+      "status": "NA",
+      "rationale": "Component is not applicable to current VoiceRight runtime/target; no active production caller or implementation was found.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/voiceright/package.json",
+          "line": 1,
+          "symbol": "manifest/source census",
+          "detail": "No active caller or implementation matching this component in current production target."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/app-shell",
+      "status": "N",
+      "rationale": "Local React frame implements app-shell layout; no shared app-shell import.",
+      "shared_evidence": [],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/voiceright/src/App.tsx",
+          "line": 199,
+          "symbol": "App",
+          "detail": "Local React frame owns titlebar, rail, workspace, compose, and results."
+        }
+      ],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/voiceright/package.json",
+          "line": 49,
+          "symbol": "active dependency/target",
+          "detail": "Current desktop target contains local implementation and caller."
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/packages/app-shell/src/react/layout.tsx",
+          "line": 518,
+          "symbol": "AppShell",
+          "detail": "Owner provides titlebar/sidebar/page layout through app-owned slots, matching VoiceRight's local frame boundary."
+        }
+      ],
+      "delivery_flags": [],
+      "remaining_work": "Adopt app-shell primitives; preserve VoiceRight compose/voice-library/result policy.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/ax",
+      "status": "NA",
+      "rationale": "Component is not applicable to current VoiceRight runtime/target; no active production caller or implementation was found.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/voiceright/package.json",
+          "line": 1,
+          "symbol": "manifest/source census",
+          "detail": "No active caller or implementation matching this component in current production target."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/build-control-policy",
+      "status": "NA",
+      "rationale": "Component is not applicable to current VoiceRight runtime/target; no active production caller or implementation was found.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/voiceright/package.json",
+          "line": 1,
+          "symbol": "manifest/source census",
+          "detail": "No active caller or implementation matching this component in current production target."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/doc-render",
+      "status": "NA",
+      "rationale": "Component is not applicable to current VoiceRight runtime/target; no active production caller or implementation was found.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/voiceright/package.json",
+          "line": 1,
+          "symbol": "manifest/source census",
+          "detail": "No active caller or implementation matching this component in current production target."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/git",
+      "status": "NA",
+      "rationale": "Component is not applicable to current VoiceRight runtime/target; no active production caller or implementation was found.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/voiceright/package.json",
+          "line": 1,
+          "symbol": "manifest/source census",
+          "detail": "No active caller or implementation matching this component in current production target."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/hooks",
+      "status": "NA",
+      "rationale": "Component is not applicable to current VoiceRight runtime/target; no active production caller or implementation was found.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/voiceright/package.json",
+          "line": 1,
+          "symbol": "manifest/source census",
+          "detail": "No active caller or implementation matching this component in current production target."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/i18n",
+      "status": "NA",
+      "rationale": "Component is not applicable to current VoiceRight runtime/target; no active production caller or implementation was found.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/voiceright/package.json",
+          "line": 1,
+          "symbol": "manifest/source census",
+          "detail": "No active caller or implementation matching this component in current production target."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/legal",
+      "status": "NA",
+      "rationale": "Component is not applicable to current VoiceRight runtime/target; no active production caller or implementation was found.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/voiceright/package.json",
+          "line": 1,
+          "symbol": "manifest/source census",
+          "detail": "No active license/legal gate or command in current Tauri surface."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/legal-ui",
+      "status": "NA",
+      "rationale": "Component is not applicable to current VoiceRight runtime/target; no active production caller or implementation was found.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/voiceright/package.json",
+          "line": 1,
+          "symbol": "manifest/source census",
+          "detail": "No active license/legal gate or command in current Tauri surface."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/license",
+      "status": "NA",
+      "rationale": "Component is not applicable to current VoiceRight runtime/target; no active production caller or implementation was found.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/voiceright/package.json",
+          "line": 1,
+          "symbol": "manifest/source census",
+          "detail": "No active license/legal gate or command in current Tauri surface."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/logs",
+      "status": "NA",
+      "rationale": "Component is not applicable to current VoiceRight runtime/target; no active production caller or implementation was found.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/voiceright/package.json",
+          "line": 1,
+          "symbol": "manifest/source census",
+          "detail": "No active caller or implementation matching this component in current production target."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/media-ui",
+      "status": "N",
+      "rationale": "Local HTML audio preview implements media playback; no media-ui import.",
+      "shared_evidence": [],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/voiceright/src/App.tsx",
+          "line": 301,
+          "symbol": "audio",
+          "detail": "Local HTML audio previews generated WAV output."
+        }
+      ],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/voiceright/package.json",
+          "line": 49,
+          "symbol": "active dependency/target",
+          "detail": "Current desktop target contains local implementation and caller."
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/packages/media-ui/src/MediaPlayer.tsx",
+          "line": 209,
+          "symbol": "MediaPlayer",
+          "detail": "Owner renders WebView media playback and accepts an app media source, matching VoiceRight's generated-WAV preview."
+        }
+      ],
+      "delivery_flags": [],
+      "remaining_work": "Adopt media-ui player for WAV preview; preserve output/export controls.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/onboarding",
+      "status": "NA",
+      "rationale": "Component is not applicable to current VoiceRight runtime/target; no active production caller or implementation was found.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/voiceright/package.json",
+          "line": 1,
+          "symbol": "manifest/source census",
+          "detail": "No active caller or implementation matching this component in current production target."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/pdf-ui",
+      "status": "NA",
+      "rationale": "Component is not applicable to current VoiceRight runtime/target; no active production caller or implementation was found.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/voiceright/package.json",
+          "line": 1,
+          "symbol": "manifest/source census",
+          "detail": "No active caller or implementation matching this component in current production target."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/platform-ui",
+      "status": "N",
+      "rationale": "Local platform detection and minimize/maximize/close controls overlap platform-ui's explicit adapters; no shared route.",
+      "shared_evidence": [],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/voiceright/src/components/WindowControls.tsx",
+          "line": 1,
+          "symbol": "windowAction",
+          "detail": "Local controls call Tauri window APIs."
+        },
+        {
+          "path": "/Volumes/D/claude/voiceright/src/hooks/usePlatform.ts",
+          "line": 14,
+          "symbol": "getPlatform",
+          "detail": "Local platform detection drives titlebar behavior."
+        }
+      ],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/voiceright/package.json",
+          "line": 49,
+          "symbol": "active dependency/target",
+          "detail": "Current desktop target contains local implementation and caller."
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/packages/platform-ui/src/index.ts",
+          "line": 144,
+          "symbol": "createWindowControls",
+          "detail": "Owner maps minimize, toggleMaximize, and close adapters; it also supplies loadPlatform at line 70."
+        }
+      ],
+      "delivery_flags": [],
+      "remaining_work": "Adopt platform-ui detection/window controls; preserve titlebar styling.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/qa",
+      "status": "NA",
+      "rationale": "Product-local Vitest and query-mode command doubles do not overlap @rightkit/qa's browser/evidence/guard APIs.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/voiceright/src/lib/tauri.ts",
+          "line": 7,
+          "symbol": "invoke QA branch",
+          "detail": "Renderer-only QA query mode returns product command doubles; package.json has no @rightkit/qa dependency or browser harness caller."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/qa-chrome",
+      "status": "NA",
+      "rationale": "Component is not applicable to current VoiceRight runtime/target; no active production caller or implementation was found.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/voiceright/package.json",
+          "line": 1,
+          "symbol": "manifest/source census",
+          "detail": "No active caller or implementation matching this component in current production target."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/release",
+      "status": "Y",
+      "rationale": "Release package is actively used by production release config/scripts.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/voiceright/right-release.config.mjs",
+          "line": 4,
+          "symbol": "resolveTargetRoot import",
+          "detail": "Config imports @rightkit/release; package scripts invoke right-release build/publish/deps."
+        }
+      ],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/voiceright/package.json",
+          "line": 49,
+          "symbol": "@rightkit/release",
+          "detail": "Active devDependency used by release config."
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/packages/release/cargo-target.mjs",
+          "line": 18,
+          "symbol": "resolveTargetRoot",
+          "detail": "Imported owner API resolves VoiceRight's Cargo target root for release artifacts."
+        }
+      ],
+      "delivery_flags": [
+        "@rightkit/release pinned 0.2.109; config uses private r2-rightapps provider."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/settings-ui",
+      "status": "NA",
+      "rationale": "Component is not applicable to current VoiceRight runtime/target; no active production caller or implementation was found.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/voiceright/package.json",
+          "line": 1,
+          "symbol": "manifest/source census",
+          "detail": "No active caller or implementation matching this component in current production target."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/shell",
+      "status": "N",
+      "rationale": "Local WindowControls directly performs minimize, toggleMaximize, and close, matching createShell().window; product engine invokes remain app-owned.",
+      "shared_evidence": [],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/voiceright/src/components/WindowControls.tsx",
+          "line": 1,
+          "symbol": "windowAction",
+          "detail": "Live titlebar controls call Tauri minimize, toggleMaximize, and close directly."
+        },
+        {
+          "path": "/Volumes/D/claude/voiceright/src/components/TitleBar.tsx",
+          "line": 12,
+          "symbol": "WindowControls caller",
+          "detail": "Non-macOS production titlebar renders those window controls."
+        }
+      ],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/voiceright/package.json",
+          "line": 49,
+          "symbol": "active dependency/target",
+          "detail": "Current desktop target contains local implementation and caller."
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/packages/shell/src/index.ts",
+          "line": 239,
+          "symbol": "createShell().window",
+          "detail": "Owner calls rk_shell_window for minimize, toggleMaximize, and close."
+        }
+      ],
+      "delivery_flags": [],
+      "remaining_work": "Adopt @rightkit/shell typed bridge; preserve VoiceRight command payloads.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/tauri",
+      "status": "NA",
+      "rationale": "VoiceRight is a Tauri app, but it has no RightKit license/device host-adapter route or equivalent local implementation.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/voiceright/package.json",
+          "line": 40,
+          "symbol": "Tauri renderer dependencies",
+          "detail": "App uses direct Tauri APIs/plugins; no license/device adapter import, command, or config exists."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/theme",
+      "status": "NA",
+      "rationale": "VoiceRight's fixed product palette is static CSS; it has no brand-file, mode, runtime-token, or contrast-check caller required by @rightkit/theme.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/voiceright/src/styles.css",
+          "line": 1,
+          "symbol": ":root",
+          "detail": "Static VoiceRight palette has no mode selector or runtime mutation; owner API explicitly leaves app-owned token names to callers."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/update",
+      "status": "NA",
+      "rationale": "Component is not applicable to current VoiceRight runtime/target; no active production caller or implementation was found.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/voiceright/package.json",
+          "line": 1,
+          "symbol": "manifest/source census",
+          "detail": "No active caller or implementation matching this component in current production target."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/updates",
+      "status": "NA",
+      "rationale": "Tauri updater registration/config supplies an endpoint and key only; no renderer caller checks, classifies, downloads, or installs through @rightkit/updates.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/voiceright/src-tauri/tauri.conf.json",
+          "line": 28,
+          "symbol": "plugins.updater",
+          "detail": "Configured native updater has no src JavaScript import of @tauri-apps/plugin-updater or @rightkit/updates check/download caller."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitLicense",
+      "status": "NA",
+      "rationale": "Component is not applicable to current VoiceRight runtime/target; no active production caller or implementation was found.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/voiceright/src-tauri/Cargo.toml",
+          "line": 1,
+          "symbol": "manifest/source census",
+          "detail": "Current target census is Tauri Rust/React desktop; no Package.swift, Xcode, iOS/watchOS target, or Swift source."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitDiagnostics",
+      "status": "NA",
+      "rationale": "Component is not applicable to current VoiceRight runtime/target; no active production caller or implementation was found.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/voiceright/src-tauri/Cargo.toml",
+          "line": 1,
+          "symbol": "manifest/source census",
+          "detail": "Current target census is Tauri Rust/React desktop; no Package.swift, Xcode, iOS/watchOS target, or Swift source."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitArtifacts",
+      "status": "NA",
+      "rationale": "Component is not applicable to current VoiceRight runtime/target; no active production caller or implementation was found.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/voiceright/src-tauri/Cargo.toml",
+          "line": 1,
+          "symbol": "manifest/source census",
+          "detail": "Current target census is Tauri Rust/React desktop; no Package.swift, Xcode, iOS/watchOS target, or Swift source."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitPurchases",
+      "status": "NA",
+      "rationale": "Component is not applicable to current VoiceRight runtime/target; no active production caller or implementation was found.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/voiceright/src-tauri/Cargo.toml",
+          "line": 1,
+          "symbol": "manifest/source census",
+          "detail": "Current target census is Tauri Rust/React desktop; no Package.swift, Xcode, iOS/watchOS target, or Swift source."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitCloudSync",
+      "status": "NA",
+      "rationale": "Component is not applicable to current VoiceRight runtime/target; no active production caller or implementation was found.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/voiceright/src-tauri/Cargo.toml",
+          "line": 1,
+          "symbol": "manifest/source census",
+          "detail": "Current target census is Tauri Rust/React desktop; no Package.swift, Xcode, iOS/watchOS target, or Swift source."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitStore",
+      "status": "NA",
+      "rationale": "Component is not applicable to current VoiceRight runtime/target; no active production caller or implementation was found.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/voiceright/src-tauri/Cargo.toml",
+          "line": 1,
+          "symbol": "manifest/source census",
+          "detail": "Current target census is Tauri Rust/React desktop; no Package.swift, Xcode, iOS/watchOS target, or Swift source."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitImportQueue",
+      "status": "NA",
+      "rationale": "Component is not applicable to current VoiceRight runtime/target; no active production caller or implementation was found.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/voiceright/src-tauri/Cargo.toml",
+          "line": 1,
+          "symbol": "manifest/source census",
+          "detail": "Current target census is Tauri Rust/React desktop; no Package.swift, Xcode, iOS/watchOS target, or Swift source."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitLiveActivity",
+      "status": "NA",
+      "rationale": "Component is not applicable to current VoiceRight runtime/target; no active production caller or implementation was found.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/voiceright/src-tauri/Cargo.toml",
+          "line": 1,
+          "symbol": "manifest/source census",
+          "detail": "Current target census is Tauri Rust/React desktop; no Package.swift, Xcode, iOS/watchOS target, or Swift source."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitWatchBridge",
+      "status": "NA",
+      "rationale": "Component is not applicable to current VoiceRight runtime/target; no active production caller or implementation was found.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/voiceright/src-tauri/Cargo.toml",
+          "line": 1,
+          "symbol": "manifest/source census",
+          "detail": "Current target census is Tauri Rust/React desktop; no Package.swift, Xcode, iOS/watchOS target, or Swift source."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitSpeech",
+      "status": "NA",
+      "rationale": "Component is not applicable to current VoiceRight runtime/target; no active production caller or implementation was found.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/voiceright/src-tauri/Cargo.toml",
+          "line": 1,
+          "symbol": "manifest/source census",
+          "detail": "Current target census is Tauri Rust/React desktop; no Package.swift, Xcode, iOS/watchOS target, or Swift source."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitIntents",
+      "status": "NA",
+      "rationale": "Component is not applicable to current VoiceRight runtime/target; no active production caller or implementation was found.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/voiceright/src-tauri/Cargo.toml",
+          "line": 1,
+          "symbol": "manifest/source census",
+          "detail": "Current target census is Tauri Rust/React desktop; no Package.swift, Xcode, iOS/watchOS target, or Swift source."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitAppleCredentials",
+      "status": "NA",
+      "rationale": "Component is not applicable to current VoiceRight runtime/target; no active production caller or implementation was found.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/voiceright/src-tauri/Cargo.toml",
+          "line": 1,
+          "symbol": "manifest/source census",
+          "detail": "Current target census is Tauri Rust/React desktop; no Package.swift, Xcode, iOS/watchOS target, or Swift source."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitOverlay",
+      "status": "NA",
+      "rationale": "Component is not applicable to current VoiceRight runtime/target; no active production caller or implementation was found.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/voiceright/src-tauri/Cargo.toml",
+          "line": 1,
+          "symbol": "manifest/source census",
+          "detail": "Current target census is Tauri Rust/React desktop; no Package.swift, Xcode, iOS/watchOS target, or Swift source."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitWatch",
+      "status": "NA",
+      "rationale": "Component is not applicable to current VoiceRight runtime/target; no active production caller or implementation was found.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/voiceright/src-tauri/Cargo.toml",
+          "line": 1,
+          "symbol": "manifest/source census",
+          "detail": "Current target census is Tauri Rust/React desktop; no Package.swift, Xcode, iOS/watchOS target, or Swift source."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitUI",
+      "status": "NA",
+      "rationale": "Component is not applicable to current VoiceRight runtime/target; no active production caller or implementation was found.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/voiceright/src-tauri/Cargo.toml",
+          "line": 1,
+          "symbol": "manifest/source census",
+          "detail": "Current target census is Tauri Rust/React desktop; no Package.swift, Xcode, iOS/watchOS target, or Swift source."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    }
+  ],
+  "searches": [
+    {
+      "pattern": "@rightkit/",
+      "scope": "/Volumes/D/claude/voiceright/package.json /Volumes/D/claude/voiceright/src /Volumes/D/claude/voiceright/right-release.config.mjs",
+      "result": "Only @rightkit/release declared/imported; no shared runtime UI/shell/QA/update/license package import."
+    },
+    {
+      "pattern": "rightkit crates",
+      "scope": "/Volumes/D/claude/voiceright/src-tauri/Cargo.toml",
+      "result": "No @rightkit crate dependency; direct ort and ../eval/qts-upstream path active."
+    },
+    {
+      "pattern": "qts|ort|WAV|std::fs",
+      "scope": "/Volumes/D/claude/voiceright/src-tauri/src /Volumes/D/claude/voiceright/src/App.tsx",
+      "result": "Local embedded QTS, ORT env/path, WAV I/O, model provisioning, and app-data writes found."
+    },
+    {
+      "pattern": "sqlite|rusqlite",
+      "scope": "/Volumes/D/claude/voiceright/src-tauri/Cargo.toml /Volumes/D/claude/voiceright/src-tauri/src /Volumes/D/claude/voiceright/src",
+      "result": "No active persistence implementation."
+    },
+    {
+      "pattern": "Swift|Package.swift|xcodeproj|xcworkspace",
+      "scope": "/Volumes/D/claude/voiceright tracked production source",
+      "result": "No Swift/Xcode/iOS/watchOS target; Tauri Rust/React desktop only."
+    },
+    {
+      "pattern": "license|secure_license|legal gate",
+      "scope": "/Volumes/D/claude/voiceright/src-tauri/src /Volumes/D/claude/voiceright/src /Volumes/D/claude/voiceright/src-tauri/tauri.conf.json",
+      "result": "No active license/legal command or gate."
+    },
+    {
+      "pattern": "updater|publish-update|right-release",
+      "scope": "/Volumes/D/claude/voiceright/src-tauri/src/lib.rs /Volumes/D/claude/voiceright/src-tauri/tauri.conf.json /Volumes/D/claude/voiceright/package.json /Volumes/D/claude/voiceright/right-release.config.mjs",
+      "result": "Tauri updater config/plugin and @rightkit/release workflows active."
+    },
+    {
+      "pattern": "qa|vitest|test",
+      "scope": "/Volumes/D/claude/voiceright/src/App.test.ts /Volumes/D/claude/voiceright/src/lib/tauri.ts /Volumes/D/claude/voiceright/package.json",
+      "result": "Vitest app test and query-mode QA doubles active."
+    }
+  ],
+  "self_review": "Challenged every Y/N plus Tauri-host NA: release is Y from its imported owner API and release-script callers; QTS/ORT/WAV/model/fs/shell/TTS/UI rows remain N only where a matching owner API and live production caller exist. Reclassified cargo/npm QA because Vitest and renderer mock commands are neither native nor browser evidence harnesses; reclassified updates because config/plugin registration has no JS check/download/install caller; reclassified theme because its static product palette is not a runtime brand system. qts_ggml layers remain N through the active local QTS lock chain; process is NA because qts CLI is proof/test-only; Swift and unrelated capabilities are NA after target/source census."
+}
+

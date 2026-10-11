@@ -1,0 +1,2908 @@
+{
+  "app": "SEO Operations",
+  "root": "/Volumes/D/claude/workflows/seo-ops",
+  "head": "0cc72e7ae028bdb4cf53690814ed1e033a1b96e6",
+  "reviewed_at": "2026-10-11T02:46:21.001Z",
+  "targets": [
+    "PowerShell orchestration",
+    "Python operations",
+    "dashboard web source"
+  ],
+  "scope_note": "Current operative source only: PowerShell orchestration, Python collection/review/credential helpers, plus _dash TypeScript/TSX/MJS web source. Excludes reports, editorial, data, credentials, output, research, server-context & sibling SEO CLI. Source-only audit; no execution qualification implied.",
+  "cells": [
+    {
+      "component_id": "cargo:agent-room-core",
+      "status": "NA",
+      "rationale": "NA — agent-room-core is Rust-only; SEO Operations has no Rust target, FFI, sidecar, manifest, or production caller. Similar capability without a usable runtime bridge remains NA.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/run-portfolio.ps1",
+          "line": 20,
+          "symbol": "$engineRoot",
+          "detail": "Active PowerShell orchestrator resolves sibling SEO engine, then invokes isolated Python runtime."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/run-portfolio.ps1",
+          "line": 24,
+          "symbol": "$runtime",
+          "detail": "Production collection target is a Python executable, not a Rust or Swift host."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/performance-weekly.py",
+          "line": 113,
+          "symbol": "collect",
+          "detail": "Active Python collector launches sibling Python PageSpeed script & writes portfolio observations."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-agent-tools",
+      "status": "NA",
+      "rationale": "NA — rightkit-agent-tools is Rust-only; SEO Operations has no Rust target, FFI, sidecar, manifest, or production caller. Similar capability without a usable runtime bridge remains NA.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/run-portfolio.ps1",
+          "line": 20,
+          "symbol": "$engineRoot",
+          "detail": "Active PowerShell orchestrator resolves sibling SEO engine, then invokes isolated Python runtime."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/run-portfolio.ps1",
+          "line": 24,
+          "symbol": "$runtime",
+          "detail": "Production collection target is a Python executable, not a Rust or Swift host."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/performance-weekly.py",
+          "line": 113,
+          "symbol": "collect",
+          "detail": "Active Python collector launches sibling Python PageSpeed script & writes portfolio observations."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-align",
+      "status": "NA",
+      "rationale": "NA — rightkit-align is Rust-only; SEO Operations has no Rust target, FFI, sidecar, manifest, or production caller. Similar capability without a usable runtime bridge remains NA.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/run-portfolio.ps1",
+          "line": 20,
+          "symbol": "$engineRoot",
+          "detail": "Active PowerShell orchestrator resolves sibling SEO engine, then invokes isolated Python runtime."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/run-portfolio.ps1",
+          "line": 24,
+          "symbol": "$runtime",
+          "detail": "Production collection target is a Python executable, not a Rust or Swift host."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/performance-weekly.py",
+          "line": 113,
+          "symbol": "collect",
+          "detail": "Active Python collector launches sibling Python PageSpeed script & writes portfolio observations."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-asr",
+      "status": "NA",
+      "rationale": "NA — rightkit-asr is Rust-only; SEO Operations has no Rust target, FFI, sidecar, manifest, or production caller. Similar capability without a usable runtime bridge remains NA.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/run-portfolio.ps1",
+          "line": 20,
+          "symbol": "$engineRoot",
+          "detail": "Active PowerShell orchestrator resolves sibling SEO engine, then invokes isolated Python runtime."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/run-portfolio.ps1",
+          "line": 24,
+          "symbol": "$runtime",
+          "detail": "Production collection target is a Python executable, not a Rust or Swift host."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/performance-weekly.py",
+          "line": 113,
+          "symbol": "collect",
+          "detail": "Active Python collector launches sibling Python PageSpeed script & writes portfolio observations."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-audio",
+      "status": "NA",
+      "rationale": "NA — rightkit-audio is Rust-only; SEO Operations has no Rust target, FFI, sidecar, manifest, or production caller. Similar capability without a usable runtime bridge remains NA.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/run-portfolio.ps1",
+          "line": 20,
+          "symbol": "$engineRoot",
+          "detail": "Active PowerShell orchestrator resolves sibling SEO engine, then invokes isolated Python runtime."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/run-portfolio.ps1",
+          "line": 24,
+          "symbol": "$runtime",
+          "detail": "Production collection target is a Python executable, not a Rust or Swift host."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/performance-weekly.py",
+          "line": 113,
+          "symbol": "collect",
+          "detail": "Active Python collector launches sibling Python PageSpeed script & writes portfolio observations."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-automation",
+      "status": "NA",
+      "rationale": "NA — rightkit-automation is Rust-only; SEO Operations has no Rust target, FFI, sidecar, manifest, or production caller. Similar capability without a usable runtime bridge remains NA.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/run-portfolio.ps1",
+          "line": 20,
+          "symbol": "$engineRoot",
+          "detail": "Active PowerShell orchestrator resolves sibling SEO engine, then invokes isolated Python runtime."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/run-portfolio.ps1",
+          "line": 24,
+          "symbol": "$runtime",
+          "detail": "Production collection target is a Python executable, not a Rust or Swift host."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/performance-weekly.py",
+          "line": 113,
+          "symbol": "collect",
+          "detail": "Active Python collector launches sibling Python PageSpeed script & writes portfolio observations."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-browser",
+      "status": "NA",
+      "rationale": "NA — rightkit-browser is Rust-only; SEO Operations has no Rust target, FFI, sidecar, manifest, or production caller. Similar capability without a usable runtime bridge remains NA.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/run-portfolio.ps1",
+          "line": 20,
+          "symbol": "$engineRoot",
+          "detail": "Active PowerShell orchestrator resolves sibling SEO engine, then invokes isolated Python runtime."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/run-portfolio.ps1",
+          "line": 24,
+          "symbol": "$runtime",
+          "detail": "Production collection target is a Python executable, not a Rust or Swift host."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/performance-weekly.py",
+          "line": 113,
+          "symbol": "collect",
+          "detail": "Active Python collector launches sibling Python PageSpeed script & writes portfolio observations."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-cache",
+      "status": "NA",
+      "rationale": "NA — rightkit-cache is Rust-only; SEO Operations has no Rust target, FFI, sidecar, manifest, or production caller. Similar capability without a usable runtime bridge remains NA.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/run-portfolio.ps1",
+          "line": 20,
+          "symbol": "$engineRoot",
+          "detail": "Active PowerShell orchestrator resolves sibling SEO engine, then invokes isolated Python runtime."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/run-portfolio.ps1",
+          "line": 24,
+          "symbol": "$runtime",
+          "detail": "Production collection target is a Python executable, not a Rust or Swift host."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/performance-weekly.py",
+          "line": 113,
+          "symbol": "collect",
+          "detail": "Active Python collector launches sibling Python PageSpeed script & writes portfolio observations."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-channel-memory",
+      "status": "NA",
+      "rationale": "NA — rightkit-channel-memory is Rust-only; SEO Operations has no Rust target, FFI, sidecar, manifest, or production caller. Similar capability without a usable runtime bridge remains NA.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/run-portfolio.ps1",
+          "line": 20,
+          "symbol": "$engineRoot",
+          "detail": "Active PowerShell orchestrator resolves sibling SEO engine, then invokes isolated Python runtime."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/run-portfolio.ps1",
+          "line": 24,
+          "symbol": "$runtime",
+          "detail": "Production collection target is a Python executable, not a Rust or Swift host."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/performance-weekly.py",
+          "line": 113,
+          "symbol": "collect",
+          "detail": "Active Python collector launches sibling Python PageSpeed script & writes portfolio observations."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-compose",
+      "status": "NA",
+      "rationale": "NA — rightkit-compose is Rust-only; SEO Operations has no Rust target, FFI, sidecar, manifest, or production caller. Similar capability without a usable runtime bridge remains NA.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/run-portfolio.ps1",
+          "line": 20,
+          "symbol": "$engineRoot",
+          "detail": "Active PowerShell orchestrator resolves sibling SEO engine, then invokes isolated Python runtime."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/run-portfolio.ps1",
+          "line": 24,
+          "symbol": "$runtime",
+          "detail": "Production collection target is a Python executable, not a Rust or Swift host."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/performance-weekly.py",
+          "line": 113,
+          "symbol": "collect",
+          "detail": "Active Python collector launches sibling Python PageSpeed script & writes portfolio observations."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-contracts",
+      "status": "NA",
+      "rationale": "NA — rightkit-contracts is Rust-only; SEO Operations has no Rust target, FFI, sidecar, manifest, or production caller. Similar capability without a usable runtime bridge remains NA.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/run-portfolio.ps1",
+          "line": 20,
+          "symbol": "$engineRoot",
+          "detail": "Active PowerShell orchestrator resolves sibling SEO engine, then invokes isolated Python runtime."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/run-portfolio.ps1",
+          "line": 24,
+          "symbol": "$runtime",
+          "detail": "Production collection target is a Python executable, not a Rust or Swift host."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/performance-weekly.py",
+          "line": 113,
+          "symbol": "collect",
+          "detail": "Active Python collector launches sibling Python PageSpeed script & writes portfolio observations."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-control",
+      "status": "NA",
+      "rationale": "NA — rightkit-control is Rust-only; SEO Operations has no Rust target, FFI, sidecar, manifest, or production caller. Similar capability without a usable runtime bridge remains NA.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/run-portfolio.ps1",
+          "line": 20,
+          "symbol": "$engineRoot",
+          "detail": "Active PowerShell orchestrator resolves sibling SEO engine, then invokes isolated Python runtime."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/run-portfolio.ps1",
+          "line": 24,
+          "symbol": "$runtime",
+          "detail": "Production collection target is a Python executable, not a Rust or Swift host."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/performance-weekly.py",
+          "line": 113,
+          "symbol": "collect",
+          "detail": "Active Python collector launches sibling Python PageSpeed script & writes portfolio observations."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-crash",
+      "status": "NA",
+      "rationale": "NA — rightkit-crash is Rust-only; SEO Operations has no Rust target, FFI, sidecar, manifest, or production caller. Similar capability without a usable runtime bridge remains NA.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/run-portfolio.ps1",
+          "line": 20,
+          "symbol": "$engineRoot",
+          "detail": "Active PowerShell orchestrator resolves sibling SEO engine, then invokes isolated Python runtime."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/run-portfolio.ps1",
+          "line": 24,
+          "symbol": "$runtime",
+          "detail": "Production collection target is a Python executable, not a Rust or Swift host."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/performance-weekly.py",
+          "line": 113,
+          "symbol": "collect",
+          "detail": "Active Python collector launches sibling Python PageSpeed script & writes portfolio observations."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-daemon",
+      "status": "NA",
+      "rationale": "NA — rightkit-daemon is Rust-only; SEO Operations has no Rust target, FFI, sidecar, manifest, or production caller. Similar capability without a usable runtime bridge remains NA.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/run-portfolio.ps1",
+          "line": 20,
+          "symbol": "$engineRoot",
+          "detail": "Active PowerShell orchestrator resolves sibling SEO engine, then invokes isolated Python runtime."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/run-portfolio.ps1",
+          "line": 24,
+          "symbol": "$runtime",
+          "detail": "Production collection target is a Python executable, not a Rust or Swift host."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/performance-weekly.py",
+          "line": 113,
+          "symbol": "collect",
+          "detail": "Active Python collector launches sibling Python PageSpeed script & writes portfolio observations."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-db",
+      "status": "NA",
+      "rationale": "NA — rightkit-db is Rust-only; SEO Operations has no Rust target, FFI, sidecar, manifest, or production caller. Similar capability without a usable runtime bridge remains NA.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/run-portfolio.ps1",
+          "line": 20,
+          "symbol": "$engineRoot",
+          "detail": "Active PowerShell orchestrator resolves sibling SEO engine, then invokes isolated Python runtime."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/run-portfolio.ps1",
+          "line": 24,
+          "symbol": "$runtime",
+          "detail": "Production collection target is a Python executable, not a Rust or Swift host."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/performance-weekly.py",
+          "line": 113,
+          "symbol": "collect",
+          "detail": "Active Python collector launches sibling Python PageSpeed script & writes portfolio observations."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-embed",
+      "status": "NA",
+      "rationale": "NA — rightkit-embed is Rust-only; SEO Operations has no Rust target, FFI, sidecar, manifest, or production caller. Similar capability without a usable runtime bridge remains NA.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/run-portfolio.ps1",
+          "line": 20,
+          "symbol": "$engineRoot",
+          "detail": "Active PowerShell orchestrator resolves sibling SEO engine, then invokes isolated Python runtime."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/run-portfolio.ps1",
+          "line": 24,
+          "symbol": "$runtime",
+          "detail": "Production collection target is a Python executable, not a Rust or Swift host."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/performance-weekly.py",
+          "line": 113,
+          "symbol": "collect",
+          "detail": "Active Python collector launches sibling Python PageSpeed script & writes portfolio observations."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-framed-sidecar",
+      "status": "NA",
+      "rationale": "NA — rightkit-framed-sidecar is Rust-only; SEO Operations has no Rust target, FFI, sidecar, manifest, or production caller. Similar capability without a usable runtime bridge remains NA.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/run-portfolio.ps1",
+          "line": 20,
+          "symbol": "$engineRoot",
+          "detail": "Active PowerShell orchestrator resolves sibling SEO engine, then invokes isolated Python runtime."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/run-portfolio.ps1",
+          "line": 24,
+          "symbol": "$runtime",
+          "detail": "Production collection target is a Python executable, not a Rust or Swift host."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/performance-weekly.py",
+          "line": 113,
+          "symbol": "collect",
+          "detail": "Active Python collector launches sibling Python PageSpeed script & writes portfolio observations."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-fs",
+      "status": "NA",
+      "rationale": "NA — Python/PowerShell scripts write status, report & temporary files directly; no Rust bridge. Similar capability without a usable runtime bridge remains NA.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/run-portfolio.ps1",
+          "line": 20,
+          "symbol": "$engineRoot",
+          "detail": "Active PowerShell orchestrator resolves sibling SEO engine, then invokes isolated Python runtime."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/run-portfolio.ps1",
+          "line": 24,
+          "symbol": "$runtime",
+          "detail": "Production collection target is a Python executable, not a Rust or Swift host."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/performance-weekly.py",
+          "line": 113,
+          "symbol": "collect",
+          "detail": "Active Python collector launches sibling Python PageSpeed script & writes portfolio observations."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "Separate reuse gap: qualify a supported Python/PowerShell bridge to rightkit-fs before any adoption decision."
+      ],
+      "remaining_work": "No cutover. Qualify a supported bridge first if reuse becomes a goal.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-fsindex",
+      "status": "NA",
+      "rationale": "NA — rightkit-fsindex is Rust-only; SEO Operations has no Rust target, FFI, sidecar, manifest, or production caller. Similar capability without a usable runtime bridge remains NA.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/run-portfolio.ps1",
+          "line": 20,
+          "symbol": "$engineRoot",
+          "detail": "Active PowerShell orchestrator resolves sibling SEO engine, then invokes isolated Python runtime."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/run-portfolio.ps1",
+          "line": 24,
+          "symbol": "$runtime",
+          "detail": "Production collection target is a Python executable, not a Rust or Swift host."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/performance-weekly.py",
+          "line": 113,
+          "symbol": "collect",
+          "detail": "Active Python collector launches sibling Python PageSpeed script & writes portfolio observations."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-hotkeys",
+      "status": "NA",
+      "rationale": "NA — rightkit-hotkeys is Rust-only; SEO Operations has no Rust target, FFI, sidecar, manifest, or production caller. Similar capability without a usable runtime bridge remains NA.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/run-portfolio.ps1",
+          "line": 20,
+          "symbol": "$engineRoot",
+          "detail": "Active PowerShell orchestrator resolves sibling SEO engine, then invokes isolated Python runtime."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/run-portfolio.ps1",
+          "line": 24,
+          "symbol": "$runtime",
+          "detail": "Production collection target is a Python executable, not a Rust or Swift host."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/performance-weekly.py",
+          "line": 113,
+          "symbol": "collect",
+          "detail": "Active Python collector launches sibling Python PageSpeed script & writes portfolio observations."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-http",
+      "status": "NA",
+      "rationale": "NA — Python PageSpeed collection launches sibling SEO CLI; no supported Python/PowerShell bridge to RightKit HTTP. Similar capability without a usable runtime bridge remains NA.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/run-portfolio.ps1",
+          "line": 20,
+          "symbol": "$engineRoot",
+          "detail": "Active PowerShell orchestrator resolves sibling SEO engine, then invokes isolated Python runtime."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/run-portfolio.ps1",
+          "line": 24,
+          "symbol": "$runtime",
+          "detail": "Production collection target is a Python executable, not a Rust or Swift host."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/performance-weekly.py",
+          "line": 113,
+          "symbol": "collect",
+          "detail": "Active Python collector launches sibling Python PageSpeed script & writes portfolio observations."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "Separate reuse gap: qualify a supported Python/PowerShell bridge to rightkit-http before any adoption decision."
+      ],
+      "remaining_work": "No cutover. Qualify a supported bridge first if reuse becomes a goal.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-jobs",
+      "status": "NA",
+      "rationale": "NA — Portfolio tick is direct PowerShell/Python orchestration, not a RightKit stdio jobs host. Similar capability without a usable runtime bridge remains NA.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/run-portfolio.ps1",
+          "line": 20,
+          "symbol": "$engineRoot",
+          "detail": "Active PowerShell orchestrator resolves sibling SEO engine, then invokes isolated Python runtime."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/run-portfolio.ps1",
+          "line": 24,
+          "symbol": "$runtime",
+          "detail": "Production collection target is a Python executable, not a Rust or Swift host."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/performance-weekly.py",
+          "line": 113,
+          "symbol": "collect",
+          "detail": "Active Python collector launches sibling Python PageSpeed script & writes portfolio observations."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "Separate reuse gap: qualify a supported Python/PowerShell bridge to rightkit-jobs before any adoption decision."
+      ],
+      "remaining_work": "No cutover. Qualify a supported bridge first if reuse becomes a goal.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-license",
+      "status": "NA",
+      "rationale": "NA — rightkit-license is Rust-only; SEO Operations has no Rust target, FFI, sidecar, manifest, or production caller. Similar capability without a usable runtime bridge remains NA.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/run-portfolio.ps1",
+          "line": 20,
+          "symbol": "$engineRoot",
+          "detail": "Active PowerShell orchestrator resolves sibling SEO engine, then invokes isolated Python runtime."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/run-portfolio.ps1",
+          "line": 24,
+          "symbol": "$runtime",
+          "detail": "Production collection target is a Python executable, not a Rust or Swift host."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/performance-weekly.py",
+          "line": 113,
+          "symbol": "collect",
+          "detail": "Active Python collector launches sibling Python PageSpeed script & writes portfolio observations."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-llm",
+      "status": "NA",
+      "rationale": "NA — rightkit-llm is Rust-only; SEO Operations has no Rust target, FFI, sidecar, manifest, or production caller. Similar capability without a usable runtime bridge remains NA.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/run-portfolio.ps1",
+          "line": 20,
+          "symbol": "$engineRoot",
+          "detail": "Active PowerShell orchestrator resolves sibling SEO engine, then invokes isolated Python runtime."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/run-portfolio.ps1",
+          "line": 24,
+          "symbol": "$runtime",
+          "detail": "Production collection target is a Python executable, not a Rust or Swift host."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/performance-weekly.py",
+          "line": 113,
+          "symbol": "collect",
+          "detail": "Active Python collector launches sibling Python PageSpeed script & writes portfolio observations."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-logs",
+      "status": "NA",
+      "rationale": "NA — Daily runner appends text logs directly; no RightKit logging runtime or bridge. Similar capability without a usable runtime bridge remains NA.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/run-portfolio.ps1",
+          "line": 20,
+          "symbol": "$engineRoot",
+          "detail": "Active PowerShell orchestrator resolves sibling SEO engine, then invokes isolated Python runtime."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/run-portfolio.ps1",
+          "line": 24,
+          "symbol": "$runtime",
+          "detail": "Production collection target is a Python executable, not a Rust or Swift host."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/performance-weekly.py",
+          "line": 113,
+          "symbol": "collect",
+          "detail": "Active Python collector launches sibling Python PageSpeed script & writes portfolio observations."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "Separate reuse gap: qualify a supported Python/PowerShell bridge to rightkit-logs before any adoption decision."
+      ],
+      "remaining_work": "No cutover. Qualify a supported bridge first if reuse becomes a goal.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-mcp",
+      "status": "NA",
+      "rationale": "NA — rightkit-mcp is Rust-only; SEO Operations has no Rust target, FFI, sidecar, manifest, or production caller. Similar capability without a usable runtime bridge remains NA.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/run-portfolio.ps1",
+          "line": 20,
+          "symbol": "$engineRoot",
+          "detail": "Active PowerShell orchestrator resolves sibling SEO engine, then invokes isolated Python runtime."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/run-portfolio.ps1",
+          "line": 24,
+          "symbol": "$runtime",
+          "detail": "Production collection target is a Python executable, not a Rust or Swift host."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/performance-weekly.py",
+          "line": 113,
+          "symbol": "collect",
+          "detail": "Active Python collector launches sibling Python PageSpeed script & writes portfolio observations."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-media",
+      "status": "NA",
+      "rationale": "NA — rightkit-media is Rust-only; SEO Operations has no Rust target, FFI, sidecar, manifest, or production caller. Similar capability without a usable runtime bridge remains NA.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/run-portfolio.ps1",
+          "line": 20,
+          "symbol": "$engineRoot",
+          "detail": "Active PowerShell orchestrator resolves sibling SEO engine, then invokes isolated Python runtime."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/run-portfolio.ps1",
+          "line": 24,
+          "symbol": "$runtime",
+          "detail": "Production collection target is a Python executable, not a Rust or Swift host."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/performance-weekly.py",
+          "line": 113,
+          "symbol": "collect",
+          "detail": "Active Python collector launches sibling Python PageSpeed script & writes portfolio observations."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-models",
+      "status": "NA",
+      "rationale": "NA — rightkit-models is Rust-only; SEO Operations has no Rust target, FFI, sidecar, manifest, or production caller. Similar capability without a usable runtime bridge remains NA.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/run-portfolio.ps1",
+          "line": 20,
+          "symbol": "$engineRoot",
+          "detail": "Active PowerShell orchestrator resolves sibling SEO engine, then invokes isolated Python runtime."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/run-portfolio.ps1",
+          "line": 24,
+          "symbol": "$runtime",
+          "detail": "Production collection target is a Python executable, not a Rust or Swift host."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/performance-weekly.py",
+          "line": 113,
+          "symbol": "collect",
+          "detail": "Active Python collector launches sibling Python PageSpeed script & writes portfolio observations."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-oauth",
+      "status": "NA",
+      "rationale": "NA — rightkit-oauth is Rust-only; SEO Operations has no Rust target, FFI, sidecar, manifest, or production caller. Similar capability without a usable runtime bridge remains NA.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/run-portfolio.ps1",
+          "line": 20,
+          "symbol": "$engineRoot",
+          "detail": "Active PowerShell orchestrator resolves sibling SEO engine, then invokes isolated Python runtime."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/run-portfolio.ps1",
+          "line": 24,
+          "symbol": "$runtime",
+          "detail": "Production collection target is a Python executable, not a Rust or Swift host."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/performance-weekly.py",
+          "line": 113,
+          "symbol": "collect",
+          "detail": "Active Python collector launches sibling Python PageSpeed script & writes portfolio observations."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-ocr",
+      "status": "NA",
+      "rationale": "NA — rightkit-ocr is Rust-only; SEO Operations has no Rust target, FFI, sidecar, manifest, or production caller. Similar capability without a usable runtime bridge remains NA.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/run-portfolio.ps1",
+          "line": 20,
+          "symbol": "$engineRoot",
+          "detail": "Active PowerShell orchestrator resolves sibling SEO engine, then invokes isolated Python runtime."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/run-portfolio.ps1",
+          "line": 24,
+          "symbol": "$runtime",
+          "detail": "Production collection target is a Python executable, not a Rust or Swift host."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/performance-weekly.py",
+          "line": 113,
+          "symbol": "collect",
+          "detail": "Active Python collector launches sibling Python PageSpeed script & writes portfolio observations."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-ort",
+      "status": "NA",
+      "rationale": "NA — rightkit-ort is Rust-only; SEO Operations has no Rust target, FFI, sidecar, manifest, or production caller. Similar capability without a usable runtime bridge remains NA.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/run-portfolio.ps1",
+          "line": 20,
+          "symbol": "$engineRoot",
+          "detail": "Active PowerShell orchestrator resolves sibling SEO engine, then invokes isolated Python runtime."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/run-portfolio.ps1",
+          "line": 24,
+          "symbol": "$runtime",
+          "detail": "Production collection target is a Python executable, not a Rust or Swift host."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/performance-weekly.py",
+          "line": 113,
+          "symbol": "collect",
+          "detail": "Active Python collector launches sibling Python PageSpeed script & writes portfolio observations."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-overlay",
+      "status": "NA",
+      "rationale": "NA — rightkit-overlay is Rust-only; SEO Operations has no Rust target, FFI, sidecar, manifest, or production caller. Similar capability without a usable runtime bridge remains NA.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/run-portfolio.ps1",
+          "line": 20,
+          "symbol": "$engineRoot",
+          "detail": "Active PowerShell orchestrator resolves sibling SEO engine, then invokes isolated Python runtime."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/run-portfolio.ps1",
+          "line": 24,
+          "symbol": "$runtime",
+          "detail": "Production collection target is a Python executable, not a Rust or Swift host."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/performance-weekly.py",
+          "line": 113,
+          "symbol": "collect",
+          "detail": "Active Python collector launches sibling Python PageSpeed script & writes portfolio observations."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-ownership",
+      "status": "NA",
+      "rationale": "NA — rightkit-ownership is Rust-only; SEO Operations has no Rust target, FFI, sidecar, manifest, or production caller. Similar capability without a usable runtime bridge remains NA.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/run-portfolio.ps1",
+          "line": 20,
+          "symbol": "$engineRoot",
+          "detail": "Active PowerShell orchestrator resolves sibling SEO engine, then invokes isolated Python runtime."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/run-portfolio.ps1",
+          "line": 24,
+          "symbol": "$runtime",
+          "detail": "Production collection target is a Python executable, not a Rust or Swift host."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/performance-weekly.py",
+          "line": 113,
+          "symbol": "collect",
+          "detail": "Active Python collector launches sibling Python PageSpeed script & writes portfolio observations."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-pdf",
+      "status": "NA",
+      "rationale": "NA — rightkit-pdf is Rust-only; SEO Operations has no Rust target, FFI, sidecar, manifest, or production caller. Similar capability without a usable runtime bridge remains NA.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/run-portfolio.ps1",
+          "line": 20,
+          "symbol": "$engineRoot",
+          "detail": "Active PowerShell orchestrator resolves sibling SEO engine, then invokes isolated Python runtime."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/run-portfolio.ps1",
+          "line": 24,
+          "symbol": "$runtime",
+          "detail": "Production collection target is a Python executable, not a Rust or Swift host."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/performance-weekly.py",
+          "line": 113,
+          "symbol": "collect",
+          "detail": "Active Python collector launches sibling Python PageSpeed script & writes portfolio observations."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-playback",
+      "status": "NA",
+      "rationale": "NA — rightkit-playback is Rust-only; SEO Operations has no Rust target, FFI, sidecar, manifest, or production caller. Similar capability without a usable runtime bridge remains NA.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/run-portfolio.ps1",
+          "line": 20,
+          "symbol": "$engineRoot",
+          "detail": "Active PowerShell orchestrator resolves sibling SEO engine, then invokes isolated Python runtime."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/run-portfolio.ps1",
+          "line": 24,
+          "symbol": "$runtime",
+          "detail": "Production collection target is a Python executable, not a Rust or Swift host."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/performance-weekly.py",
+          "line": 113,
+          "symbol": "collect",
+          "detail": "Active Python collector launches sibling Python PageSpeed script & writes portfolio observations."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-process",
+      "status": "NA",
+      "rationale": "NA — Python subprocess plus PowerShell child invocation own process execution; no Rust bridge. Similar capability without a usable runtime bridge remains NA.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/run-portfolio.ps1",
+          "line": 20,
+          "symbol": "$engineRoot",
+          "detail": "Active PowerShell orchestrator resolves sibling SEO engine, then invokes isolated Python runtime."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/run-portfolio.ps1",
+          "line": 24,
+          "symbol": "$runtime",
+          "detail": "Production collection target is a Python executable, not a Rust or Swift host."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/performance-weekly.py",
+          "line": 113,
+          "symbol": "collect",
+          "detail": "Active Python collector launches sibling Python PageSpeed script & writes portfolio observations."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "Separate reuse gap: qualify a supported Python/PowerShell bridge to rightkit-process before any adoption decision."
+      ],
+      "remaining_work": "No cutover. Qualify a supported bridge first if reuse becomes a goal.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-qa",
+      "status": "NA",
+      "rationale": "NA — Daily runner calls a sibling Python audit; no Rust QA harness host or bridge. Similar capability without a usable runtime bridge remains NA.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/run-portfolio.ps1",
+          "line": 20,
+          "symbol": "$engineRoot",
+          "detail": "Active PowerShell orchestrator resolves sibling SEO engine, then invokes isolated Python runtime."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/run-portfolio.ps1",
+          "line": 24,
+          "symbol": "$runtime",
+          "detail": "Production collection target is a Python executable, not a Rust or Swift host."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/performance-weekly.py",
+          "line": 113,
+          "symbol": "collect",
+          "detail": "Active Python collector launches sibling Python PageSpeed script & writes portfolio observations."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "Separate reuse gap: qualify a supported Python/PowerShell bridge to rightkit-qa before any adoption decision."
+      ],
+      "remaining_work": "No cutover. Qualify a supported bridge first if reuse becomes a goal.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-qts",
+      "status": "NA",
+      "rationale": "NA — rightkit-qts is Rust-only; SEO Operations has no Rust target, FFI, sidecar, manifest, or production caller. Similar capability without a usable runtime bridge remains NA.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/run-portfolio.ps1",
+          "line": 20,
+          "symbol": "$engineRoot",
+          "detail": "Active PowerShell orchestrator resolves sibling SEO engine, then invokes isolated Python runtime."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/run-portfolio.ps1",
+          "line": 24,
+          "symbol": "$runtime",
+          "detail": "Production collection target is a Python executable, not a Rust or Swift host."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/performance-weekly.py",
+          "line": 113,
+          "symbol": "collect",
+          "detail": "Active Python collector launches sibling Python PageSpeed script & writes portfolio observations."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-qts-ggml",
+      "status": "NA",
+      "rationale": "NA — rightkit-qts-ggml is Rust-only; SEO Operations has no Rust target, FFI, sidecar, manifest, or production caller. Similar capability without a usable runtime bridge remains NA.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/run-portfolio.ps1",
+          "line": 20,
+          "symbol": "$engineRoot",
+          "detail": "Active PowerShell orchestrator resolves sibling SEO engine, then invokes isolated Python runtime."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/run-portfolio.ps1",
+          "line": 24,
+          "symbol": "$runtime",
+          "detail": "Production collection target is a Python executable, not a Rust or Swift host."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/performance-weekly.py",
+          "line": 113,
+          "symbol": "collect",
+          "detail": "Active Python collector launches sibling Python PageSpeed script & writes portfolio observations."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-qts-ggml-sys",
+      "status": "NA",
+      "rationale": "NA — rightkit-qts-ggml-sys is Rust-only; SEO Operations has no Rust target, FFI, sidecar, manifest, or production caller. Similar capability without a usable runtime bridge remains NA.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/run-portfolio.ps1",
+          "line": 20,
+          "symbol": "$engineRoot",
+          "detail": "Active PowerShell orchestrator resolves sibling SEO engine, then invokes isolated Python runtime."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/run-portfolio.ps1",
+          "line": 24,
+          "symbol": "$runtime",
+          "detail": "Production collection target is a Python executable, not a Rust or Swift host."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/performance-weekly.py",
+          "line": 113,
+          "symbol": "collect",
+          "detail": "Active Python collector launches sibling Python PageSpeed script & writes portfolio observations."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-record",
+      "status": "NA",
+      "rationale": "NA — rightkit-record is Rust-only; SEO Operations has no Rust target, FFI, sidecar, manifest, or production caller. Similar capability without a usable runtime bridge remains NA.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/run-portfolio.ps1",
+          "line": 20,
+          "symbol": "$engineRoot",
+          "detail": "Active PowerShell orchestrator resolves sibling SEO engine, then invokes isolated Python runtime."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/run-portfolio.ps1",
+          "line": 24,
+          "symbol": "$runtime",
+          "detail": "Production collection target is a Python executable, not a Rust or Swift host."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/performance-weekly.py",
+          "line": 113,
+          "symbol": "collect",
+          "detail": "Active Python collector launches sibling Python PageSpeed script & writes portfolio observations."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-review",
+      "status": "NA",
+      "rationale": "NA — rightkit-review is Rust-only; SEO Operations has no Rust target, FFI, sidecar, manifest, or production caller. Similar capability without a usable runtime bridge remains NA.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/run-portfolio.ps1",
+          "line": 20,
+          "symbol": "$engineRoot",
+          "detail": "Active PowerShell orchestrator resolves sibling SEO engine, then invokes isolated Python runtime."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/run-portfolio.ps1",
+          "line": 24,
+          "symbol": "$runtime",
+          "detail": "Production collection target is a Python executable, not a Rust or Swift host."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/performance-weekly.py",
+          "line": 113,
+          "symbol": "collect",
+          "detail": "Active Python collector launches sibling Python PageSpeed script & writes portfolio observations."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-sandbox",
+      "status": "NA",
+      "rationale": "NA — rightkit-sandbox is Rust-only; SEO Operations has no Rust target, FFI, sidecar, manifest, or production caller. Similar capability without a usable runtime bridge remains NA.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/run-portfolio.ps1",
+          "line": 20,
+          "symbol": "$engineRoot",
+          "detail": "Active PowerShell orchestrator resolves sibling SEO engine, then invokes isolated Python runtime."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/run-portfolio.ps1",
+          "line": 24,
+          "symbol": "$runtime",
+          "detail": "Production collection target is a Python executable, not a Rust or Swift host."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/performance-weekly.py",
+          "line": 113,
+          "symbol": "collect",
+          "detail": "Active Python collector launches sibling Python PageSpeed script & writes portfolio observations."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-scenario",
+      "status": "NA",
+      "rationale": "NA — rightkit-scenario is Rust-only; SEO Operations has no Rust target, FFI, sidecar, manifest, or production caller. Similar capability without a usable runtime bridge remains NA.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/run-portfolio.ps1",
+          "line": 20,
+          "symbol": "$engineRoot",
+          "detail": "Active PowerShell orchestrator resolves sibling SEO engine, then invokes isolated Python runtime."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/run-portfolio.ps1",
+          "line": 24,
+          "symbol": "$runtime",
+          "detail": "Production collection target is a Python executable, not a Rust or Swift host."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/performance-weekly.py",
+          "line": 113,
+          "symbol": "collect",
+          "detail": "Active Python collector launches sibling Python PageSpeed script & writes portfolio observations."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-search",
+      "status": "NA",
+      "rationale": "NA — rightkit-search is Rust-only; SEO Operations has no Rust target, FFI, sidecar, manifest, or production caller. Similar capability without a usable runtime bridge remains NA.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/run-portfolio.ps1",
+          "line": 20,
+          "symbol": "$engineRoot",
+          "detail": "Active PowerShell orchestrator resolves sibling SEO engine, then invokes isolated Python runtime."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/run-portfolio.ps1",
+          "line": 24,
+          "symbol": "$runtime",
+          "detail": "Production collection target is a Python executable, not a Rust or Swift host."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/performance-weekly.py",
+          "line": 113,
+          "symbol": "collect",
+          "detail": "Active Python collector launches sibling Python PageSpeed script & writes portfolio observations."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-secrets",
+      "status": "NA",
+      "rationale": "NA — PowerShell reads per-user key files & one-shot Python intake writes a local key file; no Rust bridge. Similar capability without a usable runtime bridge remains NA.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/run-portfolio.ps1",
+          "line": 20,
+          "symbol": "$engineRoot",
+          "detail": "Active PowerShell orchestrator resolves sibling SEO engine, then invokes isolated Python runtime."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/run-portfolio.ps1",
+          "line": 24,
+          "symbol": "$runtime",
+          "detail": "Production collection target is a Python executable, not a Rust or Swift host."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/performance-weekly.py",
+          "line": 113,
+          "symbol": "collect",
+          "detail": "Active Python collector launches sibling Python PageSpeed script & writes portfolio observations."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [
+        "Separate reuse gap: qualify a supported Python/PowerShell bridge to rightkit-secrets before any adoption decision."
+      ],
+      "remaining_work": "No cutover. Qualify a supported bridge first if reuse becomes a goal.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-send",
+      "status": "NA",
+      "rationale": "NA — rightkit-send is Rust-only; SEO Operations has no Rust target, FFI, sidecar, manifest, or production caller. Similar capability without a usable runtime bridge remains NA.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/run-portfolio.ps1",
+          "line": 20,
+          "symbol": "$engineRoot",
+          "detail": "Active PowerShell orchestrator resolves sibling SEO engine, then invokes isolated Python runtime."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/run-portfolio.ps1",
+          "line": 24,
+          "symbol": "$runtime",
+          "detail": "Production collection target is a Python executable, not a Rust or Swift host."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/performance-weekly.py",
+          "line": 113,
+          "symbol": "collect",
+          "detail": "Active Python collector launches sibling Python PageSpeed script & writes portfolio observations."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-service",
+      "status": "NA",
+      "rationale": "NA — rightkit-service is Rust-only; SEO Operations has no Rust target, FFI, sidecar, manifest, or production caller. Similar capability without a usable runtime bridge remains NA.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/run-portfolio.ps1",
+          "line": 20,
+          "symbol": "$engineRoot",
+          "detail": "Active PowerShell orchestrator resolves sibling SEO engine, then invokes isolated Python runtime."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/run-portfolio.ps1",
+          "line": 24,
+          "symbol": "$runtime",
+          "detail": "Production collection target is a Python executable, not a Rust or Swift host."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/performance-weekly.py",
+          "line": 113,
+          "symbol": "collect",
+          "detail": "Active Python collector launches sibling Python PageSpeed script & writes portfolio observations."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-settings",
+      "status": "NA",
+      "rationale": "NA — rightkit-settings is Rust-only; SEO Operations has no Rust target, FFI, sidecar, manifest, or production caller. Similar capability without a usable runtime bridge remains NA.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/run-portfolio.ps1",
+          "line": 20,
+          "symbol": "$engineRoot",
+          "detail": "Active PowerShell orchestrator resolves sibling SEO engine, then invokes isolated Python runtime."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/run-portfolio.ps1",
+          "line": 24,
+          "symbol": "$runtime",
+          "detail": "Production collection target is a Python executable, not a Rust or Swift host."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/performance-weekly.py",
+          "line": 113,
+          "symbol": "collect",
+          "detail": "Active Python collector launches sibling Python PageSpeed script & writes portfolio observations."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-shell",
+      "status": "NA",
+      "rationale": "NA — rightkit-shell is Rust-only; SEO Operations has no Rust target, FFI, sidecar, manifest, or production caller. Similar capability without a usable runtime bridge remains NA.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/run-portfolio.ps1",
+          "line": 20,
+          "symbol": "$engineRoot",
+          "detail": "Active PowerShell orchestrator resolves sibling SEO engine, then invokes isolated Python runtime."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/run-portfolio.ps1",
+          "line": 24,
+          "symbol": "$runtime",
+          "detail": "Production collection target is a Python executable, not a Rust or Swift host."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/performance-weekly.py",
+          "line": 113,
+          "symbol": "collect",
+          "detail": "Active Python collector launches sibling Python PageSpeed script & writes portfolio observations."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-speech-client",
+      "status": "NA",
+      "rationale": "NA — rightkit-speech-client is Rust-only; SEO Operations has no Rust target, FFI, sidecar, manifest, or production caller. Similar capability without a usable runtime bridge remains NA.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/run-portfolio.ps1",
+          "line": 20,
+          "symbol": "$engineRoot",
+          "detail": "Active PowerShell orchestrator resolves sibling SEO engine, then invokes isolated Python runtime."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/run-portfolio.ps1",
+          "line": 24,
+          "symbol": "$runtime",
+          "detail": "Production collection target is a Python executable, not a Rust or Swift host."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/performance-weekly.py",
+          "line": 113,
+          "symbol": "collect",
+          "detail": "Active Python collector launches sibling Python PageSpeed script & writes portfolio observations."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-sync",
+      "status": "NA",
+      "rationale": "NA — rightkit-sync is Rust-only; SEO Operations has no Rust target, FFI, sidecar, manifest, or production caller. Similar capability without a usable runtime bridge remains NA.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/run-portfolio.ps1",
+          "line": 20,
+          "symbol": "$engineRoot",
+          "detail": "Active PowerShell orchestrator resolves sibling SEO engine, then invokes isolated Python runtime."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/run-portfolio.ps1",
+          "line": 24,
+          "symbol": "$runtime",
+          "detail": "Production collection target is a Python executable, not a Rust or Swift host."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/performance-weekly.py",
+          "line": 113,
+          "symbol": "collect",
+          "detail": "Active Python collector launches sibling Python PageSpeed script & writes portfolio observations."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-tauri",
+      "status": "NA",
+      "rationale": "NA — rightkit-tauri is Rust-only; SEO Operations has no Rust target, FFI, sidecar, manifest, or production caller. Similar capability without a usable runtime bridge remains NA.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/run-portfolio.ps1",
+          "line": 20,
+          "symbol": "$engineRoot",
+          "detail": "Active PowerShell orchestrator resolves sibling SEO engine, then invokes isolated Python runtime."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/run-portfolio.ps1",
+          "line": 24,
+          "symbol": "$runtime",
+          "detail": "Production collection target is a Python executable, not a Rust or Swift host."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/performance-weekly.py",
+          "line": 113,
+          "symbol": "collect",
+          "detail": "Active Python collector launches sibling Python PageSpeed script & writes portfolio observations."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-transcript",
+      "status": "NA",
+      "rationale": "NA — rightkit-transcript is Rust-only; SEO Operations has no Rust target, FFI, sidecar, manifest, or production caller. Similar capability without a usable runtime bridge remains NA.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/run-portfolio.ps1",
+          "line": 20,
+          "symbol": "$engineRoot",
+          "detail": "Active PowerShell orchestrator resolves sibling SEO engine, then invokes isolated Python runtime."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/run-portfolio.ps1",
+          "line": 24,
+          "symbol": "$runtime",
+          "detail": "Production collection target is a Python executable, not a Rust or Swift host."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/performance-weekly.py",
+          "line": 113,
+          "symbol": "collect",
+          "detail": "Active Python collector launches sibling Python PageSpeed script & writes portfolio observations."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-tts",
+      "status": "NA",
+      "rationale": "NA — rightkit-tts is Rust-only; SEO Operations has no Rust target, FFI, sidecar, manifest, or production caller. Similar capability without a usable runtime bridge remains NA.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/run-portfolio.ps1",
+          "line": 20,
+          "symbol": "$engineRoot",
+          "detail": "Active PowerShell orchestrator resolves sibling SEO engine, then invokes isolated Python runtime."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/run-portfolio.ps1",
+          "line": 24,
+          "symbol": "$runtime",
+          "detail": "Production collection target is a Python executable, not a Rust or Swift host."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/performance-weekly.py",
+          "line": 113,
+          "symbol": "collect",
+          "detail": "Active Python collector launches sibling Python PageSpeed script & writes portfolio observations."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-vad",
+      "status": "NA",
+      "rationale": "NA — rightkit-vad is Rust-only; SEO Operations has no Rust target, FFI, sidecar, manifest, or production caller. Similar capability without a usable runtime bridge remains NA.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/run-portfolio.ps1",
+          "line": 20,
+          "symbol": "$engineRoot",
+          "detail": "Active PowerShell orchestrator resolves sibling SEO engine, then invokes isolated Python runtime."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/run-portfolio.ps1",
+          "line": 24,
+          "symbol": "$runtime",
+          "detail": "Production collection target is a Python executable, not a Rust or Swift host."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/performance-weekly.py",
+          "line": 113,
+          "symbol": "collect",
+          "detail": "Active Python collector launches sibling Python PageSpeed script & writes portfolio observations."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-watch",
+      "status": "NA",
+      "rationale": "NA — rightkit-watch is Rust-only; SEO Operations has no Rust target, FFI, sidecar, manifest, or production caller. Similar capability without a usable runtime bridge remains NA.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/run-portfolio.ps1",
+          "line": 20,
+          "symbol": "$engineRoot",
+          "detail": "Active PowerShell orchestrator resolves sibling SEO engine, then invokes isolated Python runtime."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/run-portfolio.ps1",
+          "line": 24,
+          "symbol": "$runtime",
+          "detail": "Production collection target is a Python executable, not a Rust or Swift host."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/performance-weekly.py",
+          "line": 113,
+          "symbol": "collect",
+          "detail": "Active Python collector launches sibling Python PageSpeed script & writes portfolio observations."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/agent-room-mcp",
+      "status": "NA",
+      "rationale": "NA — @rightkit/agent-room-mcp has no production package import or package manifest in this operations scope. Similar capability without a usable runtime bridge remains NA.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/_dash/seo-page.tsx",
+          "line": 1,
+          "symbol": "SeoPage module",
+          "detail": "Dashboard web source uses Next/local component imports; scope has no package manifest or @rightkit import."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/_dash/ts-llms-index.ts",
+          "line": 1,
+          "symbol": "onGet module",
+          "detail": "Dashboard route source imports Qwik only; no @rightkit route or dependency caller."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/app-shell",
+      "status": "NA",
+      "rationale": "NA — Dashboard imports product-local Next components, with no package manifest or @rightkit app-shell import. Similar capability without a usable runtime bridge remains NA.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/_dash/seo-page.tsx",
+          "line": 1,
+          "symbol": "SeoPage module",
+          "detail": "Dashboard web source uses Next/local component imports; scope has no package manifest or @rightkit import."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/_dash/ts-llms-index.ts",
+          "line": 1,
+          "symbol": "onGet module",
+          "detail": "Dashboard route source imports Qwik only; no @rightkit route or dependency caller."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/ax",
+      "status": "NA",
+      "rationale": "NA — @rightkit/ax has no production package import or package manifest in this operations scope. Similar capability without a usable runtime bridge remains NA.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/_dash/seo-page.tsx",
+          "line": 1,
+          "symbol": "SeoPage module",
+          "detail": "Dashboard web source uses Next/local component imports; scope has no package manifest or @rightkit import."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/_dash/ts-llms-index.ts",
+          "line": 1,
+          "symbol": "onGet module",
+          "detail": "Dashboard route source imports Qwik only; no @rightkit route or dependency caller."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/build-control-policy",
+      "status": "NA",
+      "rationale": "NA — @rightkit/build-control-policy has no production package import or package manifest in this operations scope. Similar capability without a usable runtime bridge remains NA.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/_dash/seo-page.tsx",
+          "line": 1,
+          "symbol": "SeoPage module",
+          "detail": "Dashboard web source uses Next/local component imports; scope has no package manifest or @rightkit import."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/_dash/ts-llms-index.ts",
+          "line": 1,
+          "symbol": "onGet module",
+          "detail": "Dashboard route source imports Qwik only; no @rightkit route or dependency caller."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/doc-render",
+      "status": "NA",
+      "rationale": "NA — @rightkit/doc-render has no production package import or package manifest in this operations scope. Similar capability without a usable runtime bridge remains NA.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/_dash/seo-page.tsx",
+          "line": 1,
+          "symbol": "SeoPage module",
+          "detail": "Dashboard web source uses Next/local component imports; scope has no package manifest or @rightkit import."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/_dash/ts-llms-index.ts",
+          "line": 1,
+          "symbol": "onGet module",
+          "detail": "Dashboard route source imports Qwik only; no @rightkit route or dependency caller."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/git",
+      "status": "NA",
+      "rationale": "NA — @rightkit/git has no production package import or package manifest in this operations scope. Similar capability without a usable runtime bridge remains NA.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/_dash/seo-page.tsx",
+          "line": 1,
+          "symbol": "SeoPage module",
+          "detail": "Dashboard web source uses Next/local component imports; scope has no package manifest or @rightkit import."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/_dash/ts-llms-index.ts",
+          "line": 1,
+          "symbol": "onGet module",
+          "detail": "Dashboard route source imports Qwik only; no @rightkit route or dependency caller."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/hooks",
+      "status": "NA",
+      "rationale": "NA — @rightkit/hooks has no production package import or package manifest in this operations scope. Similar capability without a usable runtime bridge remains NA.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/_dash/seo-page.tsx",
+          "line": 1,
+          "symbol": "SeoPage module",
+          "detail": "Dashboard web source uses Next/local component imports; scope has no package manifest or @rightkit import."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/_dash/ts-llms-index.ts",
+          "line": 1,
+          "symbol": "onGet module",
+          "detail": "Dashboard route source imports Qwik only; no @rightkit route or dependency caller."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/i18n",
+      "status": "NA",
+      "rationale": "NA — @rightkit/i18n has no production package import or package manifest in this operations scope. Similar capability without a usable runtime bridge remains NA.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/_dash/seo-page.tsx",
+          "line": 1,
+          "symbol": "SeoPage module",
+          "detail": "Dashboard web source uses Next/local component imports; scope has no package manifest or @rightkit import."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/_dash/ts-llms-index.ts",
+          "line": 1,
+          "symbol": "onGet module",
+          "detail": "Dashboard route source imports Qwik only; no @rightkit route or dependency caller."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/legal",
+      "status": "NA",
+      "rationale": "NA — @rightkit/legal has no production package import or package manifest in this operations scope. Similar capability without a usable runtime bridge remains NA.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/_dash/seo-page.tsx",
+          "line": 1,
+          "symbol": "SeoPage module",
+          "detail": "Dashboard web source uses Next/local component imports; scope has no package manifest or @rightkit import."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/_dash/ts-llms-index.ts",
+          "line": 1,
+          "symbol": "onGet module",
+          "detail": "Dashboard route source imports Qwik only; no @rightkit route or dependency caller."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/legal-ui",
+      "status": "NA",
+      "rationale": "NA — @rightkit/legal-ui has no production package import or package manifest in this operations scope. Similar capability without a usable runtime bridge remains NA.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/_dash/seo-page.tsx",
+          "line": 1,
+          "symbol": "SeoPage module",
+          "detail": "Dashboard web source uses Next/local component imports; scope has no package manifest or @rightkit import."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/_dash/ts-llms-index.ts",
+          "line": 1,
+          "symbol": "onGet module",
+          "detail": "Dashboard route source imports Qwik only; no @rightkit route or dependency caller."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/license",
+      "status": "NA",
+      "rationale": "NA — @rightkit/license has no production package import or package manifest in this operations scope. Similar capability without a usable runtime bridge remains NA.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/_dash/seo-page.tsx",
+          "line": 1,
+          "symbol": "SeoPage module",
+          "detail": "Dashboard web source uses Next/local component imports; scope has no package manifest or @rightkit import."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/_dash/ts-llms-index.ts",
+          "line": 1,
+          "symbol": "onGet module",
+          "detail": "Dashboard route source imports Qwik only; no @rightkit route or dependency caller."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/logs",
+      "status": "NA",
+      "rationale": "NA — PowerShell/Python observations use direct file output; no Node package project or @rightkit import. Similar capability without a usable runtime bridge remains NA.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/_dash/seo-page.tsx",
+          "line": 1,
+          "symbol": "SeoPage module",
+          "detail": "Dashboard web source uses Next/local component imports; scope has no package manifest or @rightkit import."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/_dash/ts-llms-index.ts",
+          "line": 1,
+          "symbol": "onGet module",
+          "detail": "Dashboard route source imports Qwik only; no @rightkit route or dependency caller."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/media-ui",
+      "status": "NA",
+      "rationale": "NA — @rightkit/media-ui has no production package import or package manifest in this operations scope. Similar capability without a usable runtime bridge remains NA.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/_dash/seo-page.tsx",
+          "line": 1,
+          "symbol": "SeoPage module",
+          "detail": "Dashboard web source uses Next/local component imports; scope has no package manifest or @rightkit import."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/_dash/ts-llms-index.ts",
+          "line": 1,
+          "symbol": "onGet module",
+          "detail": "Dashboard route source imports Qwik only; no @rightkit route or dependency caller."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/onboarding",
+      "status": "NA",
+      "rationale": "NA — @rightkit/onboarding has no production package import or package manifest in this operations scope. Similar capability without a usable runtime bridge remains NA.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/_dash/seo-page.tsx",
+          "line": 1,
+          "symbol": "SeoPage module",
+          "detail": "Dashboard web source uses Next/local component imports; scope has no package manifest or @rightkit import."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/_dash/ts-llms-index.ts",
+          "line": 1,
+          "symbol": "onGet module",
+          "detail": "Dashboard route source imports Qwik only; no @rightkit route or dependency caller."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/pdf-ui",
+      "status": "NA",
+      "rationale": "NA — @rightkit/pdf-ui has no production package import or package manifest in this operations scope. Similar capability without a usable runtime bridge remains NA.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/_dash/seo-page.tsx",
+          "line": 1,
+          "symbol": "SeoPage module",
+          "detail": "Dashboard web source uses Next/local component imports; scope has no package manifest or @rightkit import."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/_dash/ts-llms-index.ts",
+          "line": 1,
+          "symbol": "onGet module",
+          "detail": "Dashboard route source imports Qwik only; no @rightkit route or dependency caller."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/platform-ui",
+      "status": "NA",
+      "rationale": "NA — Dashboard imports product-local Next components, with no package manifest or @rightkit platform-ui import. Similar capability without a usable runtime bridge remains NA.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/_dash/seo-page.tsx",
+          "line": 1,
+          "symbol": "SeoPage module",
+          "detail": "Dashboard web source uses Next/local component imports; scope has no package manifest or @rightkit import."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/_dash/ts-llms-index.ts",
+          "line": 1,
+          "symbol": "onGet module",
+          "detail": "Dashboard route source imports Qwik only; no @rightkit route or dependency caller."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/qa",
+      "status": "NA",
+      "rationale": "NA — Dashboard & scripts have no Node package project or @rightkit import; no compatible caller. Similar capability without a usable runtime bridge remains NA.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/_dash/seo-page.tsx",
+          "line": 1,
+          "symbol": "SeoPage module",
+          "detail": "Dashboard web source uses Next/local component imports; scope has no package manifest or @rightkit import."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/_dash/ts-llms-index.ts",
+          "line": 1,
+          "symbol": "onGet module",
+          "detail": "Dashboard route source imports Qwik only; no @rightkit route or dependency caller."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/qa-chrome",
+      "status": "NA",
+      "rationale": "NA — Dashboard source has no Node package project or Chrome-test caller; no compatible caller. Similar capability without a usable runtime bridge remains NA.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/_dash/seo-page.tsx",
+          "line": 1,
+          "symbol": "SeoPage module",
+          "detail": "Dashboard web source uses Next/local component imports; scope has no package manifest or @rightkit import."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/_dash/ts-llms-index.ts",
+          "line": 1,
+          "symbol": "onGet module",
+          "detail": "Dashboard route source imports Qwik only; no @rightkit route or dependency caller."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/release",
+      "status": "NA",
+      "rationale": "NA — @rightkit/release has no production package import or package manifest in this operations scope. Similar capability without a usable runtime bridge remains NA.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/_dash/seo-page.tsx",
+          "line": 1,
+          "symbol": "SeoPage module",
+          "detail": "Dashboard web source uses Next/local component imports; scope has no package manifest or @rightkit import."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/_dash/ts-llms-index.ts",
+          "line": 1,
+          "symbol": "onGet module",
+          "detail": "Dashboard route source imports Qwik only; no @rightkit route or dependency caller."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/settings-ui",
+      "status": "NA",
+      "rationale": "NA — @rightkit/settings-ui has no production package import or package manifest in this operations scope. Similar capability without a usable runtime bridge remains NA.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/_dash/seo-page.tsx",
+          "line": 1,
+          "symbol": "SeoPage module",
+          "detail": "Dashboard web source uses Next/local component imports; scope has no package manifest or @rightkit import."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/_dash/ts-llms-index.ts",
+          "line": 1,
+          "symbol": "onGet module",
+          "detail": "Dashboard route source imports Qwik only; no @rightkit route or dependency caller."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/shell",
+      "status": "NA",
+      "rationale": "NA — @rightkit/shell has no production package import or package manifest in this operations scope. Similar capability without a usable runtime bridge remains NA.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/_dash/seo-page.tsx",
+          "line": 1,
+          "symbol": "SeoPage module",
+          "detail": "Dashboard web source uses Next/local component imports; scope has no package manifest or @rightkit import."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/_dash/ts-llms-index.ts",
+          "line": 1,
+          "symbol": "onGet module",
+          "detail": "Dashboard route source imports Qwik only; no @rightkit route or dependency caller."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/tauri",
+      "status": "NA",
+      "rationale": "NA — @rightkit/tauri has no production package import or package manifest in this operations scope. Similar capability without a usable runtime bridge remains NA.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/_dash/seo-page.tsx",
+          "line": 1,
+          "symbol": "SeoPage module",
+          "detail": "Dashboard web source uses Next/local component imports; scope has no package manifest or @rightkit import."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/_dash/ts-llms-index.ts",
+          "line": 1,
+          "symbol": "onGet module",
+          "detail": "Dashboard route source imports Qwik only; no @rightkit route or dependency caller."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/theme",
+      "status": "NA",
+      "rationale": "NA — Dashboard uses local CSS variables, with no package manifest or @rightkit theme import. Similar capability without a usable runtime bridge remains NA.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/_dash/seo-page.tsx",
+          "line": 1,
+          "symbol": "SeoPage module",
+          "detail": "Dashboard web source uses Next/local component imports; scope has no package manifest or @rightkit import."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/_dash/ts-llms-index.ts",
+          "line": 1,
+          "symbol": "onGet module",
+          "detail": "Dashboard route source imports Qwik only; no @rightkit route or dependency caller."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/update",
+      "status": "NA",
+      "rationale": "NA — @rightkit/update has no production package import or package manifest in this operations scope. Similar capability without a usable runtime bridge remains NA.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/_dash/seo-page.tsx",
+          "line": 1,
+          "symbol": "SeoPage module",
+          "detail": "Dashboard web source uses Next/local component imports; scope has no package manifest or @rightkit import."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/_dash/ts-llms-index.ts",
+          "line": 1,
+          "symbol": "onGet module",
+          "detail": "Dashboard route source imports Qwik only; no @rightkit route or dependency caller."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/updates",
+      "status": "NA",
+      "rationale": "NA — @rightkit/updates has no production package import or package manifest in this operations scope. Similar capability without a usable runtime bridge remains NA.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/_dash/seo-page.tsx",
+          "line": 1,
+          "symbol": "SeoPage module",
+          "detail": "Dashboard web source uses Next/local component imports; scope has no package manifest or @rightkit import."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/_dash/ts-llms-index.ts",
+          "line": 1,
+          "symbol": "onGet module",
+          "detail": "Dashboard route source imports Qwik only; no @rightkit route or dependency caller."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitLicense",
+      "status": "NA",
+      "rationale": "NA — RightKitLicense is Apple-native; SEO Operations has no Swift/Apple target or production caller. Similar capability without a usable runtime bridge remains NA.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/run-portfolio.ps1",
+          "line": 20,
+          "symbol": "$engineRoot",
+          "detail": "Active PowerShell orchestrator resolves sibling SEO engine, then invokes isolated Python runtime."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/run-portfolio.ps1",
+          "line": 24,
+          "symbol": "$runtime",
+          "detail": "Production collection target is a Python executable, not a Rust or Swift host."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/performance-weekly.py",
+          "line": 113,
+          "symbol": "collect",
+          "detail": "Active Python collector launches sibling Python PageSpeed script & writes portfolio observations."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitDiagnostics",
+      "status": "NA",
+      "rationale": "NA — RightKitDiagnostics is Apple-native; SEO Operations has no Swift/Apple target or production caller. Similar capability without a usable runtime bridge remains NA.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/run-portfolio.ps1",
+          "line": 20,
+          "symbol": "$engineRoot",
+          "detail": "Active PowerShell orchestrator resolves sibling SEO engine, then invokes isolated Python runtime."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/run-portfolio.ps1",
+          "line": 24,
+          "symbol": "$runtime",
+          "detail": "Production collection target is a Python executable, not a Rust or Swift host."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/performance-weekly.py",
+          "line": 113,
+          "symbol": "collect",
+          "detail": "Active Python collector launches sibling Python PageSpeed script & writes portfolio observations."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitArtifacts",
+      "status": "NA",
+      "rationale": "NA — RightKitArtifacts is Apple-native; SEO Operations has no Swift/Apple target or production caller. Similar capability without a usable runtime bridge remains NA.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/run-portfolio.ps1",
+          "line": 20,
+          "symbol": "$engineRoot",
+          "detail": "Active PowerShell orchestrator resolves sibling SEO engine, then invokes isolated Python runtime."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/run-portfolio.ps1",
+          "line": 24,
+          "symbol": "$runtime",
+          "detail": "Production collection target is a Python executable, not a Rust or Swift host."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/performance-weekly.py",
+          "line": 113,
+          "symbol": "collect",
+          "detail": "Active Python collector launches sibling Python PageSpeed script & writes portfolio observations."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitPurchases",
+      "status": "NA",
+      "rationale": "NA — RightKitPurchases is Apple-native; SEO Operations has no Swift/Apple target or production caller. Similar capability without a usable runtime bridge remains NA.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/run-portfolio.ps1",
+          "line": 20,
+          "symbol": "$engineRoot",
+          "detail": "Active PowerShell orchestrator resolves sibling SEO engine, then invokes isolated Python runtime."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/run-portfolio.ps1",
+          "line": 24,
+          "symbol": "$runtime",
+          "detail": "Production collection target is a Python executable, not a Rust or Swift host."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/performance-weekly.py",
+          "line": 113,
+          "symbol": "collect",
+          "detail": "Active Python collector launches sibling Python PageSpeed script & writes portfolio observations."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitCloudSync",
+      "status": "NA",
+      "rationale": "NA — RightKitCloudSync is Apple-native; SEO Operations has no Swift/Apple target or production caller. Similar capability without a usable runtime bridge remains NA.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/run-portfolio.ps1",
+          "line": 20,
+          "symbol": "$engineRoot",
+          "detail": "Active PowerShell orchestrator resolves sibling SEO engine, then invokes isolated Python runtime."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/run-portfolio.ps1",
+          "line": 24,
+          "symbol": "$runtime",
+          "detail": "Production collection target is a Python executable, not a Rust or Swift host."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/performance-weekly.py",
+          "line": 113,
+          "symbol": "collect",
+          "detail": "Active Python collector launches sibling Python PageSpeed script & writes portfolio observations."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitStore",
+      "status": "NA",
+      "rationale": "NA — RightKitStore is Apple-native; SEO Operations has no Swift/Apple target or production caller. Similar capability without a usable runtime bridge remains NA.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/run-portfolio.ps1",
+          "line": 20,
+          "symbol": "$engineRoot",
+          "detail": "Active PowerShell orchestrator resolves sibling SEO engine, then invokes isolated Python runtime."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/run-portfolio.ps1",
+          "line": 24,
+          "symbol": "$runtime",
+          "detail": "Production collection target is a Python executable, not a Rust or Swift host."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/performance-weekly.py",
+          "line": 113,
+          "symbol": "collect",
+          "detail": "Active Python collector launches sibling Python PageSpeed script & writes portfolio observations."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitImportQueue",
+      "status": "NA",
+      "rationale": "NA — RightKitImportQueue is Apple-native; SEO Operations has no Swift/Apple target or production caller. Similar capability without a usable runtime bridge remains NA.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/run-portfolio.ps1",
+          "line": 20,
+          "symbol": "$engineRoot",
+          "detail": "Active PowerShell orchestrator resolves sibling SEO engine, then invokes isolated Python runtime."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/run-portfolio.ps1",
+          "line": 24,
+          "symbol": "$runtime",
+          "detail": "Production collection target is a Python executable, not a Rust or Swift host."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/performance-weekly.py",
+          "line": 113,
+          "symbol": "collect",
+          "detail": "Active Python collector launches sibling Python PageSpeed script & writes portfolio observations."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitLiveActivity",
+      "status": "NA",
+      "rationale": "NA — RightKitLiveActivity is Apple-native; SEO Operations has no Swift/Apple target or production caller. Similar capability without a usable runtime bridge remains NA.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/run-portfolio.ps1",
+          "line": 20,
+          "symbol": "$engineRoot",
+          "detail": "Active PowerShell orchestrator resolves sibling SEO engine, then invokes isolated Python runtime."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/run-portfolio.ps1",
+          "line": 24,
+          "symbol": "$runtime",
+          "detail": "Production collection target is a Python executable, not a Rust or Swift host."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/performance-weekly.py",
+          "line": 113,
+          "symbol": "collect",
+          "detail": "Active Python collector launches sibling Python PageSpeed script & writes portfolio observations."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitWatchBridge",
+      "status": "NA",
+      "rationale": "NA — RightKitWatchBridge is Apple-native; SEO Operations has no Swift/Apple target or production caller. Similar capability without a usable runtime bridge remains NA.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/run-portfolio.ps1",
+          "line": 20,
+          "symbol": "$engineRoot",
+          "detail": "Active PowerShell orchestrator resolves sibling SEO engine, then invokes isolated Python runtime."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/run-portfolio.ps1",
+          "line": 24,
+          "symbol": "$runtime",
+          "detail": "Production collection target is a Python executable, not a Rust or Swift host."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/performance-weekly.py",
+          "line": 113,
+          "symbol": "collect",
+          "detail": "Active Python collector launches sibling Python PageSpeed script & writes portfolio observations."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitSpeech",
+      "status": "NA",
+      "rationale": "NA — RightKitSpeech is Apple-native; SEO Operations has no Swift/Apple target or production caller. Similar capability without a usable runtime bridge remains NA.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/run-portfolio.ps1",
+          "line": 20,
+          "symbol": "$engineRoot",
+          "detail": "Active PowerShell orchestrator resolves sibling SEO engine, then invokes isolated Python runtime."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/run-portfolio.ps1",
+          "line": 24,
+          "symbol": "$runtime",
+          "detail": "Production collection target is a Python executable, not a Rust or Swift host."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/performance-weekly.py",
+          "line": 113,
+          "symbol": "collect",
+          "detail": "Active Python collector launches sibling Python PageSpeed script & writes portfolio observations."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitIntents",
+      "status": "NA",
+      "rationale": "NA — RightKitIntents is Apple-native; SEO Operations has no Swift/Apple target or production caller. Similar capability without a usable runtime bridge remains NA.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/run-portfolio.ps1",
+          "line": 20,
+          "symbol": "$engineRoot",
+          "detail": "Active PowerShell orchestrator resolves sibling SEO engine, then invokes isolated Python runtime."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/run-portfolio.ps1",
+          "line": 24,
+          "symbol": "$runtime",
+          "detail": "Production collection target is a Python executable, not a Rust or Swift host."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/performance-weekly.py",
+          "line": 113,
+          "symbol": "collect",
+          "detail": "Active Python collector launches sibling Python PageSpeed script & writes portfolio observations."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitAppleCredentials",
+      "status": "NA",
+      "rationale": "NA — RightKitAppleCredentials is Apple-native; SEO Operations has no Swift/Apple target or production caller. Similar capability without a usable runtime bridge remains NA.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/run-portfolio.ps1",
+          "line": 20,
+          "symbol": "$engineRoot",
+          "detail": "Active PowerShell orchestrator resolves sibling SEO engine, then invokes isolated Python runtime."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/run-portfolio.ps1",
+          "line": 24,
+          "symbol": "$runtime",
+          "detail": "Production collection target is a Python executable, not a Rust or Swift host."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/performance-weekly.py",
+          "line": 113,
+          "symbol": "collect",
+          "detail": "Active Python collector launches sibling Python PageSpeed script & writes portfolio observations."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitOverlay",
+      "status": "NA",
+      "rationale": "NA — RightKitOverlay is Apple-native; SEO Operations has no Swift/Apple target or production caller. Similar capability without a usable runtime bridge remains NA.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/run-portfolio.ps1",
+          "line": 20,
+          "symbol": "$engineRoot",
+          "detail": "Active PowerShell orchestrator resolves sibling SEO engine, then invokes isolated Python runtime."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/run-portfolio.ps1",
+          "line": 24,
+          "symbol": "$runtime",
+          "detail": "Production collection target is a Python executable, not a Rust or Swift host."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/performance-weekly.py",
+          "line": 113,
+          "symbol": "collect",
+          "detail": "Active Python collector launches sibling Python PageSpeed script & writes portfolio observations."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitWatch",
+      "status": "NA",
+      "rationale": "NA — RightKitWatch is Apple-native; SEO Operations has no Swift/Apple target or production caller. Similar capability without a usable runtime bridge remains NA.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/run-portfolio.ps1",
+          "line": 20,
+          "symbol": "$engineRoot",
+          "detail": "Active PowerShell orchestrator resolves sibling SEO engine, then invokes isolated Python runtime."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/run-portfolio.ps1",
+          "line": 24,
+          "symbol": "$runtime",
+          "detail": "Production collection target is a Python executable, not a Rust or Swift host."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/performance-weekly.py",
+          "line": 113,
+          "symbol": "collect",
+          "detail": "Active Python collector launches sibling Python PageSpeed script & writes portfolio observations."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitUI",
+      "status": "NA",
+      "rationale": "NA — RightKitUI is Apple-native; SEO Operations has no Swift/Apple target or production caller. Similar capability without a usable runtime bridge remains NA.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/run-portfolio.ps1",
+          "line": 20,
+          "symbol": "$engineRoot",
+          "detail": "Active PowerShell orchestrator resolves sibling SEO engine, then invokes isolated Python runtime."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/run-portfolio.ps1",
+          "line": 24,
+          "symbol": "$runtime",
+          "detail": "Production collection target is a Python executable, not a Rust or Swift host."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo-ops/performance-weekly.py",
+          "line": 113,
+          "symbol": "collect",
+          "detail": "Active Python collector launches sibling Python PageSpeed script & writes portfolio observations."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    }
+  ],
+  "searches": [
+    {
+      "pattern": "@rightkit|rightkit-",
+      "scope": "operative PowerShell, Python & dashboard sources; excluded reports/editorial/data/output/research/server-context",
+      "result": "No active @rightkit import, RightKit CLI invocation, FFI, sidecar, Cargo manifest, Package.swift, or package manifest."
+    },
+    {
+      "pattern": "subprocess.run|pwsh|python.exe|ssh|scp",
+      "scope": "operative automation sources",
+      "result": "Python/PowerShell own current execution: PageSpeed child process, portfolio tick, daily pipeline, dashboard publication."
+    },
+    {
+      "pattern": "write_text|Set-Content|Add-Content|os.replace",
+      "scope": "operative automation sources",
+      "result": "Scripts directly persist observations, logs, temporary URL lists & dashboard snapshot; no compatible Rust bridge is configured."
+    },
+    {
+      "pattern": "import type|export default|RequestHandler",
+      "scope": "_dash web source",
+      "result": "Dashboard source has local Next/Qwik imports only; no Node project manifest or @rightkit dependency."
+    }
+  ],
+  "self_review": "Challenged all potential N rows: direct Python/PowerShell HTTP, filesystem, secrets, process, jobs, logs & QA behavior overlaps some Rust owners, but source proves no usable Rust/Swift/Node bridge or shared caller. Kept those rows NA; recorded separate bridge gaps. Challenged web UI rows: static TSX/route sources use local framework imports, with no package manifest or @rightkit caller. No Y/M claims were inferred from catalog availability."
+}

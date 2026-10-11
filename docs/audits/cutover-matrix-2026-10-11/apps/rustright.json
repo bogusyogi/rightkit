@@ -1,0 +1,1924 @@
+{
+  "app": "RustRight",
+  "root": "/Volumes/D/claude/rustright",
+  "head": "94f01de9481619dacd62f04872360b183ee5bd59",
+  "reviewed_at": "2026-10-11T07:59:59+05:30",
+  "targets": [
+    "desktop-macos",
+    "desktop-windows",
+    "cli",
+    "broker-service",
+    "installer",
+    "parity-tool"
+  ],
+  "scope_note": "Fresh source-only review of active Rust workspace binaries, libraries, installer & parity tool. Source-only census found 187 Rust files, zero tracked JavaScript, TypeScript, Swift, package.json or Package.swift files. Ignored docs, tests, fixtures, generated/cache/build output & prior audits; no build, install, network or product edit occurred.",
+  "cells": [
+    {
+      "component_id": "cargo:agent-room-core",
+      "status": "NA",
+      "rationale": "RustRight is a local build broker; no agent-room protocol, room server or room-store runtime exists.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/rustright/crates/rustright-cli/src/main.rs",
+          "line": 3,
+          "detail": "CLI enters RustRight broker commands; no agent-room target."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-agent-tools",
+      "status": "NA",
+      "rationale": "RustRight exposes build-broker CLI/shims, not agent tool backends or right-ctl contract.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/rustright/crates/rustright-cli/src/cli.rs",
+          "line": 71,
+          "detail": "run_main routes RustRight CLI; no agent-tools caller."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-align",
+      "status": "NA",
+      "rationale": "No ASR/script word-alignment feature belongs to build broker runtime.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/rustright/Cargo.toml",
+          "line": 1,
+          "detail": "Rust workspace contains broker/runtime crates only; no speech dependency."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-asr",
+      "status": "NA",
+      "rationale": "No speech decoding or model execution feature belongs to RustRight build broker.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/rustright/crates/rustright-broker/src/main.rs",
+          "line": 76,
+          "detail": "Broker launches job service, not ASR."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-audio",
+      "status": "NA",
+      "rationale": "No audio capture, processing or media runtime exists in RustRight targets.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/rustright/Cargo.toml",
+          "line": 1,
+          "detail": "Active workspace dependency census has no audio owner."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-automation",
+      "status": "NA",
+      "rationale": "RustRight runs brokered build processes; it has no desktop accessibility or input automation feature.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/rustright/crates/rustright-broker/src/server/listener.rs",
+          "line": 23,
+          "detail": "Broker listens on local Unix socket/named pipe, not desktop automation APIs."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-browser",
+      "status": "NA",
+      "rationale": "No CDP browser session/runtime feature exists in RustRight.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/rustright/Cargo.toml",
+          "line": 1,
+          "detail": "Rust-only build-broker workspace; no browser crate dependency."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-cache",
+      "status": "NA",
+      "rationale": "RustRight ThinCache owns sccache gateway health, epochs & compiler environment; it is not a byte-keyed DiskCache with LRU/get/put API.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/rustright/crates/rustright-cache/src/thin_cache.rs",
+          "line": 1,
+          "symbol": "ThinCache",
+          "detail": "Operates sccache gateway admission & recovery, outside rightkit-cache DiskCache API."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-channel-memory",
+      "status": "NA",
+      "rationale": "No content-pipeline channel-memory schema or consumer exists in build broker targets.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/rustright/Cargo.toml",
+          "line": 1,
+          "detail": "Workspace capability is broker/storage/process management."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-compose",
+      "status": "NA",
+      "rationale": "No video/still composition evaluator or media export exists in RustRight.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/rustright/Cargo.toml",
+          "line": 1,
+          "detail": "No composition runtime dependency or target."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-contracts",
+      "status": "NA",
+      "rationale": "RustRight uses its own build-control protocol, not RightKit content-pipeline contracts.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/rustright/crates/rustright-protocol/src/lib.rs",
+          "line": 1,
+          "detail": "Production protocol crate owns broker request/response types."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-control",
+      "status": "NA",
+      "rationale": "No native input/accessibility or WebDriver feature exists in build broker runtime.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/rustright/crates/rustright-broker/src/main.rs",
+          "line": 76,
+          "detail": "Broker target starts build job service only."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-crash",
+      "status": "NA",
+      "rationale": "RustRight has no RightKit crash report, dump or support-bundle runtime.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/rustright/Cargo.toml",
+          "line": 1,
+          "detail": "No crash component dependency in active workspace."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-daemon",
+      "status": "NA",
+      "rationale": "Broker local socket has no HTTPS listener, device enrolment, webhook or resumable-upload daemon feature.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/rustright/crates/rustright-broker/src/server/listener.rs",
+          "line": 23,
+          "detail": "Local Unix socket/named pipe listener is distinct from HTTPS daemon owner."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-db",
+      "status": "NA",
+      "rationale": "RustRight persists broker state as owned JSON files; it has no SQLite/SQLCipher connection bootstrap consumer.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/rustright/crates/rustright-state/src/fsops.rs",
+          "line": 25,
+          "symbol": "write_json",
+          "detail": "State writes JSON records through filesystem primitive."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-embed",
+      "status": "NA",
+      "rationale": "No embeddings/vector-store feature exists in RustRight build broker.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/rustright/Cargo.toml",
+          "line": 1,
+          "detail": "No embedding runtime dependency."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-framed-sidecar",
+      "status": "NA",
+      "rationale": "RustRight owns a custom one-request broker framing protocol; it has no JSON-lines sidecar consumer or compatible owner API route.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/rustright/crates/rustright-broker/src/server/connection.rs",
+          "line": 1,
+          "symbol": "serve_connection",
+          "detail": "Custom broker frame lifecycle is active."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-fs",
+      "status": "Y",
+      "rationale": "Production state writes & installer durability route through rightkit-fs atomic/private write & durable_sync; local helpers are broker policy wrappers, not competing filesystem implementation.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/rustright/crates/rustright-state/src/fsops.rs",
+          "line": 35,
+          "symbol": "write_json",
+          "detail": "Calls rightkit_fs::atomic_write_private for broker state."
+        },
+        {
+          "path": "/Volumes/D/claude/rustright/crates/rustright-install/src/fsutil.rs",
+          "line": 69,
+          "symbol": "durable_replace",
+          "detail": "Calls rightkit_fs::durable_sync after installer file write."
+        }
+      ],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/rustright/Cargo.toml",
+          "line": 37,
+          "detail": "Published rightkit-fs 0.3.2 workspace dependency."
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-fs/src/atomic.rs",
+          "line": 146,
+          "symbol": "atomic_write_private",
+          "detail": "Canonical private atomic file replacement API."
+        }
+      ],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-fsindex",
+      "status": "NA",
+      "rationale": "RustRight scans managed roots for broker policy; it has no live whole-disk index or filename-search runtime.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/rustright/crates/rustright-policy/src/workspace_scan.rs",
+          "line": 1,
+          "detail": "Workspace scan serves broker policy, not indexed search."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-hotkeys",
+      "status": "NA",
+      "rationale": "No global shortcut/input-hook target exists in CLI or broker.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/rustright/crates/rustright-cli/src/main.rs",
+          "line": 3,
+          "detail": "CLI-only entrypoint."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-http",
+      "status": "NA",
+      "rationale": "No HTTP client, retry, SSE or download caller exists in active RustRight production source.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/rustright/Cargo.toml",
+          "line": 1,
+          "detail": "No HTTP owner dependency in workspace."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-jobs",
+      "status": "N",
+      "rationale": "JobService actively implements submit/watch/status/cancel, in-memory records, broker events & scheduling. This overlaps rightkit-jobs engine job runner/command contract, yet no rightkit-jobs route is linked.",
+      "shared_evidence": [],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/rustright/crates/rustright-broker/src/job_service/service.rs",
+          "line": 690,
+          "symbol": "JobService::dispatch",
+          "detail": "Routes LIST, SUBMIT, WATCH, STATUS & CANCEL for live broker jobs."
+        },
+        {
+          "path": "/Volumes/D/claude/rustright/crates/rustright-broker/src/job_service/job.rs",
+          "line": 1,
+          "symbol": "Job",
+          "detail": "Maintains live job state & bounded event output."
+        }
+      ],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/rustright/crates/rustright-broker/src/main.rs",
+          "line": 76,
+          "detail": "Production broker starts JobService."
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-jobs/src/lib.rs",
+          "line": 1,
+          "symbol": "JobStore/Runner/JobCommands",
+          "detail": "Owner exports persistent job store, runner & command contract."
+        }
+      ],
+      "delivery_flags": [],
+      "remaining_work": "Map build-control wire/state requirements to rightkit-jobs APIs, then replace local generic lifecycle pieces while retaining build policy.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-license",
+      "status": "NA",
+      "rationale": "RustRight has no entitlement-token enforcement or license feature.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/rustright/Cargo.toml",
+          "line": 1,
+          "detail": "No license crate dependency."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-llm",
+      "status": "NA",
+      "rationale": "No LLM/BYOK provider runtime belongs to build broker.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/rustright/Cargo.toml",
+          "line": 1,
+          "detail": "No LLM dependency or caller."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-logs",
+      "status": "N",
+      "rationale": "ThinLogger is active production append-only NDJSON lifecycle logging; it overlaps rightkit-logs JsonlStore capability, but no shared logging route is linked.",
+      "shared_evidence": [],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/rustright/crates/rustright-service/src/logger.rs",
+          "line": 16,
+          "symbol": "ThinLogger",
+          "detail": "Owns append-only typed NDJSON file logger."
+        },
+        {
+          "path": "/Volumes/D/claude/rustright/crates/rustright-broker/src/server/broker.rs",
+          "line": 112,
+          "symbol": "run_loaded",
+          "detail": "Production broker opens lifecycle ThinLogger."
+        }
+      ],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/rustright/crates/rustright-broker/src/main.rs",
+          "line": 76,
+          "detail": "Broker executable invokes server lifecycle."
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-logs/src/store.rs",
+          "line": 10,
+          "symbol": "JsonlStore",
+          "detail": "Owner persists append-only JSONL events."
+        }
+      ],
+      "delivery_flags": [],
+      "remaining_work": "Adapt broker event schema to rightkit-logs JsonlStore/AsyncWriter while preserving broker lifecycle wire events.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-mcp",
+      "status": "NA",
+      "rationale": "No MCP client/server feature exists in RustRight production targets.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/rustright/Cargo.toml",
+          "line": 1,
+          "detail": "No MCP dependency."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-media",
+      "status": "NA",
+      "rationale": "No FFmpeg artifact/media lifecycle is part of RustRight broker scope.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/rustright/Cargo.toml",
+          "line": 1,
+          "detail": "No media owner dependency."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-models",
+      "status": "NA",
+      "rationale": "No local AI-model manifest/download/install runtime exists in RustRight.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/rustright/Cargo.toml",
+          "line": 1,
+          "detail": "No models dependency."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-oauth",
+      "status": "NA",
+      "rationale": "No OAuth sign-in, callback or credential refresh target exists in RustRight.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/rustright/Cargo.toml",
+          "line": 1,
+          "detail": "No OAuth dependency."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-ocr",
+      "status": "NA",
+      "rationale": "No OCR runtime exists in broker/CLI targets.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/rustright/Cargo.toml",
+          "line": 1,
+          "detail": "No OCR dependency."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-ort",
+      "status": "NA",
+      "rationale": "No ONNX Runtime session or model execution exists in RustRight.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/rustright/Cargo.toml",
+          "line": 1,
+          "detail": "No ONNX dependency."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-overlay",
+      "status": "NA",
+      "rationale": "RustRight has no desktop overlay/window UI target.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/rustright/crates/rustright-cli/src/main.rs",
+          "line": 3,
+          "detail": "CLI process only."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-ownership",
+      "status": "Y",
+      "rationale": "Broker production admission constructs native rightkit-ownership Scanner, AdmissionConfig & OwnershipAdmission; local code is a required broker adapter.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/rustright/crates/rustright-broker/src/job_service/assemble.rs",
+          "line": 164,
+          "symbol": "ownership_gate",
+          "detail": "Constructs Scanner, NativeScanRunner & rightkit_ownership::AdmissionConfig."
+        },
+        {
+          "path": "/Volumes/D/claude/rustright/crates/rustright-broker/src/job_service/ownership.rs",
+          "line": 48,
+          "symbol": "OwnershipAdmission impl",
+          "detail": "Broker adapter delegates gate verdicts."
+        }
+      ],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/rustright/Cargo.toml",
+          "line": 22,
+          "detail": "Pins published rightkit-ownership =0.2.0."
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-ownership/src/admission.rs",
+          "line": 295,
+          "symbol": "OwnershipAdmission",
+          "detail": "Canonical ownership admission API."
+        }
+      ],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-pdf",
+      "status": "NA",
+      "rationale": "No PDF inspect/compose/extract feature exists in RustRight.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/rustright/Cargo.toml",
+          "line": 1,
+          "detail": "No PDF dependency."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-playback",
+      "status": "NA",
+      "rationale": "No media playback preparation feature exists in RustRight.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/rustright/Cargo.toml",
+          "line": 1,
+          "detail": "No playback dependency."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-process",
+      "status": "Y",
+      "rationale": "RustRight production containment wraps rightkit-process OwnedCommand/OwnedChild, UnixContainment & termination outcomes; local identity/telemetry adds broker policy only.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/rustright/crates/rustright-process/src/tree.rs",
+          "line": 16,
+          "symbol": "ContainedProcess::spawn",
+          "detail": "Uses rightkit_process OwnedCommand, OwnedChild, UnixContainment & TerminationOptions."
+        },
+        {
+          "path": "/Volumes/D/claude/rustright/crates/rustright-broker/src/job_service/contained.rs",
+          "line": 22,
+          "symbol": "ContainedRunner",
+          "detail": "Production job runner creates re-exported OwnedCommand."
+        }
+      ],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/rustright/Cargo.toml",
+          "line": 38,
+          "detail": "Published rightkit-process 0.3.1 dependency."
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-process/src/lib.rs",
+          "line": 12,
+          "symbol": "OwnedCommand/OwnedChild",
+          "detail": "Canonical ownership-safe child lifecycle exports."
+        }
+      ],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-qa",
+      "status": "NA",
+      "rationale": "RustRight parity executable compares broker implementations; it is not an app engine/UI QA harness consumer.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/rustright/crates/rustright-parity/src/main.rs",
+          "line": 38,
+          "detail": "Parity tool entrypoint is broker comparison tooling."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-qts",
+      "status": "NA",
+      "rationale": "No local Qwen text-to-speech runtime exists in RustRight.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/rustright/Cargo.toml",
+          "line": 1,
+          "detail": "No TTS dependency."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-qts-ggml",
+      "status": "NA",
+      "rationale": "No QTS GGML wrapper consumer exists in RustRight.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/rustright/Cargo.toml",
+          "line": 1,
+          "detail": "No QTS dependency."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-qts-ggml-sys",
+      "status": "NA",
+      "rationale": "No GGML FFI consumer exists in RustRight.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/rustright/Cargo.toml",
+          "line": 1,
+          "detail": "No QTS/GGML dependency."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-record",
+      "status": "NA",
+      "rationale": "No screen/audio recording session bundle feature exists in RustRight.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/rustright/Cargo.toml",
+          "line": 1,
+          "detail": "No recording dependency."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-review",
+      "status": "NA",
+      "rationale": "No content/media review & repair feature exists in RustRight.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/rustright/Cargo.toml",
+          "line": 1,
+          "detail": "No review dependency."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-sandbox",
+      "status": "N",
+      "rationale": "RustRight Scheduler reserves compile units before a broker process starts; it overlaps rightkit-sandbox ResourceAuthority reservation, but uses no shared authority/sandbox route.",
+      "shared_evidence": [],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/rustright/crates/rustright-scheduler/src/scheduler.rs",
+          "line": 622,
+          "symbol": "Scheduler::enqueue",
+          "detail": "Queues requests & yields RAII permits constrained by capacity."
+        },
+        {
+          "path": "/Volumes/D/claude/rustright/crates/rustright-broker/src/job_service/service.rs",
+          "line": 1410,
+          "symbol": "submit_and_watch",
+          "detail": "Build root creates Scheduler Request before process preparation."
+        }
+      ],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/rustright/crates/rustright-broker/src/main.rs",
+          "line": 76,
+          "detail": "Production broker starts scheduler-backed JobService."
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-sandbox/src/resources.rs",
+          "line": 103,
+          "symbol": "ResourceAuthority::reserve",
+          "detail": "Owner reserves process capacity before spawn & releases through Reservation drop."
+        }
+      ],
+      "delivery_flags": [],
+      "remaining_work": "Evaluate mapping compile-unit scheduler to rightkit-sandbox ResourceAuthority; retain workspace exclusion & build-cost policy.",
+      "confidence": "medium"
+    },
+    {
+      "component_id": "cargo:rightkit-scenario",
+      "status": "NA",
+      "rationale": "Broker job lifecycle has a distinct build-control v2 contract; no generic scenario interpreter/retake runtime is used.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/rustright/crates/rustright-protocol/src/lib.rs",
+          "line": 1,
+          "detail": "Build-control request/response protocol is active."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-search",
+      "status": "NA",
+      "rationale": "No user search/FTS query feature exists in RustRight.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/rustright/Cargo.toml",
+          "line": 1,
+          "detail": "No search dependency."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-secrets",
+      "status": "NA",
+      "rationale": "RustRight broker uses configured immutable tool paths; it has no OS credential storage consumer.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/rustright/crates/rustright-broker/src/job_service/assemble.rs",
+          "line": 210,
+          "detail": "Startup registry verifies configured tools; no secret store."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-send",
+      "status": "NA",
+      "rationale": "No LocalSend/Pulse network-sharing feature exists in RustRight.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/rustright/Cargo.toml",
+          "line": 1,
+          "detail": "No send dependency."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-service",
+      "status": "N",
+      "rationale": "RustRight actively implements local Unix socket/named-pipe broker hosting, endpoint hardening & request dispatch. It overlaps rightkit-service local host transport, but has no shared discovery record, rank/takeover or allowlist route.",
+      "shared_evidence": [],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/rustright/crates/rustright-broker/src/server/listener.rs",
+          "line": 23,
+          "symbol": "bind/spawn_accept_loop",
+          "detail": "Hosts broker on Unix socket or Windows named pipe."
+        },
+        {
+          "path": "/Volumes/D/claude/rustright/crates/rustright-service/src/socket.rs",
+          "line": 29,
+          "symbol": "prepare_unix_socket_endpoint",
+          "detail": "Locally implements owner-only broker endpoint hardening."
+        }
+      ],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/rustright/crates/rustright-broker/src/main.rs",
+          "line": 76,
+          "detail": "Production broker runs local service."
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-service/src/server.rs",
+          "line": 317,
+          "symbol": "host",
+          "detail": "Owner hosts authenticated local service with discovery/allowlist conventions."
+        }
+      ],
+      "delivery_flags": [],
+      "remaining_work": "Assess adapting broker transport to rightkit-service while preserving immutable v2 protocol, endpoint & build-control admission semantics.",
+      "confidence": "medium"
+    },
+    {
+      "component_id": "cargo:rightkit-settings",
+      "status": "NA",
+      "rationale": "RustRight configuration is broker runtime config, not per-app settings persistence with migrations/change events.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/rustright/crates/rustright-config/src/config.rs",
+          "line": 1,
+          "detail": "Configuration models broker runtime, tools & roots."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-shell",
+      "status": "NA",
+      "rationale": "RustRight has no Tauri/webview desktop shell target.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/rustright/crates/rustright-cli/src/main.rs",
+          "line": 3,
+          "detail": "CLI entrypoint only."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-speech-client",
+      "status": "NA",
+      "rationale": "No shared speech-service client exists in RustRight.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/rustright/Cargo.toml",
+          "line": 1,
+          "detail": "No speech client dependency."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-sync",
+      "status": "NA",
+      "rationale": "No cloud sync/change-token runtime belongs to RustRight broker.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/rustright/Cargo.toml",
+          "line": 1,
+          "detail": "No sync dependency."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-tauri",
+      "status": "NA",
+      "rationale": "No Tauri host exists in RustRight targets.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/rustright/Cargo.toml",
+          "line": 1,
+          "detail": "Rust workspace has no Tauri dependency or target."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-transcript",
+      "status": "NA",
+      "rationale": "No transcript/cue import-export feature exists in RustRight.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/rustright/Cargo.toml",
+          "line": 1,
+          "detail": "No transcript dependency."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-tts",
+      "status": "NA",
+      "rationale": "No text-to-speech runtime exists in RustRight.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/rustright/Cargo.toml",
+          "line": 1,
+          "detail": "No TTS dependency."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-vad",
+      "status": "NA",
+      "rationale": "No voice activity detection feature exists in RustRight.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/rustright/Cargo.toml",
+          "line": 1,
+          "detail": "No VAD dependency."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-watch",
+      "status": "NA",
+      "rationale": "Watchdog observes broker health; it is not a ref-counted filesystem-watch API consumer.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/rustright/crates/rustright-service/src/watchdog.rs",
+          "line": 1,
+          "detail": "Local watchdog tracks broker health, not filesystem events."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/agent-room-mcp",
+      "status": "NA",
+      "rationale": "RustRight has no Node/MCP runtime; source census found zero tracked JavaScript or TypeScript files.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/rustright/Cargo.toml",
+          "line": 1,
+          "detail": "Rust-only workspace runtime."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/app-shell",
+      "status": "NA",
+      "rationale": "React desktop frame is incompatible with RustRight CLI/broker targets; no JS/TS source exists.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/rustright/crates/rustright-cli/src/main.rs",
+          "line": 3,
+          "detail": "CLI entrypoint; no renderer target."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/ax",
+      "status": "NA",
+      "rationale": "RustRight has no Node AX/plugin runtime or matching production caller.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/rustright/Cargo.toml",
+          "line": 1,
+          "detail": "Rust-only workspace runtime."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/build-control-policy",
+      "status": "NA",
+      "rationale": "Catalog owner is private Node build-control policy; RustRight is standalone Rust broker product with no Node package runtime. Its build policy is product behavior, not an active consumer route.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/rustright/crates/rustright-policy/src/lib.rs",
+          "line": 1,
+          "detail": "Local Rust broker policy crate; no npm runtime exists."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/doc-render",
+      "status": "NA",
+      "rationale": "No React/document rendering target exists in RustRight.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/rustright/Cargo.toml",
+          "line": 1,
+          "detail": "Rust-only workspace runtime."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/git",
+      "status": "NA",
+      "rationale": "No Node right-git workflow integration exists; RustRight invokes git only for broker/parity repository checks.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/rustright/crates/rustright-parity/src/apps.rs",
+          "line": 115,
+          "detail": "Parity tool directly reads git state; no npm workflow caller."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/hooks",
+      "status": "NA",
+      "rationale": "No Node agent lifecycle runtime exists in RustRight.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/rustright/Cargo.toml",
+          "line": 1,
+          "detail": "Rust-only workspace runtime."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/i18n",
+      "status": "NA",
+      "rationale": "No browser/React UI or locale catalog consumer exists in RustRight.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/rustright/crates/rustright-cli/src/main.rs",
+          "line": 3,
+          "detail": "CLI entrypoint only."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/legal",
+      "status": "NA",
+      "rationale": "No web legal-manifest/assent runtime exists in RustRight.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/rustright/Cargo.toml",
+          "line": 1,
+          "detail": "Rust-only workspace runtime."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/legal-ui",
+      "status": "NA",
+      "rationale": "No renderer UI or legal acceptance screen exists in RustRight.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/rustright/crates/rustright-cli/src/main.rs",
+          "line": 3,
+          "detail": "CLI entrypoint only."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/license",
+      "status": "NA",
+      "rationale": "No JavaScript license client or Tauri/browser host exists in RustRight.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/rustright/Cargo.toml",
+          "line": 1,
+          "detail": "Rust-only workspace runtime."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/logs",
+      "status": "NA",
+      "rationale": "RustRight logging gap is cargo:rightkit-logs; npm React/JS diagnostics client has no compatible runtime here.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/rustright/crates/rustright-service/src/logger.rs",
+          "line": 16,
+          "detail": "Native Rust logger is active; no JS runtime."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/media-ui",
+      "status": "NA",
+      "rationale": "No web media player/image editor target exists in RustRight.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/rustright/Cargo.toml",
+          "line": 1,
+          "detail": "Rust-only workspace runtime."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/onboarding",
+      "status": "NA",
+      "rationale": "No first-run desktop app onboarding UI exists in RustRight CLI/broker.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/rustright/crates/rustright-install/src/main.rs",
+          "line": 581,
+          "detail": "Installer is native CLI, not React onboarding."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/pdf-ui",
+      "status": "NA",
+      "rationale": "No browser PDF viewer target exists in RustRight.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/rustright/Cargo.toml",
+          "line": 1,
+          "detail": "Rust-only workspace runtime."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/platform-ui",
+      "status": "NA",
+      "rationale": "No React/window-control renderer target exists in RustRight.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/rustright/crates/rustright-cli/src/main.rs",
+          "line": 3,
+          "detail": "CLI entrypoint only."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/qa",
+      "status": "NA",
+      "rationale": "No Node QA package caller exists; Rust parity tooling is a native broker comparison executable.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/rustright/crates/rustright-parity/src/main.rs",
+          "line": 38,
+          "detail": "Native parity executable."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/qa-chrome",
+      "status": "NA",
+      "rationale": "No Chrome QA launcher or Node runtime exists in RustRight.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/rustright/Cargo.toml",
+          "line": 1,
+          "detail": "Rust-only workspace runtime."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/release",
+      "status": "NA",
+      "rationale": "RustRight installer provisions native broker runtime; no @rightkit/release JS CLI/SDK production caller exists.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/rustright/crates/rustright-install/src/main.rs",
+          "line": 547,
+          "detail": "Native installer command router, not npm release CLI."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/settings-ui",
+      "status": "NA",
+      "rationale": "No React settings panel target exists in RustRight.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/rustright/crates/rustright-cli/src/main.rs",
+          "line": 3,
+          "detail": "CLI entrypoint only."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/shell",
+      "status": "NA",
+      "rationale": "No renderer bridge or Tauri shell target exists in RustRight.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/rustright/Cargo.toml",
+          "line": 1,
+          "detail": "No JavaScript/Tauri runtime."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/tauri",
+      "status": "NA",
+      "rationale": "No Tauri host/renderer target exists in RustRight.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/rustright/Cargo.toml",
+          "line": 1,
+          "detail": "No Tauri dependency."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/theme",
+      "status": "NA",
+      "rationale": "No CSS token generation or browser UI exists in RustRight.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/rustright/Cargo.toml",
+          "line": 1,
+          "detail": "Rust-only workspace runtime."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/update",
+      "status": "NA",
+      "rationale": "No per-repo Node dependency-updater consumer exists; RustRight uses native installer/runtime management.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/rustright/crates/rustright-install/src/main.rs",
+          "line": 547,
+          "detail": "Native installer command router."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/updates",
+      "status": "NA",
+      "rationale": "No Tauri runtime update-policy consumer exists in RustRight.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/rustright/Cargo.toml",
+          "line": 1,
+          "detail": "No Tauri/JS runtime."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitLicense",
+      "status": "NA",
+      "rationale": "RustRight has macOS CLI/broker target but no Swift/iOS/macOS app target or Swift source.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/rustright/Cargo.toml",
+          "line": 1,
+          "detail": "Rust workspace; source census found zero tracked Swift files."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitDiagnostics",
+      "status": "NA",
+      "rationale": "No Swift diagnostic framework runtime exists in RustRight.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/rustright/Cargo.toml",
+          "line": 1,
+          "detail": "Rust workspace; zero Swift source."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitArtifacts",
+      "status": "NA",
+      "rationale": "No Swift artifact-store app target exists in RustRight.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/rustright/Cargo.toml",
+          "line": 1,
+          "detail": "Rust workspace; zero Swift source."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitPurchases",
+      "status": "NA",
+      "rationale": "No StoreKit/purchase runtime exists in RustRight.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/rustright/Cargo.toml",
+          "line": 1,
+          "detail": "Rust workspace; zero Swift source."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitCloudSync",
+      "status": "NA",
+      "rationale": "No Swift cloud-sync app target exists in RustRight.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/rustright/Cargo.toml",
+          "line": 1,
+          "detail": "Rust workspace; zero Swift source."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitStore",
+      "status": "NA",
+      "rationale": "No Swift persistence/store app target exists in RustRight.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/rustright/Cargo.toml",
+          "line": 1,
+          "detail": "Rust workspace; zero Swift source."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitImportQueue",
+      "status": "NA",
+      "rationale": "No Swift import-queue feature exists in RustRight.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/rustright/Cargo.toml",
+          "line": 1,
+          "detail": "Rust workspace; zero Swift source."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitLiveActivity",
+      "status": "NA",
+      "rationale": "No iOS Live Activity target exists in RustRight.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/rustright/Cargo.toml",
+          "line": 1,
+          "detail": "Rust workspace targets desktop/CLI only; zero Swift source."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitWatchBridge",
+      "status": "NA",
+      "rationale": "No Apple Watch target/bridge exists in RustRight.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/rustright/Cargo.toml",
+          "line": 1,
+          "detail": "Rust workspace targets desktop/CLI only; zero Swift source."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitSpeech",
+      "status": "NA",
+      "rationale": "No Swift speech runtime exists in RustRight.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/rustright/Cargo.toml",
+          "line": 1,
+          "detail": "Rust workspace; zero Swift source."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitIntents",
+      "status": "NA",
+      "rationale": "No App Intents target exists in RustRight.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/rustright/Cargo.toml",
+          "line": 1,
+          "detail": "Rust workspace targets desktop/CLI only; zero Swift source."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitAppleCredentials",
+      "status": "NA",
+      "rationale": "No Swift Apple-credential runtime exists in RustRight.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/rustright/Cargo.toml",
+          "line": 1,
+          "detail": "Rust workspace; zero Swift source."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitOverlay",
+      "status": "NA",
+      "rationale": "No Swift overlay/window target exists in RustRight.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/rustright/Cargo.toml",
+          "line": 1,
+          "detail": "Rust workspace; zero Swift source."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitWatch",
+      "status": "NA",
+      "rationale": "No Apple Watch filesystem bridge target exists in RustRight.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/rustright/Cargo.toml",
+          "line": 1,
+          "detail": "Rust workspace targets desktop/CLI only; zero Swift source."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitUI",
+      "status": "NA",
+      "rationale": "No SwiftUI/UIKit application target exists in RustRight.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/rustright/Cargo.toml",
+          "line": 1,
+          "detail": "Rust workspace targets desktop/CLI only; zero Swift source."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    }
+  ],
+  "searches": [
+    {
+      "pattern": "rightkit_(fs|process|ownership)|rightkit-(fs|process|ownership)",
+      "scope": "/Volumes/D/claude/rustright/Cargo.toml & production crates",
+      "result": "Only rightkit-fs, rightkit-process & rightkit-ownership are direct active RightKit crate routes."
+    },
+    {
+      "pattern": "rg --files tracked JS/TS/Swift/package manifests",
+      "scope": "/Volumes/D/claude/rustright",
+      "result": "187 Rust files; zero tracked JS, TS, Swift, package.json or Package.swift files."
+    },
+    {
+      "pattern": "ThinLogger|JobService|Scheduler|UnixListener|NamedPipe",
+      "scope": "production broker/service/scheduler crates",
+      "result": "Local NDJSON logging, job lifecycle, capacity admission & broker transport found; owner APIs compared before N classification."
+    }
+  ],
+  "self_review": "Challenged every non-NA row: RustRight wrappers around rightkit-fs/process/ownership are shared routes, so Y not M. ThinCache is sccache gateway orchestration, not rightkit-cache DiskCache. Broker protocol is not content contracts/framed-sidecar/scenario. Retained N only where owner API directly overlaps active local capability: JSONL logs, job runner contract, local service host transport & pre-spawn resource reservation. Downgraded sandbox/service confidence to medium because RustRight-specific protocol, workspace exclusion & capacity semantics require compatibility mapping."
+}

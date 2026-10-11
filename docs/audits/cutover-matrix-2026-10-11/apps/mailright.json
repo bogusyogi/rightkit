@@ -1,0 +1,2191 @@
+{
+  "app": "MailRight",
+  "root": "/Volumes/D/claude/mailright",
+  "head": "43882ebc1f52d460c91e3871550e40cd5928e808",
+  "reviewed_at": "2026-10-11T10:00:00+05:30",
+  "targets": [
+    "desktop",
+    "windows",
+    "macos-aarch64"
+  ],
+  "scope_note": "Fresh source-only audit of active MailRight Tauri desktop backend/frontend, native Windows/macOS host, scripts, release and QA callers. No Swift/iOS/watchOS targets; generated bundles, caches, node_modules, target and prior audits excluded. No builds or runtime execution performed.",
+  "cells": [
+    {
+      "component_id": "cargo:agent-room-core",
+      "status": "NA",
+      "rationale": "NA: No agent-room engine or protocol caller exists in MailRight.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/mailright/src-tauri/Cargo.toml",
+          "line": 50,
+          "detail": "Active Rust production manifest/source census was checked; no caller for this capability."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-agent-tools",
+      "status": "NA",
+      "rationale": "NA: No right-ctl/agent-tools command or engine caller exists.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/mailright/src-tauri/Cargo.toml",
+          "line": 50,
+          "detail": "Active Rust production manifest/source census was checked; no caller for this capability."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-align",
+      "status": "NA",
+      "rationale": "NA: No speech script alignment feature exists.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/mailright/src-tauri/Cargo.toml",
+          "line": 50,
+          "detail": "Active Rust production manifest/source census was checked; no caller for this capability."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-asr",
+      "status": "NA",
+      "rationale": "NA: No speech transcription runtime exists.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/mailright/src-tauri/Cargo.toml",
+          "line": 50,
+          "detail": "Active Rust production manifest/source census was checked; no caller for this capability."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-audio",
+      "status": "NA",
+      "rationale": "NA: No audio capture or processing feature exists.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/mailright/src-tauri/Cargo.toml",
+          "line": 50,
+          "detail": "Active Rust production manifest/source census was checked; no caller for this capability."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-automation",
+      "status": "NA",
+      "rationale": "NA: No desktop automation/accessibility driver is shipped; native QA uses Tauri WebDriver.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/mailright/src-tauri/Cargo.toml",
+          "line": 50,
+          "detail": "Active Rust production manifest/source census was checked; no caller for this capability."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-browser",
+      "status": "NA",
+      "rationale": "NA: Browser opening uses webbrowser; no CDP browser runtime is called.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/mailright/src-tauri/Cargo.toml",
+          "line": 50,
+          "detail": "Active Rust production manifest/source census was checked; no caller for this capability."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-cache",
+      "status": "Y",
+      "rationale": "Active cargo:rightkit-cache integration routes through RightKit in MailRight's Tauri desktop production path; app wrapper/policy remains app-owned.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/mailright/src-tauri/src/attach_cache.rs",
+          "line": 12,
+          "symbol": "DiskCache::open",
+          "detail": "Attachment bytes use RightKit byte-capped disk cache."
+        }
+      ],
+      "local_evidence": [],
+      "applicability_evidence": [],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-cache/src/lib.rs",
+          "line": 1,
+          "symbol": "public exports",
+          "detail": "Canonical shared API exports the capability."
+        }
+      ],
+      "delivery_flags": [
+        "Published package/crate is pinned in current manifest; verify version/API parity during next dependency update."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-channel-memory",
+      "status": "NA",
+      "rationale": "NA: Content-pipeline channel memory is absent.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/mailright/src-tauri/Cargo.toml",
+          "line": 50,
+          "detail": "Active Rust production manifest/source census was checked; no caller for this capability."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-compose",
+      "status": "NA",
+      "rationale": "NA: No media composition/export engine exists.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/mailright/src-tauri/Cargo.toml",
+          "line": 50,
+          "detail": "Active Rust production manifest/source census was checked; no caller for this capability."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-contracts",
+      "status": "NA",
+      "rationale": "NA: No content-pipeline contract caller exists.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/mailright/src-tauri/Cargo.toml",
+          "line": 50,
+          "detail": "Active Rust production manifest/source census was checked; no caller for this capability."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-control",
+      "status": "NA",
+      "rationale": "NA: No rightkit-control input/accessibility caller exists.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/mailright/src-tauri/Cargo.toml",
+          "line": 50,
+          "detail": "Active Rust production manifest/source census was checked; no caller for this capability."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-crash",
+      "status": "NA",
+      "rationale": "NA: No rightkit-crash support-bundle/panic route exists.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/mailright/src-tauri/Cargo.toml",
+          "line": 50,
+          "detail": "Active Rust production manifest/source census was checked; no caller for this capability."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-daemon",
+      "status": "NA",
+      "rationale": "NA: No resident HTTPS daemon/enrolment feature exists.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/mailright/src-tauri/Cargo.toml",
+          "line": 50,
+          "detail": "Active Rust production manifest/source census was checked; no caller for this capability."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-db",
+      "status": "Y",
+      "rationale": "Active cargo:rightkit-db integration routes through RightKit in MailRight's Tauri desktop production path; app wrapper/policy remains app-owned.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/mailright/src-tauri/src/db.rs",
+          "line": 28,
+          "symbol": "open_at",
+          "detail": "MailRight opens SQLCipher connections through rightkit_db::rusqlite."
+        }
+      ],
+      "local_evidence": [],
+      "applicability_evidence": [],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-db/src/lib.rs",
+          "line": 1,
+          "symbol": "public exports",
+          "detail": "Canonical shared API exports the capability."
+        }
+      ],
+      "delivery_flags": [
+        "Published package/crate is pinned in current manifest; verify version/API parity during next dependency update."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-embed",
+      "status": "Y",
+      "rationale": "Active cargo:rightkit-embed integration routes through RightKit in MailRight's Tauri desktop production path; app wrapper/policy remains app-owned.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/mailright/src-tauri/src/db/semantic/embedder.rs",
+          "line": 14,
+          "symbol": "Embedder",
+          "detail": "Semantic index calls shared ONNX embedder."
+        }
+      ],
+      "local_evidence": [],
+      "applicability_evidence": [],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-embed/src/lib.rs",
+          "line": 1,
+          "symbol": "public exports",
+          "detail": "Canonical shared API exports the capability."
+        }
+      ],
+      "delivery_flags": [
+        "Published package/crate is pinned in current manifest; verify version/API parity during next dependency update."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-framed-sidecar",
+      "status": "NA",
+      "rationale": "NA: No framed sidecar process is shipped.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/mailright/src-tauri/Cargo.toml",
+          "line": 50,
+          "detail": "Active Rust production manifest/source census was checked; no caller for this capability."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-fs",
+      "status": "Y",
+      "rationale": "Active cargo:rightkit-fs integration routes through RightKit in MailRight's Tauri desktop production path; app wrapper/policy remains app-owned.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/mailright/src-tauri/src/db.rs",
+          "line": 120,
+          "symbol": "rightkit_db::rusqlite::Connection::open",
+          "detail": "App DB open enters rightkit-db, whose exported DB path/recovery layer uses rightkit-fs."
+        }
+      ],
+      "local_evidence": [],
+      "applicability_evidence": [],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-fs/src/lib.rs",
+          "line": 45,
+          "symbol": "public exports",
+          "detail": "Canonical shared API exports the capability."
+        }
+      ],
+      "delivery_flags": [
+        "Published package/crate is pinned in current manifest; verify version/API parity during next dependency update."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-fsindex",
+      "status": "NA",
+      "rationale": "NA: No whole-disk file index exists.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/mailright/src-tauri/Cargo.toml",
+          "line": 50,
+          "detail": "Active Rust production manifest/source census was checked; no caller for this capability."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-hotkeys",
+      "status": "NA",
+      "rationale": "NA: Shortcuts are renderer-local; no global hotkey hook is registered.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/mailright/src-tauri/Cargo.toml",
+          "line": 50,
+          "detail": "Active Rust production manifest/source census was checked; no caller for this capability."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-http",
+      "status": "M",
+      "rationale": "M: OAuth refresh already executes through rightkit_http::Client, while Google API, profile, AI, remote-image & translation callers still execute direct reqwest clients; shared & local HTTP routes are both live.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/mailright/src-tauri/src/oauth.rs",
+          "line": 6,
+          "symbol": "Client::new",
+          "detail": "OAuth refresh path actively uses rightkit-http Client."
+        }
+      ],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/mailright/src-tauri/src/google.rs",
+          "line": 126,
+          "symbol": "Google::http",
+          "detail": "Google API path constructs reqwest::Client; same direct-client pattern remains in profile, AI, remote-image & translation callers."
+        }
+      ],
+      "applicability_evidence": [],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-http/src/lib.rs",
+          "line": 1,
+          "symbol": "Client",
+          "detail": "Shared timeout/retry/net-policy client."
+        }
+      ],
+      "delivery_flags": [
+        "Shared + local implementations are both active; current dependency/version facts do not change M."
+      ],
+      "remaining_work": "Route direct Google/profile/AI/remote-image/translation callers through rightkit-http async client; preserve MailRight auth refresh, Retry-After handling, redirects & image normalization, then remove direct reqwest construction.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-jobs",
+      "status": "NA",
+      "rationale": "NA: No RightKit engine job store/runner is used.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/mailright/src-tauri/Cargo.toml",
+          "line": 50,
+          "detail": "Active Rust production manifest/source census was checked; no caller for this capability."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-license",
+      "status": "Y",
+      "rationale": "Active cargo:rightkit-license integration routes through RightKit in MailRight's Tauri desktop production path; app wrapper/policy remains app-owned.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/mailright/src-tauri/src/commands/license.rs",
+          "line": 105,
+          "symbol": "pro_entitlement",
+          "detail": "Rust command boundary uses rightkit_tauri authorization and rightkit_license verification."
+        }
+      ],
+      "local_evidence": [],
+      "applicability_evidence": [],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-license/src/lib.rs",
+          "line": 1,
+          "symbol": "public exports",
+          "detail": "Canonical shared API exports the capability."
+        }
+      ],
+      "delivery_flags": [
+        "Published package/crate is pinned in current manifest; verify version/API parity during next dependency update."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-llm",
+      "status": "N",
+      "rationale": "N: MailRight's Pro AI action uses its own OpenAI-compatible request/response path, while rightkit-llm owns shared BYOK provider streaming.",
+      "shared_evidence": [],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/mailright/src-tauri/src/ai.rs",
+          "line": 48,
+          "symbol": "chat",
+          "detail": "Live AI command builds provider request/response locally; ai.rs:72 owns its reqwest client."
+        }
+      ],
+      "applicability_evidence": [],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-llm/src/lib.rs",
+          "line": 1,
+          "symbol": "LLM client exports",
+          "detail": "Shared BYOK provider/streaming client is the migration boundary."
+        }
+      ],
+      "delivery_flags": [
+        "No shared integration in current checkout; migration is a source cutover task."
+      ],
+      "remaining_work": "Route commands/pro.rs & ai.rs through rightkit-llm; preserve MailRight provider URL/model/key policy & action response schema, then remove local chat/request parsing.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-logs",
+      "status": "Y",
+      "rationale": "Active cargo:rightkit-logs integration routes through RightKit in MailRight's Tauri desktop production path; app wrapper/policy remains app-owned.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/mailright/src-tauri/src/logs.rs",
+          "line": 149,
+          "symbol": "rightkit_logs_write",
+          "detail": "Tauri diagnostics commands write through rightkit-logs."
+        }
+      ],
+      "local_evidence": [],
+      "applicability_evidence": [],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-logs/src/lib.rs",
+          "line": 1,
+          "symbol": "public exports",
+          "detail": "Canonical shared API exports the capability."
+        }
+      ],
+      "delivery_flags": [
+        "Published package/crate is pinned in current manifest; verify version/API parity during next dependency update."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-mcp",
+      "status": "N",
+      "rationale": "N: MailRight actively serves loopback MCP routes from its own axum task; rightkit-mcp supplies a shared MCP host/client boundary that is not called.",
+      "shared_evidence": [],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/mailright/src-tauri/src/mcp.rs",
+          "line": 187,
+          "symbol": "spawn",
+          "detail": "Live loopback server owns /tools, /search, /thread & /labels routes, token admission & transport."
+        }
+      ],
+      "applicability_evidence": [],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-mcp/src/lib.rs",
+          "line": 1,
+          "symbol": "MCP exports",
+          "detail": "Shared MCP client/server host is the candidate transport boundary."
+        }
+      ],
+      "delivery_flags": [
+        "No shared integration in current checkout; migration is a source cutover task."
+      ],
+      "remaining_work": "Adopt rightkit-mcp for loopback transport/auth & tool registration; preserve MailRight search/thread/label policy & schemas, then delete local axum routes.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-media",
+      "status": "NA",
+      "rationale": "NA: No FFmpeg/media pipeline exists.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/mailright/src-tauri/Cargo.toml",
+          "line": 50,
+          "detail": "Active Rust production manifest/source census was checked; no caller for this capability."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-models",
+      "status": "NA",
+      "rationale": "NA: MailRight provisions its EmbeddingGemma bundle during build & loads only the bundled resource at runtime; it never invokes rightkit-models manifest/download/activation APIs.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/mailright/scripts/fetch-embed-model.mjs",
+          "line": 1,
+          "symbol": "fetch-embed-model",
+          "detail": "Node build script stages pinned model into src-tauri/resources/embed_model; shipped bundle means end users never download."
+        },
+        {
+          "path": "/Volumes/D/claude/mailright/src-tauri/src/db/semantic/embedder.rs",
+          "line": 74,
+          "symbol": "FastEmbedder",
+          "detail": "Runtime loads bundled ONNX resources via rightkit-embed and hard-fails when missing; no installer/store route."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-oauth",
+      "status": "Y",
+      "rationale": "Active cargo:rightkit-oauth integration routes through RightKit in MailRight's Tauri desktop production path; app wrapper/policy remains app-owned.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/mailright/src-tauri/src/oauth.rs",
+          "line": 46,
+          "symbol": "google_client",
+          "detail": "Google PKCE and refresh use rightkit-oauth."
+        }
+      ],
+      "local_evidence": [],
+      "applicability_evidence": [],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-oauth/src/lib.rs",
+          "line": 1,
+          "symbol": "public exports",
+          "detail": "Canonical shared API exports the capability."
+        }
+      ],
+      "delivery_flags": [
+        "Published package/crate is pinned in current manifest; verify version/API parity during next dependency update."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-ocr",
+      "status": "NA",
+      "rationale": "NA: No OCR feature exists.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/mailright/src-tauri/Cargo.toml",
+          "line": 50,
+          "detail": "Active Rust production manifest/source census was checked; no caller for this capability."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-ort",
+      "status": "Y",
+      "rationale": "Active cargo:rightkit-ort integration routes through RightKit in MailRight's Tauri desktop production path; app wrapper/policy remains app-owned.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/mailright/src-tauri/src/db/semantic/embedder.rs",
+          "line": 74,
+          "symbol": "Embedder::new",
+          "detail": "Shared rightkit-embed runtime loads ONNX through its rightkit-ort backend."
+        }
+      ],
+      "local_evidence": [],
+      "applicability_evidence": [],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-ort/src/lib.rs",
+          "line": 1,
+          "symbol": "public exports",
+          "detail": "Canonical shared API exports the capability."
+        }
+      ],
+      "delivery_flags": [
+        "Published package/crate is pinned in current manifest; verify version/API parity during next dependency update."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-overlay",
+      "status": "NA",
+      "rationale": "NA: No shared overlay placement surface exists.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/mailright/src-tauri/Cargo.toml",
+          "line": 50,
+          "detail": "Active Rust production manifest/source census was checked; no caller for this capability."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-ownership",
+      "status": "NA",
+      "rationale": "NA: No ownership broker/scanner caller exists.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/mailright/src-tauri/Cargo.toml",
+          "line": 50,
+          "detail": "Active Rust production manifest/source census was checked; no caller for this capability."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-pdf",
+      "status": "NA",
+      "rationale": "NA: MailRight only previews attachments; no PDF editing/composition engine exists.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/mailright/src-tauri/Cargo.toml",
+          "line": 50,
+          "detail": "Active Rust production manifest/source census was checked; no caller for this capability."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-playback",
+      "status": "NA",
+      "rationale": "NA: No FFmpeg playback preparation exists.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/mailright/src-tauri/Cargo.toml",
+          "line": 50,
+          "detail": "Active Rust production manifest/source census was checked; no caller for this capability."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-process",
+      "status": "NA",
+      "rationale": "NA: No rightkit-process lifecycle API is called.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/mailright/src-tauri/Cargo.toml",
+          "line": 50,
+          "detail": "Active Rust production manifest/source census was checked; no caller for this capability."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-qa",
+      "status": "N",
+      "rationale": "N: MailRight runs app-specific frontend/native checks with its own Vite launcher & Tauri WebDriver feature; rightkit-qa is not invoked.",
+      "shared_evidence": [],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/mailright/package.json",
+          "line": 24,
+          "symbol": "test:frontend",
+          "detail": "Live package test script selects MailRight frontend checks; Cargo feature at src-tauri/Cargo.toml:22 adds Tauri WebDriver."
+        }
+      ],
+      "applicability_evidence": [],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-qa/src/lib.rs",
+          "line": 1,
+          "symbol": "QA exports",
+          "detail": "Shared QA harness/evidence API is the candidate boundary."
+        }
+      ],
+      "delivery_flags": [
+        "No shared integration in current checkout; migration is a source cutover task."
+      ],
+      "remaining_work": "Wire MailRight frontend/native suites into rightkit-qa harness, preserving hidden QA data-dir isolation & Tauri WebDriver routes, then remove duplicate launcher/evidence helpers.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-qts",
+      "status": "NA",
+      "rationale": "NA: No Qwen TTS runtime exists.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/mailright/src-tauri/Cargo.toml",
+          "line": 50,
+          "detail": "Active Rust production manifest/source census was checked; no caller for this capability."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-qts-ggml",
+      "status": "NA",
+      "rationale": "NA: No Qwen TTS runtime exists.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/mailright/src-tauri/Cargo.toml",
+          "line": 50,
+          "detail": "Active Rust production manifest/source census was checked; no caller for this capability."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-qts-ggml-sys",
+      "status": "NA",
+      "rationale": "NA: No Qwen TTS runtime exists.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/mailright/src-tauri/Cargo.toml",
+          "line": 50,
+          "detail": "Active Rust production manifest/source census was checked; no caller for this capability."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-record",
+      "status": "NA",
+      "rationale": "NA: No screen/audio recorder exists.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/mailright/src-tauri/Cargo.toml",
+          "line": 50,
+          "detail": "Active Rust production manifest/source census was checked; no caller for this capability."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-review",
+      "status": "NA",
+      "rationale": "NA: No content review pipeline exists.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/mailright/src-tauri/Cargo.toml",
+          "line": 50,
+          "detail": "Active Rust production manifest/source census was checked; no caller for this capability."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-sandbox",
+      "status": "NA",
+      "rationale": "NA: No rightkit-sandbox PTY/process-tree caller exists.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/mailright/src-tauri/Cargo.toml",
+          "line": 50,
+          "detail": "Active Rust production manifest/source census was checked; no caller for this capability."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-scenario",
+      "status": "NA",
+      "rationale": "NA: No scenario runtime exists.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/mailright/src-tauri/Cargo.toml",
+          "line": 50,
+          "detail": "Active Rust production manifest/source census was checked; no caller for this capability."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-search",
+      "status": "N",
+      "rationale": "N: MailRight search is Gmail-specific SQL/FTS with its own query fields, predicates & snippets; rightkit-search's generic query/FTS compiler is unused.",
+      "shared_evidence": [],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/mailright/src-tauri/src/db/search.rs",
+          "line": 76,
+          "symbol": "search_threads",
+          "detail": "Live caller parses Gmail fields, applies SQL/FTS predicates & formats thread snippets locally."
+        }
+      ],
+      "applicability_evidence": [],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-search/src/lib.rs",
+          "line": 1,
+          "symbol": "query exports",
+          "detail": "Shared query language/FTS compiler is the candidate parsing boundary."
+        }
+      ],
+      "delivery_flags": [
+        "No shared integration in current checkout; migration is a source cutover task."
+      ],
+      "remaining_work": "Use rightkit-search lexer/AST/predicate compiler behind MailRight Gmail field mapping; preserve SQL schema, labels & snippet policy, then remove duplicate parser/predicate code.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-secrets",
+      "status": "Y",
+      "rationale": "Active cargo:rightkit-secrets integration routes through RightKit in MailRight's Tauri desktop production path; app wrapper/policy remains app-owned.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/mailright/src-tauri/src/credential_store.rs",
+          "line": 11,
+          "symbol": "Store",
+          "detail": "DB key and OAuth credentials use rightkit-secrets OS store."
+        }
+      ],
+      "local_evidence": [],
+      "applicability_evidence": [],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-secrets/src/lib.rs",
+          "line": 1,
+          "symbol": "public exports",
+          "detail": "Canonical shared API exports the capability."
+        }
+      ],
+      "delivery_flags": [
+        "Published package/crate is pinned in current manifest; verify version/API parity during next dependency update."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-send",
+      "status": "NA",
+      "rationale": "NA: No nearby sharing feature exists.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/mailright/src-tauri/Cargo.toml",
+          "line": 50,
+          "detail": "Active Rust production manifest/source census was checked; no caller for this capability."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-service",
+      "status": "NA",
+      "rationale": "NA: No RightKit local service discovery endpoint exists.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/mailright/src-tauri/Cargo.toml",
+          "line": 50,
+          "detail": "Active Rust production manifest/source census was checked; no caller for this capability."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-settings",
+      "status": "N",
+      "rationale": "N: MailRight persists account, Gmail, AI & legal settings through its SQLCipher table/repository; rightkit-settings versioned persistence/events are not on this route.",
+      "shared_evidence": [],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/mailright/src-tauri/src/runtime/repos/sqlite/auxiliary.rs",
+          "line": 4,
+          "symbol": "setting_get",
+          "detail": "Live read path resolves MailRight settings from its SQLCipher repository; setting_set is at line 13."
+        }
+      ],
+      "applicability_evidence": [],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-settings/src/lib.rs",
+          "line": 1,
+          "symbol": "settings exports",
+          "detail": "Shared versioned settings persistence is the candidate storage/event boundary."
+        }
+      ],
+      "delivery_flags": [
+        "No shared integration in current checkout; migration is a source cutover task."
+      ],
+      "remaining_work": "Adopt rightkit-settings migration/default/change-event core behind MailRight SQLCipher adapter; preserve account/key/legal namespaces & encryption policy, then remove duplicate persistence.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-shell",
+      "status": "Y",
+      "rationale": "Active cargo:rightkit-shell integration routes through RightKit in MailRight's Tauri desktop production path; app wrapper/policy remains app-owned.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/mailright/src-tauri/src/tauri_run.rs",
+          "line": 17,
+          "symbol": "rightkit_shell::instance::arbitrate",
+          "detail": "Native host uses shared shell instance/open-url services."
+        }
+      ],
+      "local_evidence": [],
+      "applicability_evidence": [],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-shell/src/lib.rs",
+          "line": 1,
+          "symbol": "public exports",
+          "detail": "Canonical shared API exports the capability."
+        }
+      ],
+      "delivery_flags": [
+        "Published package/crate is pinned in current manifest; verify version/API parity during next dependency update."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-speech-client",
+      "status": "NA",
+      "rationale": "NA: No shared speech service client exists.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/mailright/src-tauri/Cargo.toml",
+          "line": 50,
+          "detail": "Active Rust production manifest/source census was checked; no caller for this capability."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-sync",
+      "status": "NA",
+      "rationale": "NA correction: MailRight syncs Gmail provider history IDs into one local DB & drains a local send outbox; it has no cross-device record backend, change-token ledger, tombstone or conflict route for rightkit-sync.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/mailright/src-tauri/src/sync.rs",
+          "line": 5,
+          "symbol": "background sync scheduler",
+          "detail": "Live scheduler polls connected Gmail accounts, claims per-account leases & applies provider fetches locally."
+        },
+        {
+          "path": "/Volumes/D/claude/mailright/src-tauri/src/gmail/history.rs",
+          "line": 55,
+          "symbol": "sync_delta",
+          "detail": "Gmail historyId delta API supplies provider changes; stale cursors fall back to full sync."
+        },
+        {
+          "path": "/Volumes/D/claude/mailright/src-tauri/src/sync/outbox.rs",
+          "line": 3,
+          "symbol": "OutboxFilter",
+          "detail": "Outbox is Gmail send scheduling/retry/quit-drain state, not cross-device record sync."
+        },
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-sync/src/lib.rs",
+          "line": 1,
+          "symbol": "sync exports",
+          "detail": "Shared engine is brand-neutral record sync; engine exposes change tokens, tombstones & conflict handling."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-tauri",
+      "status": "Y",
+      "rationale": "Active cargo:rightkit-tauri integration routes through RightKit in MailRight's Tauri desktop production path; app wrapper/policy remains app-owned.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/mailright/src-tauri/src/commands/license.rs",
+          "line": 105,
+          "symbol": "AuthorizationService",
+          "detail": "Native license/device adapters use rightkit-tauri."
+        }
+      ],
+      "local_evidence": [],
+      "applicability_evidence": [],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-tauri/src/lib.rs",
+          "line": 1,
+          "symbol": "public exports",
+          "detail": "Canonical shared API exports the capability."
+        }
+      ],
+      "delivery_flags": [
+        "Published package/crate is pinned in current manifest; verify version/API parity during next dependency update."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-transcript",
+      "status": "NA",
+      "rationale": "NA: No timed transcript import/export exists.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/mailright/src-tauri/Cargo.toml",
+          "line": 50,
+          "detail": "Active Rust production manifest/source census was checked; no caller for this capability."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-tts",
+      "status": "NA",
+      "rationale": "NA: No text-to-speech feature exists.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/mailright/src-tauri/Cargo.toml",
+          "line": 50,
+          "detail": "Active Rust production manifest/source census was checked; no caller for this capability."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-vad",
+      "status": "NA",
+      "rationale": "NA: No voice activity detector exists.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/mailright/src-tauri/Cargo.toml",
+          "line": 50,
+          "detail": "Active Rust production manifest/source census was checked; no caller for this capability."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-watch",
+      "status": "NA",
+      "rationale": "NA: No filesystem watcher exists.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/mailright/src-tauri/Cargo.toml",
+          "line": 50,
+          "detail": "Active Rust production manifest/source census was checked; no caller for this capability."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/agent-room-mcp",
+      "status": "NA",
+      "rationale": "NA: No agent-room MCP integration exists.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/mailright/package.json",
+          "line": 66,
+          "detail": "Published runtime dependencies and scripts were checked; no active caller for this package."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/app-shell",
+      "status": "N",
+      "rationale": "N: MailRight App.tsx owns React frame/layout & TitleBar owns the desktop shell slots; @rightkit/app-shell frame/commands/shortcuts exports are unused.",
+      "shared_evidence": [],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/mailright/src/App.tsx",
+          "line": 32,
+          "symbol": "App",
+          "detail": "Live React shell composes MailRight navigation/content slots locally."
+        },
+        {
+          "path": "/Volumes/D/claude/mailright/src/components/TitleBar.tsx",
+          "line": 29,
+          "symbol": "TitleBar",
+          "detail": "Live titlebar is part of app frame & owns window controls."
+        }
+      ],
+      "applicability_evidence": [],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/packages/app-shell/src/index.ts",
+          "line": 1,
+          "symbol": "exports",
+          "detail": "Shared React frame/commands/shortcuts API is the candidate shell boundary."
+        }
+      ],
+      "delivery_flags": [
+        "No shared integration in current checkout; migration is a source cutover task."
+      ],
+      "remaining_work": "Migrate frame/navigation/shortcut/toast primitives to app-shell; preserve MailRight app switcher, menu & TitleBar slots, then remove duplicate generic frame code.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/ax",
+      "status": "NA",
+      "rationale": "NA: No AX plugin/conformance surface is maintained.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/mailright/package.json",
+          "line": 66,
+          "detail": "Published runtime dependencies and scripts were checked; no active caller for this package."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/build-control-policy",
+      "status": "NA",
+      "rationale": "NA: Private build-control policy is internal and not app runtime.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/mailright/package.json",
+          "line": 66,
+          "detail": "Published runtime dependencies and scripts were checked; no active caller for this package."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/doc-render",
+      "status": "N",
+      "rationale": "N: EmailFrame actively sanitizes untrusted Gmail HTML, applies CSP iframe rules & implements find; doc-render HtmlRenderer/sanitizeHtml is not called.",
+      "shared_evidence": [],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/mailright/src/components/EmailFrame.tsx",
+          "line": 33,
+          "symbol": "prepareBody",
+          "detail": "Live email renderer owns sanitization, iframe/CSP & find integration for Gmail content."
+        }
+      ],
+      "applicability_evidence": [],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/packages/doc-render/src/index.ts",
+          "line": 1,
+          "symbol": "HtmlRenderer",
+          "detail": "Shared sanitized document renderer is the candidate render boundary."
+        },
+        {
+          "path": "/Volumes/D/claude/rightkit/packages/doc-render/src/index.ts",
+          "line": 4,
+          "symbol": "sanitizeHtml",
+          "detail": "Shared sanitizer export is the candidate content boundary."
+        }
+      ],
+      "delivery_flags": [
+        "No shared integration in current checkout; migration is a source cutover task."
+      ],
+      "remaining_work": "Use HtmlRenderer/sanitizeHtml for untrusted email content; preserve MailRight image trust/data-URL policy & same-origin iframe find adapters, then remove duplicate renderer.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/git",
+      "status": "NA",
+      "rationale": "NA: No shared GitHub workflow tooling is called by production app.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/mailright/package.json",
+          "line": 66,
+          "detail": "Published runtime dependencies and scripts were checked; no active caller for this package."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/hooks",
+      "status": "NA",
+      "rationale": "NA: No shared lifecycle hook runtime is called.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/mailright/package.json",
+          "line": 66,
+          "detail": "Published runtime dependencies and scripts were checked; no active caller for this package."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/i18n",
+      "status": "NA",
+      "rationale": "NA: UI has no locale catalog/provider; strings remain app-owned English.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/mailright/package.json",
+          "line": 66,
+          "detail": "Published runtime dependencies and scripts were checked; no active caller for this package."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/legal",
+      "status": "Y",
+      "rationale": "Active npm:@rightkit/legal integration routes through RightKit in MailRight's Tauri desktop production path; app wrapper/policy remains app-owned.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/mailright/scripts/test-legal-acceptance-contract.mjs",
+          "line": 5,
+          "symbol": "assertLegalManifest",
+          "detail": "Release acceptance validates manifest with shared legal schema."
+        }
+      ],
+      "local_evidence": [],
+      "applicability_evidence": [],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/packages/legal/src/index.ts",
+          "line": 1,
+          "symbol": "public exports",
+          "detail": "Canonical shared API exports the capability."
+        }
+      ],
+      "delivery_flags": [
+        "Published package/crate is pinned in current manifest; verify version/API parity during next dependency update."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/legal-ui",
+      "status": "N",
+      "rationale": "N: MailRight LegalGate/LegalAcceptance owns acceptance screen UX while shared legal-ui is not rendered; legal receipt/schema policy stays app-owned.",
+      "shared_evidence": [],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/mailright/src/components/LegalGate.tsx",
+          "line": 15,
+          "symbol": "LegalGate",
+          "detail": "Live gate fetches receipt & renders MailRight LegalAcceptance screen."
+        },
+        {
+          "path": "/Volumes/D/claude/mailright/src/components/LegalAcceptance.tsx",
+          "line": 1,
+          "symbol": "LegalAcceptance",
+          "detail": "Live acceptance form owns MailRight legal presentation & callback."
+        }
+      ],
+      "applicability_evidence": [],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/packages/legal-ui/src/index.ts",
+          "line": 1,
+          "symbol": "exports",
+          "detail": "Shared legal gate screen is the candidate presentation boundary."
+        }
+      ],
+      "delivery_flags": [
+        "No shared integration in current checkout; migration is a source cutover task."
+      ],
+      "remaining_work": "Migrate gate/acceptance visuals to legal-ui; preserve @rightkit/legal manifest hash, receipt validation & Tauri IPC policy, then remove duplicate gate UI.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/license",
+      "status": "Y",
+      "rationale": "Active npm:@rightkit/license integration routes through RightKit in MailRight's Tauri desktop production path; app wrapper/policy remains app-owned.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/mailright/src/lib/license.ts",
+          "line": 29,
+          "symbol": "createLicenseClient",
+          "detail": "Renderer license lifecycle uses shared license client."
+        }
+      ],
+      "local_evidence": [],
+      "applicability_evidence": [],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/packages/license/src/index.ts",
+          "line": 1,
+          "symbol": "public exports",
+          "detail": "Canonical shared API exports the capability."
+        }
+      ],
+      "delivery_flags": [
+        "Published package/crate is pinned in current manifest; verify version/API parity during next dependency update."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/logs",
+      "status": "Y",
+      "rationale": "Active npm:@rightkit/logs integration routes through RightKit in MailRight's Tauri desktop production path; app wrapper/policy remains app-owned.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/mailright/src/lib/telemetry.ts",
+          "line": 22,
+          "symbol": "createLogsClient",
+          "detail": "Renderer telemetry uses shared local logs client."
+        }
+      ],
+      "local_evidence": [],
+      "applicability_evidence": [],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/packages/logs/src/index.ts",
+          "line": 1,
+          "symbol": "public exports",
+          "detail": "Canonical shared API exports the capability."
+        }
+      ],
+      "delivery_flags": [
+        "Published package/crate is pinned in current manifest; verify version/API parity during next dependency update."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/media-ui",
+      "status": "N",
+      "rationale": "N: MailRight attachment preview modal renders live image/attachment previews; shared media-ui image viewer/player is not called.",
+      "shared_evidence": [],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/mailright/src/components/AttachmentPreviewModal.tsx",
+          "line": 246,
+          "symbol": "AttachmentPreviewModal",
+          "detail": "Live attachment viewer owns preview modal, image sizing & Gmail attachment state."
+        }
+      ],
+      "applicability_evidence": [],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/packages/media-ui/src/index.ts",
+          "line": 1,
+          "symbol": "MediaPlayer/ImageViewer",
+          "detail": "Shared media/image surface is the candidate viewer boundary."
+        }
+      ],
+      "delivery_flags": [
+        "No shared integration in current checkout; migration is a source cutover task."
+      ],
+      "remaining_work": "Adopt shared image/attachment viewer surface; preserve Gmail attachment trust, size/type limits & download policy, then remove duplicate image viewer UI.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/onboarding",
+      "status": "NA",
+      "rationale": "NA correction: MailRight has one legal acceptance gate, not ordered onboarding state with model/download/permission steps; no onboarding feature overlaps shared Onboarding.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/mailright/src/components/LegalGate.tsx",
+          "line": 15,
+          "symbol": "LegalGate",
+          "detail": "Only legal receipt check/acceptance gate is active before App; no ordered onboarding state machine."
+        },
+        {
+          "path": "/Volumes/D/claude/mailright/package.json",
+          "line": 66,
+          "symbol": "dependencies",
+          "detail": "@rightkit/onboarding is absent from runtime dependencies."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/pdf-ui",
+      "status": "N",
+      "rationale": "N: AttachmentPdfPreview is a live pdfjs-dist reader with MailRight attachment/password/limit behavior; shared PdfViewer is not called.",
+      "shared_evidence": [],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/mailright/src/components/AttachmentPdfPreview.tsx",
+          "line": 15,
+          "symbol": "loadPdfJs",
+          "detail": "Live attachment reader loads local pdfjs-dist & owns PDF preview behavior."
+        }
+      ],
+      "applicability_evidence": [],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/packages/pdf-ui/src/index.ts",
+          "line": 1,
+          "symbol": "PdfViewer",
+          "detail": "Shared PDF reader surface is the candidate frontend viewer boundary."
+        }
+      ],
+      "delivery_flags": [
+        "No shared integration in current checkout; migration is a source cutover task."
+      ],
+      "remaining_work": "Adopt PdfViewer worker/password/limit configuration; preserve attachment bytes, password UX & 30-page cap, then remove local pdfjs rendering.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/platform-ui",
+      "status": "N",
+      "rationale": "N: MailRight shortcut registry & custom TitleBar own Gmail actions/window affordances; shared platform/shortcut primitives are unused.",
+      "shared_evidence": [],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/mailright/src/lib/shortcuts.ts",
+          "line": 1,
+          "symbol": "shortcut registry",
+          "detail": "Live keyboard registry maps Gmail actions & focus guards locally."
+        },
+        {
+          "path": "/Volumes/D/claude/mailright/src/components/TitleBar.tsx",
+          "line": 49,
+          "symbol": "minimizeWindow",
+          "detail": "Live TitleBar calls direct Tauri window APIs for minimize/maximize/close."
+        }
+      ],
+      "applicability_evidence": [],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/packages/platform-ui/src/index.ts",
+          "line": 1,
+          "symbol": "resolveQaPlatform",
+          "detail": "Shared platform/shortcut/window primitives are the candidate boundary."
+        }
+      ],
+      "delivery_flags": [
+        "No shared integration in current checkout; migration is a source cutover task."
+      ],
+      "remaining_work": "Map shared platform/shortcut primitives around MailRight Gmail action registry; preserve focus guards & Tauri/mac traffic-light behavior, then remove duplicate generic platform code.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/qa",
+      "status": "N",
+      "rationale": "N: MailRight QA launcher starts Vite & native smoke/WebDriver coverage from app scripts; shared @rightkit/qa evidence/browser helpers are not invoked.",
+      "shared_evidence": [],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/mailright/scripts/qa-browser.mjs",
+          "line": 50,
+          "symbol": "startVite",
+          "detail": "Live QA launcher owns Vite startup, hidden data-dir & browser/native smoke orchestration."
+        }
+      ],
+      "applicability_evidence": [],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/packages/qa/src/index.ts",
+          "line": 1,
+          "symbol": "exports",
+          "detail": "Shared QA evidence/browser helpers are the candidate harness boundary."
+        }
+      ],
+      "delivery_flags": [
+        "No shared integration in current checkout; migration is a source cutover task."
+      ],
+      "remaining_work": "Use shared QA loopback/evidence/guards from MailRight scripts; preserve hidden data-dir & Tauri WebDriver setup, then remove duplicate launcher/evidence helpers.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/qa-chrome",
+      "status": "NA",
+      "rationale": "NA: QA starts Vite and Tauri WebDriver; it does not launch Chrome for Testing.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/mailright/package.json",
+          "line": 66,
+          "detail": "Published runtime dependencies and scripts were checked; no active caller for this package."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/release",
+      "status": "Y",
+      "rationale": "Active npm:@rightkit/release integration routes through RightKit in MailRight's Tauri desktop production path; app wrapper/policy remains app-owned.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/mailright/package.json",
+          "line": 35,
+          "symbol": "right-release scripts",
+          "detail": "Build/release scripts route through published right-release."
+        }
+      ],
+      "local_evidence": [],
+      "applicability_evidence": [],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/packages/release/cli/right-release.mjs",
+          "line": 1,
+          "symbol": "public exports",
+          "detail": "Canonical shared API exports the capability."
+        }
+      ],
+      "delivery_flags": [
+        "devDependency pinned to 0.2.135; release scripts/config are active callers."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/settings-ui",
+      "status": "N",
+      "rationale": "N: SettingsView owns MailRight settings frame/sections; shared SettingsPanel is not rendered, while Gmail/account policy remains app-specific.",
+      "shared_evidence": [],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/mailright/src/views/SettingsView.tsx",
+          "line": 23,
+          "symbol": "SettingsView",
+          "detail": "Live settings view composes MailRight sections & IPC locally."
+        }
+      ],
+      "applicability_evidence": [],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/packages/settings-ui/src/index.ts",
+          "line": 1,
+          "symbol": "SettingsPanel",
+          "detail": "Shared settings frame/sections are the candidate generic UI boundary."
+        }
+      ],
+      "delivery_flags": [
+        "No shared integration in current checkout; migration is a source cutover task."
+      ],
+      "remaining_work": "Adopt SettingsPanel for generic appearance/updates/license/legal/diagnostics; keep MailRight Gmail/account/compose sections & IPC, then remove duplicate generic frame.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/shell",
+      "status": "N",
+      "rationale": "N: MailRight renderer calls direct Tauri window APIs & local tray/autostart IPC; @rightkit/shell createShell typed window/tray/deep-link/autostart bridge is unused.",
+      "shared_evidence": [],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/mailright/src/components/TitleBar.tsx",
+          "line": 1,
+          "symbol": "getCurrentWindow",
+          "detail": "Live renderer imports direct @tauri-apps/api/window for minimize/maximize/close."
+        },
+        {
+          "path": "/Volumes/D/claude/mailright/src/lib/ipc/mail.ts",
+          "line": 238,
+          "symbol": "Desktop shell",
+          "detail": "Live local IPC owns tray notifications & autostart commands."
+        }
+      ],
+      "applicability_evidence": [],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/packages/shell/src/index.ts",
+          "line": 228,
+          "symbol": "createShell",
+          "detail": "Shared typed shell bridge exposes window/tray/deepLinks/autostart APIs."
+        }
+      ],
+      "delivery_flags": [],
+      "remaining_work": "Migrate TitleBar & local shell IPC to createShell; map noteWindowHiddenForIdle behavior, preserve MailRight custom titlebar/mac traffic-light policy, then remove direct window/tray/autostart wrappers.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/tauri",
+      "status": "Y",
+      "rationale": "Active npm:@rightkit/tauri integration routes through RightKit in MailRight's Tauri desktop production path; app wrapper/policy remains app-owned.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/mailright/src/lib/ipc/secure.ts",
+          "line": 1,
+          "symbol": "createMailRightTauriClient",
+          "detail": "Renderer native adapter uses shared Tauri client."
+        }
+      ],
+      "local_evidence": [],
+      "applicability_evidence": [],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/packages/tauri/src/index.ts",
+          "line": 1,
+          "symbol": "public exports",
+          "detail": "Canonical shared API exports the capability."
+        }
+      ],
+      "delivery_flags": [
+        "Published package/crate is pinned in current manifest; verify version/API parity during next dependency update."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/theme",
+      "status": "N",
+      "rationale": "N: MailRight theme.ts owns active theme tokens/runtime; shared @rightkit/theme token runtime is not called.",
+      "shared_evidence": [],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/mailright/src/lib/theme.ts",
+          "line": 1,
+          "symbol": "THEMES",
+          "detail": "Live theme presets/tokens & application are app-owned."
+        }
+      ],
+      "applicability_evidence": [],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/packages/theme/src/index.ts",
+          "line": 1,
+          "symbol": "exports",
+          "detail": "Shared brand/theme token runtime/checkers are the candidate boundary."
+        }
+      ],
+      "delivery_flags": [
+        "No shared integration in current checkout; migration is a source cutover task."
+      ],
+      "remaining_work": "Feed MailRight brand presets into shared theme runtime/checkers; preserve exact tokens & contrast behavior, then remove local generic token application.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/update",
+      "status": "NA",
+      "rationale": "NA: Dependency updater is not part of app runtime; deps scripts call right-release.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/mailright/package.json",
+          "line": 66,
+          "detail": "Published runtime dependencies and scripts were checked; no active caller for this package."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/updates",
+      "status": "Y",
+      "rationale": "Active npm:@rightkit/updates integration routes through RightKit in MailRight's Tauri desktop production path; app wrapper/policy remains app-owned.",
+      "shared_evidence": [
+        {
+          "path": "/Volumes/D/claude/mailright/src/lib/license.ts",
+          "line": 36,
+          "symbol": "UpdateTier",
+          "detail": "Updater authorization types/helpers come from shared updates."
+        }
+      ],
+      "local_evidence": [],
+      "applicability_evidence": [],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/packages/updates/src/index.ts",
+          "line": 1,
+          "symbol": "public exports",
+          "detail": "Canonical shared API exports the capability."
+        }
+      ],
+      "delivery_flags": [
+        "Published package/crate is pinned in current manifest; verify version/API parity during next dependency update."
+      ],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitLicense",
+      "status": "NA",
+      "rationale": "NA: MailRight has no Swift, Xcode or iOS/watchOS target; Cargo manifest declares Windows and Apple Silicon macOS desktop only.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/mailright/src-tauri/Cargo.toml",
+          "line": 6,
+          "detail": "Supported build targets are Windows + macOS Apple Silicon; source census found no Swift/Xcode files."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitDiagnostics",
+      "status": "NA",
+      "rationale": "NA: MailRight has no Swift, Xcode or iOS/watchOS target; Cargo manifest declares Windows and Apple Silicon macOS desktop only.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/mailright/src-tauri/Cargo.toml",
+          "line": 6,
+          "detail": "Supported build targets are Windows + macOS Apple Silicon; source census found no Swift/Xcode files."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitArtifacts",
+      "status": "NA",
+      "rationale": "NA: MailRight has no Swift, Xcode or iOS/watchOS target; Cargo manifest declares Windows and Apple Silicon macOS desktop only.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/mailright/src-tauri/Cargo.toml",
+          "line": 6,
+          "detail": "Supported build targets are Windows + macOS Apple Silicon; source census found no Swift/Xcode files."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitPurchases",
+      "status": "NA",
+      "rationale": "NA: MailRight has no Swift, Xcode or iOS/watchOS target; Cargo manifest declares Windows and Apple Silicon macOS desktop only.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/mailright/src-tauri/Cargo.toml",
+          "line": 6,
+          "detail": "Supported build targets are Windows + macOS Apple Silicon; source census found no Swift/Xcode files."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitCloudSync",
+      "status": "NA",
+      "rationale": "NA: MailRight has no Swift, Xcode or iOS/watchOS target; Cargo manifest declares Windows and Apple Silicon macOS desktop only.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/mailright/src-tauri/Cargo.toml",
+          "line": 6,
+          "detail": "Supported build targets are Windows + macOS Apple Silicon; source census found no Swift/Xcode files."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitStore",
+      "status": "NA",
+      "rationale": "NA: MailRight has no Swift, Xcode or iOS/watchOS target; Cargo manifest declares Windows and Apple Silicon macOS desktop only.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/mailright/src-tauri/Cargo.toml",
+          "line": 6,
+          "detail": "Supported build targets are Windows + macOS Apple Silicon; source census found no Swift/Xcode files."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitImportQueue",
+      "status": "NA",
+      "rationale": "NA: MailRight has no Swift, Xcode or iOS/watchOS target; Cargo manifest declares Windows and Apple Silicon macOS desktop only.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/mailright/src-tauri/Cargo.toml",
+          "line": 6,
+          "detail": "Supported build targets are Windows + macOS Apple Silicon; source census found no Swift/Xcode files."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitLiveActivity",
+      "status": "NA",
+      "rationale": "NA: MailRight has no Swift, Xcode or iOS/watchOS target; Cargo manifest declares Windows and Apple Silicon macOS desktop only.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/mailright/src-tauri/Cargo.toml",
+          "line": 6,
+          "detail": "Supported build targets are Windows + macOS Apple Silicon; source census found no Swift/Xcode files."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitWatchBridge",
+      "status": "NA",
+      "rationale": "NA: MailRight has no Swift, Xcode or iOS/watchOS target; Cargo manifest declares Windows and Apple Silicon macOS desktop only.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/mailright/src-tauri/Cargo.toml",
+          "line": 6,
+          "detail": "Supported build targets are Windows + macOS Apple Silicon; source census found no Swift/Xcode files."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitSpeech",
+      "status": "NA",
+      "rationale": "NA: MailRight has no Swift, Xcode or iOS/watchOS target; Cargo manifest declares Windows and Apple Silicon macOS desktop only.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/mailright/src-tauri/Cargo.toml",
+          "line": 6,
+          "detail": "Supported build targets are Windows + macOS Apple Silicon; source census found no Swift/Xcode files."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitIntents",
+      "status": "NA",
+      "rationale": "NA: MailRight has no Swift, Xcode or iOS/watchOS target; Cargo manifest declares Windows and Apple Silicon macOS desktop only.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/mailright/src-tauri/Cargo.toml",
+          "line": 6,
+          "detail": "Supported build targets are Windows + macOS Apple Silicon; source census found no Swift/Xcode files."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitAppleCredentials",
+      "status": "NA",
+      "rationale": "NA: MailRight has no Swift, Xcode or iOS/watchOS target; Cargo manifest declares Windows and Apple Silicon macOS desktop only.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/mailright/src-tauri/Cargo.toml",
+          "line": 6,
+          "detail": "Supported build targets are Windows + macOS Apple Silicon; source census found no Swift/Xcode files."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitOverlay",
+      "status": "NA",
+      "rationale": "NA: MailRight has no Swift, Xcode or iOS/watchOS target; Cargo manifest declares Windows and Apple Silicon macOS desktop only.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/mailright/src-tauri/Cargo.toml",
+          "line": 6,
+          "detail": "Supported build targets are Windows + macOS Apple Silicon; source census found no Swift/Xcode files."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitWatch",
+      "status": "NA",
+      "rationale": "NA: MailRight has no Swift, Xcode or iOS/watchOS target; Cargo manifest declares Windows and Apple Silicon macOS desktop only.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/mailright/src-tauri/Cargo.toml",
+          "line": 6,
+          "detail": "Supported build targets are Windows + macOS Apple Silicon; source census found no Swift/Xcode files."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitUI",
+      "status": "NA",
+      "rationale": "NA: MailRight has no Swift, Xcode or iOS/watchOS target; Cargo manifest declares Windows and Apple Silicon macOS desktop only.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/mailright/src-tauri/Cargo.toml",
+          "line": 6,
+          "detail": "Supported build targets are Windows + macOS Apple Silicon; source census found no Swift/Xcode files."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    }
+  ],
+  "searches": [
+    {
+      "pattern": "@rightkit/|rightkit_",
+      "scope": "package.json, src/, src-tauri/, scripts/, qa/",
+      "result": "Shared callers found for license, logs, tauri, updates, legal/release and Rust db/embed/cache/secrets/oauth/http/shell/license/logs/tauri; no other catalog package imports."
+    },
+    {
+      "pattern": "reqwest::Client|rightkit_http",
+      "scope": "src-tauri/src/{google,oauth,ai,webimg,translate}.rs",
+      "result": "rightkit-http is active for OAuth; direct reqwest remains in Google/profile/AI/image/translation paths, yielding HTTP=M."
+    },
+    {
+      "pattern": "search|sync|settings|mcp",
+      "scope": "src-tauri/src and src/",
+      "result": "MailRight-owned SQL search, Gmail historyId sync + local send outbox, SQLCipher settings repository, loopback MCP server, and build-time bundled model staging were traced; search/settings/MCP are N, sync/models are NA."
+    },
+    {
+      "pattern": "pdfjs-dist|DOMPurify|iframe|SettingsView|theme",
+      "scope": "src/, package.json",
+      "result": "Local pdfjs/email document, settings, theme, TitleBar/window, tray/autostart, and attachment media implementations are active; corresponding npm rows are N."
+    },
+    {
+      "pattern": "\\.swift$|Package.swift|\\.xcodeproj",
+      "scope": "MailRight checkout excluding generated/vendor/build paths",
+      "result": "No Swift/Xcode target files; all 15 Swift catalog rows are NA."
+    },
+    {
+      "pattern": "HEAD and timestamps",
+      "scope": "MailRight git metadata and package manifests",
+      "result": "HEAD 43882ebc1f52d460c91e3871550e40cd5928e808; package.json mtime 2026-10-08T21:11:31+0530; Cargo.toml mtime 2026-10-09T04:26:23+0530."
+    }
+  ],
+  "self_review": "Adversarial pass corrected rightkit-sync from N to NA after tracing Gmail historyId deltas, per-account leases & send outbox against shared change-token/tombstone/conflict engine; corrected rightkit-models from N to NA because Node build-time bundle staging + rightkit-embed bundled loading never invokes runtime installer APIs; corrected onboarding to NA because only legal acceptance gate exists; corrected npm shell to N because renderer direct window APIs + tray/autostart IPC overlap createShell; retained HTTP=M from shared OAuth + direct reqwest callers, and retained PDF engine=NA vs pdf-ui=N. Rechecked Y rows for production invocation/transitive call chains rather than imports, and all Swift rows for absent targets."
+}

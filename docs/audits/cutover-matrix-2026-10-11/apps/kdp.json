@@ -1,0 +1,1869 @@
+{
+  "app": "KDP formatter",
+  "root": "/Volumes/D/claude/workflows/kdp",
+  "head": "0cc72e7ae028bdb4cf53690814ed1e033a1b96e6",
+  "reviewed_at": "2026-10-11T08:08:20+05:30",
+  "targets": [
+    "node-cli",
+    "python-cli"
+  ],
+  "scope_note": "Fresh source-only audit of current KDP formatter, cover, coloring & verification command sources plus active workspace wrappers. Excluded manuscripts, generated outputs, caches, fixtures, logs, node_modules & historical reports; no execution qualification implied.",
+  "cells": [
+    {
+      "component_id": "cargo:agent-room-core",
+      "status": "NA",
+      "rationale": "agent-room-core is not applicable: KDP has Node/Python command hosts only; no Cargo target or supported bridge can call this Rust component.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/kdp/package.json",
+          "line": 7,
+          "symbol": "bin.book2pdf",
+          "detail": "KDP exposes a Node CLI; source census found Node/Python workflow hosts only, with no Cargo target or supported Rust bridge."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; Rust component is outside KDP Node/Python command scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-agent-tools",
+      "status": "NA",
+      "rationale": "rightkit-agent-tools is not applicable: KDP has Node/Python command hosts only; no Cargo target or supported bridge can call this Rust component.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/kdp/package.json",
+          "line": 7,
+          "symbol": "bin.book2pdf",
+          "detail": "KDP exposes a Node CLI; source census found Node/Python workflow hosts only, with no Cargo target or supported Rust bridge."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; Rust component is outside KDP Node/Python command scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-align",
+      "status": "NA",
+      "rationale": "rightkit-align is not applicable: KDP has Node/Python command hosts only; no Cargo target or supported bridge can call this Rust component.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/kdp/package.json",
+          "line": 7,
+          "symbol": "bin.book2pdf",
+          "detail": "KDP exposes a Node CLI; source census found Node/Python workflow hosts only, with no Cargo target or supported Rust bridge."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; Rust component is outside KDP Node/Python command scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-asr",
+      "status": "NA",
+      "rationale": "rightkit-asr is not applicable: KDP has Node/Python command hosts only; no Cargo target or supported bridge can call this Rust component.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/kdp/package.json",
+          "line": 7,
+          "symbol": "bin.book2pdf",
+          "detail": "KDP exposes a Node CLI; source census found Node/Python workflow hosts only, with no Cargo target or supported Rust bridge."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; Rust component is outside KDP Node/Python command scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-audio",
+      "status": "NA",
+      "rationale": "rightkit-audio is not applicable: KDP has Node/Python command hosts only; no Cargo target or supported bridge can call this Rust component.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/kdp/package.json",
+          "line": 7,
+          "symbol": "bin.book2pdf",
+          "detail": "KDP exposes a Node CLI; source census found Node/Python workflow hosts only, with no Cargo target or supported Rust bridge."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; Rust component is outside KDP Node/Python command scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-automation",
+      "status": "NA",
+      "rationale": "rightkit-automation is not applicable: KDP has Node/Python command hosts only; no Cargo target or supported bridge can call this Rust component.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/kdp/package.json",
+          "line": 7,
+          "symbol": "bin.book2pdf",
+          "detail": "KDP exposes a Node CLI; source census found Node/Python workflow hosts only, with no Cargo target or supported Rust bridge."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; Rust component is outside KDP Node/Python command scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-browser",
+      "status": "NA",
+      "rationale": "Playwright is used as a document-print renderer, not through RightKit browser CDP APIs.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/kdp/interior-builder/build-interior.js",
+          "line": 200,
+          "symbol": "chromium.launch",
+          "detail": "Formatter creates a browser solely to print HTML to PDF."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; Rust component is outside KDP Node/Python command scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-cache",
+      "status": "NA",
+      "rationale": "KDP resume checks output filenames in its command workflow; it has no Rust cache runtime or bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/kdp/coloring-batch.js",
+          "line": 275,
+          "symbol": "taskExists",
+          "detail": "Resume logic checks existing image paths directly."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; Rust component is outside KDP Node/Python command scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-channel-memory",
+      "status": "NA",
+      "rationale": "rightkit-channel-memory is not applicable: KDP has Node/Python command hosts only; no Cargo target or supported bridge can call this Rust component.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/kdp/package.json",
+          "line": 7,
+          "symbol": "bin.book2pdf",
+          "detail": "KDP exposes a Node CLI; source census found Node/Python workflow hosts only, with no Cargo target or supported Rust bridge."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; Rust component is outside KDP Node/Python command scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-compose",
+      "status": "NA",
+      "rationale": "rightkit-compose is not applicable: KDP has Node/Python command hosts only; no Cargo target or supported bridge can call this Rust component.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/kdp/package.json",
+          "line": 7,
+          "symbol": "bin.book2pdf",
+          "detail": "KDP exposes a Node CLI; source census found Node/Python workflow hosts only, with no Cargo target or supported Rust bridge."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; Rust component is outside KDP Node/Python command scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-contracts",
+      "status": "NA",
+      "rationale": "rightkit-contracts is not applicable: KDP has Node/Python command hosts only; no Cargo target or supported bridge can call this Rust component.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/kdp/package.json",
+          "line": 7,
+          "symbol": "bin.book2pdf",
+          "detail": "KDP exposes a Node CLI; source census found Node/Python workflow hosts only, with no Cargo target or supported Rust bridge."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; Rust component is outside KDP Node/Python command scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-control",
+      "status": "NA",
+      "rationale": "rightkit-control is not applicable: KDP has Node/Python command hosts only; no Cargo target or supported bridge can call this Rust component.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/kdp/package.json",
+          "line": 7,
+          "symbol": "bin.book2pdf",
+          "detail": "KDP exposes a Node CLI; source census found Node/Python workflow hosts only, with no Cargo target or supported Rust bridge."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; Rust component is outside KDP Node/Python command scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-crash",
+      "status": "NA",
+      "rationale": "rightkit-crash is not applicable: KDP has Node/Python command hosts only; no Cargo target or supported bridge can call this Rust component.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/kdp/package.json",
+          "line": 7,
+          "symbol": "bin.book2pdf",
+          "detail": "KDP exposes a Node CLI; source census found Node/Python workflow hosts only, with no Cargo target or supported Rust bridge."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; Rust component is outside KDP Node/Python command scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-daemon",
+      "status": "NA",
+      "rationale": "rightkit-daemon is not applicable: KDP has Node/Python command hosts only; no Cargo target or supported bridge can call this Rust component.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/kdp/package.json",
+          "line": 7,
+          "symbol": "bin.book2pdf",
+          "detail": "KDP exposes a Node CLI; source census found Node/Python workflow hosts only, with no Cargo target or supported Rust bridge."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; Rust component is outside KDP Node/Python command scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-db",
+      "status": "NA",
+      "rationale": "rightkit-db is not applicable: KDP has Node/Python command hosts only; no Cargo target or supported bridge can call this Rust component.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/kdp/package.json",
+          "line": 7,
+          "symbol": "bin.book2pdf",
+          "detail": "KDP exposes a Node CLI; source census found Node/Python workflow hosts only, with no Cargo target or supported Rust bridge."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; Rust component is outside KDP Node/Python command scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-embed",
+      "status": "NA",
+      "rationale": "rightkit-embed is not applicable: KDP has Node/Python command hosts only; no Cargo target or supported bridge can call this Rust component.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/kdp/package.json",
+          "line": 7,
+          "symbol": "bin.book2pdf",
+          "detail": "KDP exposes a Node CLI; source census found Node/Python workflow hosts only, with no Cargo target or supported Rust bridge."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; Rust component is outside KDP Node/Python command scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-framed-sidecar",
+      "status": "NA",
+      "rationale": "rightkit-framed-sidecar is not applicable: KDP has Node/Python command hosts only; no Cargo target or supported bridge can call this Rust component.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/kdp/package.json",
+          "line": 7,
+          "symbol": "bin.book2pdf",
+          "detail": "KDP exposes a Node CLI; source census found Node/Python workflow hosts only, with no Cargo target or supported Rust bridge."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; Rust component is outside KDP Node/Python command scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-fs",
+      "status": "NA",
+      "rationale": "KDP uses Node/Python filesystem APIs inside command workflows; no Rust state-filesystem bridge participates.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/kdp/interior-builder/build-interior.js",
+          "line": 26,
+          "symbol": "node:fs import",
+          "detail": "Formatter owns direct Node file I/O."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; Rust component is outside KDP Node/Python command scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-fsindex",
+      "status": "NA",
+      "rationale": "rightkit-fsindex is not applicable: KDP has Node/Python command hosts only; no Cargo target or supported bridge can call this Rust component.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/kdp/package.json",
+          "line": 7,
+          "symbol": "bin.book2pdf",
+          "detail": "KDP exposes a Node CLI; source census found Node/Python workflow hosts only, with no Cargo target or supported Rust bridge."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; Rust component is outside KDP Node/Python command scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-hotkeys",
+      "status": "NA",
+      "rationale": "rightkit-hotkeys is not applicable: KDP has Node/Python command hosts only; no Cargo target or supported bridge can call this Rust component.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/kdp/package.json",
+          "line": 7,
+          "symbol": "bin.book2pdf",
+          "detail": "KDP exposes a Node CLI; source census found Node/Python workflow hosts only, with no Cargo target or supported Rust bridge."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; Rust component is outside KDP Node/Python command scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-http",
+      "status": "NA",
+      "rationale": "Image-provider calls route through workspace Node adapters; RightKit blocking Rust HTTP API has no KDP host or bridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/kdp/coloring-batch.js",
+          "line": 66,
+          "symbol": "backend adapter imports",
+          "detail": "Node CLI imports shared workspace image backends."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; Rust component is outside KDP Node/Python command scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-jobs",
+      "status": "NA",
+      "rationale": "KDP runs one-shot CLI work; it has no persistent Rust job-store/runner caller.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/kdp/coloring-batch.js",
+          "line": 97,
+          "symbol": "yargs CLI",
+          "detail": "Coloring generator is a one-shot command entry point."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; Rust component is outside KDP Node/Python command scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-license",
+      "status": "NA",
+      "rationale": "rightkit-license is not applicable: KDP has Node/Python command hosts only; no Cargo target or supported bridge can call this Rust component.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/kdp/package.json",
+          "line": 7,
+          "symbol": "bin.book2pdf",
+          "detail": "KDP exposes a Node CLI; source census found Node/Python workflow hosts only, with no Cargo target or supported Rust bridge."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; Rust component is outside KDP Node/Python command scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-llm",
+      "status": "NA",
+      "rationale": "rightkit-llm is not applicable: KDP has Node/Python command hosts only; no Cargo target or supported bridge can call this Rust component.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/kdp/package.json",
+          "line": 7,
+          "symbol": "bin.book2pdf",
+          "detail": "KDP exposes a Node CLI; source census found Node/Python workflow hosts only, with no Cargo target or supported Rust bridge."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; Rust component is outside KDP Node/Python command scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-logs",
+      "status": "NA",
+      "rationale": "KDP commands use console output rather than RightKit structured Rust diagnostics.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/kdp/interior-builder/build-interior.js",
+          "line": 196,
+          "symbol": "console.log",
+          "detail": "Formatter reports render progress to stdout."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; Rust component is outside KDP Node/Python command scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-mcp",
+      "status": "NA",
+      "rationale": "rightkit-mcp is not applicable: KDP has Node/Python command hosts only; no Cargo target or supported bridge can call this Rust component.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/kdp/package.json",
+          "line": 7,
+          "symbol": "bin.book2pdf",
+          "detail": "KDP exposes a Node CLI; source census found Node/Python workflow hosts only, with no Cargo target or supported Rust bridge."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; Rust component is outside KDP Node/Python command scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-media",
+      "status": "NA",
+      "rationale": "KDP renders print pages/covers through browser/Pillow workflows; it has no FFmpeg artifact lifecycle caller.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/kdp/covers/build-cover.py",
+          "line": 337,
+          "symbol": "flat.save",
+          "detail": "Cover builder emits raster/PDF directly via Pillow."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; Rust component is outside KDP Node/Python command scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-models",
+      "status": "NA",
+      "rationale": "rightkit-models is not applicable: KDP has Node/Python command hosts only; no Cargo target or supported bridge can call this Rust component.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/kdp/package.json",
+          "line": 7,
+          "symbol": "bin.book2pdf",
+          "detail": "KDP exposes a Node CLI; source census found Node/Python workflow hosts only, with no Cargo target or supported Rust bridge."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; Rust component is outside KDP Node/Python command scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-oauth",
+      "status": "NA",
+      "rationale": "rightkit-oauth is not applicable: KDP has Node/Python command hosts only; no Cargo target or supported bridge can call this Rust component.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/kdp/package.json",
+          "line": 7,
+          "symbol": "bin.book2pdf",
+          "detail": "KDP exposes a Node CLI; source census found Node/Python workflow hosts only, with no Cargo target or supported Rust bridge."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; Rust component is outside KDP Node/Python command scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-ocr",
+      "status": "NA",
+      "rationale": "rightkit-ocr is not applicable: KDP has Node/Python command hosts only; no Cargo target or supported bridge can call this Rust component.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/kdp/package.json",
+          "line": 7,
+          "symbol": "bin.book2pdf",
+          "detail": "KDP exposes a Node CLI; source census found Node/Python workflow hosts only, with no Cargo target or supported Rust bridge."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; Rust component is outside KDP Node/Python command scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-ort",
+      "status": "NA",
+      "rationale": "rightkit-ort is not applicable: KDP has Node/Python command hosts only; no Cargo target or supported bridge can call this Rust component.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/kdp/package.json",
+          "line": 7,
+          "symbol": "bin.book2pdf",
+          "detail": "KDP exposes a Node CLI; source census found Node/Python workflow hosts only, with no Cargo target or supported Rust bridge."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; Rust component is outside KDP Node/Python command scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-overlay",
+      "status": "NA",
+      "rationale": "rightkit-overlay is not applicable: KDP has Node/Python command hosts only; no Cargo target or supported bridge can call this Rust component.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/kdp/package.json",
+          "line": 7,
+          "symbol": "bin.book2pdf",
+          "detail": "KDP exposes a Node CLI; source census found Node/Python workflow hosts only, with no Cargo target or supported Rust bridge."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; Rust component is outside KDP Node/Python command scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-ownership",
+      "status": "NA",
+      "rationale": "rightkit-ownership is not applicable: KDP has Node/Python command hosts only; no Cargo target or supported bridge can call this Rust component.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/kdp/package.json",
+          "line": 7,
+          "symbol": "bin.book2pdf",
+          "detail": "KDP exposes a Node CLI; source census found Node/Python workflow hosts only, with no Cargo target or supported Rust bridge."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; Rust component is outside KDP Node/Python command scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-pdf",
+      "status": "NA",
+      "rationale": "KDP print production uses Playwright page.pdf plus Pillow/ReportLab PDF emission; it does not host or invoke RightKit Rust document-edit APIs.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/kdp/interior-builder/build-interior.js",
+          "line": 209,
+          "symbol": "page.pdf",
+          "detail": "Node browser renderer emits a new print PDF; no Rust PDF-editing bridge is present."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; Rust component is outside KDP Node/Python command scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-playback",
+      "status": "NA",
+      "rationale": "rightkit-playback is not applicable: KDP has Node/Python command hosts only; no Cargo target or supported bridge can call this Rust component.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/kdp/package.json",
+          "line": 7,
+          "symbol": "bin.book2pdf",
+          "detail": "KDP exposes a Node CLI; source census found Node/Python workflow hosts only, with no Cargo target or supported Rust bridge."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; Rust component is outside KDP Node/Python command scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-process",
+      "status": "NA",
+      "rationale": "KDP launches optional image polish through Node child_process; no Rust process runtime or bridge participates.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/kdp/coloring-batch.js",
+          "line": 62,
+          "symbol": "spawn import",
+          "detail": "CLI owns direct Node subprocess invocation."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; Rust component is outside KDP Node/Python command scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-qa",
+      "status": "NA",
+      "rationale": "KDP final checking uses pypdf page-count/dimension inspection, not RightKit Rust QA harness APIs.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/kdp/verify-final.py",
+          "line": 30,
+          "symbol": "PdfReader",
+          "detail": "Verifier reads output PDF pages directly with Python."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; Rust component is outside KDP Node/Python command scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-qts",
+      "status": "NA",
+      "rationale": "rightkit-qts is not applicable: KDP has Node/Python command hosts only; no Cargo target or supported bridge can call this Rust component.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/kdp/package.json",
+          "line": 7,
+          "symbol": "bin.book2pdf",
+          "detail": "KDP exposes a Node CLI; source census found Node/Python workflow hosts only, with no Cargo target or supported Rust bridge."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; Rust component is outside KDP Node/Python command scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-qts-ggml",
+      "status": "NA",
+      "rationale": "rightkit-qts-ggml is not applicable: KDP has Node/Python command hosts only; no Cargo target or supported bridge can call this Rust component.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/kdp/package.json",
+          "line": 7,
+          "symbol": "bin.book2pdf",
+          "detail": "KDP exposes a Node CLI; source census found Node/Python workflow hosts only, with no Cargo target or supported Rust bridge."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; Rust component is outside KDP Node/Python command scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-qts-ggml-sys",
+      "status": "NA",
+      "rationale": "rightkit-qts-ggml-sys is not applicable: KDP has Node/Python command hosts only; no Cargo target or supported bridge can call this Rust component.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/kdp/package.json",
+          "line": 7,
+          "symbol": "bin.book2pdf",
+          "detail": "KDP exposes a Node CLI; source census found Node/Python workflow hosts only, with no Cargo target or supported Rust bridge."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; Rust component is outside KDP Node/Python command scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-record",
+      "status": "NA",
+      "rationale": "rightkit-record is not applicable: KDP has Node/Python command hosts only; no Cargo target or supported bridge can call this Rust component.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/kdp/package.json",
+          "line": 7,
+          "symbol": "bin.book2pdf",
+          "detail": "KDP exposes a Node CLI; source census found Node/Python workflow hosts only, with no Cargo target or supported Rust bridge."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; Rust component is outside KDP Node/Python command scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-review",
+      "status": "NA",
+      "rationale": "KDP cover assessment invokes workspace runAutoJury from Node; rightkit-review is a Rust API with no Node bridge or caller.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/kdp/_run-cover-jury.mjs",
+          "line": 3,
+          "symbol": "runAutoJury import",
+          "detail": "Cover jury routes to workspace Node utility, not rightkit-review."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; Rust component is outside KDP Node/Python command scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-sandbox",
+      "status": "NA",
+      "rationale": "KDP CLI invokes local image processing without RightKit Rust sandbox/PTY authority.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/kdp/coloring-batch.js",
+          "line": 291,
+          "symbol": "polishImage",
+          "detail": "Node command spawns local Python line-art conversion."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; Rust component is outside KDP Node/Python command scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-scenario",
+      "status": "NA",
+      "rationale": "rightkit-scenario is not applicable: KDP has Node/Python command hosts only; no Cargo target or supported bridge can call this Rust component.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/kdp/package.json",
+          "line": 7,
+          "symbol": "bin.book2pdf",
+          "detail": "KDP exposes a Node CLI; source census found Node/Python workflow hosts only, with no Cargo target or supported Rust bridge."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; Rust component is outside KDP Node/Python command scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-search",
+      "status": "NA",
+      "rationale": "rightkit-search is not applicable: KDP has Node/Python command hosts only; no Cargo target or supported bridge can call this Rust component.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/kdp/package.json",
+          "line": 7,
+          "symbol": "bin.book2pdf",
+          "detail": "KDP exposes a Node CLI; source census found Node/Python workflow hosts only, with no Cargo target or supported Rust bridge."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; Rust component is outside KDP Node/Python command scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-secrets",
+      "status": "NA",
+      "rationale": "KDP accepts provider keys as CLI/environment values; it has no OS credential-store integration.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/kdp/coloring-batch.js",
+          "line": 106,
+          "symbol": "api-key option",
+          "detail": "Image CLI accepts a caller-supplied API key."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; Rust component is outside KDP Node/Python command scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-send",
+      "status": "NA",
+      "rationale": "rightkit-send is not applicable: KDP has Node/Python command hosts only; no Cargo target or supported bridge can call this Rust component.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/kdp/package.json",
+          "line": 7,
+          "symbol": "bin.book2pdf",
+          "detail": "KDP exposes a Node CLI; source census found Node/Python workflow hosts only, with no Cargo target or supported Rust bridge."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; Rust component is outside KDP Node/Python command scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-service",
+      "status": "NA",
+      "rationale": "rightkit-service is not applicable: KDP has Node/Python command hosts only; no Cargo target or supported bridge can call this Rust component.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/kdp/package.json",
+          "line": 7,
+          "symbol": "bin.book2pdf",
+          "detail": "KDP exposes a Node CLI; source census found Node/Python workflow hosts only, with no Cargo target or supported Rust bridge."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; Rust component is outside KDP Node/Python command scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-settings",
+      "status": "NA",
+      "rationale": "KDP uses invocation options plus per-book input config; it has no persistent RightKit settings runtime.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/kdp/interior-builder/build-interior.js",
+          "line": 38,
+          "symbol": "yargs options",
+          "detail": "Formatter takes render settings from CLI options."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; Rust component is outside KDP Node/Python command scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-shell",
+      "status": "NA",
+      "rationale": "rightkit-shell is not applicable: KDP has Node/Python command hosts only; no Cargo target or supported bridge can call this Rust component.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/kdp/package.json",
+          "line": 7,
+          "symbol": "bin.book2pdf",
+          "detail": "KDP exposes a Node CLI; source census found Node/Python workflow hosts only, with no Cargo target or supported Rust bridge."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; Rust component is outside KDP Node/Python command scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-speech-client",
+      "status": "NA",
+      "rationale": "rightkit-speech-client is not applicable: KDP has Node/Python command hosts only; no Cargo target or supported bridge can call this Rust component.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/kdp/package.json",
+          "line": 7,
+          "symbol": "bin.book2pdf",
+          "detail": "KDP exposes a Node CLI; source census found Node/Python workflow hosts only, with no Cargo target or supported Rust bridge."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; Rust component is outside KDP Node/Python command scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-sync",
+      "status": "NA",
+      "rationale": "rightkit-sync is not applicable: KDP has Node/Python command hosts only; no Cargo target or supported bridge can call this Rust component.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/kdp/package.json",
+          "line": 7,
+          "symbol": "bin.book2pdf",
+          "detail": "KDP exposes a Node CLI; source census found Node/Python workflow hosts only, with no Cargo target or supported Rust bridge."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; Rust component is outside KDP Node/Python command scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-tauri",
+      "status": "NA",
+      "rationale": "rightkit-tauri is not applicable: KDP has Node/Python command hosts only; no Cargo target or supported bridge can call this Rust component.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/kdp/package.json",
+          "line": 7,
+          "symbol": "bin.book2pdf",
+          "detail": "KDP exposes a Node CLI; source census found Node/Python workflow hosts only, with no Cargo target or supported Rust bridge."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; Rust component is outside KDP Node/Python command scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-transcript",
+      "status": "NA",
+      "rationale": "rightkit-transcript is not applicable: KDP has Node/Python command hosts only; no Cargo target or supported bridge can call this Rust component.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/kdp/package.json",
+          "line": 7,
+          "symbol": "bin.book2pdf",
+          "detail": "KDP exposes a Node CLI; source census found Node/Python workflow hosts only, with no Cargo target or supported Rust bridge."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; Rust component is outside KDP Node/Python command scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-tts",
+      "status": "NA",
+      "rationale": "rightkit-tts is not applicable: KDP has Node/Python command hosts only; no Cargo target or supported bridge can call this Rust component.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/kdp/package.json",
+          "line": 7,
+          "symbol": "bin.book2pdf",
+          "detail": "KDP exposes a Node CLI; source census found Node/Python workflow hosts only, with no Cargo target or supported Rust bridge."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; Rust component is outside KDP Node/Python command scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-vad",
+      "status": "NA",
+      "rationale": "rightkit-vad is not applicable: KDP has Node/Python command hosts only; no Cargo target or supported bridge can call this Rust component.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/kdp/package.json",
+          "line": 7,
+          "symbol": "bin.book2pdf",
+          "detail": "KDP exposes a Node CLI; source census found Node/Python workflow hosts only, with no Cargo target or supported Rust bridge."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; Rust component is outside KDP Node/Python command scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-watch",
+      "status": "NA",
+      "rationale": "rightkit-watch is not applicable: KDP has Node/Python command hosts only; no Cargo target or supported bridge can call this Rust component.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/kdp/package.json",
+          "line": 7,
+          "symbol": "bin.book2pdf",
+          "detail": "KDP exposes a Node CLI; source census found Node/Python workflow hosts only, with no Cargo target or supported Rust bridge."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; Rust component is outside KDP Node/Python command scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/agent-room-mcp",
+      "status": "NA",
+      "rationale": "@rightkit/agent-room-mcp is not applicable: KDP is a headless formatter/cover workflow, not a desktop/web product surface for this RightKit Node package.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/kdp/package.json",
+          "line": 7,
+          "symbol": "bin.book2pdf",
+          "detail": "KDP exposes a headless Node formatter CLI; source census found no React/Tauri desktop renderer target."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; package feature is outside KDP formatter/cover workflow scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/app-shell",
+      "status": "NA",
+      "rationale": "@rightkit/app-shell is not applicable: KDP is a headless formatter/cover workflow, not a desktop/web product surface for this RightKit Node package.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/kdp/package.json",
+          "line": 7,
+          "symbol": "bin.book2pdf",
+          "detail": "KDP exposes a headless Node formatter CLI; source census found no React/Tauri desktop renderer target."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; package feature is outside KDP formatter/cover workflow scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/ax",
+      "status": "NA",
+      "rationale": "@rightkit/ax is not applicable: KDP is a headless formatter/cover workflow, not a desktop/web product surface for this RightKit Node package.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/kdp/package.json",
+          "line": 7,
+          "symbol": "bin.book2pdf",
+          "detail": "KDP exposes a headless Node formatter CLI; source census found no React/Tauri desktop renderer target."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; package feature is outside KDP formatter/cover workflow scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/build-control-policy",
+      "status": "NA",
+      "rationale": "@rightkit/build-control-policy is not applicable: KDP is a headless formatter/cover workflow, not a desktop/web product surface for this RightKit Node package.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/kdp/package.json",
+          "line": 7,
+          "symbol": "bin.book2pdf",
+          "detail": "KDP exposes a headless Node formatter CLI; source census found no React/Tauri desktop renderer target."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; package feature is outside KDP formatter/cover workflow scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/doc-render",
+      "status": "NA",
+      "rationale": "KDP parses Markdown into print HTML with marked; RightKit doc-render is a read-only reader API, not this print-layout pipeline.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/kdp/interior-builder/build-interior.js",
+          "line": 142,
+          "symbol": "marked.parse",
+          "detail": "Formatter renders Markdown into HTML before CSS print output."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; package feature is outside KDP formatter/cover workflow scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/git",
+      "status": "NA",
+      "rationale": "@rightkit/git is not applicable: KDP is a headless formatter/cover workflow, not a desktop/web product surface for this RightKit Node package.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/kdp/package.json",
+          "line": 7,
+          "symbol": "bin.book2pdf",
+          "detail": "KDP exposes a headless Node formatter CLI; source census found no React/Tauri desktop renderer target."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; package feature is outside KDP formatter/cover workflow scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/hooks",
+      "status": "NA",
+      "rationale": "@rightkit/hooks is not applicable: KDP is a headless formatter/cover workflow, not a desktop/web product surface for this RightKit Node package.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/kdp/package.json",
+          "line": 7,
+          "symbol": "bin.book2pdf",
+          "detail": "KDP exposes a headless Node formatter CLI; source census found no React/Tauri desktop renderer target."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; package feature is outside KDP formatter/cover workflow scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/i18n",
+      "status": "NA",
+      "rationale": "@rightkit/i18n is not applicable: KDP is a headless formatter/cover workflow, not a desktop/web product surface for this RightKit Node package.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/kdp/package.json",
+          "line": 7,
+          "symbol": "bin.book2pdf",
+          "detail": "KDP exposes a headless Node formatter CLI; source census found no React/Tauri desktop renderer target."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; package feature is outside KDP formatter/cover workflow scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/legal",
+      "status": "NA",
+      "rationale": "@rightkit/legal is not applicable: KDP is a headless formatter/cover workflow, not a desktop/web product surface for this RightKit Node package.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/kdp/package.json",
+          "line": 7,
+          "symbol": "bin.book2pdf",
+          "detail": "KDP exposes a headless Node formatter CLI; source census found no React/Tauri desktop renderer target."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; package feature is outside KDP formatter/cover workflow scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/legal-ui",
+      "status": "NA",
+      "rationale": "@rightkit/legal-ui is not applicable: KDP is a headless formatter/cover workflow, not a desktop/web product surface for this RightKit Node package.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/kdp/package.json",
+          "line": 7,
+          "symbol": "bin.book2pdf",
+          "detail": "KDP exposes a headless Node formatter CLI; source census found no React/Tauri desktop renderer target."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; package feature is outside KDP formatter/cover workflow scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/license",
+      "status": "NA",
+      "rationale": "@rightkit/license is not applicable: KDP is a headless formatter/cover workflow, not a desktop/web product surface for this RightKit Node package.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/kdp/package.json",
+          "line": 7,
+          "symbol": "bin.book2pdf",
+          "detail": "KDP exposes a headless Node formatter CLI; source census found no React/Tauri desktop renderer target."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; package feature is outside KDP formatter/cover workflow scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/logs",
+      "status": "NA",
+      "rationale": "KDP CLI uses stdout status messages; it has no local structured diagnostics client.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/kdp/covers/cover-wrap.js",
+          "line": 58,
+          "symbol": "console.log",
+          "detail": "Cover CLI emits geometry status to stdout."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; package feature is outside KDP formatter/cover workflow scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/media-ui",
+      "status": "NA",
+      "rationale": "KDP composes raster/print artifacts in headless Node/Python code; it has no media viewer/editor UI target.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/kdp/covers/build-cover.py",
+          "line": 227,
+          "symbol": "Image.new",
+          "detail": "Cover builder creates a Pillow raster canvas."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; package feature is outside KDP formatter/cover workflow scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/onboarding",
+      "status": "NA",
+      "rationale": "@rightkit/onboarding is not applicable: KDP is a headless formatter/cover workflow, not a desktop/web product surface for this RightKit Node package.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/kdp/package.json",
+          "line": 7,
+          "symbol": "bin.book2pdf",
+          "detail": "KDP exposes a headless Node formatter CLI; source census found no React/Tauri desktop renderer target."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; package feature is outside KDP formatter/cover workflow scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/pdf-ui",
+      "status": "NA",
+      "rationale": "KDP emits print PDFs; it has no React read-only PDF viewer target.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/kdp/interior-builder/build-interior.js",
+          "line": 209,
+          "symbol": "page.pdf",
+          "detail": "Node formatter writes print PDF output."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; package feature is outside KDP formatter/cover workflow scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/platform-ui",
+      "status": "NA",
+      "rationale": "@rightkit/platform-ui is not applicable: KDP is a headless formatter/cover workflow, not a desktop/web product surface for this RightKit Node package.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/kdp/package.json",
+          "line": 7,
+          "symbol": "bin.book2pdf",
+          "detail": "KDP exposes a headless Node formatter CLI; source census found no React/Tauri desktop renderer target."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; package feature is outside KDP formatter/cover workflow scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/qa",
+      "status": "NA",
+      "rationale": "KDP uses lightweight Python output inspection; it has no RightKit Node QA harness caller.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/kdp/verify-final.py",
+          "line": 30,
+          "symbol": "PdfReader",
+          "detail": "Verifier reads expected page count and dimensions directly."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; package feature is outside KDP formatter/cover workflow scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/qa-chrome",
+      "status": "NA",
+      "rationale": "KDP launches Playwright Chromium for production print rendering, not a repository QA Chrome-for-Testing harness.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/kdp/covers/cover-wrap.js",
+          "line": 193,
+          "symbol": "chromium.launch",
+          "detail": "Cover CLI launches Chromium before page.pdf output."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; package feature is outside KDP formatter/cover workflow scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/release",
+      "status": "NA",
+      "rationale": "KDP package scripts expose format, cover, and preview only; no RightKit release CLI/SDK route exists.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/kdp/package.json",
+          "line": 9,
+          "symbol": "scripts",
+          "detail": "Package lists only format/cover/preview commands."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; package feature is outside KDP formatter/cover workflow scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/settings-ui",
+      "status": "NA",
+      "rationale": "@rightkit/settings-ui is not applicable: KDP is a headless formatter/cover workflow, not a desktop/web product surface for this RightKit Node package.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/kdp/package.json",
+          "line": 7,
+          "symbol": "bin.book2pdf",
+          "detail": "KDP exposes a headless Node formatter CLI; source census found no React/Tauri desktop renderer target."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; package feature is outside KDP formatter/cover workflow scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/shell",
+      "status": "NA",
+      "rationale": "@rightkit/shell is not applicable: KDP is a headless formatter/cover workflow, not a desktop/web product surface for this RightKit Node package.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/kdp/package.json",
+          "line": 7,
+          "symbol": "bin.book2pdf",
+          "detail": "KDP exposes a headless Node formatter CLI; source census found no React/Tauri desktop renderer target."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; package feature is outside KDP formatter/cover workflow scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/tauri",
+      "status": "NA",
+      "rationale": "@rightkit/tauri is not applicable: KDP is a headless formatter/cover workflow, not a desktop/web product surface for this RightKit Node package.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/kdp/package.json",
+          "line": 7,
+          "symbol": "bin.book2pdf",
+          "detail": "KDP exposes a headless Node formatter CLI; source census found no React/Tauri desktop renderer target."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; package feature is outside KDP formatter/cover workflow scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/theme",
+      "status": "NA",
+      "rationale": "KDP loads its own print CSS/template files; RightKit UI theme token runtime is not a print-layout integration.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/kdp/interior-builder/build-interior.js",
+          "line": 155,
+          "symbol": "theme template/CSS load",
+          "detail": "Formatter reads local template.html and style.css for print."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; package feature is outside KDP formatter/cover workflow scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/update",
+      "status": "NA",
+      "rationale": "@rightkit/update is not applicable: KDP is a headless formatter/cover workflow, not a desktop/web product surface for this RightKit Node package.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/kdp/package.json",
+          "line": 7,
+          "symbol": "bin.book2pdf",
+          "detail": "KDP exposes a headless Node formatter CLI; source census found no React/Tauri desktop renderer target."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; package feature is outside KDP formatter/cover workflow scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/updates",
+      "status": "NA",
+      "rationale": "@rightkit/updates is not applicable: KDP is a headless formatter/cover workflow, not a desktop/web product surface for this RightKit Node package.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/kdp/package.json",
+          "line": 7,
+          "symbol": "bin.book2pdf",
+          "detail": "KDP exposes a headless Node formatter CLI; source census found no React/Tauri desktop renderer target."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; package feature is outside KDP formatter/cover workflow scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitLicense",
+      "status": "NA",
+      "rationale": "RightKitLicense is not applicable: KDP has no Swift/iOS/watchOS/Xcode host or supported bridge for this Swift package.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/kdp/package.json",
+          "line": 6,
+          "symbol": "package identity",
+          "detail": "KDP is a Node package; current source census has no SwiftPM/Xcode/iOS/watchOS target."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; Swift package is outside KDP Node/Python command scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitDiagnostics",
+      "status": "NA",
+      "rationale": "RightKitDiagnostics is not applicable: KDP has no Swift/iOS/watchOS/Xcode host or supported bridge for this Swift package.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/kdp/package.json",
+          "line": 6,
+          "symbol": "package identity",
+          "detail": "KDP is a Node package; current source census has no SwiftPM/Xcode/iOS/watchOS target."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; Swift package is outside KDP Node/Python command scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitArtifacts",
+      "status": "NA",
+      "rationale": "RightKitArtifacts is not applicable: KDP has no Swift/iOS/watchOS/Xcode host or supported bridge for this Swift package.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/kdp/package.json",
+          "line": 6,
+          "symbol": "package identity",
+          "detail": "KDP is a Node package; current source census has no SwiftPM/Xcode/iOS/watchOS target."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; Swift package is outside KDP Node/Python command scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitPurchases",
+      "status": "NA",
+      "rationale": "RightKitPurchases is not applicable: KDP has no Swift/iOS/watchOS/Xcode host or supported bridge for this Swift package.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/kdp/package.json",
+          "line": 6,
+          "symbol": "package identity",
+          "detail": "KDP is a Node package; current source census has no SwiftPM/Xcode/iOS/watchOS target."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; Swift package is outside KDP Node/Python command scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitCloudSync",
+      "status": "NA",
+      "rationale": "RightKitCloudSync is not applicable: KDP has no Swift/iOS/watchOS/Xcode host or supported bridge for this Swift package.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/kdp/package.json",
+          "line": 6,
+          "symbol": "package identity",
+          "detail": "KDP is a Node package; current source census has no SwiftPM/Xcode/iOS/watchOS target."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; Swift package is outside KDP Node/Python command scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitStore",
+      "status": "NA",
+      "rationale": "RightKitStore is not applicable: KDP has no Swift/iOS/watchOS/Xcode host or supported bridge for this Swift package.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/kdp/package.json",
+          "line": 6,
+          "symbol": "package identity",
+          "detail": "KDP is a Node package; current source census has no SwiftPM/Xcode/iOS/watchOS target."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; Swift package is outside KDP Node/Python command scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitImportQueue",
+      "status": "NA",
+      "rationale": "RightKitImportQueue is not applicable: KDP has no Swift/iOS/watchOS/Xcode host or supported bridge for this Swift package.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/kdp/package.json",
+          "line": 6,
+          "symbol": "package identity",
+          "detail": "KDP is a Node package; current source census has no SwiftPM/Xcode/iOS/watchOS target."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; Swift package is outside KDP Node/Python command scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitLiveActivity",
+      "status": "NA",
+      "rationale": "RightKitLiveActivity is not applicable: KDP has no Swift/iOS/watchOS/Xcode host or supported bridge for this Swift package.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/kdp/package.json",
+          "line": 6,
+          "symbol": "package identity",
+          "detail": "KDP is a Node package; current source census has no SwiftPM/Xcode/iOS/watchOS target."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; Swift package is outside KDP Node/Python command scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitWatchBridge",
+      "status": "NA",
+      "rationale": "RightKitWatchBridge is not applicable: KDP has no Swift/iOS/watchOS/Xcode host or supported bridge for this Swift package.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/kdp/package.json",
+          "line": 6,
+          "symbol": "package identity",
+          "detail": "KDP is a Node package; current source census has no SwiftPM/Xcode/iOS/watchOS target."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; Swift package is outside KDP Node/Python command scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitSpeech",
+      "status": "NA",
+      "rationale": "RightKitSpeech is not applicable: KDP has no Swift/iOS/watchOS/Xcode host or supported bridge for this Swift package.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/kdp/package.json",
+          "line": 6,
+          "symbol": "package identity",
+          "detail": "KDP is a Node package; current source census has no SwiftPM/Xcode/iOS/watchOS target."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; Swift package is outside KDP Node/Python command scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitIntents",
+      "status": "NA",
+      "rationale": "RightKitIntents is not applicable: KDP has no Swift/iOS/watchOS/Xcode host or supported bridge for this Swift package.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/kdp/package.json",
+          "line": 6,
+          "symbol": "package identity",
+          "detail": "KDP is a Node package; current source census has no SwiftPM/Xcode/iOS/watchOS target."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; Swift package is outside KDP Node/Python command scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitAppleCredentials",
+      "status": "NA",
+      "rationale": "RightKitAppleCredentials is not applicable: KDP has no Swift/iOS/watchOS/Xcode host or supported bridge for this Swift package.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/kdp/package.json",
+          "line": 6,
+          "symbol": "package identity",
+          "detail": "KDP is a Node package; current source census has no SwiftPM/Xcode/iOS/watchOS target."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; Swift package is outside KDP Node/Python command scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitOverlay",
+      "status": "NA",
+      "rationale": "RightKitOverlay is not applicable: KDP has no Swift/iOS/watchOS/Xcode host or supported bridge for this Swift package.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/kdp/package.json",
+          "line": 6,
+          "symbol": "package identity",
+          "detail": "KDP is a Node package; current source census has no SwiftPM/Xcode/iOS/watchOS target."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; Swift package is outside KDP Node/Python command scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitWatch",
+      "status": "NA",
+      "rationale": "RightKitWatch is not applicable: KDP has no Swift/iOS/watchOS/Xcode host or supported bridge for this Swift package.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/kdp/package.json",
+          "line": 6,
+          "symbol": "package identity",
+          "detail": "KDP is a Node package; current source census has no SwiftPM/Xcode/iOS/watchOS target."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; Swift package is outside KDP Node/Python command scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitUI",
+      "status": "NA",
+      "rationale": "RightKitUI is not applicable: KDP has no Swift/iOS/watchOS/Xcode host or supported bridge for this Swift package.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/kdp/package.json",
+          "line": 6,
+          "symbol": "package identity",
+          "detail": "KDP is a Node package; current source census has no SwiftPM/Xcode/iOS/watchOS target."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None; Swift package is outside KDP Node/Python command scope.",
+      "confidence": "high"
+    }
+  ],
+  "searches": [
+    {
+      "pattern": "@rightkit|rightkit|Cargo.toml|Package.swift|xcodebuild",
+      "scope": "/Volumes/D/claude/workflows/kdp plus active tools/backends and tools/lib sources; excluding outputs, node_modules, fixtures and logs",
+      "result": "No KDP RightKit import, Cargo target, Swift target or supported Rust/Swift bridge found."
+    },
+    {
+      "pattern": "chromium.launch|page.pdf|marked.parse|Image.new|PdfReader|runAutoJury|nanobananaapi",
+      "scope": "/Volumes/D/claude/workflows/kdp active formatter, cover, coloring and verification sources",
+      "result": "Confirmed Node browser print rendering, Python Pillow/pypdf cover/interior work, Node workspace image adapters and Node auto-jury wrapper."
+    }
+  ],
+  "self_review": "Challenged apparent overlaps for rightkit-pdf/pdf-ui, doc-render, qa-chrome/qa, theme, review, process, fs and http. Kept NA: KDP creates print artifacts or invokes Node/Python workspace utilities; no exact shared production API route or compatible Rust/React reader/QA host exists. Confirmed all Cargo and Swift rows are runtime-incompatible; no Y/M evidence exists."
+}

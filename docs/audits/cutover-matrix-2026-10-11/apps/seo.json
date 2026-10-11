@@ -1,0 +1,3131 @@
+{
+  "app": "SEO",
+  "root": "/Volumes/D/claude/workflows/seo",
+  "head": "be14bf9b23f56e96c3b170b91436f12effacaa3a",
+  "reviewed_at": "2026-10-11T02:39:15.538Z",
+  "targets": [
+    "python-cli",
+    "python-stdio-mcp",
+    "node-render-gap-cli"
+  ],
+  "scope_note": "Current source only under /Volumes/D/claude/workflows/seo; excludes sibling SEO operations checkout, docs/references/tests/generated output. Source-only audit; no execution qualification implied.",
+  "cells": [
+    {
+      "component_id": "cargo:agent-room-core",
+      "status": "NA",
+      "rationale": "NA — cargo:agent-room-core is a Rust crate; SEO's published CLI & MCP targets are Python, with no Rust target, FFI, sidecar, or process bridge. Similar local behavior does not make this owner an applicable runtime dependency.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/seo/.mcp.codex.json",
+          "line": 3,
+          "detail": "Published Codex MCP launcher invokes python3 seo.py mcp."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/seo.py",
+          "line": 8,
+          "symbol": "COMMANDS",
+          "detail": "Standalone Python CLI dispatches production commands to scripts."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/scripts/mcp_server.py",
+          "line": 75,
+          "symbol": "serve",
+          "detail": "SEO hosts its stdio JSON-RPC MCP server in Python."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-agent-tools",
+      "status": "NA",
+      "rationale": "NA — cargo:rightkit-agent-tools is a Rust crate; SEO's published CLI & MCP targets are Python, with no Rust target, FFI, sidecar, or process bridge. Similar local behavior does not make this owner an applicable runtime dependency.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/seo/.mcp.codex.json",
+          "line": 3,
+          "detail": "Published Codex MCP launcher invokes python3 seo.py mcp."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/seo.py",
+          "line": 8,
+          "symbol": "COMMANDS",
+          "detail": "Standalone Python CLI dispatches production commands to scripts."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/scripts/mcp_server.py",
+          "line": 75,
+          "symbol": "serve",
+          "detail": "SEO hosts its stdio JSON-RPC MCP server in Python."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-align",
+      "status": "NA",
+      "rationale": "NA — cargo:rightkit-align is a Rust crate; SEO's published CLI & MCP targets are Python, with no Rust target, FFI, sidecar, or process bridge. Similar local behavior does not make this owner an applicable runtime dependency.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/seo/.mcp.codex.json",
+          "line": 3,
+          "detail": "Published Codex MCP launcher invokes python3 seo.py mcp."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/seo.py",
+          "line": 8,
+          "symbol": "COMMANDS",
+          "detail": "Standalone Python CLI dispatches production commands to scripts."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/scripts/mcp_server.py",
+          "line": 75,
+          "symbol": "serve",
+          "detail": "SEO hosts its stdio JSON-RPC MCP server in Python."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-asr",
+      "status": "NA",
+      "rationale": "NA — cargo:rightkit-asr is a Rust crate; SEO's published CLI & MCP targets are Python, with no Rust target, FFI, sidecar, or process bridge. Similar local behavior does not make this owner an applicable runtime dependency.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/seo/.mcp.codex.json",
+          "line": 3,
+          "detail": "Published Codex MCP launcher invokes python3 seo.py mcp."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/seo.py",
+          "line": 8,
+          "symbol": "COMMANDS",
+          "detail": "Standalone Python CLI dispatches production commands to scripts."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/scripts/mcp_server.py",
+          "line": 75,
+          "symbol": "serve",
+          "detail": "SEO hosts its stdio JSON-RPC MCP server in Python."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-audio",
+      "status": "NA",
+      "rationale": "NA — cargo:rightkit-audio is a Rust crate; SEO's published CLI & MCP targets are Python, with no Rust target, FFI, sidecar, or process bridge. Similar local behavior does not make this owner an applicable runtime dependency.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/seo/.mcp.codex.json",
+          "line": 3,
+          "detail": "Published Codex MCP launcher invokes python3 seo.py mcp."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/seo.py",
+          "line": 8,
+          "symbol": "COMMANDS",
+          "detail": "Standalone Python CLI dispatches production commands to scripts."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/scripts/mcp_server.py",
+          "line": 75,
+          "symbol": "serve",
+          "detail": "SEO hosts its stdio JSON-RPC MCP server in Python."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-automation",
+      "status": "NA",
+      "rationale": "NA — cargo:rightkit-automation is a Rust crate; SEO's published CLI & MCP targets are Python, with no Rust target, FFI, sidecar, or process bridge. Similar local behavior does not make this owner an applicable runtime dependency.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/seo/.mcp.codex.json",
+          "line": 3,
+          "detail": "Published Codex MCP launcher invokes python3 seo.py mcp."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/seo.py",
+          "line": 8,
+          "symbol": "COMMANDS",
+          "detail": "Standalone Python CLI dispatches production commands to scripts."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/scripts/mcp_server.py",
+          "line": 75,
+          "symbol": "serve",
+          "detail": "SEO hosts its stdio JSON-RPC MCP server in Python."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-browser",
+      "status": "NA",
+      "rationale": "NA — cargo:rightkit-browser is a Rust crate; SEO's published CLI & MCP targets are Python, with no Rust target, FFI, sidecar, or process bridge. Similar local behavior does not make this owner an applicable runtime dependency.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/seo/.mcp.codex.json",
+          "line": 3,
+          "detail": "Published Codex MCP launcher invokes python3 seo.py mcp."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/seo.py",
+          "line": 8,
+          "symbol": "COMMANDS",
+          "detail": "Standalone Python CLI dispatches production commands to scripts."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/scripts/mcp_server.py",
+          "line": 75,
+          "symbol": "serve",
+          "detail": "SEO hosts its stdio JSON-RPC MCP server in Python."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-cache",
+      "status": "NA",
+      "rationale": "NA — cargo:rightkit-cache is a Rust crate; SEO's published CLI & MCP targets are Python, with no Rust target, FFI, sidecar, or process bridge. Similar local behavior does not make this owner an applicable runtime dependency.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/seo/.mcp.codex.json",
+          "line": 3,
+          "detail": "Published Codex MCP launcher invokes python3 seo.py mcp."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/seo.py",
+          "line": 8,
+          "symbol": "COMMANDS",
+          "detail": "Standalone Python CLI dispatches production commands to scripts."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/scripts/mcp_server.py",
+          "line": 75,
+          "symbol": "serve",
+          "detail": "SEO hosts its stdio JSON-RPC MCP server in Python."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-channel-memory",
+      "status": "NA",
+      "rationale": "NA — cargo:rightkit-channel-memory is a Rust crate; SEO's published CLI & MCP targets are Python, with no Rust target, FFI, sidecar, or process bridge. Similar local behavior does not make this owner an applicable runtime dependency.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/seo/.mcp.codex.json",
+          "line": 3,
+          "detail": "Published Codex MCP launcher invokes python3 seo.py mcp."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/seo.py",
+          "line": 8,
+          "symbol": "COMMANDS",
+          "detail": "Standalone Python CLI dispatches production commands to scripts."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/scripts/mcp_server.py",
+          "line": 75,
+          "symbol": "serve",
+          "detail": "SEO hosts its stdio JSON-RPC MCP server in Python."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-compose",
+      "status": "NA",
+      "rationale": "NA — cargo:rightkit-compose is a Rust crate; SEO's published CLI & MCP targets are Python, with no Rust target, FFI, sidecar, or process bridge. Similar local behavior does not make this owner an applicable runtime dependency.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/seo/.mcp.codex.json",
+          "line": 3,
+          "detail": "Published Codex MCP launcher invokes python3 seo.py mcp."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/seo.py",
+          "line": 8,
+          "symbol": "COMMANDS",
+          "detail": "Standalone Python CLI dispatches production commands to scripts."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/scripts/mcp_server.py",
+          "line": 75,
+          "symbol": "serve",
+          "detail": "SEO hosts its stdio JSON-RPC MCP server in Python."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-contracts",
+      "status": "NA",
+      "rationale": "NA — cargo:rightkit-contracts is a Rust crate; SEO's published CLI & MCP targets are Python, with no Rust target, FFI, sidecar, or process bridge. Similar local behavior does not make this owner an applicable runtime dependency.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/seo/.mcp.codex.json",
+          "line": 3,
+          "detail": "Published Codex MCP launcher invokes python3 seo.py mcp."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/seo.py",
+          "line": 8,
+          "symbol": "COMMANDS",
+          "detail": "Standalone Python CLI dispatches production commands to scripts."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/scripts/mcp_server.py",
+          "line": 75,
+          "symbol": "serve",
+          "detail": "SEO hosts its stdio JSON-RPC MCP server in Python."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-control",
+      "status": "NA",
+      "rationale": "NA — cargo:rightkit-control is a Rust crate; SEO's published CLI & MCP targets are Python, with no Rust target, FFI, sidecar, or process bridge. Similar local behavior does not make this owner an applicable runtime dependency.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/seo/.mcp.codex.json",
+          "line": 3,
+          "detail": "Published Codex MCP launcher invokes python3 seo.py mcp."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/seo.py",
+          "line": 8,
+          "symbol": "COMMANDS",
+          "detail": "Standalone Python CLI dispatches production commands to scripts."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/scripts/mcp_server.py",
+          "line": 75,
+          "symbol": "serve",
+          "detail": "SEO hosts its stdio JSON-RPC MCP server in Python."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-crash",
+      "status": "NA",
+      "rationale": "NA — cargo:rightkit-crash is a Rust crate; SEO's published CLI & MCP targets are Python, with no Rust target, FFI, sidecar, or process bridge. Similar local behavior does not make this owner an applicable runtime dependency.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/seo/.mcp.codex.json",
+          "line": 3,
+          "detail": "Published Codex MCP launcher invokes python3 seo.py mcp."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/seo.py",
+          "line": 8,
+          "symbol": "COMMANDS",
+          "detail": "Standalone Python CLI dispatches production commands to scripts."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/scripts/mcp_server.py",
+          "line": 75,
+          "symbol": "serve",
+          "detail": "SEO hosts its stdio JSON-RPC MCP server in Python."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-daemon",
+      "status": "NA",
+      "rationale": "NA — cargo:rightkit-daemon is a Rust crate; SEO's published CLI & MCP targets are Python, with no Rust target, FFI, sidecar, or process bridge. Similar local behavior does not make this owner an applicable runtime dependency.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/seo/.mcp.codex.json",
+          "line": 3,
+          "detail": "Published Codex MCP launcher invokes python3 seo.py mcp."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/seo.py",
+          "line": 8,
+          "symbol": "COMMANDS",
+          "detail": "Standalone Python CLI dispatches production commands to scripts."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/scripts/mcp_server.py",
+          "line": 75,
+          "symbol": "serve",
+          "detail": "SEO hosts its stdio JSON-RPC MCP server in Python."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-db",
+      "status": "NA",
+      "rationale": "NA — cargo:rightkit-db is a Rust crate; SEO's published CLI & MCP targets are Python, with no Rust target, FFI, sidecar, or process bridge. Similar local behavior does not make this owner an applicable runtime dependency.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/seo/.mcp.codex.json",
+          "line": 3,
+          "detail": "Published Codex MCP launcher invokes python3 seo.py mcp."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/seo.py",
+          "line": 8,
+          "symbol": "COMMANDS",
+          "detail": "Standalone Python CLI dispatches production commands to scripts."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/scripts/mcp_server.py",
+          "line": 75,
+          "symbol": "serve",
+          "detail": "SEO hosts its stdio JSON-RPC MCP server in Python."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-embed",
+      "status": "NA",
+      "rationale": "NA — cargo:rightkit-embed is a Rust crate; SEO's published CLI & MCP targets are Python, with no Rust target, FFI, sidecar, or process bridge. Similar local behavior does not make this owner an applicable runtime dependency.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/seo/.mcp.codex.json",
+          "line": 3,
+          "detail": "Published Codex MCP launcher invokes python3 seo.py mcp."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/seo.py",
+          "line": 8,
+          "symbol": "COMMANDS",
+          "detail": "Standalone Python CLI dispatches production commands to scripts."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/scripts/mcp_server.py",
+          "line": 75,
+          "symbol": "serve",
+          "detail": "SEO hosts its stdio JSON-RPC MCP server in Python."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-framed-sidecar",
+      "status": "NA",
+      "rationale": "NA — cargo:rightkit-framed-sidecar is a Rust crate; SEO's published CLI & MCP targets are Python, with no Rust target, FFI, sidecar, or process bridge. Similar local behavior does not make this owner an applicable runtime dependency.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/seo/.mcp.codex.json",
+          "line": 3,
+          "detail": "Published Codex MCP launcher invokes python3 seo.py mcp."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/seo.py",
+          "line": 8,
+          "symbol": "COMMANDS",
+          "detail": "Standalone Python CLI dispatches production commands to scripts."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/scripts/mcp_server.py",
+          "line": 75,
+          "symbol": "serve",
+          "detail": "SEO hosts its stdio JSON-RPC MCP server in Python."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-fs",
+      "status": "NA",
+      "rationale": "NA — cargo:rightkit-fs is a Rust crate; SEO's published CLI & MCP targets are Python, with no Rust target, FFI, sidecar, or process bridge. Similar local behavior does not make this owner an applicable runtime dependency.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/seo/.mcp.codex.json",
+          "line": 3,
+          "detail": "Published Codex MCP launcher invokes python3 seo.py mcp."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/seo.py",
+          "line": 8,
+          "symbol": "COMMANDS",
+          "detail": "Standalone Python CLI dispatches production commands to scripts."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/scripts/mcp_server.py",
+          "line": 75,
+          "symbol": "serve",
+          "detail": "SEO hosts its stdio JSON-RPC MCP server in Python."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-fsindex",
+      "status": "NA",
+      "rationale": "NA — cargo:rightkit-fsindex is a Rust crate; SEO's published CLI & MCP targets are Python, with no Rust target, FFI, sidecar, or process bridge. Similar local behavior does not make this owner an applicable runtime dependency.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/seo/.mcp.codex.json",
+          "line": 3,
+          "detail": "Published Codex MCP launcher invokes python3 seo.py mcp."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/seo.py",
+          "line": 8,
+          "symbol": "COMMANDS",
+          "detail": "Standalone Python CLI dispatches production commands to scripts."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/scripts/mcp_server.py",
+          "line": 75,
+          "symbol": "serve",
+          "detail": "SEO hosts its stdio JSON-RPC MCP server in Python."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-hotkeys",
+      "status": "NA",
+      "rationale": "NA — cargo:rightkit-hotkeys is a Rust crate; SEO's published CLI & MCP targets are Python, with no Rust target, FFI, sidecar, or process bridge. Similar local behavior does not make this owner an applicable runtime dependency.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/seo/.mcp.codex.json",
+          "line": 3,
+          "detail": "Published Codex MCP launcher invokes python3 seo.py mcp."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/seo.py",
+          "line": 8,
+          "symbol": "COMMANDS",
+          "detail": "Standalone Python CLI dispatches production commands to scripts."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/scripts/mcp_server.py",
+          "line": 75,
+          "symbol": "serve",
+          "detail": "SEO hosts its stdio JSON-RPC MCP server in Python."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-http",
+      "status": "NA",
+      "rationale": "NA — cargo:rightkit-http is a Rust crate; SEO's published CLI & MCP targets are Python, with no Rust target, FFI, sidecar, or process bridge. Similar local behavior does not make this owner an applicable runtime dependency.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/seo/.mcp.codex.json",
+          "line": 3,
+          "detail": "Published Codex MCP launcher invokes python3 seo.py mcp."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/seo.py",
+          "line": 8,
+          "symbol": "COMMANDS",
+          "detail": "Standalone Python CLI dispatches production commands to scripts."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/scripts/mcp_server.py",
+          "line": 75,
+          "symbol": "serve",
+          "detail": "SEO hosts its stdio JSON-RPC MCP server in Python."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-jobs",
+      "status": "NA",
+      "rationale": "NA — cargo:rightkit-jobs is a Rust crate; SEO's published CLI & MCP targets are Python, with no Rust target, FFI, sidecar, or process bridge. Similar local behavior does not make this owner an applicable runtime dependency.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/seo/.mcp.codex.json",
+          "line": 3,
+          "detail": "Published Codex MCP launcher invokes python3 seo.py mcp."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/seo.py",
+          "line": 8,
+          "symbol": "COMMANDS",
+          "detail": "Standalone Python CLI dispatches production commands to scripts."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/scripts/mcp_server.py",
+          "line": 75,
+          "symbol": "serve",
+          "detail": "SEO hosts its stdio JSON-RPC MCP server in Python."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-license",
+      "status": "NA",
+      "rationale": "NA — cargo:rightkit-license is a Rust crate; SEO's published CLI & MCP targets are Python, with no Rust target, FFI, sidecar, or process bridge. Similar local behavior does not make this owner an applicable runtime dependency.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/seo/.mcp.codex.json",
+          "line": 3,
+          "detail": "Published Codex MCP launcher invokes python3 seo.py mcp."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/seo.py",
+          "line": 8,
+          "symbol": "COMMANDS",
+          "detail": "Standalone Python CLI dispatches production commands to scripts."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/scripts/mcp_server.py",
+          "line": 75,
+          "symbol": "serve",
+          "detail": "SEO hosts its stdio JSON-RPC MCP server in Python."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-llm",
+      "status": "NA",
+      "rationale": "NA — cargo:rightkit-llm is a Rust crate; SEO's published CLI & MCP targets are Python, with no Rust target, FFI, sidecar, or process bridge. Similar local behavior does not make this owner an applicable runtime dependency.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/seo/.mcp.codex.json",
+          "line": 3,
+          "detail": "Published Codex MCP launcher invokes python3 seo.py mcp."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/seo.py",
+          "line": 8,
+          "symbol": "COMMANDS",
+          "detail": "Standalone Python CLI dispatches production commands to scripts."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/scripts/mcp_server.py",
+          "line": 75,
+          "symbol": "serve",
+          "detail": "SEO hosts its stdio JSON-RPC MCP server in Python."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-logs",
+      "status": "NA",
+      "rationale": "NA — cargo:rightkit-logs is a Rust crate; SEO's published CLI & MCP targets are Python, with no Rust target, FFI, sidecar, or process bridge. Similar local behavior does not make this owner an applicable runtime dependency.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/seo/.mcp.codex.json",
+          "line": 3,
+          "detail": "Published Codex MCP launcher invokes python3 seo.py mcp."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/seo.py",
+          "line": 8,
+          "symbol": "COMMANDS",
+          "detail": "Standalone Python CLI dispatches production commands to scripts."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/scripts/mcp_server.py",
+          "line": 75,
+          "symbol": "serve",
+          "detail": "SEO hosts its stdio JSON-RPC MCP server in Python."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-mcp",
+      "status": "NA",
+      "rationale": "NA — cargo:rightkit-mcp is a Rust crate; SEO's published CLI & MCP targets are Python, with no Rust target, FFI, sidecar, or process bridge. Similar local behavior does not make this owner an applicable runtime dependency.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/seo/.mcp.codex.json",
+          "line": 3,
+          "detail": "Published Codex MCP launcher invokes python3 seo.py mcp."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/seo.py",
+          "line": 8,
+          "symbol": "COMMANDS",
+          "detail": "Standalone Python CLI dispatches production commands to scripts."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/scripts/mcp_server.py",
+          "line": 75,
+          "symbol": "serve",
+          "detail": "SEO hosts its stdio JSON-RPC MCP server in Python."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-media",
+      "status": "NA",
+      "rationale": "NA — cargo:rightkit-media is a Rust crate; SEO's published CLI & MCP targets are Python, with no Rust target, FFI, sidecar, or process bridge. Similar local behavior does not make this owner an applicable runtime dependency.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/seo/.mcp.codex.json",
+          "line": 3,
+          "detail": "Published Codex MCP launcher invokes python3 seo.py mcp."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/seo.py",
+          "line": 8,
+          "symbol": "COMMANDS",
+          "detail": "Standalone Python CLI dispatches production commands to scripts."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/scripts/mcp_server.py",
+          "line": 75,
+          "symbol": "serve",
+          "detail": "SEO hosts its stdio JSON-RPC MCP server in Python."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-models",
+      "status": "NA",
+      "rationale": "NA — cargo:rightkit-models is a Rust crate; SEO's published CLI & MCP targets are Python, with no Rust target, FFI, sidecar, or process bridge. Similar local behavior does not make this owner an applicable runtime dependency.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/seo/.mcp.codex.json",
+          "line": 3,
+          "detail": "Published Codex MCP launcher invokes python3 seo.py mcp."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/seo.py",
+          "line": 8,
+          "symbol": "COMMANDS",
+          "detail": "Standalone Python CLI dispatches production commands to scripts."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/scripts/mcp_server.py",
+          "line": 75,
+          "symbol": "serve",
+          "detail": "SEO hosts its stdio JSON-RPC MCP server in Python."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-oauth",
+      "status": "NA",
+      "rationale": "NA — cargo:rightkit-oauth is a Rust crate; SEO's published CLI & MCP targets are Python, with no Rust target, FFI, sidecar, or process bridge. Similar local behavior does not make this owner an applicable runtime dependency.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/seo/.mcp.codex.json",
+          "line": 3,
+          "detail": "Published Codex MCP launcher invokes python3 seo.py mcp."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/seo.py",
+          "line": 8,
+          "symbol": "COMMANDS",
+          "detail": "Standalone Python CLI dispatches production commands to scripts."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/scripts/mcp_server.py",
+          "line": 75,
+          "symbol": "serve",
+          "detail": "SEO hosts its stdio JSON-RPC MCP server in Python."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-ocr",
+      "status": "NA",
+      "rationale": "NA — cargo:rightkit-ocr is a Rust crate; SEO's published CLI & MCP targets are Python, with no Rust target, FFI, sidecar, or process bridge. Similar local behavior does not make this owner an applicable runtime dependency.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/seo/.mcp.codex.json",
+          "line": 3,
+          "detail": "Published Codex MCP launcher invokes python3 seo.py mcp."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/seo.py",
+          "line": 8,
+          "symbol": "COMMANDS",
+          "detail": "Standalone Python CLI dispatches production commands to scripts."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/scripts/mcp_server.py",
+          "line": 75,
+          "symbol": "serve",
+          "detail": "SEO hosts its stdio JSON-RPC MCP server in Python."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-ort",
+      "status": "NA",
+      "rationale": "NA — cargo:rightkit-ort is a Rust crate; SEO's published CLI & MCP targets are Python, with no Rust target, FFI, sidecar, or process bridge. Similar local behavior does not make this owner an applicable runtime dependency.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/seo/.mcp.codex.json",
+          "line": 3,
+          "detail": "Published Codex MCP launcher invokes python3 seo.py mcp."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/seo.py",
+          "line": 8,
+          "symbol": "COMMANDS",
+          "detail": "Standalone Python CLI dispatches production commands to scripts."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/scripts/mcp_server.py",
+          "line": 75,
+          "symbol": "serve",
+          "detail": "SEO hosts its stdio JSON-RPC MCP server in Python."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-overlay",
+      "status": "NA",
+      "rationale": "NA — cargo:rightkit-overlay is a Rust crate; SEO's published CLI & MCP targets are Python, with no Rust target, FFI, sidecar, or process bridge. Similar local behavior does not make this owner an applicable runtime dependency.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/seo/.mcp.codex.json",
+          "line": 3,
+          "detail": "Published Codex MCP launcher invokes python3 seo.py mcp."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/seo.py",
+          "line": 8,
+          "symbol": "COMMANDS",
+          "detail": "Standalone Python CLI dispatches production commands to scripts."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/scripts/mcp_server.py",
+          "line": 75,
+          "symbol": "serve",
+          "detail": "SEO hosts its stdio JSON-RPC MCP server in Python."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-ownership",
+      "status": "NA",
+      "rationale": "NA — cargo:rightkit-ownership is a Rust crate; SEO's published CLI & MCP targets are Python, with no Rust target, FFI, sidecar, or process bridge. Similar local behavior does not make this owner an applicable runtime dependency.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/seo/.mcp.codex.json",
+          "line": 3,
+          "detail": "Published Codex MCP launcher invokes python3 seo.py mcp."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/seo.py",
+          "line": 8,
+          "symbol": "COMMANDS",
+          "detail": "Standalone Python CLI dispatches production commands to scripts."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/scripts/mcp_server.py",
+          "line": 75,
+          "symbol": "serve",
+          "detail": "SEO hosts its stdio JSON-RPC MCP server in Python."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-pdf",
+      "status": "NA",
+      "rationale": "NA — cargo:rightkit-pdf is a Rust crate; SEO's published CLI & MCP targets are Python, with no Rust target, FFI, sidecar, or process bridge. Similar local behavior does not make this owner an applicable runtime dependency.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/seo/.mcp.codex.json",
+          "line": 3,
+          "detail": "Published Codex MCP launcher invokes python3 seo.py mcp."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/seo.py",
+          "line": 8,
+          "symbol": "COMMANDS",
+          "detail": "Standalone Python CLI dispatches production commands to scripts."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/scripts/mcp_server.py",
+          "line": 75,
+          "symbol": "serve",
+          "detail": "SEO hosts its stdio JSON-RPC MCP server in Python."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-playback",
+      "status": "NA",
+      "rationale": "NA — cargo:rightkit-playback is a Rust crate; SEO's published CLI & MCP targets are Python, with no Rust target, FFI, sidecar, or process bridge. Similar local behavior does not make this owner an applicable runtime dependency.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/seo/.mcp.codex.json",
+          "line": 3,
+          "detail": "Published Codex MCP launcher invokes python3 seo.py mcp."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/seo.py",
+          "line": 8,
+          "symbol": "COMMANDS",
+          "detail": "Standalone Python CLI dispatches production commands to scripts."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/scripts/mcp_server.py",
+          "line": 75,
+          "symbol": "serve",
+          "detail": "SEO hosts its stdio JSON-RPC MCP server in Python."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-process",
+      "status": "NA",
+      "rationale": "NA — cargo:rightkit-process is a Rust crate; SEO's published CLI & MCP targets are Python, with no Rust target, FFI, sidecar, or process bridge. Similar local behavior does not make this owner an applicable runtime dependency.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/seo/.mcp.codex.json",
+          "line": 3,
+          "detail": "Published Codex MCP launcher invokes python3 seo.py mcp."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/seo.py",
+          "line": 8,
+          "symbol": "COMMANDS",
+          "detail": "Standalone Python CLI dispatches production commands to scripts."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/scripts/mcp_server.py",
+          "line": 75,
+          "symbol": "serve",
+          "detail": "SEO hosts its stdio JSON-RPC MCP server in Python."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-qa",
+      "status": "NA",
+      "rationale": "NA — cargo:rightkit-qa is a Rust crate; SEO's published CLI & MCP targets are Python, with no Rust target, FFI, sidecar, or process bridge. Similar local behavior does not make this owner an applicable runtime dependency.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/seo/.mcp.codex.json",
+          "line": 3,
+          "detail": "Published Codex MCP launcher invokes python3 seo.py mcp."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/seo.py",
+          "line": 8,
+          "symbol": "COMMANDS",
+          "detail": "Standalone Python CLI dispatches production commands to scripts."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/scripts/mcp_server.py",
+          "line": 75,
+          "symbol": "serve",
+          "detail": "SEO hosts its stdio JSON-RPC MCP server in Python."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-qts",
+      "status": "NA",
+      "rationale": "NA — cargo:rightkit-qts is a Rust crate; SEO's published CLI & MCP targets are Python, with no Rust target, FFI, sidecar, or process bridge. Similar local behavior does not make this owner an applicable runtime dependency.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/seo/.mcp.codex.json",
+          "line": 3,
+          "detail": "Published Codex MCP launcher invokes python3 seo.py mcp."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/seo.py",
+          "line": 8,
+          "symbol": "COMMANDS",
+          "detail": "Standalone Python CLI dispatches production commands to scripts."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/scripts/mcp_server.py",
+          "line": 75,
+          "symbol": "serve",
+          "detail": "SEO hosts its stdio JSON-RPC MCP server in Python."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-qts-ggml",
+      "status": "NA",
+      "rationale": "NA — cargo:rightkit-qts-ggml is a Rust crate; SEO's published CLI & MCP targets are Python, with no Rust target, FFI, sidecar, or process bridge. Similar local behavior does not make this owner an applicable runtime dependency.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/seo/.mcp.codex.json",
+          "line": 3,
+          "detail": "Published Codex MCP launcher invokes python3 seo.py mcp."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/seo.py",
+          "line": 8,
+          "symbol": "COMMANDS",
+          "detail": "Standalone Python CLI dispatches production commands to scripts."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/scripts/mcp_server.py",
+          "line": 75,
+          "symbol": "serve",
+          "detail": "SEO hosts its stdio JSON-RPC MCP server in Python."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-qts-ggml-sys",
+      "status": "NA",
+      "rationale": "NA — cargo:rightkit-qts-ggml-sys is a Rust crate; SEO's published CLI & MCP targets are Python, with no Rust target, FFI, sidecar, or process bridge. Similar local behavior does not make this owner an applicable runtime dependency.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/seo/.mcp.codex.json",
+          "line": 3,
+          "detail": "Published Codex MCP launcher invokes python3 seo.py mcp."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/seo.py",
+          "line": 8,
+          "symbol": "COMMANDS",
+          "detail": "Standalone Python CLI dispatches production commands to scripts."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/scripts/mcp_server.py",
+          "line": 75,
+          "symbol": "serve",
+          "detail": "SEO hosts its stdio JSON-RPC MCP server in Python."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-record",
+      "status": "NA",
+      "rationale": "NA — cargo:rightkit-record is a Rust crate; SEO's published CLI & MCP targets are Python, with no Rust target, FFI, sidecar, or process bridge. Similar local behavior does not make this owner an applicable runtime dependency.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/seo/.mcp.codex.json",
+          "line": 3,
+          "detail": "Published Codex MCP launcher invokes python3 seo.py mcp."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/seo.py",
+          "line": 8,
+          "symbol": "COMMANDS",
+          "detail": "Standalone Python CLI dispatches production commands to scripts."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/scripts/mcp_server.py",
+          "line": 75,
+          "symbol": "serve",
+          "detail": "SEO hosts its stdio JSON-RPC MCP server in Python."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-review",
+      "status": "NA",
+      "rationale": "NA — cargo:rightkit-review is a Rust crate; SEO's published CLI & MCP targets are Python, with no Rust target, FFI, sidecar, or process bridge. Similar local behavior does not make this owner an applicable runtime dependency.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/seo/.mcp.codex.json",
+          "line": 3,
+          "detail": "Published Codex MCP launcher invokes python3 seo.py mcp."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/seo.py",
+          "line": 8,
+          "symbol": "COMMANDS",
+          "detail": "Standalone Python CLI dispatches production commands to scripts."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/scripts/mcp_server.py",
+          "line": 75,
+          "symbol": "serve",
+          "detail": "SEO hosts its stdio JSON-RPC MCP server in Python."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-sandbox",
+      "status": "NA",
+      "rationale": "NA — cargo:rightkit-sandbox is a Rust crate; SEO's published CLI & MCP targets are Python, with no Rust target, FFI, sidecar, or process bridge. Similar local behavior does not make this owner an applicable runtime dependency.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/seo/.mcp.codex.json",
+          "line": 3,
+          "detail": "Published Codex MCP launcher invokes python3 seo.py mcp."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/seo.py",
+          "line": 8,
+          "symbol": "COMMANDS",
+          "detail": "Standalone Python CLI dispatches production commands to scripts."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/scripts/mcp_server.py",
+          "line": 75,
+          "symbol": "serve",
+          "detail": "SEO hosts its stdio JSON-RPC MCP server in Python."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-scenario",
+      "status": "NA",
+      "rationale": "NA — cargo:rightkit-scenario is a Rust crate; SEO's published CLI & MCP targets are Python, with no Rust target, FFI, sidecar, or process bridge. Similar local behavior does not make this owner an applicable runtime dependency.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/seo/.mcp.codex.json",
+          "line": 3,
+          "detail": "Published Codex MCP launcher invokes python3 seo.py mcp."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/seo.py",
+          "line": 8,
+          "symbol": "COMMANDS",
+          "detail": "Standalone Python CLI dispatches production commands to scripts."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/scripts/mcp_server.py",
+          "line": 75,
+          "symbol": "serve",
+          "detail": "SEO hosts its stdio JSON-RPC MCP server in Python."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-search",
+      "status": "NA",
+      "rationale": "NA — cargo:rightkit-search is a Rust crate; SEO's published CLI & MCP targets are Python, with no Rust target, FFI, sidecar, or process bridge. Similar local behavior does not make this owner an applicable runtime dependency.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/seo/.mcp.codex.json",
+          "line": 3,
+          "detail": "Published Codex MCP launcher invokes python3 seo.py mcp."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/seo.py",
+          "line": 8,
+          "symbol": "COMMANDS",
+          "detail": "Standalone Python CLI dispatches production commands to scripts."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/scripts/mcp_server.py",
+          "line": 75,
+          "symbol": "serve",
+          "detail": "SEO hosts its stdio JSON-RPC MCP server in Python."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-secrets",
+      "status": "NA",
+      "rationale": "NA — cargo:rightkit-secrets is a Rust crate; SEO's published CLI & MCP targets are Python, with no Rust target, FFI, sidecar, or process bridge. Similar local behavior does not make this owner an applicable runtime dependency.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/seo/.mcp.codex.json",
+          "line": 3,
+          "detail": "Published Codex MCP launcher invokes python3 seo.py mcp."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/seo.py",
+          "line": 8,
+          "symbol": "COMMANDS",
+          "detail": "Standalone Python CLI dispatches production commands to scripts."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/scripts/mcp_server.py",
+          "line": 75,
+          "symbol": "serve",
+          "detail": "SEO hosts its stdio JSON-RPC MCP server in Python."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-send",
+      "status": "NA",
+      "rationale": "NA — cargo:rightkit-send is a Rust crate; SEO's published CLI & MCP targets are Python, with no Rust target, FFI, sidecar, or process bridge. Similar local behavior does not make this owner an applicable runtime dependency.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/seo/.mcp.codex.json",
+          "line": 3,
+          "detail": "Published Codex MCP launcher invokes python3 seo.py mcp."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/seo.py",
+          "line": 8,
+          "symbol": "COMMANDS",
+          "detail": "Standalone Python CLI dispatches production commands to scripts."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/scripts/mcp_server.py",
+          "line": 75,
+          "symbol": "serve",
+          "detail": "SEO hosts its stdio JSON-RPC MCP server in Python."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-service",
+      "status": "NA",
+      "rationale": "NA — cargo:rightkit-service is a Rust crate; SEO's published CLI & MCP targets are Python, with no Rust target, FFI, sidecar, or process bridge. Similar local behavior does not make this owner an applicable runtime dependency.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/seo/.mcp.codex.json",
+          "line": 3,
+          "detail": "Published Codex MCP launcher invokes python3 seo.py mcp."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/seo.py",
+          "line": 8,
+          "symbol": "COMMANDS",
+          "detail": "Standalone Python CLI dispatches production commands to scripts."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/scripts/mcp_server.py",
+          "line": 75,
+          "symbol": "serve",
+          "detail": "SEO hosts its stdio JSON-RPC MCP server in Python."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-settings",
+      "status": "NA",
+      "rationale": "NA — cargo:rightkit-settings is a Rust crate; SEO's published CLI & MCP targets are Python, with no Rust target, FFI, sidecar, or process bridge. Similar local behavior does not make this owner an applicable runtime dependency.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/seo/.mcp.codex.json",
+          "line": 3,
+          "detail": "Published Codex MCP launcher invokes python3 seo.py mcp."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/seo.py",
+          "line": 8,
+          "symbol": "COMMANDS",
+          "detail": "Standalone Python CLI dispatches production commands to scripts."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/scripts/mcp_server.py",
+          "line": 75,
+          "symbol": "serve",
+          "detail": "SEO hosts its stdio JSON-RPC MCP server in Python."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-shell",
+      "status": "NA",
+      "rationale": "NA — cargo:rightkit-shell is a Rust crate; SEO's published CLI & MCP targets are Python, with no Rust target, FFI, sidecar, or process bridge. Similar local behavior does not make this owner an applicable runtime dependency.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/seo/.mcp.codex.json",
+          "line": 3,
+          "detail": "Published Codex MCP launcher invokes python3 seo.py mcp."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/seo.py",
+          "line": 8,
+          "symbol": "COMMANDS",
+          "detail": "Standalone Python CLI dispatches production commands to scripts."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/scripts/mcp_server.py",
+          "line": 75,
+          "symbol": "serve",
+          "detail": "SEO hosts its stdio JSON-RPC MCP server in Python."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-speech-client",
+      "status": "NA",
+      "rationale": "NA — cargo:rightkit-speech-client is a Rust crate; SEO's published CLI & MCP targets are Python, with no Rust target, FFI, sidecar, or process bridge. Similar local behavior does not make this owner an applicable runtime dependency.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/seo/.mcp.codex.json",
+          "line": 3,
+          "detail": "Published Codex MCP launcher invokes python3 seo.py mcp."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/seo.py",
+          "line": 8,
+          "symbol": "COMMANDS",
+          "detail": "Standalone Python CLI dispatches production commands to scripts."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/scripts/mcp_server.py",
+          "line": 75,
+          "symbol": "serve",
+          "detail": "SEO hosts its stdio JSON-RPC MCP server in Python."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-sync",
+      "status": "NA",
+      "rationale": "NA — cargo:rightkit-sync is a Rust crate; SEO's published CLI & MCP targets are Python, with no Rust target, FFI, sidecar, or process bridge. Similar local behavior does not make this owner an applicable runtime dependency.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/seo/.mcp.codex.json",
+          "line": 3,
+          "detail": "Published Codex MCP launcher invokes python3 seo.py mcp."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/seo.py",
+          "line": 8,
+          "symbol": "COMMANDS",
+          "detail": "Standalone Python CLI dispatches production commands to scripts."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/scripts/mcp_server.py",
+          "line": 75,
+          "symbol": "serve",
+          "detail": "SEO hosts its stdio JSON-RPC MCP server in Python."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-tauri",
+      "status": "NA",
+      "rationale": "NA — cargo:rightkit-tauri is a Rust crate; SEO's published CLI & MCP targets are Python, with no Rust target, FFI, sidecar, or process bridge. Similar local behavior does not make this owner an applicable runtime dependency.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/seo/.mcp.codex.json",
+          "line": 3,
+          "detail": "Published Codex MCP launcher invokes python3 seo.py mcp."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/seo.py",
+          "line": 8,
+          "symbol": "COMMANDS",
+          "detail": "Standalone Python CLI dispatches production commands to scripts."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/scripts/mcp_server.py",
+          "line": 75,
+          "symbol": "serve",
+          "detail": "SEO hosts its stdio JSON-RPC MCP server in Python."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-transcript",
+      "status": "NA",
+      "rationale": "NA — cargo:rightkit-transcript is a Rust crate; SEO's published CLI & MCP targets are Python, with no Rust target, FFI, sidecar, or process bridge. Similar local behavior does not make this owner an applicable runtime dependency.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/seo/.mcp.codex.json",
+          "line": 3,
+          "detail": "Published Codex MCP launcher invokes python3 seo.py mcp."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/seo.py",
+          "line": 8,
+          "symbol": "COMMANDS",
+          "detail": "Standalone Python CLI dispatches production commands to scripts."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/scripts/mcp_server.py",
+          "line": 75,
+          "symbol": "serve",
+          "detail": "SEO hosts its stdio JSON-RPC MCP server in Python."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-tts",
+      "status": "NA",
+      "rationale": "NA — cargo:rightkit-tts is a Rust crate; SEO's published CLI & MCP targets are Python, with no Rust target, FFI, sidecar, or process bridge. Similar local behavior does not make this owner an applicable runtime dependency.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/seo/.mcp.codex.json",
+          "line": 3,
+          "detail": "Published Codex MCP launcher invokes python3 seo.py mcp."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/seo.py",
+          "line": 8,
+          "symbol": "COMMANDS",
+          "detail": "Standalone Python CLI dispatches production commands to scripts."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/scripts/mcp_server.py",
+          "line": 75,
+          "symbol": "serve",
+          "detail": "SEO hosts its stdio JSON-RPC MCP server in Python."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-vad",
+      "status": "NA",
+      "rationale": "NA — cargo:rightkit-vad is a Rust crate; SEO's published CLI & MCP targets are Python, with no Rust target, FFI, sidecar, or process bridge. Similar local behavior does not make this owner an applicable runtime dependency.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/seo/.mcp.codex.json",
+          "line": 3,
+          "detail": "Published Codex MCP launcher invokes python3 seo.py mcp."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/seo.py",
+          "line": 8,
+          "symbol": "COMMANDS",
+          "detail": "Standalone Python CLI dispatches production commands to scripts."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/scripts/mcp_server.py",
+          "line": 75,
+          "symbol": "serve",
+          "detail": "SEO hosts its stdio JSON-RPC MCP server in Python."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-watch",
+      "status": "NA",
+      "rationale": "NA — cargo:rightkit-watch is a Rust crate; SEO's published CLI & MCP targets are Python, with no Rust target, FFI, sidecar, or process bridge. Similar local behavior does not make this owner an applicable runtime dependency.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/seo/.mcp.codex.json",
+          "line": 3,
+          "detail": "Published Codex MCP launcher invokes python3 seo.py mcp."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/seo.py",
+          "line": 8,
+          "symbol": "COMMANDS",
+          "detail": "Standalone Python CLI dispatches production commands to scripts."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/scripts/mcp_server.py",
+          "line": 75,
+          "symbol": "serve",
+          "detail": "SEO hosts its stdio JSON-RPC MCP server in Python."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/agent-room-mcp",
+      "status": "NA",
+      "rationale": "NA — npm:@rightkit/agent-room-mcp is a Node ESM package; SEO's Python CLI/MCP routes do not import it or provide a package bridge. Its package API is not an active SEO runtime dependency.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/seo/.mcp.codex.json",
+          "line": 3,
+          "detail": "Published Codex MCP launcher invokes python3 seo.py mcp."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/seo.py",
+          "line": 8,
+          "symbol": "COMMANDS",
+          "detail": "Standalone Python CLI dispatches production commands to scripts."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/scripts/mcp_server.py",
+          "line": 75,
+          "symbol": "serve",
+          "detail": "SEO hosts its stdio JSON-RPC MCP server in Python."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/scripts/render_gap.mjs",
+          "line": 1,
+          "symbol": "render_gap.mjs",
+          "detail": "Standalone Node executable is an optional direct CLI helper, not a package-hosted app target."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/app-shell",
+      "status": "NA",
+      "rationale": "NA — npm:@rightkit/app-shell is a Node ESM package; SEO's Python CLI/MCP routes do not import it or provide a package bridge. Its package API is not an active SEO runtime dependency.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/seo/.mcp.codex.json",
+          "line": 3,
+          "detail": "Published Codex MCP launcher invokes python3 seo.py mcp."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/seo.py",
+          "line": 8,
+          "symbol": "COMMANDS",
+          "detail": "Standalone Python CLI dispatches production commands to scripts."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/scripts/mcp_server.py",
+          "line": 75,
+          "symbol": "serve",
+          "detail": "SEO hosts its stdio JSON-RPC MCP server in Python."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/scripts/render_gap.mjs",
+          "line": 1,
+          "symbol": "render_gap.mjs",
+          "detail": "Standalone Node executable is an optional direct CLI helper, not a package-hosted app target."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/ax",
+      "status": "NA",
+      "rationale": "NA — npm:@rightkit/ax is a Node ESM package; SEO's Python CLI/MCP routes do not import it or provide a package bridge. Its package API is not an active SEO runtime dependency.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/seo/.mcp.codex.json",
+          "line": 3,
+          "detail": "Published Codex MCP launcher invokes python3 seo.py mcp."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/seo.py",
+          "line": 8,
+          "symbol": "COMMANDS",
+          "detail": "Standalone Python CLI dispatches production commands to scripts."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/scripts/mcp_server.py",
+          "line": 75,
+          "symbol": "serve",
+          "detail": "SEO hosts its stdio JSON-RPC MCP server in Python."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/scripts/render_gap.mjs",
+          "line": 1,
+          "symbol": "render_gap.mjs",
+          "detail": "Standalone Node executable is an optional direct CLI helper, not a package-hosted app target."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/build-control-policy",
+      "status": "NA",
+      "rationale": "NA — @rightkit/build-control-policy is an internal Node build-control owner; SEO ships no Node build-control target or package bridge. It is outside this standalone Python CLI/MCP runtime.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/seo/.mcp.codex.json",
+          "line": 3,
+          "detail": "Published Codex MCP launcher invokes python3 seo.py mcp."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/seo.py",
+          "line": 8,
+          "symbol": "COMMANDS",
+          "detail": "Standalone Python CLI dispatches production commands to scripts."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/scripts/mcp_server.py",
+          "line": 75,
+          "symbol": "serve",
+          "detail": "SEO hosts its stdio JSON-RPC MCP server in Python."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/scripts/render_gap.mjs",
+          "line": 1,
+          "symbol": "render_gap.mjs",
+          "detail": "Standalone Node executable is an optional direct CLI helper, not a package-hosted app target."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/doc-render",
+      "status": "NA",
+      "rationale": "NA — npm:@rightkit/doc-render is a Node ESM package; SEO's Python CLI/MCP routes do not import it or provide a package bridge. Its package API is not an active SEO runtime dependency.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/seo/.mcp.codex.json",
+          "line": 3,
+          "detail": "Published Codex MCP launcher invokes python3 seo.py mcp."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/seo.py",
+          "line": 8,
+          "symbol": "COMMANDS",
+          "detail": "Standalone Python CLI dispatches production commands to scripts."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/scripts/mcp_server.py",
+          "line": 75,
+          "symbol": "serve",
+          "detail": "SEO hosts its stdio JSON-RPC MCP server in Python."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/scripts/render_gap.mjs",
+          "line": 1,
+          "symbol": "render_gap.mjs",
+          "detail": "Standalone Node executable is an optional direct CLI helper, not a package-hosted app target."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/git",
+      "status": "NA",
+      "rationale": "NA — npm:@rightkit/git is a Node ESM package; SEO's Python CLI/MCP routes do not import it or provide a package bridge. Its package API is not an active SEO runtime dependency.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/seo/.mcp.codex.json",
+          "line": 3,
+          "detail": "Published Codex MCP launcher invokes python3 seo.py mcp."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/seo.py",
+          "line": 8,
+          "symbol": "COMMANDS",
+          "detail": "Standalone Python CLI dispatches production commands to scripts."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/scripts/mcp_server.py",
+          "line": 75,
+          "symbol": "serve",
+          "detail": "SEO hosts its stdio JSON-RPC MCP server in Python."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/scripts/render_gap.mjs",
+          "line": 1,
+          "symbol": "render_gap.mjs",
+          "detail": "Standalone Node executable is an optional direct CLI helper, not a package-hosted app target."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/hooks",
+      "status": "NA",
+      "rationale": "NA — npm:@rightkit/hooks is a Node ESM package; SEO's Python CLI/MCP routes do not import it or provide a package bridge. Its package API is not an active SEO runtime dependency.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/seo/.mcp.codex.json",
+          "line": 3,
+          "detail": "Published Codex MCP launcher invokes python3 seo.py mcp."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/seo.py",
+          "line": 8,
+          "symbol": "COMMANDS",
+          "detail": "Standalone Python CLI dispatches production commands to scripts."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/scripts/mcp_server.py",
+          "line": 75,
+          "symbol": "serve",
+          "detail": "SEO hosts its stdio JSON-RPC MCP server in Python."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/scripts/render_gap.mjs",
+          "line": 1,
+          "symbol": "render_gap.mjs",
+          "detail": "Standalone Node executable is an optional direct CLI helper, not a package-hosted app target."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/i18n",
+      "status": "NA",
+      "rationale": "NA — npm:@rightkit/i18n is a Node ESM package; SEO's Python CLI/MCP routes do not import it or provide a package bridge. Its package API is not an active SEO runtime dependency.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/seo/.mcp.codex.json",
+          "line": 3,
+          "detail": "Published Codex MCP launcher invokes python3 seo.py mcp."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/seo.py",
+          "line": 8,
+          "symbol": "COMMANDS",
+          "detail": "Standalone Python CLI dispatches production commands to scripts."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/scripts/mcp_server.py",
+          "line": 75,
+          "symbol": "serve",
+          "detail": "SEO hosts its stdio JSON-RPC MCP server in Python."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/scripts/render_gap.mjs",
+          "line": 1,
+          "symbol": "render_gap.mjs",
+          "detail": "Standalone Node executable is an optional direct CLI helper, not a package-hosted app target."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/legal",
+      "status": "NA",
+      "rationale": "NA — npm:@rightkit/legal is a Node ESM package; SEO's Python CLI/MCP routes do not import it or provide a package bridge. Its package API is not an active SEO runtime dependency.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/seo/.mcp.codex.json",
+          "line": 3,
+          "detail": "Published Codex MCP launcher invokes python3 seo.py mcp."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/seo.py",
+          "line": 8,
+          "symbol": "COMMANDS",
+          "detail": "Standalone Python CLI dispatches production commands to scripts."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/scripts/mcp_server.py",
+          "line": 75,
+          "symbol": "serve",
+          "detail": "SEO hosts its stdio JSON-RPC MCP server in Python."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/scripts/render_gap.mjs",
+          "line": 1,
+          "symbol": "render_gap.mjs",
+          "detail": "Standalone Node executable is an optional direct CLI helper, not a package-hosted app target."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/legal-ui",
+      "status": "NA",
+      "rationale": "NA — npm:@rightkit/legal-ui is a Node ESM package; SEO's Python CLI/MCP routes do not import it or provide a package bridge. Its package API is not an active SEO runtime dependency.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/seo/.mcp.codex.json",
+          "line": 3,
+          "detail": "Published Codex MCP launcher invokes python3 seo.py mcp."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/seo.py",
+          "line": 8,
+          "symbol": "COMMANDS",
+          "detail": "Standalone Python CLI dispatches production commands to scripts."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/scripts/mcp_server.py",
+          "line": 75,
+          "symbol": "serve",
+          "detail": "SEO hosts its stdio JSON-RPC MCP server in Python."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/scripts/render_gap.mjs",
+          "line": 1,
+          "symbol": "render_gap.mjs",
+          "detail": "Standalone Node executable is an optional direct CLI helper, not a package-hosted app target."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/license",
+      "status": "NA",
+      "rationale": "NA — npm:@rightkit/license is a Node ESM package; SEO's Python CLI/MCP routes do not import it or provide a package bridge. Its package API is not an active SEO runtime dependency.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/seo/.mcp.codex.json",
+          "line": 3,
+          "detail": "Published Codex MCP launcher invokes python3 seo.py mcp."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/seo.py",
+          "line": 8,
+          "symbol": "COMMANDS",
+          "detail": "Standalone Python CLI dispatches production commands to scripts."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/scripts/mcp_server.py",
+          "line": 75,
+          "symbol": "serve",
+          "detail": "SEO hosts its stdio JSON-RPC MCP server in Python."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/scripts/render_gap.mjs",
+          "line": 1,
+          "symbol": "render_gap.mjs",
+          "detail": "Standalone Node executable is an optional direct CLI helper, not a package-hosted app target."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/logs",
+      "status": "NA",
+      "rationale": "NA — npm:@rightkit/logs is a Node ESM package; SEO's Python CLI/MCP routes do not import it or provide a package bridge. Its package API is not an active SEO runtime dependency.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/seo/.mcp.codex.json",
+          "line": 3,
+          "detail": "Published Codex MCP launcher invokes python3 seo.py mcp."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/seo.py",
+          "line": 8,
+          "symbol": "COMMANDS",
+          "detail": "Standalone Python CLI dispatches production commands to scripts."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/scripts/mcp_server.py",
+          "line": 75,
+          "symbol": "serve",
+          "detail": "SEO hosts its stdio JSON-RPC MCP server in Python."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/scripts/render_gap.mjs",
+          "line": 1,
+          "symbol": "render_gap.mjs",
+          "detail": "Standalone Node executable is an optional direct CLI helper, not a package-hosted app target."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/media-ui",
+      "status": "NA",
+      "rationale": "NA — npm:@rightkit/media-ui is a Node ESM package; SEO's Python CLI/MCP routes do not import it or provide a package bridge. Its package API is not an active SEO runtime dependency.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/seo/.mcp.codex.json",
+          "line": 3,
+          "detail": "Published Codex MCP launcher invokes python3 seo.py mcp."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/seo.py",
+          "line": 8,
+          "symbol": "COMMANDS",
+          "detail": "Standalone Python CLI dispatches production commands to scripts."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/scripts/mcp_server.py",
+          "line": 75,
+          "symbol": "serve",
+          "detail": "SEO hosts its stdio JSON-RPC MCP server in Python."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/scripts/render_gap.mjs",
+          "line": 1,
+          "symbol": "render_gap.mjs",
+          "detail": "Standalone Node executable is an optional direct CLI helper, not a package-hosted app target."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/onboarding",
+      "status": "NA",
+      "rationale": "NA — npm:@rightkit/onboarding is a Node ESM package; SEO's Python CLI/MCP routes do not import it or provide a package bridge. Its package API is not an active SEO runtime dependency.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/seo/.mcp.codex.json",
+          "line": 3,
+          "detail": "Published Codex MCP launcher invokes python3 seo.py mcp."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/seo.py",
+          "line": 8,
+          "symbol": "COMMANDS",
+          "detail": "Standalone Python CLI dispatches production commands to scripts."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/scripts/mcp_server.py",
+          "line": 75,
+          "symbol": "serve",
+          "detail": "SEO hosts its stdio JSON-RPC MCP server in Python."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/scripts/render_gap.mjs",
+          "line": 1,
+          "symbol": "render_gap.mjs",
+          "detail": "Standalone Node executable is an optional direct CLI helper, not a package-hosted app target."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/pdf-ui",
+      "status": "NA",
+      "rationale": "NA — npm:@rightkit/pdf-ui is a Node ESM package; SEO's Python CLI/MCP routes do not import it or provide a package bridge. Its package API is not an active SEO runtime dependency.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/seo/.mcp.codex.json",
+          "line": 3,
+          "detail": "Published Codex MCP launcher invokes python3 seo.py mcp."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/seo.py",
+          "line": 8,
+          "symbol": "COMMANDS",
+          "detail": "Standalone Python CLI dispatches production commands to scripts."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/scripts/mcp_server.py",
+          "line": 75,
+          "symbol": "serve",
+          "detail": "SEO hosts its stdio JSON-RPC MCP server in Python."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/scripts/render_gap.mjs",
+          "line": 1,
+          "symbol": "render_gap.mjs",
+          "detail": "Standalone Node executable is an optional direct CLI helper, not a package-hosted app target."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/platform-ui",
+      "status": "NA",
+      "rationale": "NA — npm:@rightkit/platform-ui is a Node ESM package; SEO's Python CLI/MCP routes do not import it or provide a package bridge. Its package API is not an active SEO runtime dependency.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/seo/.mcp.codex.json",
+          "line": 3,
+          "detail": "Published Codex MCP launcher invokes python3 seo.py mcp."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/seo.py",
+          "line": 8,
+          "symbol": "COMMANDS",
+          "detail": "Standalone Python CLI dispatches production commands to scripts."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/scripts/mcp_server.py",
+          "line": 75,
+          "symbol": "serve",
+          "detail": "SEO hosts its stdio JSON-RPC MCP server in Python."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/scripts/render_gap.mjs",
+          "line": 1,
+          "symbol": "render_gap.mjs",
+          "detail": "Standalone Node executable is an optional direct CLI helper, not a package-hosted app target."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/qa",
+      "status": "NA",
+      "rationale": "NA — npm:@rightkit/qa is a Node ESM package; SEO's Python CLI/MCP routes do not import it or provide a package bridge. Its package API is not an active SEO runtime dependency.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/seo/.mcp.codex.json",
+          "line": 3,
+          "detail": "Published Codex MCP launcher invokes python3 seo.py mcp."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/seo.py",
+          "line": 8,
+          "symbol": "COMMANDS",
+          "detail": "Standalone Python CLI dispatches production commands to scripts."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/scripts/mcp_server.py",
+          "line": 75,
+          "symbol": "serve",
+          "detail": "SEO hosts its stdio JSON-RPC MCP server in Python."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/scripts/render_gap.mjs",
+          "line": 1,
+          "symbol": "render_gap.mjs",
+          "detail": "Standalone Node executable is an optional direct CLI helper, not a package-hosted app target."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/qa-chrome",
+      "status": "N",
+      "rationale": "SEO's standalone Node render-gap CLI directly discovers Chrome/Edge, spawns it with a profile & CDP port, then kills it. @rightkit/qa-chrome exposes a Node-compatible Chrome-for-Testing resolver plus launch/close API, but no SEO caller imports it; overlap is browser discovery/lifecycle only, not raw CDP signal comparison.",
+      "shared_evidence": [],
+      "local_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/seo/scripts/render_gap.mjs",
+          "line": 146,
+          "symbol": "findBrowser",
+          "detail": "Local Node CLI resolves Chrome/Edge from OS paths."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/scripts/render_gap.mjs",
+          "line": 241,
+          "symbol": "main",
+          "detail": "Local Node CLI spawns browser with profile & remote-debugging port."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/scripts/render_gap.mjs",
+          "line": 266,
+          "symbol": "main",
+          "detail": "Local cleanup closes socket then kills browser process."
+        }
+      ],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/seo/scripts/render_gap.mjs",
+          "line": 1,
+          "symbol": "render_gap.mjs",
+          "detail": "Standalone Node executable is an optional direct CLI helper, not a package-hosted app target."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/scripts/render_gap.mjs",
+          "line": 146,
+          "symbol": "findBrowser",
+          "detail": "Helper discovers a locally installed Chrome or Edge executable."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/scripts/render_gap.mjs",
+          "line": 241,
+          "symbol": "main",
+          "detail": "Helper directly spawns browser with a local profile and CDP port."
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/packages/qa-chrome/src/index.ts",
+          "line": 125,
+          "symbol": "resolveChromeForTesting",
+          "detail": "Owner exports a Node callable resolver for Chrome for Testing."
+        },
+        {
+          "path": "/Volumes/D/claude/rightkit/packages/qa-chrome/src/index.ts",
+          "line": 202,
+          "symbol": "launchChromeForTesting",
+          "detail": "Owner exports Node launch/profile/CDP lifecycle with idempotent graceful close."
+        }
+      ],
+      "delivery_flags": [
+        "Node is directly usable by the standalone helper; @rightkit/qa-chrome is not installed or imported by current SEO source."
+      ],
+      "remaining_work": "Optional: if a Node package dependency is intentionally adopted, replace only render-gap browser discovery/lifecycle with @rightkit/qa-chrome; retain SEO raw-CDP comparison logic.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/release",
+      "status": "NA",
+      "rationale": "NA — npm:@rightkit/release is a Node ESM package; SEO's Python CLI/MCP routes do not import it or provide a package bridge. Its package API is not an active SEO runtime dependency.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/seo/.mcp.codex.json",
+          "line": 3,
+          "detail": "Published Codex MCP launcher invokes python3 seo.py mcp."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/seo.py",
+          "line": 8,
+          "symbol": "COMMANDS",
+          "detail": "Standalone Python CLI dispatches production commands to scripts."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/scripts/mcp_server.py",
+          "line": 75,
+          "symbol": "serve",
+          "detail": "SEO hosts its stdio JSON-RPC MCP server in Python."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/scripts/render_gap.mjs",
+          "line": 1,
+          "symbol": "render_gap.mjs",
+          "detail": "Standalone Node executable is an optional direct CLI helper, not a package-hosted app target."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/settings-ui",
+      "status": "NA",
+      "rationale": "NA — npm:@rightkit/settings-ui is a Node ESM package; SEO's Python CLI/MCP routes do not import it or provide a package bridge. Its package API is not an active SEO runtime dependency.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/seo/.mcp.codex.json",
+          "line": 3,
+          "detail": "Published Codex MCP launcher invokes python3 seo.py mcp."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/seo.py",
+          "line": 8,
+          "symbol": "COMMANDS",
+          "detail": "Standalone Python CLI dispatches production commands to scripts."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/scripts/mcp_server.py",
+          "line": 75,
+          "symbol": "serve",
+          "detail": "SEO hosts its stdio JSON-RPC MCP server in Python."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/scripts/render_gap.mjs",
+          "line": 1,
+          "symbol": "render_gap.mjs",
+          "detail": "Standalone Node executable is an optional direct CLI helper, not a package-hosted app target."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/shell",
+      "status": "NA",
+      "rationale": "NA — npm:@rightkit/shell is a Node ESM package; SEO's Python CLI/MCP routes do not import it or provide a package bridge. Its package API is not an active SEO runtime dependency.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/seo/.mcp.codex.json",
+          "line": 3,
+          "detail": "Published Codex MCP launcher invokes python3 seo.py mcp."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/seo.py",
+          "line": 8,
+          "symbol": "COMMANDS",
+          "detail": "Standalone Python CLI dispatches production commands to scripts."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/scripts/mcp_server.py",
+          "line": 75,
+          "symbol": "serve",
+          "detail": "SEO hosts its stdio JSON-RPC MCP server in Python."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/scripts/render_gap.mjs",
+          "line": 1,
+          "symbol": "render_gap.mjs",
+          "detail": "Standalone Node executable is an optional direct CLI helper, not a package-hosted app target."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/tauri",
+      "status": "NA",
+      "rationale": "NA — npm:@rightkit/tauri is a Node ESM package; SEO's Python CLI/MCP routes do not import it or provide a package bridge. Its package API is not an active SEO runtime dependency.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/seo/.mcp.codex.json",
+          "line": 3,
+          "detail": "Published Codex MCP launcher invokes python3 seo.py mcp."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/seo.py",
+          "line": 8,
+          "symbol": "COMMANDS",
+          "detail": "Standalone Python CLI dispatches production commands to scripts."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/scripts/mcp_server.py",
+          "line": 75,
+          "symbol": "serve",
+          "detail": "SEO hosts its stdio JSON-RPC MCP server in Python."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/scripts/render_gap.mjs",
+          "line": 1,
+          "symbol": "render_gap.mjs",
+          "detail": "Standalone Node executable is an optional direct CLI helper, not a package-hosted app target."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/theme",
+      "status": "NA",
+      "rationale": "NA — npm:@rightkit/theme is a Node ESM package; SEO's Python CLI/MCP routes do not import it or provide a package bridge. Its package API is not an active SEO runtime dependency.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/seo/.mcp.codex.json",
+          "line": 3,
+          "detail": "Published Codex MCP launcher invokes python3 seo.py mcp."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/seo.py",
+          "line": 8,
+          "symbol": "COMMANDS",
+          "detail": "Standalone Python CLI dispatches production commands to scripts."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/scripts/mcp_server.py",
+          "line": 75,
+          "symbol": "serve",
+          "detail": "SEO hosts its stdio JSON-RPC MCP server in Python."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/scripts/render_gap.mjs",
+          "line": 1,
+          "symbol": "render_gap.mjs",
+          "detail": "Standalone Node executable is an optional direct CLI helper, not a package-hosted app target."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/update",
+      "status": "NA",
+      "rationale": "NA — npm:@rightkit/update is a Node ESM package; SEO's Python CLI/MCP routes do not import it or provide a package bridge. Its package API is not an active SEO runtime dependency.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/seo/.mcp.codex.json",
+          "line": 3,
+          "detail": "Published Codex MCP launcher invokes python3 seo.py mcp."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/seo.py",
+          "line": 8,
+          "symbol": "COMMANDS",
+          "detail": "Standalone Python CLI dispatches production commands to scripts."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/scripts/mcp_server.py",
+          "line": 75,
+          "symbol": "serve",
+          "detail": "SEO hosts its stdio JSON-RPC MCP server in Python."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/scripts/render_gap.mjs",
+          "line": 1,
+          "symbol": "render_gap.mjs",
+          "detail": "Standalone Node executable is an optional direct CLI helper, not a package-hosted app target."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/updates",
+      "status": "NA",
+      "rationale": "NA — npm:@rightkit/updates is a Node ESM package; SEO's Python CLI/MCP routes do not import it or provide a package bridge. Its package API is not an active SEO runtime dependency.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/seo/.mcp.codex.json",
+          "line": 3,
+          "detail": "Published Codex MCP launcher invokes python3 seo.py mcp."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/seo.py",
+          "line": 8,
+          "symbol": "COMMANDS",
+          "detail": "Standalone Python CLI dispatches production commands to scripts."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/scripts/mcp_server.py",
+          "line": 75,
+          "symbol": "serve",
+          "detail": "SEO hosts its stdio JSON-RPC MCP server in Python."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/scripts/render_gap.mjs",
+          "line": 1,
+          "symbol": "render_gap.mjs",
+          "detail": "Standalone Node executable is an optional direct CLI helper, not a package-hosted app target."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitLicense",
+      "status": "NA",
+      "rationale": "NA — swift:RightKitLicense is a Swift package for Apple targets; SEO has Python CLI/MCP targets only, no Swift package, Xcode target, or bridge. Its Apple runtime capability is irrelevant here.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/seo/.mcp.codex.json",
+          "line": 3,
+          "detail": "Published Codex MCP launcher invokes python3 seo.py mcp."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/seo.py",
+          "line": 8,
+          "symbol": "COMMANDS",
+          "detail": "Standalone Python CLI dispatches production commands to scripts."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/scripts/mcp_server.py",
+          "line": 75,
+          "symbol": "serve",
+          "detail": "SEO hosts its stdio JSON-RPC MCP server in Python."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitDiagnostics",
+      "status": "NA",
+      "rationale": "NA — swift:RightKitDiagnostics is a Swift package for Apple targets; SEO has Python CLI/MCP targets only, no Swift package, Xcode target, or bridge. Its Apple runtime capability is irrelevant here.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/seo/.mcp.codex.json",
+          "line": 3,
+          "detail": "Published Codex MCP launcher invokes python3 seo.py mcp."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/seo.py",
+          "line": 8,
+          "symbol": "COMMANDS",
+          "detail": "Standalone Python CLI dispatches production commands to scripts."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/scripts/mcp_server.py",
+          "line": 75,
+          "symbol": "serve",
+          "detail": "SEO hosts its stdio JSON-RPC MCP server in Python."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitArtifacts",
+      "status": "NA",
+      "rationale": "NA — swift:RightKitArtifacts is a Swift package for Apple targets; SEO has Python CLI/MCP targets only, no Swift package, Xcode target, or bridge. Its Apple runtime capability is irrelevant here.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/seo/.mcp.codex.json",
+          "line": 3,
+          "detail": "Published Codex MCP launcher invokes python3 seo.py mcp."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/seo.py",
+          "line": 8,
+          "symbol": "COMMANDS",
+          "detail": "Standalone Python CLI dispatches production commands to scripts."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/scripts/mcp_server.py",
+          "line": 75,
+          "symbol": "serve",
+          "detail": "SEO hosts its stdio JSON-RPC MCP server in Python."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitPurchases",
+      "status": "NA",
+      "rationale": "NA — swift:RightKitPurchases is a Swift package for Apple targets; SEO has Python CLI/MCP targets only, no Swift package, Xcode target, or bridge. Its Apple runtime capability is irrelevant here.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/seo/.mcp.codex.json",
+          "line": 3,
+          "detail": "Published Codex MCP launcher invokes python3 seo.py mcp."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/seo.py",
+          "line": 8,
+          "symbol": "COMMANDS",
+          "detail": "Standalone Python CLI dispatches production commands to scripts."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/scripts/mcp_server.py",
+          "line": 75,
+          "symbol": "serve",
+          "detail": "SEO hosts its stdio JSON-RPC MCP server in Python."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitCloudSync",
+      "status": "NA",
+      "rationale": "NA — swift:RightKitCloudSync is a Swift package for Apple targets; SEO has Python CLI/MCP targets only, no Swift package, Xcode target, or bridge. Its Apple runtime capability is irrelevant here.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/seo/.mcp.codex.json",
+          "line": 3,
+          "detail": "Published Codex MCP launcher invokes python3 seo.py mcp."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/seo.py",
+          "line": 8,
+          "symbol": "COMMANDS",
+          "detail": "Standalone Python CLI dispatches production commands to scripts."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/scripts/mcp_server.py",
+          "line": 75,
+          "symbol": "serve",
+          "detail": "SEO hosts its stdio JSON-RPC MCP server in Python."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitStore",
+      "status": "NA",
+      "rationale": "NA — swift:RightKitStore is a Swift package for Apple targets; SEO has Python CLI/MCP targets only, no Swift package, Xcode target, or bridge. Its Apple runtime capability is irrelevant here.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/seo/.mcp.codex.json",
+          "line": 3,
+          "detail": "Published Codex MCP launcher invokes python3 seo.py mcp."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/seo.py",
+          "line": 8,
+          "symbol": "COMMANDS",
+          "detail": "Standalone Python CLI dispatches production commands to scripts."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/scripts/mcp_server.py",
+          "line": 75,
+          "symbol": "serve",
+          "detail": "SEO hosts its stdio JSON-RPC MCP server in Python."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitImportQueue",
+      "status": "NA",
+      "rationale": "NA — swift:RightKitImportQueue is a Swift package for Apple targets; SEO has Python CLI/MCP targets only, no Swift package, Xcode target, or bridge. Its Apple runtime capability is irrelevant here.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/seo/.mcp.codex.json",
+          "line": 3,
+          "detail": "Published Codex MCP launcher invokes python3 seo.py mcp."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/seo.py",
+          "line": 8,
+          "symbol": "COMMANDS",
+          "detail": "Standalone Python CLI dispatches production commands to scripts."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/scripts/mcp_server.py",
+          "line": 75,
+          "symbol": "serve",
+          "detail": "SEO hosts its stdio JSON-RPC MCP server in Python."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitLiveActivity",
+      "status": "NA",
+      "rationale": "NA — swift:RightKitLiveActivity is a Swift package for Apple targets; SEO has Python CLI/MCP targets only, no Swift package, Xcode target, or bridge. Its Apple runtime capability is irrelevant here.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/seo/.mcp.codex.json",
+          "line": 3,
+          "detail": "Published Codex MCP launcher invokes python3 seo.py mcp."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/seo.py",
+          "line": 8,
+          "symbol": "COMMANDS",
+          "detail": "Standalone Python CLI dispatches production commands to scripts."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/scripts/mcp_server.py",
+          "line": 75,
+          "symbol": "serve",
+          "detail": "SEO hosts its stdio JSON-RPC MCP server in Python."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitWatchBridge",
+      "status": "NA",
+      "rationale": "NA — swift:RightKitWatchBridge is a Swift package for Apple targets; SEO has Python CLI/MCP targets only, no Swift package, Xcode target, or bridge. Its Apple runtime capability is irrelevant here.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/seo/.mcp.codex.json",
+          "line": 3,
+          "detail": "Published Codex MCP launcher invokes python3 seo.py mcp."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/seo.py",
+          "line": 8,
+          "symbol": "COMMANDS",
+          "detail": "Standalone Python CLI dispatches production commands to scripts."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/scripts/mcp_server.py",
+          "line": 75,
+          "symbol": "serve",
+          "detail": "SEO hosts its stdio JSON-RPC MCP server in Python."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitSpeech",
+      "status": "NA",
+      "rationale": "NA — swift:RightKitSpeech is a Swift package for Apple targets; SEO has Python CLI/MCP targets only, no Swift package, Xcode target, or bridge. Its Apple runtime capability is irrelevant here.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/seo/.mcp.codex.json",
+          "line": 3,
+          "detail": "Published Codex MCP launcher invokes python3 seo.py mcp."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/seo.py",
+          "line": 8,
+          "symbol": "COMMANDS",
+          "detail": "Standalone Python CLI dispatches production commands to scripts."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/scripts/mcp_server.py",
+          "line": 75,
+          "symbol": "serve",
+          "detail": "SEO hosts its stdio JSON-RPC MCP server in Python."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitIntents",
+      "status": "NA",
+      "rationale": "NA — swift:RightKitIntents is a Swift package for Apple targets; SEO has Python CLI/MCP targets only, no Swift package, Xcode target, or bridge. Its Apple runtime capability is irrelevant here.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/seo/.mcp.codex.json",
+          "line": 3,
+          "detail": "Published Codex MCP launcher invokes python3 seo.py mcp."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/seo.py",
+          "line": 8,
+          "symbol": "COMMANDS",
+          "detail": "Standalone Python CLI dispatches production commands to scripts."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/scripts/mcp_server.py",
+          "line": 75,
+          "symbol": "serve",
+          "detail": "SEO hosts its stdio JSON-RPC MCP server in Python."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitAppleCredentials",
+      "status": "NA",
+      "rationale": "NA — swift:RightKitAppleCredentials is a Swift package for Apple targets; SEO has Python CLI/MCP targets only, no Swift package, Xcode target, or bridge. Its Apple runtime capability is irrelevant here.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/seo/.mcp.codex.json",
+          "line": 3,
+          "detail": "Published Codex MCP launcher invokes python3 seo.py mcp."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/seo.py",
+          "line": 8,
+          "symbol": "COMMANDS",
+          "detail": "Standalone Python CLI dispatches production commands to scripts."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/scripts/mcp_server.py",
+          "line": 75,
+          "symbol": "serve",
+          "detail": "SEO hosts its stdio JSON-RPC MCP server in Python."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitOverlay",
+      "status": "NA",
+      "rationale": "NA — swift:RightKitOverlay is a Swift package for Apple targets; SEO has Python CLI/MCP targets only, no Swift package, Xcode target, or bridge. Its Apple runtime capability is irrelevant here.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/seo/.mcp.codex.json",
+          "line": 3,
+          "detail": "Published Codex MCP launcher invokes python3 seo.py mcp."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/seo.py",
+          "line": 8,
+          "symbol": "COMMANDS",
+          "detail": "Standalone Python CLI dispatches production commands to scripts."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/scripts/mcp_server.py",
+          "line": 75,
+          "symbol": "serve",
+          "detail": "SEO hosts its stdio JSON-RPC MCP server in Python."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitWatch",
+      "status": "NA",
+      "rationale": "NA — swift:RightKitWatch is a Swift package for Apple targets; SEO has Python CLI/MCP targets only, no Swift package, Xcode target, or bridge. Its Apple runtime capability is irrelevant here.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/seo/.mcp.codex.json",
+          "line": 3,
+          "detail": "Published Codex MCP launcher invokes python3 seo.py mcp."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/seo.py",
+          "line": 8,
+          "symbol": "COMMANDS",
+          "detail": "Standalone Python CLI dispatches production commands to scripts."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/scripts/mcp_server.py",
+          "line": 75,
+          "symbol": "serve",
+          "detail": "SEO hosts its stdio JSON-RPC MCP server in Python."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitUI",
+      "status": "NA",
+      "rationale": "NA — swift:RightKitUI is a Swift package for Apple targets; SEO has Python CLI/MCP targets only, no Swift package, Xcode target, or bridge. Its Apple runtime capability is irrelevant here.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/workflows/seo/.mcp.codex.json",
+          "line": 3,
+          "detail": "Published Codex MCP launcher invokes python3 seo.py mcp."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/seo.py",
+          "line": 8,
+          "symbol": "COMMANDS",
+          "detail": "Standalone Python CLI dispatches production commands to scripts."
+        },
+        {
+          "path": "/Volumes/D/claude/workflows/seo/scripts/mcp_server.py",
+          "line": 75,
+          "symbol": "serve",
+          "detail": "SEO hosts its stdio JSON-RPC MCP server in Python."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "none",
+      "confidence": "high"
+    }
+  ],
+  "searches": [
+    {
+      "pattern": "rightkit|@rightkit",
+      "scope": "SEO production entrypoints, scripts, plugin manifests & dependency manifests; excluded docs, references, tests, caches & .git",
+      "result": "No RightKit import, published package dependency, Cargo target, Swift target, FFI, or sidecar bridge."
+    },
+    {
+      "pattern": "Cargo.toml|Cargo.lock|Package.swift|*.rs|*.swift",
+      "scope": "SEO checkout excluding .git",
+      "result": "No Rust or Swift product target; all Rust crate & Swift package rows are runtime-inapplicable."
+    },
+    {
+      "pattern": "package.json|pnpm-lock.yaml|package-lock.json|@rightkit/",
+      "scope": "SEO checkout excluding .git",
+      "result": "No Node package manifest or @rightkit package import. scripts/render_gap.mjs is a standalone Node helper using only node:* built-ins."
+    },
+    {
+      "pattern": "findBrowser|spawn|remote-debugging-port|chrome",
+      "scope": "scripts/render_gap.mjs",
+      "result": "One local Node browser discovery/lifecycle implementation overlaps @rightkit/qa-chrome; classified N with exact Node owner APIs."
+    },
+    {
+      "pattern": "python3|seo.py mcp|serve",
+      "scope": ".mcp.codex.json, seo.py, scripts/mcp_server.py",
+      "result": "Published host path is Python CLI plus Python stdio MCP; shared Rust & Swift APIs are not usable without a new bridge."
+    }
+  ],
+  "self_review": "Challenged every semantic match against host compatibility. Retained one N only for @rightkit/qa-chrome: SEO has an executable Node helper plus exact Node resolver/launcher overlap, but no shared import. Reclassified all Rust & Swift rows NA because current production has no compatible target or bridge, and all remaining Node package rows NA because no package import or exact active overlap exists. No Y/M: source census found no RightKit route, so a mixed classification would be unsupported."
+}

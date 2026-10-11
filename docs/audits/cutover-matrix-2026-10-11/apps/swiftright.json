@@ -1,0 +1,2486 @@
+{
+  "app": "SwiftRight",
+  "root": "/Volumes/D/claude/swiftright",
+  "head": "4103ff3064382839052d64e78c1b05be942d2e20",
+  "reviewed_at": "2026-10-11T08:15:58+05:30",
+  "targets": [
+    "desktop-macos",
+    "desktop-windows",
+    "swift-engine-service",
+    "windows-renderer",
+    "qualification-qa"
+  ],
+  "scope_note": "Fresh source audit of packages/SwiftRightBridge, packages/SwiftRightServices, render/swiftright-render, and qualification runner/config at current worktree (HEAD 4103ff3064382839052d64e78c1b05be942d2e20; pre-existing qualification/run.py edit present). Excludes examples, probes, conformance traces, generated output, caches, and build artifacts; no execution qualification implied.",
+  "cells": [
+    {
+      "component_id": "cargo:agent-room-core",
+      "status": "NA",
+      "rationale": "NA: SwiftRight production scope has no cargo:agent-room-core capability or caller; its only Rust target is a Windows GPUI/AccessKit renderer, while Swift service targets cover native engine transport and qualification.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/swiftright/render/swiftright-render/Cargo.toml",
+          "line": 9,
+          "symbol": "Windows renderer scope",
+          "detail": "Cargo manifest limits production Rust target to a Windows-only GPUI/AccessKit cdylib; no catalog capability route is present."
+        },
+        {
+          "path": "/Volumes/D/claude/swiftright/README.md",
+          "line": 5,
+          "symbol": "repository status",
+          "detail": "SwiftRight is architecture/implementation planning and exposes Swift desktop SDK scope; no production cargo:agent-room-core integration is declared."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None for SwiftRight production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-agent-tools",
+      "status": "NA",
+      "rationale": "NA: SwiftRight production scope has no cargo:rightkit-agent-tools capability or caller; its only Rust target is a Windows GPUI/AccessKit renderer, while Swift service targets cover native engine transport and qualification.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/swiftright/render/swiftright-render/Cargo.toml",
+          "line": 9,
+          "symbol": "Windows renderer scope",
+          "detail": "Cargo manifest limits production Rust target to a Windows-only GPUI/AccessKit cdylib; no catalog capability route is present."
+        },
+        {
+          "path": "/Volumes/D/claude/swiftright/README.md",
+          "line": 5,
+          "symbol": "repository status",
+          "detail": "SwiftRight is architecture/implementation planning and exposes Swift desktop SDK scope; no production cargo:rightkit-agent-tools integration is declared."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None for SwiftRight production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-align",
+      "status": "NA",
+      "rationale": "NA: SwiftRight production scope has no cargo:rightkit-align capability or caller; its only Rust target is a Windows GPUI/AccessKit renderer, while Swift service targets cover native engine transport and qualification.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/swiftright/render/swiftright-render/Cargo.toml",
+          "line": 9,
+          "symbol": "Windows renderer scope",
+          "detail": "Cargo manifest limits production Rust target to a Windows-only GPUI/AccessKit cdylib; no catalog capability route is present."
+        },
+        {
+          "path": "/Volumes/D/claude/swiftright/README.md",
+          "line": 5,
+          "symbol": "repository status",
+          "detail": "SwiftRight is architecture/implementation planning and exposes Swift desktop SDK scope; no production cargo:rightkit-align integration is declared."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None for SwiftRight production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-asr",
+      "status": "NA",
+      "rationale": "NA: SwiftRight production scope has no cargo:rightkit-asr capability or caller; its only Rust target is a Windows GPUI/AccessKit renderer, while Swift service targets cover native engine transport and qualification.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/swiftright/render/swiftright-render/Cargo.toml",
+          "line": 9,
+          "symbol": "Windows renderer scope",
+          "detail": "Cargo manifest limits production Rust target to a Windows-only GPUI/AccessKit cdylib; no catalog capability route is present."
+        },
+        {
+          "path": "/Volumes/D/claude/swiftright/README.md",
+          "line": 5,
+          "symbol": "repository status",
+          "detail": "SwiftRight is architecture/implementation planning and exposes Swift desktop SDK scope; no production cargo:rightkit-asr integration is declared."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None for SwiftRight production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-audio",
+      "status": "NA",
+      "rationale": "NA: SwiftRight production scope has no cargo:rightkit-audio capability or caller; its only Rust target is a Windows GPUI/AccessKit renderer, while Swift service targets cover native engine transport and qualification.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/swiftright/render/swiftright-render/Cargo.toml",
+          "line": 9,
+          "symbol": "Windows renderer scope",
+          "detail": "Cargo manifest limits production Rust target to a Windows-only GPUI/AccessKit cdylib; no catalog capability route is present."
+        },
+        {
+          "path": "/Volumes/D/claude/swiftright/README.md",
+          "line": 5,
+          "symbol": "repository status",
+          "detail": "SwiftRight is architecture/implementation planning and exposes Swift desktop SDK scope; no production cargo:rightkit-audio integration is declared."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None for SwiftRight production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-automation",
+      "status": "NA",
+      "rationale": "NA: SwiftRight production scope has no cargo:rightkit-automation capability or caller; its only Rust target is a Windows GPUI/AccessKit renderer, while Swift service targets cover native engine transport and qualification.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/swiftright/render/swiftright-render/Cargo.toml",
+          "line": 9,
+          "symbol": "Windows renderer scope",
+          "detail": "Cargo manifest limits production Rust target to a Windows-only GPUI/AccessKit cdylib; no catalog capability route is present."
+        },
+        {
+          "path": "/Volumes/D/claude/swiftright/README.md",
+          "line": 5,
+          "symbol": "repository status",
+          "detail": "SwiftRight is architecture/implementation planning and exposes Swift desktop SDK scope; no production cargo:rightkit-automation integration is declared."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None for SwiftRight production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-browser",
+      "status": "NA",
+      "rationale": "NA: SwiftRight production scope has no cargo:rightkit-browser capability or caller; its only Rust target is a Windows GPUI/AccessKit renderer, while Swift service targets cover native engine transport and qualification.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/swiftright/render/swiftright-render/Cargo.toml",
+          "line": 9,
+          "symbol": "Windows renderer scope",
+          "detail": "Cargo manifest limits production Rust target to a Windows-only GPUI/AccessKit cdylib; no catalog capability route is present."
+        },
+        {
+          "path": "/Volumes/D/claude/swiftright/README.md",
+          "line": 5,
+          "symbol": "repository status",
+          "detail": "SwiftRight is architecture/implementation planning and exposes Swift desktop SDK scope; no production cargo:rightkit-browser integration is declared."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None for SwiftRight production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-cache",
+      "status": "NA",
+      "rationale": "NA: SwiftRight production scope has no cargo:rightkit-cache capability or caller; its only Rust target is a Windows GPUI/AccessKit renderer, while Swift service targets cover native engine transport and qualification.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/swiftright/render/swiftright-render/Cargo.toml",
+          "line": 9,
+          "symbol": "Windows renderer scope",
+          "detail": "Cargo manifest limits production Rust target to a Windows-only GPUI/AccessKit cdylib; no catalog capability route is present."
+        },
+        {
+          "path": "/Volumes/D/claude/swiftright/README.md",
+          "line": 5,
+          "symbol": "repository status",
+          "detail": "SwiftRight is architecture/implementation planning and exposes Swift desktop SDK scope; no production cargo:rightkit-cache integration is declared."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None for SwiftRight production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-channel-memory",
+      "status": "NA",
+      "rationale": "NA: SwiftRight production scope has no cargo:rightkit-channel-memory capability or caller; its only Rust target is a Windows GPUI/AccessKit renderer, while Swift service targets cover native engine transport and qualification.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/swiftright/render/swiftright-render/Cargo.toml",
+          "line": 9,
+          "symbol": "Windows renderer scope",
+          "detail": "Cargo manifest limits production Rust target to a Windows-only GPUI/AccessKit cdylib; no catalog capability route is present."
+        },
+        {
+          "path": "/Volumes/D/claude/swiftright/README.md",
+          "line": 5,
+          "symbol": "repository status",
+          "detail": "SwiftRight is architecture/implementation planning and exposes Swift desktop SDK scope; no production cargo:rightkit-channel-memory integration is declared."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None for SwiftRight production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-compose",
+      "status": "NA",
+      "rationale": "NA: SwiftRight production scope has no cargo:rightkit-compose capability or caller; its only Rust target is a Windows GPUI/AccessKit renderer, while Swift service targets cover native engine transport and qualification.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/swiftright/render/swiftright-render/Cargo.toml",
+          "line": 9,
+          "symbol": "Windows renderer scope",
+          "detail": "Cargo manifest limits production Rust target to a Windows-only GPUI/AccessKit cdylib; no catalog capability route is present."
+        },
+        {
+          "path": "/Volumes/D/claude/swiftright/README.md",
+          "line": 5,
+          "symbol": "repository status",
+          "detail": "SwiftRight is architecture/implementation planning and exposes Swift desktop SDK scope; no production cargo:rightkit-compose integration is declared."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None for SwiftRight production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-contracts",
+      "status": "NA",
+      "rationale": "NA: SwiftRight production scope has no cargo:rightkit-contracts capability or caller; its only Rust target is a Windows GPUI/AccessKit renderer, while Swift service targets cover native engine transport and qualification.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/swiftright/render/swiftright-render/Cargo.toml",
+          "line": 9,
+          "symbol": "Windows renderer scope",
+          "detail": "Cargo manifest limits production Rust target to a Windows-only GPUI/AccessKit cdylib; no catalog capability route is present."
+        },
+        {
+          "path": "/Volumes/D/claude/swiftright/README.md",
+          "line": 5,
+          "symbol": "repository status",
+          "detail": "SwiftRight is architecture/implementation planning and exposes Swift desktop SDK scope; no production cargo:rightkit-contracts integration is declared."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None for SwiftRight production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-control",
+      "status": "NA",
+      "rationale": "NA: SwiftRight production scope has no cargo:rightkit-control capability or caller; its only Rust target is a Windows GPUI/AccessKit renderer, while Swift service targets cover native engine transport and qualification.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/swiftright/render/swiftright-render/Cargo.toml",
+          "line": 9,
+          "symbol": "Windows renderer scope",
+          "detail": "Cargo manifest limits production Rust target to a Windows-only GPUI/AccessKit cdylib; no catalog capability route is present."
+        },
+        {
+          "path": "/Volumes/D/claude/swiftright/README.md",
+          "line": 5,
+          "symbol": "repository status",
+          "detail": "SwiftRight is architecture/implementation planning and exposes Swift desktop SDK scope; no production cargo:rightkit-control integration is declared."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None for SwiftRight production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-crash",
+      "status": "NA",
+      "rationale": "NA: SwiftRight production scope has no cargo:rightkit-crash capability or caller; its only Rust target is a Windows GPUI/AccessKit renderer, while Swift service targets cover native engine transport and qualification.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/swiftright/render/swiftright-render/Cargo.toml",
+          "line": 9,
+          "symbol": "Windows renderer scope",
+          "detail": "Cargo manifest limits production Rust target to a Windows-only GPUI/AccessKit cdylib; no catalog capability route is present."
+        },
+        {
+          "path": "/Volumes/D/claude/swiftright/README.md",
+          "line": 5,
+          "symbol": "repository status",
+          "detail": "SwiftRight is architecture/implementation planning and exposes Swift desktop SDK scope; no production cargo:rightkit-crash integration is declared."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None for SwiftRight production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-daemon",
+      "status": "NA",
+      "rationale": "NA: SwiftRight production scope has no cargo:rightkit-daemon capability or caller; its only Rust target is a Windows GPUI/AccessKit renderer, while Swift service targets cover native engine transport and qualification.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/swiftright/render/swiftright-render/Cargo.toml",
+          "line": 9,
+          "symbol": "Windows renderer scope",
+          "detail": "Cargo manifest limits production Rust target to a Windows-only GPUI/AccessKit cdylib; no catalog capability route is present."
+        },
+        {
+          "path": "/Volumes/D/claude/swiftright/README.md",
+          "line": 5,
+          "symbol": "repository status",
+          "detail": "SwiftRight is architecture/implementation planning and exposes Swift desktop SDK scope; no production cargo:rightkit-daemon integration is declared."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None for SwiftRight production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-db",
+      "status": "NA",
+      "rationale": "NA: SwiftRight production scope has no cargo:rightkit-db capability or caller; its only Rust target is a Windows GPUI/AccessKit renderer, while Swift service targets cover native engine transport and qualification.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/swiftright/render/swiftright-render/Cargo.toml",
+          "line": 9,
+          "symbol": "Windows renderer scope",
+          "detail": "Cargo manifest limits production Rust target to a Windows-only GPUI/AccessKit cdylib; no catalog capability route is present."
+        },
+        {
+          "path": "/Volumes/D/claude/swiftright/README.md",
+          "line": 5,
+          "symbol": "repository status",
+          "detail": "SwiftRight is architecture/implementation planning and exposes Swift desktop SDK scope; no production cargo:rightkit-db integration is declared."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None for SwiftRight production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-embed",
+      "status": "NA",
+      "rationale": "NA: SwiftRight production scope has no cargo:rightkit-embed capability or caller; its only Rust target is a Windows GPUI/AccessKit renderer, while Swift service targets cover native engine transport and qualification.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/swiftright/render/swiftright-render/Cargo.toml",
+          "line": 9,
+          "symbol": "Windows renderer scope",
+          "detail": "Cargo manifest limits production Rust target to a Windows-only GPUI/AccessKit cdylib; no catalog capability route is present."
+        },
+        {
+          "path": "/Volumes/D/claude/swiftright/README.md",
+          "line": 5,
+          "symbol": "repository status",
+          "detail": "SwiftRight is architecture/implementation planning and exposes Swift desktop SDK scope; no production cargo:rightkit-embed integration is declared."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None for SwiftRight production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-framed-sidecar",
+      "status": "NA",
+      "rationale": "NA: EngineWire is active Swift transport code, but rightkit-framed-sidecar exports only Rust generic APIs and no Swift/C/native-host bridge. This Rust owner is not an adoptable route from SwiftRight's SwiftPM target.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/swiftright/packages/SwiftRightServices/Package.swift",
+          "line": 17,
+          "symbol": "SwiftRightServices target",
+          "detail": "Production SwiftPM service target owns engine transport on macOS v14."
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-framed-sidecar/src/lib.rs",
+          "line": 293,
+          "symbol": "read_json_line",
+          "detail": "Owner API is a Rust generic BufRead/DeserializeOwned function; no Swift/C/native-host export exists in its manifest or source census."
+        }
+      ],
+      "delivery_flags": [
+        "Unsupported reuse opportunity: expose a versioned Swift/C/native-host bridge for framed-sidecar before treating EngineWire as a cutover candidate."
+      ],
+      "remaining_work": "Establish a supported bridge first; then separately assess EngineWire migration, frame limits, and error semantics.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-fs",
+      "status": "NA",
+      "rationale": "NA: SwiftRight production scope has no cargo:rightkit-fs capability or caller; its only Rust target is a Windows GPUI/AccessKit renderer, while Swift service targets cover native engine transport and qualification.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/swiftright/render/swiftright-render/Cargo.toml",
+          "line": 9,
+          "symbol": "Windows renderer scope",
+          "detail": "Cargo manifest limits production Rust target to a Windows-only GPUI/AccessKit cdylib; no catalog capability route is present."
+        },
+        {
+          "path": "/Volumes/D/claude/swiftright/README.md",
+          "line": 5,
+          "symbol": "repository status",
+          "detail": "SwiftRight is architecture/implementation planning and exposes Swift desktop SDK scope; no production cargo:rightkit-fs integration is declared."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None for SwiftRight production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-fsindex",
+      "status": "NA",
+      "rationale": "NA: SwiftRight production scope has no cargo:rightkit-fsindex capability or caller; its only Rust target is a Windows GPUI/AccessKit renderer, while Swift service targets cover native engine transport and qualification.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/swiftright/render/swiftright-render/Cargo.toml",
+          "line": 9,
+          "symbol": "Windows renderer scope",
+          "detail": "Cargo manifest limits production Rust target to a Windows-only GPUI/AccessKit cdylib; no catalog capability route is present."
+        },
+        {
+          "path": "/Volumes/D/claude/swiftright/README.md",
+          "line": 5,
+          "symbol": "repository status",
+          "detail": "SwiftRight is architecture/implementation planning and exposes Swift desktop SDK scope; no production cargo:rightkit-fsindex integration is declared."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None for SwiftRight production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-hotkeys",
+      "status": "NA",
+      "rationale": "NA: SwiftRight production scope has no cargo:rightkit-hotkeys capability or caller; its only Rust target is a Windows GPUI/AccessKit renderer, while Swift service targets cover native engine transport and qualification.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/swiftright/render/swiftright-render/Cargo.toml",
+          "line": 9,
+          "symbol": "Windows renderer scope",
+          "detail": "Cargo manifest limits production Rust target to a Windows-only GPUI/AccessKit cdylib; no catalog capability route is present."
+        },
+        {
+          "path": "/Volumes/D/claude/swiftright/README.md",
+          "line": 5,
+          "symbol": "repository status",
+          "detail": "SwiftRight is architecture/implementation planning and exposes Swift desktop SDK scope; no production cargo:rightkit-hotkeys integration is declared."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None for SwiftRight production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-http",
+      "status": "NA",
+      "rationale": "NA: SwiftRight production scope has no cargo:rightkit-http capability or caller; its only Rust target is a Windows GPUI/AccessKit renderer, while Swift service targets cover native engine transport and qualification.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/swiftright/render/swiftright-render/Cargo.toml",
+          "line": 9,
+          "symbol": "Windows renderer scope",
+          "detail": "Cargo manifest limits production Rust target to a Windows-only GPUI/AccessKit cdylib; no catalog capability route is present."
+        },
+        {
+          "path": "/Volumes/D/claude/swiftright/README.md",
+          "line": 5,
+          "symbol": "repository status",
+          "detail": "SwiftRight is architecture/implementation planning and exposes Swift desktop SDK scope; no production cargo:rightkit-http integration is declared."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None for SwiftRight production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-jobs",
+      "status": "NA",
+      "rationale": "NA: SwiftRight production scope has no cargo:rightkit-jobs capability or caller; its only Rust target is a Windows GPUI/AccessKit renderer, while Swift service targets cover native engine transport and qualification.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/swiftright/render/swiftright-render/Cargo.toml",
+          "line": 9,
+          "symbol": "Windows renderer scope",
+          "detail": "Cargo manifest limits production Rust target to a Windows-only GPUI/AccessKit cdylib; no catalog capability route is present."
+        },
+        {
+          "path": "/Volumes/D/claude/swiftright/README.md",
+          "line": 5,
+          "symbol": "repository status",
+          "detail": "SwiftRight is architecture/implementation planning and exposes Swift desktop SDK scope; no production cargo:rightkit-jobs integration is declared."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None for SwiftRight production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-license",
+      "status": "NA",
+      "rationale": "NA: SwiftRight production scope has no cargo:rightkit-license capability or caller; its only Rust target is a Windows GPUI/AccessKit renderer, while Swift service targets cover native engine transport and qualification.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/swiftright/render/swiftright-render/Cargo.toml",
+          "line": 9,
+          "symbol": "Windows renderer scope",
+          "detail": "Cargo manifest limits production Rust target to a Windows-only GPUI/AccessKit cdylib; no catalog capability route is present."
+        },
+        {
+          "path": "/Volumes/D/claude/swiftright/README.md",
+          "line": 5,
+          "symbol": "repository status",
+          "detail": "SwiftRight is architecture/implementation planning and exposes Swift desktop SDK scope; no production cargo:rightkit-license integration is declared."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None for SwiftRight production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-llm",
+      "status": "NA",
+      "rationale": "NA: SwiftRight production scope has no cargo:rightkit-llm capability or caller; its only Rust target is a Windows GPUI/AccessKit renderer, while Swift service targets cover native engine transport and qualification.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/swiftright/render/swiftright-render/Cargo.toml",
+          "line": 9,
+          "symbol": "Windows renderer scope",
+          "detail": "Cargo manifest limits production Rust target to a Windows-only GPUI/AccessKit cdylib; no catalog capability route is present."
+        },
+        {
+          "path": "/Volumes/D/claude/swiftright/README.md",
+          "line": 5,
+          "symbol": "repository status",
+          "detail": "SwiftRight is architecture/implementation planning and exposes Swift desktop SDK scope; no production cargo:rightkit-llm integration is declared."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None for SwiftRight production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-logs",
+      "status": "NA",
+      "rationale": "NA: SwiftRight production scope has no cargo:rightkit-logs capability or caller; its only Rust target is a Windows GPUI/AccessKit renderer, while Swift service targets cover native engine transport and qualification.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/swiftright/render/swiftright-render/Cargo.toml",
+          "line": 9,
+          "symbol": "Windows renderer scope",
+          "detail": "Cargo manifest limits production Rust target to a Windows-only GPUI/AccessKit cdylib; no catalog capability route is present."
+        },
+        {
+          "path": "/Volumes/D/claude/swiftright/README.md",
+          "line": 5,
+          "symbol": "repository status",
+          "detail": "SwiftRight is architecture/implementation planning and exposes Swift desktop SDK scope; no production cargo:rightkit-logs integration is declared."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None for SwiftRight production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-mcp",
+      "status": "NA",
+      "rationale": "NA: SwiftRight production scope has no cargo:rightkit-mcp capability or caller; its only Rust target is a Windows GPUI/AccessKit renderer, while Swift service targets cover native engine transport and qualification.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/swiftright/render/swiftright-render/Cargo.toml",
+          "line": 9,
+          "symbol": "Windows renderer scope",
+          "detail": "Cargo manifest limits production Rust target to a Windows-only GPUI/AccessKit cdylib; no catalog capability route is present."
+        },
+        {
+          "path": "/Volumes/D/claude/swiftright/README.md",
+          "line": 5,
+          "symbol": "repository status",
+          "detail": "SwiftRight is architecture/implementation planning and exposes Swift desktop SDK scope; no production cargo:rightkit-mcp integration is declared."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None for SwiftRight production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-media",
+      "status": "NA",
+      "rationale": "NA: SwiftRight production scope has no cargo:rightkit-media capability or caller; its only Rust target is a Windows GPUI/AccessKit renderer, while Swift service targets cover native engine transport and qualification.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/swiftright/render/swiftright-render/Cargo.toml",
+          "line": 9,
+          "symbol": "Windows renderer scope",
+          "detail": "Cargo manifest limits production Rust target to a Windows-only GPUI/AccessKit cdylib; no catalog capability route is present."
+        },
+        {
+          "path": "/Volumes/D/claude/swiftright/README.md",
+          "line": 5,
+          "symbol": "repository status",
+          "detail": "SwiftRight is architecture/implementation planning and exposes Swift desktop SDK scope; no production cargo:rightkit-media integration is declared."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None for SwiftRight production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-models",
+      "status": "NA",
+      "rationale": "NA: SwiftRight production scope has no cargo:rightkit-models capability or caller; its only Rust target is a Windows GPUI/AccessKit renderer, while Swift service targets cover native engine transport and qualification.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/swiftright/render/swiftright-render/Cargo.toml",
+          "line": 9,
+          "symbol": "Windows renderer scope",
+          "detail": "Cargo manifest limits production Rust target to a Windows-only GPUI/AccessKit cdylib; no catalog capability route is present."
+        },
+        {
+          "path": "/Volumes/D/claude/swiftright/README.md",
+          "line": 5,
+          "symbol": "repository status",
+          "detail": "SwiftRight is architecture/implementation planning and exposes Swift desktop SDK scope; no production cargo:rightkit-models integration is declared."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None for SwiftRight production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-oauth",
+      "status": "NA",
+      "rationale": "NA: SwiftRight production scope has no cargo:rightkit-oauth capability or caller; its only Rust target is a Windows GPUI/AccessKit renderer, while Swift service targets cover native engine transport and qualification.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/swiftright/render/swiftright-render/Cargo.toml",
+          "line": 9,
+          "symbol": "Windows renderer scope",
+          "detail": "Cargo manifest limits production Rust target to a Windows-only GPUI/AccessKit cdylib; no catalog capability route is present."
+        },
+        {
+          "path": "/Volumes/D/claude/swiftright/README.md",
+          "line": 5,
+          "symbol": "repository status",
+          "detail": "SwiftRight is architecture/implementation planning and exposes Swift desktop SDK scope; no production cargo:rightkit-oauth integration is declared."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None for SwiftRight production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-ocr",
+      "status": "NA",
+      "rationale": "NA: SwiftRight production scope has no cargo:rightkit-ocr capability or caller; its only Rust target is a Windows GPUI/AccessKit renderer, while Swift service targets cover native engine transport and qualification.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/swiftright/render/swiftright-render/Cargo.toml",
+          "line": 9,
+          "symbol": "Windows renderer scope",
+          "detail": "Cargo manifest limits production Rust target to a Windows-only GPUI/AccessKit cdylib; no catalog capability route is present."
+        },
+        {
+          "path": "/Volumes/D/claude/swiftright/README.md",
+          "line": 5,
+          "symbol": "repository status",
+          "detail": "SwiftRight is architecture/implementation planning and exposes Swift desktop SDK scope; no production cargo:rightkit-ocr integration is declared."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None for SwiftRight production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-ort",
+      "status": "NA",
+      "rationale": "NA: SwiftRight production scope has no cargo:rightkit-ort capability or caller; its only Rust target is a Windows GPUI/AccessKit renderer, while Swift service targets cover native engine transport and qualification.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/swiftright/render/swiftright-render/Cargo.toml",
+          "line": 9,
+          "symbol": "Windows renderer scope",
+          "detail": "Cargo manifest limits production Rust target to a Windows-only GPUI/AccessKit cdylib; no catalog capability route is present."
+        },
+        {
+          "path": "/Volumes/D/claude/swiftright/README.md",
+          "line": 5,
+          "symbol": "repository status",
+          "detail": "SwiftRight is architecture/implementation planning and exposes Swift desktop SDK scope; no production cargo:rightkit-ort integration is declared."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None for SwiftRight production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-overlay",
+      "status": "NA",
+      "rationale": "NA: SwiftRight production scope has no cargo:rightkit-overlay capability or caller; its only Rust target is a Windows GPUI/AccessKit renderer, while Swift service targets cover native engine transport and qualification.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/swiftright/render/swiftright-render/Cargo.toml",
+          "line": 9,
+          "symbol": "Windows renderer scope",
+          "detail": "Cargo manifest limits production Rust target to a Windows-only GPUI/AccessKit cdylib; no catalog capability route is present."
+        },
+        {
+          "path": "/Volumes/D/claude/swiftright/README.md",
+          "line": 5,
+          "symbol": "repository status",
+          "detail": "SwiftRight is architecture/implementation planning and exposes Swift desktop SDK scope; no production cargo:rightkit-overlay integration is declared."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None for SwiftRight production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-ownership",
+      "status": "NA",
+      "rationale": "NA: SwiftRight production scope has no cargo:rightkit-ownership capability or caller; its only Rust target is a Windows GPUI/AccessKit renderer, while Swift service targets cover native engine transport and qualification.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/swiftright/render/swiftright-render/Cargo.toml",
+          "line": 9,
+          "symbol": "Windows renderer scope",
+          "detail": "Cargo manifest limits production Rust target to a Windows-only GPUI/AccessKit cdylib; no catalog capability route is present."
+        },
+        {
+          "path": "/Volumes/D/claude/swiftright/README.md",
+          "line": 5,
+          "symbol": "repository status",
+          "detail": "SwiftRight is architecture/implementation planning and exposes Swift desktop SDK scope; no production cargo:rightkit-ownership integration is declared."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None for SwiftRight production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-pdf",
+      "status": "NA",
+      "rationale": "NA: SwiftRight production scope has no cargo:rightkit-pdf capability or caller; its only Rust target is a Windows GPUI/AccessKit renderer, while Swift service targets cover native engine transport and qualification.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/swiftright/render/swiftright-render/Cargo.toml",
+          "line": 9,
+          "symbol": "Windows renderer scope",
+          "detail": "Cargo manifest limits production Rust target to a Windows-only GPUI/AccessKit cdylib; no catalog capability route is present."
+        },
+        {
+          "path": "/Volumes/D/claude/swiftright/README.md",
+          "line": 5,
+          "symbol": "repository status",
+          "detail": "SwiftRight is architecture/implementation planning and exposes Swift desktop SDK scope; no production cargo:rightkit-pdf integration is declared."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None for SwiftRight production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-playback",
+      "status": "NA",
+      "rationale": "NA: SwiftRight production scope has no cargo:rightkit-playback capability or caller; its only Rust target is a Windows GPUI/AccessKit renderer, while Swift service targets cover native engine transport and qualification.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/swiftright/render/swiftright-render/Cargo.toml",
+          "line": 9,
+          "symbol": "Windows renderer scope",
+          "detail": "Cargo manifest limits production Rust target to a Windows-only GPUI/AccessKit cdylib; no catalog capability route is present."
+        },
+        {
+          "path": "/Volumes/D/claude/swiftright/README.md",
+          "line": 5,
+          "symbol": "repository status",
+          "detail": "SwiftRight is architecture/implementation planning and exposes Swift desktop SDK scope; no production cargo:rightkit-playback integration is declared."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None for SwiftRight production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-process",
+      "status": "NA",
+      "rationale": "NA: EngineClient uses Foundation Process/Pipe APIs, while rightkit-process exports Rust OwnedCommand/OwnedChild APIs with no Swift/C/native-host bridge. This Rust owner is not an adoptable route from SwiftRight's SwiftPM target.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/swiftright/packages/SwiftRightServices/Package.swift",
+          "line": 17,
+          "symbol": "SwiftRightServices target",
+          "detail": "Production service target contains native engine lifecycle implementation on macOS v14."
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-process/src/lib.rs",
+          "line": 18,
+          "symbol": "process exports",
+          "detail": "Owner exports Rust OwnedCommand/OwnedChild lifecycle types; no Swift/C/native-host export exists in its manifest or source census."
+        }
+      ],
+      "delivery_flags": [
+        "Unsupported reuse opportunity: expose a versioned Swift/C/native-host bridge for process lifecycle before treating EngineClient as a cutover candidate."
+      ],
+      "remaining_work": "Establish a supported bridge first; then separately assess lifecycle, restart, health, and shutdown migration.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-qa",
+      "status": "NA",
+      "rationale": "NA: qualification/run.py is an active Python orchestrator, but rightkit-qa exposes Rust library/CLI targets and no Python/C/native-host bridge. This Rust owner is not an adoptable route from SwiftRight's Python runner.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/swiftright/qualification/run.py",
+          "line": 76,
+          "symbol": "qualification runner",
+          "detail": "Python runner's declared stages are mac-oracle, win-replay, compare, workload, native, smoke, and package."
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/crates/rightkit-qa/Cargo.toml",
+          "line": 30,
+          "symbol": "rightkit_qa library and CLI",
+          "detail": "Owner publishes a Rust library and Rust binary; no Python/C/native-host bridge exists in its manifest or source census."
+        }
+      ],
+      "delivery_flags": [
+        "Unsupported reuse opportunity: expose a supported Python/C/native-host boundary for rightkit-qa before treating run.py as a cutover candidate."
+      ],
+      "remaining_work": "Establish a supported bridge first; then separately assess orchestration, trace comparison, package receipts, and artifact binding.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-qts",
+      "status": "NA",
+      "rationale": "NA: SwiftRight production scope has no cargo:rightkit-qts capability or caller; its only Rust target is a Windows GPUI/AccessKit renderer, while Swift service targets cover native engine transport and qualification.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/swiftright/render/swiftright-render/Cargo.toml",
+          "line": 9,
+          "symbol": "Windows renderer scope",
+          "detail": "Cargo manifest limits production Rust target to a Windows-only GPUI/AccessKit cdylib; no catalog capability route is present."
+        },
+        {
+          "path": "/Volumes/D/claude/swiftright/README.md",
+          "line": 5,
+          "symbol": "repository status",
+          "detail": "SwiftRight is architecture/implementation planning and exposes Swift desktop SDK scope; no production cargo:rightkit-qts integration is declared."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None for SwiftRight production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-qts-ggml",
+      "status": "NA",
+      "rationale": "NA: SwiftRight production scope has no cargo:rightkit-qts-ggml capability or caller; its only Rust target is a Windows GPUI/AccessKit renderer, while Swift service targets cover native engine transport and qualification.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/swiftright/render/swiftright-render/Cargo.toml",
+          "line": 9,
+          "symbol": "Windows renderer scope",
+          "detail": "Cargo manifest limits production Rust target to a Windows-only GPUI/AccessKit cdylib; no catalog capability route is present."
+        },
+        {
+          "path": "/Volumes/D/claude/swiftright/README.md",
+          "line": 5,
+          "symbol": "repository status",
+          "detail": "SwiftRight is architecture/implementation planning and exposes Swift desktop SDK scope; no production cargo:rightkit-qts-ggml integration is declared."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None for SwiftRight production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-qts-ggml-sys",
+      "status": "NA",
+      "rationale": "NA: SwiftRight production scope has no cargo:rightkit-qts-ggml-sys capability or caller; its only Rust target is a Windows GPUI/AccessKit renderer, while Swift service targets cover native engine transport and qualification.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/swiftright/render/swiftright-render/Cargo.toml",
+          "line": 9,
+          "symbol": "Windows renderer scope",
+          "detail": "Cargo manifest limits production Rust target to a Windows-only GPUI/AccessKit cdylib; no catalog capability route is present."
+        },
+        {
+          "path": "/Volumes/D/claude/swiftright/README.md",
+          "line": 5,
+          "symbol": "repository status",
+          "detail": "SwiftRight is architecture/implementation planning and exposes Swift desktop SDK scope; no production cargo:rightkit-qts-ggml-sys integration is declared."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None for SwiftRight production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-record",
+      "status": "NA",
+      "rationale": "NA: SwiftRight production scope has no cargo:rightkit-record capability or caller; its only Rust target is a Windows GPUI/AccessKit renderer, while Swift service targets cover native engine transport and qualification.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/swiftright/render/swiftright-render/Cargo.toml",
+          "line": 9,
+          "symbol": "Windows renderer scope",
+          "detail": "Cargo manifest limits production Rust target to a Windows-only GPUI/AccessKit cdylib; no catalog capability route is present."
+        },
+        {
+          "path": "/Volumes/D/claude/swiftright/README.md",
+          "line": 5,
+          "symbol": "repository status",
+          "detail": "SwiftRight is architecture/implementation planning and exposes Swift desktop SDK scope; no production cargo:rightkit-record integration is declared."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None for SwiftRight production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-review",
+      "status": "NA",
+      "rationale": "NA: SwiftRight production scope has no cargo:rightkit-review capability or caller; its only Rust target is a Windows GPUI/AccessKit renderer, while Swift service targets cover native engine transport and qualification.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/swiftright/render/swiftright-render/Cargo.toml",
+          "line": 9,
+          "symbol": "Windows renderer scope",
+          "detail": "Cargo manifest limits production Rust target to a Windows-only GPUI/AccessKit cdylib; no catalog capability route is present."
+        },
+        {
+          "path": "/Volumes/D/claude/swiftright/README.md",
+          "line": 5,
+          "symbol": "repository status",
+          "detail": "SwiftRight is architecture/implementation planning and exposes Swift desktop SDK scope; no production cargo:rightkit-review integration is declared."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None for SwiftRight production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-sandbox",
+      "status": "NA",
+      "rationale": "NA: SwiftRight production scope has no cargo:rightkit-sandbox capability or caller; its only Rust target is a Windows GPUI/AccessKit renderer, while Swift service targets cover native engine transport and qualification.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/swiftright/render/swiftright-render/Cargo.toml",
+          "line": 9,
+          "symbol": "Windows renderer scope",
+          "detail": "Cargo manifest limits production Rust target to a Windows-only GPUI/AccessKit cdylib; no catalog capability route is present."
+        },
+        {
+          "path": "/Volumes/D/claude/swiftright/README.md",
+          "line": 5,
+          "symbol": "repository status",
+          "detail": "SwiftRight is architecture/implementation planning and exposes Swift desktop SDK scope; no production cargo:rightkit-sandbox integration is declared."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None for SwiftRight production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-scenario",
+      "status": "NA",
+      "rationale": "NA: SwiftRight production scope has no cargo:rightkit-scenario capability or caller; its only Rust target is a Windows GPUI/AccessKit renderer, while Swift service targets cover native engine transport and qualification.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/swiftright/render/swiftright-render/Cargo.toml",
+          "line": 9,
+          "symbol": "Windows renderer scope",
+          "detail": "Cargo manifest limits production Rust target to a Windows-only GPUI/AccessKit cdylib; no catalog capability route is present."
+        },
+        {
+          "path": "/Volumes/D/claude/swiftright/README.md",
+          "line": 5,
+          "symbol": "repository status",
+          "detail": "SwiftRight is architecture/implementation planning and exposes Swift desktop SDK scope; no production cargo:rightkit-scenario integration is declared."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None for SwiftRight production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-search",
+      "status": "NA",
+      "rationale": "NA: SwiftRight production scope has no cargo:rightkit-search capability or caller; its only Rust target is a Windows GPUI/AccessKit renderer, while Swift service targets cover native engine transport and qualification.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/swiftright/render/swiftright-render/Cargo.toml",
+          "line": 9,
+          "symbol": "Windows renderer scope",
+          "detail": "Cargo manifest limits production Rust target to a Windows-only GPUI/AccessKit cdylib; no catalog capability route is present."
+        },
+        {
+          "path": "/Volumes/D/claude/swiftright/README.md",
+          "line": 5,
+          "symbol": "repository status",
+          "detail": "SwiftRight is architecture/implementation planning and exposes Swift desktop SDK scope; no production cargo:rightkit-search integration is declared."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None for SwiftRight production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-secrets",
+      "status": "NA",
+      "rationale": "NA: SwiftRight production scope has no cargo:rightkit-secrets capability or caller; its only Rust target is a Windows GPUI/AccessKit renderer, while Swift service targets cover native engine transport and qualification.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/swiftright/render/swiftright-render/Cargo.toml",
+          "line": 9,
+          "symbol": "Windows renderer scope",
+          "detail": "Cargo manifest limits production Rust target to a Windows-only GPUI/AccessKit cdylib; no catalog capability route is present."
+        },
+        {
+          "path": "/Volumes/D/claude/swiftright/README.md",
+          "line": 5,
+          "symbol": "repository status",
+          "detail": "SwiftRight is architecture/implementation planning and exposes Swift desktop SDK scope; no production cargo:rightkit-secrets integration is declared."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None for SwiftRight production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-send",
+      "status": "NA",
+      "rationale": "NA: SwiftRight production scope has no cargo:rightkit-send capability or caller; its only Rust target is a Windows GPUI/AccessKit renderer, while Swift service targets cover native engine transport and qualification.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/swiftright/render/swiftright-render/Cargo.toml",
+          "line": 9,
+          "symbol": "Windows renderer scope",
+          "detail": "Cargo manifest limits production Rust target to a Windows-only GPUI/AccessKit cdylib; no catalog capability route is present."
+        },
+        {
+          "path": "/Volumes/D/claude/swiftright/README.md",
+          "line": 5,
+          "symbol": "repository status",
+          "detail": "SwiftRight is architecture/implementation planning and exposes Swift desktop SDK scope; no production cargo:rightkit-send integration is declared."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None for SwiftRight production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-service",
+      "status": "NA",
+      "rationale": "NA: SwiftRight production scope has no cargo:rightkit-service capability or caller; its only Rust target is a Windows GPUI/AccessKit renderer, while Swift service targets cover native engine transport and qualification.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/swiftright/render/swiftright-render/Cargo.toml",
+          "line": 9,
+          "symbol": "Windows renderer scope",
+          "detail": "Cargo manifest limits production Rust target to a Windows-only GPUI/AccessKit cdylib; no catalog capability route is present."
+        },
+        {
+          "path": "/Volumes/D/claude/swiftright/README.md",
+          "line": 5,
+          "symbol": "repository status",
+          "detail": "SwiftRight is architecture/implementation planning and exposes Swift desktop SDK scope; no production cargo:rightkit-service integration is declared."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None for SwiftRight production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-settings",
+      "status": "NA",
+      "rationale": "NA: SwiftRight production scope has no cargo:rightkit-settings capability or caller; its only Rust target is a Windows GPUI/AccessKit renderer, while Swift service targets cover native engine transport and qualification.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/swiftright/render/swiftright-render/Cargo.toml",
+          "line": 9,
+          "symbol": "Windows renderer scope",
+          "detail": "Cargo manifest limits production Rust target to a Windows-only GPUI/AccessKit cdylib; no catalog capability route is present."
+        },
+        {
+          "path": "/Volumes/D/claude/swiftright/README.md",
+          "line": 5,
+          "symbol": "repository status",
+          "detail": "SwiftRight is architecture/implementation planning and exposes Swift desktop SDK scope; no production cargo:rightkit-settings integration is declared."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None for SwiftRight production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-shell",
+      "status": "NA",
+      "rationale": "NA: SwiftRight production scope has no cargo:rightkit-shell capability or caller; its only Rust target is a Windows GPUI/AccessKit renderer, while Swift service targets cover native engine transport and qualification.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/swiftright/render/swiftright-render/Cargo.toml",
+          "line": 9,
+          "symbol": "Windows renderer scope",
+          "detail": "Cargo manifest limits production Rust target to a Windows-only GPUI/AccessKit cdylib; no catalog capability route is present."
+        },
+        {
+          "path": "/Volumes/D/claude/swiftright/README.md",
+          "line": 5,
+          "symbol": "repository status",
+          "detail": "SwiftRight is architecture/implementation planning and exposes Swift desktop SDK scope; no production cargo:rightkit-shell integration is declared."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None for SwiftRight production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-speech-client",
+      "status": "NA",
+      "rationale": "NA: SwiftRight production scope has no cargo:rightkit-speech-client capability or caller; its only Rust target is a Windows GPUI/AccessKit renderer, while Swift service targets cover native engine transport and qualification.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/swiftright/render/swiftright-render/Cargo.toml",
+          "line": 9,
+          "symbol": "Windows renderer scope",
+          "detail": "Cargo manifest limits production Rust target to a Windows-only GPUI/AccessKit cdylib; no catalog capability route is present."
+        },
+        {
+          "path": "/Volumes/D/claude/swiftright/README.md",
+          "line": 5,
+          "symbol": "repository status",
+          "detail": "SwiftRight is architecture/implementation planning and exposes Swift desktop SDK scope; no production cargo:rightkit-speech-client integration is declared."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None for SwiftRight production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-sync",
+      "status": "NA",
+      "rationale": "NA: SwiftRight production scope has no cargo:rightkit-sync capability or caller; its only Rust target is a Windows GPUI/AccessKit renderer, while Swift service targets cover native engine transport and qualification.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/swiftright/render/swiftright-render/Cargo.toml",
+          "line": 9,
+          "symbol": "Windows renderer scope",
+          "detail": "Cargo manifest limits production Rust target to a Windows-only GPUI/AccessKit cdylib; no catalog capability route is present."
+        },
+        {
+          "path": "/Volumes/D/claude/swiftright/README.md",
+          "line": 5,
+          "symbol": "repository status",
+          "detail": "SwiftRight is architecture/implementation planning and exposes Swift desktop SDK scope; no production cargo:rightkit-sync integration is declared."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None for SwiftRight production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-tauri",
+      "status": "NA",
+      "rationale": "NA: SwiftRight production scope has no cargo:rightkit-tauri capability or caller; its only Rust target is a Windows GPUI/AccessKit renderer, while Swift service targets cover native engine transport and qualification.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/swiftright/render/swiftright-render/Cargo.toml",
+          "line": 9,
+          "symbol": "Windows renderer scope",
+          "detail": "Cargo manifest limits production Rust target to a Windows-only GPUI/AccessKit cdylib; no catalog capability route is present."
+        },
+        {
+          "path": "/Volumes/D/claude/swiftright/README.md",
+          "line": 5,
+          "symbol": "repository status",
+          "detail": "SwiftRight is architecture/implementation planning and exposes Swift desktop SDK scope; no production cargo:rightkit-tauri integration is declared."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None for SwiftRight production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-transcript",
+      "status": "NA",
+      "rationale": "NA: SwiftRight production scope has no cargo:rightkit-transcript capability or caller; its only Rust target is a Windows GPUI/AccessKit renderer, while Swift service targets cover native engine transport and qualification.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/swiftright/render/swiftright-render/Cargo.toml",
+          "line": 9,
+          "symbol": "Windows renderer scope",
+          "detail": "Cargo manifest limits production Rust target to a Windows-only GPUI/AccessKit cdylib; no catalog capability route is present."
+        },
+        {
+          "path": "/Volumes/D/claude/swiftright/README.md",
+          "line": 5,
+          "symbol": "repository status",
+          "detail": "SwiftRight is architecture/implementation planning and exposes Swift desktop SDK scope; no production cargo:rightkit-transcript integration is declared."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None for SwiftRight production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-tts",
+      "status": "NA",
+      "rationale": "NA: SwiftRight production scope has no cargo:rightkit-tts capability or caller; its only Rust target is a Windows GPUI/AccessKit renderer, while Swift service targets cover native engine transport and qualification.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/swiftright/render/swiftright-render/Cargo.toml",
+          "line": 9,
+          "symbol": "Windows renderer scope",
+          "detail": "Cargo manifest limits production Rust target to a Windows-only GPUI/AccessKit cdylib; no catalog capability route is present."
+        },
+        {
+          "path": "/Volumes/D/claude/swiftright/README.md",
+          "line": 5,
+          "symbol": "repository status",
+          "detail": "SwiftRight is architecture/implementation planning and exposes Swift desktop SDK scope; no production cargo:rightkit-tts integration is declared."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None for SwiftRight production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-vad",
+      "status": "NA",
+      "rationale": "NA: SwiftRight production scope has no cargo:rightkit-vad capability or caller; its only Rust target is a Windows GPUI/AccessKit renderer, while Swift service targets cover native engine transport and qualification.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/swiftright/render/swiftright-render/Cargo.toml",
+          "line": 9,
+          "symbol": "Windows renderer scope",
+          "detail": "Cargo manifest limits production Rust target to a Windows-only GPUI/AccessKit cdylib; no catalog capability route is present."
+        },
+        {
+          "path": "/Volumes/D/claude/swiftright/README.md",
+          "line": 5,
+          "symbol": "repository status",
+          "detail": "SwiftRight is architecture/implementation planning and exposes Swift desktop SDK scope; no production cargo:rightkit-vad integration is declared."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None for SwiftRight production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "cargo:rightkit-watch",
+      "status": "NA",
+      "rationale": "NA: SwiftRight production scope has no cargo:rightkit-watch capability or caller; its only Rust target is a Windows GPUI/AccessKit renderer, while Swift service targets cover native engine transport and qualification.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/swiftright/render/swiftright-render/Cargo.toml",
+          "line": 9,
+          "symbol": "Windows renderer scope",
+          "detail": "Cargo manifest limits production Rust target to a Windows-only GPUI/AccessKit cdylib; no catalog capability route is present."
+        },
+        {
+          "path": "/Volumes/D/claude/swiftright/README.md",
+          "line": 5,
+          "symbol": "repository status",
+          "detail": "SwiftRight is architecture/implementation planning and exposes Swift desktop SDK scope; no production cargo:rightkit-watch integration is declared."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None for SwiftRight production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/agent-room-mcp",
+      "status": "NA",
+      "rationale": "NA: SwiftRight production targets contain no JavaScript, React, Tauri, or npm caller for npm:@rightkit/agent-room-mcp; examples are outside audited production scope.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/swiftright/packages/SwiftRightBridge/Package.swift",
+          "line": 17,
+          "symbol": "SwiftPM production manifest",
+          "detail": "Audited production package is a macOS SwiftPM target; no JavaScript/Tauri/npm target or npm:@rightkit/agent-room-mcp route exists."
+        },
+        {
+          "path": "/Volumes/D/claude/swiftright/README.md",
+          "line": 3,
+          "symbol": "desktop SDK scope",
+          "detail": "SwiftRight production scope is Swift desktop SDK work; SliceApp/examples are excluded from this audit."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None for SwiftRight production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/app-shell",
+      "status": "NA",
+      "rationale": "NA: SwiftRight production targets contain no JavaScript, React, Tauri, or npm caller for npm:@rightkit/app-shell; examples are outside audited production scope.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/swiftright/packages/SwiftRightBridge/Package.swift",
+          "line": 17,
+          "symbol": "SwiftPM production manifest",
+          "detail": "Audited production package is a macOS SwiftPM target; no JavaScript/Tauri/npm target or npm:@rightkit/app-shell route exists."
+        },
+        {
+          "path": "/Volumes/D/claude/swiftright/README.md",
+          "line": 3,
+          "symbol": "desktop SDK scope",
+          "detail": "SwiftRight production scope is Swift desktop SDK work; SliceApp/examples are excluded from this audit."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None for SwiftRight production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/ax",
+      "status": "NA",
+      "rationale": "NA: SwiftRight production targets contain no JavaScript, React, Tauri, or npm caller for npm:@rightkit/ax; examples are outside audited production scope.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/swiftright/packages/SwiftRightBridge/Package.swift",
+          "line": 17,
+          "symbol": "SwiftPM production manifest",
+          "detail": "Audited production package is a macOS SwiftPM target; no JavaScript/Tauri/npm target or npm:@rightkit/ax route exists."
+        },
+        {
+          "path": "/Volumes/D/claude/swiftright/README.md",
+          "line": 3,
+          "symbol": "desktop SDK scope",
+          "detail": "SwiftRight production scope is Swift desktop SDK work; SliceApp/examples are excluded from this audit."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None for SwiftRight production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/build-control-policy",
+      "status": "NA",
+      "rationale": "NA: SwiftRight production targets contain no JavaScript, React, Tauri, or npm caller for npm:@rightkit/build-control-policy; examples are outside audited production scope.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/swiftright/packages/SwiftRightBridge/Package.swift",
+          "line": 17,
+          "symbol": "SwiftPM production manifest",
+          "detail": "Audited production package is a macOS SwiftPM target; no JavaScript/Tauri/npm target or npm:@rightkit/build-control-policy route exists."
+        },
+        {
+          "path": "/Volumes/D/claude/swiftright/README.md",
+          "line": 3,
+          "symbol": "desktop SDK scope",
+          "detail": "SwiftRight production scope is Swift desktop SDK work; SliceApp/examples are excluded from this audit."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None for SwiftRight production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/doc-render",
+      "status": "NA",
+      "rationale": "NA: SwiftRight production targets contain no JavaScript, React, Tauri, or npm caller for npm:@rightkit/doc-render; examples are outside audited production scope.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/swiftright/packages/SwiftRightBridge/Package.swift",
+          "line": 17,
+          "symbol": "SwiftPM production manifest",
+          "detail": "Audited production package is a macOS SwiftPM target; no JavaScript/Tauri/npm target or npm:@rightkit/doc-render route exists."
+        },
+        {
+          "path": "/Volumes/D/claude/swiftright/README.md",
+          "line": 3,
+          "symbol": "desktop SDK scope",
+          "detail": "SwiftRight production scope is Swift desktop SDK work; SliceApp/examples are excluded from this audit."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None for SwiftRight production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/git",
+      "status": "NA",
+      "rationale": "NA: SwiftRight production targets contain no JavaScript, React, Tauri, or npm caller for npm:@rightkit/git; examples are outside audited production scope.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/swiftright/packages/SwiftRightBridge/Package.swift",
+          "line": 17,
+          "symbol": "SwiftPM production manifest",
+          "detail": "Audited production package is a macOS SwiftPM target; no JavaScript/Tauri/npm target or npm:@rightkit/git route exists."
+        },
+        {
+          "path": "/Volumes/D/claude/swiftright/README.md",
+          "line": 3,
+          "symbol": "desktop SDK scope",
+          "detail": "SwiftRight production scope is Swift desktop SDK work; SliceApp/examples are excluded from this audit."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None for SwiftRight production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/hooks",
+      "status": "NA",
+      "rationale": "NA: SwiftRight production targets contain no JavaScript, React, Tauri, or npm caller for npm:@rightkit/hooks; examples are outside audited production scope.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/swiftright/packages/SwiftRightBridge/Package.swift",
+          "line": 17,
+          "symbol": "SwiftPM production manifest",
+          "detail": "Audited production package is a macOS SwiftPM target; no JavaScript/Tauri/npm target or npm:@rightkit/hooks route exists."
+        },
+        {
+          "path": "/Volumes/D/claude/swiftright/README.md",
+          "line": 3,
+          "symbol": "desktop SDK scope",
+          "detail": "SwiftRight production scope is Swift desktop SDK work; SliceApp/examples are excluded from this audit."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None for SwiftRight production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/i18n",
+      "status": "NA",
+      "rationale": "NA: SwiftRight production targets contain no JavaScript, React, Tauri, or npm caller for npm:@rightkit/i18n; examples are outside audited production scope.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/swiftright/packages/SwiftRightBridge/Package.swift",
+          "line": 17,
+          "symbol": "SwiftPM production manifest",
+          "detail": "Audited production package is a macOS SwiftPM target; no JavaScript/Tauri/npm target or npm:@rightkit/i18n route exists."
+        },
+        {
+          "path": "/Volumes/D/claude/swiftright/README.md",
+          "line": 3,
+          "symbol": "desktop SDK scope",
+          "detail": "SwiftRight production scope is Swift desktop SDK work; SliceApp/examples are excluded from this audit."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None for SwiftRight production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/legal",
+      "status": "NA",
+      "rationale": "NA: SwiftRight production targets contain no JavaScript, React, Tauri, or npm caller for npm:@rightkit/legal; examples are outside audited production scope.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/swiftright/packages/SwiftRightBridge/Package.swift",
+          "line": 17,
+          "symbol": "SwiftPM production manifest",
+          "detail": "Audited production package is a macOS SwiftPM target; no JavaScript/Tauri/npm target or npm:@rightkit/legal route exists."
+        },
+        {
+          "path": "/Volumes/D/claude/swiftright/README.md",
+          "line": 3,
+          "symbol": "desktop SDK scope",
+          "detail": "SwiftRight production scope is Swift desktop SDK work; SliceApp/examples are excluded from this audit."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None for SwiftRight production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/legal-ui",
+      "status": "NA",
+      "rationale": "NA: SwiftRight production targets contain no JavaScript, React, Tauri, or npm caller for npm:@rightkit/legal-ui; examples are outside audited production scope.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/swiftright/packages/SwiftRightBridge/Package.swift",
+          "line": 17,
+          "symbol": "SwiftPM production manifest",
+          "detail": "Audited production package is a macOS SwiftPM target; no JavaScript/Tauri/npm target or npm:@rightkit/legal-ui route exists."
+        },
+        {
+          "path": "/Volumes/D/claude/swiftright/README.md",
+          "line": 3,
+          "symbol": "desktop SDK scope",
+          "detail": "SwiftRight production scope is Swift desktop SDK work; SliceApp/examples are excluded from this audit."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None for SwiftRight production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/license",
+      "status": "NA",
+      "rationale": "NA: SwiftRight production targets contain no JavaScript, React, Tauri, or npm caller for npm:@rightkit/license; examples are outside audited production scope.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/swiftright/packages/SwiftRightBridge/Package.swift",
+          "line": 17,
+          "symbol": "SwiftPM production manifest",
+          "detail": "Audited production package is a macOS SwiftPM target; no JavaScript/Tauri/npm target or npm:@rightkit/license route exists."
+        },
+        {
+          "path": "/Volumes/D/claude/swiftright/README.md",
+          "line": 3,
+          "symbol": "desktop SDK scope",
+          "detail": "SwiftRight production scope is Swift desktop SDK work; SliceApp/examples are excluded from this audit."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None for SwiftRight production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/logs",
+      "status": "NA",
+      "rationale": "NA: SwiftRight production targets contain no JavaScript, React, Tauri, or npm caller for npm:@rightkit/logs; examples are outside audited production scope.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/swiftright/packages/SwiftRightBridge/Package.swift",
+          "line": 17,
+          "symbol": "SwiftPM production manifest",
+          "detail": "Audited production package is a macOS SwiftPM target; no JavaScript/Tauri/npm target or npm:@rightkit/logs route exists."
+        },
+        {
+          "path": "/Volumes/D/claude/swiftright/README.md",
+          "line": 3,
+          "symbol": "desktop SDK scope",
+          "detail": "SwiftRight production scope is Swift desktop SDK work; SliceApp/examples are excluded from this audit."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None for SwiftRight production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/media-ui",
+      "status": "NA",
+      "rationale": "NA: SwiftRight production targets contain no JavaScript, React, Tauri, or npm caller for npm:@rightkit/media-ui; examples are outside audited production scope.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/swiftright/packages/SwiftRightBridge/Package.swift",
+          "line": 17,
+          "symbol": "SwiftPM production manifest",
+          "detail": "Audited production package is a macOS SwiftPM target; no JavaScript/Tauri/npm target or npm:@rightkit/media-ui route exists."
+        },
+        {
+          "path": "/Volumes/D/claude/swiftright/README.md",
+          "line": 3,
+          "symbol": "desktop SDK scope",
+          "detail": "SwiftRight production scope is Swift desktop SDK work; SliceApp/examples are excluded from this audit."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None for SwiftRight production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/onboarding",
+      "status": "NA",
+      "rationale": "NA: SwiftRight production targets contain no JavaScript, React, Tauri, or npm caller for npm:@rightkit/onboarding; examples are outside audited production scope.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/swiftright/packages/SwiftRightBridge/Package.swift",
+          "line": 17,
+          "symbol": "SwiftPM production manifest",
+          "detail": "Audited production package is a macOS SwiftPM target; no JavaScript/Tauri/npm target or npm:@rightkit/onboarding route exists."
+        },
+        {
+          "path": "/Volumes/D/claude/swiftright/README.md",
+          "line": 3,
+          "symbol": "desktop SDK scope",
+          "detail": "SwiftRight production scope is Swift desktop SDK work; SliceApp/examples are excluded from this audit."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None for SwiftRight production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/pdf-ui",
+      "status": "NA",
+      "rationale": "NA: SwiftRight production targets contain no JavaScript, React, Tauri, or npm caller for npm:@rightkit/pdf-ui; examples are outside audited production scope.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/swiftright/packages/SwiftRightBridge/Package.swift",
+          "line": 17,
+          "symbol": "SwiftPM production manifest",
+          "detail": "Audited production package is a macOS SwiftPM target; no JavaScript/Tauri/npm target or npm:@rightkit/pdf-ui route exists."
+        },
+        {
+          "path": "/Volumes/D/claude/swiftright/README.md",
+          "line": 3,
+          "symbol": "desktop SDK scope",
+          "detail": "SwiftRight production scope is Swift desktop SDK work; SliceApp/examples are excluded from this audit."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None for SwiftRight production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/platform-ui",
+      "status": "NA",
+      "rationale": "NA: SwiftRight production targets contain no JavaScript, React, Tauri, or npm caller for npm:@rightkit/platform-ui; examples are outside audited production scope.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/swiftright/packages/SwiftRightBridge/Package.swift",
+          "line": 17,
+          "symbol": "SwiftPM production manifest",
+          "detail": "Audited production package is a macOS SwiftPM target; no JavaScript/Tauri/npm target or npm:@rightkit/platform-ui route exists."
+        },
+        {
+          "path": "/Volumes/D/claude/swiftright/README.md",
+          "line": 3,
+          "symbol": "desktop SDK scope",
+          "detail": "SwiftRight production scope is Swift desktop SDK work; SliceApp/examples are excluded from this audit."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None for SwiftRight production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/qa",
+      "status": "NA",
+      "rationale": "NA: SwiftRight production targets contain no JavaScript, React, Tauri, or npm caller for npm:@rightkit/qa; examples are outside audited production scope.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/swiftright/packages/SwiftRightBridge/Package.swift",
+          "line": 17,
+          "symbol": "SwiftPM production manifest",
+          "detail": "Audited production package is a macOS SwiftPM target; no JavaScript/Tauri/npm target or npm:@rightkit/qa route exists."
+        },
+        {
+          "path": "/Volumes/D/claude/swiftright/README.md",
+          "line": 3,
+          "symbol": "desktop SDK scope",
+          "detail": "SwiftRight production scope is Swift desktop SDK work; SliceApp/examples are excluded from this audit."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None for SwiftRight production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/qa-chrome",
+      "status": "NA",
+      "rationale": "NA: SwiftRight production targets contain no JavaScript, React, Tauri, or npm caller for npm:@rightkit/qa-chrome; examples are outside audited production scope.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/swiftright/packages/SwiftRightBridge/Package.swift",
+          "line": 17,
+          "symbol": "SwiftPM production manifest",
+          "detail": "Audited production package is a macOS SwiftPM target; no JavaScript/Tauri/npm target or npm:@rightkit/qa-chrome route exists."
+        },
+        {
+          "path": "/Volumes/D/claude/swiftright/README.md",
+          "line": 3,
+          "symbol": "desktop SDK scope",
+          "detail": "SwiftRight production scope is Swift desktop SDK work; SliceApp/examples are excluded from this audit."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None for SwiftRight production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/release",
+      "status": "NA",
+      "rationale": "NA: SwiftRight production targets contain no JavaScript, React, Tauri, or npm caller for npm:@rightkit/release; examples are outside audited production scope.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/swiftright/packages/SwiftRightBridge/Package.swift",
+          "line": 17,
+          "symbol": "SwiftPM production manifest",
+          "detail": "Audited production package is a macOS SwiftPM target; no JavaScript/Tauri/npm target or npm:@rightkit/release route exists."
+        },
+        {
+          "path": "/Volumes/D/claude/swiftright/README.md",
+          "line": 3,
+          "symbol": "desktop SDK scope",
+          "detail": "SwiftRight production scope is Swift desktop SDK work; SliceApp/examples are excluded from this audit."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None for SwiftRight production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/settings-ui",
+      "status": "NA",
+      "rationale": "NA: SwiftRight production targets contain no JavaScript, React, Tauri, or npm caller for npm:@rightkit/settings-ui; examples are outside audited production scope.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/swiftright/packages/SwiftRightBridge/Package.swift",
+          "line": 17,
+          "symbol": "SwiftPM production manifest",
+          "detail": "Audited production package is a macOS SwiftPM target; no JavaScript/Tauri/npm target or npm:@rightkit/settings-ui route exists."
+        },
+        {
+          "path": "/Volumes/D/claude/swiftright/README.md",
+          "line": 3,
+          "symbol": "desktop SDK scope",
+          "detail": "SwiftRight production scope is Swift desktop SDK work; SliceApp/examples are excluded from this audit."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None for SwiftRight production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/shell",
+      "status": "NA",
+      "rationale": "NA: SwiftRight production targets contain no JavaScript, React, Tauri, or npm caller for npm:@rightkit/shell; examples are outside audited production scope.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/swiftright/packages/SwiftRightBridge/Package.swift",
+          "line": 17,
+          "symbol": "SwiftPM production manifest",
+          "detail": "Audited production package is a macOS SwiftPM target; no JavaScript/Tauri/npm target or npm:@rightkit/shell route exists."
+        },
+        {
+          "path": "/Volumes/D/claude/swiftright/README.md",
+          "line": 3,
+          "symbol": "desktop SDK scope",
+          "detail": "SwiftRight production scope is Swift desktop SDK work; SliceApp/examples are excluded from this audit."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None for SwiftRight production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/tauri",
+      "status": "NA",
+      "rationale": "NA: SwiftRight production targets contain no JavaScript, React, Tauri, or npm caller for npm:@rightkit/tauri; examples are outside audited production scope.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/swiftright/packages/SwiftRightBridge/Package.swift",
+          "line": 17,
+          "symbol": "SwiftPM production manifest",
+          "detail": "Audited production package is a macOS SwiftPM target; no JavaScript/Tauri/npm target or npm:@rightkit/tauri route exists."
+        },
+        {
+          "path": "/Volumes/D/claude/swiftright/README.md",
+          "line": 3,
+          "symbol": "desktop SDK scope",
+          "detail": "SwiftRight production scope is Swift desktop SDK work; SliceApp/examples are excluded from this audit."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None for SwiftRight production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/theme",
+      "status": "NA",
+      "rationale": "NA: SwiftRight production targets contain no JavaScript, React, Tauri, or npm caller for npm:@rightkit/theme; examples are outside audited production scope.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/swiftright/packages/SwiftRightBridge/Package.swift",
+          "line": 17,
+          "symbol": "SwiftPM production manifest",
+          "detail": "Audited production package is a macOS SwiftPM target; no JavaScript/Tauri/npm target or npm:@rightkit/theme route exists."
+        },
+        {
+          "path": "/Volumes/D/claude/swiftright/README.md",
+          "line": 3,
+          "symbol": "desktop SDK scope",
+          "detail": "SwiftRight production scope is Swift desktop SDK work; SliceApp/examples are excluded from this audit."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None for SwiftRight production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/update",
+      "status": "NA",
+      "rationale": "NA: SwiftRight production targets contain no JavaScript, React, Tauri, or npm caller for npm:@rightkit/update; examples are outside audited production scope.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/swiftright/packages/SwiftRightBridge/Package.swift",
+          "line": 17,
+          "symbol": "SwiftPM production manifest",
+          "detail": "Audited production package is a macOS SwiftPM target; no JavaScript/Tauri/npm target or npm:@rightkit/update route exists."
+        },
+        {
+          "path": "/Volumes/D/claude/swiftright/README.md",
+          "line": 3,
+          "symbol": "desktop SDK scope",
+          "detail": "SwiftRight production scope is Swift desktop SDK work; SliceApp/examples are excluded from this audit."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None for SwiftRight production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "npm:@rightkit/updates",
+      "status": "NA",
+      "rationale": "NA: SwiftRight production targets contain no JavaScript, React, Tauri, or npm caller for npm:@rightkit/updates; examples are outside audited production scope.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/swiftright/packages/SwiftRightBridge/Package.swift",
+          "line": 17,
+          "symbol": "SwiftPM production manifest",
+          "detail": "Audited production package is a macOS SwiftPM target; no JavaScript/Tauri/npm target or npm:@rightkit/updates route exists."
+        },
+        {
+          "path": "/Volumes/D/claude/swiftright/README.md",
+          "line": 3,
+          "symbol": "desktop SDK scope",
+          "detail": "SwiftRight production scope is Swift desktop SDK work; SliceApp/examples are excluded from this audit."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None for SwiftRight production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitLicense",
+      "status": "NA",
+      "rationale": "NA: SwiftRight production manifests expose macOS Swift targets only, with no iOS/watchOS/extension/app-intent/Apple-service implementation for swift:RightKitLicense.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/swiftright/packages/SwiftRightBridge/Package.swift",
+          "line": 17,
+          "symbol": "SwiftRightBridge platforms",
+          "detail": "Package declares macOS v14 platform and native bridge targets; no swift:RightKitLicense feature caller is present."
+        },
+        {
+          "path": "/Volumes/D/claude/swiftright/packages/SwiftRightServices/Package.swift",
+          "line": 12,
+          "symbol": "SwiftRightServices platforms",
+          "detail": "SwiftRightServices also declares macOS v14; source scope contains no iOS/watchOS/extension target for swift:RightKitLicense."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None for SwiftRight production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitDiagnostics",
+      "status": "NA",
+      "rationale": "NA: SwiftRight production manifests expose macOS Swift targets only, with no iOS/watchOS/extension/app-intent/Apple-service implementation for swift:RightKitDiagnostics.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/swiftright/packages/SwiftRightBridge/Package.swift",
+          "line": 17,
+          "symbol": "SwiftRightBridge platforms",
+          "detail": "Package declares macOS v14 platform and native bridge targets; no swift:RightKitDiagnostics feature caller is present."
+        },
+        {
+          "path": "/Volumes/D/claude/swiftright/packages/SwiftRightServices/Package.swift",
+          "line": 12,
+          "symbol": "SwiftRightServices platforms",
+          "detail": "SwiftRightServices also declares macOS v14; source scope contains no iOS/watchOS/extension target for swift:RightKitDiagnostics."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None for SwiftRight production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitArtifacts",
+      "status": "NA",
+      "rationale": "NA: SwiftRight production manifests expose macOS Swift targets only, with no iOS/watchOS/extension/app-intent/Apple-service implementation for swift:RightKitArtifacts.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/swiftright/packages/SwiftRightBridge/Package.swift",
+          "line": 17,
+          "symbol": "SwiftRightBridge platforms",
+          "detail": "Package declares macOS v14 platform and native bridge targets; no swift:RightKitArtifacts feature caller is present."
+        },
+        {
+          "path": "/Volumes/D/claude/swiftright/packages/SwiftRightServices/Package.swift",
+          "line": 12,
+          "symbol": "SwiftRightServices platforms",
+          "detail": "SwiftRightServices also declares macOS v14; source scope contains no iOS/watchOS/extension target for swift:RightKitArtifacts."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None for SwiftRight production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitPurchases",
+      "status": "NA",
+      "rationale": "NA: SwiftRight production manifests expose macOS Swift targets only, with no iOS/watchOS/extension/app-intent/Apple-service implementation for swift:RightKitPurchases.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/swiftright/packages/SwiftRightBridge/Package.swift",
+          "line": 17,
+          "symbol": "SwiftRightBridge platforms",
+          "detail": "Package declares macOS v14 platform and native bridge targets; no swift:RightKitPurchases feature caller is present."
+        },
+        {
+          "path": "/Volumes/D/claude/swiftright/packages/SwiftRightServices/Package.swift",
+          "line": 12,
+          "symbol": "SwiftRightServices platforms",
+          "detail": "SwiftRightServices also declares macOS v14; source scope contains no iOS/watchOS/extension target for swift:RightKitPurchases."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None for SwiftRight production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitCloudSync",
+      "status": "NA",
+      "rationale": "NA: SwiftRight production manifests expose macOS Swift targets only, with no iOS/watchOS/extension/app-intent/Apple-service implementation for swift:RightKitCloudSync.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/swiftright/packages/SwiftRightBridge/Package.swift",
+          "line": 17,
+          "symbol": "SwiftRightBridge platforms",
+          "detail": "Package declares macOS v14 platform and native bridge targets; no swift:RightKitCloudSync feature caller is present."
+        },
+        {
+          "path": "/Volumes/D/claude/swiftright/packages/SwiftRightServices/Package.swift",
+          "line": 12,
+          "symbol": "SwiftRightServices platforms",
+          "detail": "SwiftRightServices also declares macOS v14; source scope contains no iOS/watchOS/extension target for swift:RightKitCloudSync."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None for SwiftRight production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitStore",
+      "status": "NA",
+      "rationale": "NA: SwiftRight production manifests expose macOS Swift targets only, with no iOS/watchOS/extension/app-intent/Apple-service implementation for swift:RightKitStore.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/swiftright/packages/SwiftRightBridge/Package.swift",
+          "line": 17,
+          "symbol": "SwiftRightBridge platforms",
+          "detail": "Package declares macOS v14 platform and native bridge targets; no swift:RightKitStore feature caller is present."
+        },
+        {
+          "path": "/Volumes/D/claude/swiftright/packages/SwiftRightServices/Package.swift",
+          "line": 12,
+          "symbol": "SwiftRightServices platforms",
+          "detail": "SwiftRightServices also declares macOS v14; source scope contains no iOS/watchOS/extension target for swift:RightKitStore."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None for SwiftRight production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitImportQueue",
+      "status": "NA",
+      "rationale": "NA: SwiftRight production manifests expose macOS Swift targets only, with no iOS/watchOS/extension/app-intent/Apple-service implementation for swift:RightKitImportQueue.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/swiftright/packages/SwiftRightBridge/Package.swift",
+          "line": 17,
+          "symbol": "SwiftRightBridge platforms",
+          "detail": "Package declares macOS v14 platform and native bridge targets; no swift:RightKitImportQueue feature caller is present."
+        },
+        {
+          "path": "/Volumes/D/claude/swiftright/packages/SwiftRightServices/Package.swift",
+          "line": 12,
+          "symbol": "SwiftRightServices platforms",
+          "detail": "SwiftRightServices also declares macOS v14; source scope contains no iOS/watchOS/extension target for swift:RightKitImportQueue."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None for SwiftRight production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitLiveActivity",
+      "status": "NA",
+      "rationale": "NA: SwiftRight production manifests expose macOS Swift targets only, with no iOS/watchOS/extension/app-intent/Apple-service implementation for swift:RightKitLiveActivity.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/swiftright/packages/SwiftRightBridge/Package.swift",
+          "line": 17,
+          "symbol": "SwiftRightBridge platforms",
+          "detail": "Package declares macOS v14 platform and native bridge targets; no swift:RightKitLiveActivity feature caller is present."
+        },
+        {
+          "path": "/Volumes/D/claude/swiftright/packages/SwiftRightServices/Package.swift",
+          "line": 12,
+          "symbol": "SwiftRightServices platforms",
+          "detail": "SwiftRightServices also declares macOS v14; source scope contains no iOS/watchOS/extension target for swift:RightKitLiveActivity."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None for SwiftRight production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitWatchBridge",
+      "status": "NA",
+      "rationale": "NA: SwiftRight production manifests expose macOS Swift targets only, with no iOS/watchOS/extension/app-intent/Apple-service implementation for swift:RightKitWatchBridge.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/swiftright/packages/SwiftRightBridge/Package.swift",
+          "line": 17,
+          "symbol": "SwiftRightBridge platforms",
+          "detail": "Package declares macOS v14 platform and native bridge targets; no swift:RightKitWatchBridge feature caller is present."
+        },
+        {
+          "path": "/Volumes/D/claude/swiftright/packages/SwiftRightServices/Package.swift",
+          "line": 12,
+          "symbol": "SwiftRightServices platforms",
+          "detail": "SwiftRightServices also declares macOS v14; source scope contains no iOS/watchOS/extension target for swift:RightKitWatchBridge."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None for SwiftRight production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitSpeech",
+      "status": "NA",
+      "rationale": "NA: SwiftRight production manifests expose macOS Swift targets only, with no iOS/watchOS/extension/app-intent/Apple-service implementation for swift:RightKitSpeech.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/swiftright/packages/SwiftRightBridge/Package.swift",
+          "line": 17,
+          "symbol": "SwiftRightBridge platforms",
+          "detail": "Package declares macOS v14 platform and native bridge targets; no swift:RightKitSpeech feature caller is present."
+        },
+        {
+          "path": "/Volumes/D/claude/swiftright/packages/SwiftRightServices/Package.swift",
+          "line": 12,
+          "symbol": "SwiftRightServices platforms",
+          "detail": "SwiftRightServices also declares macOS v14; source scope contains no iOS/watchOS/extension target for swift:RightKitSpeech."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None for SwiftRight production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitIntents",
+      "status": "NA",
+      "rationale": "NA: SwiftRight production manifests expose macOS Swift targets only, with no iOS/watchOS/extension/app-intent/Apple-service implementation for swift:RightKitIntents.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/swiftright/packages/SwiftRightBridge/Package.swift",
+          "line": 17,
+          "symbol": "SwiftRightBridge platforms",
+          "detail": "Package declares macOS v14 platform and native bridge targets; no swift:RightKitIntents feature caller is present."
+        },
+        {
+          "path": "/Volumes/D/claude/swiftright/packages/SwiftRightServices/Package.swift",
+          "line": 12,
+          "symbol": "SwiftRightServices platforms",
+          "detail": "SwiftRightServices also declares macOS v14; source scope contains no iOS/watchOS/extension target for swift:RightKitIntents."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None for SwiftRight production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitAppleCredentials",
+      "status": "NA",
+      "rationale": "NA: SwiftRight production manifests expose macOS Swift targets only, with no iOS/watchOS/extension/app-intent/Apple-service implementation for swift:RightKitAppleCredentials.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/swiftright/packages/SwiftRightBridge/Package.swift",
+          "line": 17,
+          "symbol": "SwiftRightBridge platforms",
+          "detail": "Package declares macOS v14 platform and native bridge targets; no swift:RightKitAppleCredentials feature caller is present."
+        },
+        {
+          "path": "/Volumes/D/claude/swiftright/packages/SwiftRightServices/Package.swift",
+          "line": 12,
+          "symbol": "SwiftRightServices platforms",
+          "detail": "SwiftRightServices also declares macOS v14; source scope contains no iOS/watchOS/extension target for swift:RightKitAppleCredentials."
+        }
+      ],
+      "owner_evidence": [],
+      "delivery_flags": [],
+      "remaining_work": "None for SwiftRight production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitOverlay",
+      "status": "NA",
+      "rationale": "NA: SwiftRight's modal ABI queues Windows menus/dialogs; it has no macOS pill/notch panel, placement, or click-through overlay feature. RightKitOverlay's Apple-native API does not overlap.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/swiftright/packages/SwiftRightBridge/Package.swift",
+          "line": 22,
+          "symbol": "SwiftRightBridge targets",
+          "detail": "Bridge depends only on CSwiftRight and CDispatchPrivate; no RightKitOverlay target is imported."
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/swift/RightKitSwift/Sources/RightKitOverlay/Overlay.swift",
+          "line": 177,
+          "symbol": "RightKitOverlayPanel",
+          "detail": "Owner provides macOS pill/notch NSPanel behavior, distinct from SwiftRight Windows modal ABI."
+        }
+      ],
+      "delivery_flags": [],
+      "remaining_work": "None for SwiftRight production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitWatch",
+      "status": "NA",
+      "rationale": "NA: SwiftRight production source has no filesystem-watch caller. Its bridge target links a Windows renderer C ABI, while RightKitWatch is a macOS FSEvents feature.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/swiftright/packages/SwiftRightBridge/Package.swift",
+          "line": 22,
+          "symbol": "SwiftRightBridge targets",
+          "detail": "Bridge depends only on CSwiftRight and CDispatchPrivate; no RightKitWatch target is imported."
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/swift/RightKitSwift/Sources/RightKitWatch/RightKitWatch.swift",
+          "line": 174,
+          "symbol": "RightKitWatcher",
+          "detail": "Owner exports a macOS FSEvents watcher, absent from SwiftRight's production targets."
+        }
+      ],
+      "delivery_flags": [],
+      "remaining_work": "None for SwiftRight production scope.",
+      "confidence": "high"
+    },
+    {
+      "component_id": "swift:RightKitUI",
+      "status": "NA",
+      "rationale": "NA: SwiftRightBridge is a C ABI host for Windows GPUI/AccessKit renderer behavior; it has no SwiftUI view caller. RightKitUI's Apple SwiftUI material API does not overlap.",
+      "shared_evidence": [],
+      "local_evidence": [],
+      "applicability_evidence": [
+        {
+          "path": "/Volumes/D/claude/swiftright/packages/SwiftRightBridge/Package.swift",
+          "line": 22,
+          "symbol": "SwiftRightBridge targets",
+          "detail": "Bridge depends only on CSwiftRight and CDispatchPrivate; no RightKitUI target is imported."
+        }
+      ],
+      "owner_evidence": [
+        {
+          "path": "/Volumes/D/claude/rightkit/swift/RightKitSwift/Sources/RightKitUI/AdaptiveGlassSurface.swift",
+          "line": 34,
+          "symbol": "View.rightKitAdaptiveGlass",
+          "detail": "Owner API is a SwiftUI View modifier, distinct from SwiftRight's C ABI renderer bridge."
+        }
+      ],
+      "delivery_flags": [],
+      "remaining_work": "None for SwiftRight production scope.",
+      "confidence": "high"
+    }
+  ],
+  "searches": [
+    {
+      "pattern": "EngineWire|FrameEncoder|FrameDecoder|JSON lines|length-prefixed",
+      "scope": "packages/SwiftRightServices/Sources/SwiftRightServices",
+      "result": "EngineClient calls local EngineWire; no SwiftPM/C ABI route to rightkit-framed-sidecar."
+    },
+    {
+      "pattern": "Process\\\\(|Pipe\\\\(|FileHandle|EnginePipes|termination",
+      "scope": "packages/SwiftRightServices/Sources/SwiftRightServices",
+      "result": "Foundation Process/Pipes/FileHandle and local exit tracking implement engine lifecycle."
+    },
+    {
+      "pattern": "mac-oracle|win-replay|compare|smoke|package|events.jsonl",
+      "scope": "qualification/run.py and qualification scripts",
+      "result": "Local Python runner owns staged qualification, JSONL evidence, comparison, smoke, and package receipts."
+    },
+    {
+      "pattern": "Keychain|Security|CloudKit|StoreKit|WatchConnectivity|ActivityKit|AppIntents|AVAudio|Vision|PDF|FFmpeg|URLSession|OAuth|MCP|Tauri|React|npm",
+      "scope": "packages, render, qualification production scope",
+      "result": "No production local feature route for native Apple services, cloud/store/media/browser, or JS/Tauri capabilities."
+    },
+    {
+      "pattern": "rightkit-[a-z]+|@rightkit/|RightKit[A-Za-z]+",
+      "scope": "packages, render manifests and production source",
+      "result": "Only protocol/name references appear; no shared package dependency or production call is present."
+    },
+    {
+      "pattern": "#\\[no_mangle\\]|extern \"C\"|cdylib|staticlib|cbindgen|Swift|swift",
+      "scope": "crates/rightkit-framed-sidecar, crates/rightkit-process, crates/rightkit-qa source and manifests",
+      "result": "No supported Swift/C/native-host or Python bridge was found; each owner exports Rust APIs only."
+    }
+  ],
+  "self_review": "Adversarial pass challenged every NA against local source census: renderer text cache is not disk-cache ownership, modal menus are not overlay pill/notch policy, frame tracing is not structured rightkit-logs, and SwiftRight's C ABI renderer is not a SwiftUI UI route. Three apparent cross-language duplicates were corrected from N to NA after owner-export review: no supported Swift/C/native-host or Python bridge exists. No Y/M rows remain because no RightKit production caller is present."
+}
