@@ -107,6 +107,8 @@ fn run() {
             .expect("editor control")
     };
     let ed = editor(&s2);
+    // Separates a late self-activation by the app from one caused by the tier 1 write.
+    unchanged("snapshots, before tier 1");
 
     // Tier 1 (ValuePattern), read back.
     let o = a
