@@ -64,12 +64,15 @@
 //!   `ReplaceSourceText` commands of one page are applied back to front, so splitting a `TJ`
 //!   string item only ever moves items that a command already applied has finished with.
 //! - **Baseline anchor for a rewritten run.** §8 says "Replacement preserves original baseline
-//!   anchor," but `PdfSourceEdit`'s wire shape (`pdfEditModel.ts`/`PdfEditCommand`, §6) carries no
-//!   explicit origin point — only `availableBounds: PdfRect`. This implementation anchors the new
-//!   run's text matrix at `(available_bounds.x, available_bounds.y)`, i.e. the lower-left corner of
-//!   the verified-available rect, which is the frontend-computed stand-in for the original run's
-//!   baseline start per §8's "Available expansion beyond original island requires verified empty
-//!   page space on same baseline."
+//!   anchor." The new run is therefore placed from the island it replaces, never from
+//!   `availableBounds` (which `PdfSourceEdit`'s wire shape, §6, carries as the only rectangle, and
+//!   which is only the verified room the run must fit). The new stream runs in the default
+//!   graphics state, so its `Tm` is the whole of the first glyph's `text matrix x CTM`
+//!   (`IslandLayout::placement`; row-vector convention, ISO 32000-1 9.4.2, as `Matrix::then`),
+//!   with `Tf` kept at the original text-space size: the glyph origin, rotation, skew and scale
+//!   are those of the source whether the producer put them in `Tm`, `Td` or a `cm` outside the
+//!   text object. A read-back of the composed page refuses the batch when a replacement does not
+//!   land there (`verify_appended_runs`).
 //! - **Layout measurement.** `MeasuredRun`'s width for an embedded-font rewrite/add-text run is
 //!   measured exactly, by summing the resolved font's real per-glyph advances (via `ttf_parser`,
 //!   same source `subset_for_pdf` reads) scaled to `/1000` units. For the in-place exact-operand-patch
@@ -93,9 +96,9 @@ use crate::inspect::{
 };
 use crate::model::{
     document_sha256, effective_pdf_edit_commands, ComposedCandidate, GapNumber, GlyphSourceAddress,
-    PdfColor, PdfEditCommand, PdfEditError, PdfFontResolver, PdfOcrBackgroundProof, PdfPoint,
-    PdfRect, PdfSourceLocator, PdfSourceSpan, PdfTextAppearance, PdfTextEditState, PdfTextIsland,
-    ResolvedPdfFont, RunItem,
+    IslandLayout, Matrix, PdfColor, PdfEditCommand, PdfEditError, PdfFontResolver,
+    PdfOcrBackgroundProof, PdfPageGraph, PdfPoint, PdfRect, PdfSourceLocator, PdfSourceSpan,
+    PdfTextAppearance, PdfTextEditState, PdfTextIsland, ResolvedPdfFont, RunItem,
 };
 
 /// Slack, in device-space points, when a replacement's measured width is compared with the
@@ -182,6 +185,7 @@ pub fn compose_candidate_on_base(
     // isolation wrapper and new stream waits until the last command has been applied.
     let effective = effective_pdf_edit_commands(commands);
     let mut isolated: Vec<(usize, Isolated)> = Vec::new();
+    let mut appended: Vec<AppendedRun> = Vec::new();
     for slot in back_to_front_order(&effective) {
         let command = effective[slot];
         let (page, block) = match command {
@@ -195,7 +199,7 @@ pub fn compose_candidate_on_base(
                 if locator.document_sha256 != source_sha {
                     return Err(PdfEditError::StaleSource);
                 }
-                apply_replace_source_text(
+                let (page, block, run) = apply_replace_source_text(
                     &mut doc,
                     source_sha,
                     locator,
@@ -203,7 +207,9 @@ pub fn compose_candidate_on_base(
                     after,
                     *available_bounds,
                     fonts,
-                )?
+                )?;
+                appended.extend(run);
+                (page, block)
             }
             PdfEditCommand::AddText {
                 page,
@@ -239,6 +245,9 @@ pub fn compose_candidate_on_base(
         }
     }
     install_isolated_content(&mut doc, isolated)?;
+    // The structural checks below, and the save-side recheck, only ask whether the text reads back.
+    // A replacement drawn somewhere else, at another size, reads back just as well.
+    verify_appended_runs(&doc, &appended)?;
 
     // Never trust the composer blindly: an edit may add a resource, but a page must still resolve
     // every font, XObject and graphics state it resolved in the source. (Adding a font to a page
@@ -335,7 +344,7 @@ fn apply_replace_source_text(
     after: &PdfTextEditState,
     available_bounds: PdfRect,
     fonts: &dyn PdfFontResolver,
-) -> Result<(u32, Option<Isolated>), PdfEditError> {
+) -> Result<(u32, Option<Isolated>, Option<AppendedRun>), PdfEditError> {
     if locator.spans.is_empty() {
         return Err(PdfEditError::UnsupportedEncoding);
     }
@@ -397,7 +406,7 @@ fn apply_replace_source_text(
     // gets its own copy first, so the other pages stay as they were.
     isolate_shared_content_stream(doc, page_id, stream_id)?;
 
-    let block = match select_replace_strategy(before, after, island.editable) {
+    let (block, run) = match select_replace_strategy(before, after, island.editable) {
         WriteStrategy::ExactOperandPatch => {
             apply_exact_operand_patch(
                 doc,
@@ -408,20 +417,24 @@ fn apply_replace_source_text(
                 after,
                 available_bounds,
             )?;
-            None
+            (None, None)
         }
-        WriteStrategy::LocalTextObjectRewrite => Some(apply_local_text_object_rewrite(
-            doc,
-            page_id,
-            stream_id,
-            island,
-            after,
-            available_bounds,
-            fonts,
-        )?),
+        WriteStrategy::LocalTextObjectRewrite => {
+            let (block, run) = apply_local_text_object_rewrite(
+                doc,
+                locator.page,
+                page_id,
+                stream_id,
+                island,
+                after,
+                available_bounds,
+                fonts,
+            )?;
+            (Some(block), run)
+        }
     };
 
-    Ok((locator.page, block))
+    Ok((locator.page, block, run))
 }
 
 /// Most content-stream references the pages that share one stream may carry together. Each is
@@ -1009,28 +1022,49 @@ fn validate_layout_advance(
 // §9.2 — Local text-object rewrite
 // -------------------------------------------------------------------------------------------
 
+#[allow(clippy::too_many_arguments)]
 fn apply_local_text_object_rewrite(
     doc: &mut Document,
+    page: u32,
     page_id: ObjectId,
     stream_id: ObjectId,
     island: &PdfTextIsland,
     after: &PdfTextEditState,
     available_bounds: PdfRect,
     fonts: &dyn PdfFontResolver,
-) -> Result<Isolated, PdfEditError> {
+) -> Result<(Isolated, Option<AppendedRun>), PdfEditError> {
     let resolved = fonts.resolve(&after.appearance.font_id)?;
     // Validates full glyph coverage up front (§7.3 rule 3: "fail before candidate creation").
     fonts.glyphs_for_text(&resolved, &after.text)?;
 
-    let anchor = PdfPoint {
-        x: available_bounds.x,
-        y: available_bounds.y,
-    };
+    // The new block runs in the default graphics state, so it must carry the source run's whole
+    // placement itself (see `build_text_object_operations`). A matrix that cannot place text is a
+    // refusal, never a guess.
+    let layout = island.layout.ok_or(PdfEditError::UnsupportedEncoding)?;
+    let placement = layout.placement;
+    let finite = [
+        placement.a,
+        placement.b,
+        placement.c,
+        placement.d,
+        placement.e,
+        placement.f,
+    ]
+    .iter()
+    .all(|value| value.is_finite());
+    let scale = layout.axis.0.hypot(layout.axis.1);
+    if !(finite && scale > 0.0 && after.appearance.size_pt.is_finite()) {
+        return Err(PdfEditError::UnsupportedTransform);
+    }
+
+    // Fit, in the units the block is drawn in: the text-space length of the new advances
+    // (`Tf` size x advance / 1000; `Tz`, `Tc` and `Tw` are reset to defaults) is carried to device
+    // space by the placement's axis, exactly as the in-place path measures. `Tf` is text-space
+    // here, so the matrix's scale is applied once, by `validate_layout_advance`, and not in `Tf`.
     let advance_1000 = measure_advance_1000(&resolved, &after.text);
-    validate_layout_measured(
-        advance_1000,
-        after.appearance.size_pt,
-        anchor,
+    validate_layout_advance(
+        advance_1000 / 1000.0 * after.appearance.size_pt,
+        layout.axis,
         available_bounds,
     )?;
 
@@ -1050,10 +1084,82 @@ fn apply_local_text_object_rewrite(
     // outside the original content's graphics state. Appended inside the edited stream it would
     // inherit that stream's clip, alpha and blend mode, and a clip cannot be reset from inside.
     // The stream is installed with the rest of the batch (see `install_isolated_content`).
-    Ok((
-        page_id,
-        build_text_object_operations(&resource_name, &after.appearance, anchor, &cid_codes),
-    ))
+    let operations =
+        build_text_object_operations(&resource_name, &after.appearance, placement, &cid_codes);
+    // A run with no text shows no glyph, so there is no first glyph to find on read-back.
+    let run = (!after.text.is_empty()).then(|| AppendedRun {
+        page,
+        font_resource: String::from_utf8_lossy(&resource_name).into_owned(),
+        placement,
+        size: after.appearance.size_pt,
+    });
+    Ok(((page_id, operations), run))
+}
+
+/// What the composed page must show for one appended replacement run, worked out from the island
+/// it replaces and not from the operations that were emitted, so that a mistake in emitting them
+/// is caught.
+struct AppendedRun {
+    page: u32,
+    /// The `/Font` resource name the block draws in. Unique to the block on its page.
+    font_resource: String,
+    /// `text matrix x CTM` of the source run's first glyph: where the block's first glyph must be.
+    placement: Matrix,
+    /// The `Tf` size the block uses, in the text-space units of `placement`.
+    size: f64,
+}
+
+/// How far, in device points, a replacement's first glyph origin may sit from the source's.
+const APPENDED_ORIGIN_TOLERANCE_PT: f64 = 0.5;
+
+/// How far, relative to the expected length, the replacement's em vectors (one `Tf` size along
+/// text x and along text y, in device space) may differ from the source's. Covers size, rotation
+/// and skew together.
+const APPENDED_SIZE_TOLERANCE: f64 = 0.02;
+
+/// Reads the composed page back and refuses the batch unless every appended replacement run sits
+/// where the run it replaced sat and is drawn as large and as turned. The text of the run is not
+/// compared here (the save-side recheck and the structural walk already do that); this is the
+/// geometry, which a structural read-back cannot see: a run drawn at the page origin, ten times
+/// too large, reads back as exactly the requested text.
+fn verify_appended_runs(doc: &Document, runs: &[AppendedRun]) -> Result<(), PdfEditError> {
+    use std::collections::btree_map::Entry;
+    let mut graphs: std::collections::BTreeMap<u32, PdfPageGraph> =
+        std::collections::BTreeMap::new();
+    for run in runs {
+        let graph = match graphs.entry(run.page) {
+            Entry::Occupied(entry) => entry.into_mut(),
+            Entry::Vacant(entry) => entry.insert(
+                walk_page_graph(doc, "", run.page).map_err(|_| PdfEditError::VerificationFailed)?,
+            ),
+        };
+        let written = graph
+            .islands
+            .iter()
+            .find(|island| island.appearance.font_id == run.font_resource)
+            .ok_or(PdfEditError::VerificationFailed)?;
+        let layout = written.layout.ok_or(PdfEditError::VerificationFailed)?;
+        if !appended_run_placed(run, &layout) {
+            return Err(PdfEditError::VerificationFailed);
+        }
+    }
+    Ok(())
+}
+
+/// Whether the first glyph the walker now sees is where `run` says it must be: origin within
+/// [`APPENDED_ORIGIN_TOLERANCE_PT`], and the device-space vectors of one `Tf` size along text x and
+/// along text y each within [`APPENDED_SIZE_TOLERANCE`] of the expected ones.
+fn appended_run_placed(run: &AppendedRun, written: &IslandLayout) -> bool {
+    let (want, have) = (run.placement, written.placement);
+    let origin = (have.e - want.e).hypot(have.f - want.f);
+    let em_x = |m: Matrix, size: f64| (m.a * size, m.b * size);
+    let em_y = |m: Matrix, size: f64| (m.c * size, m.d * size);
+    let near = |want: (f64, f64), have: (f64, f64)| {
+        (have.0 - want.0).hypot(have.1 - want.1) <= APPENDED_SIZE_TOLERANCE * want.0.hypot(want.1)
+    };
+    origin <= APPENDED_ORIGIN_TOLERANCE_PT
+        && near(em_x(want, run.size), em_x(have, written.font_size))
+        && near(em_y(want, run.size), em_y(have, written.font_size))
 }
 
 /// One glyph an edit removes from a string operand, with the `TJ` number that keeps the pen where
@@ -1176,31 +1282,6 @@ fn pieces_around_removed(
     Ok(out)
 }
 
-fn validate_layout_measured(
-    advance_1000: f64,
-    size_pt: f64,
-    anchor: PdfPoint,
-    available: PdfRect,
-) -> Result<(), PdfEditError> {
-    // Anchored at `available`'s own lower-left corner (§8: "Available expansion beyond original
-    // island requires verified empty page space on same baseline" — `available_bounds` IS that
-    // verified, baseline-anchored usable rect already, per `validate_layout_advance`'s
-    // matching convention). No extra guessed descender offset below `anchor.y`/`available.y`: that
-    // previously pushed `run_bounds` below `available`'s own bottom edge and produced a false
-    // `TextOverflow` even for text that fits comfortably.
-    let width = (advance_1000 / 1000.0 * size_pt).max(0.0);
-    let run_bounds = PdfRect {
-        x: anchor.x,
-        y: available.y,
-        width,
-        height: available.height,
-    };
-    if !available.contains(run_bounds) {
-        return Err(PdfEditError::TextOverflow);
-    }
-    Ok(())
-}
-
 fn measure_advance_1000(resolved: &ResolvedPdfFont, text: &str) -> f64 {
     let Ok(face) = ttf_parser::Face::parse(&resolved.bytes, resolved.face_index) else {
         return text.chars().count() as f64 * 500.0;
@@ -1242,7 +1323,14 @@ fn apply_add_text(
         page,
         Some((
             page_id,
-            build_text_object_operations(&resource_name, appearance, anchor, &cid_codes),
+            // Add Text gives a point in page space and an upright size; the block runs in the
+            // default state, so the matrix is the plain translation.
+            build_text_object_operations(
+                &resource_name,
+                appearance,
+                Matrix::translation(anchor.x, anchor.y),
+                &cid_codes,
+            ),
         )),
     ))
 }
@@ -1723,9 +1811,24 @@ fn dict_entry_clone(doc: &Document, dict: &Dictionary, key: &[u8]) -> Dictionary
 }
 
 /// One isolated `q / BT / Tf / Tr Tc Tw Tz Ts / rg / Tm / Tj / ET / Q` block showing `cid_codes`
-/// (Identity-H, 2-byte-per-code) through `resource_name` at `anchor`, in
-/// `appearance.color`/`appearance.size_pt` - the shared building block for both §9.2's appended
-/// local rewrite and §9.3's Add Text stream.
+/// (Identity-H, 2-byte-per-code) through `resource_name`, in
+/// `appearance.color`/`appearance.size_pt` - the shared building block for §9.2's appended
+/// local rewrite, §9.3's Add Text stream and the OCR correction text.
+///
+/// `placement` is the block's whole `Tm`, all six numbers, and the block runs in the default
+/// graphics state (identity CTM, see [`install_isolated_content`]), so it is also the matrix that
+/// takes text space to page space. The text rendering matrix of the first glyph is
+/// `[size 0 0; 0 size 0; 0 0 1] x Tm x CTM` (ISO 32000-1 9.4.4; row vectors, `Matrix::then`
+/// applies its left operand first). A caller that replaces a source run passes that run's
+/// `Tm_source x CTM_source` with `Tf` kept at the source's text-space size: the products are then
+/// equal, rotation, skew, negative and non-uniform scale included, whether the producer put the
+/// run's position in `Tm`, `Td` or a `cm` outside the text object. Add Text and the OCR text pass
+/// an upright `Matrix::translation(x, y)`: the point is already in page space and the size in
+/// points.
+///
+/// Not reproduced: a source run that relied on horizontal scaling (`Tz`) or text rise (`Ts`)
+/// draws without them, as this block resets both (and `Tc`, `Tw`, the render mode) to defaults;
+/// the replacement is also measured without them.
 ///
 /// The `q`/`Q` pair keeps this block's state from leaking out, but it cannot keep the page's
 /// state from leaking in: the text state parameters a page's last text object left behind (`3 Tr`
@@ -1737,7 +1840,7 @@ fn dict_entry_clone(doc: &Document, dict: &Dictionary, key: &[u8]) -> Dictionary
 fn build_text_object_operations(
     resource_name: &[u8],
     appearance: &PdfTextAppearance,
-    anchor: PdfPoint,
+    placement: Matrix,
     cid_codes: &[u16],
 ) -> Vec<Operation> {
     let mut hex_bytes = Vec::with_capacity(cid_codes.len() * 2);
@@ -1771,14 +1874,16 @@ fn build_text_object_operations(
         ),
         Operation::new(
             "Tm",
-            vec![
-                Object::Integer(1),
-                Object::Integer(0),
-                Object::Integer(0),
-                Object::Integer(1),
-                Object::Real(anchor.x as f32),
-                Object::Real(anchor.y as f32),
-            ],
+            [
+                placement.a,
+                placement.b,
+                placement.c,
+                placement.d,
+                placement.e,
+                placement.f,
+            ]
+            .map(number_object)
+            .to_vec(),
         ),
         Operation::new(
             "Tj",
@@ -1821,13 +1926,12 @@ fn build_ocr_correction_operations(
         Operation::new("f", vec![]),
         Operation::new("Q", vec![]),
     ]);
+    // `rect` is in page space and the block runs in the default state: no text-space value is
+    // involved, so the upright translation is exact.
     operations.extend(build_text_object_operations(
         resource_name,
         appearance,
-        PdfPoint {
-            x: rect.x,
-            y: rect.y + rect.height * 0.18,
-        },
+        Matrix::translation(rect.x, rect.y + rect.height * 0.18),
         cid_codes,
     ));
     operations
@@ -4625,5 +4729,315 @@ mod tests {
                 "{label}"
             );
         }
+    }
+
+    // -----------------------------------------------------------------------------------
+    // A block in the default graphics state carries the source run's whole placement
+    // -----------------------------------------------------------------------------------
+
+    /// Page content like a producer that places every run with `cm` outside the text object: a
+    /// leading `0.1` scale and a `7920` shift (a 792 pt page in tenths), then one
+    /// `q <cm> cm BT /F1 100 Tf <colour> rg 0 0 Td (<text>) Tj ET Q` per `(cm, rg, text)`. The run
+    /// colours differ, so neighbouring runs stay separate islands.
+    fn cm_positioned_page(runs: &[(&str, &str, &str)]) -> Vec<u8> {
+        let mut content = String::from("0.1 0 0 0.1 0 0 cm\n1 0 0 1 0 7920 cm\n");
+        for (cm, rg, text) in runs {
+            content.push_str(&format!(
+                "q {cm} cm BT /F1 100 Tf {rg} rg 0 0 Td ({text}) Tj ET Q\n"
+            ));
+        }
+        content.into_bytes()
+    }
+
+    /// The three-run page with the middle run (`BC`) placed by `middle_cm`.
+    fn three_cm_runs(middle_cm: &str) -> Vec<u8> {
+        cm_positioned_page(&[
+            ("1 0 0 1 1000 -1000", "0 0 0", "AB"),
+            (middle_cm, "1 0 0", "BC"),
+            ("1 0 0 1 3000 -1000", "0 0 1", "CA"),
+        ])
+    }
+
+    struct ReplacedMiddle {
+        before: Vec<crate::model::PdfTextIsland>,
+        after: Vec<crate::model::PdfTextIsland>,
+        appended: Vec<Operation>,
+        bytes: Vec<u8>,
+    }
+
+    /// Replaces `BC` of `content` with `Hi` in the catalog font (`Tf` 100, the source run's own
+    /// text-space size) and reads the saved bytes back.
+    fn replace_middle_run_in_a_new_font(content: &[u8]) -> ReplacedMiddle {
+        let source = doc_bytes(&build_pdf(content));
+        let before = page_islands(&source);
+        let target = before
+            .iter()
+            .find(|island| island.text == "BC")
+            .expect("the middle run is an island of its own");
+        let command = replace_cmd(
+            "middle",
+            target,
+            "Hi",
+            appearance("test-font", 100.0),
+            PdfRect {
+                x: 190.0,
+                y: 680.0,
+                width: 200.0,
+                height: 40.0,
+            },
+        );
+        let candidate = compose_candidate(&source, &[command], &test_resolver()).expect("composes");
+        let (out, graph) = reinspect(&candidate, 1);
+        ReplacedMiddle {
+            before,
+            after: graph.islands,
+            appended: appended_operations(&out, 1),
+            bytes: candidate.bytes,
+        }
+    }
+
+    fn operands_of(ops: &[Operation], operator: &str) -> Vec<f64> {
+        ops.iter()
+            .find(|op| op.operator == operator)
+            .unwrap_or_else(|| panic!("no {operator} in {ops:?}"))
+            .operands
+            .iter()
+            .filter_map(object_number)
+            .collect()
+    }
+
+    fn assert_numbers(label: &str, got: &[f64], want: &[f64]) {
+        assert_eq!(got.len(), want.len(), "{label}: {got:?} vs {want:?}");
+        for (got_value, want_value) in got.iter().zip(want) {
+            // PDF reals are f32.
+            assert!(
+                (got_value - want_value).abs() <= 1e-4,
+                "{label}: {got:?} vs {want:?}"
+            );
+        }
+    }
+
+    /// The font size of an island's first glyph on the page, in device space: the `Tf` size times
+    /// the length of one text-space unit up the page.
+    fn device_size(island: &crate::model::PdfTextIsland) -> f64 {
+        let layout = island.layout.expect("layout");
+        layout.font_size * layout.placement.c.hypot(layout.placement.d)
+    }
+
+    fn island_named<'a>(
+        islands: &'a [crate::model::PdfTextIsland],
+        text: &str,
+    ) -> &'a crate::model::PdfTextIsland {
+        islands
+            .iter()
+            .find(|island| island.text == text)
+            .unwrap_or_else(|| panic!("no island {text:?}"))
+    }
+
+    /// What both placement tests assert once the appended `Tm` and `Tf` are checked.
+    fn assert_replacement_sits_on_the_source_run(run: &ReplacedMiddle) {
+        let source = island_named(&run.before, "BC");
+        let written = island_named(&run.after, "Hi");
+        // (c) The saved page, read back with the crate's own walker: same glyph origin, same
+        // size in device space.
+        let origin_error = (written.baseline[0] - source.baseline[0])
+            .hypot(written.baseline[1] - source.baseline[1]);
+        assert!(
+            origin_error <= 0.5,
+            "origin {:?} vs source {:?}",
+            &written.baseline[..2],
+            &source.baseline[..2]
+        );
+        let (have, want) = (device_size(written), device_size(source));
+        assert!(
+            (have - want).abs() <= 0.02 * want,
+            "device size {have} vs source {want}"
+        );
+        assert!(
+            (want - 10.0).abs() < 1e-6,
+            "the fixture's run is 10 pt: {want}"
+        );
+        // (d) The neighbours are exactly where they were.
+        for neighbour in ["AB", "CA"] {
+            assert_eq!(
+                island_named(&run.after, neighbour).quads,
+                island_named(&run.before, neighbour).quads,
+                "{neighbour}"
+            );
+        }
+        assert!(!run.after.iter().any(|island| island.text == "BC"));
+    }
+
+    #[test]
+    fn a_changed_font_replacement_on_a_cm_positioned_page_carries_the_runs_placement() {
+        let run = replace_middle_run_in_a_new_font(&three_cm_runs("1 0 0 1 2000 -1000"));
+        // (a) Tm_source (the identity: `0 0 Td`) x CTM_source, row vectors. The CTM of the middle
+        // run is `[1 0 0 1 2000 -1000] x [1 0 0 1 0 7920] x [0.1 0 0 0.1 0 0]`: a text-space point
+        // (x, y) lands at (0.1 x + 0.1 * 2000, 0.1 y + 0.1 * (7920 - 1000)) = (0.1 x + 200,
+        // 0.1 y + 692).
+        assert_numbers(
+            "Tm",
+            &operands_of(&run.appended, "Tm"),
+            &[0.1, 0.0, 0.0, 0.1, 200.0, 692.0],
+        );
+        // (b) Tf stays the source's text-space size, not the 10 pt it is drawn at.
+        assert_numbers("Tf", &operands_of(&run.appended, "Tf"), &[100.0]);
+        assert_replacement_sits_on_the_source_run(&run);
+    }
+
+    #[test]
+    fn a_changed_font_replacement_keeps_the_rotation_of_a_cm_positioned_run() {
+        // `0 1 -1 0 2000 -1000 cm` turns the run a quarter turn. Its CTM is
+        // `[0 1 -1 0 2000 -1000] x [0.1 0 0 0.1 0 792]` = [0 0.1 -0.1 0 200 692].
+        let run = replace_middle_run_in_a_new_font(&three_cm_runs("0 1 -1 0 2000 -1000"));
+        assert_numbers(
+            "Tm",
+            &operands_of(&run.appended, "Tm"),
+            &[0.0, 0.1, -0.1, 0.0, 200.0, 692.0],
+        );
+        assert_numbers("Tf", &operands_of(&run.appended, "Tf"), &[100.0]);
+        assert_replacement_sits_on_the_source_run(&run);
+        // The new glyphs run up the page like the old ones did.
+        let written = island_named(&run.after, "Hi");
+        let baseline = written.baseline;
+        assert!(
+            (baseline[2] - baseline[0]).abs() < 1e-6 && baseline[3] > baseline[1],
+            "{baseline:?}"
+        );
+    }
+
+    #[test]
+    fn a_changed_font_replacement_keeps_the_text_matrix_and_the_cm_together() {
+        // Both carry placement: `Tm` turns and moves the run, the `cm` scales it.
+        let content = b"0.1 0 0 0.1 0 0 cm\n1 0 0 1 0 7920 cm\n\
+            q 1 0 0 1 1000 -1000 cm BT /F1 100 Tf 0 0 0 rg 0 0 Td (AB) Tj ET Q\n\
+            q 1 0 0 1 2000 -1000 cm BT /F1 100 Tf 1 0 0 rg 0 1 -1 0 30 40 Tm (BC) Tj ET Q\n\
+            q 1 0 0 1 3000 -1000 cm BT /F1 100 Tf 0 0 1 rg 0 0 Td (CA) Tj ET Q\n";
+        let run = replace_middle_run_in_a_new_font(content);
+        // Tm [0 1 -1 0 30 40] x CTM [0.1 0 0 0.1 200 692]: a = 0, b = 0.1, c = -0.1, d = 0,
+        // e = 30 * 0.1 + 40 * 0 + 200 = 203, f = 30 * 0 + 40 * 0.1 + 692 = 696.
+        assert_numbers(
+            "Tm",
+            &operands_of(&run.appended, "Tm"),
+            &[0.0, 0.1, -0.1, 0.0, 203.0, 696.0],
+        );
+        assert_numbers("Tf", &operands_of(&run.appended, "Tf"), &[100.0]);
+        assert_replacement_sits_on_the_source_run(&run);
+    }
+
+    #[test]
+    fn add_text_on_a_page_with_a_leading_scale_stays_an_upright_point_in_page_space() {
+        let source = doc_bytes(&build_pdf(&three_cm_runs("1 0 0 1 2000 -1000")));
+        let command = PdfEditCommand::AddText {
+            id: "add".to_string(),
+            page: 1,
+            anchor: PdfPoint { x: 100.0, y: 100.0 },
+            text: "Hi".to_string(),
+            appearance: appearance("test-font", 18.0),
+        };
+        let candidate = compose_candidate(&source, &[command], &test_resolver()).expect("composes");
+        let (out, graph) = reinspect(&candidate, 1);
+        let ops = appended_operations(&out, 1);
+        assert_numbers(
+            "Tm",
+            &operands_of(&ops, "Tm"),
+            &[1.0, 0.0, 0.0, 1.0, 100.0, 100.0],
+        );
+        assert_numbers("Tf", &operands_of(&ops, "Tf"), &[18.0]);
+        // Read back: the text is at the requested page point, 18 pt, whatever the page's own CTM.
+        let added = island_named(&graph.islands, "Hi");
+        assert!(
+            (added.baseline[0] - 100.0).abs() < 1e-3 && (added.baseline[1] - 100.0).abs() < 1e-3
+        );
+        assert!((device_size(added) - 18.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn the_composer_read_back_refuses_a_replacement_drawn_away_from_the_source_run() {
+        let run = replace_middle_run_in_a_new_font(&three_cm_runs("1 0 0 1 2000 -1000"));
+        let placement = island_named(&run.before, "BC")
+            .layout
+            .expect("layout")
+            .placement;
+        let expected = |placement: Matrix, size: f64| AppendedRun {
+            page: 1,
+            font_resource: "VREdit1".to_string(),
+            placement,
+            size,
+        };
+        let shifted = |dx: f64, dy: f64| Matrix {
+            e: placement.e + dx,
+            f: placement.f + dy,
+            ..placement
+        };
+        let mut doc = Document::load_mem(&run.bytes).expect("reopen");
+
+        verify_appended_runs(&doc, &[expected(placement, 100.0)])
+            .expect("where the source run was");
+        // Origin: within 0.5 pt passes, 1 pt does not.
+        verify_appended_runs(&doc, &[expected(shifted(0.3, -0.3), 100.0)]).expect("0.42 pt");
+        for (dx, dy) in [(1.0, 0.0), (0.0, -1.0), (-200.0, -692.0)] {
+            assert!(
+                matches!(
+                    verify_appended_runs(&doc, &[expected(shifted(dx, dy), 100.0)]),
+                    Err(PdfEditError::VerificationFailed)
+                ),
+                "({dx}, {dy})"
+            );
+        }
+        // Size: 1 % passes, 3 % and ten times do not.
+        verify_appended_runs(&doc, &[expected(placement, 101.0)]).expect("1 %");
+        for size in [103.0, 1000.0] {
+            assert!(matches!(
+                verify_appended_runs(&doc, &[expected(placement, size)]),
+                Err(PdfEditError::VerificationFailed)
+            ));
+        }
+        // Rotation counts as placement.
+        let turned = Matrix {
+            a: 0.0,
+            b: 0.1,
+            c: -0.1,
+            d: 0.0,
+            ..placement
+        };
+        assert!(matches!(
+            verify_appended_runs(&doc, &[expected(turned, 100.0)]),
+            Err(PdfEditError::VerificationFailed)
+        ));
+
+        // The output of 0.2.0 and 0.2.1: the same block with `1 0 0 1 0 0 Tm`. Its text reads back
+        // as "Hi"; only the geometry says it is wrong.
+        let last = last_content_stream(&doc, 1);
+        let mut content = decode_stream_content(&doc, last).expect("content");
+        for op in content
+            .operations
+            .iter_mut()
+            .filter(|op| op.operator == "Tm")
+        {
+            op.operands = [1_i64, 0, 0, 1, 0, 0].map(Object::Integer).to_vec();
+        }
+        write_stream_content(&mut doc, last, &content).expect("write");
+        let graph = walk_page_graph(&doc, "", 1).expect("inspect");
+        assert!(graph.islands.iter().any(|island| island.text == "Hi"));
+        assert!(matches!(
+            verify_appended_runs(&doc, &[expected(placement, 100.0)]),
+            Err(PdfEditError::VerificationFailed)
+        ));
+    }
+
+    fn last_content_stream(doc: &Document, page: u32) -> ObjectId {
+        let page_id = doc.get_pages()[&page];
+        let contents = doc
+            .get_object(page_id)
+            .expect("page")
+            .as_dict()
+            .expect("dict")
+            .get(b"Contents")
+            .expect("contents");
+        *content_stream_ids(doc, contents)
+            .expect("ids")
+            .last()
+            .expect("a stream")
     }
 }

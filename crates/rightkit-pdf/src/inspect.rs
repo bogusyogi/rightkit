@@ -3224,6 +3224,7 @@ fn build_island(
     let first_spacing = spacing.get(&glyph_spacing_key(&first.source)).cloned();
     let layout = first_spacing.map(|glyph_spacing| IslandLayout {
         axis: glyph_axis(first),
+        placement: first.text_matrix.then(first.ctm),
         font_size: first.font_size,
         char_spacing: glyph_spacing.char_spacing,
         word_spacing: glyph_spacing.word_spacing,

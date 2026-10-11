@@ -346,8 +346,15 @@ pub struct PdfTextIsland {
 #[allow(dead_code)] // read by compose (feature `edit`) only
 pub(crate) struct IslandLayout {
     /// Device-space vector of one text-space unit along the baseline: the `(a, b)` row of
-    /// `text matrix x CTM` at the island's first glyph.
+    /// [`IslandLayout::placement`].
     pub axis: (f64, f64),
+    /// `text matrix x CTM` at the island's first glyph, all six numbers, in the row-vector
+    /// convention of [`Matrix`] (`Matrix::then` applies the left operand first, ISO 32000-1 9.4.2).
+    /// It carries the run's whole placement - translation, rotation, skew and scale - and excludes
+    /// `Tf` size, `Tz` and `Ts`, which the text rendering matrix applies in front of it. A block
+    /// that runs in the default graphics state (identity CTM) and sets this as its `Tm` with the
+    /// same `Tf` size draws the first glyph exactly where the source did.
+    pub placement: Matrix,
     /// Font size in text-space units (`Tf` operand).
     pub font_size: f64,
     pub char_spacing: f64,
