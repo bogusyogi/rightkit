@@ -1172,7 +1172,10 @@ mod windows_impl {
     /// Event registrations this module made, by webview label: (context menu, accelerator keys).
     /// A webview that becomes ready again gets its old handlers removed before the new ones are
     /// added, so each webview has one of each.
-    static HANDLERS: Mutex<Option<HashMap<String, (Option<i64>, Option<i64>)>>> = Mutex::new(None);
+    static HANDLERS: Mutex<Option<HashMap<String, Registered>>> = Mutex::new(None);
+
+    /// The event tokens of one webview: (context menu, accelerator keys).
+    type Registered = (Option<i64>, Option<i64>);
 
     fn is_inspect_item(item: &ICoreWebView2ContextMenuItem) -> bool {
         let mut name = PWSTR::null();
