@@ -38,6 +38,21 @@ const PIPELINE_SCHEMA: &str = "rightkit-embed/pipeline/1";
 const POOLING_DESCRIPTION: &str = "model sentence_embedding [B,D] or masked mean over [B,T,D]";
 const NORMALIZATION_DESCRIPTION: &str = "l2 native, matryoshka prefix truncate, l2";
 const PROBE_PROMPT: &str = "title: none | text: rightkit embed provider probe";
+/// An accelerator is admitted only if every parity prompt's native-dimension
+/// vector has at least this cosine similarity to the CPU provider's vector for
+/// the same prompt. Two correct runs of the same Q4 graph agree at about 0.999;
+/// a DirectML run of EmbeddingGemma 2 Q4 measured 0.58-0.72.
+pub const ACCELERATOR_PARITY_MIN_COSINE: f32 = 0.995;
+/// Short query-style parity prompt (about 20 tokens with its prefix).
+const PARITY_QUERY: &str = "how are invoices matched to the ledger";
+/// Medium document-style parity prompt (roughly 90 tokens with its prefix).
+const PARITY_DOCUMENT: &str = "The nightly billing job reads every invoice issued during the day, \
+looks up the matching ledger account, and compares the invoiced total with the posted amount. \
+Differences below one cent are rounded away. Larger differences are written to an exceptions \
+table together with the customer, the invoice number and the date, and the finance team reviews \
+that table each morning before the payment run starts.";
+/// Sections in the long parity prompt (several hundred tokens).
+const PARITY_LONG_SECTIONS: usize = 20;
 
 #[derive(Debug, Error)]
 pub enum EmbedError {
@@ -53,15 +68,57 @@ pub enum EmbedError {
     Runtime(String),
     #[error("model output: {0}")]
     Output(String),
+    /// An explicitly requested accelerator did not reproduce the CPU
+    /// provider's vectors at load (or could not be compared), so it was not
+    /// admitted. `lowest_cosine` is `None` when the failure is not a low
+    /// cosine (non-finite or zero output, wrong size); `detail` names the
+    /// prompt length. `Auto` never returns this: it falls back to CPU with the
+    /// same text in `fallback_reason`.
+    #[error("{provider} failed the vector parity check against cpu: {detail}")]
+    AcceleratorParity {
+        provider: &'static str,
+        lowest_cosine: Option<f32>,
+        floor: f32,
+        detail: String,
+    },
+}
+
+/// Result of the load-time vector parity check an accelerator passed; see
+/// [`Embedder::accelerator_parity`].
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct AcceleratorParity {
+    /// Lowest cosine to the CPU provider's vector over all compared pairs.
+    pub lowest_cosine: f32,
+    /// Token count of the prompt that produced it.
+    pub at_tokens: usize,
+    /// Pairs compared.
+    pub pairs: usize,
 }
 
 /// Where inference runs.
 ///
 /// `Cpu` is the default. `Auto` registers the platform accelerator (DirectML
 /// on Windows, CoreML on macOS) and falls back to CPU, with the reason
-/// recorded, when registration, model load or a probe inference fails.
-/// `DirectMl` / `CoreMl` request that accelerator explicitly and fail loudly
-/// instead of falling back.
+/// recorded, when registration, model load, the probe inference or the vector
+/// parity check fails. `DirectMl` / `CoreMl` request that accelerator
+/// explicitly and fail loudly instead of falling back: a failed parity check
+/// is [`EmbedError::AcceleratorParity`].
+///
+/// An accelerator is used only if it reproduces the CPU provider's vectors.
+/// Whenever the session was built on anything other than CPU, `Embedder::load`
+/// builds a CPU session for the same model, embeds fixed short, medium and
+/// long prompts (alone and as one batch) through both sessions with the
+/// crate's real inference path, and requires every pair to have cosine
+/// similarity of at least [`ACCELERATOR_PARITY_MIN_COSINE`] on the full
+/// native-dimension vector, with finite non-zero output. On success the CPU
+/// session is dropped before `load` returns, so steady-state memory is
+/// unchanged; the check costs one extra CPU session build and a few inferences
+/// at load. `Cpu` does none of this. The check cannot be turned off.
+///
+/// Measured: DirectML (ONNX Runtime 1.24.4) returns wrong EmbeddingGemma 2 Q4
+/// vectors (cosine to CPU 0.58-0.72) that are finite, non-zero and faster
+/// than CPU, so a probe or speed check alone would accept them. CoreML is
+/// unmeasured; it must pass the same check.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum ExecutionProvider {
     #[default]
@@ -169,6 +226,7 @@ pub struct Embedder {
     takes_token_type_ids: bool,
     provider_used: &'static str,
     fallback_reason: Option<String>,
+    parity: Option<AcceleratorParity>,
     pipeline_id: OnceLock<Result<String, String>>,
 }
 
@@ -202,20 +260,25 @@ fn takes_token_type_ids(session: &Session) -> bool {
         .any(|input| input.name() == "token_type_ids")
 }
 
+/// Tokenizer with padding owned by this crate (masked, to the chunk maximum),
+/// never by the tokenizer file's own padding strategy, and the pad id.
+fn load_tokenizer(model_dir: &Path) -> Result<(Tokenizer, i64), EmbedError> {
+    let mut tokenizer = Tokenizer::from_file(model_dir.join("tokenizer.json"))
+        .map_err(|e| EmbedError::Tokenizer(e.to_string()))?;
+    let pad_id = tokenizer
+        .get_padding()
+        .map(|padding| i64::from(padding.pad_id))
+        .or_else(|| tokenizer.token_to_id("<pad>").map(i64::from))
+        .unwrap_or(0);
+    tokenizer.with_padding(None);
+    Ok((tokenizer, pad_id))
+}
+
 impl Embedder {
     pub fn load(config: EmbedderConfig) -> Result<Self, EmbedError> {
         validate_config(&config)?;
         let gemma2 = bundle_is_gemma2(&config.model_dir)?;
-        let mut tokenizer = Tokenizer::from_file(config.model_dir.join("tokenizer.json"))
-            .map_err(|e| EmbedError::Tokenizer(e.to_string()))?;
-        let pad_id = tokenizer
-            .get_padding()
-            .map(|padding| i64::from(padding.pad_id))
-            .or_else(|| tokenizer.token_to_id("<pad>").map(i64::from))
-            .unwrap_or(0);
-        // Padding is owned here (masked, to the chunk maximum), never by the
-        // tokenizer file's own padding strategy.
-        tokenizer.with_padding(None);
+        let (tokenizer, pad_id) = load_tokenizer(&config.model_dir)?;
         let selection = configure_runtime([RuntimeCandidate::new(
             config.runtime_path.clone(),
             CandidateSource::Explicit,
@@ -230,7 +293,34 @@ impl Embedder {
         .map_err(EmbedError::Runtime)?;
         let (requested, auto) = config.provider.requested();
         let built = build_session(&config, requested, auto)?;
-        let mut embedder = Self {
+        let accelerator = built.provider;
+        let mut embedder = Self::from_session(&config, tokenizer, pad_id, gemma2, built);
+        if auto && accelerator != rightkit_ort::ExecutionProvider::Cpu {
+            if let Err(reason) = embedder.probe() {
+                let cpu = build_session(&config, rightkit_ort::ExecutionProvider::Cpu, false)?;
+                embedder.takes_token_type_ids = takes_token_type_ids(&cpu.session);
+                embedder.session = Mutex::new(cpu.session);
+                embedder.provider_used = provider_name(cpu.provider);
+                embedder.fallback_reason = Some(format!(
+                    "{} -> cpu: probe inference failed: {reason}",
+                    provider_name(accelerator)
+                ));
+            }
+        }
+        if embedder.provider_used != "cpu" {
+            return embedder.admit_accelerator(&config, auto);
+        }
+        Ok(embedder)
+    }
+
+    fn from_session(
+        config: &EmbedderConfig,
+        tokenizer: Tokenizer,
+        pad_id: i64,
+        gemma2: bool,
+        built: BuiltEmbedSession,
+    ) -> Self {
+        Self {
             tokenizer,
             takes_token_type_ids: takes_token_type_ids(&built.session),
             session: Mutex::new(built.session),
@@ -249,21 +339,85 @@ impl Embedder {
             pad_id,
             provider_used: provider_name(built.provider),
             fallback_reason: built.fallback,
+            parity: None,
             pipeline_id: OnceLock::new(),
-        };
-        if auto && built.provider != rightkit_ort::ExecutionProvider::Cpu {
-            if let Err(reason) = embedder.probe() {
-                let cpu = build_session(&config, rightkit_ort::ExecutionProvider::Cpu, false)?;
-                embedder.takes_token_type_ids = takes_token_type_ids(&cpu.session);
-                embedder.session = Mutex::new(cpu.session);
-                embedder.provider_used = provider_name(cpu.provider);
-                embedder.fallback_reason = Some(format!(
-                    "{} -> cpu: probe inference failed: {reason}",
-                    provider_name(built.provider)
-                ));
-            }
         }
-        Ok(embedder)
+    }
+
+    /// Vector parity gate for an embedder built on an accelerator (`self`).
+    /// Builds a CPU embedder for the same model and embeds the parity prompts
+    /// through both with the real inference path. Passing keeps `self` and
+    /// drops the CPU embedder; failing returns the CPU embedder with the
+    /// reason under `Auto`, and [`EmbedError::AcceleratorParity`] otherwise.
+    fn admit_accelerator(
+        mut self,
+        config: &EmbedderConfig,
+        auto: bool,
+    ) -> Result<Self, EmbedError> {
+        let provider = self.provider_used;
+        let (tokenizer, pad_id) = load_tokenizer(&config.model_dir)?;
+        let cpu_built = build_session(config, rightkit_ort::ExecutionProvider::Cpu, false)?;
+        let mut cpu = Self::from_session(config, tokenizer, pad_id, self.gemma2, cpu_built);
+        let prompts = cpu.parity_prompts();
+        let tokens: Vec<usize> = cpu
+            .encode_prompts(&prompts)?
+            .iter()
+            .map(|row| row.ids.len())
+            .collect();
+        let reference = cpu.parity_vectors(&prompts)?;
+        let (lowest_cosine, detail) = match self.parity_vectors(&prompts) {
+            Ok(candidate) => match compare_parity(
+                &reference,
+                &candidate,
+                self.native_dim,
+                ACCELERATOR_PARITY_MIN_COSINE,
+            ) {
+                Ok(lowest) => {
+                    self.parity = Some(AcceleratorParity {
+                        lowest_cosine: lowest.cosine,
+                        at_tokens: tokens[lowest.index % tokens.len()],
+                        pairs: reference.len(),
+                    });
+                    return Ok(self);
+                }
+                Err(miss) => parity_miss_detail(&miss, &tokens, ACCELERATOR_PARITY_MIN_COSINE),
+            },
+            Err(error) if auto => (None, format!("inference error: {error}")),
+            Err(error) => return Err(error),
+        };
+        if auto {
+            cpu.fallback_reason =
+                Some(format!("{provider} -> cpu: vector parity failed: {detail}"));
+            return Ok(cpu);
+        }
+        Err(EmbedError::AcceleratorParity {
+            provider,
+            lowest_cosine,
+            floor: ACCELERATOR_PARITY_MIN_COSINE,
+            detail,
+        })
+    }
+
+    /// Fixed parity prompts of clearly different token lengths: a short
+    /// query, a medium document and a long document, with this crate's prefixes.
+    fn parity_prompts(&self) -> Vec<String> {
+        vec![
+            self.query_prompt(PARITY_QUERY),
+            self.document_prompt(PARITY_DOCUMENT),
+            self.document_prompt(&parity_long_document()),
+        ]
+    }
+
+    /// Native-dimension normalized vectors for `prompts`: first each prompt
+    /// alone (its own accelerator shape bucket), then all together as one
+    /// batch. `2 * prompts.len()` vectors.
+    fn parity_vectors(&self, prompts: &[String]) -> Result<Vec<Vec<f32>>, EmbedError> {
+        let mut vectors = Vec::with_capacity(prompts.len() * 2);
+        for prompt in prompts {
+            vectors.extend(self.embed_prompts_native(vec![prompt.clone()])?);
+        }
+        vectors.extend(self.embed_prompts_native(prompts.to_vec())?);
+        Ok(vectors)
     }
 
     /// One real inference through the live session; any error, shape mismatch,
@@ -299,9 +453,21 @@ impl Embedder {
         self.provider_used
     }
 
-    /// Why an accelerator was replaced by CPU, when it was.
+    /// Why an accelerator was replaced by CPU, when it was. A vector parity
+    /// failure reads like `directml -> cpu: vector parity failed: cosine 0.579
+    /// at ~20 tokens, floor 0.995`.
     pub fn fallback_reason(&self) -> Option<&str> {
         self.fallback_reason.as_deref()
+    }
+
+    /// The load-time vector parity result of the accelerator in use: lowest
+    /// cosine to the CPU provider's vectors, the prompt length it occurred at
+    /// and the pairs compared. `None` when the provider is CPU (no parity
+    /// work is done) and when an accelerator was replaced by CPU (the failure
+    /// is in [`Self::fallback_reason`]). Always at least
+    /// [`ACCELERATOR_PARITY_MIN_COSINE`] when `Some`.
+    pub fn accelerator_parity(&self) -> Option<AcceleratorParity> {
+        self.parity
     }
 
     /// Stable fingerprint of everything that changes the produced vectors, so
@@ -318,8 +484,11 @@ impl Embedder {
     ///
     /// Not fed by provider, thread count or batch size: those change only
     /// floating-point noise (see `max_batch` tolerance in the README), not
-    /// the pipeline. Computed once on first call (hashes the model files) and
-    /// cached; format `rkpipe1-<32 hex>`.
+    /// the pipeline. The accelerator parity check is not an input either: it
+    /// only decides which provider serves the same math, and an admitted
+    /// accelerator reproduces the CPU vectors to the parity floor. Computed
+    /// once on first call (hashes the model files) and cached; format
+    /// `rkpipe1-<32 hex>`.
     pub fn pipeline_id(&self) -> String {
         match self.pipeline_id.get_or_init(|| {
             let mut files = Vec::new();
@@ -430,6 +599,16 @@ impl Embedder {
     }
 
     fn embed_prompts(&self, prompts: Vec<String>) -> Result<Vec<Vec<f32>>, EmbedError> {
+        Ok(self
+            .embed_prompts_native(prompts)?
+            .into_iter()
+            .map(|native| truncate_and_normalize(&native, self.truncate_dim))
+            .collect())
+    }
+
+    /// Normalized native-dimension vector per prompt, in input order, before
+    /// Matryoshka truncation.
+    fn embed_prompts_native(&self, prompts: Vec<String>) -> Result<Vec<Vec<f32>>, EmbedError> {
         if prompts.is_empty() {
             return Ok(Vec::new());
         }
@@ -447,7 +626,7 @@ impl Embedder {
             let chunk: Vec<&TokenRow> = order[range.clone()].iter().map(|&i| &rows[i]).collect();
             let natives = self.run_chunk(&chunk, accelerated)?;
             for (&index, native) in order[range].iter().zip(natives) {
-                out[index] = Some(truncate_and_normalize(&native, self.truncate_dim));
+                out[index] = Some(native);
             }
         }
         out.into_iter()
@@ -644,6 +823,123 @@ fn probe_output_ok(native: &[f32], native_dim: usize) -> Result<(), String> {
         return Err("all-zero output".into());
     }
     Ok(())
+}
+
+/// Deterministic long parity document: `PARITY_LONG_SECTIONS` numbered
+/// sections, several hundred tokens.
+fn parity_long_document() -> String {
+    (1..=PARITY_LONG_SECTIONS)
+        .map(|n| {
+            format!(
+                "Section {n}: the nightly billing job reconciles every invoice against the \
+                 ledger, flags mismatched totals for account {}, and sends the exceptions to \
+                 the finance team for review before payment run {n}.",
+                1000 + n * 7
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+/// Lowest cosine over the compared pairs and the pair it came from.
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct ParityLowest {
+    index: usize,
+    cosine: f32,
+}
+
+/// Why two vector sets are not parity-equal.
+#[derive(Debug, Clone, PartialEq)]
+enum ParityMiss {
+    /// A pair could not be compared: wrong count or size, non-finite or zero
+    /// output on either side.
+    Invalid { index: usize, reason: String },
+    /// The lowest pair is under the floor.
+    Below(ParityLowest),
+}
+
+fn cosine(a: &[f32], b: &[f32]) -> f32 {
+    let (mut dot, mut na, mut nb) = (0.0f64, 0.0f64, 0.0f64);
+    for (x, y) in a.iter().zip(b) {
+        let (x, y) = (f64::from(*x), f64::from(*y));
+        dot += x * y;
+        na += x * x;
+        nb += y * y;
+    }
+    (dot / (na.sqrt() * nb.sqrt())) as f32
+}
+
+/// Pairwise cosine parity of `candidate` against `reference` (same prompts,
+/// same order, native dimension). Every vector must have `native_dim` finite
+/// values and a non-zero norm; the lowest pair must be at least `floor`.
+/// Returns the lowest pair when parity holds.
+fn compare_parity(
+    reference: &[Vec<f32>],
+    candidate: &[Vec<f32>],
+    native_dim: usize,
+    floor: f32,
+) -> Result<ParityLowest, ParityMiss> {
+    if reference.is_empty() || reference.len() != candidate.len() {
+        return Err(ParityMiss::Invalid {
+            index: 0,
+            reason: format!(
+                "expected {} vectors to compare, got {}",
+                reference.len(),
+                candidate.len()
+            ),
+        });
+    }
+    let mut lowest = ParityLowest {
+        index: 0,
+        cosine: f32::INFINITY,
+    };
+    for (index, (r, c)) in reference.iter().zip(candidate).enumerate() {
+        probe_output_ok(r, native_dim).map_err(|reason| ParityMiss::Invalid {
+            index,
+            reason: format!("cpu reference: {reason}"),
+        })?;
+        probe_output_ok(c, native_dim).map_err(|reason| ParityMiss::Invalid {
+            index,
+            reason: format!("accelerator output: {reason}"),
+        })?;
+        let value = cosine(r, c);
+        if value < lowest.cosine {
+            lowest = ParityLowest {
+                index,
+                cosine: value,
+            };
+        }
+    }
+    if lowest.cosine >= floor {
+        Ok(lowest)
+    } else {
+        Err(ParityMiss::Below(lowest))
+    }
+}
+
+/// `(lowest cosine if any, text)` for a parity miss. `tokens` holds the token
+/// count of each parity prompt; pair `i` is prompt `i % tokens.len()`, and pairs
+/// past the first `tokens.len()` are the batched run.
+fn parity_miss_detail(miss: &ParityMiss, tokens: &[usize], floor: f32) -> (Option<f32>, String) {
+    let at = |index: usize| {
+        let batched = if index >= tokens.len() {
+            " (batched)"
+        } else {
+            ""
+        };
+        format!("~{} tokens{batched}", tokens[index % tokens.len()])
+    };
+    match miss {
+        ParityMiss::Below(lowest) => (
+            Some(lowest.cosine),
+            format!(
+                "cosine {:.3} at {}, floor {floor}",
+                lowest.cosine,
+                at(lowest.index)
+            ),
+        ),
+        ParityMiss::Invalid { index, reason } => (None, format!("{reason} at {}", at(*index))),
+    }
 }
 
 struct PipelineParts<'a> {
@@ -892,6 +1188,143 @@ mod tests {
         assert!(probe_output_ok(&[f32::NAN, 1.0, 0.0, 0.0], 4).is_err());
         assert!(probe_output_ok(&[1.0; 3], 4).is_err());
         assert!(probe_output_ok(&[0.5, 0.5, 0.5, 0.5], 4).is_ok());
+    }
+
+    #[test]
+    fn parity_floor_is_pinned() {
+        assert_eq!(ACCELERATOR_PARITY_MIN_COSINE, 0.995);
+    }
+
+    #[test]
+    fn identical_vectors_pass_parity_and_report_the_lowest_pair() {
+        let reference = vec![vec![1.0, 0.0, 0.0], vec![0.0, 1.0, 0.0]];
+        let lowest = compare_parity(&reference, &reference.clone(), 3, 0.995).unwrap();
+        assert!((lowest.cosine - 1.0).abs() <= 1e-6);
+        // A pair exactly at the floor passes ("at or above").
+        let candidate = vec![vec![1.0, 0.0, 0.0], vec![0.0, 0.6, 0.8]];
+        let at_floor = cosine(&reference[1], &candidate[1]);
+        let lowest = compare_parity(&reference, &candidate, 3, at_floor).unwrap();
+        assert_eq!((lowest.index, lowest.cosine), (1, at_floor));
+    }
+
+    #[test]
+    fn a_low_cosine_pair_fails_and_reports_value_and_index() {
+        let wrong = vec![0.58, (1.0f32 - 0.58 * 0.58).sqrt()];
+        let reference = vec![vec![1.0, 0.0], vec![0.0, 1.0], vec![1.0, 0.0]];
+        let candidate = vec![vec![1.0, 0.0], wrong.clone(), vec![1.0, 0.0]];
+        match compare_parity(&reference, &candidate, 2, 0.995) {
+            Err(ParityMiss::Below(lowest)) => {
+                assert_eq!(lowest.index, 1);
+                assert!((lowest.cosine - 0.58).abs() <= 1e-6, "{lowest:?}");
+            }
+            other => panic!("expected a Below miss, got {other:?}"),
+        }
+        let single = compare_parity(&[vec![1.0, 0.0]], &[wrong], 2, 0.995);
+        match single {
+            Err(ParityMiss::Below(lowest)) => assert!((lowest.cosine - 0.58).abs() <= 1e-6),
+            other => panic!("expected a Below miss, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn nonfinite_zero_or_wrongly_sized_vectors_fail_parity() {
+        let good = vec![vec![1.0, 0.0]];
+        for bad in [
+            vec![f32::NAN, 1.0],
+            vec![f32::INFINITY, 0.0],
+            vec![0.0, 0.0],
+            vec![1.0, 0.0, 0.0],
+        ] {
+            assert!(
+                matches!(
+                    compare_parity(&good, &[bad.clone()], 2, 0.995),
+                    Err(ParityMiss::Invalid { index: 0, .. })
+                ),
+                "candidate {bad:?}"
+            );
+            assert!(
+                matches!(
+                    compare_parity(&[bad.clone()], &good, 2, 0.995),
+                    Err(ParityMiss::Invalid { index: 0, .. })
+                ),
+                "reference {bad:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn mismatched_or_empty_parity_inputs_fail() {
+        let one = vec![vec![1.0, 0.0]];
+        let two = vec![vec![1.0, 0.0], vec![1.0, 0.0]];
+        assert!(matches!(
+            compare_parity(&one, &two, 2, 0.995),
+            Err(ParityMiss::Invalid { .. })
+        ));
+        assert!(matches!(
+            compare_parity(&two, &one, 2, 0.995),
+            Err(ParityMiss::Invalid { .. })
+        ));
+        assert!(matches!(
+            compare_parity(&[], &[], 2, 0.995),
+            Err(ParityMiss::Invalid { .. })
+        ));
+    }
+
+    #[test]
+    fn parity_miss_detail_names_cosine_length_and_floor() {
+        let tokens = [20, 100, 600];
+        let miss = ParityMiss::Below(ParityLowest {
+            index: 0,
+            cosine: 0.5791,
+        });
+        assert_eq!(
+            parity_miss_detail(&miss, &tokens, 0.995),
+            (
+                Some(0.5791),
+                "cosine 0.579 at ~20 tokens, floor 0.995".to_owned()
+            )
+        );
+        let batched = ParityMiss::Below(ParityLowest {
+            index: 5,
+            cosine: 0.71,
+        });
+        assert_eq!(
+            parity_miss_detail(&batched, &tokens, 0.995).1,
+            "cosine 0.710 at ~600 tokens (batched), floor 0.995"
+        );
+        let invalid = ParityMiss::Invalid {
+            index: 1,
+            reason: "accelerator output: non-finite values".into(),
+        };
+        assert_eq!(
+            parity_miss_detail(&invalid, &tokens, 0.995),
+            (
+                None,
+                "accelerator output: non-finite values at ~100 tokens".to_owned()
+            )
+        );
+    }
+
+    #[test]
+    fn parity_long_document_is_deterministic_and_long() {
+        let text = parity_long_document();
+        assert_eq!(text, parity_long_document());
+        assert!(text.split_whitespace().count() >= 400, "{}", text.len());
+        assert!(PARITY_DOCUMENT.split_whitespace().count() >= 50);
+    }
+
+    #[test]
+    fn parity_error_names_provider_cosine_and_floor() {
+        let error = EmbedError::AcceleratorParity {
+            provider: "directml",
+            lowest_cosine: Some(0.579),
+            floor: ACCELERATOR_PARITY_MIN_COSINE,
+            detail: "cosine 0.579 at ~20 tokens, floor 0.995".into(),
+        };
+        assert_eq!(
+            error.to_string(),
+            "directml failed the vector parity check against cpu: cosine 0.579 at ~20 tokens, floor 0.995"
+        );
     }
 
     fn parts<'a>(files: &'a [(&'a str, String)], truncate: usize) -> PipelineParts<'a> {
