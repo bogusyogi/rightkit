@@ -212,16 +212,36 @@ final class ForeignGenericPasswordReferenceTests: XCTestCase {
             finished.leave()
         }
         finished.enter()
+        let secondStatus = StatusBox()
         DispatchQueue.global().async {
-            _ = FGP.withPolicy(.noPrompt) { order.add("second-window"); return errSecSuccess }
+            secondStatus.set(FGP.withPolicy(.noPrompt) { order.add("second-window"); return errSecSuccess })
             finished.leave()
         }
         Thread.sleep(forTimeInterval: 0.3)
         XCTAssertEqual(order.snapshot, [], "both wait for the open window")
         releaseWindow.signal()
         XCTAssertEqual(finished.wait(timeout: .now() + 5), .success)
-        XCTAssertEqual(order.snapshot.first, "window-end")
-        XCTAssertEqual(Set(order.snapshot), ["window-end", "prompt-start", "second-window"])
+        let log = order.snapshot
+        XCTAssertEqual(log.first, "window-end", "nothing starts inside the open window")
+        XCTAssertTrue(log.contains("prompt-start"), "the prompting read runs once the window closes")
+        // Once the window closes, the waiting no-prompt read races the prompting read that registered
+        // meanwhile: it either opens its own window (after window-end) or, finding the prompting read
+        // in flight, is refused at once without running its body. Both are correct; running early is not.
+        switch secondStatus.value {
+        case errSecSuccess:
+            XCTAssertTrue(log.contains("second-window"))
+        case errSecInteractionNotAllowed:
+            XCTAssertFalse(log.contains("second-window"), "a refused no-prompt body must not run")
+        default:
+            XCTFail("unexpected status \(String(describing: secondStatus.value))")
+        }
+        XCTAssertEqual(log.count, Set(log).count, "no body ran twice")
+    }
+
+    private final class StatusBox: @unchecked Sendable {
+        private let lock = NSLock(); private var status: OSStatus?
+        func set(_ value: OSStatus) { lock.withLock { status = value } }
+        var value: OSStatus? { lock.withLock { status } }
     }
 
     private final class OrderLog: @unchecked Sendable {

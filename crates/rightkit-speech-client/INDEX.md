@@ -23,6 +23,7 @@ public item and the host's input contract. The repository-wide index is the gene
 | `protocol.rs` | Wire types and frame constructors: `ServiceEnvelope`, `ServiceRequest`, capabilities, progress, file options, and the wire constants. Re-exported from `lib.rs`. |
 | `cues.rs` | SubRip cue parsing: `Cue`, `parse_srt_cues`, `FileTranscript::cues`. |
 | `preflight.rs` | `preflight_file`, the path check the client can make before sending. |
+| `stage.rs` | Input staging: `StageInput`, the host-readable rule, the staged-copy guard that removes its file on drop, and the host read-denial check. |
 
 ## Examples (`examples/`)
 
