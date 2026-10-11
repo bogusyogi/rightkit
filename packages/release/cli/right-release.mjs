@@ -195,7 +195,8 @@ Commands:
                                                       Publish the gated tarball with the Keychain token
                                                       (npm-rightkit-publish) and verify registry bytes
   publish cargo --crate <name> [--dry-run]           Test, inspect, scan, and publish one crates.io package
-  publish swift [--repo <git-url>] [--dry-run] Test, tag, resolve a fresh exact-pin consumer, and publish RightKitSwift to its git repo
+  publish swift [--dry-run] [--evidence <file>] [--workspace <dir>]
+                                                      Check main, a clean tree, and the publication evidence, then tag RightKitSwift at its VERSION on origin
   inventory check [--json] [--warn-only] [--md <file>] [--no-cache]
                                                       Registry, account, dependency, app & hygiene drift (public endpoints)
   model promote --authority <app-key> --config <file> [--dry-run]
@@ -233,8 +234,10 @@ Commands:
   generate-dmg-background <options>                 Generate the branded multi-resolution DMG background
   mirror-root-artifact --file <path> --package-root <dir>
                                                       Persist artifact in RIGHT_RELEASE_ARTIFACT_DIR
-  github --release <id> --platform mac|win [--repo owner/repo] [--dry-run]
-                                                      Attach sealed signed artifacts to a verified GitHub Release
+  github --release <id> --tier patch|update --platform mac|win [--config <file>] [--repo owner/repo] [--dry-run]
+                                                      Same checks and publisher as upload (explicit tier, github-releases provider + configured repository)
+  github --addon <config> --platform mac|win [--repo owner/repo] [--dry-run]
+                                                      Attach a sealed headless add-on to an immutable GitHub Release
 
 Direct flags are treated as: right-release build <flags>.
 Build is tier-neutral. Upload requires an explicit tier. Dev builds are incremental and unsigned.`);

@@ -11,6 +11,8 @@ const root = path.dirname(fileURLToPath(import.meta.url));
 const cli = path.join(root, "cli", "right-release.mjs");
 const build = path.join(root, "build-release.mjs");
 const upload = path.join(root, "upload-release.mjs");
+const githubRelease = path.join(root, "github-release.mjs");
+const uploadGate = path.join(root, "github-upload-gate.mjs");
 const publishUpdate = path.join(root, "publish-update.mjs");
 const signWindows = path.join(root, "sign-windows.mjs");
 
@@ -67,8 +69,14 @@ test("build enforces primary-checkout and build-input cleanliness guards", () =>
 });
 
 test("upload enforces the same primary-checkout vault", () => {
+  // The checks moved into the gate that `right-release github --release` also runs; upload must still call it.
   const source = readFileSync(upload, "utf8");
-  assert.match(source, /assertPrimaryReleaseCheckout\(repoRoot\)/);
+  const gate = readFileSync(uploadGate, "utf8");
+  assert.match(source, /await authorizeGitHubUpload\(/);
+  assert.match(gate, /assertPrimaryReleaseCheckout\(repoRoot\)/);
+  assert.match(gate, /assertCleanSource\(/);
+  assert.match(gate, /sealed release was built from a different commit than the current checkout/);
+  assert.match(gate, /verifyOwnershipEvidence\(/);
 });
 
 test("upload requires an explicit patch or update tier before reading a release", () => {
@@ -131,10 +139,56 @@ test("upload uses GitHub CLI and never invokes the R2 runner", () => {
 });
 
 test("upload accepts only explicit GitHub Releases product distribution", () => {
+  // The provider and repository rules live in the shared gate; neither entry point may restate or bypass them.
+  const gate = readFileSync(uploadGate, "utf8");
   const source = readFileSync(upload, "utf8");
-  assert.match(source, /distribution\?\.provider !== "github-releases"/);
-  assert.match(source, /distribution\.repository is required for github-releases/);
+  assert.match(gate, /distribution\?\.provider !== "github-releases"/);
+  assert.match(gate, /distribution\.repository is required for github-releases/);
+  assert.match(gate, /--repo must match configured distribution\.repository/);
+  assert.doesNotMatch(gate, /repositoryFromRemote/);
   assert.doesNotMatch(source, /repositoryFromRemote/);
+  assert.doesNotMatch(source, /distribution\?\.provider/);
+});
+
+test("github --release requires an explicit patch or update tier before reading a release", () => {
+  for (const tierArgs of [[], ["--tier", "minor"], ["--tier="], ["--tier", ""]]) {
+    const result = spawnSync(process.execPath, [githubRelease, "--release", "fixture-1.0.0-deadbeef", "--platform", "win", ...tierArgs], {
+      cwd: mkdtempSync(path.join(os.tmpdir(), "right-github-cli-")),
+      encoding: "utf8",
+    });
+    assert.notEqual(result.status, 0, `accepted ${JSON.stringify(tierArgs)}`);
+    assert.match(result.stderr, /right-release github: tier is required.*patch\|update/i);
+  }
+});
+
+test("github --release with a tier passes the tier gate and is stopped by a later local check, not by the network", () => {
+  const result = spawnSync(process.execPath, [githubRelease, "--release", "fixture-1.0.0-deadbeef", "--platform", "win", "--tier=patch", "--dry-run"], {
+    cwd: mkdtempSync(path.join(os.tmpdir(), "right-github-cli-")),
+    encoding: "utf8",
+  });
+  assert.notEqual(result.status, 0);
+  assert.doesNotMatch(result.stderr, /tier is required/);
+  assert.match(result.stderr, /^right-release github: /m);
+});
+
+test("github --release authorizes through the upload gate before it plans or contacts GitHub", () => {
+  const source = readFileSync(githubRelease, "utf8");
+  const main = source.slice(source.indexOf("const realOrSelf"));
+  assert.match(main, /import\("\.\/github-upload-gate\.mjs"\)/);
+  assert.match(main, /authorizeGitHubUpload\(\{ command: "right-release github", tier,/);
+  assert.match(main, /authorizeGitHubUpload\([\s\S]*prepareGitHubRelease\([\s\S]*publishGitHubRelease\(plan, options\)/);
+  assert.doesNotMatch(main, /\|\|= repositoryFromRemote/);
+  // The library entry points stay policy-free; only the command-line main block carries the gate.
+  assert.doesNotMatch(source.slice(0, source.indexOf("const realOrSelf")), /authorizeGitHubUpload/);
+});
+
+test("github --addon refuses --tier and --config instead of ignoring them", () => {
+  const result = spawnSync(process.execPath, [githubRelease, "--addon", "membrane.config.mjs", "--platform", "win", "--tier", "patch"], {
+    cwd: mkdtempSync(path.join(os.tmpdir(), "right-github-cli-")),
+    encoding: "utf8",
+  });
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /--tier and --config apply to --release only/);
 });
 
 test("R2 publisher accepts only explicit private RightApps distribution", () => {

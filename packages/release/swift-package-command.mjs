@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// right-release swift-package <windows-stage|msix|mac-app|doctor> --config <swift-package.json> [options]
+// right-release swift-package <windows-stage|msix|mac-app> --config <swift-package.json> [options]
 //
 // One product config (schema 1) drives all three steps; paths resolve against the config file.
 // Build-only: nothing here uploads or publishes.

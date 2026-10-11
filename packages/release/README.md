@@ -161,6 +161,10 @@ Nested code that the map does not name (frameworks, other helpers) is signed fir
 
 Supported: `title`, `icon` (`.icns` volume icon), `background` (PNG or TIFF), `icon-size`, `window.size`, `window.position`, `format: "UDZO"`, `filesystem: "HFS+"`, and `contents` limited to the `.app` (`file`, its name must match `--app`) and a `link` to `/Applications`, where `x`/`y` are icon centres. Unsupported fields (`background-color`, `code-sign`, `license`, other formats or filesystems, extra files or links, `position` entries, anything unknown) fail with `DMG_SPEC_UNSUPPORTED` instead of being ignored. `code-sign` is refused because the release pipeline signs the DMG in its own step (receipt `macos-dmg-signing.json`).
 
+## One gate for GitHub uploads
+
+`right-release upload` and `right-release github --release` share one gate (`github-upload-gate.mjs`): both require `--tier patch|update`, the primary checkout with a clean tree, a sealed release built from the current HEAD with matching ownership evidence, and a release config that declares `distribution.provider: "github-releases"` and `distribution.repository` (`--repo` may only repeat it; the `origin` remote is never consulted). The gate makes no network call and also runs on `--dry-run`. Private products publish with `publish-update` and `distribution.provider: "r2-rightapps"`. `github --addon` publishes headless add-ons and takes no tier. Not gated the same way: `github --addon` (no tier), `addon upload` (no provider requirement), and the direct R2 uploaders `upload-large.mjs` and `pub-upload.mjs` (no tier, provider or clean-tree check).
+
 ## Known issues
 
 - `smol-toml` is pinned exactly. A consumer that depends on a different `smol-toml` version gets a second copy.
