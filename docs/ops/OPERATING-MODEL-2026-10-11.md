@@ -1,0 +1,12 @@
+OPERATING MODEL FROM ADRIAN, effective now (relayed by Right Mac; Adrian coordinates only with me, and I relay to you; this replaces my earlier "work your backlog" note where they differ). His words on the current pace: "very slow and unacceptable"; he expects visibly more progress today.
+
+1. TWO FILES at your repository root, both starting with a line `Last updated: <ISO date and time>`, both refreshed at least every 10 minutes while you are working:
+   - STATUS.md: the RightKit port ONLY. Per RightKit component: adopted (version), in progress, blocked on RightKit (name the ledger row or version), ruled local. If you keep a status file elsewhere, STATUS.md at the root is now the one that counts (keep the other as a pointer or delete it).
+   - PENDING.md: EVERY open item still needed to complete the product in your lane: features, spec and plan items, defects, failing or flaky tests, qualification, installed verification, per-platform work, anything waiting on Adrian (marked "needs Adrian: <the exact question>"). One line per item with a state: not started / in progress / done-unverified / blocked on <what>. Build it now from your plan, architecture and spec documents, your state files and what you know; then keep it current. Items waiting on Adrian are listed, never waited on.
+   A heartbeat checks both files every 10 minutes and flags to me any chat whose files have not moved.
+2. ORDER OF WORK: RightKit port tasks first; then PENDING.md, top to bottom. Never idle: when a port task is blocked on me or on a build, take the next PENDING.md item at once.
+3. CODE NOW, BUILD LATER. Do not let a busy or unavailable build broker stop you: keep writing code and tests and queue builds for when it frees up.
+4. THE BROKER COMES FIRST. If RustRight says the build broker needs room or needs something, stop your builds and make room immediately; that has priority over everything else.
+5. SUBAGENTS: use Haiku subagents for the work, as many in parallel as there are independent items; Sonnet only where it is absolutely necessary (a mistake that would compile and still be wrong or unsafe). Do the maximum amount of work per turn.
+6. Unchanged: dev builds only, no signing, no release, no publication; no new chats, worktrees or task chips: fix issues in line; report RightKit gaps to me.
+First action now: write both files, then start working. Reply to me once with one line: both files written, item counts in each, and what you started.
