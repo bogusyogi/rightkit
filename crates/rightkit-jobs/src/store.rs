@@ -23,6 +23,9 @@ pub const MAX_EVENTS: i64 = 200;
 /// Crate-owned side table: one row per counted external submission attempt.
 pub const SUBMISSIONS_TABLE: &str = "rk_job_submissions";
 
+mod delete;
+pub use delete::{DeleteOptions, DeleteReport, DELETING_TABLE, PATH_OUTSIDE_ROOT};
+
 const CORE_SCHEMA: &str = "
 CREATE INDEX IF NOT EXISTS jobs_status ON jobs(status);
 CREATE TABLE IF NOT EXISTS job_events (
@@ -142,8 +145,9 @@ pub enum Resolution {
     Adopt(Value),
 }
 
-/// What a prune removed. Artifact files are never touched: the crate indexes files the handler
-/// wrote and does not own them, so the caller deletes `artifacts[..].path` if it wants them gone.
+/// What a prune removed. Artifact files are never touched by `prune`: the crate indexes files the
+/// handler wrote and does not own them, so the caller deletes `artifacts[..].path` if it wants
+/// them gone. (`delete` removes them when the store has roots configured.)
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct PruneReport {
     /// Ids of the removed jobs.
@@ -1038,6 +1042,7 @@ impl JobStore {
                 [id],
             )?;
             conn.execute("DELETE FROM rk_job_meta WHERE job_id=?1", [id])?;
+            conn.execute("DELETE FROM rk_job_deleting WHERE job_id=?1", [id])?;
         }
         for id in &doomed {
             conn.execute("DELETE FROM jobs WHERE job_id=?1", [id])?;
@@ -1046,35 +1051,18 @@ impl JobStore {
         Ok(report)
     }
 
-    /// Remove one job with its events, artifact rows, submission rows and recovery metadata, in
-    /// one transaction; artifact files are left for the caller (see [`PruneReport`]). A
-    /// non-terminal job is first moved to `cancelled` (`StoreHook::on_transition` fires) and its
-    /// in-process [`CancelToken`] is set after the commit; a running handler is not waited for,
-    /// and its later fenced writes fail with `job_not_found`. A held job is refused
+    /// Remove one job with its events, artifact rows, submission rows and recovery metadata. When
+    /// the store has artifact or scratch roots configured ([`StoreConfig::artifact_root`],
+    /// [`StoreConfig::scratch_root`]) the job's artifact files and `<scratch_root>/<job_id>` go
+    /// too, inside those roots only; without roots, artifact files are left for the caller (see
+    /// [`PruneReport`]). Use [`JobStore::delete_with`] to keep the files or to see what was
+    /// removed. A non-terminal job is first moved to `cancelled` (`StoreHook::on_transition`
+    /// fires) and its in-process [`CancelToken`] is set after the commit; a running handler is not
+    /// waited for, and its later fenced writes fail with `job_not_found`. A held job is refused
     /// (`illegal_transition`): resolve it first. `job_not_found` when there is no such job.
     pub fn delete(&self, job_id: &str) -> JobResult<PruneReport> {
-        let mut conn = self.c();
-        let tx = write_txn(&mut conn)?;
-        let before = self.load(&tx, job_id)?;
-        let mut was_live = false;
-        if !before.job.is_terminal() {
-            if self.cfg.statuses.is_held(&before.job.status) {
-                return Err(JobError::new(
-                    "illegal_transition",
-                    format!(
-                        "job {job_id} is held in {}; resolve it before deleting",
-                        before.job.status
-                    ),
-                ));
-            }
-            self.exec(&tx, &before, &Transition::to(CANCELLED))?;
-            was_live = true;
-        }
-        let report = self.remove_jobs(&tx, vec![job_id.to_string()])?;
-        tx.commit()?;
-        drop(conn);
-        self.settle(job_id, was_live);
-        Ok(report)
+        self.delete_with(job_id, &DeleteOptions::default())
+            .map(|r| r.prune)
     }
 
     /// Paths of the artifacts of every non-terminal job (held ones included), oldest first and
@@ -2428,6 +2416,7 @@ CREATE INDEX IF NOT EXISTS {t}_job ON {t}(job_id);",
         id = a.id_column
     ))?;
     conn.execute_batch(META_SCHEMA)?;
+    conn.execute_batch(delete::DELETING_SCHEMA)?;
     if cfg.external_id.is_some() {
         conn.execute_batch(SUBMISSIONS_SCHEMA)?;
     }

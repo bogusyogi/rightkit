@@ -59,8 +59,8 @@ pub use discovery::{
 #[allow(deprecated)]
 pub use discovery::{discover_apps, KNOWN_APPS};
 pub use error::{
-    ServiceError, ERROR_CONNECTION_CLOSED, ERROR_HOST_HANDOFF, ERROR_NOT_ALLOWED, ERROR_TIMEOUT,
-    ERROR_UNAVAILABLE,
+    ServiceError, ERROR_CONNECTION_CLOSED, ERROR_HOST_HANDOFF, ERROR_NOT_ALLOWED,
+    ERROR_RESPONSE_TOO_LARGE, ERROR_TIMEOUT, ERROR_UNAVAILABLE,
 };
 #[cfg(unix)]
 pub use peer::verify_peer_is_current_user;

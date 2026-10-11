@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+Additive, from ViewRight gaps 1 to 3 of the second round. Not compiled when written; verification is the CI run.
+
+- **`ClosureClockStore` lock policy.** `with_lock_failure(LockFailure::{Fail (default), Degrade})`: under `Degrade` a lock file that cannot be OPENED lets the call proceed without cross-process exclusion, reported once through `with_degraded_report(|&io::Error|)` and `is_degraded()`; calls still serialise within the process. A lock HELD by another process is never bypassed. The security trade-off (weaker cross-process rollback protection while degraded) is on `LockFailure::Degrade`. `with_lock_wait(LockWait::{Block (default), DoNotWait})`: `DoNotWait` turns a held lock into `ClosureClockStoreError::Lock` with `WouldBlock`; this is the bounded wait available without a timer (the crate must not sleep or spawn). `CrossProcessLock::try_acquire(path) -> io::Result<Option<Self>>` for apps that poll against their own deadline. Doc: the `get`/`set` closures run while the lock is held, so a closure that blocks on a keychain prompt blocks other processes. New exports `LockFailure`, `LockWait`. Tests in `tests/file_store.rs`.
+- **Message formatter.** `LifecycleContext::with_formatter(&Arc<LifecycleMessageFormatter>)` where the formatter is `Fn(&LifecycleMessageContext) -> Option<String> + Send + Sync`. `LifecycleMessageContext` (`#[non_exhaustive]`) carries `kind: LifecycleMessageKind` (the eight kinds), `product_id`, `not_before`, `expiry`, `issued_at`, `last_trusted`, `detail`. `None` falls back to the static `LifecycleMessages` override, then the built-in text; a panic falls back to the built-in text. Attached to `LifecycleContext`, not `LifecycleMessages`, so both stay `Copy` (an `Arc` field would remove `Copy` from `LifecycleMessages` and `LifecycleContext` and break existing by-value reuse). Evaluation order is unchanged and documented as deliberate (authenticate, then clock). `LifecycleContext` now has a hand-written `Debug`. Tests in `tests/lifecycle.rs`.
+
 Additive. Closes consumer gaps 5 to 8 reported from ViewRight (its licence code stayed local because of
 them). No existing signature, field or match changes. The version number is not bumped here.
 

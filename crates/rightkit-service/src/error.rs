@@ -6,6 +6,9 @@ use std::fmt;
 pub const ERROR_HOST_HANDOFF: &str = "host_handoff";
 /// The calling app may not call this method (or is not on the allowlist).
 pub const ERROR_NOT_ALLOWED: &str = "request_not_allowed";
+/// The handler's result did not fit the host's frame limit, so it was not sent. Not retryable:
+/// the same request produces the same result. Ask for less (a page, a smaller body).
+pub const ERROR_RESPONSE_TOO_LARGE: &str = "response_too_large";
 /// The connection dropped before a response arrived. Retryable.
 pub const ERROR_CONNECTION_CLOSED: &str = "connection_closed";
 /// The per-request deadline (connect + write + read) expired and the

@@ -18,7 +18,7 @@ use std::io;
 pub struct PeerIdentity {
     /// Unix: the peer's effective uid.
     pub uid: Option<u32>,
-    /// Peer process id when the platform reports it (Linux, Windows; not macOS).
+    /// Peer process id when the platform reports it (Linux, macOS, Windows; not the BSDs).
     pub pid: Option<u32>,
     /// Windows: the peer process token's user SID in `S-1-...` form.
     pub sid: Option<String>,
@@ -187,9 +187,54 @@ mod unix {
         }
         Ok(PeerIdentity {
             uid: Some(uid),
-            pid: None,
+            pid: peer_pid(s),
             sid: None,
         })
+    }
+
+    /// The peer's process id from the `LOCAL_PEERPID` socket option. `None` when the option
+    /// fails: the peer is still authenticated by its uid, the pid is only extra detail.
+    #[cfg(any(target_os = "macos", target_os = "ios"))]
+    fn peer_pid(s: &UnixStream) -> Option<u32> {
+        const SOL_LOCAL: i32 = 0;
+        const LOCAL_PEERPID: i32 = 0x002;
+        extern "C" {
+            fn getsockopt(
+                fd: i32,
+                level: i32,
+                name: i32,
+                val: *mut core::ffi::c_void,
+                len: *mut u32,
+            ) -> i32;
+        }
+        let mut pid: i32 = 0;
+        let mut len = std::mem::size_of::<i32>() as u32;
+        // SAFETY: valid fd borrowed from `s`; `pid` and `len` are valid locals of the size
+        // the option writes (`pid_t`, `socklen_t`).
+        let rc = unsafe {
+            getsockopt(
+                s.as_raw_fd(),
+                SOL_LOCAL,
+                LOCAL_PEERPID,
+                (&mut pid as *mut i32).cast(),
+                &mut len,
+            )
+        };
+        if rc != 0 {
+            return None;
+        }
+        u32::try_from(pid).ok().filter(|p| *p != 0)
+    }
+
+    /// The BSDs have no peer-pid socket option of this shape.
+    #[cfg(any(
+        target_os = "freebsd",
+        target_os = "openbsd",
+        target_os = "netbsd",
+        target_os = "dragonfly"
+    ))]
+    fn peer_pid(_s: &UnixStream) -> Option<u32> {
+        None
     }
 
     #[cfg(all(

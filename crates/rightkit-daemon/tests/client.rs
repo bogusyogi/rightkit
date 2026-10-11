@@ -294,8 +294,7 @@ fn a_certificate_that_is_not_pinned_fails_tls() {
     .unwrap();
     let e = wrong
         .enrol(&d.enrolment_code, key(), None)
-        .err()
-        .expect("enrolment must fail");
+        .expect_err("enrolment must fail");
     assert!(matches!(e, Error::Tls(_)), "{e}");
     assert!(d.daemon.device_ids().is_empty());
 
@@ -307,8 +306,7 @@ fn a_certificate_that_is_not_pinned_fails_tls() {
     let renamed = Client::new(d.client_config().unwrap().server_name("example.invalid")).unwrap();
     let e = renamed
         .enrol(&d.issue_code(&["venture"]).unwrap(), key(), None)
-        .err()
-        .expect("name mismatch must fail");
+        .expect_err("name mismatch must fail");
     assert!(matches!(e, Error::Tls(_)), "{e}");
 }
 

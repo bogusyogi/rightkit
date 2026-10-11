@@ -1,11 +1,14 @@
 mod common;
 
+use std::sync::Arc;
+
 use common::{pubkey, Claims, APP, DEVICE};
 use rightkit_license::{
     authenticate_token, evaluate_lifecycle, verify_token, AntiRollbackClock, ClockError,
     ClockState, ClockStore, Entitlement, EntitlementStage, LicenseKind, LicenseRequirement,
-    Lifecycle, LifecycleContext, LifecycleMessages, LifecyclePolicy, MemoryClockStore,
-    ProcessAnchor, StoredCredential, VerifyError,
+    Lifecycle, LifecycleContext, LifecycleMessageFormatter, LifecycleMessageKind,
+    LifecycleMessages, LifecyclePolicy, MemoryClockStore, ProcessAnchor, StoredCredential,
+    VerifyError,
 };
 
 fn ent(
@@ -806,4 +809,204 @@ fn clock_repair_message_override_applies_and_does_not_change_the_verdict() {
     let report = evaluate_lifecycle(&ctx, &clock_at(&store, "b", 5_000), again, 5_000).unwrap();
     assert_eq!(report.lifecycle, Lifecycle::ClockRepairRequired);
     assert_eq!(report.message.as_deref(), Some("m-clock"));
+}
+
+// ------------------------------------------------------------------ message formatter
+
+/// A formatter that renders every kind with the values it was given.
+fn value_formatter() -> Arc<LifecycleMessageFormatter> {
+    Arc::new(|c| {
+        Some(format!(
+            "{:?}|{}|nb={:?}|exp={:?}|iat={:?}|last={:?}|detail={}",
+            c.kind,
+            c.product_id,
+            c.not_before,
+            c.expiry,
+            c.issued_at,
+            c.last_trusted,
+            c.detail.is_some()
+        ))
+    })
+}
+
+fn formatted(
+    ctx: &LifecycleContext<'_>,
+    credential: StoredCredential<'_>,
+    wall: i64,
+) -> Option<String> {
+    let store = MemoryClockStore::new();
+    let c = clock_at(&store, "p", wall);
+    evaluate_lifecycle(ctx, &c, credential, wall)
+        .unwrap()
+        .message
+}
+
+#[test]
+fn the_formatter_sees_the_values_of_every_kind() {
+    let key = pubkey();
+    let f = value_formatter();
+    let ctx = LifecycleContext::new(&key, APP, DEVICE).with_formatter(&f);
+    let p = APP;
+
+    assert_eq!(
+        formatted(&ctx, StoredCredential::Revoked, 5_000).unwrap(),
+        format!("Revoked|{p}|nb=None|exp=None|iat=None|last=None|detail=false")
+    );
+    assert_eq!(
+        formatted(&ctx, StoredCredential::LegacyUnsigned, 5_000).unwrap(),
+        format!("MigrationRequired|{p}|nb=None|exp=None|iat=None|last=None|detail=false")
+    );
+    assert_eq!(
+        formatted(&ctx, StoredCredential::Unsigned, 5_000).unwrap(),
+        format!("Unsigned|{p}|nb=None|exp=None|iat=None|last=None|detail=false")
+    );
+    assert_eq!(
+        formatted(&ctx, signed("garbage"), 5_000).unwrap(),
+        format!("InvalidToken|{p}|nb=None|exp=None|iat=None|last=None|detail=true")
+    );
+
+    let expired = Claims::legacy(1_000, 2_000).token();
+    assert_eq!(
+        formatted(&ctx, signed(&expired), 5_000).unwrap(),
+        format!("Expired|{p}|nb=None|exp=Some(2000)|iat=Some(1000)|last=None|detail=false")
+    );
+
+    let inconsistent = Claims {
+        kind: Some("lifetime"),
+        ..Claims::legacy(1_000, 9_000)
+    }
+    .token();
+    assert_eq!(
+        formatted(&ctx, signed(&inconsistent), 5_000).unwrap(),
+        format!(
+            "InvalidLifecycle|{p}|nb=None|exp=Some(9000)|iat=Some(1000)|last=None|detail=false"
+        )
+    );
+
+    // not_before is iat minus the 300 s tolerance, the first trusted time the token is accepted.
+    let future = Claims::legacy(100_000, 200_000).token();
+    assert_eq!(
+        formatted(&ctx, signed(&future), 5_000).unwrap(),
+        format!(
+            "IssuedInTheFuture|{p}|nb=Some(99700)|exp=Some(200000)|iat=Some(100000)|last=None|detail=false"
+        )
+    );
+}
+
+#[test]
+fn the_formatter_sees_the_last_trusted_time_on_a_rollback() {
+    let key = pubkey();
+    let f = value_formatter();
+    let ctx = LifecycleContext::new(&key, APP, DEVICE).with_formatter(&f);
+    let store = MemoryClockStore::new();
+    let token = Claims::trial(9_000, 20_000).token();
+    evaluate_lifecycle(&ctx, &clock_at(&store, "a", 10_000), signed(&token), 10_000).unwrap();
+
+    let again = StoredCredential::Signed {
+        token: &token,
+        clock_initialized: true,
+    };
+    let report = evaluate_lifecycle(&ctx, &clock_at(&store, "b", 5_000), again, 5_000).unwrap();
+    assert_eq!(report.lifecycle, Lifecycle::ClockRepairRequired);
+    assert_eq!(
+        report.message.unwrap(),
+        format!(
+            "ClockRepairRequired|{APP}|nb=None|exp=Some(20000)|iat=Some(9000)|last=Some(10000)|detail=false"
+        )
+    );
+}
+
+#[test]
+fn none_falls_back_to_the_static_override_then_the_default() {
+    let key = pubkey();
+    let none: Arc<LifecycleMessageFormatter> = Arc::new(|_| None);
+    let with_override = LifecycleContext::new(&key, APP, DEVICE)
+        .with_messages(custom_messages())
+        .with_formatter(&none);
+    assert_eq!(
+        formatted(&with_override, StoredCredential::Revoked, 5_000).as_deref(),
+        Some("m-revoked")
+    );
+    let expired = Claims::legacy(1_000, 2_000).token();
+    assert_eq!(
+        formatted(&with_override, signed(&expired), 5_000).as_deref(),
+        Some("m-expired")
+    );
+
+    let defaults = LifecycleContext::new(&key, APP, DEVICE).with_formatter(&none);
+    assert_eq!(
+        formatted(&defaults, StoredCredential::Revoked, 5_000).as_deref(),
+        Some("The server no longer considers this license active.")
+    );
+    assert_eq!(
+        formatted(&defaults, signed(&expired), 5_000).as_deref(),
+        Some("The signed license has expired.")
+    );
+}
+
+#[test]
+fn a_formatter_beats_the_static_override_for_its_kind_only() {
+    let key = pubkey();
+    let only_revoked: Arc<LifecycleMessageFormatter> =
+        Arc::new(|c| (c.kind == LifecycleMessageKind::Revoked).then(|| "formatted".to_string()));
+    let ctx = LifecycleContext::new(&key, APP, DEVICE)
+        .with_messages(custom_messages())
+        .with_formatter(&only_revoked);
+    assert_eq!(
+        formatted(&ctx, StoredCredential::Revoked, 5_000).as_deref(),
+        Some("formatted")
+    );
+    assert_eq!(
+        formatted(&ctx, StoredCredential::Unsigned, 5_000).as_deref(),
+        Some("m-unsigned")
+    );
+}
+
+#[test]
+fn a_panicking_formatter_falls_back_to_the_default_text_and_keeps_the_verdict() {
+    let key = pubkey();
+    let boom: Arc<LifecycleMessageFormatter> = Arc::new(|_| panic!("formatter bug"));
+    let ctx = LifecycleContext::new(&key, APP, DEVICE)
+        .with_messages(custom_messages())
+        .with_formatter(&boom);
+    let store = MemoryClockStore::new();
+    let c = clock_at(&store, "p", 5_000);
+    let expired = Claims::legacy(1_000, 2_000).token();
+    let report = evaluate_lifecycle(&ctx, &c, signed(&expired), 5_000).unwrap();
+    assert_eq!(report.lifecycle, Lifecycle::Expired);
+    assert_eq!(
+        report.message.as_deref(),
+        Some("The signed license has expired.")
+    );
+}
+
+#[test]
+fn an_unauthenticated_token_never_reaches_the_clock_messages() {
+    let key = pubkey();
+    let seen = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let log = Arc::clone(&seen);
+    let f: Arc<LifecycleMessageFormatter> = Arc::new(move |c| {
+        log.lock().unwrap().push(c.kind);
+        None
+    });
+    let ctx = LifecycleContext::new(&key, APP, DEVICE).with_formatter(&f);
+    let store = MemoryClockStore::new();
+    let c = clock_at(&store, "p", 5_000);
+    // Initialised install, empty ledger: the clock would report Missing, but the token fails
+    // authentication first.
+    let report = evaluate_lifecycle(
+        &ctx,
+        &c,
+        StoredCredential::Signed {
+            token: "garbage",
+            clock_initialized: true,
+        },
+        5_000,
+    )
+    .unwrap();
+    assert_eq!(report.lifecycle, Lifecycle::Invalid);
+    assert_eq!(
+        *seen.lock().unwrap(),
+        vec![LifecycleMessageKind::InvalidToken]
+    );
 }
