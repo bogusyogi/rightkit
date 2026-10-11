@@ -879,3 +879,74 @@ fn the_release_scanner_and_the_shell_agree_on_the_marker() {
         );
     }
 }
+
+fn reg(name: &str, value: &str) -> RegValue {
+    RegValue {
+        name: name.to_owned(),
+        value: value.to_owned(),
+    }
+}
+
+#[test]
+fn a_policy_value_applies_unless_it_names_another_programs_executable() {
+    use rightkit_shell::devtools::policy_value_applies as applies;
+    assert!(applies("*", "MailRight.exe"));
+    assert!(applies("mailright.EXE", "MailRight.exe"));
+    assert!(applies(" MailRight.exe ", "MailRight.exe"));
+    assert!(!applies("Teams.exe", "MailRight.exe"));
+    // Not an executable name: it may be an application user model id.
+    assert!(applies("Orthic.MailRight", "MailRight.exe"));
+    // This program's own name is unknown: nothing can be ruled out.
+    assert!(applies("Teams.exe", ""));
+}
+
+#[test]
+fn a_browser_executable_folder_policy_for_this_program_is_refused() {
+    use rightkit_shell::devtools::runtime_folder_violations as violations;
+    let values = [
+        reg("Teams.exe", r"C:\Other\Runtime"),
+        reg("*", r" C:\Planted\Runtime "),
+        reg("MailRight.exe", ""),
+    ];
+    let found = violations(&values, "HKLM policy (64-bit view)", "MailRight.exe");
+    assert_eq!(found.len(), 1, "{found:?}");
+    assert_eq!(found[0].code(), "browser_runtime_redirected");
+    let text = found[0].to_string();
+    assert!(
+        text.contains(r"C:\Planted\Runtime") && text.contains("value `*`"),
+        "{text}"
+    );
+    // Another program's fixed runtime is not this program's business.
+    assert!(violations(&values[..1], "HKCU policy", "MailRight.exe").is_empty());
+}
+
+#[test]
+fn a_user_data_folder_policy_adds_its_expanded_folder_to_the_tripwire() {
+    use rightkit_shell::devtools::{expand_env_refs, policy_user_data_dirs};
+    let env = |name: &str| match name {
+        "LOCALAPPDATA" => Some(r"C:\Users\u\AppData\Local".to_owned()),
+        _ => None,
+    };
+    assert_eq!(
+        expand_env_refs(r"%LOCALAPPDATA%\wv2\%UNKNOWN%\50%", env),
+        r"C:\Users\u\AppData\Local\wv2\%UNKNOWN%\50%"
+    );
+    assert_eq!(expand_env_refs("%%", env), "%%");
+    let values = [
+        reg("*", r"%LOCALAPPDATA%\Policy\Data"),
+        reg("Teams.exe", r"C:\Teams\Data"),
+    ];
+    let dirs = policy_user_data_dirs(&values, "MailRight.exe", env);
+    assert_eq!(
+        dirs,
+        vec![std::path::PathBuf::from(
+            r"C:\Users\u\AppData\Local\Policy\Data"
+        )]
+    );
+
+    // A fresh port file in such a folder trips the wire.
+    let dir = tempfile::tempdir().unwrap();
+    let start = SystemTime::now();
+    std::fs::write(dir.path().join(DEBUG_PORT_FILE), "9222\n").unwrap();
+    assert!(live_debug_port_file(&[dir.path().to_path_buf()], start).is_some());
+}

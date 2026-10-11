@@ -745,6 +745,16 @@ pub(crate) fn install(cfg: ShellBuilder) -> TauriPlugin<Wry> {
     };
 
     let mut plugin = PluginBuilder::<Wry>::new("rightkit-shell");
+    // The browser process may write its port file after the webview is ready: look once more
+    // when the first page has loaded.
+    plugin = plugin.on_page_load(|webview, payload| {
+        if matches!(payload.event(), tauri::webview::PageLoadEvent::Finished) {
+            if let Err(e) = devtools::verify_after_first_navigation(webview.app_handle()) {
+                eprintln!("{e}");
+                webview.app_handle().exit(1);
+            }
+        }
+    });
     if modules.contains(Module::NavigationPolicy) {
         plugin = plugin.on_navigation(move |_webview, url| match nav_hook.decide(url) {
             NavDecision::Allow => true,
