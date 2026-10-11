@@ -18,6 +18,8 @@ The default build has no Tauri, async-runtime or tracing dependency. Apps supply
 
 The host decides when to grant consent, enqueue events, flush, revoke consent, or let a user copy and save a returned bundle. Revocation purges queued and quarantined bytes.
 
+A consent file that is absent, unreadable or corrupt reads as `Consent::Unset`, so nothing uploads. `ConsentStore::last_read_error()` (or `try_status()`) tells an unreadable or corrupt file from one the user never wrote. `identity::install_id` creates a new id only when the file is absent or holds no valid id; any other read error is returned and the stored id is left alone.
+
 Catalog capability: `structured-logging`. Published to crates.io (see [INDEX.md](../../INDEX.md)). Licensed under MIT or Apache-2.0, at your option.
 
 ## When to use it

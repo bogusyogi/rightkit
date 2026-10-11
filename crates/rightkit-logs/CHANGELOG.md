@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- Fix: `identity::install_id` no longer replaces the install id because its file could not be read. Only an absent file (`NotFound`), or a file that was read and holds no valid id (including bytes that are not UTF-8), creates a new id. Any other read error (a permission error, a Windows sharing violation while another process replaces the file, an I/O error) is returned as `Err` and nothing is written. The signature is unchanged (`io::Result<String>`). Before, any read error generated a new id and overwrote the file, silently changing the install's identity.
+- Fix: a consent file that cannot be read is no longer indistinguishable from "the user never chose". `ConsentStore::status` still returns `Consent::Unset` (so nothing uploads), but the reason is now kept: new `ConsentStore::last_read_error() -> Option<String>` returns the message of the latest `status` call that failed for a reason other than the file being absent (an unreadable file, or content that is not valid consent state), shared between clones and cleared by the next good read. New `ConsentStore::try_status() -> io::Result<Consent>` returns `Ok(Unset)` for an absent file, the read error for an unreadable one, and `InvalidData` for corrupt content. Additive; nothing retried or slept.
+- Tests: `identity::tests` and `consent::tests` (a directory at the path stands in for a read error that is not `NotFound`). Not compiled or run locally; verification is the CI run.
+
 ## 0.2.2
 
 - `JsonlStore`: `append_best_effort` no longer prints to stderr; failures are counted and the last message kept in `JsonlStore::status()` (`StoreStatus`). A failed rotation now still appends the event to the current file up to a hard cap of twice the rotation size (then appends are refused and counted), and the rotation failure is counted too. Function signatures are unchanged. Additive: `AsyncWriter::spawn_reporting` with `FailureReporting::Once` reports the first failure of a run once, counts the suppressed rest, and reports the recovery once (`AsyncWriter::failure_status`); `spawn` keeps the default per-failure behaviour.

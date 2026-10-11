@@ -1,6 +1,6 @@
 use crate::error::*;
 use crate::host_identity::{HostConnectError, HostExpectation, HostProcess};
-use crate::record::{read_record, ServiceRecord, PROTOCOL_MAJOR};
+use crate::record::{try_read_record, ServiceRecord, PROTOCOL_MAJOR};
 use crate::suite::{Suite, SuiteError};
 use crate::transport::{connect, connect_expecting, Conn};
 use rightkit_framed_sidecar::{read_json_line, write_json_line, FrameError};
@@ -283,9 +283,25 @@ impl Client {
         expect: Option<&HostExpectation>,
     ) -> Result<Client, ConnectError> {
         let started = Instant::now();
-        let record = read_record(suite, service).ok_or_else(|| {
-            ServiceError::retryable(ERROR_UNAVAILABLE, format!("no service.json for {service}"))
-        })?;
+        // Absent and unreadable are both retryable `service_unavailable`, but they are not the
+        // same statement: an unreadable record says nothing about whether the host is gone.
+        let record = match try_read_record(suite, service) {
+            Ok(Some(record)) => record,
+            Ok(None) => {
+                return Err(ServiceError::retryable(
+                    ERROR_UNAVAILABLE,
+                    format!("no service.json for {service}"),
+                )
+                .into())
+            }
+            Err(e) => {
+                return Err(ServiceError::retryable(
+                    ERROR_UNAVAILABLE,
+                    format!("could not read service.json for {service} (try again): {e}"),
+                )
+                .into())
+            }
+        };
         if record.protocol_major != PROTOCOL_MAJOR {
             return Err(ServiceError::new(
                 "protocol_mismatch",

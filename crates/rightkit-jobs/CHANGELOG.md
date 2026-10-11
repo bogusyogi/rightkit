@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased (settle-later journal: an unreadable file is not a bad file)
+
+Fix. Nothing here was compiled or run locally; verification is the CI run. No signature or field changed.
+
+- Replaying the settle-later journal at open no longer sets a file aside because it could not be read. Before, any read error renamed `<job>.json` to `<job>.json.bad`, which hid a finished job's terminal outcome behind a transient refusal (on Windows, a file another process is replacing can be refused for an instant). Now only a file that was read and fails to parse or validate is renamed. A file that cannot be read stays where it is, is listed by `pending_settlements()` (and `shutdown_detailed().unsettled`, so `is_clean()` is false) with an empty `status` and the read error, and is read again, once and without a sleep, by each explicit `flush_pending_settlements()`; a file that reads then is held and written like any other, and a file that has vanished is forgotten. A file that has vanished between the listing and the read is skipped, as before.
+- Limit: until the file reads, the store does not know the outcome, so a runner cannot be told to leave that job alone; `UnsettledRecovery` applies only to entries that were read.
+- Test: `tests/settle_unreadable_journal.rs` (a directory at `<job>.json` stands in for a read error that is not `NotFound` on every platform).
+
 ## Unreleased (handler-owned outcomes, settle-later, claim scopes, open-failure classification, terminal-only keep_total)
 
 Nothing here was compiled or run locally; verification is the CI run. Four additions and one fix, written for an adopter whose handlers settle jobs themselves. Behaviour changes for existing callers are listed first.

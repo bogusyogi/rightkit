@@ -447,8 +447,15 @@ fn start_host(
         // A loser can observe the incumbent, but only the owner can discard stale
         // discovery or bind. Retain ownership through publication and shutdown.
         let election = try_lock_exclusive(&lock_path)?;
-        match read_record(suite, &cfg.service) {
-            Some(rec) if record_process_matches(&rec) && probe_endpoint(&rec.endpoint) => {
+        // `Err` is "unknown", not "no record": it falls to the arm that waits, so a record that
+        // cannot be read for an instant is never removed and no listener is bound beside it.
+        let current = try_read_record(suite, &cfg.service);
+        let unreadable = current
+            .as_ref()
+            .err()
+            .map(|e| std::io::Error::new(e.kind(), e.to_string()));
+        match current {
+            Ok(Some(rec)) if record_process_matches(&rec) && probe_endpoint(&rec.endpoint) => {
                 let their = resolve_rank(&cfg, &rec.role, rec.rank);
                 if their == RANK_UNKNOWN || cfg.rank >= their {
                     return Err(HostError::Held(rec));
@@ -467,7 +474,7 @@ fn start_host(
                     requested = true;
                 }
             }
-            _ if election.is_some() => {
+            Ok(_) if election.is_some() => {
                 // PID generation and endpoint checks rejected the old record.
                 // Only the elected process may remove it or a dead Unix socket.
                 let _ = std::fs::remove_file(record_path(suite, &cfg.service));
@@ -479,13 +486,20 @@ fn start_host(
                     Err(e) => return Err(HostError::Io(e)),
                 }
             }
-            _ => {} // Winner is between lock acquisition and record publication.
+            // Winner is between lock acquisition and record publication, or the record could
+            // not be read (see above).
+            _ => {}
         }
         drop(election);
         let remaining = deadline.saturating_duration_since(Instant::now());
         if remaining.is_zero() {
             clear_takeover_if_owner(suite, &cfg.service, me);
-            return Err(HostError::TakeoverTimeout);
+            // Still unable to read the record at the deadline: say so rather than report a
+            // timeout that blames the incumbent.
+            return Err(match unreadable {
+                Some(e) => HostError::Io(e),
+                None => HostError::TakeoverTimeout,
+            });
         }
         std::thread::sleep(backoff.min(remaining));
         backoff = (backoff * 2).min(Duration::from_millis(50));
@@ -656,13 +670,20 @@ fn takeover_monitor(s: Arc<Shared>) {
                 judged = Some(stamp);
                 #[cfg(test)]
                 s.bell.note_read();
-                if let Some(t) = read_takeover(&s.suite, &s.cfg.service) {
-                    let now = now_ms();
-                    let obliging = obliging_rank(&s.cfg, s.record.pid, s.watch.alive, &t, now);
-                    if let Some(their) = obliging {
-                        hand_off(&s, t, their);
-                        return;
+                match try_read_takeover(&s.suite, &s.cfg.service) {
+                    Ok(Some(t)) => {
+                        let now = now_ms();
+                        let obliging = obliging_rank(&s.cfg, s.record.pid, s.watch.alive, &t, now);
+                        if let Some(their) = obliging {
+                            hand_off(&s, t, their);
+                            return;
+                        }
                     }
+                    Ok(None) => {}
+                    // Could not be read: whether a request exists is unknown, not "none". Do not
+                    // mark this stamp as judged, so the next pass (one interval on, no faster)
+                    // reads the file again.
+                    Err(_) => judged = None,
                 }
             }
             Some(_) => {}
@@ -1113,6 +1134,56 @@ mod monitor_tests {
             "the monitor woke {woke} times in {secs:.1} s"
         );
         drop(hosted);
+    }
+
+    /// A directory at `takeover.json` makes the read fail with an error that is not `NotFound`
+    /// (`IsADirectory` on Unix, `PermissionDenied` on Windows) on every platform.
+    #[test]
+    fn an_unreadable_request_is_looked_at_again_not_judged_absent() {
+        let dir = tempfile::tempdir().unwrap();
+        let (suite, hosted, handler) = host_in(&dir, Duration::from_millis(20), |_| true);
+        let bell = hosted.shared.bell.clone();
+        let path = takeover_path(&suite, "watch");
+        std::fs::create_dir_all(&path).unwrap();
+        // The file stat never changes, yet it is read on every pass: it was never judged.
+        wait_for("three reads of the unreadable file", || bell.reads() >= 3);
+        assert!(!hosted.handoff_requested());
+
+        // Once it can be read, the request it holds is accepted.
+        std::fs::remove_dir(&path).unwrap();
+        let body = serde_json::to_vec(&request("shell", 0, other_pid())).unwrap();
+        write_atomic(&path, &body).unwrap();
+        assert!(hosted.wait_released(Duration::from_secs(20)));
+        assert_eq!(handler.handoffs.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn an_unreadable_record_blocks_the_election_instead_of_being_replaced() {
+        let dir = tempfile::tempdir().unwrap();
+        let suite = Suite::at(dir.path().join("suite")).unwrap();
+        let record = record_path(&suite, "watch");
+        std::fs::create_dir_all(&record).unwrap();
+        let mut cfg = ServiceConfig::new("watch", "newcomer", 5, "test", Allowlist::new());
+        cfg.takeover_timeout = Duration::from_millis(300);
+        let err = start_host(
+            &suite,
+            cfg,
+            Arc::new(Quiet {
+                handoffs: AtomicUsize::new(0),
+            }),
+            HostOptions::default(),
+            WatchTuning {
+                interval: LONG,
+                alive: |_| true,
+            },
+        )
+        .err()
+        .expect("a record that cannot be read must not be treated as no record");
+        match err {
+            HostError::Io(e) => assert_ne!(e.kind(), std::io::ErrorKind::NotFound),
+            _ => panic!("expected the read error"),
+        }
+        assert!(record.is_dir(), "left as it was");
     }
 
     #[test]

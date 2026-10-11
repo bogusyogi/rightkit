@@ -76,7 +76,7 @@ let stats = view.stats();
 
 Streaming: `put_writer(key)` returns a `PutWriter` (an `io::Write`) and `put_reader(key, reader)` copies a reader in chunks, so a large value never has to be in memory. The bytes go to a temp file and are published atomically on `commit()`. A writer dropped without committing removes its temp file.
 
-Pinning: `put_pinned`, `pin` and `unpin` make an entry exempt from size-pressure eviction. Pinned bytes count toward `max_bytes`. A write that would leave no room beside the pinned entries fails with a `PinnedCapacityError` (use `pinned_capacity_error(&err)` to read it, kind `StorageFull`) and writes nothing. Pins persist in `<root>/.pinned`. Use `pinned_bytes()` to read the total.
+Pinning: `put_pinned`, `pin` and `unpin` make an entry exempt from size-pressure eviction. Pinned bytes count toward `max_bytes`. A write that would leave no room beside the pinned entries fails with a `PinnedCapacityError` (use `pinned_capacity_error(&err)` to read it, kind `StorageFull`) and writes nothing. Pins persist in `<root>/.pinned`. An absent list pins nothing; a list that exists but cannot be read fails `open` and `open_read_only` with the read error and evicts nothing, because the pins would be unknown. Use `pinned_bytes()` to read the total.
 
 Foreign files: the root must be exclusive to the cache. The default `open` never deletes a file whose name the cache did not write, including in `.tmp/`, but it still indexes the `<hh>/` shards. `open_strict` refuses (with a `ForeignContentError`, see `foreign_content_error`) a root that holds any file the cache did not write, and touches nothing.
 

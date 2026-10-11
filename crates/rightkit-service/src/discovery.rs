@@ -6,7 +6,8 @@
 //! never removed by a losing launcher.
 
 use crate::record::{
-    read_live_record, read_record, write_takeover, ServiceRecord, TakeoverRequest, RANK_UNKNOWN,
+    read_live_record, try_read_live_record, try_read_record, write_takeover, ServiceRecord,
+    TakeoverRequest, RANK_UNKNOWN,
 };
 use crate::suite::{make_private_dir, Suite};
 use crate::transport::{pid_alive, probe_endpoint};
@@ -456,13 +457,22 @@ pub enum AdoptOrSpawn {
 }
 
 /// Adopt only a live, reachable record whose PID generation still matches.
+///
+/// A `service.json` that cannot be read is `Spawn` here, as an absent one is; the enum cannot say
+/// "unknown". Use [`try_adopt_or_spawn`] where that must not start a second host.
 pub fn adopt_or_spawn(suite: &Suite, service: &str) -> AdoptOrSpawn {
-    match read_record(suite, service) {
+    try_adopt_or_spawn(suite, service).unwrap_or(AdoptOrSpawn::Spawn)
+}
+
+/// [`adopt_or_spawn`] with `Err` when `service.json` exists but could not be read: whether a
+/// live host exists is then unknown, so look again rather than spawn.
+pub fn try_adopt_or_spawn(suite: &Suite, service: &str) -> io::Result<AdoptOrSpawn> {
+    Ok(match try_read_record(suite, service)? {
         Some(record) if record_process_matches(&record) && probe_endpoint(&record.endpoint) => {
             AdoptOrSpawn::Adopt(record)
         }
         _ => AdoptOrSpawn::Spawn,
-    }
+    })
 }
 
 /// Wait for the winner of a competing claim to publish a matching live record.
@@ -473,7 +483,8 @@ pub fn wait_for_claim_winner(
 ) -> Option<ServiceRecord> {
     let deadline = Instant::now() + timeout;
     while Instant::now() < deadline {
-        if let AdoptOrSpawn::Adopt(record) = adopt_or_spawn(suite, service) {
+        // An unreadable record is "not yet": keep waiting, never stop early on it.
+        if let Ok(AdoptOrSpawn::Adopt(record)) = try_adopt_or_spawn(suite, service) {
             return Some(record);
         }
         std::thread::sleep(
@@ -660,7 +671,39 @@ pub fn plan_host(
     known_roles: &BTreeMap<String, u8>,
     installed_engine: Option<&Path>,
 ) -> HostPlan {
-    if let Some(record) = read_live_record(suite, service) {
+    plan_from(
+        read_live_record(suite, service),
+        my_rank,
+        known_roles,
+        installed_engine,
+    )
+}
+
+/// [`plan_host`] with `Err` when `service.json` exists but could not be read. Whether a live host
+/// exists is then unknown, so no plan is made: `plan_host` would answer `HostMyself` or
+/// `StartInstalled`, which starts a second host beside a live one.
+pub fn try_plan_host(
+    suite: &Suite,
+    service: &str,
+    my_rank: u8,
+    known_roles: &BTreeMap<String, u8>,
+    installed_engine: Option<&Path>,
+) -> io::Result<HostPlan> {
+    Ok(plan_from(
+        try_read_live_record(suite, service)?,
+        my_rank,
+        known_roles,
+        installed_engine,
+    ))
+}
+
+fn plan_from(
+    live: Option<ServiceRecord>,
+    my_rank: u8,
+    known_roles: &BTreeMap<String, u8>,
+    installed_engine: Option<&Path>,
+) -> HostPlan {
+    if let Some(record) = live {
         if let Some(their) = resolve_rank(&record.role, record.rank, known_roles) {
             return if my_rank < their {
                 HostPlan::TakeOver {

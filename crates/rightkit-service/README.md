@@ -31,7 +31,7 @@ The one discovery and authentication convention for local Right Suite services: 
 
 | Concern | Convention |
 |---|---|
-| Discovery | `<suite>/runtime/<service>/service.json` (atomic, owner-only). Stale when its endpoint does not answer. |
+| Discovery | `<suite>/runtime/<service>/service.json` (atomic, owner-only). Stale when its endpoint does not answer. Only a missing file means no service: a record or `takeover.json` that cannot be read (a permission error, a sharing violation while another process replaces it) is "unknown, try again". `Client::connect` reports it as the retryable `service_unavailable` (`could not read service.json`), host election does not replace the record, and the takeover monitor reads the request again on its next pass. The `try_read_*`, `try_adopt_or_spawn` and `try_plan_host` functions return the distinction as an `io::Error`; the older infallible readers still answer "absent" for it. |
 | Transport | macOS/Unix: socket in a 0700 dir, mode 0600, peer uid checked (`getpeereid`). Windows: named pipe, DACL = current user SID only, remote clients rejected, first-instance flag. No TCP, no tokens. |
 | Frames | `rightkit-framed-sidecar` JSON lines: `hello`, `request`, `event`, `response`; errors carry `retryable`. |
 | Allowlist | Per calling app: which methods it may call. Unknown app rejected at `hello`. `ping` always allowed. |

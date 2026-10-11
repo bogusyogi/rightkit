@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Fix: `DiskCache::open`, `open_strict` and `open_read_only` no longer treat a pin list `<root>/.pinned` that cannot be read as empty. Only an absent file means no pins. Any other read error (a permission error, a sharing violation while another process replaces the file, an I/O error) now fails the open with that error before anything is evicted; before, the pins were taken as empty and the open-time trim to `max_bytes` could evict pinned entries. The read is not retried here. Not compiled or run locally; verification is the CI run.
 - Eviction no longer sorts the whole index on every over-cap write: the index keeps the eviction order (last use, then base name) and the pinned total current as entries change, so a put costs the entries it evicts plus a logarithmic step. The evicted set is unchanged; `recency_snapshot` reads the same order without a sort.
 
 ## 0.2.0 - 2026-10-11

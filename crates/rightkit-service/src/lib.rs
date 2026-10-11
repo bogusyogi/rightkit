@@ -60,9 +60,9 @@ pub use discovery::{
     adopt_or_spawn, discover_apps_in, discover_apps_in_with, discover_macos, discover_macos_with,
     discover_windows, discover_windows_with, parse_plist_string, parse_reg_query, plan_host,
     poll_until, publish_takeover, record_process_matches, resolve_install_dir, resolve_rank,
-    should_request_takeover, spawn_detached, takeover_obliges_yield, wait_for_claim_winner,
-    AdoptOrSpawn, Completeness, DiscoverOptions, HostPlan, InstalledApp, SpawnClaim,
-    SpawnClaimError, UninstallEntry,
+    should_request_takeover, spawn_detached, takeover_obliges_yield, try_adopt_or_spawn,
+    try_plan_host, wait_for_claim_winner, AdoptOrSpawn, Completeness, DiscoverOptions, HostPlan,
+    InstalledApp, SpawnClaim, SpawnClaimError, UninstallEntry,
 };
 // Deprecated items stay exported for existing callers; their deprecation is reported at the
 // caller's own use site, not on this re-export.
@@ -84,8 +84,9 @@ pub use peer::{
 pub use peer::{PeerError, PeerIdentity};
 pub use record::{
     clear_takeover_if_owner, read_live_record, read_record, read_takeover, record_path,
-    takeover_path, write_atomic, write_takeover, Allowlist, ServiceRecord, TakeoverRequest,
-    PROTOCOL_MAJOR, PROTOCOL_MINOR, RANK_UNKNOWN,
+    takeover_path, try_read_live_record, try_read_record, try_read_takeover, write_atomic,
+    write_takeover, Allowlist, ServiceRecord, TakeoverRequest, PROTOCOL_MAJOR, PROTOCOL_MINOR,
+    RANK_UNKNOWN,
 };
 pub use server::{
     host, host_with_options, CallContext, Emit, Handler, HostError, HostOptions, Hosted,

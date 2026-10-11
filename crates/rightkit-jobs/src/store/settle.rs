@@ -18,7 +18,11 @@
 //! Opening the store reads the journal and writes each recorded transition, so a job whose
 //! handler finished is settled the way the handler left it instead of being run again. A
 //! transition that cannot be written yet stays pending, and a runner does not list or run such a
-//! job (see [`crate::UnsettledRecovery`]).
+//! job (see [`crate::UnsettledRecovery`]). A journal file that cannot be read (a permission
+//! error, a sharing violation while another process replaces it, an I/O error) is not judged bad:
+//! it stays where it is, shows in [`JobStore::pending_settlements`] with an empty status and
+//! the read error, and is read again by [`JobStore::flush_pending_settlements`]. Only a file that
+//! was read and fails to parse or validate is set aside as `.json.bad`.
 //!
 //! Limits. The journal needs a writable directory next to the database: when that fails too
 //! (disk full), the entry is memory-only ([`UnsettledJob::durable`] is false) and a crash loses
@@ -139,7 +143,8 @@ pub struct FlushReport {
 #[non_exhaustive]
 pub struct UnsettledJob {
     pub job_id: String,
-    /// The terminal status the job will get: `complete`, `failed` or `cancelled`.
+    /// The terminal status the job will get: `complete`, `failed` or `cancelled`. Empty for a
+    /// journal file that exists but could not be read at open: its outcome is unknown.
     pub status: String,
     /// The transition is in the journal file, so it survives a crash and is applied at the next
     /// open. False: memory only (the journal could not be written).
@@ -212,6 +217,18 @@ pub(super) struct SettleState {
     delivering: Mutex<HashMap<String, usize>>,
     /// `<database file>.settlements/`, or `None` for a database without a file name.
     dir: Option<PathBuf>,
+    /// Journal files found at open that could not be read (not "unparseable": those are set
+    /// aside). They stay where they are, are reported as unsettled, and are read again on an
+    /// explicit flush.
+    unread: Mutex<Vec<UnreadJournal>>,
+}
+
+/// A journal file that exists but could not be read.
+struct UnreadJournal {
+    path: PathBuf,
+    error: String,
+    /// Reads that failed so far.
+    attempts: u32,
 }
 
 impl SettleState {
@@ -227,6 +244,7 @@ impl SettleState {
             flush: Mutex::new(()),
             delivering: Mutex::new(HashMap::new()),
             dir,
+            unread: Mutex::new(Vec::new()),
         }
     }
 }
@@ -800,6 +818,9 @@ impl JobStore {
                 Err(TryLockError::WouldBlock) => return report,
             }
         };
+        if force {
+            self.retry_unread_journal();
+        }
         let work: Vec<Work> = lk(&self.settle.pending)
             .iter()
             .filter(|e| e.due(force))
@@ -848,9 +869,10 @@ impl JobStore {
     }
 
     /// Jobs whose handler finished but whose terminal state is not stored: "finished,
-    /// unsettled". Empty when nothing is held.
+    /// unsettled", plus any journal file that could not be read (empty `status`). Empty when
+    /// nothing is held.
     pub fn pending_settlements(&self) -> Vec<UnsettledJob> {
-        lk(&self.settle.pending)
+        let mut out: Vec<UnsettledJob> = lk(&self.settle.pending)
             .iter()
             .map(|e| UnsettledJob {
                 job_id: e.job_id.clone(),
@@ -860,7 +882,24 @@ impl JobStore {
                 attempts: e.attempts,
                 last_error: e.last_error.clone(),
             })
-            .collect()
+            .collect();
+        // A journal file that exists but could not be read: its outcome is unknown, so `status`
+        // is empty. It is in the journal (`durable`) and is read again on the next explicit flush.
+        out.extend(lk(&self.settle.unread).iter().map(|u| {
+            UnsettledJob {
+                job_id: u
+                    .path
+                    .file_stem()
+                    .map(|n| n.to_string_lossy().into_owned())
+                    .unwrap_or_default(),
+                status: String::new(),
+                durable: true,
+                claimed: false,
+                attempts: u.attempts,
+                last_error: format!("journal file could not be read: {}", u.error),
+            }
+        }));
+        out
     }
 
     /// The last chance to store what is held: one flush, then the report of what could not be
@@ -876,6 +915,56 @@ impl JobStore {
         }
     }
 
+    /// Read one journal file and hold what it records. `Err` only when the file could not be
+    /// read; the file is then untouched. A file that was read but is not a valid entry is set
+    /// aside as `.json.bad` and is `Ok(false)`: only content that was read and failed to parse
+    /// or validate is judged bad.
+    fn ingest_journal_file(&self, path: &Path) -> std::io::Result<bool> {
+        let bytes = std::fs::read(path)?;
+        let parsed = serde_json::from_slice::<Value>(&bytes)
+            .ok()
+            .and_then(|v| parse_entry(&v));
+        let Some((job_id, generation, transition, event)) = parsed else {
+            // Not ours or not valid: set it aside, never delete it.
+            let _ = std::fs::rename(path, path.with_extension("json.bad"));
+            return Ok(false);
+        };
+        let bytes = entry_bytes(&job_id, &transition, &event);
+        Ok(self.push_entry(
+            Entry {
+                job_id,
+                generation,
+                transition,
+                event,
+                claim: None,
+                sink: None,
+                last_error: "recorded by an earlier run".into(),
+                attempts: 0,
+                last_try: Instant::now(),
+                durable: true,
+                bytes,
+            },
+            false,
+        ))
+    }
+
+    /// Read again the journal files that could not be read at open. Once, with no sleep: a
+    /// file that reads now is held like any other; one that is gone is forgotten; one that
+    /// still cannot be read stays listed. Lock order is `unread` then `pending`, and nothing
+    /// takes them the other way round.
+    fn retry_unread_journal(&self) {
+        let mut unread = lk(&self.settle.unread);
+        unread.retain_mut(|u| match self.ingest_journal_file(&u.path) {
+            Ok(_) => false,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => false,
+            Err(e) => {
+                u.attempts += 1;
+                u.error = e.to_string();
+                true
+            }
+        });
+    }
+
     /// Read the journal left by an earlier run and write what it recorded. Run at open.
     pub(super) fn replay_journal(&self) {
         let Some(dir) = self.settle.dir.clone() else {
@@ -885,42 +974,33 @@ impl JobStore {
             return;
         };
         let mut loaded = false;
+        let mut unread = Vec::new();
         for item in rd.flatten() {
             let path = item.path();
             // Temp files of an interrupted atomic write carry another extension.
             if path.extension().and_then(|x| x.to_str()) != Some("json") {
                 continue;
             }
-            let parsed = std::fs::read(&path)
-                .ok()
-                .and_then(|b| serde_json::from_slice::<Value>(&b).ok())
-                .and_then(|v| parse_entry(&v));
-            let Some((job_id, generation, transition, event)) = parsed else {
-                // Not ours or unreadable: set it aside, never delete it.
-                let _ = std::fs::rename(&path, path.with_extension("json.bad"));
-                continue;
-            };
-            let bytes = entry_bytes(&job_id, &transition, &event);
-            loaded |= self.push_entry(
-                Entry {
-                    job_id,
-                    generation,
-                    transition,
-                    event,
-                    claim: None,
-                    sink: None,
-                    last_error: "recorded by an earlier run".into(),
-                    attempts: 0,
-                    last_try: Instant::now(),
-                    durable: true,
-                    bytes,
-                },
-                false,
-            );
+            match self.ingest_journal_file(&path) {
+                Ok(pushed) => loaded |= pushed,
+                // Gone between the listing and the read: nothing to settle.
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+                // Could not be read (permission, a sharing violation while another process
+                // replaces it, an I/O error): not proof the entry is bad. Leave the file
+                // where it is, report it, and read it again later.
+                Err(e) => unread.push(UnreadJournal {
+                    path,
+                    error: e.to_string(),
+                    attempts: 1,
+                }),
+            }
         }
         if loaded {
             let _ = self.flush_impl(true);
         }
+        // Recorded after the flush above, which reads the unread files again: they were just
+        // tried, and the next explicit flush is the retry.
+        lk(&self.settle.unread).extend(unread);
     }
 
     /// Keep `job_id` out of `prune` until the returned pin drops.

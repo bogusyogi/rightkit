@@ -272,15 +272,22 @@ fn is_own_tmp_name(name: &str) -> bool {
     }
 }
 
-/// Owner-pinned entry base names listed in `<root>/.pinned`. A missing or unreadable file pins nothing.
-fn read_pins(root: &Path) -> HashSet<String> {
-    fs::read_to_string(root.join(PIN_FILE))
-        .unwrap_or_default()
+/// Owner-pinned entry base names listed in `<root>/.pinned`. A missing file pins nothing.
+///
+/// Any other read error is returned: if the list cannot be read the pins are unknown, and
+/// treating them as empty would make pinned entries evictable.
+fn read_pins(root: &Path) -> io::Result<HashSet<String>> {
+    let bytes = match fs::read(root.join(PIN_FILE)) {
+        Ok(bytes) => bytes,
+        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(HashSet::new()),
+        Err(e) => return Err(e),
+    };
+    Ok(String::from_utf8_lossy(&bytes)
         .lines()
         .map(str::trim)
         .filter(|line| matches!(parse_entry_name(line), Some((_, None))))
         .map(str::to_owned)
-        .collect()
+        .collect())
 }
 
 struct Meta {
@@ -657,6 +664,10 @@ fn is_cache_entry(root: &Path, path: &Path) -> bool {
 impl DiskCache {
     /// Open (creating if needed) and index an existing cache directory, discarding crash leftovers
     /// and trimming to `cfg.max_bytes` (the cap may have shrunk since the last run).
+    ///
+    /// Fails, evicting nothing, if the pin list `<root>/.pinned` exists but cannot be read: with
+    /// the pins unknown the trim could evict an entry the owner pinned. An absent list pins
+    /// nothing.
     pub fn open(root: impl Into<PathBuf>, cfg: Config) -> io::Result<Self> {
         let root = root.into();
         fs::create_dir_all(&root)?;
@@ -739,7 +750,7 @@ impl DiskCache {
         }
         // Deterministic recency order even when mtimes tie.
         found.sort_by(|a, b| a.3.cmp(&b.3).then_with(|| a.0.cmp(&b.0)));
-        let pins = read_pins(&root);
+        let pins = read_pins(&root)?;
 
         let cache = Self {
             inner: Arc::new(Inner {

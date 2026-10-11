@@ -88,18 +88,59 @@ pub fn takeover_path(suite: &Suite, service: &str) -> PathBuf {
     suite.service_dir(service).join("takeover.json")
 }
 
-pub fn read_record(suite: &Suite, service: &str) -> Option<ServiceRecord> {
-    serde_json::from_slice(&std::fs::read(record_path(suite, service)).ok()?).ok()
+/// Read and parse one discovery file. `Ok(None)` when the file is absent (`NotFound`) or was read
+/// but does not parse (not a record this crate or HeardRight wrote). Any other read error is
+/// returned: a file another process is replacing can be refused for an instant (Windows
+/// `ERROR_ACCESS_DENIED` or `ERROR_SHARING_VIOLATION`), and a permission or I/O error says nothing
+/// about whether the file, or the service, exists.
+fn read_json<T: serde::de::DeserializeOwned>(path: &Path) -> std::io::Result<Option<T>> {
+    match std::fs::read(path) {
+        Ok(bytes) => Ok(serde_json::from_slice(&bytes).ok()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(e) => Err(e),
+    }
 }
+
+/// The published record, telling "absent" from "unreadable".
+///
+/// `Ok(None)`: there is no `service.json` (or it holds no record). `Err`: it could not be read
+/// right now, so whether a service exists is unknown. Treat that as "try again", never as "no
+/// service". Nothing here retries.
+pub fn try_read_record(suite: &Suite, service: &str) -> std::io::Result<Option<ServiceRecord>> {
+    read_json(&record_path(suite, service))
+}
+
+/// The pending takeover request, telling "absent" from "unreadable" as [`try_read_record`] does.
+/// `Err` means whether a request exists is unknown: a host must not conclude there is none.
+pub fn try_read_takeover(suite: &Suite, service: &str) -> std::io::Result<Option<TakeoverRequest>> {
+    read_json(&takeover_path(suite, service))
+}
+
+/// The published record. A record that is absent, unparseable or unreadable is `None`: use
+/// [`try_read_record`] where "unreadable" must not be taken for "no service".
+pub fn read_record(suite: &Suite, service: &str) -> Option<ServiceRecord> {
+    try_read_record(suite, service).ok().flatten()
+}
+/// The pending takeover request. Absent, unparseable and unreadable are all `None`: use
+/// [`try_read_takeover`] where "unreadable" must not be taken for "no request".
 pub fn read_takeover(suite: &Suite, service: &str) -> Option<TakeoverRequest> {
-    serde_json::from_slice(&std::fs::read(takeover_path(suite, service)).ok()?).ok()
+    try_read_takeover(suite, service).ok().flatten()
 }
 
 /// The record only when its owner process is alive (HeardRight's staleness
 /// rule: a dead pid means the record is stale). Does not probe the endpoint;
-/// connecting does that and reports `service_unavailable`.
+/// connecting does that and reports `service_unavailable`. Unreadable is `None`; see
+/// [`try_read_live_record`].
 pub fn read_live_record(suite: &Suite, service: &str) -> Option<ServiceRecord> {
-    read_record(suite, service).filter(crate::discovery::record_process_matches)
+    try_read_live_record(suite, service).ok().flatten()
+}
+
+/// [`read_live_record`] with `Err` for a record that could not be read.
+pub fn try_read_live_record(
+    suite: &Suite,
+    service: &str,
+) -> std::io::Result<Option<ServiceRecord>> {
+    Ok(try_read_record(suite, service)?.filter(crate::discovery::record_process_matches))
 }
 
 /// Publish a takeover request (atomic, owner-only).
@@ -183,5 +224,58 @@ impl Allowlist {
         self.entry(app)
             .map(|m| m.iter().cloned().collect())
             .unwrap_or_default()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn suite() -> (tempfile::TempDir, Suite) {
+        let d = tempfile::tempdir().unwrap();
+        let s = Suite::at(d.path().join("suite")).unwrap();
+        (d, s)
+    }
+
+    /// A directory at the path makes the read fail with an error that is not `NotFound`
+    /// (`IsADirectory` on Unix, `PermissionDenied` on Windows) on every platform.
+    fn unreadable(path: &Path) {
+        std::fs::create_dir_all(path).unwrap();
+    }
+
+    #[test]
+    fn absent_files_are_none_not_errors() {
+        let (_d, s) = suite();
+        assert!(try_read_record(&s, "demo").unwrap().is_none());
+        assert!(try_read_takeover(&s, "demo").unwrap().is_none());
+        assert!(try_read_live_record(&s, "demo").unwrap().is_none());
+        assert!(read_record(&s, "demo").is_none() && read_takeover(&s, "demo").is_none());
+    }
+
+    #[test]
+    fn unparseable_files_stay_none() {
+        let (_d, s) = suite();
+        std::fs::create_dir_all(s.service_dir("demo")).unwrap();
+        std::fs::write(record_path(&s, "demo"), b"not json").unwrap();
+        std::fs::write(takeover_path(&s, "demo"), b"{").unwrap();
+        assert!(try_read_record(&s, "demo").unwrap().is_none());
+        assert!(try_read_takeover(&s, "demo").unwrap().is_none());
+    }
+
+    #[test]
+    fn unreadable_files_are_errors_in_the_try_readers() {
+        let (_d, s) = suite();
+        unreadable(&record_path(&s, "demo"));
+        unreadable(&takeover_path(&s, "demo"));
+        let e = try_read_record(&s, "demo").unwrap_err();
+        assert_ne!(e.kind(), std::io::ErrorKind::NotFound);
+        let e = try_read_takeover(&s, "demo").unwrap_err();
+        assert_ne!(e.kind(), std::io::ErrorKind::NotFound);
+        assert!(try_read_live_record(&s, "demo").is_err());
+        // The infallible readers keep their old shape.
+        assert!(read_record(&s, "demo").is_none() && read_takeover(&s, "demo").is_none());
+        // Unknown ownership: the request is left alone.
+        clear_takeover_if_owner(&s, "demo", std::process::id());
+        assert!(takeover_path(&s, "demo").is_dir());
     }
 }
