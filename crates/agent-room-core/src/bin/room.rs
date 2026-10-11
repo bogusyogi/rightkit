@@ -1599,6 +1599,17 @@ mod tests {
     #[cfg(windows)]
     #[test]
     fn minimax_launcher_resolves_to_workspace_entrypoint() {
+        // The launcher lives in the workspace that holds this checkout, outside the repository,
+        // so a bare checkout (CI) has nothing to resolve.
+        let expected = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../../bin/mm.cmd");
+        if !expected.is_file() {
+            let reason = format!("workspace launcher {} is absent", expected.display());
+            if std::env::var_os("RIGHTKIT_REQUIRE_ASSETS").is_some_and(|v| v == "1") {
+                panic!("{reason}");
+            }
+            println!("SKIP minimax_launcher_resolves_to_workspace_entrypoint: {reason}");
+            return;
+        }
         let path = minimax_launcher_path().unwrap();
         assert_eq!(path.file_name().unwrap().to_string_lossy(), "mm.cmd");
         assert!(path.is_file());
