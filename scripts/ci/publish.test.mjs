@@ -13,6 +13,10 @@ import { assertPublishDoc, MUTATIONS, proveMutations } from "./workflow-contract
 import { pinFor, recordPin } from "./provision-chrome.mjs";
 import { parseYaml } from "./workflow-yaml.mjs";
 
+// A directory for tar's -C. Git for Windows puts a GNU tar on PATH that reads a backslash as an escape, so
+// "C:\\x\\y" is not found; both it and the system bsdtar accept forward slashes.
+const tarDir = (dir) => (process.platform === "win32" ? dir.replaceAll("\\", "/") : dir);
+
 const SHA = "a".repeat(40);
 const sha256 = (bytes) => crypto.createHash("sha256").update(bytes).digest("hex");
 const tmp = (label) => fs.mkdtempSync(path.join(os.tmpdir(), `rk-${label}-`));
@@ -268,7 +272,7 @@ function makeTgz(out, rootName, files) {
     fs.mkdirSync(path.dirname(full), { recursive: true });
     fs.writeFileSync(full, content);
   }
-  const r = spawnSync("tar", ["-czf", path.basename(out), "-C", stage, rootName], { cwd: path.dirname(out), encoding: "utf8" });
+  const r = spawnSync("tar", ["-czf", path.basename(out), "-C", tarDir(stage), rootName], { cwd: path.dirname(out), encoding: "utf8" });
   assert.equal(r.status, 0, r.stderr);
   fs.rmSync(stage, { recursive: true, force: true });
 }
@@ -1014,7 +1018,7 @@ function consumerSpawn({ installStatus = 0, answer = (plan) => plan.items.map((i
         const manifest = JSON.parse(spawnSync("tar", ["-xOzf", path.basename(tgz), "package/package.json"], { cwd: path.dirname(tgz), encoding: "utf8" }).stdout);
         const dest = path.join(options.cwd, "node_modules", ...manifest.name.split("/"));
         fs.mkdirSync(dest, { recursive: true });
-        assert.equal(spawnSync("tar", ["-xzf", path.basename(tgz), "--strip-components=1", "-C", dest], { cwd: path.dirname(tgz) }).status, 0);
+        assert.equal(spawnSync("tar", ["-xzf", path.basename(tgz), "--strip-components=1", "-C", tarDir(dest)], { cwd: path.dirname(tgz) }).status, 0);
       }
       return { status: 0, stdout: "", stderr: "" };
     }
