@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import crypto from "node:crypto";
 import { binary, fail, fakeRun, git, gitRepo, mkRepo, manifest, mockFetch, ok, validToolSource } from "./support.js";
@@ -445,7 +446,8 @@ describe("apply: tool", () => {
     ]);
     const staged = path.join(repo, tool.candidateDir, "yt-dlp_macos");
     expect(fs.readFileSync(staged, "utf8")).toBe(MAC_BYTES);
-    expect(fs.statSync(staged).mode & 0o111).not.toBe(0);
+    // Windows has no execute bit to set or read.
+    if (process.platform !== "win32") expect(fs.statSync(staged).mode & 0o111).not.toBe(0);
     // The foreign-platform binary is not stored.
     expect(fs.readdirSync(path.join(repo, tool.candidateDir))).toEqual(["yt-dlp_macos"]);
     // The manifest is untouched until land.
@@ -503,14 +505,15 @@ describe("apply: tool", () => {
   });
 
   it("extracts the named member from an archive with the system tar", async () => {
-    const work = fs.mkdtempSync(path.join(fs.realpathSync(process.env.TMPDIR ?? "/tmp"), "right-update-tar-"));
+    const work = fs.mkdtempSync(path.join(fs.realpathSync.native(os.tmpdir()), "right-update-tar-"));
     fs.mkdirSync(path.join(work, "pkg/bin"), { recursive: true });
     fs.writeFileSync(path.join(work, "pkg/bin/helper"), "helper-binary");
     fs.writeFileSync(path.join(work, "pkg/bin/other"), "other");
     git(work, "init", "-q"); // any command that proves git exists; archive made with tar below
     const archive = path.join(work, "helper.tar.gz");
     const { execFileSync } = await import("node:child_process");
-    execFileSync("tar", ["-czf", archive, "-C", path.join(work, "pkg"), "bin"]);
+    // Relative names: Git for Windows puts a GNU tar on PATH that reads "C:" in a path as a remote host.
+    execFileSync("tar", ["-czf", "helper.tar.gz", "-C", "pkg", "bin"], { cwd: work });
     const archiveBytes = fs.readFileSync(archive);
 
     const repo = mkRepo({

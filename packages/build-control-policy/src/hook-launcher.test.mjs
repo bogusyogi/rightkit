@@ -11,7 +11,7 @@ const nextDigest = 'b'.repeat(64);
 const prefix = '[HOOK:rightkit-policy-launcher:unavailable]';
 
 async function withRoot(run) {
-  const root = realpathSync(mkdtempSync(path.join(tmpdir(), 'rk-launcher-')));
+  const root = realpathSync.native(mkdtempSync(path.join(tmpdir(), 'rk-launcher-')));
   try { return await run(root); } finally { rmSync(root, { recursive: true, force: true }); }
 }
 
