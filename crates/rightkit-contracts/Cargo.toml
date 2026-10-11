@@ -5,7 +5,7 @@ edition = "2021"
 rust-version = "1.98.0"
 description = "Versioned content-pipeline contracts for the Right Suite: content brief, delivery envelope, record session and event, demo plan and daemon API. JSON Schema validation, serde types, and major-version negotiation."
 license = "MIT OR Apache-2.0"
-repository = "https://github.com/bogusyogi/rightkit"
+repository = "https://github.com/Orthic-Labs/rightkit"
 publish = false
 
 [lib]
