@@ -128,6 +128,32 @@ let model_file = ensure_whisper_model(WhisperKind::Ggml, "heardright", Some(&ent
   until the route serves the archive. `resolve_whisper_model` returns `NotFound`
   until then.
 
+## EmbeddingGemma 2 Q4 (route not yet served: adopt a local copy)
+
+The catalog entry `catalog::embedding_gemma_q4_spec()` (store id `embeddinggemma2-q4`,
+revision `b64acc4`) describes the six files that `rightkit-embed` loads from one flat
+directory: `model_q4.onnx`, `model_q4.onnx_data`, `tokenizer.json`, `tokenizer_config.json`,
+`config.json`, `special_tokens_map.json`. Total 187,632,172 bytes. Every file is pinned by size
+and SHA-256 (`catalog.rs`, `EMBEDDINGGEMMA2_Q4_FILES`).
+
+- **Route not yet served.** The model worker has no route for this bundle. Its only served
+  routes are two Parakeet archives (`rightsites/workers/heardright-models/src/index.ts`,
+  `MODEL_SPECS`). The intended grant route, `EMBEDDINGGEMMA2_Q4_INTENDED_ROUTE`, is a name only.
+  A grant also needs one whole-object SHA-256, and this bundle is pinned per file, so an archive
+  pin would have to be added first.
+- **Adopt, do not download.** Every `RemoteFile` has `url: None`, so `can_download()` is false
+  and `ensure` makes no network request; it returns "no download endpoint exists" for an entry
+  that is not on disk. To make the entry ready, place the six files byte-identical in
+  `<models-root>/embeddinggemma2-q4/`. The verify-before-adopt step then checks each file's size
+  and SHA-256 against the pins, writes the manifest, and registers the ref. A seed-dir copy
+  would not work for this spec, because `download_files` (the only caller of the seed branch) runs
+  only when some file has a URL. This adoption path is unexercised: the test covers the spec only.
+- **Placement.** Not in `base_catalog()` (not every install needs it), not in `add_ons()` (that
+  list asserts entitlement gating, and this bundle has none), and so not in `all_models()`.
+  Reach it with `embedding_gemma_q4_spec()`.
+- **Licence.** To be confirmed. The existing specs in this catalog carry no licence field, and
+  none was sourced for this bundle.
+
 ## Wrapping this crate
 
 An app that wraps the suite crate (a shared-store wrapper or a host SDK) re-exports the
