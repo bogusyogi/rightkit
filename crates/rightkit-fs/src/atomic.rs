@@ -1399,6 +1399,7 @@ pub mod testing {
         HOOK.with(|h| h.borrow().as_ref().and_then(|hook| hook(call)))
     }
 
+    #[cfg_attr(not(windows), allow(dead_code))]
     pub(super) fn before_harden(stage: HardenStage, path: &Path) -> Option<std::io::Error> {
         let call = HardenCall {
             stage,

@@ -271,7 +271,7 @@ fn add_checked<N: Native>(
     let bits = native.status(dest).map_err(|st| {
         Error::Unavailable(format!("destination keychain is not valid (code {st})"))
     })?;
-    let path = native
+    native
         .path(dest)
         .filter(|p| p.exists())
         .ok_or_else(|| Error::Unavailable("destination keychain file is not available".into()))?;
