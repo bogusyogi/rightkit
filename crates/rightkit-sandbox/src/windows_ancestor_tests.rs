@@ -226,8 +226,52 @@ fn public_ancestor_lease_is_send_and_sync() {
 }
 
 #[test]
+fn an_ancestor_entry_is_stale_only_when_its_lease_is_proved_absent() {
+    let path = Path::new(r"C:\Temp\Ancestor");
+    assert!(proved_stale(path, "S-1-15-2-123", Ok(false)));
+    assert!(!proved_stale(path, "S-1-15-2-123", Ok(true)));
+    let unread = io::Error::from_raw_os_error(1314); // ERROR_PRIVILEGE_NOT_HELD
+    assert!(!proved_stale(path, "S-1-15-2-123", Err(unread)));
+}
+
+/// A process on rightkit-sandbox 0.3.3 or earlier holds only the session-local name.
+#[test]
+fn a_lease_held_under_the_old_name_alone_counts_as_live() {
+    let path = Path::new(r"C:\Temp\RightKitOldNameLease");
+    let sid = format!("S-1-15-2-{}", std::process::id());
+    assert!(!ancestor_mutex_exists(path, &sid).unwrap());
+    let name = wide(legacy_ancestor_mutex_name(path, &sid).unwrap());
+    let handle = unsafe { CreateMutexW(std::ptr::null(), 0, name.as_ptr()) };
+    assert!(!handle.is_null());
+    let old = MutexHandle(handle as usize);
+    assert!(ancestor_mutex_exists(path, &sid).unwrap());
+    drop(old);
+    assert!(!ancestor_mutex_exists(path, &sid).unwrap());
+}
+
+#[test]
+fn a_new_lease_is_held_under_both_names() {
+    let path = Path::new(r"C:\Temp\RightKitBothNamesLease");
+    let sid = format!("S-1-15-2-{}", std::process::id());
+    let global = ancestor_mutex_name(path, &sid).unwrap();
+    let legacy = legacy_ancestor_mutex_name(path, &sid).unwrap();
+    let lease = AncestorMutex::create(path, &sid).unwrap();
+    assert!(named_mutex_exists(&global).unwrap() && named_mutex_exists(&legacy).unwrap());
+    // A second holder, as another process would be, opens the same objects.
+    let second = AncestorMutex::create(path, &sid).unwrap();
+    drop(lease);
+    assert!(named_mutex_exists(&global).unwrap() && named_mutex_exists(&legacy).unwrap());
+    drop(second);
+    assert!(!named_mutex_exists(&global).unwrap() && !named_mutex_exists(&legacy).unwrap());
+}
+
+#[test]
 fn ancestor_mutex_name_is_stable_sha256_and_case_normalized() {
-    let expected = r"Local\rightkit-ancestor-lease-3bb9cd2245aafb1983cf9144df94f7304827054b115bf3146ae11c1b15bafa38";
+    let expected = r"Global\rightkit-ancestor-lease-3bb9cd2245aafb1983cf9144df94f7304827054b115bf3146ae11c1b15bafa38";
+    assert_eq!(
+        legacy_ancestor_mutex_name(Path::new(r"C:\Temp\Ancestor"), "S-1-15-2-123").unwrap(),
+        r"Local\rightkit-ancestor-lease-3bb9cd2245aafb1983cf9144df94f7304827054b115bf3146ae11c1b15bafa38"
+    );
     for path in [
         r"C:\Temp\Ancestor",
         r"\\?\c:\TEMP\ANCESTOR",
