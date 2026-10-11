@@ -5,6 +5,7 @@ import path from "node:path";
 import { readCachePolicy, resolveCacheLayout } from "./cache-policy.mjs";
 import { resolveNativeCargoLayout } from "./native-cargo-layout.mjs";
 import { bufferQaFindings } from "./qa-control-scan.mjs";
+import { sealedManifestAllowsContentDevtools } from "./devtools-policy.mjs";
 
 export function cacheFingerprint({ cargoLockSha256, rustc, target, architecture, features = [] }) {
   const payload = JSON.stringify({
@@ -135,7 +136,8 @@ export function verifySealedRelease(sealedDir) {
     // release.mjs also scans the raw binaries before packaging; this catches a payload that is not compressed.
     // Covers the QA control server marker, the wdio WebDriver plugin, remote-debugging and devtools strings, and
     // reads inside ZIP containers (MSIX/APPX). Compressed NSIS/DMG installers stay opaque here by nature.
-    const surfaces = bufferQaFindings(bytes);
+    // An allow-listed app (devtools-policy.json) that recorded its content-only DevTools allowance may carry Tauri's devtools code.
+    const surfaces = bufferQaFindings(bytes, { allowContentOnlyDevtools: sealedManifestAllowsContentDevtools(manifest) });
     if (surfaces.length) throw new Error(`sealed file contains a test-automation or debugging surface that must never ship (the QA control server and the like): ${item.name}: ${surfaces.map((f) => f.reason).join("; ")}`);
   }
   return { manifest, manifestPath, sealedDir };

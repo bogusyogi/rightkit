@@ -40,6 +40,7 @@ import { DEFAULT_STORAGE_THRESHOLD_BYTES, findInstallerCopyScripts, findLargeRep
 import { macosCodesignEnvironment } from "./codesign-environment.mjs";
 import { assertNoQaControl } from "./qa-control-scan.mjs";
 import { assertNoForbiddenBuildFeatures } from "./qa-build-features.mjs";
+import { devtoolsEvidence, resolveDevtoolsAllowance } from "./devtools-policy.mjs";
 
 const TOOL_ROOT = path.dirname(fileURLToPath(import.meta.url));
 const HARDENING_SCAN = path.resolve(TOOL_ROOT, "hardeningscan.mjs");
@@ -301,8 +302,12 @@ if (opts.doctor) {
 let prePackScanned = false; // set once a pre-pack payload scan has seen a native binary
 // Source-level layer of "no test-automation surface ships": refuse a release or update build whose build command
 // or app Cargo manifest enables devtools, qa-native, qa-control or dev-native (also in --dry-run).
+// DevTools: refused for every app except an allow-listed one that declares `devtools: "content-only"` (devtools-policy.mjs).
+let devtoolsAllowance = { mode: "denied" };
 try {
-  assertNoForbiddenBuildFeatures({ root, tier: "release/update", commands: [
+  devtoolsAllowance = resolveDevtoolsAllowance({ config, root });
+  if (devtoolsAllowance.mode === "content-only") console.log(`right-release: devtools allowance recorded: ${JSON.stringify(devtoolsEvidence(devtoolsAllowance))}`);
+  assertNoForbiddenBuildFeatures({ root, tier: "release/update", devtools: devtoolsAllowance, commands: [
     { label: "target.prePackage", command: target.prePackage },
     { label: "target.package", command: target.package },
     { label: "nativeAssembly.packageHook", command: nativeAssembly?.packageHook },
@@ -510,7 +515,7 @@ function usage(code, message) {
 function assertNoQaControlBinaries(label, files, { requireBinary = false, prePack = false } = {}) {
   if (opts.dryRun || files.length === 0) return;
   try {
-    const stats = assertNoQaControl(files, label, { requireBinary });
+    const stats = assertNoQaControl(files, label, { requireBinary, allowContentOnlyDevtools: devtoolsAllowance.mode === "content-only" });
     if (prePack && stats.binaries > 0) prePackScanned = true;
     for (const opaque of stats.opaque) {
       console.log(`right-release: ${label}: ${opaque.kind.toUpperCase()} payload is compressed and cannot be scanned (${opaque.file}); the raw payload was scanned before packing`);

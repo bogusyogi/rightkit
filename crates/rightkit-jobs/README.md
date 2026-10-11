@@ -107,6 +107,55 @@ pool.shutdown();
 - `PrunePolicy::keep_total(n)` bounds the whole table to `n` rows. It keeps `n` minus the non-terminal count of the newest terminal rows, so active jobs are never dropped. Inside `SubmitOptions::prune` the incoming row counts.
 - `JobStore::submit_rejected(&NewJob, &Ext, &JobError) -> JobRecord`. The job is inserted, `on_create` runs, and the job moves to `failed` with the error and a `rejected` event, all in one transaction. It never runs, and a crash cannot leave it runnable. The app's entitlement check stays in the app; call this when the app refuses.
 - `JobStore::open_recovering(&DbOptions, StoreConfig, RecoveryPolicy) -> (JobStore, Option<PathBuf>)`. If the database file is unreadable and the policy allows it, the file is moved aside and a fresh store is created. The second value is where the old file went; the original bytes are kept under the `.corrupt-` name.
+- `JobStore::open_recovering_unreadable(&DbOptions, StoreConfig, RecoveryPolicy, UnreadablePolicy) -> (JobStore, OpenRecovery)` adds the opt-in policy for a database that cannot be *read* (permission denied, I/O read failure), which is not corruption. The default `UnreadablePolicy::Fail` fails with `db_unreadable` and touches nothing; `QuarantineAfter { attempts }` sets the file aside only after that many consecutive failed opens. A full disk, read-only filesystem, dropped share, lock or missing file never counts. `OpenRecovery { quarantined, action }` says what happened. See `rightkit_jobs::db` below.
+
+## Paging a long listing
+
+`list` and `list_records` return one page, at most 1,000 rows. `list_page` walks the whole listing, newest first:
+
+```rust
+let filter = ListFilter { limit: Some(200), ..ListFilter::default() };
+let mut after: Option<Cursor> = None;
+loop {
+    let page = store.list_page(&filter, after.as_ref())?;
+    for rec in &page.records { /* ... */ }
+    match page.next {
+        Some(cursor) => after = Some(cursor),
+        None => break,
+    }
+}
+```
+
+- **Keyset, not offset.** A page ends with the key of its last row, `(created_at, rowid)`, and the next page is every row strictly below it. Both are written once, so concurrent writes cannot move a row in the walk: a row that exists throughout and does not change is returned exactly once; one inserted, changed or deleted meanwhile at most once; a row inserted after the walk began sorts above it and is not part of it. A cursor survives deletion of the row it was cut from.
+- **Cost.** `rk_jobs_created(created_at)` and `rk_jobs_status_created(status, created_at)` are created at open (additive, `IF NOT EXISTS`), so a page is an index range seek at any depth. The old listing scanned and sorted the whole table on every call.
+- **`Cursor` is an opaque string** (`as_str`, `Display`, `Cursor::parse`, `FromStr`, and a plain JSON string under serde) that an app can give its UI and take back. It is tied to the filter it was issued for: a different `status` or `request_id` fails with `cursor_mismatch`, a malformed or cut-off one with `invalid_cursor`. The page size may change between pages.
+- `ListFilter` is unchanged (it has no cursor field because apps build it as a full literal); `list` and `list_records` are the first page, and `truncated` is `next.is_some()`.
+
+## Importing finished jobs
+
+A legacy import that submits a job and then moves it to its final state makes two commits, and a crash between them leaves a runnable row. `import_terminal` inserts the finished job in one:
+
+```rust
+let rec = ImportRecord::complete("scan", json!({ "pages": 3 }))
+    .id(&legacy.id)                       // or leave it out and key on request_id
+    .request_id(&legacy.id)
+    .request(legacy.payload.clone())
+    .created_at("2025-11-02T09:14:00Z")   // YYYY-MM-DDTHH:MM:SSZ, UTC
+    .updated_at("2025-11-02T09:15:30Z")
+    .set("info", legacy_info_json)        // extension columns, checked against StoreConfig
+    .artifact(artifact);
+let out = store.import_terminal_with(&rec, &ImportOptions::new().idempotent())?;
+// out.existed: an identical job was already there, so this was a re-run
+```
+
+- `ImportRecord::{complete, failed, cancelled, new}` and chained setters; a status other than `complete`, `failed` or `cancelled` is refused with `bad_input`, as is any invalid field.
+- An id (or request id) already stored fails with `job_exists` and writes nothing. With `ImportOptions::idempotent()` an identical stored record is success (`existed: true`) and a different one is still `job_exists`, naming the first field that differs.
+- `import_terminal_batch(&[ImportRecord], &ImportOptions)` takes up to `MAX_IMPORT_BATCH` (1,000) records, oldest first, in one transaction: every record is validated, then all are written or none. Larger imports are several batches; make them idempotent to re-run an interrupted one.
+- The job is never queued or run: there is no queue in the store, `non_terminal_ids` and recovery do not list it, no event is written (no `started`), the attempt generation is 0. `StoreHook::on_create`, `on_attempt` and `on_transition` are not called; `StoreHook::on_import` is, in the same transaction.
+
+## Opening without a `rightkit-db` dependency
+
+`rightkit_jobs::db` re-exports, as the same types, the `rightkit-db` types in this crate's public API: `DbOptions` and what its fields are made of (`CacheProfile`, `DurabilityProfile`, `IntegrityCheck`, `JournalSelect`, `ConnInit`), the policies `open_recovering` and `open_recovering_unreadable` take (`RecoveryPolicy` with `QuarantineStamp` and `SidecarPolicy`, `UnreadablePolicy`), what the latter reports (`RecoveryAction` and the `UnreadableCause` and `StorageProblem` behind a refusal), and `DbError`, which converts into `JobError`. `RecoveryPolicy` and `rusqlite` are also at the crate root. An app that only opens a store needs no `rightkit-db` entry in its own `Cargo.toml`, and no version to keep matching this crate's.
 
 ## Per-job resume and sweep
 
@@ -139,7 +188,7 @@ store.resolve(&job_id, &Resolution::Resubmit, Some("submitted"))?;
 - **Extension columns.** `StoreConfig::column(ExtColumn::text("provider").not_null())` declares app columns on `jobs` (TEXT, INTEGER, REAL or JSON, with NOT NULL and defaults). Missing columns are added with `ALTER TABLE`. An undeclared NOT NULL column without a default is refused with `schema` before anything is touched. Values travel as `Ext` (`submit_ext`, `set_ext`, `JobRecord::ext`) and appear as top-level wire fields.
 - **Status vocabulary.** `StatusModel::new("submitted", ["submitted", "running"]).allow(..)`. `transition` enforces it and returns `illegal_transition` otherwise. Terminal statuses stay `complete`, `failed` and `cancelled`.
 - **External submissions.** `StoreConfig::external_id("provider_job_id")` with `begin_submission`, `accept_submission` and `fail_submission`. A stored external id resumes (poll, never resubmit). A counted but unrecorded attempt replays with the same idempotency key and without repeating its hook. Resubmission is bounded. `Runner::with_attempt_policy(AttemptPolicy::ByHandler)` lets the handler own attempts.
-- **Transactional hook.** `StoreHook::{on_create, on_attempt, on_transition}` run in the same write transaction as the change. An error rolls it back, for example a spend cap. `app_schema`, `write` and `read` serve app-owned tables on the same connection.
+- **Transactional hook.** `StoreHook::{on_create, on_attempt, on_transition}` (and `on_resolve`, `on_import`) run in the same write transaction as the change. An error rolls it back, for example a spend cap. `app_schema`, `write` and `read` serve app-owned tables on the same connection.
 - **Artifacts.** `ArtifactNames::new("assets", "asset_id", "asset_id")`. `add_artifact_with_id` and `record_artifact` take app-chosen ids idempotently.
 - **Wire contract.** `JobCommands` is optional. `with_name`, `without` and a `PayloadMapper` (input, output, event, error) map it onto an app's own `job.*` contract. `Dispatcher::without_builtin`, `with_doctor` and `with_cli_target` adjust built-ins and CLI targets.
 - **Attempt fencing.** Each run start advances a durable generation (`JobStore::generation`). Writes through `JobControl` from a superseded attempt, for example a stalled worker abandoned by the watchdog, fail with `stale_attempt` and change nothing. The watchdog fences an abandoned attempt before it releases the job lock. `JobControl::generation()` returns the generation a handler writes under. Writes through `JobControl::store()` are not fenced.
@@ -158,7 +207,7 @@ Apps that already have a stdio or CLI protocol can adopt `JobStore` with `StoreC
 
 ## Tests
 
-`tests/dispatcher.rs`, `tests/e2e.rs`, `tests/engine_contract.rs`, `tests/fencing.rs`, `tests/genright.rs`, `tests/job_lock.rs`, `tests/supervisor.rs`, `tests/v021.rs`, `tests/prune.rs`, `tests/delete_reject.rs`, `tests/delete_files.rs`, `tests/held.rs`, `tests/resume_sweep.rs`, `tests/pool.rs`. The `examples/` directory has `job_engine.rs` (the test engine) and `engine_fixture.rs`.
+`tests/dispatcher.rs`, `tests/e2e.rs`, `tests/engine_contract.rs`, `tests/fencing.rs`, `tests/genright.rs`, `tests/job_lock.rs`, `tests/supervisor.rs`, `tests/v021.rs`, `tests/prune.rs`, `tests/delete_reject.rs`, `tests/delete_files.rs`, `tests/held.rs`, `tests/resume_sweep.rs`, `tests/pool.rs`, `tests/paging.rs`, `tests/import_terminal.rs`, `tests/reexport.rs`. The `examples/` directory has `job_engine.rs` (the test engine) and `engine_fixture.rs`.
 
 ## Platform support
 

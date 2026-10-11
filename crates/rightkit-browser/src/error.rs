@@ -8,6 +8,21 @@ pub enum BrowserError {
     /// searched and how to install it.
     #[error("Chrome for Testing not found: {0}")]
     ChromeForTestingNotFound(String),
+    /// Windows: Chrome's sandbox cannot read the browser in `directory` (the access list
+    /// lacks read and execute for the AppContainer principals in `principals`), so its
+    /// network service would crash at startup and navigations would hang or abort. Nothing
+    /// was launched. `fix` is the command that grants the access; an installer that unpacks
+    /// Chrome into a directory outside `Program Files` runs it once after unpacking.
+    #[error(
+        "Chrome's sandbox cannot read the browser in {}: no read and execute access for {}. Grant it with: {fix}",
+        .directory.display(),
+        .principals.join(" and ")
+    )]
+    ChromeSandboxAccess {
+        directory: std::path::PathBuf,
+        principals: Vec<&'static str>,
+        fix: String,
+    },
     #[error("launch failed: {0}")]
     Launch(String),
     #[error("profile error: {0}")]

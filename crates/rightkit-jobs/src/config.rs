@@ -408,6 +408,17 @@ pub trait StoreHook: Send + Sync {
     ) -> JobResult<()> {
         Ok(())
     }
+    /// A finished job was inserted by [`crate::JobStore::import_terminal`] (or its `_with` and
+    /// `_batch` forms), in the same transaction as the insert and its artifact rows; `job` is the
+    /// stored record, already terminal. An error rolls back the whole import (every record of a
+    /// batch). Not called when an idempotent import finds an identical record already stored.
+    ///
+    /// An import calls this and none of `on_create`, `on_attempt` or `on_transition`: no job was
+    /// created to run, no attempt was counted now, and no status changed. A ledger that keeps a
+    /// mirror of finished jobs records them here.
+    fn on_import(&self, _conn: &Connection, _job: &JobRecord) -> JobResult<()> {
+        Ok(())
+    }
 }
 
 /// How [`crate::JobControl::progress`] events are written. The default is today's behaviour:

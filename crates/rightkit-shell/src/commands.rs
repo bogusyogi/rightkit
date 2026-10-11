@@ -65,12 +65,20 @@ pub fn rk_shell_status(app: AppHandle<Wry>, state: State<'_, ShellState>) -> Val
         .iter()
         .map(|(p, l)| json!({"path": p, "label": l}))
         .collect();
-    #[cfg(any(debug_assertions, feature = "devtools"))]
+    #[cfg(any(
+        debug_assertions,
+        feature = "content-devtools",
+        feature = "dev-inspect"
+    ))]
     let devtools_open = app
         .get_webview_window(&state.main_label)
         .map(|w| w.is_devtools_open())
         .unwrap_or(false);
-    #[cfg(not(any(debug_assertions, feature = "devtools")))]
+    #[cfg(not(any(
+        debug_assertions,
+        feature = "content-devtools",
+        feature = "dev-inspect"
+    )))]
     let devtools_open = false;
     let windows: Vec<Value> = app
         .webview_windows()
