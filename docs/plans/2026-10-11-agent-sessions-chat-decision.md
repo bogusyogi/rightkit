@@ -316,3 +316,15 @@ Not read: `store.rs`, `control.rs`, `links.rs`, `envelope.rs` (beyond constants)
 
 ---
 Source: Sage adjudication, 2026-10-11. Gap ledger row 100. Third wave; not started. Open with the owner: budget ceilings (section 5), poster identity, `from-mode`, CLI-session delivery.
+
+## Addendum: Pulse's answers as protocol authority (2026-10-11)
+
+Recorded from the Pulse Mac chat. Two crates accepted.
+
+1. **`from-mode`.** The rule is the host's: the value must equal the RECEIVING chat's own class (`bypass` if it bypasses permissions, else `prompting`); any other value, or none while the receiver bypasses, is held. Read from Claude Code 2.1.295 and proven with hand-built frames. The registry does not expose the receiver's class, so the crate takes the class as a required parameter with no silent default, sends it, and reports a mismatch as a refused receipt (the host answers with a `peer_message_status` "held" notice). B02 as written ("never claim bypass") cannot stand; the forwarded meaning is carried by the sender name. Test name becomes `b02_from_mode_is_caller_supplied_and_mismatch_is_refused`.
+2. **Version.** Proven: 2.1.295 (wrapper pattern, hold policy and notice path, exercised on the Mac and the Dell). 2.1.293 is only where the frame shape was first captured: unproven for the notice path. A real session file carries `"version"` in `~/.claude/sessions/<pid>.json`; the protocol table gates on that field and only Pulse changes it.
+3. `pulse/docs/coderight-handoff.md` corrected by Pulse to the wrapper the host accepts.
+4. **CLI sessions:** unverified (no terminal session available to inspect). `kind: cli` stays out of the first cut, listed as unproven.
+5. **Ordering hazard:** Pulse unhooks `core/src/bridge` from the `localsend` feature before either extraction deletes anything, and reports the commit.
+6. B01 and B12 are fixed in the crate; Pulse also fixes B12 in place.
+7. **M0:** Pulse owns the characterization vectors; the RightKit lead reviews them. Format: JSON case files (one file per area, each case with id, B-finding ids, input, exact expected frame bytes as base64 plus a readable form, expected receipt or error code, and `pulse: legacy | crate: fixed` markers for recorded defects), plus a thin `Engine` trait with one adapter per engine that loads the same files; vectors are copied into RightKit by content hash, not referenced by path.
