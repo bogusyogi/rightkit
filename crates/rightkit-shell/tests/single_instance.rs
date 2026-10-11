@@ -194,10 +194,29 @@ fn an_id_that_cannot_name_a_service_is_a_typed_failure() {
             describe(&outcome)
         );
     }
-    assert!(
-        SingleInstance::claim_in(&suite, &"a".repeat(39), InstanceMessage::default(), |_| {})
-            .is_primary()
-    );
+    // The longest legal id (39 bytes -> a 48-byte service name). Whether it can bind depends on the
+    // Unix socket path limit (`sockaddr_un.sun_path`: 104 bytes on macOS, 108 on Linux), which the
+    // temp dir of the machine running the test can exceed. Where the endpoint cannot fit, the claim
+    // must still be a typed host failure, never a silent non-primary and never a panic.
+    let longest = "a".repeat(39);
+    let service = format!("{longest}-instance");
+    let endpoint = rightkit_service::endpoint_for(&suite, &service);
+    let outcome = SingleInstance::claim_in(&suite, &longest, InstanceMessage::default(), |_| {});
+    if cfg!(unix) && endpoint.len() > 103 {
+        assert!(
+            matches!(outcome, ClaimOutcome::Failed(ClaimFailure::Host(_))),
+            "endpoint {endpoint:?} is {} bytes, over the socket path limit: got {}",
+            endpoint.len(),
+            describe(&outcome)
+        );
+    } else {
+        assert!(
+            outcome.is_primary(),
+            "endpoint {endpoint:?} ({} bytes) fits: got {}",
+            endpoint.len(),
+            describe(&outcome)
+        );
+    }
 }
 
 /// Secondary-process entry point. Does nothing unless the parent set the suite root.
@@ -227,7 +246,12 @@ fn a_live_legacy_holder_receives_the_launch_and_a_stale_socket_is_ignored() {
 
     use rightkit_shell::ClaimOptions;
 
-    let identifier = format!("rk.legacy-test-{}", std::process::id());
+    // Unique per run so no other socket in /tmp can share the stem (or be matched by its prefix scan).
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos() % 1_000_000_000)
+        .unwrap_or(0);
+    let identifier = format!("rk.legacy-test-{}-{nanos}", std::process::id());
     let stem = identifier.replace(['.', '-'], "_");
     let socket = std::path::PathBuf::from(format!("/tmp/{stem}_si.sock"));
     let _ = std::fs::remove_file(&socket);
@@ -235,12 +259,13 @@ fn a_live_legacy_holder_receives_the_launch_and_a_stale_socket_is_ignored() {
     // A live legacy holder: a listener that reads one launch to end-of-stream.
     let listener = UnixListener::bind(&socket).unwrap();
     let (tx, rx) = mpsc::channel();
-    std::thread::spawn(move || {
+    let holder = std::thread::spawn(move || {
         if let Ok((mut stream, _)) = listener.accept() {
             let mut payload = Vec::new();
             let _ = stream.read_to_end(&mut payload);
             let _ = tx.send(payload);
         }
+        // `listener` drops here, closing the live holder's socket.
     });
     let suite = Suite::per_run_temp("shell-legacy-live").unwrap();
     let options = ClaimOptions::with_legacy(&identifier);
@@ -261,6 +286,8 @@ fn a_live_legacy_holder_receives_the_launch_and_a_stale_socket_is_ignored() {
     let text = String::from_utf8_lossy(&payload).into_owned();
     assert!(text.contains("\0\0"), "payload: {text:?}");
     assert!(text.contains(&exe), "payload: {text:?}");
+    // The live holder is fully gone (thread joined, listener closed) before the stale half starts.
+    holder.join().unwrap();
     let _ = std::fs::remove_file(&socket);
 
     // A stale socket file (nothing listening) is not a live holder: this launch becomes primary.
@@ -269,6 +296,14 @@ fn a_live_legacy_holder_receives_the_launch_and_a_stale_socket_is_ignored() {
     let stale_socket = std::path::PathBuf::from(format!("/tmp/{stale_stem}_si.sock"));
     let _ = std::fs::remove_file(&stale_socket);
     drop(UnixListener::bind(&stale_socket).unwrap());
+    // Precondition: nothing answers on the stale path. If this fails the fixture is wrong, not the claim.
+    match std::os::unix::net::UnixStream::connect(&stale_socket) {
+        Err(e) if e.kind() == std::io::ErrorKind::ConnectionRefused => {}
+        other => panic!(
+            "the stale socket {} must refuse connections, got {other:?}",
+            stale_socket.display()
+        ),
+    }
     let suite = Suite::per_run_temp("shell-legacy-stale").unwrap();
     let outcome = SingleInstance::claim_in_with(
         &suite,
