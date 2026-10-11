@@ -5,7 +5,7 @@ Shared local text-to-speech for Right Suite apps. It owns two backends and the w
 - `system`: renders to an isolated WAV file through macOS `say` and `afconvert`, or Windows SAPI (`src/system.rs`). It never plays audio.
 - `engine`: the Qwen3-TTS QTS worker, through `rightkit-qts`. `QtsClient` owns the worker lifetime and its idle unload policy (`QtsClient::new(idle_secs)`). The worker is the `rightkit-tts-worker` binary.
 
-Both return PCM WAV plus a word-timed manifest that can be passed to `rightkit-transcript`.
+The `system` backend returns a PCM WAV, a word-timed `Transcript` from `rightkit-transcript`, and a manifest (`SystemTtsResult`, `src/system.rs:128-133`). The `engine` backend returns a PCM WAV and timing totals (`SynthResult`, `src/client.rs:718-727`) with no word timings.
 
 **Use it** when an app needs local speech output: the OS voice with no model, or the QTS model with the worker.
 
@@ -44,7 +44,7 @@ Model modes: `SynthOptions::mode` selects `Base` (0.6B, the default), `CustomVoi
 ## Platform support
 
 - macOS: `system` uses `say` and `afconvert`. `metal` applies to Apple targets.
-- Windows: `system` uses SAPI. `vulkan` is available for Windows hosts with a Vulkan SDK.
+- Windows: `system` uses SAPI. `vulkan` is not target-gated: its build needs a Vulkan SDK or loader and `glslc` (`rightkit-qts-ggml-sys/build.rs:26-28`).
 - Unix: `cfg(unix)` code is in `src/worker.rs`.
 
 Release notes: see `CHANGELOG.md` in this crate.
@@ -66,4 +66,4 @@ Run through the RightKit wrapper: `rightkit cargo test -p rightkit-tts`. Add `--
 
 A hosted runner has none of these assets, so each test prints `SKIP <test>: ...` and passes. Set `RIGHTKIT_REQUIRE_ASSETS=1` on a host that must have them, and the test fails instead.
 
-- `tests/e2e.rs`, `qts_real_synthesis_writes_non_silent_audio_and_transcript` (run with `--features engine`): needs the QTS model directory `/private/tmp/gre2e-qts/models/qts` and ONNX Runtime `/private/tmp/gre2e-qts/runtime/qts/libonnxruntime.dylib`. Enabled by staging both there.
+- `tests/e2e.rs`, `qts_real_synthesis_writes_non_silent_audio_and_transcript` (macOS only; run with `--features engine`): needs the QTS model directory `/private/tmp/gre2e-qts/models/qts` and ONNX Runtime `/private/tmp/gre2e-qts/runtime/qts/libonnxruntime.dylib`. Enabled by staging both there.

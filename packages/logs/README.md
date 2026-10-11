@@ -36,9 +36,8 @@ logs.info("app_started", { surface: "shell" });
 await logs.flush();
 ```
 
-Fields not in `allowedFields` are dropped. When the buffer is full, the oldest event is dropped and a `logs_dropped` marker is written.
+Fields not in `allowedFields` are dropped, and so are keys named like secrets or content (for example `password`, `token`, `api_key`, `transcript`), even when allowed. When the buffer is full, the oldest event is dropped and a `logs_dropped` marker is written.
 
 ## Known issues
 
-- `@rightkit/tauri` repeats the three command-name literals instead of importing these constants (`packages/tauri/src/index.ts`). One of them should own the names (npm audit 2026-10-08, logs finding 1).
 - `settings-ui` peers this package with no upper bound (`>=0.1.0`).

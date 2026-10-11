@@ -1,6 +1,6 @@
 # rightkit-automation
 
-Brand-neutral desktop automation for macOS and Windows, in Rust only. It observes apps, windows and accessibility trees, and acts on them through an input ladder that never goes to a higher tier unless the caller allows it, recording which tier ran. It replaces `rightkit-computer` (folded in, deprecated). Generic parts of HeardRight's `heardright_platform` and `heardright-command-host` moved here; see `docs/MOVED_FROM.md`. HeardRight's locked rules travel with it (`docs/LOCKED_RULES.md`).
+Brand-neutral desktop automation for macOS and Windows, in Rust only. It observes apps, windows and accessibility trees, and acts on them through an input ladder that never goes to a higher tier unless the caller allows it, recording which tier ran. It replaces `rightkit-computer` (retired; see `docs/CARGO-PUBLICATION.md`). Generic parts of HeardRight's `heardright_platform` and `heardright-command-host` moved here; see `docs/MOVED_FROM.md`. HeardRight's locked rules travel with it (`docs/LOCKED_RULES.md`).
 
 Catalog capability: `desktop-automation`. Not published (`publish = false`).
 
@@ -52,7 +52,7 @@ let snap = automation.snapshot(Target::app(pid), Limits { max_depth: 14, max_nod
 
 ## Platform support
 
-- macOS: the accessibility (AX) backend, verified by `tests/e2e_mac.rs` and `examples/mac_proof.rs`.
+- macOS: the accessibility (AX) backend. `tests/e2e_mac.rs` and `examples/mac_proof.rs` exercise it on real apps; no run result is recorded here.
 - Windows: the UI Automation backend in `src/win/`. Verify it on a Windows host before you rely on it: `rightkit cargo test -p rightkit-automation --test e2e_win -- --nocapture`.
 - Threading (macOS): NSWorkspace publishes the app list and frontmost app through the main run loop. Call from the main thread of a CLI or test, or from any thread of an app whose main loop runs.
 - `launch` uses the system `open` command on macOS. Window capture tries `CGWindowListCreateImage` first and falls back to `screencapture` whenever that returns no image (`src/macos/capture.rs:54-57`). Both `open` and `screencapture` run as waited children, so a strict zero-child profile should call neither `launch` nor window capture.
@@ -67,7 +67,7 @@ let snap = automation.snapshot(Target::app(pid), Limits { max_depth: 14, max_nod
 
 ## Tests and examples
 
-- `tests/e2e_mac.rs`: real TextEdit and Calculator, launched in the background. The frontmost app is verified unchanged, and everything opened is closed afterwards. `harness = false`, so it runs on the main thread. It needs Accessibility and Screen Recording for the test host. If those permissions are absent the test fails; it does not skip. A managed-broker run lacks both, so run the built binary from a granted shell.
+- `tests/e2e_mac.rs`: real TextEdit and Calculator, launched in the background. The frontmost app is verified unchanged, and everything opened is closed afterwards. `harness = false`, so it runs on the main thread. It needs Accessibility and Screen Recording for the test host. Without them it prints `SKIP e2e_mac` and returns; `RIGHTKIT_REQUIRE_ASSETS=1` makes it fail instead (`tests/e2e_mac.rs:4-5`, `:177-183`). A managed-broker run lacks both, so run the built binary from a granted shell.
 - `tests/e2e_win.rs`: real Notepad on Windows. It is type-checked on every OS.
 - `tests/engine.rs`: the engine against a simulated desktop (`mock::MockPlatform`). It covers states that no harmless real app exposes: secure field, recreated editor, lossy clipboard, and a native write that reports success falsely.
 - `tests/kill.rs`: kill-switch behaviour.
@@ -79,14 +79,14 @@ Published version: not published. See [INDEX.md](../../INDEX.md). Changes are li
 
 ## Windows
 
-- Status: `src/win/` compiled on Windows against `windows` 0.61 (`rightkit cargo check -p rightkit-automation`, 2026-10-08); the crate now declares 0.62, which that check does not cover. `tests/e2e_win.rs` has not passed on Windows: the Notepad end-to-end run fails with "foreground changed: tier 1" and depends on desktop focus.
-- Version: `Cargo.toml` declares `windows` 0.62 with 15 features.
+- Status: the earlier check (`rightkit cargo check -p rightkit-automation`, 2026-10-08, as recorded in this README) compiled `src/win/` against `windows` 0.61. The crate now declares 0.62, which that check does not cover, and no 0.62 compile is recorded here. `tests/e2e_win.rs` has not been run on Windows (its header says so). Its frontmost-app check reports `foreground changed` (`tests/e2e_win.rs:70`), so the run depends on desktop focus.
+- Version: `Cargo.toml` declares `windows` 0.62 with 16 features.
 - Tree and patterns: UI Automation via `CoCreateInstance` (in-process, multithreaded COM). Reads Invoke, Toggle, SelectionItem, ExpandCollapse, Value, Scroll and Text patterns (`src/win/uia.rs`).
 - Tier 3 (targeted): `PostMessageW` of `WM_CHAR` or key messages to the focused child window. Modifier chords are refused as `Unsupported` and need tier 4.
 - Tier 4 (foreground, explicit opt-in): `SendInput` for keys and Unicode text. Clicks move the cursor with `SetCursorPos` and restore it afterwards. Held modifiers are released first. `SendInput` has no window target, so the intended app must already be foreground.
 - Activation: `SetForegroundWindow`, with `AttachThreadInput` to the foreground thread as the fallback. Capture: `PrintWindow` with `PW_RENDERFULLCONTENT` (2) into a compatible bitmap. Clipboard: Win32 `DataExchange`, unicode text read and write, with snapshot and restore.
 - Launch: `CreateProcessW` suspended with `SW_SHOWNOACTIVATE`, assigned to a kill-on-close job with an optional `ActiveProcessLimit`, then resumed. A window is adopted only if its pid is the started pid, or a new process with the same app id inside the job. If no window appears within 5 s, the call returns an error and the launched tree is torn down.
 - Limits: `status()` reports UIPI. A non-elevated process cannot drive an elevated app unless UIAccess signing is used. The code does not check session or desktop state before `SendInput`.
-- Dependency: `windows` 0.62 under `cfg(windows)`, with features Foundation, Graphics_Gdi, Storage_FileSystem, Storage_Xps, System_Com, System_DataExchange, System_JobObjects, System_Memory, System_Ole, System_Threading, System_Variant, UI_Accessibility, UI_HiDpi, UI_Input_KeyboardAndMouse and UI_WindowsAndMessaging. Consumers enable no Windows features. `WinPlatform::new()` sets per-monitor DPI awareness v2 and joins the COM MTA on the calling thread; `WinPlatform::new_minimal()` does neither (see its doc comment for what that leaves to the host). 
+- Dependency: `windows` 0.62 under `cfg(windows)`, with features Foundation, Graphics_Gdi, Security, Storage_FileSystem, Storage_Xps, System_Com, System_DataExchange, System_JobObjects, System_Memory, System_Ole, System_Threading, System_Variant, UI_Accessibility, UI_HiDpi, UI_Input_KeyboardAndMouse and UI_WindowsAndMessaging. Consumers enable no Windows features. `WinPlatform::new()` sets per-monitor DPI awareness v2 and joins the COM MTA on the calling thread; `WinPlatform::new_minimal()` does neither (see its doc comment for what that leaves to the host). 
 - Run on a Windows host: `rightkit cargo test -p rightkit-automation --test e2e_win -- --nocapture`. The test header says it has not been run on Windows.
 - Raw input (`win::input`): `send_input_batch(&[RawInput])` is one `SendInput` call from typed key, Unicode and mouse items, with an optional `dwExtraInfo` tag (`SendOptions`). `ModifierSnapshot` records held modifiers so a caller that releases them can restore them. No policy, focus or receipt checks: it is for hosts that own their own policy. Unit tests build the `INPUT` array without injecting.

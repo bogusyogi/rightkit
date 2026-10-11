@@ -76,8 +76,6 @@ The examples in `tests/` run against `contracts-pending/channel-memory/fixtures/
 - `src/unit.rs`: accepted and refused unit text, including the 32-character base limit.
 - `src/decimal.rs`: exact decimal equality and the accepted text form.
 
-Each rule has a passing and a failing case.
-
 ## Version
 
 Crate version: see [INDEX.md](../../INDEX.md). The crate is not published (`publish = false`). Changes are recorded in [CHANGELOG.md](CHANGELOG.md).

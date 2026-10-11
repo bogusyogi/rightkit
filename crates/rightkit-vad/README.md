@@ -15,18 +15,19 @@ Each layer is usable alone:
 - `scores_to_spans`: Silero `get_speech_timestamps`-shaped hysteresis (`threshold` to start, `neg_threshold` to end, `min_speech`, `min_silence`, `pad`, merge).
 - `detect`: runs a `FrameScorer` over samples and returns spans.
 - `chunk_spans`: splits spans under `ChunkConfig` limits.
-- `FrameStream`: pushes samples and returns `FrameVerdicts` as frames complete.
-- `energy_scores`: a simple energy-based scorer, with no model.
+- `FrameStream`: pushes samples and returns `FrameVerdicts` as frames complete. When the scorer fails, `push` returns `None` (unknown, not silence) and the stream stays failed until `reset`.
+- `energy_scores`: energy and zero-crossing pseudo-scores, with no model.
 
 ## Features
 
 | Feature | Default | Pulls in | Effect |
 |---|---|---|---|
 | `default` | on | `silero` | The default set. |
-| `silero` | on | `rightkit-ort`, `rightkit-ort/tracing` | The `Silero` scorer, `SileroOptions`, `SpeechScorer`, and the `Backend` report. ONNX Runtime tracing only: the crate fetches, copies and links no runtime. The consumer supplies ONNX Runtime through `rightkit-ort`. With `default-features = false` no ONNX Runtime is compiled and only the policy layers remain. |
-| `download-binaries` | off | `rightkit-ort/download-binaries` | Opt-in: fetches prebuilt ONNX Runtime during the build. |
-| `tls-native` | off | `rightkit-ort/tls-native` | Opt-in: native TLS backend for `download-binaries`. |
-| `copy-dylibs` | off | `rightkit-ort/copy-dylibs` | Opt-in: copies the ONNX Runtime dylibs next to the build output. |
+| `silero` | on | `rightkit-ort`, `rightkit-ort/session` | The `Silero` scorer, `SileroOptions`, `SpeechScorer`, and the `Backend` report. The crate fetches, copies and links no runtime. The consumer supplies ONNX Runtime through `rightkit-ort`. With `default-features = false` no ONNX Runtime is compiled and only the policy layers remain. |
+| `ort-tracing` | off | `silero`, `rightkit-ort/tracing` | Opt-in: forwards ONNX Runtime's log lines into `tracing`. Off by default, because feature unification would turn it on for every ONNX Runtime session in the process. |
+| `download-binaries` | off | `silero`, `rightkit-ort/download-binaries` | Opt-in: fetches prebuilt ONNX Runtime during the build. |
+| `tls-native` | off | `silero`, `rightkit-ort/tls-native` | Opt-in: native TLS backend for `download-binaries`. |
+| `copy-dylibs` | off | `silero`, `rightkit-ort/copy-dylibs` | Opt-in: copies the ONNX Runtime dylibs next to the build output. |
 
 Unreleased change: the default no longer enables `ort/ndarray` or the build-time download (`download-binaries`, `tls-native`, `copy-dylibs`). The `ort-defaults` feature is removed. To keep the old build-time download, opt in with `features = ["download-binaries", "tls-native", "copy-dylibs"]` (with `default-features` left on), or use `default-features = false` and bind the approved runtime through `rightkit-ort`. The empty `load-dynamic` feature is removed.
 
@@ -34,7 +35,7 @@ This crate has no direct `ort` dependency (`Cargo.toml:27-28`); the `ort` pin (`
 
 ## Platform support
 
-The only OS gates in `src/` are in `src/silero.rs`: the CoreML provider needs `target_vendor = "apple"` (`:181`) and the DirectML provider needs `target_os = "windows"` (`:199`); on other targets those providers return an error (`:210-215`). ONNX Runtime support follows the `rightkit-ort` features above. The Silero model file and the ONNX Runtime library are supplied by the app.
+The only OS gates in `src/` are in `src/silero.rs`: the CoreML provider needs `target_vendor = "apple"` (`:38`) and the DirectML provider needs `target_os = "windows"` (`:39`); on other targets those providers return an error (`ensure_supported`, `:201-210`; the register fallbacks, `:277-281` and `:295-299`). ONNX Runtime support follows the `rightkit-ort` features above. The Silero model file and the ONNX Runtime library are supplied by the app.
 
 Release notes: see `CHANGELOG.md` in this crate. The crate is published to crates.io.
 

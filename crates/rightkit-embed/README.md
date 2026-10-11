@@ -2,7 +2,7 @@
 
 Product-neutral local text embeddings and a durable SQLite vector store for Right Suite apps.
 
-- `Embedder` runs a local ONNX embedding model. `Embedder::load` uses caller-supplied ONNX Runtime and model paths. It never downloads or silently switches models. It runs two models and picks one from the model directory, never from a setting: EmbeddingGemma 2 Q4 (`embeddinggemma2-q4`, the text-only export; selected when the directory's `config.json` has `model_type` `embedding_gemma2`) and the older EmbeddingGemma 300M Q4 (`embeddinggemma-300m-q4`, any other directory). The suite's current model is EmbeddingGemma 2; vectors from the two models are not comparable, and `pipeline_id()` changes with the model. Both use the Gemma document prompt (`title: none | text: `) and query prompt (`task: search result | query: `), L2 normalisation, and Matryoshka prefix truncation (native 768, default 256, at most 2,048 tokens).
+- `Embedder` runs a local ONNX embedding model. `Embedder::load` uses caller-supplied ONNX Runtime and model paths. It never downloads or silently switches models. It runs two models and picks one from the model directory, never from a setting: EmbeddingGemma 2 Q4 (`embeddinggemma2-q4`, the text-only export; selected when the directory's `config.json` has `model_type` `embedding_gemma2`) and the older EmbeddingGemma 300M Q4 (`embeddinggemma-300m-q4`, a directory with no `config.json` or another top-level `model_type`; a `config.json` that does not parse fails the load, `src/embedder.rs:208`). The suite's current model is EmbeddingGemma 2; vectors from the two models are not comparable, and `pipeline_id()` changes with the model. Both use the Gemma document prompt (`title: none | text: `) and query prompt (`task: search result | query: `), L2 normalisation, and Matryoshka prefix truncation (native 768, default 256, at most 2,048 tokens).
 - `VectorStore` keeps little-endian `f32` vectors in SQLite and ranks them by cosine similarity in Rust.
 
 Catalog capability: `embeddings`. Published to crates.io (see [INDEX.md](../../INDEX.md)). Licensed under MIT OR Apache-2.0.
@@ -21,7 +21,7 @@ Do not use it to fetch models, and do not use it to pick a model at run time. Mo
 | `inference` | on | `rightkit-ort` (owns the `ort` pin and loads it dynamically), `tokenizers` (`onig`), `rightkit-fs` (`digest`), `serde_json` (`Cargo.toml:16`) | `Embedder`, `EmbedderConfig`, `ExecutionProvider`, `truncate_and_normalize`. |
 | `vector` | on | `rusqlite` and `rightkit-db` (both without default features; `Cargo.toml:17`) | `VectorStore` (persistent cosine store) and `cosine_similarity`. |
 
-`--no-default-features --features vector` builds the store without `ort` or `tokenizers`. Accelerator support is still compiled by `rightkit-ort` for each target OS.
+`--no-default-features --features vector` builds the store without `ort` or `tokenizers`. Accelerator support comes from `rightkit-ort`, which only `inference` enables; with `inference` on, it compiles CoreML on Apple targets and DirectML on Windows (`rightkit-ort/Cargo.toml:65-72`).
 
 ## Usage
 
@@ -56,7 +56,7 @@ let vectors = embedder.embed_batch(["first text", "second text"])?;
 - Accelerated runs bucket shapes (length to 64, 128, ... 2048; rows to a power of two) to avoid per-shape recompiles.
 - `ExecutionProvider` is defined by this crate. `rightkit_ort::ExecutionProvider` values still convert.
 - An accelerator needs an ONNX Runtime build that includes the provider. Pass that runtime path.
-- **Pipeline id.** `Embedder::pipeline_id()` returns `rkpipe1-<32 hex>`, a stable fingerprint that tells the app when stored vectors need re-embedding. It covers the pipeline schema version, model id and native dimension, SHA-256 of `model_q4.onnx`, `model_q4.onnx_data`, `tokenizer.json` and `config.json`, the document and query prompt templates, pooling and normalisation descriptions, truncate dimension, max tokens, and Gemma 2 sentinel scrubbing. Provider, threads and batch size are excluded. The first call hashes the model files; the result is cached.
+- **Pipeline id.** `Embedder::pipeline_id()` returns `rkpipe1-<32 hex>`, a stable fingerprint that tells the app when stored vectors need re-embedding. It covers the pipeline schema version, model id and native dimension, SHA-256 of `model_q4.onnx`, `model_q4.onnx_data`, `tokenizer.json` and `config.json`, the document and query prompt templates, pooling and normalisation descriptions, truncate dimension, max tokens, and Gemma 2 sentinel scrubbing. Provider, threads and batch size are excluded. The first call hashes the model files; the result is cached. If a model file cannot be read, the id is `rkpipe1-unavailable-…` instead, which never equals a good id (`src/embedder.rs:344-345`).
 
 ## Platform support
 

@@ -16,17 +16,17 @@ Settings panel frame and standard sections for Right Suite apps: appearance, upd
 | `@rightkit/settings-ui` | Everything in `/core` and `/standard` (the 0.3.x surface, unchanged, plus the search exports) |
 | `@rightkit/settings-ui/core` | `SettingsPanel`, `SectionFrame`, `mergeSections`, `orderSections`, `searchSections`, `revealSetting`, `SettingsGroup`, `SettingRow`, `ProgressBar`, `formatBytes`, `useSettings`, `createMemorySettings`, `sectionIcons`, the search API (`SettingsSearchProvider`, `SettingsItem`, `SettingsSearchSection`, `SettingsSectionScope`, `HighlightedText`, `useSettingsSearch`, `useSearchKeys`), and types. Imports only `react`. |
 | `@rightkit/settings-ui/standard` | `standardSections`, the section factories, `useLicenseSection`, `useDoctor`. Needs the optional peers below. |
-| `@rightkit/settings-ui/headless` | The search state as hooks and no-DOM providers, for a host with its own markup: `SettingsSearchProvider`, `useSettingsSearch`, `useSettingsRow`, `useSettingsItem`, `useSettingsGroup`, `useSettingsSection`, `useSettingsSearchField`, `useSettingsSearchStatus`, `useSearchKeys`, `highlightText`. Imports only `react`; no stylesheet. See [Headless search](#headless-search). |
+| `@rightkit/settings-ui/headless` | The search state as hooks and no-DOM providers, for a host with its own markup: `SettingsSearchProvider`, `useSettingsSearch`, `useSettingsRow`, `useSettingsItem`, `useSettingsHit`, `useSettingsGroup`, `useSettingsSection`, `useSettingsSearchField`, `useSettingsSearchStatus`, `useSearchKeys`, `highlightText`, `parseSearchTerms`, `defaultAnnouncement`, `SettingsGroupScope`, `SettingsSectionScope`. Imports only `react`; no stylesheet. See [Headless search](#headless-search). |
 | `@rightkit/settings-ui/settings.css` | Stylesheet |
-| `@rightkit/settings-ui/shell-adapter` | `createShellBackends` and the `rightkit-settings` / `rightkit-models` engine wire constants, over the `@rightkit/shell` engine bridge. The engine is described structurally, so this subpath needs no import of `@rightkit/shell`. |
+| `@rightkit/settings-ui/shell-adapter` | `createShellBackends` (settings, models and secrets backends) and the engine wire constants `METHODS` and `EVENTS` for `rightkit-settings` / `rightkit-models`, over the `@rightkit/shell` engine bridge. The engine is described structurally, so this subpath needs no import of `@rightkit/shell`. |
 
-The persistence port is the `SettingsBackend` interface (`load`, `patch` with `expectedRevision`, optional `subscribe`). Use the shell adapter in a Tauri app, or implement the interface over your own store. For example, a blob-backed adapter keeps the whole settings object in one JSON string, bumps a revision on each patch and throws `code: "revision_conflict"` on a stale write. `useSettings(backend)` takes any `SettingsBackend`. `createMemorySettings` is the in-memory reference implementation.
+The persistence port is the `SettingsBackend` interface (`load`, `patch` with `expectedRevision`, optional `subscribe`). Use the shell adapter in a Tauri app, or implement the interface over your own store. For example, a blob-backed adapter keeps the whole settings object in one JSON string, bumps a revision on each patch and throws `code: "revision_conflict"` on a stale write. `useSettings(backend)` takes any `SettingsBackend`. `createMemorySettings` is the in-memory reference implementation. The root and `/core` also export `createMemorySecrets` (an in-memory `SecretsBackend`), `RevisionConflict`, and `createShellBackends`, `METHODS` and `EVENTS` as deprecated re-exports of `/shell-adapter`.
 
 ## Peer dependencies
 
 | Peer | Range | Note |
 |---|---|---|
-| `@rightkit/app-shell` | `>=0.2.0 <1` | |
+| `@rightkit/app-shell` | `>=0.2.0 <1` | Not optional. `/standard` and the root entry import `@rightkit/app-shell/react`; `/core` does not import it. |
 | `@rightkit/license` | `>=0.1.0` | Optional. Needed by `/standard` and the root entry only. No upper bound. |
 | `@rightkit/logs` | `>=0.1.0` | Optional. Needed by `/standard` and the root entry only (type use). No upper bound. |
 | `@rightkit/theme` | `>=0.2.0 <1` | Optional. Needed by `/standard` and the root entry only. |
@@ -103,7 +103,7 @@ const sections = [
 />
 ```
 
-If the host draws its own search field and layout, use the context directly (this is the shape of Pulse's `settingsKit.tsx`):
+If the host draws its own search field and layout, use the context directly (Pulse's `settingsKit.tsx` uses the headless hooks instead; see [Headless search](#headless-search)):
 
 ```tsx
 <SettingsSearchProvider query={query.trim()} highlight>
@@ -140,7 +140,8 @@ The query is split on whitespace and every term must appear (case-insensitive) i
 | `SettingRow` | `keywords`, `searchText`, `className` | none | Extra terms; text to match when `label` is not a string. `className` (0.4.2) is added after the row's own classes. |
 | `SettingRow` | `lead`, `titleClassName`, `hintClassName`, `bareControl` | none, none, none, `false` | (0.4.4) `lead` renders before the text (an icon or badge) in its own column and adds `rk-sr--lead`. `titleClassName` goes on the label and `hintClassName` on the description. `bareControl` renders the control without its `rk-sr__control` wrapper. |
 | `SettingsGroup` | `titleClassName`, `hintClassName`, `rowsClassName` | none | (0.4.4) Added after `rk-sg__title`, `rk-sg__desc` (the group's hint) and `rk-sg__rows`. |
-| `SettingsSearchProvider` (and the headless hooks) | `enabled` | `true` | (0.4.4) `false` makes search inert: rows, groups, sections, items and hits do not register, do not subscribe to the store, and render as if no provider were there. `SettingsPanel` sets it from its search field: with `search={false}` (or `hideSearch`) and no controlled `query`, registrations are skipped. |
+| `SettingsSearchProvider` (and the headless hooks) | `enabled` | `true` | (0.4.4) `false` makes search inert: rows, groups, sections, items and hits do not register, do not subscribe to the store, and render as if no provider were there. `SettingsPanel` sets it from its search field: when the panel shows no field (`search={false}`, `hideSearch`, or `hideNav` without `search={true}`) and has no controlled `query`, registrations are skipped. |
+| `SettingsSearchSection` | `passthroughWhenInactive` | `false` | (0.4.2) With no search active, render the children untouched: no section, heading or action. |
 
 ### Custom properties (0.4.4)
 
@@ -155,8 +156,6 @@ Each defaults to the value shown, so nothing changes unless it is set.
 | `--rk-sr-gap` | `16px` | gap inside a row |
 | `--rk-sr-padding` | `12px 16px` | row padding |
 | `--rk-sr-border` | `.5px solid var(--rk-hairline)` | row bottom rule |
-
-| `SettingsSearchSection` | `passthroughWhenInactive` | `false` | (0.4.2) With no search active, render the children untouched: no section, heading or action. |
 
 Focus is never moved by search: typing, changing results and opening results leave focus where it was (only the find shortcut and an explicit "Open section" click act on focus).
 
@@ -174,7 +173,7 @@ Rows that do not match are unmounted while a query is active in all-sections mod
 | 6 | Find shortcut and scoped Escape | `findShortcut`, `escapeClears="unless-in-input-or-dialog"`, or the `useSearchKeys` hook for a host-owned field |
 | 7 | Late-loading rows re-check hidden groups and sections | Same registration mechanism, no `MutationObserver`; `SettingsGroup hideWhenEmpty`, `SettingsSearchSection hideWhenEmpty` (default true) |
 
-Differences from Pulse's local kit, so nothing surprises you on adoption: matching is "every whitespace-separated term" where Pulse matches the whole trimmed string as one substring (a superset of its results); hiding uses `display: none` on groups and sections but unmounts non-matching rows and items (Pulse also returns `null` for them); the section action is a `<button>` whose text is yours via `openSectionLabel`.
+Notes for adoption: matching is "every whitespace-separated term", not the whole trimmed string as one substring; hiding uses `display: none` on groups and sections but unmounts non-matching rows and items; the section action is a `<button>` whose text is yours via `openSectionLabel`.
 
 ### Tokens
 
@@ -215,7 +214,7 @@ Rules that keep the stable tree correct:
 - **A row that does not match returns `null` from the styled parts but `hidden` from the hooks.** To keep a control's state across a query, render the row element with `hidden={r.hidden}` rather than returning `null`. The `hidden` attribute is overridden by a CSS `display` rule on the same element, so add `.ck-set[hidden] { display: none; }` (or set `display` yourself) in the host's stylesheet.
 - **Content that is not a row must count.** A group or section that holds plain content and no registered row is `empty`, and is hidden. Wrap such content in `useSettingsItem` or `useSettingsHit`.
 
-This is the shape of Pulse's `settingsKit.tsx` in headless form:
+This is the shape of Pulse's `settingsKit.tsx`, which uses these hooks (Pulse's `Row` returns `null` when hidden; the `Row` below keeps its element and sets `hidden`):
 
 ```tsx
 import { Button } from "@rightkit/app-shell/react";
@@ -295,7 +294,7 @@ function SearchField({ query, setQuery, inputRef }: { query: string; setQuery(q:
 
 The `Button` is from `@rightkit/app-shell/react`, as Pulse uses it. A host without `@rightkit/app-shell` uses its own `<button>` in the same place.
 
-The `.ck-set[hidden]` rule and the `ck-search-section` class are the host's own CSS. `mark()` wraps every term, where Pulse's local kit marks the first occurrence only.
+The `.ck-set[hidden]` rule and the `ck-search-section` class are the host's own CSS. `mark()` wraps every occurrence of every term.
 
 ### Highlight wrapper
 
@@ -311,9 +310,9 @@ A row whose `label` is not a string is not searchable unless you pass `searchTex
 
 Under `search={false}` the hooks are inert: `SettingsPanel` with `search={false}` (or `hideSearch`) and no controlled `query` does not register anything, so the hooks render as if there were no search at all.
 
-Outside a provider every hook is inert: rows render, nothing is hidden, groups and sections are not empty, hits do not match and the status is empty. The hooks set no `id`s, no `role`s other than what you ask for, and no `data-` attributes beyond `data-setting-id`, `data-hit`, `data-empty` and `hidden`.
+Outside a provider every hook is inert: rows render, nothing is hidden, groups and sections are not empty, a hit's `matches` is `true` and `mark` returns the text, and the status is empty. The hooks set no `id`s, no `role`s other than what you ask for, and no `data-` attributes beyond `data-setting-id`, `data-hit`, `data-empty` and `hidden`.
 
 ## Known issues
 
 - Three peers have no upper bound: `@rightkit/license`, `@rightkit/logs` and `@rightkit/updates` (npm audit 2026-10-08, settings-ui finding).
-- Peer React is `<21`, the same range as `doc-render`, `i18n`, `media-ui` and `pdf-ui` (`package.json:38`).
+- Peer React is `<21`, the same range as `doc-render`, `i18n`, `media-ui` and `pdf-ui` (`package.json:49`).

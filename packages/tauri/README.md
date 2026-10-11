@@ -1,6 +1,6 @@
 # @rightkit/tauri
 
-Typed renderer-side adapters for the shared Right Suite Tauri command surface. The client takes the app's real `invoke` function and a command map. It also exports typed constructors for ViewRight, ScrapeRight, HeardRight, MailRight and CodeRight, so their command and argument names are defined in one place.
+Typed renderer-side adapters for the shared Right Suite Tauri command surface. The client takes the app's real `invoke` function and, optionally, a command map (default `standardRightKitTauriCommands`). It also exports typed constructors for ViewRight, ScrapeRight, HeardRight, MailRight and CodeRight, so their command and argument names are defined in one place.
 
 | Item | Value |
 |---|---|
@@ -9,15 +9,17 @@ Typed renderer-side adapters for the shared Right Suite Tauri command surface. T
 | Version | see INDEX.md |
 | License | MIT OR Apache-2.0 |
 
-Updater behavior is composed from `@rightkit/updates`, not reimplemented.
+Updater behavior comes from `@rightkit/updates`: an `AutoUpdateClient` passed as `updates` is exposed unchanged as `client.updates`, and this package implements none.
 
 ## Entry points
 
 | Import | Contents |
 |---|---|
-| `@rightkit/tauri` | `createRightKitTauriClient`, `createRightSuiteAppTauriClient`, `rightSuiteTauriAppConfigs`, `standardRightKitTauriCommands`, `standardRightKitDeviceGetOrCreate`, `createViewRightTauriClient`, `createScrapeRightTauriClient`, `createHeardRightTauriClient`, `createMailRightTauriClient`, `createCodeRightTauriClient`; types `Invoke`, `RightKitTauriCommands`, `RightKitTauriClientConfig`, `RightKitTauriClient` |
+| `@rightkit/tauri` | `createRightKitTauriClient`, `createRightSuiteAppTauriClient`, `rightSuiteTauriAppConfigs`, `standardRightKitTauriCommands`, `standardRightKitDeviceGetOrCreate`, `createViewRightTauriClient`, `createScrapeRightTauriClient`, `createHeardRightTauriClient`, `createMailRightTauriClient`, `createCodeRightTauriClient`; types `Invoke`, `RightKitTauriCommands`, `RightKitTauriClientConfig`, `RightKitTauriAdapterConfig`, `RightKitTauriAppConfig`, `RightKitTauriClient` |
 
 The client exposes `license.get/set/delete`, `device.getOrCreate`, `logs.write/collect/clear`, `diagnostics.collect/clear` and an optional `updates` client.
+
+`createRightKitTauriClient` also takes `deviceGetOrCreate` and `argumentNames` (`licenseSet`, default `value`; `logsWrite`, default `events`). Without `deviceGetOrCreate`, `device.getOrCreate()` throws. A blank command name throws when the client is created.
 
 ## Dependencies
 

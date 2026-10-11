@@ -33,8 +33,8 @@ The server-mode flow below is illustrative. The compiled example is `examples/se
 
 ```toml
 [dependencies]
-rightkit-oauth = { version = "0.3.0", default-features = false, features = ["server"] }
-rightkit-http = "0.2.0"
+rightkit-oauth = { version = "0.3.1", default-features = false, features = ["server"] }
+rightkit-http = "0.3.0"
 ```
 
 Daemons can omit `secrets` and `system-sources` (`default-features = false`): Linux has no `rightkit-secrets` backend.
@@ -83,7 +83,7 @@ PKCE uses CSPRNG/base64url primitives, 64-character verifiers & S256 challenges
 where descriptor enables it. Public clients must enable PKCE. Nonce is independent random state for `openid` scopes.
 
 `complete(CallbackQuery { code, state, error })` atomically takes pending state, compares
-with a constant-time check (`ct_eq`, HMAC tags compared by `ring::hmac::verify`, `src/server/mod.rs:22-26`), checks expiry & provider binding, then exchanges code.
+with a constant-time check (`ct_eq`, HMAC tags compared by `ring::hmac::verify`, `src/server/mod.rs:22-25`), checks expiry & provider binding, then exchanges code.
 State is single-use even on denial, malformed callback or exchange failure. Errors include
 `StateMismatch`, `StateExpired`, `ProviderError`, `ExchangeFailure`, `OidcValidation` &
 `ReauthRequired`; arbitrary provider text/HTTP bodies never enter errors or Debug output.

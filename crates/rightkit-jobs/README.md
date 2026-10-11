@@ -4,7 +4,7 @@ Shared engine base for Right Suite apps: a persistent SQLite job store (on `righ
 
 Product work plugs in through `JobHandler` (what a job does) and `CommandSet` (extra commands). Apps with their own wire protocol can use only the store (see below).
 
-Catalog capability: `persistent-jobs`. Published to crates.io (see [INDEX.md](../../INDEX.md)). Version history: [CHANGELOG.md](CHANGELOG.md).
+Catalog capability: `persistent-jobs`. Published to crates.io at 0.2.7 (registry record); the source is 0.2.9, which [INDEX.md](../../INDEX.md) flags as a mismatch. Version history: [CHANGELOG.md](CHANGELOG.md).
 
 ## What it owns
 
@@ -262,7 +262,7 @@ Apps that already have a stdio or CLI protocol can adopt `JobStore` with `StoreC
 
 ## Platform support
 
-The crate depends on `rightkit-process` and `rightkit-service`, which have their own per-OS behaviour. `src/` has no `cfg(unix)` or `cfg(windows)` code; the job lock comes from `rightkit_fs::FileLock` (POSIX record lock on Unix, `LockFileEx` elsewhere, `src/runner.rs:34-35`), and only some tests are `cfg(unix)` (`tests/job_lock_process.rs:1`). Windows behaviour is not otherwise documented in this crate.
+The crate depends on `rightkit-process` and `rightkit-service`, which have their own per-OS behaviour. `src/` has no `cfg(unix)` or `cfg(windows)` code; the job lock comes from `rightkit_fs::FileLock` (POSIX record lock on Unix, `LockFileEx` elsewhere, `src/runner.rs:7` and `src/runner.rs:38`), and only some tests are `cfg(unix)` (`tests/job_lock_process.rs:1`). Windows behaviour is not otherwise documented in this crate.
 
 ## Version and changes
 
@@ -277,6 +277,6 @@ Generated from `runtime-budget.json`; edit that file, then run `node packages/re
 - Wake-ups ceiling: 1 per second.
 - Disk operations ceiling: 2 operations per second.
 - Required scale: 10,000 calls or more.
-- Required hosts: macOS and Windows.
+- Required hosts: not declared in `runtime-budget.json`.
 - Status exposure: `EngineSupervisor::status()` in `src/supervisor.rs`; exposes resident memory, idle CPU, wake-ups, disk operations.
 - Measured: not yet measured.

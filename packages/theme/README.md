@@ -14,8 +14,8 @@ Brand file to CSS-token generator for Right Suite apps. It handles light, dark a
 | Import | Contents |
 |---|---|
 | `@rightkit/theme` | Browser-safe modules, including the token helpers `applyTokens`, `aliasTokens`, `SUITE_ALIASES`, `presetTokens`, `fontTokens` (see Token helpers below): colour helpers (`parseHex`, `contrastRatio`, `readableOn`, `ensureContrast`), brand (`parseBrand`, `resolveBrand`, `SUITE_DEFAULTS`), CSS (`generateCss`, `modeVars`), checks (`checkBrandContrast`, `scanHardcodedColors`, `checkGeneratedCss`), runtime (`applyBrand`, `brandFromAccent`, `themeBootScript`) |
-| `@rightkit/theme/node` | Node-only: `readBrand`, `generateFile`, `checkBrandFile`, `checkLogo`, `scanFiles`. Uses `node:fs` and `node:path`. Do not import it in a browser bundle. |
-| `rightkit-theme` (bin) | `generate <brand.json> --out <file.css> [--format suite\|tailwind\|both] [--check]`, `contrast`, `tokens` |
+| `@rightkit/theme/node` | Node-only: `readBrand`, `generateFile`, `checkBrandFile`, `checkLogo`, `scanFiles`, and a re-export of `checkGeneratedCss`. Uses `node:fs` and `node:path`. Do not import it in a browser bundle. |
+| `rightkit-theme` (bin) | `generate <brand.json> --out <file.css> [--format suite\|tailwind\|both] [--check] [--allow-contrast-failures]`, `contrast <brand.json>`, `tokens <file...>` (hard-coded colour scan) |
 
 Peer dependencies: none.
 
@@ -43,7 +43,7 @@ import { applyTokens, aliasTokens, presetTokens, fontTokens, SUITE_ALIASES } fro
 const undo = applyTokens({
   ...presetTokens(activePreset, accentId),        // { "--ink": "#101216", "--copper": "#0C6AA5", ... }
   ...fontTokens({ mono: "Menlo, monospace" }),    // --rk-font-mono
-  ...aliasTokens({ "--ink": "--rk-ink" }),        // unprefixed name -> suite token
+  ...aliasTokens({ "--focus": "--rk-focus" }),    // unprefixed name -> suite token (a name the preset does not set; later spreads win)
 });
 undo(); // restores the previous inline value of each name it set
 ```

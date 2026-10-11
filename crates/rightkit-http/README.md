@@ -2,7 +2,7 @@
 
 Shared blocking HTTP client for Right Suite applications. It provides timeouts, bounded bodies, retry and backoff that honours `Retry-After` (never retrying unsafe methods), streaming responses, WHATWG Server-Sent Events decoding, redacted secrets, and tamper-evident wrapping of untrusted web text before it reaches a model.
 
-Catalog capability: `http-client`. Published to crates.io (see [INDEX.md](../../INDEX.md)).
+Catalog capability: `http-client`. Published to crates.io at 0.2.5 (registry record); the source is 0.3.0, which [INDEX.md](../../INDEX.md) flags as a mismatch.
 
 ## What it owns
 
@@ -16,7 +16,7 @@ Catalog capability: `http-client`. Published to crates.io (see [INDEX.md](../../
 - `AsyncClient` (feature `async`): `send`, `send_any`, `stream`, `get_json` with identical timeout, retry/backoff, redirect, user-agent, proxy (off by default; `ProxyMode` opts in), address policy and size-limit behaviour. `stream` returns a `BodyStream` of `Bytes` chunks or an `SseStream` (`.sse()`, `.sse_with_limits(max_line, max_event)`), bounded to 1 MiB per line and 4 MiB per event by default.
 - `sse`: `SseDecoder` (`new`, `with_limits`), `SseReader`, `SseEvent`. WHATWG-compliant Server-Sent Events.
 - `untrusted`: `wrap_untrusted_web_text` for external text, with boundary markers and injection-signal reporting.
-- `secret`: a redacted `Secret`, and the `SecretStore` trait that `rightkit-secrets` implements. `MemorySecretStore` is provided for tests.
+- `secret`: a redacted `Secret`, and the `SecretStore` trait. `MemorySecretStore` is provided for tests. `src/secret.rs` says `rightkit-secrets` supplies the production implementation, but `rightkit-secrets` has no `SecretStore` implementation and does not depend on this crate.
 - `testing` (feature): an in-process mock server that records exact requests.
 
 ## When to use it
@@ -31,8 +31,8 @@ The default client is blocking (`ureq` with `rustls`). For async code enable the
 | Feature | Default | Pulls in | Enables |
 |---|---|---|---|
 | `gzip` | yes | `ureq/gzip` | Automatic `Accept-Encoding: gzip` and transparent decoding for buffered responses and stream readers. Matches ureq's default. |
-| `untrusted` | yes | `rightkit-fs` (SHA-256 digest) | `wrap_untrusted_web_text` and `WrapOptions` (`Cargo.toml:15-18`, `src/lib.rs:32-33`). |
-| `async` | no | `reqwest` (rustls, no native-tls), `tokio` (time), `futures-util`, `bytes` | `AsyncClient`, `AsyncStreamResponse`, `BodyStream`, `SseStream`. Same `ClientConfig`, `Request`, `Response`, `HttpError` and policy as the blocking client. With `gzip`, also enables `reqwest/gzip`. |
+| `untrusted` | yes | `rightkit-fs` (SHA-256 digest) | `wrap_untrusted_web_text` and `WrapOptions` (`Cargo.toml:15-18`, `src/lib.rs:33-34`). |
+| `async` | no | `reqwest` (rustls, no native-tls), `tokio` (time, net), `futures-util`, `bytes`, `rustls`, `rustls-platform-verifier`, `webpki-roots` | `AsyncClient`, `AsyncStreamResponse`, `BodyStream`, `SseStream`. Same `ClientConfig`, `Request`, `Response`, `HttpError` and policy as the blocking client. With `gzip`, also enables `reqwest/gzip`. |
 | `testing` | no | none | The `testing` module: `MockServer`, `MockResponse`, `MockBody`, `RecordedRequest`, `loopback_policy`, `loopback_config`. |
 
 To opt out of all default features (`gzip` and `untrusted`):
@@ -96,7 +96,7 @@ Limits: two spellings that the filesystem treats as one file (`Out.bin` and `out
 
 **Safety.** The partial file is created exclusively (or opened for append on resume) without following a link at that path: `O_NOFOLLOW` on Unix, `FILE_FLAG_OPEN_REPARSE_POINT` on Windows with a reparse-point check on the opened handle, so a symlink or junction swapped in after the path was inspected is refused before anything is written through it. A link already at that path is removed, never followed; a partial file or claim file with more than one hard link is refused. The bytes are fsynced, hashed through the same handle and the path is compared with the handle (device and inode; volume and file index on Windows) just before the rename. Completion is checked against the real length of the file as well as the bytes this call received, so a writer that ignored the claim cannot make a longer file pass a shorter expectation. A body past `expected_bytes` or the declared range stops the download and deletes the partial file. A reconnect that lands on a different resource (final URL, query kept) restarts from zero instead of splicing. `Content-Range` must be well formed and agree with `Content-Length`. A response is refused when its `Content-Encoding` is not `identity`: the client reads the real value off the connection before `ureq` can decode a `gzip` body and strip the header (`ureq` has no switch to turn decoding off, and any crate in the build can enable its `gzip` feature). That read accepts the head syntax `ureq` accepts (blank lines before the status line, bare `\n` line endings, repeated `Content-Encoding` lines), and a response whose head was not observed at all is refused too, rather than read as "no encoding". A response that is neither length-delimited nor chunked is refused too. Completion is checked against the advertised total of the whole resource (`Content-Range` `/total`), not against where a short range ends, and a `Content-Range` whose end cannot be represented is rejected.
 
-- Bytes from an earlier representation are never published unless a strong validator proves it unchanged. A saved prefix is extended only when this call saw a strong ETag (sent as `If-Range`; a `W/` tag does not count) or when `expected_sha256` is set; otherwise the partial file is discarded and the download restarts from zero with no `Range`. Validators are not stored on disk, so resuming a partial file from an earlier call needs `expected_sha256`. A `206` appends; a `200` truncates and restarts. A `206` is a restart, never an append, when its resource, ETag, `Last-Modified` or total contradicts what was saved (the object changed, shrank or grew). A `416` is always a restart from zero and never publishes the saved bytes, whatever its `Content-Range` says (including a total equal to the local length, so a complete partial file is fetched again); a `416` to a request without `Range` is an error. The full decision table is in the module docs of `src/download.rs`, with a test per row.
+- Bytes from an earlier representation are never published unless a strong validator proves it unchanged. A saved prefix is extended only when this call saw a strong ETag (sent as `If-Range`; a `W/` tag does not count) or when `expected_sha256` is set; otherwise the partial file is discarded and the download restarts from zero with no `Range`. Validators are not stored on disk, so resuming a partial file from an earlier call needs `expected_sha256`. A `206` appends; a `200` truncates and restarts. A `206` is a restart, never an append, when its resource, ETag, `Last-Modified` or total contradicts what was saved (the object changed, shrank or grew). A `416` is always a restart from zero and never publishes the saved bytes, whatever its `Content-Range` says (including a total equal to the local length, so a complete partial file is fetched again); a `416` to a request without `Range` is an error. The full decision table is in the module docs of `src/download.rs`.
 - A destination is refused, before any request or file access, when its file name or a directory in its parent path is `.rk-download` (compared case-folded, so `.RK-DOWNLOAD` and a Kelvin-sign spelling count), or when its name ends in a dot or space (Windows drops those). On Windows a name with `:`, a device name, or `~<digit>` is refused as well. Names ending in `.lock` or `.part` are ordinary destinations.
 - A mid-body failure reconnects from the current length, up to `max_reconnects`. The partial file is kept if the budget runs out.
 - A SHA-256 mismatch or a length mismatch deletes the partial file. Cancellation keeps it.
@@ -171,8 +171,7 @@ Limits of `System` in this version: on a default Windows install, where "Automat
 - **A bypass entry that is not a plain host.** A host name, an address and `*.example.com` are followed. `<local>` (names without a dot, set by "Don't use the proxy server for local addresses"), an entry limited to one scheme (`https://host`) and a wildcard elsewhere (`10.*`, `*`) are refused.
 - **A proxy auto-config script, or automatic detection.** Both choose a proxy per URL.
 
-Many Windows machines also have `<local>` set. An app that offers `System` catches `SystemProxyUnsupported` and chooses `ProxyMode::None` or an explicit proxy itself. Per-request routing that follows all of these is planned as a later version.
-
+Many Windows machines also have `<local>` set. An app that offers `System` catches `SystemProxyUnsupported` and chooses `ProxyMode::None` or an explicit proxy itself.
 **Proxy mode is weaker than a direct connection by construction.** The proxy resolves the destination name itself, so this crate cannot see or pin the address a proxied connection reaches. What it enforces is name- and literal-based:
 
 - A proxy on a private address (`10.x`, `192.168.x`) is accepted: the address policy governs the destination, and the endpoint is exempt from the class check only because the caller or the environment configured it, only for the real proxy connection (its host, its port, a call that goes through it). `Client::proxy_diagnostic()` reports the endpoint (never credentials). **DNS-based private destinations cannot be verified through a proxy**: only literals and the name list are checked.
@@ -221,9 +220,9 @@ Many Windows machines also have `<local>` set. An app that offers `System` catch
 - **Cloud metadata cannot be allowed by any hook.** Link-local (which holds `169.254.169.254`), `fd00:ec2::/32` (AWS IPv6 metadata and DNS), `100.100.100.200` (Alibaba), `168.63.129.16` (Azure) and `192.0.0.192`, plus IPv6 forms that embed them, are refused whatever `allow_if`, `allow_private_resolution` or the proxy mode say. Cloud metadata host names are refused too.
 - **Legacy IPv4 spellings** such as `127.1`, `0177.0.0.1`, `0x7f.0.0.1` and `2130706433` are read the way `inet_aton` reads them before any check, in both clients, through proxies and on redirects.
 - IPv6 forms that embed IPv4 take the embedded class: mapped, compatible, NAT64 `64:ff9b::/96`, 6to4, and the local-use NAT64 space `64:ff9b:1::/48` in each RFC 6052 layout.
-- **Non-canonical IPv4 spellings are refused** by default (`AddressPolicy::allow_legacy_ipv4()` opts out): parsers disagree about `0177.0.0.1`, so normalising it would be an SSRF bypass. `parse_host_ip(host)` returns the address plus `kind` and `is_canonical` for callers guarding other transports; `parse_legacy_ipv4` reads the `inet_aton` forms (one to four parts, decimal/octal/hex, the last part fills the remaining bytes).
+- **Non-canonical IPv4 spellings are refused** by default (`AddressPolicy::allow_legacy_ipv4()` opts out): parsers disagree about `0177.0.0.1`, so normalising it would be an SSRF bypass. `parse_host_ip(host)` returns `Option<ParsedHostIp>` (the address, `kind` and `is_canonical`) for callers guarding other transports; `parse_legacy_ipv4` reads the `inet_aton` forms (one to four parts, decimal/octal/hex, the last part fills the remaining bytes).
 - **HTTPS to HTTP redirects are refused** by the address policy. `AddressPolicy::allow_insecure_redirects()` opts in.
-- Logging: `ureq` prints a URL's query only at TRACE level, which its documentation calls unredacted wire logging. This crate cannot intercept it. Do not enable TRACE for a process that carries secrets in URLs.
+- Logging: the vendored `ureq` 3.4.0 documentation describes its `TRACE` level as wire-level debug output that is "NOT REDACTED" (`ureq` 3.4.0, `src/lib.rs:449`). This crate cannot intercept it. Do not enable TRACE for a process that carries secrets in URLs.
 
 ## Vetting for other transports
 
@@ -239,7 +238,7 @@ Many Windows machines also have `<local>` set. An app that offers `System` catch
 
 ## Platform support
 
-Pure Rust over `ureq` with `rustls`. No platform-specific code in the crate. Certificate and TLS behaviour follows `rustls`.
+Pure Rust over `ureq` with `rustls`, with platform-specific code in `src/system_proxy.rs` (Windows system proxy settings) and `src/download.rs` (no-follow opens and file identity, `libc` on Unix). Certificate and TLS behaviour follows `rustls`; the default roots are the operating system's (`TrustRoots::Platform`).
 
 ## Tests
 

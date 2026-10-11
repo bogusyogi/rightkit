@@ -13,12 +13,12 @@ Neutral lifecycle runtime for agent hook events. HookHost normalizes a hook payl
 
 | Import | Contents |
 |---|---|
-| `@rightkit/hooks` | `lib/runtime.mjs`: `normalizeHookEvent(payload)`, `dispatchHookEvent(payload, modules, { timeoutMs })` (default 3000 ms) |
+| `@rightkit/hooks` | `lib/runtime.mjs`: `normalizeHookEvent(payload)`, `dispatchHookEvent(payload, modules, { timeoutMs })` (default 3000 ms per module) |
 | `rightkit-hooks` (bin) | Reads one JSON payload from stdin and dispatches it to the module files given as arguments |
 
 A module file exports `handleHook` and may export `id`.
 
-Bin exit codes: `0` on an ok result, `1` on a non-ok result, `2` on invalid input (including stdin over 1 MiB), `64` on usage errors.
+Bin exit codes: `0` on an ok result, `1` on a non-ok result, `2` on invalid input (including stdin over 1 MiB) or a module that fails to import, `64` on usage errors.
 
 Peer dependencies: none.
 
@@ -36,4 +36,4 @@ pnpm exec rightkit-hooks ./guard.mjs < payload.json
 
 ## Known issues
 
-- None recorded in the npm audit (2026-10-08).
+- None recorded in this repository. `rightkit-ownership.json` still notes "stdin repair remains P1"; its status is not verified here.

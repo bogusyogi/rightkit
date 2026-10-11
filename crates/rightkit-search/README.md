@@ -74,6 +74,6 @@ let page = scan_page(
 // A snippet for a body hit: matcher.snippet(&body, 160).
 ```
 
-**Folding limit (std-only).** Matching uses `str::to_lowercase` and no Unicode normalisation. A decomposed accent (`e` + U+0301) does not match the precomposed `é`. `İ` folds to two characters, so `İSTANBUL` and `istanbul` do not match. A word-final `Σ` folds to `ς`. Text must use the same normalisation form on both sides. A NFKC dependency would fix this, and it was declined for 0.2.1.
+**Folding limit (std-only).** Matching uses `fold` (`src/fold.rs`, `FOLD_VERSION` 2): per-character Unicode default case folding built on `char::to_lowercase`, with no Unicode normalisation. A decomposed accent (`e` + U+0301) does not match the precomposed `é`. `İ` folds to `i` + U+0307, so `İSTANBUL` and `istanbul` do not match. `Σ`, `σ` and `ς` all fold to `σ`, in any position. Text must use the same normalisation form on both sides. The crate has no normalisation dependency (`Cargo.toml`). Version 1 (`str::to_lowercase`, 0.2.1) folds differently, so text folded under it needs a rebuild (`check_fold_version`).
 
-**Body-cap boundary.** `read_text_prefix(path, max_bytes)` reads at most `max_bytes`. The 4 MiB cap in the design is the caller's choice. A needle that straddles the cap is missed, because the bytes after it are never read. The crate does not detect this.
+**Body-cap boundary.** `read_text_prefix(path, max_bytes)` reads at most `max_bytes`. The cap is the caller's choice. A needle that straddles the cap is missed, because the bytes after it are never read. The crate does not detect this.

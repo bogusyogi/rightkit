@@ -21,7 +21,7 @@ Shared sandbox, PTY, process-tree, and resource-authority primitives for Right S
 | Capability | macOS | Linux | Windows |
 |---|---|---|---|
 | `Sandbox::spawn` (confined child) | Seatbelt | Landlock + seccomp | AppContainer in a kill-on-close Job Object |
-| `Sandbox::spawn_pty` with a policy | Yes | Returns `SandboxError::Unsupported` | Returns `SandboxError::Unsupported` |
+| `Sandbox::spawn_pty` with a policy | Yes | Returns `PtyError::Sandbox(SandboxError::Unsupported)` | Returns `PtyError::Sandbox(SandboxError::Unsupported)` |
 | `Sandbox::spawn_pty` without a policy | Yes | Yes | Yes |
 | Windows ancestor-ACE lease and sweep | No | No | Yes (`windows_ancestors.rs`, `windows_appcontainer.rs`) |
 
@@ -50,7 +50,7 @@ let output = child.wait_with_output(std::time::Duration::from_secs(30))?;
 - The timeout covers the whole process tree and its pipes. A descendant that keeps stdout or
   stderr open past the deadline gets the tree killed, and the call returns `timed_out`.
 
-## Also (0.2.0)
+## Also (release not recorded in CHANGELOG.md)
 
 Windows launches resolve granted workspace paths with `GetFinalPathNameByHandleW`
 before leasing every physical ancestor through drive root. Each added AppContainer
@@ -62,7 +62,7 @@ RAII guards remove exactly their added ACEs when final child lease drops.
 Setup fails visibly with `SandboxError::AncestorAccess { path, win32_error }`
 when required ancestor access cannot be established. Admin-owned roots need a
 one-time `S-1-15-2-1` `(RD,RA,S)` **this-folder-only** grant. The build broker
-bootstrap supplies this for its managed root. The broker is moving to RustRight; see that product's docs.
+bootstrap, which provides this grant for its managed root, is outside this repository (RustRight, see INDEX.md) and is not verified here.
 
 Windows-only `sweep_stale_appcontainer_ancestor_aces(path: &std::path::Path) ->
 Result<usize, SandboxError>` removes stale explicit allow ACEs on physical
@@ -76,11 +76,11 @@ deriving each SID & comparing it with its profile mapping; unrelated
 - Confinement: AppContainer. The profile is created with `CreateAppContainerProfile` under the name `rightkit.sandbox.<fnv1a hash of the grant set>`. The child is started with `CreateProcessW`, a `SECURITY_CAPABILITIES` attribute and `CREATE_SUSPENDED | CREATE_NO_WINDOW`. Only stdin, stdout and stderr are inherited.
 - Job: each child is assigned to a `WindowsJob` (kill-on-close, `ActiveProcessLimit` 64) while still suspended, then resumed. If assignment fails, the process is killed.
 - Filesystem: granted paths are ACLed to the container SID while a child that needs them is alive. Read grants get read and execute. Write grants add write and delete. Directory grants inherit to children. Each physical ancestor up to the drive root gets a non-inheriting `(RD,RA,S)` ACE (mask `0x00100081`). Leases are reference-counted and removed when the last child using them ends. Filesystem roots are refused.
-- Admin-owned ancestors: setup fails with `SandboxError::AncestorAccess` unless `S-1-15-2-1` already has `(RD,RA,S)` on them. RightKit's broker bootstrap provides this for `D:\.rightkit-managed`.
+- Admin-owned ancestors: setup fails with `SandboxError::AncestorAccess` unless `S-1-15-2-1` already has `(RD,RA,S)` on them. The broker bootstrap that provides this for `D:\.rightkit-managed` is outside this repository and is not verified here.
 - Network: `NetworkPolicy::Allow` adds the `internetClient` capability (`S-1-15-3-1`). Without it the child has no network egress. The crate sets no loopback exemption.
 - Denied by default: AppContainer blocks file and registry access outside the granted paths, as the module header states. A `cwd` outside every grant is refused.
 - `rightkit-sandbox-exec` (`src/bin/rightkit-sandbox-exec.rs`, Windows only) takes `--read-only`, `--writable`, `--cwd` and `--env`, then `-- <command>`. It relays stdout and stderr with a 64 MiB cap per stream and propagates the exit code. Setup failures exit 125.
-- PTYs: `spawn_pty` with a policy returns `SandboxError::Unsupported` on Windows. Without a policy the PTY is unconfined.
+- PTYs: `spawn_pty` with a policy returns `PtyError::Sandbox(SandboxError::Unsupported)` on Windows. Without a policy the PTY is unconfined.
 - Dependency: `windows` 0.62 under `cfg(windows)` (`Cargo.toml:26`), with features `Win32_Foundation`, `Win32_System_Threading`, `Win32_System_JobObjects` and `Win32_Security`. Most AppContainer calls are declared directly in `windows_appcontainer.rs` (kernel32, userenv, ole32, advapi32). Consumers enable no Windows features.
 - Nothing in this section was run on Windows for this README.
 

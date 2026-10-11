@@ -21,7 +21,7 @@ right-update run      [--repo <path>] [--dry-run] [--quiet]
 right-update schedule install|remove|status [--repo <path>] [--interval <minutes>] [--json]
 ```
 
-`--repo` defaults to the current directory. `--quiet` replaces text output with JSON lifecycle events, one per line (see Events).
+`--repo` defaults to the current directory. `--quiet` replaces text output with JSON lifecycle events, one per line (see Schedule and events).
 
 | Command | What it does |
 |---|---|
@@ -39,11 +39,11 @@ right-update schedule install|remove|status [--repo <path>] [--interval <minutes
 |---|---|---|---|---|
 | `check` | all current | any outdated | error (invalid manifest, any lookup failed) | |
 | `apply` | done | done, but one or more rows failed and were rolled back | refused or error | |
-| `gate` | every gate and journey passed | a gate or journey failed | error | a journey report is missing or malformed |
+| `gate` | every gate and journey passed | a gate or journey failed | error | a journey was inconclusive (its report is missing or malformed, or it exited 3) |
 | `land` | landed, or nothing to land | refused by a precondition (nothing changed) | failed part-way (for example the push) | |
-| `run` | landed, all current, or nothing applied | refused, or a gate failed | error | a journey was inconclusive |
+| `run` | landed, all current, or nothing applied (no row failed) | refused, a gate failed, or nothing applied because rows failed | error | a journey was inconclusive |
 | `discard` | restored | | refused or error | |
-| `schedule` | done | `status`: not installed | error | |
+| `schedule` | done | `status`: not installed; on Windows also `remove` when the task is not installed | error | |
 
 ## Manifest
 
@@ -55,7 +55,7 @@ right-update schedule install|remove|status [--repo <path>] [--interval <minutes
   "policy": {
     "default": "auto-land",
     "land": "commit",
-    "held": ["rightkit-license", "rightkit-secrets", "RightKitSwift:RightKitLicense"],
+    "held": ["rightkit-license", "rightkit-secrets"],
     "tier": { "held": ["/^ffmpeg/"] }
   },
   "gates": [
@@ -111,13 +111,13 @@ right-update schedule install|remove|status [--repo <path>] [--interval <minutes
 
 Source kinds:
 
-- `cargo`: `[dependencies]`, `[dev-dependencies]`, `[build-dependencies]`, `[workspace.dependencies]` and `[target.*]` tables, compared with crates.io `max_stable_version`. Path and git dependencies are `unknown`, including a path dependency that also carries a `version` (that version is the publish-time requirement, owned by the release tooling).
+- `cargo`: `[dependencies]`, `[dev-dependencies]`, `[build-dependencies]`, `[workspace.dependencies]` and `[target.*]` tables, compared with crates.io `max_stable_version` (falling back to `max_version`). Path and git dependencies are `unknown`, including a path dependency that also carries a `version` (that version is the publish-time requirement, owned by the release tooling).
 - `pnpm`: `dependencies`, `devDependencies` and `optionalDependencies`. `pnpm outdated --json` supplies latest where it reports one; the npm registry (`/<name>/latest`) is the fallback. `workspace:`, `file:`, `link:` and other non-registry specs are `unknown`.
-- `swiftpm`: `Package.swift` (`exact:`, `from:`) or `project.yml` (`from`, `exactVersion`, `version`). Latest comes from the GitHub tags API. Branch and revision pins are `unknown`.
+- `swiftpm`: `Package.swift` (`exact:`, `from:`) or `project.yml` (`from`, `exactVersion`, `exact`, `version`, `minorVersion`, `majorVersion`). Latest comes from the GitHub tags API. Branch and revision pins, and package URLs that are not on github.com, are `unknown`.
 - `rightkit`: the `npm` section of the versions file, compared with the registry. When `<repo>/.rightgit.json` exists, the workflow drift check from `@rightkit/git` adds a `rightgit-workflows` entry. `apply` skips these rows (they move through `right-release`).
 - `tool`: an external binary. `github-release` reads `releases/latest` and verifies that each platform asset is published. `url` reads a plain-text version from `latest`.
 
-`cargo` and `pnpm` sources take exactly one of `manifest` (a path) or `glob`. A glob uses `*` inside one path segment, skips dot-directories, must end in `Cargo.toml` or `package.json`, and an empty match is an error. Registry answers are cached across all manifests in a run.
+`cargo` and `pnpm` sources take exactly one of `manifest` (a path) or `glob`. A glob uses `*` inside one path segment, skips dot-directories (unless the pattern segment itself starts with a dot), must end in `Cargo.toml` or `package.json`, and an empty match is an error. Registry answers are cached across all manifests in a run.
 
 Tool platform keys: `macos-arm64`, `macos-x86_64`, `windows-x86_64`, `windows-arm64`, `linux-x86_64`. The `checksum` is the digest of the asset exactly as published. `extract.member` names the binary inside an archive. `maxBytes` bounds the download (default 512 MiB). A `url` upstream's `download` template may contain `{version}` (required) and `{asset}`.
 
@@ -129,9 +129,9 @@ Journey placeholders: `{candidate}` (the staged candidate directory), `{out}` (a
 
 | Kind | Edit | Lockfile |
 |---|---|---|
-| `cargo` | Replaces only the version text in the declaring `Cargo.toml`, in place (comments, tables, features, inline tables, dotted keys and `package` renames are preserved byte for byte). The result is re-parsed and must equal the original with exactly that version changed. | `rightkit cargo update -p <crate> --precise <ver>`, never bare `cargo`. The lock must then contain the new version. |
+| `cargo` | Replaces only the version text in the declaring `Cargo.toml`, in place (comments, tables, features, inline tables, dotted keys and `package` renames are preserved byte for byte). The result is re-parsed and must equal the original with exactly that version changed. | `rightkit cargo update -p <crate> --precise <ver>`, never bare `cargo`. The lock must then contain the new version. Without a `Cargo.lock` the lockfile is not refreshed and the report notes it. |
 | `pnpm` | `pnpm add [-w] [-D\|-O] (--save-exact\|--save-prefix=<p>) --ignore-scripts <name>@<ver>` in the declaring package directory. `-D` for `devDependencies`, `-O` for `optionalDependencies`, `-w` when the directory is a pnpm workspace root. The range style (`1.2.3`, `^`, `~`) is kept; `>=`, `=` and `v` styles are skipped. The written `package.json` entry is verified. | `pnpm-lock.yaml` |
-| `swiftpm` | Rewrites `exact:`/`from:` in `Package.swift` and the matching key in a sibling `project.yml` when both declare the dependency. | `Package.resolved` is not refreshed; the report notes it. |
+| `swiftpm` | Rewrites `exact:`/`from:` in `Package.swift` and the matching key in `project.yml`: the source manifest, plus the sibling file (`project.yml`, or `Package.swift` when `project.yml` is the source) when it declares the dependency at the same requirement. | `Package.resolved` is not refreshed; the report notes it. |
 | `tool` | Downloads the asset for this host's platform to `.rightkit/update/candidates/<name>/<version>/`, enforces the size bound, computes sha256, extracts `extract.member` from archives, and hashes the other platforms' assets without storing them. | none |
 
 Each row is a transaction: the files are snapshotted, edited, verified and restored if anything fails (`apply` then exits 1 and lists the row under `failed`). `apply` refuses to edit a file that already has uncommitted changes, and refuses to start while an earlier apply is not landed (run `land` or `discard`).
@@ -143,7 +143,7 @@ Not applied automatically:
 - Rows with policy `held`: listed under `held`.
 - Pre-release or build-metadata versions, wildcards and ranges: listed under `skipped`.
 
-`apply` fails closed: if any lookup in scope failed, it changes nothing and exits 2. `--only <name>...` (repeat the flag, list several names after it, or comma-separate) scopes both the work and that check. `--dry-run` plans without touching files, running package managers or downloading, and writes no report.
+`apply` fails closed: if any lookup in scope failed, it changes nothing and exits 2. `--only <name>...` (repeat the flag, list several names after it, or comma-separate) scopes both the work and that check. `--dry-run` plans without editing files, running `pnpm add` or `rightkit cargo update`, or downloading tool assets, and writes no report (the check phase still runs, including `pnpm outdated --json`).
 
 Tool digests are recorded with `"trust": "observed"`. They are computed from the download, are not verified against any upstream-published checksum, and become the manifest checksum only if the journey passes and `land` writes them.
 
@@ -195,7 +195,7 @@ Co-Authored-By: right-update <noreply@rightkit.dev>
 
 If the commit fails (for example a hook rejects it), the manifest edit is restored and the index reset; a rerun picks up where it stopped. `needsMigration` and `held` rows go to `held.json` and are never committed.
 
-`policy.land` is `"commit"` (default: the commit stays local) or `"push"` (`git push` of the current branch to its upstream, never forced). `@rightkit/git` exposes no importable API for triggering a CI lane, so a repo with `.rightgit.json` is also pushed with plain `git push`; its CI lanes run from the push. The land result says so in `notes`.
+`policy.land` is `"commit"` (default: the commit stays local) or `"push"` (a plain `git push` with no arguments, never forced). `@rightkit/git` exposes no importable API for triggering a CI lane, so a repo with `.rightgit.json` is also pushed with plain `git push`; its CI lanes run from the push. The land result says so in `notes`.
 
 ### Delivery
 
@@ -210,6 +210,8 @@ Effective policy for each dependency, first match wins:
 3. Tier patterns: the built-in `/sign|secur|licen|credential/` plus `policy.tier.held`. Default `held`.
 4. `policy.default`.
 
+Names match as `check` prints them: the crate name, the npm package name, the tool `name`, or for `swiftpm` the last segment of the package URL without `.git`. The table below is how the policies are meant to be used; the tool assigns a policy only by the order above, and a breaking bump of a `cargo`, `pnpm` or `swiftpm` row that is not `held` becomes `needsMigration` whatever its other policy.
+
 | Change | Policy | Behaviour |
 |---|---|---|
 | External tools | `auto-land` | Land when the journey passes on green inputs |
@@ -223,6 +225,8 @@ Effective policy for each dependency, first match wins:
 
 - macOS: launchd agent `com.rightkit.update.<repo-slug>` in `~/Library/LaunchAgents`, `StartInterval`, no `RunAtLoad`, log `~/Library/Logs/RightKit/update/<repo-slug>.log`. The install-time `PATH` is baked in so `node`, `git`, `pnpm` and `rightkit` resolve.
 - Windows: Task Scheduler task `\RightKit\update-<repo-slug>`, registered from an XML definition (`schtasks /Create /XML`, because `/TR` caps the command at 261 characters). It runs `powershell.exe -WindowStyle Hidden -NonInteractive -NoProfile -Command ...` as the current user with a limited token, only while logged on, hidden, appending to `%LOCALAPPDATA%\RightKit\Logs\update\<repo-slug>.log`.
+
+`schedule` exits 2 on other platforms, and `install` exits 2 when `<repo>/.rightkit/update.json` is missing or the interval is out of range.
 
 `run` is a single pipeline rather than `check && apply && gate && land` in a shell, because `check` exits 1 when anything is outdated. It stops early when everything is current, refuses when the working tree is not clean, and discards the applied changes (restoring only files unchanged since apply) when the gate fails or `land` refuses, so a scheduled run leaves the tree clean.
 

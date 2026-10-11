@@ -13,7 +13,7 @@ The public API is in `src/lib.rs`: `OcrEngine::load` and `OcrEngine::load_with_m
 | Feature | Default | Pulls in | Effect |
 |---|---|---|---|
 | `native` | on | macOS `objc2`, `objc2-foundation`, `objc2-core-graphics`, `objc2-vision`, `objc2-core-foundation`; Windows `windows` | Apple Vision (macOS) or Windows.Media.Ocr (Windows). Without it, the native backend reports unavailable. |
-| `onnx` | on | `ort` (`load-dynamic`; Windows adds `directml`), `rightkit-ort`, `sha2` | Verified two-stage ONNX fallback (`OcrEngine`, `OcrArtifactManifest`). Without it, `Onnx` and fallback requests return `BackendUnavailable`. |
+| `onnx` | on | `rightkit-ort` (which pins `ort` with `load-dynamic`; DirectML on Windows, CoreML on Apple), `sha2` | Verified two-stage ONNX fallback (`OcrEngine`, `OcrArtifactManifest`). Without it, `Onnx` and fallback requests return `BackendUnavailable`. |
 
 `--no-default-features` keeps the types, the worker protocol and the `rightkit-ocr` binary, with no OCR backend. Platform backends are still selected by `cfg` (see Platform support).
 
@@ -62,18 +62,17 @@ fails closed on divergence.
 the two PaddlePaddle Hugging Face repos above, Apache-2.0), and `OcrEngine::load`
 uses it. The label is tied to bytes: the Hugging Face LFS SHA-256 of
 `PP-OCRv6_medium_det_onnx/inference.onnx` and
-`PP-OCRv6_small_rec_onnx/inference.onnx` equals the det and rec digests above
+`PP-OCRv6_small_rec_onnx/inference.onnx` equals the det and rec digests in `PROVENANCE.toml` (`[model.detector]`, `[model.recognizer]`)
 (checked 2026-10-09), and both model cards declare Apache-2.0.
 `characterized_windows_contract()` keeps the old conflict for callers that want
 the fail-closed manifest.
 
 Apps that run a model-store GC pass a `ModelLeaseHook` through
-`OnnxConfig::with_lease_hook`; it is called before verification and its guard is
+`OnnxConfig::with_lease_hook` (`src/router.rs:110`); it is called before verification and its guard is
 held until the engine drops. `Ocr::is_available`,
-`Ocr::recognize_with_provenance` and `Ocr::validate_fallback` cover the other
-calls ScrapeRight makes.
+`Ocr::recognize_with_provenance` and `Ocr::validate_fallback` are the other entry points on `Ocr` (`src/router.rs`).
 
-The committed PNG fixture is test data, not a model. No ONNX model or ONNX
+The committed PNGs and base64 fixture (`tests/fixtures/`, and the canary `src/native/assets/vision_canary.png`) are test data, not models. No ONNX model or ONNX
 Runtime binary is bundled.
 
 ## Isolated worker: events and typed kinds
@@ -106,5 +105,5 @@ licenses and attribution obligations.
 
 A hosted runner has none of these assets, so each test prints `SKIP <test>: ...` and passes. Set `RIGHTKIT_REQUIRE_ASSETS=1` on a host that must have them, and the test fails instead.
 
-- `tests/native_e2e.rs` and `tests/worker_events.rs` (`health_hook_records_a_fresh_canary_verdict`), and the native-backend tests in `tests/native_e2e.rs`: a native OS text recognizer that reads the embedded canary (Apple Vision on macOS, `Windows.Media.Ocr` on Windows). A hosted macOS runner's Vision service fails on every image, so these skip there. The check is the isolated canary, not the platform name.
-- `tests/native_e2e.rs` (the ONNX tests and the agreement check) and `tests/real_model_e2e.rs`: the PP-OCRv6 ONNX models and ONNX Runtime, enabled by `RIGHTKIT_OCR_MODEL_DIR=<dir with det.onnx, rec.onnx, en_dict.txt>` and `RIGHTKIT_OCR_ORT_RUNTIME=<path to the runtime library>`. Without the variables the suites look for `scraperight/models/ocr` and `bin/libonnxruntime.dylib` (or `onnxruntime.dll`) by walking up from the crate.
+- `tests/native_e2e.rs` and `tests/worker_events.rs` (`health_hook_records_a_fresh_canary_verdict`), and the native-backend tests in `tests/native_e2e.rs`: a native OS text recognizer that reads the embedded canary (Apple Vision on macOS, `Windows.Media.Ocr` on Windows). On a hosted runner the OS text-recognition service can fail even on the canary (`tests/common/mod.rs:58-59`), so these tests skip when it does. The check is the isolated canary, not the platform name.
+- `tests/native_e2e.rs` (the ONNX tests and the agreement check) and `tests/real_model_e2e.rs`: the PP-OCRv6 ONNX models and ONNX Runtime, enabled by `RIGHTKIT_OCR_MODEL_DIR=<dir with det.onnx, rec.onnx, en_dict.txt>` and `RIGHTKIT_OCR_ORT_RUNTIME=<path to the runtime library>`. Without the variables the suites look for `scraperight/models/ocr`, and for `bin/libonnxruntime.dylib` (macOS) or `bin/onnxruntime.dll` (Windows), by walking up from the crate (`tests/native_e2e.rs:49-64`).

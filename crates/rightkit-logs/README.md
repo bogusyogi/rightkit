@@ -10,7 +10,7 @@ The default build has no Tauri, async-runtime or tracing dependency. Apps supply
 - bounded reads from current and rotated JSONL, without loading whole logs;
 - one bundle-wide recent-event cap, followed by the most-recent-error anchor;
 - recursive privacy redaction, with non-removable secret and content defaults;
-- malformed-row, missing-file and truncation statistics, instead of a failed report;
+- malformed-row and dropped-event counts, and a warning for a missing file, instead of a failed report;
 - a final serialised-byte cap that removes whole oldest events and never slices JSON;
 - a consent-gated durable outbox, with key and free-text redaction before anything reaches disk;
 - HTTPS upload, with loopback HTTP reserved for local test servers, persisted back-off, and a pluggable `Transport`;
@@ -33,7 +33,7 @@ Do not use it as a general tracing framework. The `tracing` feature only writes 
 |---|---|---|---|
 | `http` | yes | `ureq` 3.4 (`rustls`) | The HTTPS transport for the consented outbox uploader. Without it the crate has no network dependency, and callers supply their own `Transport`. |
 | `testing` | no | none | `testing::MockServer`, a loopback mock ingest server for app end-to-end tests. |
-| `tracing` | no | `tracing` 0.1, `tracing-subscriber` 0.3 (`json`, `env-filter`) | Daily-rolling JSONL file logs: `install_tracing`, `tracing_layer`, `tracing_layer_checked`, `TracingFileConfig`, `TracingGuard`, `tracing_log_sources` and `collect_tracing_diagnostics`. |
+| `tracing` | no | `tracing` 0.1 (`std`), `tracing-subscriber` 0.3 (`std`, `registry`, `fmt`, `json`, `env-filter`) | Daily-rolling JSONL file logs: `install_tracing`, `tracing_layer`, `tracing_layer_checked`, `TracingFileConfig`, `TracingGuard`, `tracing_log_sources` and `collect_tracing_diagnostics`. |
 
 Consumers that bring their own transport use `default-features = false`. `default-features = false` builds the event store, collection and consent code with no network dependency.
 
@@ -41,9 +41,9 @@ Consumers that bring their own transport use `default-features = false`. `defaul
 
 With `features = ["tracing"]`, the writer creates `<dir>/<file_prefix>.YYYY-MM-DD.jsonl` for each UTC day:
 
-- `install_tracing(config)` installs a global subscriber and returns a `TracingGuard`. Keep the guard alive. Dropping it writes every accepted line, then joins the writer thread.
+- `install_tracing(config)` installs a global subscriber and returns a `TracingGuard`. Keep the guard alive. Dropping it writes accepted lines and joins the writer thread, within the shutdown bounds below.
 - `tracing_layer::<S>(config)` returns a boxed layer and guard for apps that compose their own subscriber, such as one that also writes stderr. It never fails the caller; setup problems go to stderr.
-- Opening a day's file prunes the directory to the newest `max_files` daily files, today's included, oldest first. Only names of the exact form `<prefix>.YYYY-MM-DD.jsonl` are touched.
+- Opening a day's file prunes the directory to the newest `max_files` daily files (default 3), today's included, oldest first. Only names of the exact form `<prefix>.YYYY-MM-DD.jsonl` are touched.
 - Lines pass through a bounded queue of `TracingFileConfig::queue_lines` lines (default 128_000, the `tracing-appender` limit; `0` behaves as `1`). When the queue is full, the line is dropped and counted; the caller never blocks. Read the running total with `TracingGuard::dropped_events()`. Check it at shutdown or in diagnostics to see whether bursts lost lines. Dropping the guard waits at most `shutdown_send_timeout` (default 100 ms) to queue its stop request and `shutdown_wait` (default 1 s) for the writer to flush; on timeout it detaches the writer and counts the unwritten lines, so a stalled disk cannot hang shutdown.
 - `tracing_layer_checked::<S>(config)` is the fallible form of `tracing_layer`. It returns `io::Result` for an invalid prefix or filter, an unusable directory or file open, or a worker that cannot start, instead of writing to stderr.
 - With `json: true` and `flatten_event: true`, event fields are top-level keys. `env_filter: None` reads `RUST_LOG`, then falls back to `info`.
@@ -83,7 +83,7 @@ store.append(&event)?;
 - 512 KiB scanned from each current and predecessor file;
 - 512 KiB maximum serialised bundle;
 - rotated-file continuity enabled;
-- structural redaction of message, transcript and content, clipboard and window titles, password and authorisation, API keys, tokens and secret-bearing keys.
+- structural redaction of the built-in exact keys `api_key`, `authorization`, `body`, `clipboard`, `completion`, `content`, `cookie`, `last_transcript`, `message`, `password`, `prompt`, `recognized_text`, `refresh_token`, `transcript` and `window_title`, and of any key containing `secret`, `password`, `api_key` or `token` (`src/redact.rs:6-23`).
 
 Apps may add redaction keys and fragments. The built-in privacy keys cannot be removed.
 
@@ -108,7 +108,7 @@ Keep the app layer thin:
 5. Call `collect_diagnostics` with logical sources such as `app` and `engine`.
 6. Serialise `DiagnosticsBundle` for the existing user-initiated support action.
 
-The `@rightkit/logs` package expects app commands named `rightkit_logs_write`, `rightkit_logs_collect` and `rightkit_logs_clear`. Those commands live in the app layer, not in this crate. HeardRight is the reference adapter and contract test. Its public filenames remain `events.jsonl`, `events.jsonl.1`, `engine-events.jsonl` and `engine-events.jsonl.1`.
+The `@rightkit/logs` package expects app commands named `rightkit_logs_write`, `rightkit_logs_collect` and `rightkit_logs_clear`. Those commands live in the app layer, not in this crate. HeardRight is the reference adapter and contract test. This crate's tests use the filenames `events.jsonl` and `engine-events.jsonl` (`tests/contract.rs:231`). The HeardRight adapter is outside this repository, so this README does not verify it.
 
 ## Platform support
 

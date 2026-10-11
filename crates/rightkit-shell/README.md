@@ -10,7 +10,7 @@ Shared Tauri desktop shell for Right Suite applications. It owns hardened webvie
 
 | Feature | Default | Pulls in | Effect |
 |---|---|---|---|
-| `engine` | off | `rightkit-jobs`, `rightkit-process` | Engine sidecar wiring over `rightkit-jobs` `EngineClient`. Opt in; it pulls `rightkit-jobs` (db, time, uuid). |
+| `engine` | off | `rightkit-jobs` (optional; `rightkit-process` is an unconditional dependency) | Engine sidecar wiring over `rightkit-jobs` `EngineClient`. Opt in; it pulls `rightkit-jobs` (db, time, uuid). |
 | `wv2-0_38` | on | `windows` 0.61, `webview2-com` 0.38 | Windows types for Tauri 2.11 (the default). Must match the app's Tauri. |
 | `wv2-0_39` | off | `windows` 0.62, `webview2-com` 0.39 | Windows types for Tauri 2.12. With `default-features = false`, enable `wv2-0_39` (plus `engine` if used). Enabling both selects 0.39. |
 | `content-devtools` | off | `tauri/devtools` | Required by `DevToolsPolicy::ContentOnly`. Only an app on the `right-release` allow-list (today ViewRight) may ship it; see "DevTools policy". Never a default feature. |
@@ -34,14 +34,14 @@ Illustrative; not compiled as a doctest. The compiled references are `tests/poli
 
 - Generation: `src/lib.rs` re-exports one `windows` and `webview2-com` pair as `crate::winapi`. `wv2-0_38` selects windows 0.61 and webview2-com 0.38 (default). `wv2-0_39` selects 0.62 and 0.39. Enabling both picks 0.39. With neither, the crate fails with `compile_error!`. Tauri 2.12 apps use `default-features = false, features = ["wv2-0_39"]` (add `"engine"` for the sidecar).
 - The Cargo.toml comment ties 0.38 to Tauri 2.11 and 0.39 to Tauri 2.12. The Tauri lock versions are not checked here: the example app's `Cargo.lock` is stale and records rightkit-shell 0.2.0 (`example-app/Cargo.lock:2692`; the crate is 0.3.0).
-- WebView2 hardening (`src/harden.rs`, `windows_impl`): sets devtools, status bar, zoom control, pinch zoom, swipe navigation and browser accelerator keys (F5, Ctrl+R, Alt+Left, F12). It registers `ContextMenuRequested` through `ICoreWebView2_11`. That handler suppresses the menu unless the target is editable and `allow_editable_menu` is set.
+- WebView2 hardening (`src/harden.rs`, `windows_impl`): sets status bar, zoom control, pinch zoom, swipe navigation and browser accelerator keys (F5, Ctrl+R, Alt+Left, F12). It registers `ContextMenuRequested` through `ICoreWebView2_11`. That handler suppresses the menu unless the target is editable and `allow_editable_menu` is set.
 - Idle (`src/idle.rs`): `ICoreWebView2_3::TrySuspend` and `SetIsVisible` on the controller.
 - Clipboard (`src/clipboard.rs`): `OpenClipboard` with 10 retries at 20 ms. Reads `CF_UNICODETEXT`, `HTML Format`, `PNG`, `CF_HDROP` (file lists through `DragQueryFileW`) and `CF_DIB`. A write owns the clipboard through a message-only window, because `SetClipboardData` fails after `EmptyClipboard` with a NULL owner. `ClipboardOptions::image_preference` chooses `PNG` first (default) or `CF_DIB` first for the typed image.
 - Notifications: WinRT toasts through `tauri-winrt-notification` 0.7, as described below.
 - Registry and shell: autostart reads and writes `HKCU\...\CurrentVersion\Run` through `reg.exe`. Scheme registration writes under `HKCU\Software\Classes` through `reg.exe`. Both use `CREATE_NO_WINDOW`. `opener` launches `rundll32.exe url.dll,FileProtocolHandler`.
 - Single instance uses the rightkit-service named pipe (`src/instance.rs`). Broker entropy comes from `SystemFunction036` in advapi32 (`src/broker.rs`).
 - Dependencies: `windows_061`/`windows_062` and `webview2_com_038`/`webview2_com_039` are optional. They enable Win32 features `Win32_Foundation`, `Win32_System_Com`, `Win32_System_DataExchange`, `Win32_System_Memory`, `Win32_System_Ole`, `Win32_UI_Shell` and `Win32_UI_WindowsAndMessaging`. Consumers select only a `wv2-*` feature.
-- Caveat: `harden.rs`, `clipboard.rs` and `idle.rs` are not compiled or exercised on the macOS host (`src/idle.rs:9`); the windows-2025 CI job compiles them. The clipboard backend has not been run against a live Windows clipboard, so verify copy and paste on a Windows machine before relying on it.
+- Caveat: `harden.rs`, `clipboard.rs` and `idle.rs` are `cfg(windows)` code and are not compiled or exercised on the macOS host (`src/idle.rs:9`). The clipboard backend has not been run against a live Windows clipboard, so verify copy and paste on a Windows machine before relying on it.
 
 ## DevTools policy
 
@@ -68,7 +68,7 @@ Source: `src/devtools.rs` (`OWNER_DECISION`). Written, unverified: nothing here 
 
 ### What cannot be blocked
 
-- **Windows machine policy.** WebView2 appends policy and environment arguments to whatever the app passes (`learn.microsoft.com ... webview2-idl`, CreateCoreWebView2EnvironmentWithOptions), so an explicit argument string cannot override them. The environment variable is process-local and is removed. The registry policy is not ours: the shell detects it at startup and refuses to run. An administrator can still write the key after the check; the port-file tripwire is the second line. Elevated host apps ignore the environment variable (Microsoft's security page, via the browser-flags page), so this matters most for non-elevated apps.
+- **Windows machine policy.** WebView2 appends policy and environment arguments to whatever the app passes (Microsoft's WebView2 documentation; not fetched or checked in this repository), so an explicit argument string cannot override them. The environment variable is process-local and is removed. The registry policy is not ours: the shell detects it at startup and refuses to run. An administrator can still write the key after the check; the port-file tripwire is the second line. Elevated host apps ignore the environment variable (Microsoft's WebView2 documentation; not fetched or checked in this repository), so this matters most for non-elevated apps.
 - **A debugger attached to the process** (lldb/Visual Studio, `get-task-allow`, Time Travel Debugging) and **UI automation / accessibility** are outside "DevTools" and outside this crate. The hardened runtime and signing checks in `right-release` are the control for the macOS entitlement.
 - **macOS before 13.3** has no `isInspectable`; only the `developerExtrasEnabled` preference and the absence of `get-task-allow` apply.
 - **The user's own `WebKitDeveloperExtras` default** is overridden by the explicit per-webview preference; this ordering is unverified.
@@ -312,7 +312,7 @@ let cold = rightkit_shell::open_url::current_urls(); // arrived before any handl
 
 `Shell::builder(..).on_second_instance(|app, argv, cwd| ..)` replaces the default second-launch behaviour (event plus reveal of the main window); the callback owns focus. Arbitration is unchanged, and URLs on the forwarded argv still reach `open_url` handlers and `current_urls()` before the callback runs. Without a callback nothing changes.
 
-`windows`/`webview2-com` are feature-selected so they match the app's Tauri: `wv2-0_38` (0.61/0.38, Tauri 2.11, **default since 0.1.2**) or `wv2-0_39` (0.62/0.39, Tauri 2.12). A mismatch puts two copies beside Tauri's and `cast()` fails (E0599, found by MailRight). With `default-features = false`, add one of them, e.g. `features = ["wv2-0_38"]` (0.1.1 defaulted to `wv2-0_39`, which broke Tauri 2.11 apps; found by CodeRight).
+`windows`/`webview2-com` are feature-selected so they match the app's Tauri: `wv2-0_38` (0.61/0.38, Tauri 2.11, **default since 0.2.0**, `CHANGELOG.md`) or `wv2-0_39` (0.62/0.39, Tauri 2.12). A mismatch puts two copies beside Tauri's and `cast()` fails (E0599, found by MailRight). With `default-features = false`, add one of them, e.g. `features = ["wv2-0_38"]` (an earlier default, `wv2-0_39`, broke Tauri 2.11 apps; found by CodeRight).
 
 ## Runtime budget
 

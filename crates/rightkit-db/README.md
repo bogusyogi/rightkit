@@ -2,7 +2,7 @@
 
 Correct-by-default SQLite and SQLCipher connection bootstrap for Right Suite desktop apps. It owns connection pragmas, SQLCipher key ordering, a bounded read pool, checkpointing, optimization, optional integrity checks, online backup and restore, and versioned migrations. It does not own app schemas or queries.
 
-Catalog capability: `sqlite-storage`. Published to crates.io (see [INDEX.md](../../INDEX.md)).
+Catalog capability: `sqlite-storage`. crates.io has 0.3.2; the source is 0.4.0 (see [INDEX.md](../../INDEX.md)). The 0.4.0 APIs below (`ReadPoolOptions`, `ReadPool::close_and_wait`, `VersionStorage::VersionTable`, `MigrateOptions::import_legacy_versions`, the `statement-cache` feature) are not on crates.io yet, and `open_writer_recovering_unreadable` is unreleased (CHANGELOG `Unreleased`).
 
 ## When to use it
 
@@ -17,17 +17,18 @@ The default writer and legacy reader open select WAL with rollback fallback, a b
 
 - `DurabilityProfile::Full`: for user mutations that cannot be reconstructed.
 - `DurabilityProfile::Normal`: for rebuildable indexes or telemetry.
-- `CacheProfile::LargeWorkingSet`: opt-in. It is currently intended for MailRight.
+- `CacheProfile::LargeWorkingSet`: opt-in. It sets `cache_size` to -65536 (KiB) (`src/lib.rs:576`).
 
 ## Cargo features
 
 | Feature | Default | Pulls in | Enables |
 |---|---|---|---|
 | `bundled` | yes | `rusqlite/bundled` | Bundled plain SQLite. |
+| `statement-cache` | yes | `rusqlite/cache` | Prepared-statement cache (`prepare_cached`) through the rusqlite re-export. |
 | `sqlcipher` | no | `cipher`, `rusqlite/bundled-sqlcipher-vendored-openssl` | SQLCipher with vendored OpenSSL, the same crypto provider on every OS. |
 | `sqlcipher-system` | no | `cipher`, `rusqlite/bundled-sqlcipher` | SQLCipher with the system crypto provider: CommonCrypto on Apple, libcrypto elsewhere. Use it where existing encrypted databases were created with system crypto. Switching providers is not a silent refactor. |
 | `cipher` | no | none | Internal gate for keyed open and `rekey`. Enabled by either SQLCipher feature. Do not name it directly. |
-| `hooks` | no | `rusqlite/hooks` | `progress_handler()` for cancellation through returned connections. The `rightkit_db::rusqlite` re-export is not gated by it (`src/lib.rs:22`). |
+| `hooks` | no | `rusqlite/hooks` | rusqlite's `Connection::progress_handler()` for cancellation, on the connections this crate returns. The `rightkit_db::rusqlite` re-export is not gated by it (`src/lib.rs:22`). |
 
 SQLCipher consumers must turn off default features and choose exactly one provider feature. Both providers expose the same keyed-open and `rekey` APIs. Enabling both is a compile error. Keep the provider compatible with existing encrypted databases:
 
@@ -68,7 +69,7 @@ let migrations = MigrateOptions {
 - `QuarantineStamp::Seconds` names are unique per second: a second quarantine in the same second takes `<db>.corrupt-<secs>-1`, `-2`, and so on, claimed without overwriting an earlier file. `Millis` and `Custom` names still refuse an existing destination.
 - Unreadable (not corrupt) databases: `open_writer_recovering_unreadable(policy, UnreadablePolicy)`. The default `Fail` returns `DbError::Unreadable` naming the cause and never moves the file; `QuarantineAfter { attempts }` renames it only after that many consecutive read failures (permission denied, I/O read error), counted in `<db>.unreadable-opens`. Disk full, read-only filesystem, device or share not ready, sharing or lock violations, busy/locked and a missing file never count.
 - `open_in_memory()` returns a private ephemeral connection. The matching `DbOptions::open_in_memory()` keeps key, timeout, initializer, cache, foreign-key, durability, optimization and integrity options. Path, filesystem permissions, journal selection and mmap do not apply. The journal mode stays `memory`, including with `WalStrict`. Run `migrate` with `db_path: None` to skip filesystem backup and marker handling.
-- `MigrateOptions::version_storage` defaults to `VersionStorage::UserVersion`. `VersionStorage::Table { table, key }` uses `key` and `value` columns compatible with Blueprint's `meta` table. Values are decimal text. Identifiers accept ASCII letters, digits and underscores. Keys are bound parameters. A missing table or key reads as zero. Table creation and version writes share each migration transaction. `migration_version` reads the chosen storage, and `rollback_to_with_storage` reverses it. `user_version` and `rollback_to` keep the default storage.
+- `MigrateOptions::version_storage` defaults to `VersionStorage::UserVersion`. `VersionStorage::Table { table, key }` uses `key` and `value` columns compatible with Blueprint's `meta` table. `VersionStorage::VersionTable { table, version_column, applied_at_column }` is the other shape: one row per applied version (`src/migrate.rs:67-84`). Values are decimal text. Identifiers accept ASCII letters, digits and underscores. Keys are bound parameters. A missing table or key reads as zero. Table creation and version writes share each migration transaction. `migration_version` reads the chosen storage, and `rollback_to_with_storage` reverses it. `user_version` and `rollback_to` keep the default storage.
 - `DbOptions::restore_from(backup_path)` checks every `PRAGMA integrity_check` row, including CHECK constraints, before it restores an existing live database through SQLite's backup API. A read transaction holds the validated source snapshot until the copy finishes. A missing or corrupt backup leaves the live database untouched. A missing live database is refused. The backup must use the options' SQLCipher key. The free function `restore_from(options, destination, backup_path)` restores into an existing mutable connection, including in-memory stores. The destination must be writable and outside any transaction. Busy and locked retries are bounded by the options' timeout.
 
 ## Platform support

@@ -4,8 +4,7 @@ Nearby file and text sharing over the open LocalSend v2 protocol, with the Pulse
 TLS identity pinning, per-device trust (Allow, Ask, Deny), macOS Bonjour discovery, and
 received files that are never executable. Blocking sockets and threads; no async runtime.
 
-Status: `0.1.0`, `publish = false`. Rust API only. The C surface and the xcframework are a
-later lane.
+Status: `0.1.0`, `publish = false`. Rust API only: no C ABI is exported and no xcframework is in this repository.
 
 ## What it owns
 
@@ -33,7 +32,7 @@ later lane.
 
 | Feature | Default | Enables |
 |---|---|---|
-| `multicast` | no | UDP discovery and HTTP register for LocalSend peers. Off by default. When enabled it compiles on every target except iOS, macOS included (`src/lib.rs:12`); enable it only where it is the discovery path, for example through a target-specific dependency. Never compiled into iOS builds. |
+| `multicast` | no | UDP discovery and HTTP register for LocalSend peers. Off by default. When enabled it compiles on every target except iOS, macOS included (`src/lib.rs:14`); enable it only where it is the discovery path, for example through a target-specific dependency. Never compiled into iOS builds. |
 | `bonjour` | no | macOS dns_sd advertise and browse of `_pulse-send._tcp`. A no-op on other targets; Windows DnsService is not in this release. |
 
 On iOS the crate opens no mDNS or multicast sockets. Browse and advertise belong to Swift

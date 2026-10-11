@@ -9,7 +9,7 @@ The first-run and re-acceptance legal gate screen for Right Suite desktop apps. 
 | Version | see INDEX.md |
 | License | MIT OR Apache-2.0 |
 
-`LegalGate` is display-only. It renders the `documents` and `agreementStatement` the host passes in. It has no dependency on `@rightkit/legal` and does no manifest validation or receipt logic.
+`LegalGate` holds only the form state of the decision (eligibility, checkbox, submit). It renders the `documents` and `agreementStatement` the host passes in. It has no dependency on `@rightkit/legal` and does no manifest validation or receipt logic.
 
 ## Entry points
 

@@ -1,14 +1,15 @@
 # RightKitSwift
 
-Shared Apple-platform infrastructure for the Right Suite iOS apps — one source of
-truth for the pieces every app would otherwise reimplement and let drift.
+Shared Apple-platform infrastructure for the Right Suite's native Apple apps — one source of
+truth for the pieces every app would otherwise reimplement and let drift. Both manifests declare
+minimum deployment targets of iOS 17 and macOS 14.
 
 | Target | What it does |
 |---|---|
-| `RightKitLicense` | Verifies Ed25519 entitlement tokens against the same `contracts/license-v2.json` vector the Rust and TypeScript verifiers use, so a token accepted on one platform is accepted on all. `LicenseActivationClient` handles activation, refresh, renewable leases and removal, including `removeLease(deviceIdHash:leaseId:)` and `deactivate(activationToken:)` for durable pending-removal queues that must remove a lease or activation by its original identity without touching the local activation. `PendingLicenseRemovalQueue` persists and retries those removals, `BridgeConsumptionGate` stops a device from re-consuming a continuity bridge after the user removed its license, and `StoredLicense.needsReconnect` / `LicenseController.needsReconnect` flag a non-Pro record with no activation token. `LicenseController(client:deviceState:)` wires all three; `LicenseController(client:)` keeps the original behaviour. |
-| `RightKitDiagnostics` | Bounded JSONL diagnostics with a privacy redactor (never logs keys, tokens, or device ids). `StoreOptions` sets file protection, redaction policy (`standard`, `fields`, `custom`, `none`) and an uploader; `append` and `drain` (at-least-once batches) are async. Trims cut on record boundaries. |
-| `RightKitArtifacts` | Checksummed artifact install with staging, a fail-closed digest (`allowUnverified` opt-in), the previous install kept aside until a post-activation validator passes, crash recovery (`recoverInterruptedInstall`), required-file checks, an install manifest (`readManifest`), and archive-traversal/symlink/expansion guards. |
-| `RightKitSpeech` | On-device Parakeet TDT and Whisper Core ML engines, Apple Speech, VAD and dictation. Engines accept injected canonical `ConditioningProvider` / `DetokenizationProvider` hooks that every decode path routes through. `WhisperEngine.transcribeStaticWindow` returns text, the resolved AUTO language and phase timings with cooperative cancellation that drains an active Core ML prediction, and `IncrementalStatic15Decoder` schedules and assembles background Static-15 windows with generation fences. |
+| `RightKitLicense` | Verifies Ed25519 entitlement tokens against the same `swift/contracts/license-v2.json` vector the Rust and TypeScript verifiers use (byte-identical copies sit in each of those packages), so a token accepted on one platform is accepted on all. `LicenseActivationClient` handles activation, refresh, renewable leases and removal, including `removeLease(deviceIdHash:leaseId:)` and `deactivate(activationToken:)` for durable pending-removal queues that must remove a lease or activation by its original identity without touching the local activation. `PendingLicenseRemovalQueue` persists and retries those removals, `BridgeConsumptionGate` stops a device from re-consuming a continuity bridge after the user removed its license, and `StoredLicense.needsReconnect` / `LicenseController.needsReconnect` flag a non-Pro record with no activation token. `LicenseController(client:deviceState:)` wires the removal queue and the bridge gate; `LicenseController(client:)` keeps the original behaviour (no queue, no gate). |
+| `RightKitDiagnostics` | Bounded JSONL diagnostics with a privacy redactor: the default `standard` policy replaces any key, value or event name containing a URL, `file://`, `/tmp/`, `.caf`, `.wav`, `authorization`, `bearer`, `secret` or `token` with `[redacted]` and reduces the rest to a safe alphabet capped at 80 characters; `fields` redacts only the named fields' values and `none` transforms nothing. `StoreOptions` sets file protection, redaction policy (`standard`, `fields`, `custom`, `none`) and an uploader; `append` and `drain` (at-least-once batches) are async. Trims cut on record boundaries. |
+| `RightKitArtifacts` | Checksummed artifact install with staging, a fail-closed digest (`allowUnverified` opt-in), the previous install kept aside until a post-activation validator passes, crash recovery (`recoverInterruptedInstall`), required-file checks, an install manifest (`readManifest`), and archive-traversal/symlink/expansion guards. The target links the platform SDK's zlib. |
+| `RightKitSpeech` | On-device Parakeet TDT and Whisper Core ML engines, Apple Speech, VAD and dictation. `ParakeetEngine` accepts injected canonical `ConditioningProvider` / `DetokenizationProvider` hooks and `WhisperEngine` a `ConditioningProvider`; every decode path routes through them. `WhisperEngine.transcribeStaticWindow` returns text, the resolved AUTO language and phase timings with cooperative cancellation that drains an active Core ML prediction, and `IncrementalStatic15Decoder` schedules and assembles background Static-15 windows with generation fences. |
 | `RightKitPurchases` | StoreKit 2 purchases, entitlement ledger and access hints behind a `PurchaseBackend` seam. `PurchaseOutcome.unknown` covers StoreKit's `@unknown default` result and shows `PurchaseMessages.unknownOutcome`. |
 | `RightKitCloudSync` | Generic CloudKit private-zone sync engine. One adapter can own several record types (`recordType(of:)`, `recordType(forItemID:)`) and read direct types it never uploads (`directRecordTypes`, written through `CloudSyncEngine.writeDirect`). `SyncTransport.fetchRecord(named:)` reads one live record. App-side failures back off with the engine (`noteFailure`, `raiseRetryGate(toAtLeast:)`, `retryGate`). `adoptLegacyLedger` imports a pre-RightKit ledger with its change token and versions without an account call. `encodeForUpload` / `SyncLazyPayload` produce payloads lazily at upload time. `SyncTrigger.submit`. |
 | `RightKitUI` | Generic adaptive-glass surface primitive: regular/clear native Liquid Glass + ConcentricRectangle on iOS/macOS 26, material fallback on older OS versions, and opaque accessibility fallback. Product radii, colors, layout, motion, and behavior stay app-local. |
@@ -17,8 +18,8 @@ truth for the pieces every app would otherwise reimplement and let drift.
 | `RightKitLiveActivity` | Live Activity lifecycle rules (session binding, terminal restart, adoption, watchdog). The app supplies its own phase type. |
 | `RightKitWatchBridge` | WatchConnectivity transfer ledger and delivery states. |
 | `RightKitIntents` | App Intents recording bridge: Darwin notifications, microphone permission handshake, and recording actions. |
-| `RightKitAppleCredentials` | Security.framework credential backend: raw-status probing (`probeStatus`), all-location deletion (`deleteAnyScope`), and `ForeignGenericPassword`, a read-only, no-prompt reader for another app's legacy file-Keychain item (macOS). |
-| `RightKitOverlay` | Overlay state, hit testing, and the non-activating overlay panel model, with per-rectangle click-through (`setClickThrough`, `hitRegions`, `updateClickThrough(forMouseAt:)`). |
+| `RightKitAppleCredentials` | Security.framework credential backend: raw-status probing (`probeStatus`), all-location deletion (`deleteAnyScope`), and `ForeignGenericPassword`, a read-only reader for another app's legacy file-Keychain item that does not prompt by default (macOS). |
+| `RightKitOverlay` | Overlay state, hit testing, and the non-activating overlay panel model (the panel is macOS only), with per-rectangle click-through (`setClickThrough`, `hitRegions`, `updateClickThrough(forMouseAt:)`). |
 | `RightKitWatch` | FSEvents file watcher (macOS): `RightKitWatcher` delivers typed item, root-changed, history-done and must-rescan events as an `AsyncStream`, with event IDs for replay. |
 
 ## RightKitLicense configuration (0.3.5)
@@ -61,9 +62,9 @@ For the default style the URL equals the standardized form of the old one
 longer carries the literal `/v1/licenses/../pro/...` segment, which URLSession used to send
 unresolved. A base URL with no path resolves to `/pro/<app>/devices/lease`.
 
-**Not verified against the server.** The license server source is not in this workspace, so
-whether it accepts each default and each alternative (a body without `appKey`, `deviceClass` on
-activate, the normalized lease request path) was not checked. The defaults reproduce the bodies
+**Not verified against the server.** The license server source is not in this repository, so
+nothing here checks whether it accepts each default and each alternative (a body without `appKey`,
+`deviceClass` on activate, the normalized lease request path). The defaults reproduce the bodies
 and resolved URLs RightKit sent before 0.3.4; the alternatives reproduce ScrapeRight's client.
 
 `LicenseController`:
@@ -203,10 +204,10 @@ case .failure(let other): print(other)
 - **Read-only for foreign items:** there is no write, update or delete here.
 - No-prompt mechanics (review point): `kSecUseAuthenticationUISkip` and `LAContext.interactionNotAllowed`
   do **not** stop the legacy ACL dialog (measured: a read of an item that trusts no application waited
-  ~10 s on the dialog). `.noPrompt` therefore also turns off Keychain UI for the duration of the call with
-  `SecKeychainSetUserInteractionAllowed(false)`, resolved at runtime because the SDK no longer declares
-  it. That switch is process-wide: other threads' Keychain calls inside the call are also refused
-  without UI, and calls are serialised. If the symbol is ever missing the read fails closed
+  ~10 s on the dialog). `.noPrompt` therefore also turns off Keychain UI around its secret-data read (the attribute
+  enumeration never touches it) with `SecKeychainSetUserInteractionAllowed(false)`, resolved at runtime
+  because the SDK no longer declares it. That switch is process-wide: other threads' Keychain calls
+  inside that read are also refused without UI, and no-prompt reads are serialised. If the symbol is ever missing the read fails closed
   (`.keychainStatus(errSecUnimplemented)`), never prompts.
 
 ### Per-rectangle click-through (RightKitOverlay)
@@ -214,8 +215,9 @@ case .failure(let other): print(other)
 `RightKitOverlayPanel` stays interactive by default. New:
 
 - `setClickThrough(_ enabled: Bool)`: whole-panel pass-through; assigns only on change.
-- `hitRegions: [CGRect]`: interactive rectangles in window coordinates (origin lower left). Empty
-  (default) means per-region toggling is off.
+- `hitRegions: [CGRect]`: interactive rectangles in window coordinates, measured from
+  `hitRegionOrigin` (default `.lowerLeft`, the AppKit origin; `.topLeft` is the alternative). Empty
+  (default) means per-region toggling is off unless a `hitShape` is set.
 - `updateClickThrough(forMouseAt:) -> Bool`: pass a screen-coordinate point (`NSEvent.mouseLocation`);
   the panel takes the mouse inside any region and ignores it elsewhere. A click-through window gets
   no events itself, so call it from a mouse-moved monitor. For full pass-through with no regions use
@@ -248,9 +250,8 @@ Event IDs are per volume and journal; a replay that cannot be honoured reports `
 
 ## Consuming it
 
-Swift has no public package registry like npmjs.com or crates.io (Apple is
-building one via the Swift Package Index, not yet live), and SwiftPM is
-git-URL-native, so apps pin this repo by URL + version tag — the same
+This package is not published to a registry. SwiftPM resolves it from a git URL,
+so apps pin this repo by URL + version tag — the same
 "published, pinned, reproducible" property npm/crates give, with no registry to
 host.
 
@@ -258,8 +259,8 @@ Pins are always exact (`exact:`), never `from:` ranges: a consumer upgrade is a 
 edit of the pin, recorded in `rightkit-versions.json`.
 
 The version in the examples below is illustrative. The version apps may pin is the `swift` section of
-`packages/release/rightkit-versions.json`. `VERSION` is the version under development and is not published until
-the manifest records it.
+`packages/release/rightkit-versions.json`, or `stagedSwift` until the tag is recorded there. `VERSION` is the version
+under development; it is published when `right-release publish swift` pushes its tag.
 
 ```swift
 // Package.swift
@@ -301,6 +302,9 @@ swift test --no-parallel
 xcodebuild -scheme RightKitSwift-Package -destination 'generic/platform=iOS Simulator' build
 ```
 
+CI runs `swift build` and `swift test` for this directory on the macOS runner (`docs/CI.md`); RightKit builds and
+tests run in GitHub Actions, not locally.
+
 ### Real StoreKit tests (headless iOS simulator)
 
 `Tests/RightKitPurchasesTests/StoreKitTestSessionTests.swift` loads products from
@@ -319,13 +323,12 @@ xcodebuild test -scheme RightKitPurchasesStoreKitTests \
 No host app, test plan or scheme-level StoreKit configuration is needed. What was measured:
 
 - **0 products came from the configuration schema, not from running headless.** A config that
-  lists non-consumables in a top-level `"nonConsumables"` array is accepted by `SKTestSession`
-  and saved by `storekitd`, but the local catalog ignores it and every request returns 0
-  products, hosted app or not. List consumables and non-consumables under `"products"` with a
-  `"type"` (`"NonConsumable"`, `"Consumable"`), exactly as Xcode writes the file.
-- On the simulator the package test runs inside the `xctest` agent
-  (`com.apple.dt.xctest.tool`). `storekitd` logs `Error initializing client ... OSStatus -10814`
-  for it, which is noise: with a correct config the catalog still serves it.
+  lists non-consumables in a top-level `"nonConsumables"` array is accepted by `SKTestSession`,
+  but the local catalog ignores it and every request returns 0 products. List consumables and
+  non-consumables under `"products"` with a `"type"` (`"NonConsumable"`, `"Consumable"`), exactly
+  as Xcode writes the file.
+- On the simulator the package test runs inside the `xctest` agent, and with a correct config
+  the local catalog serves it.
 - macOS cannot serve the catalog to a test process: `swift test` runs in
   `swiftpm-testing-helper` (no bundle id, `StoreKitInternalError.invalidApp`), and
   `xcodebuild test -destination platform=macOS` returns 0 products. The suite is therefore
@@ -339,6 +342,6 @@ manifests together (`scripts/swift-root-manifest.test.mjs` fails on drift).
 
 ## Releasing a new version
 
-Bump `RightKitSwift/VERSION`, date the changelog section, let CI pass on that commit, then run
+Bump `swift/RightKitSwift/VERSION`, date the changelog section, let CI pass on that commit, then run
 `right-release publish swift`, which tags that commit `X.Y.Z` (plain semver) and pushes the tag to `Orthic-Labs/rightkit`. Record the version in `packages/release/rightkit-versions.json` (`stagedSwift`, then `swift` once
 published) so apps can bump their pin.

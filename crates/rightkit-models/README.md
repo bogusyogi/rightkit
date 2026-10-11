@@ -125,7 +125,7 @@ See `tests/install.rs`, `tests/adoption.rs`, `tests/partial_alias_rewrite.rs`,
 retries, the total budget) against in-process listeners; its `dev-worker-override` tests run when the
 feature is enabled, and one test checks that the allowance is ignored when it is not.
 
-## Shared Whisper model (added in 0.2.9)
+## Shared Whisper model
 
 One Whisper large-v3-turbo model serves HeardRight and ScrapeRight. Both apps
 must resolve the same entry, `whisper-turbo`, through `suite::whisper`:
@@ -162,10 +162,10 @@ let model_file = ensure_whisper_model(WhisperKind::Ggml, "heardright", Some(&ent
 ## EmbeddingGemma 2 Q4 (route not yet served: adopt a local copy)
 
 The catalog entry `catalog::embedding_gemma_q4_spec()` (store id `embeddinggemma2-q4`,
-revision `b64acc4`) describes the six files that `rightkit-embed` loads from one flat
+revision `b64acc4`) describes the six files of one flat
 directory: `model_q4.onnx`, `model_q4.onnx_data`, `tokenizer.json`, `tokenizer_config.json`,
 `config.json`, `special_tokens_map.json`. Total 187,632,172 bytes. Every file is pinned by size
-and SHA-256 (`catalog.rs`, `EMBEDDINGGEMMA2_Q4_FILES`).
+and SHA-256 (`catalog.rs`, `EMBEDDINGGEMMA2_Q4_FILES`). `rightkit-embed` reads `model_q4.onnx`, `tokenizer.json` and `config.json` (`rightkit-embed/src/embedder.rs:189`, `:209`, `:709`) and checks `model_q4.onnx_data` (`:740`); it does not read `tokenizer_config.json` or `special_tokens_map.json`.
 
 - **Route not yet served.** The model worker has no route for this bundle. Its only served
   routes are two Parakeet archives (`rightsites/workers/heardright-models/src/index.ts`,
@@ -195,7 +195,7 @@ use rightkit_models::{EntitlementError, ModelStore};
 use rightkit_models::suite::catalog::ModelSpec; // the suite's catalog spec, not the root `ModelSpec`
 ```
 
-- `ModelStore::shared(app_id)` binds the shared Orthic Labs store; `ModelStore::at_models_root(root, app_id)`
+- `ModelStore::shared(app_id)` binds the machine-wide shared store (`ORTHIC_SHARED_DIR` overrides its root); `ModelStore::at_models_root(root, app_id)`
   binds an explicit directory (tests, sandboxes). `with_http_client` swaps the transport.
 - `EntitlementError` is what `try_ensure_entitled` returns. Match on it to tell "not entitled"
   (`NotEntitled`), "back off" (`RateLimited`), "retry" (`Transport`) and "local failure" (`Install`).

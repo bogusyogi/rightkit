@@ -15,7 +15,7 @@ Typed renderer bridge for the `rightkit-shell` Tauri crate. It exposes window co
 |---|---|
 | `@rightkit/shell` | `createShell(transport?, options?)`, `tauriTransport()`, `EVENTS`, `asShellError`, `DEFAULT_QUIT_TIMEOUT_MS`; types `ShellBridge`, `ShellTransport`, `ShellStatus`, `ShellCapabilities`, `QuitHandler`, `QuitOptions`, `QuitReport`, `ShellOptions`, `DeepLink`, `WindowSpec`, `MenuEntry`, `NotificationRequest`, `NotifyOutcome`, `PresenceState`, `IdleStatus`, `EngineEvent`, and others |
 
-`createShell()` returns an object with `ready()`, `status()`, `capabilities()`, `quit(options?)`, `onQuitRequested(handler)`, `openExternal(url)`, `window.do(action)`, `menu`, `tray`, `deepLinks`, `onSecondInstance`, `onStall`, `autostart`, `clipboard`, `notifications`, `presence`, `idle`, `paths`, `recovery`, `engine`, `onMenuAction`, and `setNativeTheme`.
+`createShell()` returns an object with `ready()`, `status()`, `capabilities()`, `quit(options?)`, `onQuitRequested(handler)`, `openExternal(url)`, `window.do(action)`, `menu`, `tray`, `deepLinks`, `onSecondInstance`, `onStall`, `autostart`, `clipboard`, `notifications`, `presence`, `idle`, `paths`, `recovery`, `engine`, and `bridge()`. `bridge()` returns a `ShellBridge` with `window.minimize()`, `window.toggleMaximize()`, `window.close()`, `openExternal(url)`, `onMenuAction(handler)` and `setNativeTheme(theme)`; `onMenuAction` and `setNativeTheme` are not on the `createShell()` object itself.
 
 ## Example
 
@@ -40,7 +40,7 @@ tauri::Builder::default()
     .run(tauri::generate_context!())
 ```
 
-If an app does not do this, every call from this package fails with `command not found` (for example `rk_shell_ready` or `rk_shell_quit`), and the app's own commands still work.
+If an app does not do this, every shell command call from this package fails with `command not found` (for example `rk_shell_ready` or `rk_shell_quit`), and the app's own commands still work. `capabilities()` is the exception: it reports both capabilities as `false`.
 
 ## Quit drain
 
@@ -61,7 +61,7 @@ off();                                       // unsubscribe
 
 Rules:
 
-- Handlers run concurrently. The quit proceeds only after every handler settles or the budget elapses. The default budget is `DEFAULT_QUIT_TIMEOUT_MS` (10 000 ms); `createShell(transport, { quitTimeoutMs })` changes the default, and `quit({ timeoutMs })` overrides it per call. A negative, `NaN` or infinite value rejects with `invalid`.
+- Handlers run concurrently. The quit proceeds only after every handler settles or the budget elapses. The default budget is `DEFAULT_QUIT_TIMEOUT_MS` (10 000 ms); `createShell(transport, { quitTimeoutMs })` changes the default, and `quit({ timeoutMs })` overrides it per call. A negative, `NaN` or infinite value is refused with `invalid`: `createShell` throws it and `quit` rejects with it.
 - A rejecting handler does not stop the quit. Its error is normalised to `ShellError` and listed in `QuitReport.errors`. Reports with a timeout or an error go to `createShell(transport, { onQuitReport })` (default `console.error`).
 - A host quit request (tray Quit, Dock, Cmd+Q) runs the same drain and finish, once even if several requests arrive.
 - `QuitReport.outcome`: `drained`, `timed-out` (with `pending` handlers still running), `forced`, or `immediate` (host lacks the drain).
@@ -98,13 +98,13 @@ await shell.notifications.post({ title: "Send failed", body: "Retry from the out
 
 | Feature | Renderer side (this package) | Host support needed in `rightkit-shell` |
 |---|---|---|
-| Quit drain | `onQuitRequested`, `quit`, `quitTimeoutMs` | `rk_shell_capabilities` returns `quitDrain: true`; `rk_shell_finish_quit` command (sets exiting, then `app.exit(0)`); `rightkit-shell://quit-requested` event emitted on a host quit request instead of exiting, with `prevent_exit`; the host should exit after its own bound if the renderer never calls finish |
+| Quit drain | `onQuitRequested`, `quit`, `quitTimeoutMs` | `rk_shell_capabilities` returns `quitDrain: true` (only when the app opts in with `ShellBuilder::quit_drain(true)` or `quit_drain_bound(d)`); `rk_shell_finish_quit` command (sets exiting, then `app.exit(0)`); `rightkit-shell://quit-requested` event emitted on a host quit request instead of exiting, with `prevent_exit`; the host exits after its own bound (default 15 s, at most 120 s) if the renderer never calls finish |
 | Notification bypass | `notifications.post({ bypassDoNotDisturb })` | `rk_shell_capabilities` returns `notifyBypassDnd: true`; `rk_shell_notify` request field `bypassDoNotDisturb` (serde default `false`) skips the `effective_dnd()` check |
 | Custom tray events | `tray.onCustom` | none |
 
-`rk_shell_capabilities` is read-only and returns `{ quitDrain: bool, notifyBypassDnd: bool }`. Until the host implements these, the capability-gated calls reject with `unsupported`.
+`rk_shell_capabilities` is read-only and returns `{ quitDrain: bool, notifyBypassDnd: bool }`. The `rightkit-shell` crate implements both; it always reports `notifyBypassDnd: true` and reports `quitDrain: true` only when the app opts in. On a host without the support, the capability-gated calls reject with `unsupported`.
 
 ## Known issues
 
 - `createShell` throws when `__TAURI_INTERNALS__` is absent. Pass a custom `ShellTransport` for tests; `tests/shell.test.mjs` shows one.
-- The quit drain and the notification bypass are inert until the host adds the support in the table above.
+- The quit drain is off unless the host opts in with `ShellBuilder::quit_drain(true)`. Until then `onQuitRequested` rejects with `unsupported` and `quit()` quits at once.

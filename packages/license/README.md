@@ -1,6 +1,6 @@
 # @rightkit/license
 
-The license client for Right Suite apps. It exchanges a license key for a signed token against the RightApps backend (`https://<host>/v1/licenses/*`), stores the result through an app-supplied storage port, and applies per-kind offline grace.
+The license client for Right Suite apps. It exchanges a license key for an activation token (and a signed token when the backend returns one) against the RightApps backend (`https://<host>/v1/licenses/*`), stores the result through an app-supplied storage port, and applies per-kind offline grace.
 
 | Item | Value |
 |---|---|
@@ -28,7 +28,7 @@ Added in 0.2.0: `classifyLifecycle`, `lifecycleGrantsAccess`, `lifecycleNeedsOnl
 | `tokenReplaced` | active, new `signedToken` | token replaced |
 | `tokenKept` | active, token omitted or identical, cached token's `exp` still in the future | unchanged |
 | `tokenDropped` | active, token omitted or identical, none cached or cached one expired/undecodable | `signedToken` removed, `status` stays `active` |
-| `stale` | no network, 5xx, unstructured error, malformed body | unchanged except `staleSince` (first failure of the episode) |
+| `stale` | no network, 5xx, unstructured error, malformed body | unchanged except `staleSince` (first failure of the episode) and `lastRefreshOutcome`, set to `stale` |
 | `revoked` | structured 4xx rejection, or a non-`active` status | `status: 'invalid'` |
 | `noCredential` | no `activationToken` | nothing sent, nothing written |
 
@@ -59,5 +59,5 @@ const pro = isPro(lic);
 
 ## Known issues
 
-- Inside a Tauri webview, requests use `@tauri-apps/plugin-http` to avoid a CORS preflight that the brand hosts do not answer. The app must install that plugin and its capability. Without it, requests fail.
+- Inside a Tauri webview, requests use `@tauri-apps/plugin-http` to avoid a CORS preflight that the brand hosts do not answer. The app must install that plugin and its capability. Without it, the client falls back to the global `fetch`, and the source comment says the brand hosts do not answer that CORS preflight (`src/index.ts:155-162`).
 - `settings-ui` peers this package with no upper bound (`>=0.1.0`).
